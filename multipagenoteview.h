@@ -5,6 +5,7 @@
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QTabletEvent>
+#include <functional> // Wichtig
 #include "Note.h"
 #include "ToolMode.h"
 
@@ -20,7 +21,9 @@ public:
     void setPenColor(const QColor& c) { penColor_ = c; }
     void setPenWidth(qreal w) { penWidth_ = w; }
 
-    // Callbacks (no signals per spec)
+    bool exportPageToPng(int pageIndex, const QString &path);
+    bool exportPageToPdf(int pageIndex, const QString &path);
+
     std::function<void(Note*)> onSaveRequested;
 
 protected:
@@ -34,7 +37,7 @@ protected:
 
 private:
     QGraphicsScene scene_;
-    Note* note_{nullptr};
+    Note* note_{nullptr}; // <--- Hier definiert
     ToolMode mode_{ToolMode::Pen};
     qreal zoom_{1.0};
     bool drawing_{false};

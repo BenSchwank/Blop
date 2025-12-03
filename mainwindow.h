@@ -25,6 +25,20 @@
 
 class MainWindow;
 
+// --- SidebarItemDelegate ---
+class SidebarItemDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    explicit SidebarItemDelegate(MainWindow *parent);
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) override;
+
+private:
+    MainWindow *m_window;
+};
+
 // --- ModernButton ---
 class ModernButton : public QToolButton
 {
@@ -78,6 +92,7 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
     friend class ModernItemDelegate;
+    friend class SidebarItemDelegate;
 
 public:
     MainWindow(QWidget *parent = nullptr);
@@ -115,6 +130,9 @@ private slots:
     void onFileDoubleClicked(const QModelIndex &index);
     void onBackToOverview();
 
+    // NEU: Slot für das Sidebar Kontextmenü
+    void onSidebarContextMenu(const QPoint &pos);
+
     void onToolSelect();
     void onToolPen();
     void onToolEraser();
@@ -127,10 +145,8 @@ private slots:
     void onToggleFloatingTools();
     void finishRename();
 
-    // NEU: Slots für die 2 Slider (Grid Size & Spacing)
     void onItemSizeChanged(int value);
     void onGridSpacingChanged(int value);
-    // HINWEIS: onGridSizeChanged wurde entfernt!
 
     void onTabChanged(int index);
 
@@ -150,7 +166,6 @@ private:
     void applyTheme();
     void applyUiScaling();
 
-    // Helper um das Grid zu aktualisieren
     void updateGrid();
 
     void showRenameOverlay(const QString &currentName);
@@ -158,6 +173,10 @@ private:
 
     void animateSidebar(bool show);
     void animateRightSidebar(bool show);
+
+    // NEU: Helper Funktionen für Kopieren
+    void performCopy(const QModelIndex &index);
+    bool copyRecursive(const QString &src, const QString &dst);
 
     CanvasView* getCurrentCanvas();
     void setActiveTool(CanvasView::ToolType tool);
@@ -202,8 +221,6 @@ private:
     ModernButton *btnSettings;
     ModernButton *btnEditorSettings;
 
-    // KEIN m_gridSlider mehr!
-
     ModernButton *btnUndo;
     ModernButton *btnRedo;
     ModernButton *btnSelect;
@@ -218,7 +235,6 @@ private:
     QColor m_penColor;
     int m_penWidth;
 
-    // Werte für das Grid
     int m_currentItemSize;
     int m_currentSpacing;
 

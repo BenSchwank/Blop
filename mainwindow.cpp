@@ -29,6 +29,120 @@
 #include <QPropertyAnimation>
 #include <utility>
 
+// --- SidebarItemDelegate ---
+SidebarItemDelegate::SidebarItemDelegate(MainWindow *parent)
+    : QStyledItemDelegate(parent), m_window(parent) {}
+
+QSize SidebarItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    return QSize(option.rect.width(), 36);
+}
+
+void SidebarItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing);
+
+    if (option.state & QStyle::State_Selected) {
+        QColor accent = m_window->currentAccentColor();
+        accent.setAlpha(40);
+        painter->fillRect(option.rect, accent);
+    } else if (option.state & QStyle::State_MouseOver) {
+        painter->fillRect(option.rect, QColor(255, 255, 255, 10));
+    }
+
+    int depth = 0;
+    QModelIndex p = index.parent();
+    while(p.isValid()) { depth++; p = p.parent(); }
+
+    // Werte für Linksbündigkeit (beibehalten)
+    int indentStep = 3;
+    int baseIndent = 5;
+    int currentIndent = baseIndent + (depth * indentStep);
+
+    const QFileSystemModel* model = qobject_cast<const QFileSystemModel*>(index.model());
+    bool isDir = model ? model->isDir(index) : false;
+
+    int arrowSize = 10;
+    QRect arrowRect(option.rect.left() + currentIndent, option.rect.center().y() - arrowSize/2, arrowSize, arrowSize);
+
+    if (isDir) {
+        const QTreeView* tree = qobject_cast<const QTreeView*>(option.widget);
+        bool isExpanded = tree ? tree->isExpanded(index) : false;
+
+        painter->setBrush(QColor(200, 200, 200));
+        painter->setPen(Qt::NoPen);
+
+        QPainterPath path;
+        if (isExpanded) {
+            path.moveTo(arrowRect.left(), arrowRect.top() + 2);
+            path.lineTo(arrowRect.right(), arrowRect.top() + 2);
+            path.lineTo(arrowRect.center().x(), arrowRect.bottom() - 2);
+        } else {
+            path.moveTo(arrowRect.left() + 2, arrowRect.top());
+            path.lineTo(arrowRect.left() + 2, arrowRect.bottom());
+            path.lineTo(arrowRect.right() - 2, arrowRect.center().y());
+        }
+        path.closeSubpath();
+        painter->drawPath(path);
+    }
+
+    int iconSize = 18;
+    int iconX = arrowRect.right() + 6;
+    QRect iconRect(iconX, option.rect.center().y() - iconSize/2, iconSize, iconSize);
+
+    QColor iconColor = (option.state & QStyle::State_Selected) ? m_window->currentAccentColor() : QColor(180, 180, 180);
+
+    QIcon standardIcon = index.data(Qt::DecorationRole).value<QIcon>();
+    if (!standardIcon.isNull()) {
+        standardIcon.paint(painter, iconRect, Qt::AlignCenter, (option.state & QStyle::State_Selected) ? QIcon::Selected : QIcon::Normal);
+    } else {
+        painter->setPen(QPen(iconColor, 1.5));
+        painter->setBrush(Qt::NoBrush);
+        if (isDir) {
+            painter->drawRoundedRect(iconRect.adjusted(1,3,-1,-2), 2, 2);
+        } else {
+            painter->drawRoundedRect(iconRect.adjusted(3,1,-3,-1), 2, 2);
+        }
+    }
+
+    QRect textRect = option.rect;
+    textRect.setLeft(iconRect.right() + 8);
+    textRect.setRight(option.rect.right() - 5);
+
+    painter->setPen((option.state & QStyle::State_Selected) ? Qt::white : QColor(220, 220, 220));
+    painter->setFont(m_window->font());
+
+    QString text = index.data(Qt::DisplayRole).toString();
+    painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
+
+    painter->restore();
+}
+
+bool SidebarItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) {
+    if (event->type() == QEvent::MouseButtonRelease) {
+        QMouseEvent* me = static_cast<QMouseEvent*>(event);
+
+        int depth = 0; QModelIndex p = index.parent(); while(p.isValid()) { depth++; p = p.parent(); }
+        int indentStep = 15;
+        int baseIndent = 5;
+        int currentIndent = baseIndent + (depth * indentStep);
+
+        QRect expandRect(option.rect.left(), option.rect.top(), currentIndent + 20, option.rect.height());
+
+        QTreeView* tree = qobject_cast<QTreeView*>(const_cast<QWidget*>(option.widget));
+        QFileSystemModel* fsModel = qobject_cast<QFileSystemModel*>(model);
+
+        if (tree && fsModel && fsModel->isDir(index)) {
+            if (expandRect.contains(me->pos())) {
+                if (tree->isExpanded(index)) tree->collapse(index);
+                else tree->expand(index);
+                return true;
+            }
+        }
+    }
+    return QStyledItemDelegate::editorEvent(event, model, option, index);
+}
+
+
 // --- ModernItemDelegate ---
 ModernItemDelegate::ModernItemDelegate(MainWindow *parent)
     : QStyledItemDelegate(parent), m_window(parent) {}
@@ -37,7 +151,6 @@ QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QMo
 {
     QSize size = QStyledItemDelegate::sizeHint(option, index);
     size.setHeight(m_window->isTouchMode() ? 70 : 48);
-
     if (const FreeGridView *view = qobject_cast<const FreeGridView*>(option.widget)) {
         size.setWidth(view->itemSize().width());
     }
@@ -116,7 +229,7 @@ void ModernButton::setScale(float s) { m_scale = s; update(); }
 void ModernButton::setAccentColor(QColor c) { m_accentColor = c; update(); }
 void ModernButton::enterEvent(QEnterEvent *event) { m_anim->stop(); m_anim->setEndValue(1.2f); m_anim->start(); QToolButton::enterEvent(event); }
 void ModernButton::leaveEvent(QEvent *event) { m_anim->stop(); m_anim->setEndValue(1.0f); m_anim->start(); QToolButton::leaveEvent(event); }
-void ModernButton::paintEvent(QPaintEvent *event) {
+void ModernButton::paintEvent(QPaintEvent *) {
     QPainter p(this); p.setRenderHint(QPainter::Antialiasing); p.setRenderHint(QPainter::SmoothPixmapTransform);
     QIcon ic = icon(); if (ic.isNull()) return; int w = width(); int h = height();
     int iconS = iconSize().width();
@@ -151,7 +264,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_toolsCollapsed = false; m_toolbarInitialized = false;
     m_lblActiveNote = nullptr;
 
-    // Init Werte
     m_currentItemSize = 180;
     m_currentSpacing = 20;
 
@@ -229,20 +341,36 @@ void MainWindow::applyTheme() {
         m_fileListView->setAccentColor(m_currentAccentColor);
     }
 
-    QString style = QString("QMainWindow { background-color: #0F111A; } QTreeView { background-color: #161925; border: none; outline: 0; font-size: 14px; } QListView { background: transparent; border: none; outline: 0; } QTabWidget::pane { border: 0; background: #0F111A; } QTabBar::tab { background: #161925; color: #888; padding: 10px 25px; border-top-left-radius: 12px; border-top-right-radius: 12px; } QTabBar::tab:selected { background: %1; color: white; } QMenu { background-color: #252526; border: 1px solid #444; border-radius: 10px; padding: 10px; color: #E0E0E0; } QMenu::item { padding: 8px 20px; border-radius: 5px; } QMenu::item:selected { background-color: %1; color: white; }").arg(c, c_light);
+    // Allgemeine Styles
+    QString style = QString("QMainWindow { background-color: #0F111A; } QListView { background: transparent; border: none; outline: 0; } QTabWidget::pane { border: 0; background: #0F111A; } QTabBar::tab { background: #161925; color: #888; padding: 10px 25px; border-top-left-radius: 12px; border-top-right-radius: 12px; } QTabBar::tab:selected { background: %1; color: white; } QMenu { background-color: #252526; border: 1px solid #444; border-radius: 10px; padding: 10px; color: #E0E0E0; } QMenu::item { padding: 8px 20px; border-radius: 5px; } QMenu::item:selected { background-color: %1; color: white; }").arg(c, c_light);
     this->setStyleSheet(style);
 
-    if (m_fileListView) m_fileListView->viewport()->update();
-    if (m_folderTree) m_folderTree->viewport()->update();
-
+    // Sidebar: Hintergrundfarbe passend zum Tab-Header (#161925)
     if(m_sidebarContainer) m_sidebarContainer->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
     if(m_sidebarHeader) m_sidebarHeader->setStyleSheet("background-color: #161925;");
+
+    // TreeView transparent
+    if(m_folderTree) {
+        m_folderTree->setStyleSheet(
+            "QTreeView { background-color: transparent; border: none; outline: 0; }"
+            "QTreeView::item { border: none; }"
+            "QTreeView::branch { background: transparent; }"
+            );
+    }
 
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
 
     QString fabStyle = QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: 28px; font-size: 32px; font-weight: 300; border: none; }").arg(c, c_light);
     if(m_fabNote) m_fabNote->setStyleSheet(fabStyle);
-    if(m_fabFolder) { QString s = fabStyle; s.replace("28px","20px"); s.replace("32px","24px"); m_fabFolder->setStyleSheet(s); }
+
+    // FAB Folder wieder rund und kleiner (20px radius bei 40px größe)
+    if(m_fabFolder) {
+        QString s = fabStyle;
+        s.replace("28px","20px"); // Radius für 40px Button
+        s.replace("32px","24px"); // Schriftgröße
+        m_fabFolder->setStyleSheet(s);
+    }
+
     if(m_floatingTools) m_floatingTools->setStyleSheet("QWidget#FloatingToolbar { background-color: #252526; border-radius: 25px; border: 1px solid #333; }");
     if(btnPen) btnPen->setAccentColor(m_currentAccentColor); if(btnEraser) btnEraser->setAccentColor(m_currentAccentColor); if(btnLasso) btnLasso->setAccentColor(m_currentAccentColor);
     if(btnSelect) btnSelect->setAccentColor(m_currentAccentColor);
@@ -281,7 +409,6 @@ void MainWindow::updateGrid() {
 void MainWindow::updateUiMode(bool touchMode) {
     m_touchMode = touchMode;
     applyUiScaling();
-
     if (m_rightSidebar && m_rightSidebar->isVisible()) {
         m_btnUiDesktop->setChecked(!m_touchMode);
         m_btnUiTouch->setChecked(m_touchMode);
@@ -303,9 +430,9 @@ void MainWindow::applyUiScaling() {
     m_floatingTools->setFixedWidth(w);
     m_minimizeBtn->setFixedSize(30, tbH - 10);
 
-    if (m_sidebarHeader) m_sidebarHeader->setFixedHeight(m_touchMode ? 90 : 70);
+    if (m_sidebarHeader) m_sidebarHeader->setFixedHeight(60);
 
-    updateGrid(); // Warnung gefixt (listH entfernt)
+    updateGrid();
     if (m_fileListView) m_fileListView->viewport()->update();
 
     int fabS = m_touchMode ? 70 : 56;
@@ -384,15 +511,13 @@ void MainWindow::setupUi() {
     topBar->addWidget(btnNewNote);
 
     topBar->addStretch();
-
     overviewLayout->addLayout(topBar);
 
     m_fileListView = new FreeGridView(this);
     m_fileListView->setModel(m_fileModel);
     m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
 
-    updateGrid(); // Initial Grid Werte
-
+    updateGrid();
     m_fileListView->setSpacing(20);
     m_fileListView->setFrameShape(QFrame::NoFrame);
     m_fileListView->setItemDelegate(new ModernItemDelegate(this));
@@ -505,36 +630,135 @@ void MainWindow::setupSidebar() {
     QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
     layout->setContentsMargins(0,0,0,0);
 
+    // Sidebar Header (Kompakt und konsistent)
     m_sidebarHeader = new QWidget(m_sidebarContainer);
-    m_sidebarHeader->setFixedHeight(70);
+    m_sidebarHeader->setFixedHeight(60);
     QHBoxLayout *hLayout = new QHBoxLayout(m_sidebarHeader);
-    hLayout->addWidget(new QLabel("Ordner", m_sidebarHeader));
+    hLayout->setContentsMargins(15, 0, 15, 0);
 
-    m_closeSidebarBtn = new QPushButton("X", m_sidebarHeader);
-    m_closeSidebarBtn->setFixedSize(30,30);
+    QLabel *lblWorkspace = new QLabel("Meine Dateien", m_sidebarHeader);
+    lblWorkspace->setStyleSheet("color: #E0E0E0; font-weight: bold; font-size: 14px;");
+    hLayout->addWidget(lblWorkspace);
+    hLayout->addStretch();
+
+    m_closeSidebarBtn = new QPushButton("«", m_sidebarHeader);
+    m_closeSidebarBtn->setFixedSize(24,24);
+    m_closeSidebarBtn->setCursor(Qt::PointingHandCursor);
+    m_closeSidebarBtn->setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 16px; } QPushButton:hover { color: white; background: #333; border-radius: 4px; }");
     connect(m_closeSidebarBtn, &QPushButton::clicked, this, &MainWindow::onToggleSidebar);
     hLayout->addWidget(m_closeSidebarBtn);
 
     layout->addWidget(m_sidebarHeader);
 
+    // Tree View Setup
     m_folderTree = new QTreeView(m_sidebarContainer);
     m_folderTree->setModel(m_fileModel);
     m_folderTree->setRootIndex(m_fileModel->index(m_rootPath));
+
+    // WICHTIG: Standard Dekoration ausschalten für Custom Delegate
+    m_folderTree->setRootIsDecorated(false);
     m_folderTree->setHeaderHidden(true);
+
+    // Spalten verstecken
     m_folderTree->setColumnHidden(1, true);
     m_folderTree->setColumnHidden(2, true);
     m_folderTree->setColumnHidden(3, true);
+
+    // Styling & Verhalten
+    m_folderTree->setMouseTracking(true);
+    m_folderTree->viewport()->setAttribute(Qt::WA_Hover);
+    m_folderTree->setIndentation(0);
+    m_folderTree->setUniformRowHeights(true);
+    m_folderTree->setItemDelegate(new SidebarItemDelegate(this));
+
+    // NEU: Kontextmenü aktivieren und Editieren sperren
+    m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_folderTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    connect(m_folderTree, &QWidget::customContextMenuRequested, this, &MainWindow::onSidebarContextMenu);
+
     connect(m_folderTree, &QTreeView::clicked, this, &MainWindow::onFolderSelected);
     layout->addWidget(m_folderTree);
 
+    // RESTORE FAB: Als Kind von m_sidebarContainer (schwebend), nicht im Layout
     m_fabFolder = new QPushButton("+", m_sidebarContainer);
-    m_fabFolder->setFixedSize(40, 40);
     m_fabFolder->setCursor(Qt::PointingHandCursor);
+    m_fabFolder->setFixedSize(40, 40); // Rund und kompakt
+    // Style wird in applyTheme gesetzt
+
+    // Shadow für FAB
     QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this);
     shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80));
     m_fabFolder->setGraphicsEffect(shadowFolder);
+
     connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+
     m_mainSplitter->insertWidget(0, m_sidebarContainer);
+}
+
+// NEU: Kontextmenü Implementierung
+void MainWindow::onSidebarContextMenu(const QPoint &pos) {
+    QModelIndex index = m_folderTree->indexAt(pos);
+    if (!index.isValid()) return;
+
+    QMenu menu(this);
+    menu.addAction("Umbenennen", [this, index]() { startRename(index); });
+    menu.addAction("Kopieren", [this, index]() { performCopy(index); });
+
+    QAction* delAct = menu.addAction("Löschen");
+
+    connect(delAct, &QAction::triggered, [this, index]() {
+        QString path = m_fileModel->filePath(index);
+        QMessageBox::StandardButton res = QMessageBox::question(this, "Löschen", "Wirklich löschen?");
+        if (res == QMessageBox::Yes) {
+            if (m_fileModel->isDir(index)) {
+                QDir(path).removeRecursively();
+            } else {
+                QFile::remove(path);
+            }
+        }
+    });
+
+    menu.exec(m_folderTree->mapToGlobal(pos));
+}
+
+void MainWindow::performCopy(const QModelIndex &index) {
+    QString srcPath = m_fileModel->filePath(index);
+    QFileInfo info(srcPath);
+    QString newName = info.baseName() + " Kopie";
+    if (!info.suffix().isEmpty()) newName += "." + info.suffix();
+
+    QString dstPath = info.dir().filePath(newName);
+
+    int i = 1;
+    while (QFile::exists(dstPath)) {
+        newName = info.baseName() + QString(" Kopie %1").arg(i++);
+        if (!info.suffix().isEmpty()) newName += "." + info.suffix();
+        dstPath = info.dir().filePath(newName);
+    }
+
+    if (info.isDir()) {
+        copyRecursive(srcPath, dstPath);
+    } else {
+        QFile::copy(srcPath, dstPath);
+    }
+}
+
+bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
+    QDir dir(src);
+    if (!dir.exists()) return false;
+
+    QDir().mkpath(dst);
+
+    for (const QString &entry : dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
+        QString srcItem = src + "/" + entry;
+        QString dstItem = dst + "/" + entry;
+        if (QFileInfo(srcItem).isDir()) {
+            if (!copyRecursive(srcItem, dstItem)) return false;
+        } else {
+            if (!QFile::copy(srcItem, dstItem)) return false;
+        }
+    }
+    return true;
 }
 
 void MainWindow::setupRightSidebar() {
@@ -800,10 +1024,16 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
         m_fabNote->move(m_overviewContainer->width() - fabOffset, m_overviewContainer->height() - fabOffset);
         m_fabNote->raise();
     }
+
+    // Positioniert den Sidebar-FAB (Neuer Ordner) unten rechts in der Sidebar
     if (m_fabFolder && m_sidebarContainer) {
-        m_fabFolder->move(m_sidebarContainer->width() - (fabOffset-20), m_sidebarContainer->height() - (fabOffset-20));
+        int sidebarW = m_sidebarContainer->width();
+        int sidebarH = m_sidebarContainer->height();
+        int btnS = m_fabFolder->width();
+        m_fabFolder->move(sidebarW - btnS - 20, sidebarH - btnS - 20);
         m_fabFolder->raise();
     }
+
     if (m_renameOverlay) {
         m_renameOverlay->resize(size());
         if (m_renameInput) m_renameInput->move(width()/2 - 150, height()/2 - 20);

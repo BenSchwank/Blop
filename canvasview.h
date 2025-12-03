@@ -41,6 +41,7 @@ public:
 
     void setPenMode(bool enabled) { m_penOnlyMode = enabled; }
 
+    // NEU: Seite färben
     void setPageColor(const QColor &color);
     QColor pageColor() const { return m_pageColor; }
 
@@ -82,8 +83,8 @@ private:
     QPainterPath m_currentPath;
     bool m_isDrawing;
     bool m_isInfinite;
-    bool m_penOnlyMode;
 
+    bool m_penOnlyMode;
     QColor m_pageColor;
 
     QRectF m_a4Rect;
@@ -103,10 +104,9 @@ private:
     bool m_isPanning;
     QPoint m_lastPanPos;
 
-    // NEU: Pull-to-Add Logic
-    float m_pullDistance; // Wie weit wurde gezogen?
-    void addNewPage();    // Fügt eine neue A4 Seite an
-    void drawPullIndicator(QPainter* painter); // Zeichnet den Kreis
+    float m_pullDistance;
+    void addNewPage();
+    void drawPullIndicator(QPainter* painter);
 
     void applyEraser(const QPointF &pos);
     void finishLasso();

@@ -6,29 +6,29 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QWidget>
-
+#include <functional>
 
 class NoteEditor : public QWidget {
-  Q_OBJECT
+    Q_OBJECT
 public:
-  explicit NoteEditor(QWidget *parent = nullptr);
+    explicit NoteEditor(QWidget *parent = nullptr);
 
-  void setNote(Note *note);
-  Note *note() const { return note_; }
+    void setNote(Note *note);
+    Note *note() const { return note_; }
 
-  // Callback (no Qt signal)
-  std::function<void(Note *)> onSaveRequested;
+    std::function<void(Note *)> onSaveRequested;
 
 protected:
-  bool eventFilter(QObject *, QEvent *) override;
-  void resizeEvent(QResizeEvent *) override;
+    bool eventFilter(QObject *, QEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
 
 private:
-  QTabWidget *tabs_{nullptr};
-  QTextEdit *text_{nullptr};
-  MultiPageNoteView *canvas_{nullptr};
-  ModernToolbar *toolbar_{nullptr};
-  QTimer textSaveDebounce_;
-  void setupUi();
-  void setupShortcuts();
+    Note *note_{nullptr}; // <--- Hier hinzugefügt
+    QTabWidget *tabs_{nullptr};
+    QTextEdit *text_{nullptr};
+    MultiPageNoteView *canvas_{nullptr};
+    ModernToolbar *toolbar_{nullptr};
+    QTimer textSaveDebounce_;
+    void setupUi();
+    void setupShortcuts();
 };

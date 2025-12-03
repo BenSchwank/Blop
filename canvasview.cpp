@@ -37,7 +37,7 @@ CanvasView::CanvasView(QWidget *parent)
     , m_penColor(Qt::black)
     , m_penWidth(3)
     , m_isPanning(false)
-    , m_pullDistance(0.0f) // Init
+    , m_pullDistance(0.0f)
 {
     m_scene = new QGraphicsScene(this); setScene(m_scene); m_a4Rect = QRectF(0, 0, 794 * 1.5, 1123 * 1.5);
 
@@ -59,6 +59,21 @@ CanvasView::CanvasView(QWidget *parent)
 }
 
 void CanvasView::setPageColor(const QColor &color) {
+    bool isNowDark = (color.value() < 100);
+    QList<QGraphicsItem*> items = m_scene->items();
+    for (auto *item : std::as_const(items)) {
+        if (item->type() == QGraphicsPathItem::Type) {
+            QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem*>(item);
+            QColor c = pathItem->pen().color();
+            if (isNowDark && (c == Qt::black || c == QColor(0,0,0))) {
+                QPen p = pathItem->pen(); p.setColor(Qt::white); pathItem->setPen(p);
+            } else if (!isNowDark && (c == Qt::white || c == QColor(255,255,255))) {
+                QPen p = pathItem->pen(); p.setColor(Qt::black); pathItem->setPen(p);
+            }
+        }
+    }
+    if (isNowDark && (m_penColor == Qt::black)) m_penColor = Qt::white;
+    else if (!isNowDark && (m_penColor == Qt::white)) m_penColor = Qt::black;
     m_pageColor = color;
     viewport()->update();
     emit contentModified();
@@ -76,83 +91,45 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
     }
 }
 
-// NEU: Indikator zeichnen
 void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
     QGraphicsView::drawForeground(painter, rect);
-
     if (!m_isInfinite) {
         painter->save();
-        // Seitenrand
         painter->setPen(QPen(QColor(0,0,0, 40), 2, Qt::DashLine));
         painter->setBrush(Qt::NoBrush);
         painter->drawRect(m_a4Rect);
-
-        // Pull-to-Add Indikator
-        if (m_pullDistance > 10.0f) {
-            drawPullIndicator(painter);
-        }
-
+        if (m_pullDistance > 10.0f) drawPullIndicator(painter);
         painter->restore();
     }
 }
 
 void CanvasView::drawPullIndicator(QPainter* painter) {
-    painter->resetTransform(); // Wir zeichnen im Viewport-Koordinatensystem (statisch unten)
-
-    int w = viewport()->width();
-    int h = viewport()->height();
-
-    // Parameter für den Kreis
-    float maxPull = 250.0f;
-    float progress = qMin(m_pullDistance / maxPull, 1.0f);
-
-    int size = 60;
-    int yPos = h - size - 30; // Etwas Abstand vom Boden
-    int xPos = (w - size) / 2;
-
+    painter->resetTransform();
+    int w = viewport()->width(); int h = viewport()->height();
+    float maxPull = 250.0f; float progress = qMin(m_pullDistance / maxPull, 1.0f);
+    int size = 60; int yPos = h - size - 30; int xPos = (w - size) / 2;
     QRect circleRect(xPos, yPos, size, size);
-
     painter->setRenderHint(QPainter::Antialiasing);
-
-    // Hintergrundkreis (halbtransparent)
-    painter->setBrush(QColor(0, 0, 0, 150));
-    painter->setPen(Qt::NoPen);
-    painter->drawEllipse(circleRect);
-
-    // Fortschritts-Bogen (Weiß oder Akzent)
+    painter->setBrush(QColor(0, 0, 0, 150)); painter->setPen(Qt::NoPen); painter->drawEllipse(circleRect);
     if (progress > 0.05f) {
-        QPen arcPen(QColor(0x5E5CE6)); // Akzentfarbe
-        arcPen.setWidth(4);
-        arcPen.setCapStyle(Qt::RoundCap);
-        painter->setPen(arcPen);
-        painter->setBrush(Qt::NoBrush);
-
-        // drawArc nutzt 1/16 Grad Schritte
-        // Start bei 90° (12 Uhr) = 90*16. Länge negativ für Uhrzeigersinn.
+        QPen arcPen(QColor(0x5E5CE6)); arcPen.setWidth(4); arcPen.setCapStyle(Qt::RoundCap);
+        painter->setPen(arcPen); painter->setBrush(Qt::NoBrush);
         int spanAngle = -progress * 360 * 16;
         painter->drawArc(circleRect.adjusted(8, 8, -8, -8), 90 * 16, spanAngle);
     }
-
-    // Plus-Zeichen in der Mitte
-    // Wird sichtbar/größer je mehr man zieht
     if (progress > 0.2f) {
         painter->setPen(QPen(Qt::white, 3));
-        int center = size / 2;
-        int pSize = (size / 4) * progress; // Wächst mit
-
+        int center = size / 2; int pSize = (size / 4) * progress;
         QPoint c = circleRect.center();
-        painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y()); // Horizontal
-        painter->drawLine(c.x(), c.y() - pSize, c.x(), c.y() + pSize); // Vertikal
+        painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y());
+        painter->drawLine(c.x(), c.y() - pSize, c.x(), c.y() + pSize);
     }
 }
 
 void CanvasView::addNewPage() {
-    // Erweitere das A4 Rechteck um eine weitere Seitenlänge
     float a4Height = 1123 * 1.5;
     m_a4Rect.setHeight(m_a4Rect.height() + a4Height);
     setSceneRect(m_a4Rect);
-
-    // Feedback: Auswahl aufheben, Update
     viewport()->update();
 }
 
@@ -245,7 +222,6 @@ void CanvasView::setPageFormat(bool isInfinite) {
 void CanvasView::wheelEvent(QWheelEvent *event)
 {
     if (event->modifiers() & Qt::ControlModifier) {
-        // Zoom logic...
         double angle = event->angleDelta().y();
         double factor = std::pow(1.0015, angle);
         double currentScale = transform().m11();
@@ -253,26 +229,15 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         scale(factor, factor);
         event->accept();
     } else {
-        // NEU: Pull Logic Check
         if (!m_isInfinite) {
             QScrollBar *vb = verticalScrollBar();
-            // Wenn wir ganz unten sind und weiter runter wollen (delta negativ)
             if (vb->value() >= vb->maximum() && event->angleDelta().y() < 0) {
-                m_pullDistance += std::abs(event->angleDelta().y()) * 0.5; // Widerstandsfaktor
-                viewport()->update(); // Trigger repaint für Indikator
-
-                if (m_pullDistance > 250.0f) {
-                    addNewPage();
-                    m_pullDistance = 0;
-                }
-                event->accept(); // Event schlucken, damit es nicht "bounced"
-                return;
+                m_pullDistance += std::abs(event->angleDelta().y()) * 0.5;
+                viewport()->update();
+                if (m_pullDistance > 250.0f) { addNewPage(); m_pullDistance = 0; }
+                event->accept(); return;
             } else {
-                // Reset wenn man hochscrollt
-                if (m_pullDistance > 0) {
-                    m_pullDistance = 0;
-                    viewport()->update();
-                }
+                if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
             }
         }
         QGraphicsView::wheelEvent(event);
@@ -282,12 +247,8 @@ void CanvasView::wheelEvent(QWheelEvent *event)
 void CanvasView::mousePressEvent(QMouseEvent *event) {
     bool isTouch = (event->source() == Qt::MouseEventSynthesizedBySystem);
 
-    if (m_penOnlyMode && isTouch) {
-        m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return;
-    }
-    if (event->button() == Qt::MiddleButton) {
-        m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return;
-    }
+    if (m_penOnlyMode && isTouch) { m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return; }
+    if (event->button() == Qt::MiddleButton) { m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return; }
 
     if (event->button() == Qt::LeftButton) {
         QPointF scenePos = mapToScene(event->pos());
@@ -308,44 +269,22 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event) {
-    // Panning / Scroll Logic
     if (m_isPanning) {
-        QPoint delta = event->pos() - m_lastPanPos;
-        m_lastPanPos = event->pos();
+        QPoint delta = event->pos() - m_lastPanPos; m_lastPanPos = event->pos();
 
-        // NEU: Pull Logic auch beim Panning
         if (!m_isInfinite) {
             QScrollBar *vb = verticalScrollBar();
-            // Wenn wir nach oben ziehen (delta y negativ) -> Ansicht geht runter
-            // Hier: delta.y() ist negativ wenn wir Maus nach oben schieben -> Inhalt geht runter -> Scrollbar value steigt
-            // Wir wollen wissen, ob wir versuchen "über" das Maximum zu scrollen.
-            // Maus nach oben ziehen = Scrollbar will höher werden.
-
-            // "Ziehen" für Pull-Refresh ist normalerweise: Maus nach UNTEN ziehen (delta.y > 0), wenn man oben ist (Scrollbar 0).
-            // ODER: Maus nach OBEN ziehen (delta.y < 0), wenn man unten ist (Scrollbar max).
-
             if (vb->value() >= vb->maximum() && delta.y() < 0) {
-                // Wir ziehen weiter nach oben (wollen weiter runter gucken)
-                m_pullDistance += std::abs(delta.y()) * 0.5;
-                viewport()->update();
-                if (m_pullDistance > 250.0f) {
-                    addNewPage();
-                    m_pullDistance = 0;
-                }
-                event->accept();
-                return;
+                m_pullDistance += std::abs(delta.y()) * 0.5; viewport()->update();
+                if (m_pullDistance > 250.0f) { addNewPage(); m_pullDistance = 0; }
+                event->accept(); return;
             } else {
-                if (m_pullDistance > 0) {
-                    m_pullDistance = 0;
-                    viewport()->update();
-                }
+                if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
             }
         }
-
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-        event->accept();
-        return;
+        event->accept(); return;
     }
 
     QPointF scenePos = mapToScene(event->pos());
@@ -362,14 +301,11 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     bool isTouch = (event->source() == Qt::MouseEventSynthesizedBySystem);
     if (m_penOnlyMode && isTouch) {
-        m_isPanning = false;
-        // Reset Pull Distance on Release
-        if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
+        m_isPanning = false; if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
         setTool(m_currentTool); event->accept(); return;
     }
     if (event->button() == Qt::MiddleButton) {
-        m_isPanning = false;
-        if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
+        m_isPanning = false; if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
         setTool(m_currentTool); event->accept(); return;
     }
     if (event->button() == Qt::LeftButton) {
@@ -424,7 +360,6 @@ void CanvasView::updateSelectionMenuPosition() {
     x = qMax(0, qMin(x, width() - m_selectionMenu->width())); y = qMax(0, y);
     m_selectionMenu->move(x, y); m_selectionMenu->show(); m_selectionMenu->raise();
 }
-
 void CanvasView::applyEraser(const QPointF &pos) {
     QRectF eraserRect(pos.x() - 10, pos.y() - 10, 20, 20); const QList<QGraphicsItem*> items = m_scene->items(eraserRect);
     bool erased = false;

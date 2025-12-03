@@ -17,19 +17,16 @@ public:
     ~SettingsDialog();
 
     void setTouchMode(bool enabled);
-
-    // WIEDER HINZUGEFÜGT: Grid Einstellungen
     void setGridValues(int itemSize, int spacing);
 
 signals:
     void accentColorChanged(QColor color);
     void uiModeChanged(bool touchMode);
-
-    // WIEDER HINZUGEFÜGT: Signale für Grid
     void itemSizeChanged(int value);
     void gridSpacingChanged(int value);
 
 protected:
+    // FEHLERBEHEBUNG: Diese Zeile hat gefehlt
     void showEvent(QShowEvent *event) override;
 
 private slots:

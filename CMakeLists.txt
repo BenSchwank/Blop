@@ -15,14 +15,28 @@ qt_add_executable(Blop
     main.cpp
     mainwindow.cpp
     mainwindow.h
+    mainwindow.ui
     canvasview.cpp
     canvasview.h
-    settingsdialog.cpp  # <--- NEU (kommt gleich)
-    settingsdialog.h    # <--- NEU (kommt gleich)
-    settingsdialog.ui
+    freegridview.cpp
     freegridview.h
-    freegridview.cpp   # <--- NEU (kommt gleich)
+    settingsdialog.cpp
+    settingsdialog.h
+    settingsdialog.ui
+    # --- DIESE HABEN GEFEHLT: ---
+    notemanager.cpp
+    notemanager.h
+    noteeditor.cpp
+    noteeditor.h
+    multipagenoteview.cpp
+    multipagenoteview.h
+    moderntoolbar.cpp
+    moderntoolbar.h
+    modetoolbar.cpp
+    modetoolbar.h
+    Note.h
+    ToolMode.h
+    UIStyles.h
 )
 
 target_link_libraries(Blop PRIVATE Qt6::Widgets)
-
