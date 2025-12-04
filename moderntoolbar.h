@@ -3,6 +3,7 @@
 #include <QIcon>
 #include <QVector>
 #include <QColor>
+#include <QPropertyAnimation>
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
@@ -30,9 +31,11 @@ private:
 
 class ModernToolbar : public QWidget {
     Q_OBJECT
+    Q_PROPERTY(QSize size READ size WRITE resize) // Für Animation
 public:
-    enum Style { Vertical, Radial };
+    enum Style { Normal, Radial }; // "Vertical" heißt jetzt "Normal"
     enum RadialType { FullCircle, HalfEdge };
+    enum Orientation { Vertical, Horizontal }; // Neu für Adaptive Toolbar
 
     enum class SettingsState {
         Closed, Main, ColorSelect, SizeSelect, EraserMode, LassoMode
@@ -55,8 +58,6 @@ public:
     qreal scale() const { return m_scale; }
 
     void constrainToParent();
-
-    // NEU: Grenze oben setzen (damit Toolbar nicht über Tabs ragt)
     void setTopBound(int top);
 
 signals:
@@ -77,17 +78,24 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void wheelEvent(QWheelEvent*) override;
+    void leaveEvent(QEvent*) override;
 
+    void showEvent(QShowEvent*) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    Style m_style{Vertical};
+    Style m_style{Normal};
     RadialType m_radialType{FullCircle};
+    Orientation m_orientation{Vertical}; // Aktuelle Ausrichtung
+
     ToolMode mode_{ToolMode::Pen};
     ToolConfig m_config;
     SettingsState m_settingsState{SettingsState::Closed};
 
     QPoint dragStartPos_;
+    QPoint resizeStartPos_;
+    QSize startSize_;
+
     bool m_isDragging{false};
     bool m_isResizing{false};
     bool m_draggable{true};
@@ -96,7 +104,7 @@ private:
     double m_scrollAngle{0.0};
 
     qreal m_scale{1.0};
-    int m_topBound{0}; // Speichert die Grenze oben
+    int m_topBound{0};
 
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
@@ -107,11 +115,18 @@ private:
     QVector<ToolbarBtn*> m_buttons;
     QList<QColor> m_customColors;
 
-    void updateLayout();
+    void updateLayout(bool animate = false);
     void snapToEdge();
+    void checkOrientation(const QPoint& globalPos); // Prüft Drehung
+    void setOrientation(Orientation o);
+
+    void reorderButtons();
+    ToolbarBtn* getButtonForMode(ToolMode m);
 
     void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int innerR, int outerR);
     void showVerticalPopup();
+
+    int calculateMinLength(); // Min Höhe (oder Breite bei Horizontal)
 };
