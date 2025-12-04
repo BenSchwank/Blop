@@ -2,6 +2,7 @@
 #include "settingsdialog.h"
 #include "canvasview.h"
 #include "UIStyles.h"
+#include "moderntoolbar.h"
 
 #include <QApplication>
 #include <QStyle>
@@ -27,6 +28,7 @@
 #include <QButtonGroup>
 #include <QTimer>
 #include <QPropertyAnimation>
+#include <QComboBox>
 #include <utility>
 
 // --- SidebarItemDelegate ---
@@ -53,7 +55,6 @@ void SidebarItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     QModelIndex p = index.parent();
     while(p.isValid()) { depth++; p = p.parent(); }
 
-    // Werte für Linksbündigkeit (beibehalten)
     int indentStep = 3;
     int baseIndent = 5;
     int currentIndent = baseIndent + (depth * indentStep);
@@ -122,7 +123,7 @@ bool SidebarItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, 
         QMouseEvent* me = static_cast<QMouseEvent*>(event);
 
         int depth = 0; QModelIndex p = index.parent(); while(p.isValid()) { depth++; p = p.parent(); }
-        int indentStep = 15;
+        int indentStep = 3;
         int baseIndent = 5;
         int currentIndent = baseIndent + (depth * indentStep);
 
@@ -237,6 +238,17 @@ void ModernButton::paintEvent(QPaintEvent *) {
     QIcon::Mode mode = isChecked() ? QIcon::Active : QIcon::Normal; ic.paint(&p, 0, 0, iconS, iconS, Qt::AlignCenter, mode);
 }
 
+// --- DragHandle Class Definition ---
+// Dies hat gefehlt:
+class DragHandle : public QWidget {
+public:
+    explicit DragHandle(QWidget *parent = nullptr);
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+private:
+    QPoint m_dragStartPosition; // Wird in mousePressEvent verwendet
+};
 // --- DragHandle ---
 DragHandle::DragHandle(QWidget *parent) : QWidget(parent) { setFixedSize(30, 50); setCursor(Qt::SizeAllCursor); }
 void DragHandle::paintEvent(QPaintEvent *) {
@@ -245,24 +257,21 @@ void DragHandle::paintEvent(QPaintEvent *) {
     for (int i = 0; i < 2; ++i) { for (int j = 0; j < 3; ++j) { p.drawEllipse(startX + i * gap, startY + j * 8, radius * 2, radius * 2); } }
 }
 void DragHandle::mousePressEvent(QMouseEvent *event) { if (event->button() == Qt::LeftButton) m_dragStartPosition = event->globalPosition().toPoint(); }
-void DragHandle::mouseMoveEvent(QMouseEvent *event) {
-    if (event->buttons() & Qt::LeftButton) {
-        QPoint currentPos = event->globalPosition().toPoint(); QPoint diff = currentPos - m_dragStartPosition;
-        MainWindow *win = qobject_cast<MainWindow*>(window()); if (win) win->moveFloatingToolbar(diff);
-        m_dragStartPosition = currentPos;
-    }
-}
+
 
 // --- MainWindow ---
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(nullptr) {
+    // FRAMELESS WINDOW SETZEN
+    setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+
     m_currentAccentColor = QColor(0x5E5CE6);
     m_penColor = Qt::black;
     m_penWidth = 3;
     m_activeToolType = CanvasView::ToolType::Pen;
     m_penOnlyMode = true;
     m_touchMode = false;
-    m_toolsCollapsed = false; m_toolbarInitialized = false;
     m_lblActiveNote = nullptr;
+    m_isSidebarOpen = true;
 
     m_currentItemSize = 180;
     m_currentSpacing = 20;
@@ -274,11 +283,95 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 
     createDefaultFolder();
     setupUi();
-    setupToolbar();
     applyTheme();
     applyUiScaling();
+
+    updateSidebarState();
+    updateOverviewBackButton();
 }
 MainWindow::~MainWindow() {}
+
+// NEU: Title Bar Setup
+void MainWindow::setupTitleBar() {
+    m_titleBarWidget = new QWidget(this);
+    m_titleBarWidget->setFixedHeight(30);
+    m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
+
+    QHBoxLayout* layout = new QHBoxLayout(m_titleBarWidget);
+    layout->setContentsMargins(10, 0, 0, 0);
+    layout->setSpacing(0);
+
+    // Title Icon/Text
+    QLabel* lblTitle = new QLabel("Blop", m_titleBarWidget);
+    lblTitle->setStyleSheet("color: #888; font-weight: bold;");
+    layout->addWidget(lblTitle);
+    layout->addStretch();
+
+    // Buttons Style
+    QString btnStyle = "QPushButton { background: transparent; border: none; color: #BBB; font-family: 'Segoe MDL2 Assets'; font-size: 12px; } "
+                       "QPushButton:hover { background: #252526; color: white; }";
+    QString closeStyle = "QPushButton { background: transparent; border: none; color: #BBB; font-family: 'Segoe MDL2 Assets'; font-size: 12px; } "
+                         "QPushButton:hover { background: #E81123; color: white; }";
+
+    // Minimize
+    m_btnWinMin = new QPushButton("─", m_titleBarWidget);
+    m_btnWinMin->setFixedSize(45, 30);
+    m_btnWinMin->setStyleSheet(btnStyle);
+    connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
+    layout->addWidget(m_btnWinMin);
+
+    // Maximize
+    m_btnWinMax = new QPushButton("☐", m_titleBarWidget);
+    m_btnWinMax->setFixedSize(45, 30);
+    m_btnWinMax->setStyleSheet(btnStyle);
+    connect(m_btnWinMax, &QPushButton::clicked, this, &MainWindow::onWinMaximize);
+    layout->addWidget(m_btnWinMax);
+
+    // Close
+    m_btnWinClose = new QPushButton("✕", m_titleBarWidget);
+    m_btnWinClose->setFixedSize(45, 30);
+    m_btnWinClose->setStyleSheet(closeStyle);
+    connect(m_btnWinClose, &QPushButton::clicked, this, &MainWindow::onWinClose);
+    layout->addWidget(m_btnWinClose);
+}
+
+void MainWindow::onWinMinimize() {
+    showMinimized();
+}
+
+void MainWindow::onWinClose() {
+    close();
+}
+
+void MainWindow::onWinMaximize() {
+    if (isMaximized()) showNormal();
+    else showMaximized();
+}
+
+// NEU: Maus Events für Fensterbewegung
+void MainWindow::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton) {
+        if (m_titleBarWidget && m_titleBarWidget->geometry().contains(event->pos())) {
+            m_windowDragPos = event->globalPosition().toPoint() - frameGeometry().topLeft();
+            event->accept();
+            return;
+        }
+    }
+    QMainWindow::mousePressEvent(event);
+}
+
+void MainWindow::mouseMoveEvent(QMouseEvent *event) {
+    if (event->buttons() & Qt::LeftButton) {
+        if (m_titleBarWidget && m_titleBarWidget->geometry().contains(mapFromGlobal(QCursor::pos()))) {
+            if (!isMaximized()) {
+                move(event->globalPosition().toPoint() - m_windowDragPos);
+                event->accept();
+                return;
+            }
+        }
+    }
+    QMainWindow::mouseMoveEvent(event);
+}
 
 void MainWindow::onContentModified() {
     m_autoSaveTimer->start();
@@ -299,39 +392,8 @@ CanvasView* MainWindow::getCurrentCanvas() {
     return nullptr;
 }
 
-void MainWindow::moveFloatingToolbar(const QPoint &diff) {
-    if (!m_floatingTools) return;
-    QPoint newPos = m_floatingTools->pos() + diff;
-    if (m_editorCenterWidget) {
-        int maxX = qMax(0, m_editorCenterWidget->width() - m_floatingTools->width());
-        int maxY = qMax(0, m_editorCenterWidget->height() - m_floatingTools->height());
-        newPos.setX(qBound(0, newPos.x(), maxX));
-        newPos.setY(qBound(0, newPos.y(), maxY));
-    }
-    m_floatingTools->move(newPos);
-}
-
 void MainWindow::onToggleFloatingTools() {
-    m_toolsCollapsed = !m_toolsCollapsed;
-    m_toolsContainer->setVisible(!m_toolsCollapsed);
-    m_activeToolIcon->setVisible(m_toolsCollapsed);
-
-    int expandedWidth = m_touchMode ? 550 : 450;
-    int collapsedWidth = m_touchMode ? 160 : 140;
-
-    if (m_toolsCollapsed) {
-        m_floatingTools->setFixedWidth(collapsedWidth);
-        m_minimizeBtn->setIcon(createModernIcon("arrow_left", Qt::white));
-    } else {
-        m_floatingTools->setFixedWidth(expandedWidth);
-        m_minimizeBtn->setIcon(createModernIcon("arrow_right", Qt::white));
-    }
-}
-
-void MainWindow::updateActiveToolIndicator(const QString &iconName) {
-    if (m_activeToolIcon) {
-        m_activeToolIcon->setIcon(createModernIcon(iconName, Qt::white));
-    }
+    // Empty slot to satisfy connection
 }
 
 void MainWindow::applyTheme() {
@@ -341,39 +403,39 @@ void MainWindow::applyTheme() {
         m_fileListView->setAccentColor(m_currentAccentColor);
     }
 
-    // Allgemeine Styles
-    QString style = QString("QMainWindow { background-color: #0F111A; } QListView { background: transparent; border: none; outline: 0; } QTabWidget::pane { border: 0; background: #0F111A; } QTabBar::tab { background: #161925; color: #888; padding: 10px 25px; border-top-left-radius: 12px; border-top-right-radius: 12px; } QTabBar::tab:selected { background: %1; color: white; } QMenu { background-color: #252526; border: 1px solid #444; border-radius: 10px; padding: 10px; color: #E0E0E0; } QMenu::item { padding: 8px 20px; border-radius: 5px; } QMenu::item:selected { background-color: %1; color: white; }").arg(c, c_light);
+    QString style = QString(
+                        "QMainWindow { background-color: #0F111A; } "
+                        "QListView { background: transparent; border: none; outline: 0; } "
+                        "QTabWidget::pane { border: 0; background: #0F111A; } "
+                        "QTabBar::tab { background: #161925; color: #888; padding: 10px 25px; border-top-left-radius: 12px; border-top-right-radius: 12px; } "
+                        "QTabBar::tab:selected { background: %1; color: white; } "
+                        "QMenu { background-color: #252526; border: 1px solid #444; border-radius: 10px; padding: 10px; color: #E0E0E0; } "
+                        "QMenu::item { padding: 8px 20px; border-radius: 5px; } "
+                        "QMenu::item:selected { background-color: %2; color: white; }"
+                        ).arg(c, c_light);
+
     this->setStyleSheet(style);
 
-    // Sidebar: Hintergrundfarbe passend zum Tab-Header (#161925)
     if(m_sidebarContainer) m_sidebarContainer->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
     if(m_sidebarHeader) m_sidebarHeader->setStyleSheet("background-color: #161925;");
+    if(m_sidebarStrip) m_sidebarStrip->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
 
-    // TreeView transparent
     if(m_folderTree) {
-        m_folderTree->setStyleSheet(
-            "QTreeView { background-color: transparent; border: none; outline: 0; }"
-            "QTreeView::item { border: none; }"
-            "QTreeView::branch { background: transparent; }"
-            );
+        m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }");
     }
 
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
 
+    if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
+
     QString fabStyle = QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: 28px; font-size: 32px; font-weight: 300; border: none; }").arg(c, c_light);
     if(m_fabNote) m_fabNote->setStyleSheet(fabStyle);
 
-    // FAB Folder wieder rund und kleiner (20px radius bei 40px größe)
     if(m_fabFolder) {
         QString s = fabStyle;
-        s.replace("28px","20px"); // Radius für 40px Button
-        s.replace("32px","24px"); // Schriftgröße
+        s.replace("28px","20px"); s.replace("32px","24px");
         m_fabFolder->setStyleSheet(s);
     }
-
-    if(m_floatingTools) m_floatingTools->setStyleSheet("QWidget#FloatingToolbar { background-color: #252526; border-radius: 25px; border: 1px solid #333; }");
-    if(btnPen) btnPen->setAccentColor(m_currentAccentColor); if(btnEraser) btnEraser->setAccentColor(m_currentAccentColor); if(btnLasso) btnLasso->setAccentColor(m_currentAccentColor);
-    if(btnSelect) btnSelect->setAccentColor(m_currentAccentColor);
 }
 
 void MainWindow::updateTheme(QColor accentColor) {
@@ -421,14 +483,8 @@ void MainWindow::applyUiScaling() {
 
     const auto buttons = this->findChildren<ModernButton*>();
     for (ModernButton* btn : std::as_const(buttons)) {
-        if (btn == m_minimizeBtn) continue;
         btn->setIconSize(QSize(iconS, iconS));
     }
-
-    m_floatingTools->setFixedHeight(tbH);
-    int w = m_toolsCollapsed ? (m_touchMode ? 160 : 140) : (m_touchMode ? 550 : 450);
-    m_floatingTools->setFixedWidth(w);
-    m_minimizeBtn->setFixedSize(30, tbH - 10);
 
     if (m_sidebarHeader) m_sidebarHeader->setFixedHeight(60);
 
@@ -486,7 +542,21 @@ void MainWindow::createDefaultFolder() {
 }
 
 void MainWindow::setupUi() {
-    m_mainSplitter = new QSplitter(Qt::Horizontal, this); setCentralWidget(m_mainSplitter);
+    // NEU: Setup TitleBar
+    setupTitleBar();
+
+    // Central Container für alles unter der Titlebar
+    m_centralContainer = new QWidget(this);
+    setCentralWidget(m_centralContainer);
+
+    QVBoxLayout* mainLayout = new QVBoxLayout(m_centralContainer);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+
+    mainLayout->addWidget(m_titleBarWidget);
+    m_mainSplitter = new QSplitter(Qt::Horizontal, m_centralContainer);
+    mainLayout->addWidget(m_mainSplitter);
+
     m_fileModel = new QFileSystemModel(this); m_fileModel->setRootPath(m_rootPath); m_fileModel->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot); m_fileModel->setReadOnly(false);
 
     setupSidebar();
@@ -496,9 +566,14 @@ void MainWindow::setupUi() {
     QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer); overviewLayout->setContentsMargins(30, 30, 30, 30);
 
     QHBoxLayout *topBar = new QHBoxLayout();
-    btnSidebar = new ModernButton(this); btnSidebar->setIcon(createModernIcon("menu", Qt::white));
-    connect(btnSidebar, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
-    topBar->addWidget(btnSidebar);
+
+    btnBackOverview = new ModernButton(this);
+    btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white));
+    btnBackOverview->setToolTip("Zurück");
+    btnBackOverview->hide();
+    connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp);
+
+    topBar->addWidget(btnBackOverview);
 
     btnSettings = new ModernButton(this); btnSettings->setIcon(createModernIcon("settings", Qt::white));
     connect(btnSettings, &QAbstractButton::clicked, this, &MainWindow::onOpenSettings);
@@ -546,6 +621,12 @@ void MainWindow::setupUi() {
     centerLayout->setSpacing(0);
 
     QHBoxLayout *editorHeader = new QHBoxLayout();
+
+    btnEditorMenu = new ModernButton(this);
+    btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
+    connect(btnEditorMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
+    editorHeader->addWidget(btnEditorMenu);
+
     ModernButton *backBtn = new ModernButton(this); backBtn->setIcon(createModernIcon("arrow_left", Qt::white));
     connect(backBtn, &QAbstractButton::clicked, this, &MainWindow::onBackToOverview);
     editorHeader->addWidget(backBtn);
@@ -563,55 +644,36 @@ void MainWindow::setupUi() {
     connect(m_editorTabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
     centerLayout->addWidget(m_editorTabs);
 
-    m_floatingTools = new QWidget(m_editorCenterWidget); m_floatingTools->setObjectName("FloatingToolbar"); m_floatingTools->setFixedSize(450, 60);
-    QGraphicsDropShadowEffect* toolShadow = new QGraphicsDropShadowEffect(this); toolShadow->setBlurRadius(20); toolShadow->setOffset(0, 5); toolShadow->setColor(QColor(0,0,0,80)); m_floatingTools->setGraphicsEffect(toolShadow);
-    QHBoxLayout *outerLayout = new QHBoxLayout(m_floatingTools); outerLayout->setContentsMargins(0, 0, 0, 0); outerLayout->setSpacing(0);
-    m_dragHandle = new DragHandle(m_floatingTools); outerLayout->addWidget(m_dragHandle);
+    // --- ModernToolbar Integration ---
+    ModernToolbar* overlayToolbar = new ModernToolbar(m_editorCenterWidget);
+    overlayToolbar->move(20, 80);
+    overlayToolbar->hide();
 
-    m_activeToolIcon = new ModernButton(m_floatingTools);
-    m_activeToolIcon->setIcon(createModernIcon("pen", Qt::white));
-    m_activeToolIcon->setVisible(false);
-    connect(m_activeToolIcon, &QAbstractButton::clicked, this, &MainWindow::onToggleFloatingTools);
-    outerLayout->addWidget(m_activeToolIcon);
+    m_floatingTools = overlayToolbar;
 
-    m_toolsContainer = new QWidget(m_floatingTools);
-    QHBoxLayout *toolLayout = new QHBoxLayout(m_toolsContainer); toolLayout->setContentsMargins(0, 5, 0, 5); toolLayout->setSpacing(10);
-    QColor iconColor = Qt::white;
+    // Connects
+    connect(overlayToolbar, &ModernToolbar::toolChanged, [this](ToolMode m){
+        setActiveTool((CanvasView::ToolType)m);
+    });
+    connect(overlayToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo);
+    connect(overlayToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
 
-    btnUndo = new ModernButton(this); btnUndo->setIcon(createModernIcon("undo", iconColor)); btnUndo->setToolTip("Rückgängig");
-    connect(btnUndo, &QAbstractButton::clicked, this, &MainWindow::onUndo);
-    toolLayout->addWidget(btnUndo);
-    btnRedo = new ModernButton(this); btnRedo->setIcon(createModernIcon("redo", iconColor)); btnRedo->setToolTip("Wiederherstellen");
-    connect(btnRedo, &QAbstractButton::clicked, this, &MainWindow::onRedo);
-    toolLayout->addWidget(btnRedo);
+    // Neue Settings Connects
+    connect(overlayToolbar, &ModernToolbar::penConfigChanged, [this](QColor c, int w){
+        m_penColor = c;
+        m_penWidth = w;
+        CanvasView* cv = getCurrentCanvas();
+        if(cv) { cv->setPenColor(c); cv->setPenWidth(w); }
+    });
 
-    QFrame *line = new QFrame; line->setFrameShape(QFrame::VLine); line->setStyleSheet("color: #444;"); toolLayout->addWidget(line);
-
-    btnSelect = new ModernButton(this);
-    btnSelect->setIcon(createModernIcon("cursor", iconColor));
-    btnSelect->setCheckable(true);
-    connect(btnSelect, &QAbstractButton::clicked, this, &MainWindow::onToolSelect);
-    toolLayout->addWidget(btnSelect);
-
-    btnPen = new ModernButton(this); btnPen->setIcon(createModernIcon("pen", iconColor)); btnPen->setCheckable(true); btnPen->setChecked(true);
-    connect(btnPen, &QAbstractButton::clicked, this, &MainWindow::onToolPen);
-    toolLayout->addWidget(btnPen);
-
-    btnEraser = new ModernButton(this); btnEraser->setIcon(createModernIcon("eraser", iconColor)); btnEraser->setCheckable(true);
-    connect(btnEraser, &QAbstractButton::clicked, this, &MainWindow::onToolEraser);
-    toolLayout->addWidget(btnEraser);
-
-    btnLasso = new ModernButton(this); btnLasso->setIcon(createModernIcon("lasso", iconColor)); btnLasso->setCheckable(true);
-    connect(btnLasso, &QAbstractButton::clicked, this, &MainWindow::onToolLasso);
-    toolLayout->addWidget(btnLasso);
-
-    toolLayout->addWidget(line);
-    btnFormat = new ModernButton(this); btnFormat->setIcon(createModernIcon("format_inf", iconColor)); btnFormat->setToolTip("Format");
-    connect(btnFormat, &QAbstractButton::clicked, this, &MainWindow::onToggleFormat);
-    toolLayout->addWidget(btnFormat);
-    outerLayout->addWidget(m_toolsContainer);
-    m_minimizeBtn = new ModernButton(m_floatingTools); m_minimizeBtn->setIcon(createModernIcon("arrow_right", Qt::white)); m_minimizeBtn->setFixedSize(30, 50);
-    connect(m_minimizeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleFloatingTools); outerLayout->addWidget(m_minimizeBtn);
+    // Scale Sync
+    connect(overlayToolbar, &ModernToolbar::scaleChanged, [this](qreal newScale){
+        if(m_sliderToolbarScale) {
+            m_sliderToolbarScale->blockSignals(true);
+            m_sliderToolbarScale->setValue(newScale * 100);
+            m_sliderToolbarScale->blockSignals(false);
+        }
+    });
 
     editorMainLayout->addWidget(m_editorCenterWidget);
 
@@ -625,12 +687,29 @@ void MainWindow::setupUi() {
 }
 
 void MainWindow::setupSidebar() {
+    m_sidebarStrip = new QWidget(this);
+    m_sidebarStrip->setFixedWidth(60);
+    m_sidebarStrip->hide();
+
+    QVBoxLayout* stripLayout = new QVBoxLayout(m_sidebarStrip);
+    stripLayout->setContentsMargins(0, 10, 0, 0);
+    stripLayout->setSpacing(20);
+
+    btnStripMenu = new ModernButton(m_sidebarStrip);
+    btnStripMenu->setIcon(createModernIcon("menu", Qt::white));
+    btnStripMenu->setFixedSize(40, 40);
+    connect(btnStripMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
+
+    stripLayout->addWidget(btnStripMenu, 0, Qt::AlignHCenter);
+    stripLayout->addStretch();
+
+    m_mainSplitter->addWidget(m_sidebarStrip);
+
     m_sidebarContainer = new QWidget(this);
     m_sidebarContainer->setFixedWidth(250);
     QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
     layout->setContentsMargins(0,0,0,0);
 
-    // Sidebar Header (Kompakt und konsistent)
     m_sidebarHeader = new QWidget(m_sidebarContainer);
     m_sidebarHeader->setFixedHeight(60);
     QHBoxLayout *hLayout = new QHBoxLayout(m_sidebarHeader);
@@ -655,47 +734,44 @@ void MainWindow::setupSidebar() {
     m_folderTree->setModel(m_fileModel);
     m_folderTree->setRootIndex(m_fileModel->index(m_rootPath));
 
-    // WICHTIG: Standard Dekoration ausschalten für Custom Delegate
     m_folderTree->setRootIsDecorated(false);
     m_folderTree->setHeaderHidden(true);
 
-    // Spalten verstecken
     m_folderTree->setColumnHidden(1, true);
     m_folderTree->setColumnHidden(2, true);
     m_folderTree->setColumnHidden(3, true);
 
-    // Styling & Verhalten
     m_folderTree->setMouseTracking(true);
     m_folderTree->viewport()->setAttribute(Qt::WA_Hover);
     m_folderTree->setIndentation(0);
     m_folderTree->setUniformRowHeights(true);
     m_folderTree->setItemDelegate(new SidebarItemDelegate(this));
 
-    // NEU: Kontextmenü aktivieren und Editieren sperren
     m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu);
     m_folderTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(m_folderTree, &QWidget::customContextMenuRequested, this, &MainWindow::onSidebarContextMenu);
 
     connect(m_folderTree, &QTreeView::clicked, this, &MainWindow::onFolderSelected);
+    connect(m_folderTree, &QTreeView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
+
+    m_folderTree->setDragEnabled(true);
+    m_folderTree->setAcceptDrops(true);
+    m_folderTree->setDropIndicatorShown(true);
+    m_folderTree->setDragDropMode(QAbstractItemView::DragDrop);
+
     layout->addWidget(m_folderTree);
 
-    // RESTORE FAB: Als Kind von m_sidebarContainer (schwebend), nicht im Layout
     m_fabFolder = new QPushButton("+", m_sidebarContainer);
     m_fabFolder->setCursor(Qt::PointingHandCursor);
-    m_fabFolder->setFixedSize(40, 40); // Rund und kompakt
-    // Style wird in applyTheme gesetzt
-
-    // Shadow für FAB
+    m_fabFolder->setFixedSize(40, 40);
     QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this);
     shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80));
     m_fabFolder->setGraphicsEffect(shadowFolder);
-
     connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
 
-    m_mainSplitter->insertWidget(0, m_sidebarContainer);
+    m_mainSplitter->addWidget(m_sidebarContainer);
 }
 
-// NEU: Kontextmenü Implementierung
 void MainWindow::onSidebarContextMenu(const QPoint &pos) {
     QModelIndex index = m_folderTree->indexAt(pos);
     if (!index.isValid()) return;
@@ -703,9 +779,7 @@ void MainWindow::onSidebarContextMenu(const QPoint &pos) {
     QMenu menu(this);
     menu.addAction("Umbenennen", [this, index]() { startRename(index); });
     menu.addAction("Kopieren", [this, index]() { performCopy(index); });
-
     QAction* delAct = menu.addAction("Löschen");
-
     connect(delAct, &QAction::triggered, [this, index]() {
         QString path = m_fileModel->filePath(index);
         QMessageBox::StandardButton res = QMessageBox::question(this, "Löschen", "Wirklich löschen?");
@@ -717,7 +791,6 @@ void MainWindow::onSidebarContextMenu(const QPoint &pos) {
             }
         }
     });
-
     menu.exec(m_folderTree->mapToGlobal(pos));
 }
 
@@ -746,9 +819,7 @@ void MainWindow::performCopy(const QModelIndex &index) {
 bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
     QDir dir(src);
     if (!dir.exists()) return false;
-
     QDir().mkpath(dst);
-
     for (const QString &entry : dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
         QString srcItem = src + "/" + entry;
         QString dstItem = dst + "/" + entry;
@@ -759,6 +830,23 @@ bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
         }
     }
     return true;
+}
+
+void MainWindow::onNavigateUp() {
+    QModelIndex current = m_fileListView->rootIndex();
+    if (current.isValid()) {
+        QModelIndex parent = current.parent();
+        m_fileListView->setRootIndex(parent);
+        updateOverviewBackButton();
+    }
+}
+
+void MainWindow::updateOverviewBackButton() {
+    QModelIndex current = m_fileListView->rootIndex();
+    QModelIndex root = m_fileModel->index(m_rootPath);
+
+    bool canGoUp = (current != root && current.isValid());
+    btnBackOverview->setVisible(canGoUp);
 }
 
 void MainWindow::setupRightSidebar() {
@@ -856,6 +944,41 @@ void MainWindow::setupRightSidebar() {
     layout->addWidget(m_btnInputPen);
     layout->addWidget(m_btnInputTouch);
 
+    layout->addWidget(new QLabel("Werkzeugleiste:", m_rightSidebar));
+    m_comboToolbarStyle = new QComboBox();
+    m_comboToolbarStyle->addItems({"Vertikal", "Radial (Voll)", "Radial (Halb)"});
+    m_comboToolbarStyle->setStyleSheet("QComboBox { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; } QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }");
+    m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
+
+    connect(m_comboToolbarStyle, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){
+        ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
+        if (tb) {
+            if (index == 0) tb->setStyle(ModernToolbar::Vertical);
+            else if (index == 1) {
+                tb->setStyle(ModernToolbar::Radial);
+                tb->setRadialType(ModernToolbar::FullCircle);
+            } else {
+                tb->setStyle(ModernToolbar::Radial);
+                tb->setRadialType(ModernToolbar::HalfEdge);
+            }
+        }
+    });
+
+    layout->addWidget(m_comboToolbarStyle);
+
+    // Toolbar Size Slider
+    layout->addWidget(new QLabel("Größe Werkzeugleiste:", m_rightSidebar));
+    m_sliderToolbarScale = new QSlider(Qt::Horizontal);
+    m_sliderToolbarScale->setRange(50, 150);
+    m_sliderToolbarScale->setValue(100);
+    m_sliderToolbarScale->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
+
+    connect(m_sliderToolbarScale, &QSlider::valueChanged, [this](int val){
+        ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
+        if(tb) tb->setScale(val / 100.0);
+    });
+    layout->addWidget(m_sliderToolbarScale);
+
     layout->addWidget(new QLabel("Oberfläche (Größe):", m_rightSidebar));
     m_btnUiDesktop = new QPushButton("Desktop (Kompakt)");
     m_btnUiDesktop->setCheckable(true);
@@ -886,7 +1009,13 @@ void MainWindow::animateSidebar(bool show) {
     int start = show ? 0 : 250;
     int end = show ? 250 : 0;
 
-    m_sidebarContainer->setVisible(true);
+    m_isSidebarOpen = show;
+
+    if (show) {
+        m_sidebarContainer->setVisible(true);
+        updateSidebarState();
+    }
+
     QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "maximumWidth");
     anim->setDuration(250);
     anim->setStartValue(start);
@@ -894,9 +1023,39 @@ void MainWindow::animateSidebar(bool show) {
     anim->setEasingCurve(QEasingCurve::OutCubic);
 
     connect(anim, &QPropertyAnimation::finished, [this, show](){
-        if (!show) m_sidebarContainer->hide();
+        if (!show) {
+            m_sidebarContainer->hide();
+            updateSidebarState();
+        }
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::onToggleSidebar() {
+    bool isVisible = m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0;
+    animateSidebar(!isVisible);
+}
+
+void MainWindow::updateSidebarState() {
+    bool isEditor = (m_rightStack->currentWidget() == m_editorContainer);
+
+    if (m_floatingTools) {
+        m_floatingTools->setVisible(isEditor);
+    }
+
+    if (m_isSidebarOpen) {
+        m_sidebarStrip->hide();
+        btnEditorMenu->hide();
+        return;
+    }
+
+    if (isEditor) {
+        m_sidebarStrip->hide();
+        btnEditorMenu->show();
+    } else {
+        m_sidebarStrip->show();
+        btnEditorMenu->hide();
+    }
 }
 
 void MainWindow::animateRightSidebar(bool show) {
@@ -935,18 +1094,26 @@ void MainWindow::onToggleRightSidebar() {
             m_btnColorDark->setChecked(isDark);
             m_btnColorWhite->setChecked(!isDark);
         }
-    }
-}
 
-void MainWindow::onToggleSidebar() {
-    bool isVisible = m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0;
-    animateSidebar(!isVisible);
+        ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
+        if (tb) {
+            if (tb->currentStyle() == ModernToolbar::Vertical) {
+                m_comboToolbarStyle->setCurrentIndex(0);
+            } else {
+                if (tb->radialType() == ModernToolbar::FullCircle) m_comboToolbarStyle->setCurrentIndex(1);
+                else m_comboToolbarStyle->setCurrentIndex(2);
+            }
+
+            if(m_sliderToolbarScale) m_sliderToolbarScale->setValue(tb->scale() * 100);
+        }
+    }
 }
 
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
     if (m_fileModel->isDir(index)) {
         m_fileListView->setRootIndex(index);
         m_fileModel->setRootPath(m_fileModel->filePath(index));
+        updateOverviewBackButton();
     } else {
         CanvasView *canvas = new CanvasView(this);
         canvas->setPenColor(m_penColor);
@@ -963,16 +1130,22 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         m_rightStack->setCurrentWidget(m_editorContainer);
 
         setActiveTool(m_activeToolType);
+
+        updateSidebarState();
     }
 }
 
 void MainWindow::onFolderSelected(const QModelIndex &index) {
-    m_fileListView->setRootIndex(index);
-    m_fileModel->setRootPath(m_fileModel->filePath(index));
+    if (m_fileModel->isDir(index)) {
+        m_fileListView->setRootIndex(index);
+        m_fileModel->setRootPath(m_fileModel->filePath(index));
+        updateOverviewBackButton();
+    }
 }
 
 void MainWindow::onBackToOverview() {
     m_rightStack->setCurrentWidget(m_overviewContainer);
+    updateSidebarState();
 }
 
 void MainWindow::showContextMenu(const QPoint &globalPos, const QModelIndex &index) {
@@ -1025,7 +1198,6 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
         m_fabNote->raise();
     }
 
-    // Positioniert den Sidebar-FAB (Neuer Ordner) unten rechts in der Sidebar
     if (m_fabFolder && m_sidebarContainer) {
         int sidebarW = m_sidebarContainer->width();
         int sidebarH = m_sidebarContainer->height();
@@ -1037,6 +1209,17 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     if (m_renameOverlay) {
         m_renameOverlay->resize(size());
         if (m_renameInput) m_renameInput->move(width()/2 - 150, height()/2 - 20);
+    }
+
+    // NEU: Toolbar Limit updaten
+    if (m_editorTabs && m_floatingTools) {
+        int top = 0;
+        if (m_editorTabs->tabBar()) {
+            QPoint tabsPos = m_editorTabs->mapTo(m_editorCenterWidget, QPoint(0,0));
+            top = tabsPos.y() + m_editorTabs->tabBar()->height();
+        }
+        ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
+        if (tb) tb->setTopBound(top);
     }
 }
 
@@ -1076,10 +1259,26 @@ void MainWindow::onOpenSettings() {
     dlg.setTouchMode(m_touchMode);
     dlg.setGridValues(m_currentItemSize, m_currentSpacing);
 
+    ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools);
+    if(toolbar) {
+        bool isRad = (toolbar->currentStyle() == ModernToolbar::Radial);
+        bool isHalf = (toolbar->radialType() == ModernToolbar::HalfEdge);
+        int scale = (int)(toolbar->scale() * 100);
+        dlg.setToolbarConfig(isRad, isHalf, scale);
+    }
+
     connect(&dlg, &SettingsDialog::accentColorChanged, this, &MainWindow::updateTheme);
     connect(&dlg, &SettingsDialog::uiModeChanged, this, &MainWindow::updateUiMode);
     connect(&dlg, &SettingsDialog::itemSizeChanged, this, &MainWindow::onItemSizeChanged);
     connect(&dlg, &SettingsDialog::gridSpacingChanged, this, &MainWindow::onGridSpacingChanged);
+
+    connect(&dlg, &SettingsDialog::toolbarStyleChanged, [this, toolbar](bool radial){
+        if(toolbar) toolbar->setStyle(radial ? ModernToolbar::Radial : ModernToolbar::Vertical);
+    });
+
+    connect(&dlg, &SettingsDialog::toolbarScaleChanged, [toolbar](int percent){
+        if(toolbar) toolbar->setScale(percent / 100.0);
+    });
 
     dlg.exec();
     delete overlay;
@@ -1103,31 +1302,15 @@ void MainWindow::setPageColor(bool dark) {
     }
 }
 
-void MainWindow::setupToolbar() {}
+//void MainWindow::setupToolbar() {}
 
 void MainWindow::setActiveTool(CanvasView::ToolType tool) {
     m_activeToolType = tool;
 
-    btnSelect->blockSignals(true);
-    btnPen->blockSignals(true);
-    btnEraser->blockSignals(true);
-    btnLasso->blockSignals(true);
-
-    btnSelect->setChecked(tool == CanvasView::ToolType::Select);
-    btnPen->setChecked(tool == CanvasView::ToolType::Pen);
-    btnEraser->setChecked(tool == CanvasView::ToolType::Eraser);
-    btnLasso->setChecked(tool == CanvasView::ToolType::Lasso);
-
-    btnSelect->blockSignals(false);
-    btnPen->blockSignals(false);
-    btnEraser->blockSignals(false);
-    btnLasso->blockSignals(false);
-
-    updateActiveToolIndicator(
-        tool == CanvasView::ToolType::Pen ? "pen" :
-            (tool == CanvasView::ToolType::Eraser ? "eraser" :
-                 (tool == CanvasView::ToolType::Lasso ? "lasso" : "cursor"))
-        );
+    ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools);
+    if(toolbar) {
+        toolbar->setToolMode((ToolMode)tool);
+    }
 
     CanvasView *cv = getCurrentCanvas();
     if (cv) {
@@ -1145,19 +1328,14 @@ void MainWindow::onToolSelect() {
 
 void MainWindow::onToolPen() {
     if (m_activeToolType == CanvasView::ToolType::Pen) {
-        showPenSettingsMenu();
-        btnPen->setChecked(true);
+      //  showPenSettingsMenu();
     } else {
         setActiveTool(CanvasView::ToolType::Pen);
     }
 }
 
 void MainWindow::onToolEraser() {
-    if (m_activeToolType == CanvasView::ToolType::Eraser) {
-        btnEraser->setChecked(true);
-    } else {
-        setActiveTool(CanvasView::ToolType::Eraser);
-    }
+    setActiveTool(CanvasView::ToolType::Eraser);
 }
 
 void MainWindow::onToolLasso() {
@@ -1203,60 +1381,9 @@ void MainWindow::onTabChanged(int index) {
             m_btnColorWhite->setChecked(!isDark);
         }
     }
+
+    updateSidebarState();
 }
 
-void MainWindow::onToggleFormat() {}
+//void MainWindow::onToggleFormat() {}
 
-void MainWindow::showPenSettingsMenu() {
-    QMenu menu(this);
-    menu.setStyleSheet("QMenu { background-color: #2D2D30; border: 1px solid #3F3F46; border-radius: 8px; padding: 10px; }"
-                       "QLabel { color: white; font-weight: bold; font-size: 14px; margin-bottom: 5px; }");
-
-    QWidget *container = new QWidget;
-    QVBoxLayout *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(5,5,5,5);
-
-    layout->addWidget(new QLabel("Stärke"));
-    QSlider *widthSlider = new QSlider(Qt::Horizontal);
-    widthSlider->setRange(1, 20);
-    widthSlider->setValue(m_penWidth);
-    widthSlider->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #3F3F46; height: 8px; background: #1E1E1E; margin: 2px 0; border-radius: 4px; } "
-                               "QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }");
-    layout->addWidget(widthSlider);
-
-    connect(widthSlider, &QSlider::valueChanged, [this](int val){
-        m_penWidth = val;
-        CanvasView *cv = getCurrentCanvas();
-        if(cv) cv->setPenWidth(val);
-    });
-
-    layout->addWidget(new QLabel("Farbe"));
-    QWidget *gridWidget = new QWidget;
-    QGridLayout *grid = new QGridLayout(gridWidget);
-    grid->setSpacing(8);
-    grid->setContentsMargins(0,0,0,0);
-
-    QList<QColor> colors = { Qt::black, Qt::white, Qt::red, Qt::green, Qt::blue, Qt::yellow, QColor(0x5E5CE6), QColor(0xFF8800) };
-
-    for(int i=0; i<colors.count(); ++i) {
-        QColor c = colors[i];
-        QPushButton *btn = new QPushButton;
-        btn->setFixedSize(30,30);
-        btn->setStyleSheet(QString("background-color: %1; border-radius: 15px; border: 2px solid #555;").arg(c.name()));
-        connect(btn, &QPushButton::clicked, [this, c, &menu](){
-            m_penColor = c;
-            CanvasView *cv = getCurrentCanvas();
-            if(cv) cv->setPenColor(c);
-            menu.close();
-        });
-        grid->addWidget(btn, i/4, i%4);
-    }
-    layout->addWidget(gridWidget);
-
-    QWidgetAction *act = new QWidgetAction(&menu);
-    act->setDefaultWidget(container);
-    menu.addAction(act);
-
-    QPoint pos = btnPen->mapToGlobal(QPoint(btnPen->width()/2, 0));
-    menu.exec(pos);
-}

@@ -18,24 +18,22 @@ qt_add_executable(Blop
     mainwindow.ui
     canvasview.cpp
     canvasview.h
-    freegridview.cpp
-    freegridview.h
     settingsdialog.cpp
     settingsdialog.h
     settingsdialog.ui
-    # --- DIESE HABEN GEFEHLT: ---
+    freegridview.h
+    freegridview.cpp
     notemanager.cpp
     notemanager.h
     noteeditor.cpp
     noteeditor.h
     multipagenoteview.cpp
     multipagenoteview.h
+    # --- NEUE DATEIEN HINZUGEFÜGT ---
     moderntoolbar.cpp
     moderntoolbar.h
-    modetoolbar.cpp
-    modetoolbar.h
-    Note.h
     ToolMode.h
+    ToolSettings.h
     UIStyles.h
 )
 

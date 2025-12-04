@@ -3,7 +3,6 @@
 
 #include <QMainWindow>
 #include <QTabWidget>
-#include <QToolBar>
 #include <QTreeView>
 #include <QListView>
 #include <QFileSystemModel>
@@ -19,6 +18,7 @@
 #include <QLineEdit>
 #include <QTimer>
 #include <QLabel>
+#include <QComboBox>
 
 #include "freegridview.h"
 #include "canvasview.h"
@@ -59,20 +59,6 @@ private:
     QColor m_accentColor;
 };
 
-// --- Drag Handle ---
-class DragHandle : public QWidget
-{
-    Q_OBJECT
-public:
-    explicit DragHandle(QWidget *parent = nullptr);
-protected:
-    void paintEvent(QPaintEvent *event) override;
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
-private:
-    QPoint m_dragStartPosition;
-};
-
 // --- ModernItemDelegate ---
 class ModernItemDelegate : public QStyledItemDelegate
 {
@@ -103,8 +89,6 @@ public:
 
     bool isTouchMode() const { return m_touchMode; }
 
-    void moveFloatingToolbar(const QPoint &diff);
-
     void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
     void startRename(const QModelIndex &index);
 
@@ -113,12 +97,13 @@ public:
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
     void onNewPage();
     void onCreateFolder();
 
-    void onToggleFormat();
     void onToggleSidebar();
     void onOpenSettings();
 
@@ -130,7 +115,6 @@ private slots:
     void onFileDoubleClicked(const QModelIndex &index);
     void onBackToOverview();
 
-    // NEU: Slot für das Sidebar Kontextmenü
     void onSidebarContextMenu(const QPoint &pos);
 
     void onToolSelect();
@@ -139,8 +123,6 @@ private slots:
     void onToolLasso();
     void onUndo();
     void onRedo();
-
-    void showPenSettingsMenu();
 
     void onToggleFloatingTools();
     void finishRename();
@@ -157,9 +139,15 @@ private slots:
     void onContentModified();
     void performAutoSave();
 
+    void onNavigateUp();
+
+    void onWinMinimize();
+    void onWinMaximize();
+    void onWinClose();
+
 private:
     void setupUi();
-    void setupToolbar();
+    void setupTitleBar();
     void setupSidebar();
     void setupRightSidebar();
     void createDefaultFolder();
@@ -167,22 +155,36 @@ private:
     void applyUiScaling();
 
     void updateGrid();
+    void updateSidebarState();
+    void updateOverviewBackButton();
 
     void showRenameOverlay(const QString &currentName);
-    void updateActiveToolIndicator(const QString &iconName);
 
     void animateSidebar(bool show);
     void animateRightSidebar(bool show);
 
-    // NEU: Helper Funktionen für Kopieren
     void performCopy(const QModelIndex &index);
     bool copyRecursive(const QString &src, const QString &dst);
 
     CanvasView* getCurrentCanvas();
     void setActiveTool(CanvasView::ToolType tool);
 
+    QWidget *m_centralContainer;
+
+    QWidget *m_titleBarWidget;
+    QPushButton *m_btnWinMin;
+    QPushButton *m_btnWinMax;
+    QPushButton *m_btnWinClose;
+    QPoint m_windowDragPos;
+
     QSplitter *m_mainSplitter;
     QStackedWidget *m_rightStack;
+
+    QWidget *m_sidebarStrip;
+    ModernButton *btnStripMenu;
+    ModernButton *btnEditorMenu;
+
+    bool m_isSidebarOpen;
 
     QWidget *m_sidebarContainer;
     QWidget *m_sidebarHeader;
@@ -209,25 +211,14 @@ private:
     QPushButton *m_btnUiDesktop;
     QPushButton *m_btnUiTouch;
 
-    QWidget *m_floatingTools;
-    DragHandle *m_dragHandle;
-    QWidget *m_toolsContainer;
-    ModernButton *m_minimizeBtn;
-    ModernButton *m_activeToolIcon;
-    bool m_toolsCollapsed;
-    bool m_toolbarInitialized;
+    QComboBox *m_comboToolbarStyle;
+    QSlider *m_sliderToolbarScale;
 
-    ModernButton *btnSidebar;
+    QWidget *m_floatingTools;
+
     ModernButton *btnSettings;
     ModernButton *btnEditorSettings;
-
-    ModernButton *btnUndo;
-    ModernButton *btnRedo;
-    ModernButton *btnSelect;
-    ModernButton *btnPen;
-    ModernButton *btnEraser;
-    ModernButton *btnLasso;
-    ModernButton *btnFormat;
+    ModernButton *btnBackOverview;
     ModernButton *btnNewNote;
 
     QString m_rootPath;
