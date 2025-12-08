@@ -9,12 +9,19 @@
 
 class ToolbarBtn : public QWidget {
     Q_OBJECT
+    Q_PROPERTY(float pulseScale READ pulseScale WRITE setPulseScale)
+
 public:
     explicit ToolbarBtn(const QString& iconName, QWidget* parent = nullptr);
     void setIcon(const QString& name);
     void setActive(bool active);
     void setBtnSize(int s);
     QString iconName() const { return m_iconName; }
+
+    void animateSelect();
+    float pulseScale() const { return m_pulseScale; }
+    void setPulseScale(float s) { m_pulseScale = s; update(); }
+
 signals:
     void clicked();
 protected:
@@ -27,6 +34,7 @@ private:
     bool m_active{false};
     bool m_hover{false};
     int m_size{40};
+    float m_pulseScale{1.0f};
 };
 
 class ModernToolbar : public QWidget {

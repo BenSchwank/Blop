@@ -26,20 +26,41 @@ void ToolbarBtn::setBtnSize(int s) {
         update();
     }
 }
+
 void ToolbarBtn::setIcon(const QString& name) { m_iconName = name; update(); }
 void ToolbarBtn::setActive(bool active) { m_active = active; update(); }
 void ToolbarBtn::mousePressEvent(QMouseEvent* e) { if(e->button()==Qt::LeftButton) emit clicked(); }
 void ToolbarBtn::enterEvent(QEnterEvent*) { m_hover = true; update(); }
 void ToolbarBtn::leaveEvent(QEvent*) { m_hover = false; update(); }
+
+void ToolbarBtn::animateSelect() {
+    QPropertyAnimation* anim = new QPropertyAnimation(this, "pulseScale");
+    anim->setDuration(300);
+    anim->setKeyValueAt(0, 1.0f);
+    anim->setKeyValueAt(0.5, 1.3f);
+    anim->setKeyValueAt(1, 1.0f);
+    anim->setEasingCurve(QEasingCurve::OutBack);
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void ToolbarBtn::paintEvent(QPaintEvent*) {
     QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
     int r = m_size / 5;
-    if (m_active) { p.setBrush(QColor(0x5E5CE6)); p.setPen(Qt::NoPen); p.drawRoundedRect(rect().adjusted(2,2,-2,-2), r, r); }
-    else if (m_hover) { p.setBrush(QColor(255,255,255,30)); p.setPen(Qt::NoPen); p.drawRoundedRect(rect().adjusted(2,2,-2,-2), r, r); }
+    if (m_active) {
+        p.setBrush(QColor(0x5E5CE6)); p.setPen(Qt::NoPen);
+        p.drawRoundedRect(rect().adjusted(4,4,-4,-4), r, r);
+    }
+    else if (m_hover) {
+        p.setBrush(QColor(255,255,255,30)); p.setPen(Qt::NoPen);
+        p.drawRoundedRect(rect().adjusted(4,4,-4,-4), r, r);
+    }
     p.setPen(QPen(Qt::white, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)); p.setBrush(Qt::NoBrush);
     int w = width(); int h = height();
     p.translate(w/2, h/2);
+
     double scale = (double)w / 110.0;
+    scale *= m_pulseScale;
+
     p.scale(scale, scale);
     p.translate(-32, -32);
 
@@ -146,7 +167,6 @@ void ModernToolbar::constrainToParent() {
     if (newY > maxY) newY = maxY;
 
     if (m_style == Radial && m_radialType == HalfEdge) {
-        // Bei HalfEdge regelt snapToEdge X, wir Y
         snapToEdge();
         move(x(), newY);
     } else {
@@ -181,6 +201,11 @@ void ModernToolbar::setToolMode(ToolMode mode) {
     btnPen->setActive(mode == ToolMode::Pen);
     btnEraser->setActive(mode == ToolMode::Eraser);
     btnLasso->setActive(mode == ToolMode::Lasso);
+
+    if (mode == ToolMode::Pen) btnPen->animateSelect();
+    else if (mode == ToolMode::Eraser) btnEraser->animateSelect();
+    else if (mode == ToolMode::Lasso) btnLasso->animateSelect();
+
     update();
 }
 
@@ -224,19 +249,28 @@ void ModernToolbar::snapToEdge() {
     if (!parentWidget()) return;
     int parentW = parentWidget()->width();
     int mid = parentW / 2;
-
-    // Korrektur: Widget bleibt GANZ im Bild.
-    // Links: x=0. Mitte für Zeichnen: 0.
-    // Rechts: x=W-w. Mitte für Zeichnen: w.
+    int targetX = 0;
 
     if (x() + width()/2 < mid) {
-        move(0, y());
+        targetX = 0;
         m_isDockedLeft = true;
     } else {
-        move(parentW - width(), y());
+        targetX = parentW - width();
         m_isDockedLeft = false;
     }
-    updateLayout();
+
+    QPropertyAnimation* anim = new QPropertyAnimation(this, "pos");
+    anim->setDuration(300);
+    anim->setStartValue(pos());
+    anim->setEndValue(QPoint(targetX, y()));
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+
+    connect(anim, &QPropertyAnimation::finished, this, [this](){
+        updateLayout();
+        update();
+    });
+
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void ModernToolbar::wheelEvent(QWheelEvent *e) {
@@ -699,24 +733,27 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
 
     // Drag & Adaptive Check
     if (m_isDragging && (e->buttons() & Qt::LeftButton)) {
-        // Orientierungs-Check bei jedem Move
         if (m_style == Normal) {
             checkOrientation(e->globalPosition().toPoint());
         }
 
         if (!parentWidget()) return;
+
         QPoint newPos = mapToParent(e->pos()) - dragStartPos_;
         int maxY = parentWidget()->height() - height();
+        int maxX = parentWidget()->width() - width();
 
         if (m_style == Radial && m_radialType == HalfEdge) {
-            int x = 0;
-            if (newPos.x() + width()/2 < parentWidget()->width() / 2) x = -width()/2;
-            else x = parentWidget()->width() - width()/2;
-            move(x, qBound(0, newPos.y(), maxY));
-            bool newIsLeft = (x < 0);
-            if (newIsLeft != m_isDockedLeft) { m_isDockedLeft = newIsLeft; updateLayout(); update(); }
+            int limitedX = qBound(-width()/2, newPos.x(), parentWidget()->width() - width()/2);
+            move(limitedX, qBound(0, newPos.y(), maxY));
+
+            bool newIsLeft = (x() + width()/2 < parentWidget()->width() / 2);
+            if (newIsLeft != m_isDockedLeft) {
+                m_isDockedLeft = newIsLeft;
+                updateLayout();
+                update();
+            }
         } else {
-            int maxX = parentWidget()->width() - width();
             move(qBound(0, newPos.x(), maxX), qBound(0, newPos.y(), maxY));
         }
     }
@@ -730,7 +767,12 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
 void ModernToolbar::mouseReleaseEvent(QMouseEvent *) {
     m_isDragging = false;
     m_isResizing = false;
-    constrainToParent();
+
+    if (m_style == Radial && m_radialType == HalfEdge) {
+        snapToEdge();
+    } else {
+        constrainToParent();
+    }
 }
 
 void ModernToolbar::leaveEvent(QEvent *) {

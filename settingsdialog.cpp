@@ -19,21 +19,22 @@ SettingsDialog::SettingsDialog(QWidget *parent) :
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground);
 
-    setupColorButton(ui->btnColorBlue, QColor(0x2D62ED));
-    setupColorButton(ui->btnColorPurple, QColor(0x5E5CE6));
-    setupColorButton(ui->btnColorPink, QColor(0xFF2D55));
-    setupColorButton(ui->btnColorGreen, QColor(0x30D158));
+    // KORREKTUR: Wir löschen KEINE Buttons via setupColorButton mehr, da sie eh entfernt werden.
 
     // SCROLL AREA LOGIK FÜR TAB DESIGN
     QWidget* tabDesign = ui->tabWidget->findChild<QWidget*>("tabDesign");
     if (!tabDesign) tabDesign = ui->tabWidget->widget(0);
 
-    // Alten Layout Inhalt retten? Nein, wir bauen neu auf.
-    // Wir erstellen ein ScrollArea, packen es ins Tab Layout.
+    // KORREKTUR: ALLES löschen, was im Tab ist.
+    // qDeleteAll(children()) löscht alle Kinder (Widgets, Layouts) rekursiv.
+    // Das verhindert die "Geister"-Buttons und das doppelte UI.
+    if (tabDesign) {
+        qDeleteAll(tabDesign->children());
+        // Zur Sicherheit auch das Layout entfernen, falls es separat existiert
+        if (tabDesign->layout()) delete tabDesign->layout();
+    }
 
-    // Bestehendes Layout löschen (clean start)
-    if (tabDesign->layout()) delete tabDesign->layout();
-
+    // Neues Layout aufbauen
     QVBoxLayout* mainTabLay = new QVBoxLayout(tabDesign);
     mainTabLay->setContentsMargins(0,0,0,0);
 
@@ -53,8 +54,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) :
 
     // --- INHALT AUFBAUEN ---
 
-    // 1. UI Modus (Original war im UI file, wir moven es oder bauen neu)
-    // Einfacher: Neu bauen
+    // 1. UI Modus
     QGroupBox* grpUI = new QGroupBox("Benutzeroberfläche", contentWidget);
     grpUI->setStyleSheet("QGroupBox { border: 1px solid #333; border-radius: 8px; font-weight: bold; color: #888; padding-top: 15px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }");
     QVBoxLayout* layUI = new QVBoxLayout(grpUI);
@@ -74,7 +74,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) :
     QVBoxLayout* tbLay = new QVBoxLayout(grpToolbar);
 
     QRadioButton* rNorm = new QRadioButton("Normal (Adaptiv)", grpToolbar);
-    rNorm->setObjectName("radioVert"); // ID behalten für Helper
+    rNorm->setObjectName("radioVert");
     QRadioButton* rFull = new QRadioButton("Radial (Voll)", grpToolbar);
     rFull->setObjectName("radioRadial");
     QRadioButton* rHalf = new QRadioButton("Radial (Halb)", grpToolbar);
@@ -100,9 +100,6 @@ SettingsDialog::SettingsDialog(QWidget *parent) :
 
     // 3. Farben
     contentLay->addWidget(new QLabel("Akzentfarbe:", contentWidget));
-    // (Hier müssten die Farbbuttons rein, der Kürze halber via Code)
-    // Wir nutzen einfach die vom UI File und reparenten sie NICHT (zu komplex),
-    // sondern erstellen neue einfache Buttons.
     QWidget* colorW = new QWidget(contentWidget);
     QHBoxLayout* colorL = new QHBoxLayout(colorW);
     QList<QString> cNames = {"#2D62ED", "#5E5CE6", "#FF2D55", "#30D158"};
@@ -134,9 +131,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) :
 
 SettingsDialog::~SettingsDialog() { delete ui; }
 
-void SettingsDialog::setupColorButton(QPushButton* btn, QColor initialColor) {
-    // Helper nicht mehr nötig mit neuer Logik
-}
+void SettingsDialog::setupColorButton(QPushButton* btn, QColor initialColor) { }
 void SettingsDialog::onColorClicked() { }
 void SettingsDialog::onColorButtonContextMenu(const QPoint &) { }
 
@@ -147,9 +142,7 @@ void SettingsDialog::setGridValues(int itemSize, int spacing) {
     if(s2) { s2->blockSignals(true); s2->setValue(spacing); s2->blockSignals(false); }
 }
 
-void SettingsDialog::setTouchMode(bool enabled) {
-    // Radio Buttons müssten neu gesucht werden da neu erstellt
-}
+void SettingsDialog::setTouchMode(bool enabled) { }
 
 void SettingsDialog::setToolbarConfig(bool isRadial, bool isHalf, int scalePercent) {
     QRadioButton* rVert = this->findChild<QRadioButton*>("radioVert");
@@ -157,7 +150,11 @@ void SettingsDialog::setToolbarConfig(bool isRadial, bool isHalf, int scalePerce
     QRadioButton* rHalf = this->findChild<QRadioButton*>("radioRadialHalf");
     QSlider* sl = this->findChild<QSlider*>("sliderToolbarSize");
 
-    if (sl) { sl->blockSignals(true); sl->setValue(scalePercent); sl->blockSignals(false); }
+    if (sl) {
+        sl->blockSignals(true);
+        sl->setValue(scalePercent);
+        sl->blockSignals(false);
+    }
 
     if (isRadial) {
         if (isHalf && rHalf) rHalf->setChecked(true);

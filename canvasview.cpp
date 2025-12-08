@@ -10,6 +10,7 @@
 #include <cmath>
 #include <QFile>
 #include <QDataStream>
+#include <QInputDevice>
 
 SelectionMenu::SelectionMenu(QWidget* parent) : QWidget(parent) {
     setStyleSheet(
@@ -47,7 +48,8 @@ CanvasView::CanvasView(QWidget *parent)
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
 
-    grabGesture(Qt::PinchGesture);
+    // KORREKTUR: Geste auf dem Viewport registrieren
+    viewport()->grabGesture(Qt::PinchGesture);
 
     setPageFormat(true);
     setMouseTracking(true);
@@ -245,53 +247,105 @@ void CanvasView::wheelEvent(QWheelEvent *event)
 }
 
 void CanvasView::mousePressEvent(QMouseEvent *event) {
-    bool isTouch = (event->source() == Qt::MouseEventSynthesizedBySystem);
+    const QInputDevice* dev = event->device();
+    bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
+    if (!isTouch && event->source() == Qt::MouseEventSynthesizedBySystem) {
+        isTouch = true;
+    }
 
-    if (m_penOnlyMode && isTouch) { m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return; }
-    if (event->button() == Qt::MiddleButton) { m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return; }
+    if (m_penOnlyMode && isTouch) {
+        m_isPanning = true;
+        m_lastPanPos = event->pos();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::MiddleButton) {
+        m_isPanning = true;
+        m_lastPanPos = event->pos();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
 
     if (event->button() == Qt::LeftButton) {
         QPointF scenePos = mapToScene(event->pos());
         if (m_selectionMenu->isVisible() && !itemAt(event->pos())) m_selectionMenu->hide();
         if (!m_isInfinite && !m_a4Rect.contains(scenePos)) return;
 
-        if (m_currentTool == ToolType::Select) { QGraphicsView::mousePressEvent(event); return; }
-        else if (m_currentTool == ToolType::Pen) {
-            m_isDrawing = true; m_currentPath = QPainterPath(); m_currentPath.moveTo(scenePos);
-            m_currentItem = m_scene->addPath(m_currentPath, QPen(m_penColor, m_penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-            m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable); m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem); event->accept(); return;
+        if (m_currentTool == ToolType::Select) {
+            QGraphicsView::mousePressEvent(event);
+            return;
         }
-        else if (m_currentTool == ToolType::Eraser) { m_isDrawing = true; applyEraser(scenePos); event->accept(); return; }
-        else if (m_currentTool == ToolType::Lasso) { m_isDrawing = true; clearSelection(); m_currentPath = QPainterPath(); m_currentPath.moveTo(scenePos); m_lassoItem = m_scene->addPath(m_currentPath, QPen(QColor(0x5E5CE6), 2, Qt::DashLine)); event->accept(); return; }
+        else if (m_currentTool == ToolType::Pen) {
+            m_isDrawing = true;
+            m_currentPath = QPainterPath();
+            m_currentPath.moveTo(scenePos);
+            m_currentItem = m_scene->addPath(m_currentPath, QPen(m_penColor, m_penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
+            m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
+            qDeleteAll(m_redoList);
+            m_redoList.clear();
+            m_undoList.append(m_currentItem);
+            event->accept();
+            return;
+        }
+        else if (m_currentTool == ToolType::Eraser) {
+            m_isDrawing = true;
+            applyEraser(scenePos);
+            event->accept();
+            return;
+        }
+        else if (m_currentTool == ToolType::Lasso) {
+            m_isDrawing = true;
+            clearSelection();
+            m_currentPath = QPainterPath();
+            m_currentPath.moveTo(scenePos);
+            m_lassoItem = m_scene->addPath(m_currentPath, QPen(QColor(0x5E5CE6), 2, Qt::DashLine));
+            event->accept();
+            return;
+        }
     }
     QGraphicsView::mousePressEvent(event);
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event) {
     if (m_isPanning) {
-        QPoint delta = event->pos() - m_lastPanPos; m_lastPanPos = event->pos();
+        QPoint delta = event->pos() - m_lastPanPos;
+        m_lastPanPos = event->pos();
 
         if (!m_isInfinite) {
             QScrollBar *vb = verticalScrollBar();
             if (vb->value() >= vb->maximum() && delta.y() < 0) {
-                m_pullDistance += std::abs(delta.y()) * 0.5; viewport()->update();
+                m_pullDistance += std::abs(delta.y()) * 0.5;
+                viewport()->update();
                 if (m_pullDistance > 250.0f) { addNewPage(); m_pullDistance = 0; }
-                event->accept(); return;
+                event->accept();
+                return;
             } else {
                 if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
             }
         }
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-        event->accept(); return;
+        event->accept();
+        return;
     }
 
     QPointF scenePos = mapToScene(event->pos());
     if (m_isDrawing) {
-        if (m_currentTool == ToolType::Pen && m_currentItem) { m_currentPath.lineTo(scenePos); m_currentItem->setPath(m_currentPath); }
-        else if (m_currentTool == ToolType::Eraser) { applyEraser(scenePos); }
-        else if (m_currentTool == ToolType::Lasso && m_lassoItem) { m_currentPath.lineTo(scenePos); m_lassoItem->setPath(m_currentPath); }
+        if (m_currentTool == ToolType::Pen && m_currentItem) {
+            m_currentPath.lineTo(scenePos);
+            m_currentItem->setPath(m_currentPath);
+        }
+        else if (m_currentTool == ToolType::Eraser) {
+            applyEraser(scenePos);
+        }
+        else if (m_currentTool == ToolType::Lasso && m_lassoItem) {
+            m_currentPath.lineTo(scenePos);
+            m_lassoItem->setPath(m_currentPath);
+        }
         event->accept();
     } else {
         QGraphicsView::mouseMoveEvent(event);
@@ -299,20 +353,30 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
-    bool isTouch = (event->source() == Qt::MouseEventSynthesizedBySystem);
+    const QInputDevice* dev = event->device();
+    bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
+    if (!isTouch && event->source() == Qt::MouseEventSynthesizedBySystem) isTouch = true;
+
     if (m_penOnlyMode && isTouch) {
-        m_isPanning = false; if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
-        setTool(m_currentTool); event->accept(); return;
+        m_isPanning = false;
+        if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
+        setTool(m_currentTool);
+        event->accept();
+        return;
     }
     if (event->button() == Qt::MiddleButton) {
-        m_isPanning = false; if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
-        setTool(m_currentTool); event->accept(); return;
+        m_isPanning = false;
+        if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
+        setTool(m_currentTool);
+        event->accept();
+        return;
     }
     if (event->button() == Qt::LeftButton) {
         if (m_currentTool == ToolType::Lasso && m_isDrawing) finishLasso();
         if (!m_scene->selectedItems().isEmpty()) updateSelectionMenuPosition();
         if (m_isDrawing) { emit contentModified(); }
-        m_isDrawing = false; m_currentItem = nullptr;
+        m_isDrawing = false;
+        m_currentItem = nullptr;
     }
     QGraphicsView::mouseReleaseEvent(event);
 }

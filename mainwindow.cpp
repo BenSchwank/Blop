@@ -953,7 +953,7 @@ void MainWindow::setupRightSidebar() {
     connect(m_comboToolbarStyle, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) {
-            if (index == 0) tb->setStyle(ModernToolbar::Vertical);
+            if (index == 0) tb->setStyle(ModernToolbar::Normal);
             else if (index == 1) {
                 tb->setStyle(ModernToolbar::Radial);
                 tb->setRadialType(ModernToolbar::FullCircle);
@@ -1097,7 +1097,7 @@ void MainWindow::onToggleRightSidebar() {
 
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) {
-            if (tb->currentStyle() == ModernToolbar::Vertical) {
+            if (tb->currentStyle() == ModernToolbar::Normal) {
                 m_comboToolbarStyle->setCurrentIndex(0);
             } else {
                 if (tb->radialType() == ModernToolbar::FullCircle) m_comboToolbarStyle->setCurrentIndex(1);
@@ -1273,7 +1273,7 @@ void MainWindow::onOpenSettings() {
     connect(&dlg, &SettingsDialog::gridSpacingChanged, this, &MainWindow::onGridSpacingChanged);
 
     connect(&dlg, &SettingsDialog::toolbarStyleChanged, [this, toolbar](bool radial){
-        if(toolbar) toolbar->setStyle(radial ? ModernToolbar::Radial : ModernToolbar::Vertical);
+        if(toolbar) toolbar->setStyle(radial ? ModernToolbar::Radial : ModernToolbar::Normal);
     });
 
     connect(&dlg, &SettingsDialog::toolbarScaleChanged, [toolbar](int percent){
@@ -1328,7 +1328,7 @@ void MainWindow::onToolSelect() {
 
 void MainWindow::onToolPen() {
     if (m_activeToolType == CanvasView::ToolType::Pen) {
-      //  showPenSettingsMenu();
+        //  showPenSettingsMenu();
     } else {
         setActiveTool(CanvasView::ToolType::Pen);
     }
@@ -1386,4 +1386,3 @@ void MainWindow::onTabChanged(int index) {
 }
 
 //void MainWindow::onToggleFormat() {}
-
