@@ -8,9 +8,8 @@ int main(int argc, char *argv[])
 
     MainWindow w;
 
-    // Auf Android startet Qt Apps automatisch im Vollbild,
-    // auf Windows zeigen wir es als normales Fenster.
-    w.show();
+    // ÄNDERUNG: Statt w.show() nutzen wir w.showMaximized()
+    w.showMaximized();
 
     return a.exec();
 }

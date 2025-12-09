@@ -15,6 +15,10 @@ public:
     explicit ToolbarBtn(const QString& iconName, QWidget* parent = nullptr);
     void setIcon(const QString& name);
     void setActive(bool active);
+
+    // NEU: Für den visuellen "Gedrückt"-Effekt beim Tippen
+    void setPressedState(bool pressed);
+
     void setBtnSize(int s);
     QString iconName() const { return m_iconName; }
 
@@ -22,16 +26,21 @@ public:
     float pulseScale() const { return m_pulseScale; }
     void setPulseScale(float s) { m_pulseScale = s; update(); }
 
-signals:
-    void clicked();
 protected:
     void paintEvent(QPaintEvent*) override;
+
+    // WICHTIG: Wir ignorieren Events hier, damit die Toolbar sie bekommt
     void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
+
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
+
 private:
     QString m_iconName;
-    bool m_active{false};
+    bool m_active{false}; // Ist das Tool ausgewählt?
+    bool m_pressed{false}; // Wird der Button gerade gedrückt? (Visuell)
     bool m_hover{false};
     int m_size{40};
     float m_pulseScale{1.0f};
@@ -39,11 +48,11 @@ private:
 
 class ModernToolbar : public QWidget {
     Q_OBJECT
-    Q_PROPERTY(QSize size READ size WRITE resize) // Für Animation
+    Q_PROPERTY(QSize size READ size WRITE resize)
 public:
-    enum Style { Normal, Radial }; // "Vertical" heißt jetzt "Normal"
+    enum Style { Normal, Radial };
     enum RadialType { FullCircle, HalfEdge };
-    enum Orientation { Vertical, Horizontal }; // Neu für Adaptive Toolbar
+    enum Orientation { Vertical, Horizontal };
 
     enum class SettingsState {
         Closed, Main, ColorSelect, SizeSelect, EraserMode, LassoMode
@@ -94,7 +103,7 @@ protected:
 private:
     Style m_style{Normal};
     RadialType m_radialType{FullCircle};
-    Orientation m_orientation{Vertical}; // Aktuelle Ausrichtung
+    Orientation m_orientation{Vertical};
 
     ToolMode mode_{ToolMode::Pen};
     ToolConfig m_config;
@@ -107,6 +116,13 @@ private:
     bool m_isDragging{false};
     bool m_isResizing{false};
     bool m_draggable{true};
+
+    bool m_isScrolling{false};
+    double m_lastInteractionAngle{0.0};
+
+    // NEU: Um zu unterscheiden ob wir Scrollen oder Klicken wollen
+    ToolbarBtn* m_highlightedBtn{nullptr}; // Der Button, der gerade gedrückt wird
+    QPoint m_pressPos; // Wo ging der Finger runter?
 
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
@@ -125,16 +141,19 @@ private:
 
     void updateLayout(bool animate = false);
     void snapToEdge();
-    void checkOrientation(const QPoint& globalPos); // Prüft Drehung
+    void checkOrientation(const QPoint& globalPos);
     void setOrientation(Orientation o);
 
     void reorderButtons();
     ToolbarBtn* getButtonForMode(ToolMode m);
+
+    // Helper: Button-Klick auslösen
+    void triggerButtonAction(ToolbarBtn* btn);
 
     void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int innerR, int outerR);
     void showVerticalPopup();
 
-    int calculateMinLength(); // Min Höhe (oder Breite bei Horizontal)
+    int calculateMinLength();
 };

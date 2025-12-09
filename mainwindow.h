@@ -19,9 +19,11 @@
 #include <QTimer>
 #include <QLabel>
 #include <QComboBox>
+#include <QCheckBox> // NEU
 
 #include "freegridview.h"
 #include "canvasview.h"
+#include "UiProfileManager.h"
 
 class MainWindow;
 
@@ -87,7 +89,8 @@ public:
     QIcon createModernIcon(const QString &name, const QColor &color);
     QColor currentAccentColor() const { return m_currentAccentColor; }
 
-    bool isTouchMode() const { return m_touchMode; }
+    bool isTouchMode() const { return m_currentProfile.isTouchOptimized; }
+    UiProfile currentProfile() const { return m_currentProfile; }
 
     void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
     void startRename(const QModelIndex &index);
@@ -109,7 +112,8 @@ private slots:
 
     void updateTheme(QColor accentColor);
     void updateInputMode(bool penOnly);
-    void updateUiMode(bool touchMode);
+
+    void applyProfile(const UiProfile& profile);
 
     void onFolderSelected(const QModelIndex &index);
     void onFileDoubleClicked(const QModelIndex &index);
@@ -208,9 +212,12 @@ private:
     QPushButton *m_btnColorDark;
     QPushButton *m_btnInputPen;
     QPushButton *m_btnInputTouch;
-    QPushButton *m_btnUiDesktop;
-    QPushButton *m_btnUiTouch;
 
+    // Hintergrund Einstellung
+    QComboBox* m_comboPageStyle; // NEU
+    QCheckBox* m_checkPageStyleCurrent; // NEU
+
+    QComboBox *m_comboProfiles;
     QComboBox *m_comboToolbarStyle;
     QSlider *m_sliderToolbarScale;
 
@@ -230,7 +237,8 @@ private:
     int m_currentSpacing;
 
     bool m_penOnlyMode;
-    bool m_touchMode;
+
+    UiProfile m_currentProfile;
 
     QTimer *m_autoSaveTimer;
 
