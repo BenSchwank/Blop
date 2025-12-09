@@ -5,9 +5,11 @@
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QTabletEvent>
-#include <functional> // Wichtig
+#include <QElapsedTimer> // NEU
+#include <functional>
 #include "Note.h"
 #include "ToolMode.h"
+#include "KineticPredictor.h" // NEU
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
@@ -37,7 +39,7 @@ protected:
 
 private:
     QGraphicsScene scene_;
-    Note* note_{nullptr}; // <--- Hier definiert
+    Note* note_{nullptr};
     ToolMode mode_{ToolMode::Pen};
     qreal zoom_{1.0};
     bool drawing_{false};
@@ -49,6 +51,12 @@ private:
 
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
+
+    // --- NEU FÜR KINETIC ENGINE ---
+    KineticPredictor m_predictor;
+    QElapsedTimer m_timer;
+    QGraphicsPathItem* m_phantomPathItem_{nullptr}; // Zeigt die Vorhersage (Phantom Ink)
+    // ------------------------------
 
     void layoutPages();
     void ensureOverscrollPage();

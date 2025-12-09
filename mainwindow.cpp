@@ -29,7 +29,6 @@
 #include <QTimer>
 #include <QPropertyAnimation>
 #include <QComboBox>
-#include <QScrollArea>
 #include <utility>
 
 // --- SidebarItemDelegate ---
@@ -152,10 +151,7 @@ ModernItemDelegate::ModernItemDelegate(MainWindow *parent)
 QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const
 {
     QSize size = QStyledItemDelegate::sizeHint(option, index);
-
-    int h = m_window->currentProfile().gridItemHeight;
-    size.setHeight(h);
-
+    size.setHeight(m_window->isTouchMode() ? 70 : 48);
     if (const FreeGridView *view = qobject_cast<const FreeGridView*>(option.widget)) {
         size.setWidth(view->itemSize().width());
     }
@@ -181,21 +177,16 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
     if (icon.isNull()) icon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
 
-    int iconSize = m_window->currentProfile().folderIconSize;
-    if (iconSize < 16) iconSize = 16;
-
-    QRect iconRect(0, 0, iconSize, iconSize);
-    iconRect.moveCenter(QPoint(rect.center().x(), rect.top() + rect.height() / 2 - 8));
+    int iconSize = m_window->isTouchMode() ? 36 : 28;
+    QRect iconRect(rect.left() + 10, rect.center().y() - iconSize/2, iconSize, iconSize);
 
     painter->setBrush(QColor(255, 255, 255, 10));
     painter->drawEllipse(iconRect.adjusted(-4,-4,4,4));
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 
     QRect textRect = rect;
-    textRect.setTop(iconRect.bottom() + 4);
-    textRect.setLeft(rect.left() + 4);
-    textRect.setRight(rect.right() - 4);
-    textRect.setBottom(rect.bottom() - 2);
+    textRect.setLeft(iconRect.right() + 20);
+    textRect.setRight(rect.right() - 40);
 
     painter->setPen(Qt::white);
     QFont f = painter->font();
@@ -205,13 +196,11 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
     QString text = index.data(Qt::DisplayRole).toString();
     QString elidedText = painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width());
-    painter->drawText(textRect, Qt::AlignTop | Qt::AlignHCenter, elidedText);
+    painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, elidedText);
 
-    if (rect.width() > 60) {
-        QIcon menuIcon = m_window->createModernIcon("more_vert", Qt::gray);
-        QRect menuRect(rect.right() - 24, rect.top() + 4, 20, 20);
-        menuIcon.paint(painter, menuRect, Qt::AlignCenter);
-    }
+    QIcon menuIcon = m_window->createModernIcon("more_vert", Qt::gray);
+    QRect menuRect(rect.right() - 35, rect.center().y() - 12, 24, 24);
+    menuIcon.paint(painter, menuRect, Qt::AlignCenter);
 
     painter->restore();
 }
@@ -221,7 +210,8 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
     if (event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent *me = static_cast<QMouseEvent*>(event);
         QRect rect = option.rect;
-        QRect menuRect(rect.right() - 30, rect.top(), 30, 30);
+        int clickArea = 50;
+        QRect menuRect(rect.right() - clickArea, rect.top(), clickArea, rect.height());
         if (menuRect.contains(me->pos())) {
             m_window->showContextMenu(QCursor::pos(), index);
             return true;
@@ -250,6 +240,7 @@ void ModernButton::paintEvent(QPaintEvent *) {
 
 // --- MainWindow ---
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(nullptr) {
+    // FRAMELESS WINDOW SETZEN
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
 
     m_currentAccentColor = QColor(0x5E5CE6);
@@ -257,14 +248,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_penWidth = 3;
     m_activeToolType = CanvasView::ToolType::Pen;
     m_penOnlyMode = true;
+    m_touchMode = false;
     m_lblActiveNote = nullptr;
     m_isSidebarOpen = true;
 
-    m_currentProfile = UiProfileManager::instance().currentProfile();
-    connect(&UiProfileManager::instance(), &UiProfileManager::activeProfileChanged, this, &MainWindow::applyProfile);
-
-    m_currentItemSize = m_currentProfile.gridItemSize;
-    m_currentSpacing = m_currentProfile.gridSpacing;
+    m_currentItemSize = 180;
+    m_currentSpacing = 20;
 
     m_autoSaveTimer = new QTimer(this);
     m_autoSaveTimer->setInterval(1500);
@@ -281,6 +270,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 }
 MainWindow::~MainWindow() {}
 
+// NEU: Title Bar Setup
 void MainWindow::setupTitleBar() {
     m_titleBarWidget = new QWidget(this);
     m_titleBarWidget->setFixedHeight(30);
@@ -290,28 +280,33 @@ void MainWindow::setupTitleBar() {
     layout->setContentsMargins(10, 0, 0, 0);
     layout->setSpacing(0);
 
+    // Title Icon/Text
     QLabel* lblTitle = new QLabel("Blop", m_titleBarWidget);
     lblTitle->setStyleSheet("color: #888; font-weight: bold;");
     layout->addWidget(lblTitle);
     layout->addStretch();
 
+    // Buttons Style
     QString btnStyle = "QPushButton { background: transparent; border: none; color: #BBB; font-family: 'Segoe MDL2 Assets'; font-size: 12px; } "
                        "QPushButton:hover { background: #252526; color: white; }";
     QString closeStyle = "QPushButton { background: transparent; border: none; color: #BBB; font-family: 'Segoe MDL2 Assets'; font-size: 12px; } "
                          "QPushButton:hover { background: #E81123; color: white; }";
 
+    // Minimize
     m_btnWinMin = new QPushButton("─", m_titleBarWidget);
     m_btnWinMin->setFixedSize(45, 30);
     m_btnWinMin->setStyleSheet(btnStyle);
     connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
     layout->addWidget(m_btnWinMin);
 
+    // Maximize
     m_btnWinMax = new QPushButton("☐", m_titleBarWidget);
     m_btnWinMax->setFixedSize(45, 30);
     m_btnWinMax->setStyleSheet(btnStyle);
     connect(m_btnWinMax, &QPushButton::clicked, this, &MainWindow::onWinMaximize);
     layout->addWidget(m_btnWinMax);
 
+    // Close
     m_btnWinClose = new QPushButton("✕", m_titleBarWidget);
     m_btnWinClose->setFixedSize(45, 30);
     m_btnWinClose->setStyleSheet(closeStyle);
@@ -319,10 +314,20 @@ void MainWindow::setupTitleBar() {
     layout->addWidget(m_btnWinClose);
 }
 
-void MainWindow::onWinMinimize() { showMinimized(); }
-void MainWindow::onWinClose() { close(); }
-void MainWindow::onWinMaximize() { if (isMaximized()) showNormal(); else showMaximized(); }
+void MainWindow::onWinMinimize() {
+    showMinimized();
+}
 
+void MainWindow::onWinClose() {
+    close();
+}
+
+void MainWindow::onWinMaximize() {
+    if (isMaximized()) showNormal();
+    else showMaximized();
+}
+
+// NEU: Maus Events für Fensterbewegung
 void MainWindow::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         if (m_titleBarWidget && m_titleBarWidget->geometry().contains(event->pos())) {
@@ -347,24 +352,35 @@ void MainWindow::mouseMoveEvent(QMouseEvent *event) {
     QMainWindow::mouseMoveEvent(event);
 }
 
-void MainWindow::onContentModified() { m_autoSaveTimer->start(); }
+void MainWindow::onContentModified() {
+    m_autoSaveTimer->start();
+}
+
 void MainWindow::performAutoSave() {
     CanvasView* cv = getCurrentCanvas();
-    if (cv) { cv->saveToFile(); }
+    if (cv) {
+        cv->saveToFile();
+    }
 }
 
 CanvasView* MainWindow::getCurrentCanvas() {
     QWidget* current = m_editorTabs->currentWidget();
-    if (current) { return qobject_cast<CanvasView*>(current); }
+    if (current) {
+        return qobject_cast<CanvasView*>(current);
+    }
     return nullptr;
 }
 
-void MainWindow::onToggleFloatingTools() {}
+void MainWindow::onToggleFloatingTools() {
+    // Empty slot to satisfy connection
+}
 
 void MainWindow::applyTheme() {
     QString c = m_currentAccentColor.name(); QString c_light = m_currentAccentColor.lighter(130).name();
 
-    if (m_fileListView) { m_fileListView->setAccentColor(m_currentAccentColor); }
+    if (m_fileListView) {
+        m_fileListView->setAccentColor(m_currentAccentColor);
+    }
 
     QString style = QString(
                         "QMainWindow { background-color: #0F111A; } "
@@ -383,14 +399,20 @@ void MainWindow::applyTheme() {
     if(m_sidebarHeader) m_sidebarHeader->setStyleSheet("background-color: #161925;");
     if(m_sidebarStrip) m_sidebarStrip->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
 
-    if(m_folderTree) { m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }"); }
+    if(m_folderTree) {
+        m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }");
+    }
+
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
+
     if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
 
     QString fabStyle = QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: 28px; font-size: 32px; font-weight: 300; border: none; }").arg(c, c_light);
     if(m_fabNote) m_fabNote->setStyleSheet(fabStyle);
+
     if(m_fabFolder) {
-        QString s = fabStyle; s.replace("28px","20px"); s.replace("32px","24px");
+        QString s = fabStyle;
+        s.replace("28px","20px"); s.replace("32px","24px");
         m_fabFolder->setStyleSheet(s);
     }
 }
@@ -398,7 +420,6 @@ void MainWindow::applyTheme() {
 void MainWindow::updateTheme(QColor accentColor) {
     m_currentAccentColor = accentColor;
     applyTheme();
-    applyUiScaling();
 }
 
 void MainWindow::onItemSizeChanged(int value) {
@@ -413,7 +434,10 @@ void MainWindow::onGridSpacingChanged(int value) {
 
 void MainWindow::updateGrid() {
     if (m_fileListView) {
-        QSize itemS(m_currentItemSize, m_currentProfile.gridItemHeight);
+        int h = m_touchMode ? 80 : 60;
+        if (m_currentItemSize > 200) h += 20;
+
+        QSize itemS(m_currentItemSize, h);
         m_fileListView->setItemSize(itemS);
 
         int gridW = itemS.width() + m_currentSpacing;
@@ -423,30 +447,22 @@ void MainWindow::updateGrid() {
     }
 }
 
-void MainWindow::applyProfile(const UiProfile& profile) {
-    m_currentProfile = profile;
+void MainWindow::updateUiMode(bool touchMode) {
+    m_touchMode = touchMode;
     applyUiScaling();
-
-    if (m_comboProfiles) {
-        int idx = m_comboProfiles->findData(profile.id);
-        if (idx >= 0 && idx != m_comboProfiles->currentIndex()) {
-            m_comboProfiles->blockSignals(true);
-            m_comboProfiles->setCurrentIndex(idx);
-            m_comboProfiles->blockSignals(false);
-        }
+    if (m_rightSidebar && m_rightSidebar->isVisible()) {
+        m_btnUiDesktop->setChecked(!m_touchMode);
+        m_btnUiTouch->setChecked(m_touchMode);
     }
 }
 
 void MainWindow::applyUiScaling() {
-    int uiIconS = m_currentProfile.uiIconSize;
-    if (uiIconS < 16) uiIconS = 16;
-
-    m_currentItemSize = m_currentProfile.gridItemSize;
-    m_currentSpacing = m_currentProfile.gridSpacing;
+    int iconS = m_touchMode ? 32 : 24;
+    int tbH = m_touchMode ? 80 : 60;
 
     const auto buttons = this->findChildren<ModernButton*>();
     for (ModernButton* btn : std::as_const(buttons)) {
-        btn->setIconSize(QSize(uiIconS, uiIconS));
+        btn->setIconSize(QSize(iconS, iconS));
     }
 
     if (m_sidebarHeader) m_sidebarHeader->setFixedHeight(60);
@@ -454,15 +470,13 @@ void MainWindow::applyUiScaling() {
     updateGrid();
     if (m_fileListView) m_fileListView->viewport()->update();
 
-    int fabS = m_currentProfile.buttonSize + 16;
+    int fabS = m_touchMode ? 70 : 56;
     if (m_fabNote) {
         m_fabNote->setFixedSize(fabS, fabS);
-        QString radius = QString::number(fabS / 2) + "px";
-        QString fontSize = QString::number(fabS / 2 - 4) + "px";
-
-        QString style = QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3; font-size: %4; font-weight: 300; border: none; }")
-                            .arg(m_currentAccentColor.name(), m_currentAccentColor.lighter(130).name(), radius, fontSize);
-        m_fabNote->setStyleSheet(style);
+        QString fabStyle = m_fabNote->styleSheet();
+        if(m_touchMode) fabStyle.replace("32px", "40px");
+        else fabStyle.replace("40px", "32px");
+        m_fabNote->setStyleSheet(fabStyle);
     }
 
     QEvent resizeEv(QEvent::Resize);
@@ -507,8 +521,10 @@ void MainWindow::createDefaultFolder() {
 }
 
 void MainWindow::setupUi() {
+    // NEU: Setup TitleBar
     setupTitleBar();
 
+    // Central Container für alles unter der Titlebar
     m_centralContainer = new QWidget(this);
     setCentralWidget(m_centralContainer);
 
@@ -607,24 +623,29 @@ void MainWindow::setupUi() {
     connect(m_editorTabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
     centerLayout->addWidget(m_editorTabs);
 
+    // --- ModernToolbar Integration ---
     ModernToolbar* overlayToolbar = new ModernToolbar(m_editorCenterWidget);
     overlayToolbar->move(20, 80);
     overlayToolbar->hide();
 
     m_floatingTools = overlayToolbar;
 
+    // Connects
     connect(overlayToolbar, &ModernToolbar::toolChanged, [this](ToolMode m){
         setActiveTool((CanvasView::ToolType)m);
     });
     connect(overlayToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo);
     connect(overlayToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
 
+    // Neue Settings Connects
     connect(overlayToolbar, &ModernToolbar::penConfigChanged, [this](QColor c, int w){
-        m_penColor = c; m_penWidth = w;
+        m_penColor = c;
+        m_penWidth = w;
         CanvasView* cv = getCurrentCanvas();
         if(cv) { cv->setPenColor(c); cv->setPenWidth(w); }
     });
 
+    // Scale Sync
     connect(overlayToolbar, &ModernToolbar::scaleChanged, [this](qreal newScale){
         if(m_sliderToolbarScale) {
             m_sliderToolbarScale->blockSignals(true);
@@ -687,25 +708,31 @@ void MainWindow::setupSidebar() {
 
     layout->addWidget(m_sidebarHeader);
 
+    // Tree View Setup
     m_folderTree = new QTreeView(m_sidebarContainer);
     m_folderTree->setModel(m_fileModel);
     m_folderTree->setRootIndex(m_fileModel->index(m_rootPath));
 
     m_folderTree->setRootIsDecorated(false);
     m_folderTree->setHeaderHidden(true);
+
     m_folderTree->setColumnHidden(1, true);
     m_folderTree->setColumnHidden(2, true);
     m_folderTree->setColumnHidden(3, true);
+
     m_folderTree->setMouseTracking(true);
     m_folderTree->viewport()->setAttribute(Qt::WA_Hover);
     m_folderTree->setIndentation(0);
     m_folderTree->setUniformRowHeights(true);
     m_folderTree->setItemDelegate(new SidebarItemDelegate(this));
+
     m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu);
     m_folderTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(m_folderTree, &QWidget::customContextMenuRequested, this, &MainWindow::onSidebarContextMenu);
+
     connect(m_folderTree, &QTreeView::clicked, this, &MainWindow::onFolderSelected);
     connect(m_folderTree, &QTreeView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
+
     m_folderTree->setDragEnabled(true);
     m_folderTree->setAcceptDrops(true);
     m_folderTree->setDropIndicatorShown(true);
@@ -736,7 +763,11 @@ void MainWindow::onSidebarContextMenu(const QPoint &pos) {
         QString path = m_fileModel->filePath(index);
         QMessageBox::StandardButton res = QMessageBox::question(this, "Löschen", "Wirklich löschen?");
         if (res == QMessageBox::Yes) {
-            if (m_fileModel->isDir(index)) { QDir(path).removeRecursively(); } else { QFile::remove(path); }
+            if (m_fileModel->isDir(index)) {
+                QDir(path).removeRecursively();
+            } else {
+                QFile::remove(path);
+            }
         }
     });
     menu.exec(m_folderTree->mapToGlobal(pos));
@@ -757,7 +788,11 @@ void MainWindow::performCopy(const QModelIndex &index) {
         dstPath = info.dir().filePath(newName);
     }
 
-    if (info.isDir()) { copyRecursive(srcPath, dstPath); } else { QFile::copy(srcPath, dstPath); }
+    if (info.isDir()) {
+        copyRecursive(srcPath, dstPath);
+    } else {
+        QFile::copy(srcPath, dstPath);
+    }
 }
 
 bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
@@ -767,8 +802,11 @@ bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
     for (const QString &entry : dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
         QString srcItem = src + "/" + entry;
         QString dstItem = dst + "/" + entry;
-        if (QFileInfo(srcItem).isDir()) { if (!copyRecursive(srcItem, dstItem)) return false; }
-        else { if (!QFile::copy(srcItem, dstItem)) return false; }
+        if (QFileInfo(srcItem).isDir()) {
+            if (!copyRecursive(srcItem, dstItem)) return false;
+        } else {
+            if (!QFile::copy(srcItem, dstItem)) return false;
+        }
     }
     return true;
 }
@@ -785,6 +823,7 @@ void MainWindow::onNavigateUp() {
 void MainWindow::updateOverviewBackButton() {
     QModelIndex current = m_fileListView->rootIndex();
     QModelIndex root = m_fileModel->index(m_rootPath);
+
     bool canGoUp = (current != root && current.isValid());
     btnBackOverview->setVisible(canGoUp);
 }
@@ -794,21 +833,11 @@ void MainWindow::setupRightSidebar() {
     m_rightSidebar->setFixedWidth(250);
     m_rightSidebar->hide();
 
-    // -- NEU: Wir packen den Inhalt in eine QScrollArea --
+    QVBoxLayout *layout = new QVBoxLayout(m_rightSidebar);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(15);
 
-    // Haupt-Layout der Sidebar
-    QVBoxLayout *mainLayout = new QVBoxLayout(m_rightSidebar);
-    mainLayout->setContentsMargins(0,0,0,0);
-    mainLayout->setSpacing(0);
-
-    // 1. Header (fixiert, scrollt nicht mit)
-    QWidget* headerWidget = new QWidget(m_rightSidebar);
-    headerWidget->setFixedHeight(50);
-    headerWidget->setStyleSheet("background-color: #161925; border-bottom: 1px solid #1F2335;");
-
-    QHBoxLayout *header = new QHBoxLayout(headerWidget);
-    header->setContentsMargins(20, 0, 10, 0);
-
+    QHBoxLayout *header = new QHBoxLayout;
     QLabel *title = new QLabel("Einstellungen");
     title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;");
     header->addWidget(title);
@@ -820,39 +849,23 @@ void MainWindow::setupRightSidebar() {
     connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar);
     header->addWidget(closeBtn);
 
-    mainLayout->addWidget(headerWidget);
+    layout->addLayout(header);
 
-    // 2. Scroll Area für den Inhalt
-    QScrollArea* scroll = new QScrollArea(m_rightSidebar);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    // Scrollbar-Style
-    scroll->setStyleSheet("QScrollArea { background: transparent; } QScrollBar:vertical { width: 8px; background: #161925; } QScrollBar::handle:vertical { background: #333; border-radius: 4px; }");
-
-    // Der eigentliche Content-Widget
-    QWidget* content = new QWidget();
-    content->setStyleSheet("background-color: #161925;");
-    QVBoxLayout *layout = new QVBoxLayout(content);
-    layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(15);
-
-    // --- Ab hier der alte Inhalt in 'layout' ---
-
-    m_lblActiveNote = new QLabel("Keine Notiz", content);
+    m_lblActiveNote = new QLabel("Keine Notiz", m_rightSidebar);
     m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;");
     m_lblActiveNote->setWordWrap(true);
     m_lblActiveNote->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_lblActiveNote);
 
-    layout->addWidget(new QLabel("Seitenformat:", content));
-    m_btnFormatInfinite = new QPushButton("Unendlich", content);
+    layout->addWidget(new QLabel("Seitenformat:", m_rightSidebar));
+    m_btnFormatInfinite = new QPushButton("Unendlich");
     m_btnFormatInfinite->setCheckable(true);
     m_btnFormatInfinite->setChecked(true);
     m_btnFormatInfinite->setCursor(Qt::PointingHandCursor);
     m_btnFormatInfinite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnFormatInfinite, &QPushButton::clicked, [this](){ setCanvasFormat(true); });
 
-    m_btnFormatA4 = new QPushButton("DIN A4", content);
+    m_btnFormatA4 = new QPushButton("DIN A4");
     m_btnFormatA4->setCheckable(true);
     m_btnFormatA4->setCursor(Qt::PointingHandCursor);
     m_btnFormatA4->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
@@ -866,15 +879,15 @@ void MainWindow::setupRightSidebar() {
     layout->addWidget(m_btnFormatInfinite);
     layout->addWidget(m_btnFormatA4);
 
-    layout->addWidget(new QLabel("Seitenfarbe:", content));
-    m_btnColorWhite = new QPushButton("Hell", content);
+    layout->addWidget(new QLabel("Seitenfarbe:", m_rightSidebar));
+    m_btnColorWhite = new QPushButton("Hell");
     m_btnColorWhite->setCheckable(true);
     m_btnColorWhite->setChecked(true);
     m_btnColorWhite->setCursor(Qt::PointingHandCursor);
     m_btnColorWhite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnColorWhite, &QPushButton::clicked, [this](){ setPageColor(false); });
 
-    m_btnColorDark = new QPushButton("Dunkel", content);
+    m_btnColorDark = new QPushButton("Dunkel");
     m_btnColorDark->setCheckable(true);
     m_btnColorDark->setCursor(Qt::PointingHandCursor);
     m_btnColorDark->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
@@ -888,35 +901,15 @@ void MainWindow::setupRightSidebar() {
     layout->addWidget(m_btnColorWhite);
     layout->addWidget(m_btnColorDark);
 
-    // Hintergrundmuster
-    layout->addWidget(new QLabel("Hintergrundmuster:", content));
-    m_comboPageStyle = new QComboBox(content);
-    m_comboPageStyle->addItems({"Leer", "Liniert", "Kariert", "Gepunktet"});
-    m_comboPageStyle->setStyleSheet("QComboBox { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; } QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }");
-
-    m_checkPageStyleCurrent = new QCheckBox("Nur aktuelle Seite ändern", content);
-    m_checkPageStyleCurrent->setStyleSheet("QCheckBox { color: #DDD; } QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #555; border-radius: 3px; } QCheckBox::indicator:checked { background-color: #5E5CE6; }");
-
-    connect(m_comboPageStyle, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){
-        CanvasView* cv = getCurrentCanvas();
-        if(cv) {
-            bool applyToAll = !m_checkPageStyleCurrent->isChecked();
-            cv->setPageStyle((PageStyle)index, applyToAll);
-        }
-    });
-
-    layout->addWidget(m_comboPageStyle);
-    layout->addWidget(m_checkPageStyleCurrent);
-
-    layout->addWidget(new QLabel("Eingabemodus:", content));
-    m_btnInputPen = new QPushButton("Nur Stift\n(1 Finger scrollt)", content);
+    layout->addWidget(new QLabel("Eingabemodus:", m_rightSidebar));
+    m_btnInputPen = new QPushButton("Nur Stift\n(1 Finger scrollt)");
     m_btnInputPen->setCheckable(true);
     m_btnInputPen->setChecked(true);
     m_btnInputPen->setCursor(Qt::PointingHandCursor);
     m_btnInputPen->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnInputPen, &QPushButton::clicked, [this](){ updateInputMode(true); });
 
-    m_btnInputTouch = new QPushButton("Touch & Stift\n(2 Finger scrollen)", content);
+    m_btnInputTouch = new QPushButton("Touch & Stift\n(2 Finger scrollen)");
     m_btnInputTouch->setCheckable(true);
     m_btnInputTouch->setCursor(Qt::PointingHandCursor);
     m_btnInputTouch->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
@@ -930,54 +923,32 @@ void MainWindow::setupRightSidebar() {
     layout->addWidget(m_btnInputPen);
     layout->addWidget(m_btnInputTouch);
 
-    layout->addWidget(new QLabel("UI Modus:", content));
-    m_comboProfiles = new QComboBox(content);
-    m_comboProfiles->setStyleSheet(
-        "QComboBox { background: #333; color: white; border: 1px solid #444; padding: 8px; border-radius: 5px; }"
-        "QComboBox::drop-down { border: 0px; }"
-        "QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }"
-        );
-    m_comboProfiles->setCursor(Qt::PointingHandCursor);
-
-    auto refreshCombo = [this](){
-        m_comboProfiles->blockSignals(true);
-        m_comboProfiles->clear();
-        auto profiles = UiProfileManager::instance().profiles();
-        for(const auto& p : profiles) {
-            m_comboProfiles->addItem(p.name, p.id);
-            if(p.id == m_currentProfile.id) m_comboProfiles->setCurrentIndex(m_comboProfiles->count()-1);
-        }
-        m_comboProfiles->blockSignals(false);
-    };
-    refreshCombo();
-
-    connect(&UiProfileManager::instance(), &UiProfileManager::profilesChanged, this, refreshCombo);
-    connect(m_comboProfiles, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){
-        QString id = m_comboProfiles->itemData(index).toString();
-        UiProfileManager::instance().activateProfile(id);
-    });
-
-    layout->addWidget(m_comboProfiles);
-
-    layout->addWidget(new QLabel("Werkzeugleiste:", content));
-    m_comboToolbarStyle = new QComboBox(content);
+    layout->addWidget(new QLabel("Werkzeugleiste:", m_rightSidebar));
+    m_comboToolbarStyle = new QComboBox();
     m_comboToolbarStyle->addItems({"Vertikal", "Radial (Voll)", "Radial (Halb)"});
     m_comboToolbarStyle->setStyleSheet("QComboBox { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; } QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }");
     m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
 
-    connect(m_comboToolbarStyle, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){
+    // FIX: Expliziter Cast für überladenes Signal
+    connect(m_comboToolbarStyle, static_cast<void(QComboBox::*)(int)>(&QComboBox::currentIndexChanged), [this](int index){
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) {
             if (index == 0) tb->setStyle(ModernToolbar::Normal);
-            else if (index == 1) { tb->setStyle(ModernToolbar::Radial); tb->setRadialType(ModernToolbar::FullCircle); }
-            else { tb->setStyle(ModernToolbar::Radial); tb->setRadialType(ModernToolbar::HalfEdge); }
+            else if (index == 1) {
+                tb->setStyle(ModernToolbar::Radial);
+                tb->setRadialType(ModernToolbar::FullCircle);
+            } else {
+                tb->setStyle(ModernToolbar::Radial);
+                tb->setRadialType(ModernToolbar::HalfEdge);
+            }
         }
     });
 
     layout->addWidget(m_comboToolbarStyle);
 
-    layout->addWidget(new QLabel("Größe Werkzeugleiste:", content));
-    m_sliderToolbarScale = new QSlider(Qt::Horizontal, content);
+    // Toolbar Size Slider
+    layout->addWidget(new QLabel("Größe Werkzeugleiste:", m_rightSidebar));
+    m_sliderToolbarScale = new QSlider(Qt::Horizontal);
     m_sliderToolbarScale->setRange(50, 150);
     m_sliderToolbarScale->setValue(100);
     m_sliderToolbarScale->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
@@ -988,11 +959,30 @@ void MainWindow::setupRightSidebar() {
     });
     layout->addWidget(m_sliderToolbarScale);
 
-    layout->addStretch();
+    layout->addWidget(new QLabel("Oberfläche (Größe):", m_rightSidebar));
+    m_btnUiDesktop = new QPushButton("Desktop (Kompakt)");
+    m_btnUiDesktop->setCheckable(true);
+    m_btnUiDesktop->setChecked(!m_touchMode);
+    m_btnUiDesktop->setCursor(Qt::PointingHandCursor);
+    m_btnUiDesktop->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnUiDesktop, &QPushButton::clicked, [this](){ updateUiMode(false); });
 
-    // Scroll Area füllen
-    scroll->setWidget(content);
-    mainLayout->addWidget(scroll);
+    m_btnUiTouch = new QPushButton("Touch (Groß)");
+    m_btnUiTouch->setCheckable(true);
+    m_btnUiTouch->setChecked(m_touchMode);
+    m_btnUiTouch->setCursor(Qt::PointingHandCursor);
+    m_btnUiTouch->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnUiTouch, &QPushButton::clicked, [this](){ updateUiMode(true); });
+
+    QButtonGroup *grpUi = new QButtonGroup(this);
+    grpUi->addButton(m_btnUiDesktop);
+    grpUi->addButton(m_btnUiTouch);
+    grpUi->setExclusive(true);
+
+    layout->addWidget(m_btnUiDesktop);
+    layout->addWidget(m_btnUiTouch);
+
+    layout->addStretch();
 }
 
 void MainWindow::animateSidebar(bool show) {
@@ -1000,7 +990,11 @@ void MainWindow::animateSidebar(bool show) {
     int end = show ? 250 : 0;
 
     m_isSidebarOpen = show;
-    if (show) { m_sidebarContainer->setVisible(true); updateSidebarState(); }
+
+    if (show) {
+        m_sidebarContainer->setVisible(true);
+        updateSidebarState();
+    }
 
     QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "maximumWidth");
     anim->setDuration(250);
@@ -1009,7 +1003,10 @@ void MainWindow::animateSidebar(bool show) {
     anim->setEasingCurve(QEasingCurve::OutCubic);
 
     connect(anim, &QPropertyAnimation::finished, [this, show](){
-        if (!show) { m_sidebarContainer->hide(); updateSidebarState(); }
+        if (!show) {
+            m_sidebarContainer->hide();
+            updateSidebarState();
+        }
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
@@ -1022,14 +1019,23 @@ void MainWindow::onToggleSidebar() {
 void MainWindow::updateSidebarState() {
     bool isEditor = (m_rightStack->currentWidget() == m_editorContainer);
 
-    if (m_floatingTools) { m_floatingTools->setVisible(isEditor); }
-
-    if (m_isSidebarOpen) {
-        m_sidebarStrip->hide(); btnEditorMenu->hide(); return;
+    if (m_floatingTools) {
+        m_floatingTools->setVisible(isEditor);
     }
 
-    if (isEditor) { m_sidebarStrip->hide(); btnEditorMenu->show(); }
-    else { m_sidebarStrip->show(); btnEditorMenu->hide(); }
+    if (m_isSidebarOpen) {
+        m_sidebarStrip->hide();
+        btnEditorMenu->hide();
+        return;
+    }
+
+    if (isEditor) {
+        m_sidebarStrip->hide();
+        btnEditorMenu->show();
+    } else {
+        m_sidebarStrip->show();
+        btnEditorMenu->hide();
+    }
 }
 
 void MainWindow::animateRightSidebar(bool show) {
@@ -1057,25 +1063,28 @@ void MainWindow::onToggleRightSidebar() {
         CanvasView *cv = getCurrentCanvas();
         if (cv) {
             bool inf = cv->isInfinite();
-            m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf);
-            m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
-            bool isDark = (cv->pageColor() == UIStyles::SceneBackground);
-            m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
+            m_btnFormatInfinite->setChecked(inf);
+            m_btnFormatA4->setChecked(!inf);
+            m_btnInputPen->setChecked(m_penOnlyMode);
+            m_btnInputTouch->setChecked(!m_penOnlyMode);
+            m_btnUiDesktop->setChecked(!m_touchMode);
+            m_btnUiTouch->setChecked(m_touchMode);
 
-            PageStyle ps = cv->currentPageStyle();
-            m_comboPageStyle->setCurrentIndex((int)ps);
+            bool isDark = (cv->pageColor() == UIStyles::SceneBackground);
+            m_btnColorDark->setChecked(isDark);
+            m_btnColorWhite->setChecked(!isDark);
         }
 
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) {
-            if (tb->currentStyle() == ModernToolbar::Normal) { m_comboToolbarStyle->setCurrentIndex(0); }
-            else { if (tb->radialType() == ModernToolbar::FullCircle) m_comboToolbarStyle->setCurrentIndex(1); else m_comboToolbarStyle->setCurrentIndex(2); }
-            if(m_sliderToolbarScale) m_sliderToolbarScale->setValue(tb->scale() * 100);
-        }
+            if (tb->currentStyle() == ModernToolbar::Normal) {
+                m_comboToolbarStyle->setCurrentIndex(0);
+            } else {
+                if (tb->radialType() == ModernToolbar::FullCircle) m_comboToolbarStyle->setCurrentIndex(1);
+                else m_comboToolbarStyle->setCurrentIndex(2);
+            }
 
-        if (m_comboProfiles) {
-            int idx = m_comboProfiles->findData(m_currentProfile.id);
-            if (idx >= 0) m_comboProfiles->setCurrentIndex(idx);
+            if(m_sliderToolbarScale) m_sliderToolbarScale->setValue(tb->scale() * 100);
         }
     }
 }
@@ -1156,11 +1165,13 @@ void MainWindow::finishRename() {
     }
 }
 
-bool MainWindow::eventFilter(QObject *obj, QEvent *event) { return QMainWindow::eventFilter(obj, event); }
+bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
+    return QMainWindow::eventFilter(obj, event);
+}
 
 void MainWindow::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);
-    int fabOffset = isTouchMode() ? 100 : 80;
+    int fabOffset = m_touchMode ? 100 : 80;
 
     if (m_fabNote && m_overviewContainer) {
         m_fabNote->move(m_overviewContainer->width() - fabOffset, m_overviewContainer->height() - fabOffset);
@@ -1168,7 +1179,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     }
 
     if (m_fabFolder && m_sidebarContainer) {
-        int sidebarW = m_sidebarContainer->width(); int sidebarH = m_sidebarContainer->height();
+        int sidebarW = m_sidebarContainer->width();
+        int sidebarH = m_sidebarContainer->height();
         int btnS = m_fabFolder->width();
         m_fabFolder->move(sidebarW - btnS - 20, sidebarH - btnS - 20);
         m_fabFolder->raise();
@@ -1179,6 +1191,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
         if (m_renameInput) m_renameInput->move(width()/2 - 150, height()/2 - 20);
     }
 
+    // NEU: Toolbar Limit updaten
     if (m_editorTabs && m_floatingTools) {
         int top = 0;
         if (m_editorTabs->tabBar()) {
@@ -1223,6 +1236,8 @@ void MainWindow::onOpenSettings() {
     overlay->show();
 
     SettingsDialog dlg(this);
+    dlg.setTouchMode(m_touchMode);
+    dlg.setGridValues(m_currentItemSize, m_currentSpacing);
 
     ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools);
     if(toolbar) {
@@ -1233,6 +1248,9 @@ void MainWindow::onOpenSettings() {
     }
 
     connect(&dlg, &SettingsDialog::accentColorChanged, this, &MainWindow::updateTheme);
+    connect(&dlg, &SettingsDialog::uiModeChanged, this, &MainWindow::updateUiMode);
+    connect(&dlg, &SettingsDialog::itemSizeChanged, this, &MainWindow::onItemSizeChanged);
+    connect(&dlg, &SettingsDialog::gridSpacingChanged, this, &MainWindow::onGridSpacingChanged);
 
     connect(&dlg, &SettingsDialog::toolbarStyleChanged, [this, toolbar](bool radial){
         if(toolbar) toolbar->setStyle(radial ? ModernToolbar::Radial : ModernToolbar::Normal);
@@ -1264,48 +1282,87 @@ void MainWindow::setPageColor(bool dark) {
     }
 }
 
+//void MainWindow::setupToolbar() {}
+
 void MainWindow::setActiveTool(CanvasView::ToolType tool) {
     m_activeToolType = tool;
 
     ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools);
-    if(toolbar) { toolbar->setToolMode((ToolMode)tool); }
+    if(toolbar) {
+        toolbar->setToolMode((ToolMode)tool);
+    }
 
     CanvasView *cv = getCurrentCanvas();
-    if (cv) { cv->setTool(tool); }
+    if (cv) {
+        cv->setTool(tool);
+    }
 }
 
-void MainWindow::switchToSelectTool() { onToolSelect(); }
-void MainWindow::onToolSelect() { setActiveTool(CanvasView::ToolType::Select); }
-void MainWindow::onToolPen() { setActiveTool(CanvasView::ToolType::Pen); }
-void MainWindow::onToolEraser() { setActiveTool(CanvasView::ToolType::Eraser); }
-void MainWindow::onToolLasso() { setActiveTool(CanvasView::ToolType::Lasso); }
+void MainWindow::switchToSelectTool() {
+    onToolSelect();
+}
 
-void MainWindow::onUndo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->undo(); }
-void MainWindow::onRedo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->redo(); }
+void MainWindow::onToolSelect() {
+    setActiveTool(CanvasView::ToolType::Select);
+}
+
+void MainWindow::onToolPen() {
+    if (m_activeToolType == CanvasView::ToolType::Pen) {
+        //  showPenSettingsMenu();
+    } else {
+        setActiveTool(CanvasView::ToolType::Pen);
+    }
+}
+
+void MainWindow::onToolEraser() {
+    setActiveTool(CanvasView::ToolType::Eraser);
+}
+
+void MainWindow::onToolLasso() {
+    setActiveTool(CanvasView::ToolType::Lasso);
+}
+
+void MainWindow::onUndo() {
+    CanvasView *cv = getCurrentCanvas();
+    if (cv) cv->undo();
+}
+
+void MainWindow::onRedo() {
+    CanvasView *cv = getCurrentCanvas();
+    if (cv) cv->redo();
+}
 
 void MainWindow::onTabChanged(int index) {
     CanvasView *cv = getCurrentCanvas();
-    if (cv) { cv->setPenMode(m_penOnlyMode); }
+    if (cv) {
+        cv->setPenMode(m_penOnlyMode);
+    }
     setActiveTool(m_activeToolType);
 
     if (m_lblActiveNote) {
         QString text = "Keine Notiz";
-        if (index >= 0) { text = m_editorTabs->tabText(index); }
+        if (index >= 0) {
+            text = m_editorTabs->tabText(index);
+        }
         m_lblActiveNote->setText(text);
     }
 
     if (m_rightSidebar && m_rightSidebar->isVisible()) {
         if (cv) {
             bool inf = cv->isInfinite();
-            m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf);
-            m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
+            m_btnFormatInfinite->setChecked(inf);
+            m_btnFormatA4->setChecked(!inf);
+            m_btnInputPen->setChecked(m_penOnlyMode);
+            m_btnInputTouch->setChecked(!m_penOnlyMode);
+            m_btnUiDesktop->setChecked(!m_touchMode);
+            m_btnUiTouch->setChecked(m_touchMode);
             bool isDark = (cv->pageColor() == UIStyles::SceneBackground);
-            m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
-
-            // NEU: Sync
-            PageStyle ps = cv->currentPageStyle();
-            m_comboPageStyle->setCurrentIndex((int)ps);
+            m_btnColorDark->setChecked(isDark);
+            m_btnColorWhite->setChecked(!isDark);
         }
     }
+
     updateSidebarState();
 }
+
+//void MainWindow::onToggleFormat() {}

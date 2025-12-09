@@ -15,6 +15,7 @@
 #include <QMenu>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QScroller> // Wichtig für Touch
 
 SettingsDialog::SettingsDialog(QWidget *parent) :
     QDialog(parent),
@@ -32,22 +33,48 @@ SettingsDialog::~SettingsDialog() { delete ui; }
 void SettingsDialog::setupDesignTab() {
     QWidget* tabDesign = ui->tabWidget->findChild<QWidget*>("tabDesign");
     if (!tabDesign) tabDesign = ui->tabWidget->widget(0);
-    qDeleteAll(tabDesign->children());
+    qDeleteAll(tabDesign->children()); // Altes Layout löschen
 
     QVBoxLayout* mainLayout = new QVBoxLayout(tabDesign);
-    mainLayout->setContentsMargins(20,20,20,20);
-    mainLayout->setSpacing(15);
+    mainLayout->setContentsMargins(0,0,0,0);
 
-    // --- PROFIL LISTE ---
-    QLabel* lbl = new QLabel("UI-Modi verwalten", tabDesign);
+    // --- 1. Haupt-ScrollArea für den Tab ---
+    QScrollArea* scroll = new QScrollArea(tabDesign);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { background: transparent; } QScrollBar:vertical { width: 8px; background: #1A1A1A; } QScrollBar::handle:vertical { background: #333; border-radius: 4px; }");
+
+    // Touch-Scrolling aktivieren
+    QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
+
+    QWidget* contentWidget = new QWidget();
+    contentWidget->setStyleSheet("background: transparent;");
+    QVBoxLayout* contentLay = new QVBoxLayout(contentWidget);
+    contentLay->setContentsMargins(20,20,20,20);
+    contentLay->setSpacing(15);
+
+    scroll->setWidget(contentWidget);
+    mainLayout->addWidget(scroll);
+
+    // --- INHALT ---
+
+    // === A. UI PROFILE (MODUS) ===
+    QLabel* lbl = new QLabel("UI-Modi verwalten", contentWidget);
     lbl->setStyleSheet("font-weight: bold; color: #BBB; font-size: 14px;");
-    mainLayout->addWidget(lbl);
+    contentLay->addWidget(lbl);
 
-    m_profileList = new QListWidget(tabDesign);
+    // Liste der Profile
+    m_profileList = new QListWidget(contentWidget);
+    m_profileList->setFixedHeight(180); // Feste Höhe, damit man noch scrollen kann
     m_profileList->setStyleSheet("QListWidget { background: transparent; border: 1px solid #333; border-radius: 5px; } QListWidget::item { border-bottom: 1px solid #222; } QListWidget::item:selected { background: #333; }");
-    mainLayout->addWidget(m_profileList);
+    m_profileList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
-    QPushButton* btnAdd = new QPushButton("+ Neuen Modus erstellen", tabDesign);
+    // Auch die Liste touch-fähig machen
+    QScroller::grabGesture(m_profileList->viewport(), QScroller::LeftMouseButtonGesture);
+
+    contentLay->addWidget(m_profileList);
+
+    QPushButton* btnAdd = new QPushButton("+ Neuen Modus erstellen", contentWidget);
     btnAdd->setStyleSheet("QPushButton { background-color: #333; color: white; border: 1px solid #444; border-radius: 5px; padding: 8px; } QPushButton:hover { background-color: #444; }");
     connect(btnAdd, &QPushButton::clicked, [this](){
         bool ok;
@@ -57,14 +84,14 @@ void SettingsDialog::setupDesignTab() {
             refreshProfileList();
         }
     });
-    mainLayout->addWidget(btnAdd);
+    contentLay->addWidget(btnAdd);
 
-    refreshProfileList();
+    refreshProfileList(); // Liste füllen
 
-    // --- FARBEN ---
-    mainLayout->addSpacing(20);
-    mainLayout->addWidget(new QLabel("Akzentfarbe:", tabDesign));
-    QWidget* colorW = new QWidget(tabDesign);
+    // === B. FARBEN ===
+    contentLay->addSpacing(20);
+    contentLay->addWidget(new QLabel("Akzentfarbe:", contentWidget));
+    QWidget* colorW = new QWidget(contentWidget);
     QHBoxLayout* colorL = new QHBoxLayout(colorW);
     colorL->setContentsMargins(0,0,0,0);
     QList<QString> cNames = {"#2D62ED", "#5E5CE6", "#FF2D55", "#30D158"};
@@ -74,10 +101,12 @@ void SettingsDialog::setupDesignTab() {
         connect(b, &QPushButton::clicked, [this, c](){ emit accentColorChanged(QColor(c)); });
         colorL->addWidget(b);
     }
-    mainLayout->addWidget(colorW);
-    mainLayout->addStretch();
+    contentLay->addWidget(colorW);
 
-    // --- EDITOR OVERLAY ---
+    contentLay->addStretch();
+
+    // --- EDITOR OVERLAY (Initial versteckt) ---
+    // Dies ist das Fenster, das aufgeht, wenn man "Bearbeiten" drückt
     m_editorOverlay = new QWidget(this);
     m_editorOverlay->setStyleSheet("QWidget { background-color: #1A1A1A; border-radius: 15px; border: 1px solid #444; } QLabel { border: none; } QCheckBox { border: none; }");
     m_editorOverlay->hide();
@@ -90,11 +119,16 @@ void SettingsDialog::setupDesignTab() {
     ovTitle->setStyleSheet("font-size: 18px; font-weight: bold; color: white; margin-bottom: 5px;");
     ovMainLay->addWidget(ovTitle);
 
+    // Split Layout: Links Inputs, Rechts Preview
     QHBoxLayout* splitLay = new QHBoxLayout();
 
-    // Linke Spalte
-    QWidget* leftCol = new QWidget(m_editorOverlay);
-    leftCol->setStyleSheet("background: transparent; border: none;");
+    // Linke Spalte scrollbar machen (für kleine Screens)
+    QScrollArea* inputScroll = new QScrollArea(m_editorOverlay);
+    inputScroll->setWidgetResizable(true);
+    inputScroll->setStyleSheet("background: transparent; border: none;");
+    QScroller::grabGesture(inputScroll->viewport(), QScroller::LeftMouseButtonGesture);
+
+    QWidget* leftCol = new QWidget();
     QVBoxLayout* inputLay = new QVBoxLayout(leftCol);
     inputLay->setContentsMargins(0,0,10,0);
 
@@ -103,6 +137,7 @@ void SettingsDialog::setupDesignTab() {
         spin = new QSpinBox(leftCol);
         spin->setRange(min, max);
         spin->setStyleSheet("QSpinBox { background: #333; color: white; padding: 5px; border: 1px solid #555; border-radius: 4px; }");
+        // Live Update
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, &SettingsDialog::updatePreview);
         inputLay->addWidget(spin);
     };
@@ -113,10 +148,10 @@ void SettingsDialog::setupDesignTab() {
     inputLay->addWidget(edName);
 
     addInput("Ordner Icon (px):", edFolderIcon, 8, 256);
-    addInput("Button Icon (px):", edUiIcon, 8, 128); // NEU
+    addInput("Button Icon (px):", edUiIcon, 8, 128);
     addInput("Button Größe (px):", edBtn, 20, 200);
     addInput("Raster-Item Breite (px):", edGridItem, 50, 400);
-    addInput("Raster-Item Höhe (px):", edGridItemH, 50, 400); // NEU
+    addInput("Raster-Item Höhe (px):", edGridItemH, 50, 400);
     addInput("Raster-Abstand (px):", edGridSpace, 0, 100);
 
     edTouch = new QCheckBox("Touch-Optimiert", leftCol);
@@ -125,15 +160,17 @@ void SettingsDialog::setupDesignTab() {
     inputLay->addWidget(edTouch);
 
     inputLay->addStretch();
+    inputScroll->setWidget(leftCol);
 
-    splitLay->addWidget(leftCol, 1);
+    splitLay->addWidget(inputScroll, 1);
 
-    // Rechte Spalte (Preview)
+    // Rechte Spalte (Preview Widget)
     m_preview = new PreviewWidget(m_editorOverlay);
     splitLay->addWidget(m_preview, 2);
 
     ovMainLay->addLayout(splitLay);
 
+    // Buttons für Editor
     QHBoxLayout* btnLay = new QHBoxLayout();
     QPushButton* btnCancel = new QPushButton("Abbrechen", m_editorOverlay);
     QPushButton* btnSave = new QPushButton("Speichern", m_editorOverlay);
@@ -152,6 +189,7 @@ void SettingsDialog::setupDesignTab() {
     ovMainLay->addLayout(btnLay);
 }
 
+// Live Update Logik
 void SettingsDialog::updatePreview() {
     if (m_preview) {
         m_preview->updateValues(
@@ -166,6 +204,7 @@ void SettingsDialog::updatePreview() {
     }
 }
 
+// Erstellt einen Eintrag in der Profil-Liste
 QWidget* SettingsDialog::createProfileListItem(const UiProfile& p) {
     QWidget* w = new QWidget;
     QHBoxLayout* l = new QHBoxLayout(w);
@@ -173,6 +212,8 @@ QWidget* SettingsDialog::createProfileListItem(const UiProfile& p) {
 
     QLabel* name = new QLabel(p.name);
     name->setStyleSheet("font-size: 14px; color: white; border: none;");
+
+    // Aktives Profil markieren
     if (p.id == UiProfileManager::instance().currentProfile().id) {
         name->setStyleSheet("font-size: 14px; color: #5E5CE6; font-weight: bold; border: none;");
         name->setText(p.name + " (Aktiv)");
@@ -180,6 +221,7 @@ QWidget* SettingsDialog::createProfileListItem(const UiProfile& p) {
     l->addWidget(name);
     l->addStretch();
 
+    // 3-Punkte Menü Button
     QPushButton* menuBtn = new QPushButton("⋮");
     menuBtn->setFixedSize(30, 30);
     menuBtn->setStyleSheet("QPushButton { background: transparent; color: #AAA; font-size: 18px; border: none; font-weight: bold; } QPushButton:hover { color: white; background-color: #333; border-radius: 15px; }");
@@ -202,6 +244,7 @@ QWidget* SettingsDialog::createProfileListItem(const UiProfile& p) {
         });
 
         QAction* delAct = menu.addAction("Löschen");
+        // Schutz: Letztes Profil nicht löschbar
         if (UiProfileManager::instance().profiles().size() <= 1) delAct->setEnabled(false);
 
         connect(delAct, &QAction::triggered, [this, p](){
@@ -235,10 +278,10 @@ void SettingsDialog::showProfileEditor(const UiProfile& p) {
 
     bool oldState = edFolderIcon->blockSignals(true);
     edFolderIcon->setValue(p.folderIconSize);
-    edUiIcon->setValue(p.uiIconSize); // NEU
+    edUiIcon->setValue(p.uiIconSize);
     edBtn->setValue(p.buttonSize);
     edGridItem->setValue(p.gridItemSize);
-    edGridItemH->setValue(p.gridItemHeight); // NEU
+    edGridItemH->setValue(p.gridItemHeight);
     edGridSpace->setValue(p.gridSpacing);
     edTouch->setChecked(p.isTouchOptimized);
     edFolderIcon->blockSignals(oldState);
@@ -274,6 +317,7 @@ void SettingsDialog::saveProfileFromEditor() {
 }
 
 void SettingsDialog::setToolbarConfig(bool isRadial, bool isHalf, int scalePercent) {
+    // Hier könnte man Werte für den Slider setzen, falls gewünscht
 }
 
 void SettingsDialog::showEvent(QShowEvent *event) {

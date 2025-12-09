@@ -15,7 +15,7 @@ class QSpinBox;
 class QCheckBox;
 class QListWidgetItem;
 
-// --- Vorschau-Widget Klasse ---
+// --- VORSCHAU WIDGET (Live Preview) ---
 class PreviewWidget : public QWidget {
     Q_OBJECT
 public:
@@ -24,6 +24,7 @@ public:
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     }
 
+    // Parameter für die Vorschau
     int folderIcon{24};
     int uiIcon{24};
     int btnSize{40};
@@ -48,6 +49,7 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
+        // Hintergrund
         p.fillRect(rect(), QColor(0x161925));
         p.setPen(QPen(QColor(0x444), 1));
         p.drawRect(rect().adjusted(0,0,-1,-1));
@@ -66,6 +68,7 @@ protected:
 
         for(int i=0; i<2; ++i) {
             int x = startX + i * (gridItemW + gridSpacing);
+            // Clip Check
             if (x + gridItemW > width()) break;
 
             QRect itemRect(x, currentY, gridItemW, gridItemH);
@@ -76,12 +79,11 @@ protected:
 
             // Ordner Icon
             int icS = folderIcon;
-            if (icS > gridItemW - 10) icS = gridItemW - 10; // Clip protection
+            if (icS > gridItemW - 10) icS = gridItemW - 10;
             QRect iconRect(0, 0, icS, icS);
-            // Zentriert, leicht nach oben verschoben
             iconRect.moveCenter(QPoint(itemRect.center().x(), itemRect.top() + itemRect.height()/2 - 8));
 
-            p.setBrush(QColor(0x5E5CE6));
+            p.setBrush(QColor(0x5E5CE6)); // Akzent
             p.drawEllipse(iconRect);
 
             // Text Dummy
@@ -126,11 +128,12 @@ public:
     explicit SettingsDialog(QWidget *parent = nullptr);
     ~SettingsDialog();
 
-    void setToolbarConfig(bool isRadial, bool isHalf, int scalePercent);
-
-    // Dummies
+    // Dummies für Kompatibilität
     void setTouchMode(bool) {}
     void setGridValues(int, int) {}
+
+    // Toolbar Config kann bleiben
+    void setToolbarConfig(bool isRadial, bool isHalf, int scalePercent);
 
 signals:
     void accentColorChanged(QColor color);
@@ -146,13 +149,13 @@ private:
     QListWidget* m_profileList;
     QWidget* m_editorOverlay;
 
-    // Editor Felder
+    // Editor Felder für das Profil
     QLineEdit* edName;
-    QSpinBox* edFolderIcon; // Umbenannt
-    QSpinBox* edUiIcon;     // NEU
+    QSpinBox* edFolderIcon;
+    QSpinBox* edUiIcon;
     QSpinBox* edBtn;
     QSpinBox* edGridItem;
-    QSpinBox* edGridItemH;  // NEU
+    QSpinBox* edGridItemH;
     QSpinBox* edGridSpace;
     QCheckBox* edTouch;
 
@@ -161,11 +164,16 @@ private:
 
     void setupDesignTab();
     void refreshProfileList();
+
+    // Öffnet das Editor Overlay
     void showProfileEditor(const UiProfile& p);
+    // Speichert das Profil
     void saveProfileFromEditor();
 
+    // Slot für Live-Preview im Editor
     void updatePreview();
 
+    // Helper für Listeneintrag (mit 3-Punkte Menü)
     QWidget* createProfileListItem(const UiProfile& p);
 };
 
