@@ -3,46 +3,53 @@
 
 #include <QDialog>
 #include <QColor>
+#include "UiProfileManager.h"
 
 namespace Ui {
 class SettingsDialog;
 }
+
+class QListWidget;
+class QListWidgetItem;
 
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit SettingsDialog(QWidget *parent = nullptr);
+    // Spezieller Rückgabewert, wenn der User den Editor öffnen will
+    static const int EditProfileCode = QDialog::Accepted + 1;
+
+    explicit SettingsDialog(UiProfileManager* profileMgr, QWidget *parent = nullptr);
     ~SettingsDialog();
 
-    void setTouchMode(bool enabled);
-    void setGridValues(int itemSize, int spacing);
+    void setToolbarConfig(bool isRadial, bool isHalf);
 
-    // Status setzen
-    void setToolbarConfig(bool isRadial, bool isHalf, int scalePercent);
+    // Damit MainWindow weiß, welches Profil bearbeitet werden soll
+    QString profileIdToEdit() const { return m_editId; }
 
 signals:
     void accentColorChanged(QColor color);
-    void uiModeChanged(bool touchMode);
-    void itemSizeChanged(int value);
-    void gridSpacingChanged(int value);
-
     void toolbarStyleChanged(bool radial);
 
-    // NEU: Skalierungssignal
-    void toolbarScaleChanged(int percent);
+    void previewProfileRequested(const UiProfile& p);
 
 protected:
     void showEvent(QShowEvent *event) override;
 
 private slots:
-    void onColorClicked();
-    void onColorButtonContextMenu(const QPoint &pos);
+    void onProfileContextMenu(const QPoint &pos);
+    void onCreateProfile();
+    void onProfileClicked(QListWidgetItem* item);
 
 private:
     Ui::SettingsDialog *ui;
-    void setupColorButton(class QPushButton* btn, QColor initialColor);
+    UiProfileManager *m_profileManager;
+    QListWidget *m_profileList;
+    QString m_editId; // Gespeicherte ID für den Editor
+
+    void refreshProfileList();
+    void openEditor(const QString &profileId);
 };
 
 #endif // SETTINGSDIALOG_H

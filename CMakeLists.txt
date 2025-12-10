@@ -35,6 +35,9 @@ qt_add_executable(Blop
     ToolMode.h
     ToolSettings.h
     UIStyles.h
+    uiprofile.h
+    uiprofilemanager.h uiprofilemanager.cpp
+    profileeditordialog.h profileeditordialog.cpp
 )
 
 target_link_libraries(Blop PRIVATE Qt6::Widgets)

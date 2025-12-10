@@ -39,11 +39,11 @@ private:
 
 class ModernToolbar : public QWidget {
     Q_OBJECT
-    Q_PROPERTY(QSize size READ size WRITE resize) // Für Animation
+    Q_PROPERTY(QSize size READ size WRITE resize)
 public:
-    enum Style { Normal, Radial }; // "Vertical" heißt jetzt "Normal"
+    enum Style { Normal, Radial };
     enum RadialType { FullCircle, HalfEdge };
-    enum Orientation { Vertical, Horizontal }; // Neu für Adaptive Toolbar
+    enum Orientation { Vertical, Horizontal };
 
     enum class SettingsState {
         Closed, Main, ColorSelect, SizeSelect, EraserMode, LassoMode
@@ -61,6 +61,9 @@ public:
     RadialType radialType() const { return m_radialType; }
 
     void setDraggable(bool enable) { m_draggable = enable; }
+
+    // NEU: Preview Mode verhindert Layout-Springen und Abstürze
+    void setPreviewMode(bool enable) { m_isPreview = enable; }
 
     void setScale(qreal scale);
     qreal scale() const { return m_scale; }
@@ -94,7 +97,7 @@ protected:
 private:
     Style m_style{Normal};
     RadialType m_radialType{FullCircle};
-    Orientation m_orientation{Vertical}; // Aktuelle Ausrichtung
+    Orientation m_orientation{Vertical};
 
     ToolMode mode_{ToolMode::Pen};
     ToolConfig m_config;
@@ -107,6 +110,9 @@ private:
     bool m_isDragging{false};
     bool m_isResizing{false};
     bool m_draggable{true};
+
+    // Preview Flag
+    bool m_isPreview{false};
 
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
@@ -125,7 +131,7 @@ private:
 
     void updateLayout(bool animate = false);
     void snapToEdge();
-    void checkOrientation(const QPoint& globalPos); // Prüft Drehung
+    void checkOrientation(const QPoint& globalPos);
     void setOrientation(Orientation o);
 
     void reorderButtons();
@@ -136,5 +142,5 @@ private:
     void handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int innerR, int outerR);
     void showVerticalPopup();
 
-    int calculateMinLength(); // Min Höhe (oder Breite bei Horizontal)
+    int calculateMinLength();
 };
