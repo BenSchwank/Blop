@@ -37,155 +37,129 @@
 // 1. DELEGATES & BUTTONS
 // ============================================================================
 
-// --- SidebarItemDelegate ---
-SidebarItemDelegate::SidebarItemDelegate(MainWindow *parent)
+// --- SidebarNavDelegate (NEW DESIGN) ---
+SidebarNavDelegate::SidebarNavDelegate(MainWindow *parent)
     : QStyledItemDelegate(parent), m_window(parent) {}
 
-QSize SidebarItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    return QSize(option.rect.width(), 36);
+QSize SidebarNavDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    // Header sind kleiner, Items größer
+    bool isHeader = index.data(Qt::UserRole + 1).toBool();
+    return QSize(option.rect.width(), isHeader ? 40 : 44);
 }
 
-void SidebarItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing);
 
-    if (option.state & QStyle::State_Selected) {
-        QColor accent = m_window->currentAccentColor();
-        accent.setAlpha(40);
-        painter->fillRect(option.rect, accent);
-    } else if (option.state & QStyle::State_MouseOver) {
-        painter->fillRect(option.rect, QColor(255, 255, 255, 10));
-    }
-
-    int depth = 0; QModelIndex p = index.parent(); while(p.isValid()) { depth++; p = p.parent(); }
-
-    int indentStep = 15;
-    int baseIndent = 10;
-    int currentIndent = baseIndent + (depth * indentStep);
-
-    const QFileSystemModel* model = qobject_cast<const QFileSystemModel*>(index.model());
-    bool isDir = model ? model->isDir(index) : false;
-
-    if (isDir) {
-        int arrowSize = 10;
-        QRect arrowRect(option.rect.left() + currentIndent - 12, option.rect.center().y() - arrowSize/2, arrowSize, arrowSize);
-        const QTreeView* tree = qobject_cast<const QTreeView*>(option.widget);
-        bool isExpanded = tree ? tree->isExpanded(index) : false;
-        painter->setBrush(QColor(200, 200, 200)); painter->setPen(Qt::NoPen);
-        QPainterPath path;
-        if (isExpanded) {
-            path.moveTo(arrowRect.left(), arrowRect.top() + 2); path.lineTo(arrowRect.right(), arrowRect.top() + 2); path.lineTo(arrowRect.center().x(), arrowRect.bottom() - 2);
-        } else {
-            path.moveTo(arrowRect.left() + 2, arrowRect.top()); path.lineTo(arrowRect.left() + 2, arrowRect.bottom()); path.lineTo(arrowRect.right() - 2, arrowRect.center().y());
-        }
-        path.closeSubpath(); painter->drawPath(path);
-    }
-
-    int iconSize = 18;
-    int iconX = option.rect.left() + currentIndent;
-    QRect iconRect(iconX, option.rect.center().y() - iconSize/2, iconSize, iconSize);
-
-    QColor iconColor = (option.state & QStyle::State_Selected) ? m_window->currentAccentColor() : QColor(180, 180, 180);
-    QIcon standardIcon = index.data(Qt::DecorationRole).value<QIcon>();
-    if (!standardIcon.isNull()) {
-        standardIcon.paint(painter, iconRect, Qt::AlignCenter, (option.state & QStyle::State_Selected) ? QIcon::Selected : QIcon::Normal);
-    } else {
-        painter->setPen(QPen(iconColor, 1.5)); painter->setBrush(Qt::NoBrush);
-        if (isDir) painter->drawRoundedRect(iconRect.adjusted(1,3,-1,-2), 2, 2);
-        else painter->drawRoundedRect(iconRect.adjusted(3,1,-3,-1), 2, 2);
-    }
-
-    QRect textRect = option.rect;
-    textRect.setLeft(iconRect.right() + 10);
-    textRect.setRight(option.rect.right() - 5);
-    painter->setPen((option.state & QStyle::State_Selected) ? Qt::white : QColor(220, 220, 220));
-    painter->setFont(m_window->font());
+    bool isHeader = index.data(Qt::UserRole + 1).toBool();
     QString text = index.data(Qt::DisplayRole).toString();
-    painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
-    painter->restore();
-}
 
-bool SidebarItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) {
-    if (event->type() == QEvent::MouseButtonRelease) {
-        QMouseEvent* me = static_cast<QMouseEvent*>(event);
-        int depth = 0; QModelIndex p = index.parent(); while(p.isValid()) { depth++; p = p.parent(); }
-        int currentIndent = 10 + (depth * 15);
-        QRect expandRect(option.rect.left(), option.rect.top(), currentIndent, option.rect.height());
-        QTreeView* tree = qobject_cast<QTreeView*>(const_cast<QWidget*>(option.widget));
-        QFileSystemModel* fsModel = qobject_cast<QFileSystemModel*>(model);
-        if (tree && fsModel && fsModel->isDir(index)) {
-            if (expandRect.contains(me->pos())) {
-                if (tree->isExpanded(index)) tree->collapse(index); else tree->expand(index);
-                return true;
-            }
+    if (isHeader) {
+        // --- HEADER STYLE ---
+        painter->setPen(QColor(150, 150, 150));
+        QFont f = m_window->font();
+        f.setBold(true);
+        f.setPointSize(9);
+        painter->setFont(f);
+
+        QRect textRect = option.rect.adjusted(15, 0, -15, 0);
+        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
+
+        QFontMetrics fm(f);
+        int textW = fm.horizontalAdvance(text);
+        int lineX = textRect.left() + textW + 10;
+        int lineY = option.rect.center().y();
+        painter->setPen(QColor(60, 60, 60));
+        painter->drawLine(lineX, lineY, option.rect.right() - 15, lineY);
+
+    } else {
+        // --- ITEM STYLE ---
+        QRect rect = option.rect.adjusted(8, 2, -8, -2);
+        bool selected = (option.state & QStyle::State_Selected);
+        bool hover = (option.state & QStyle::State_MouseOver);
+
+        if (selected) {
+            painter->setBrush(m_window->currentAccentColor().darker(120));
+            painter->setPen(Qt::NoPen);
+            painter->drawRoundedRect(rect, 10, 10);
+        } else if (hover) {
+            painter->setBrush(QColor(255, 255, 255, 10));
+            painter->setPen(Qt::NoPen);
+            painter->drawRoundedRect(rect, 10, 10);
+        }
+
+        QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
+        int iconSize = 20;
+        QRect iconRect(rect.left() + 10, rect.center().y() - iconSize/2, iconSize, iconSize);
+
+        QIcon::Mode mode = selected ? QIcon::Selected : QIcon::Normal;
+        if (selected) {
+            icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::On);
+        } else {
+            painter->setOpacity(0.7);
+            icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::Off);
+            painter->setOpacity(1.0);
+        }
+
+        QRect textRect = rect;
+        textRect.setLeft(iconRect.right() + 12);
+        textRect.setRight(rect.right() - 40);
+
+        painter->setPen(selected ? Qt::white : QColor(200, 200, 200));
+        QFont f = m_window->font();
+        f.setPointSize(10);
+        if (selected) f.setBold(true);
+        painter->setFont(f);
+        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
+
+        // Counter Badge (Rechts)
+        QString count = index.data(Qt::UserRole + 2).toString();
+        if (!count.isEmpty()) {
+            int badgeW = 24;
+            int badgeH = 18;
+            QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH/2, badgeW, badgeH);
+
+            painter->setPen(selected ? Qt::white : m_window->currentAccentColor());
+            QFont bf = f;
+            bf.setBold(true);
+            bf.setPointSize(9);
+            painter->setFont(bf);
+            painter->drawText(badgeRect, Qt::AlignCenter, count);
         }
     }
-    return QStyledItemDelegate::editorEvent(event, model, option, index);
+
+    painter->restore();
 }
 
 // --- ModernItemDelegate ---
 ModernItemDelegate::ModernItemDelegate(MainWindow *parent) : QStyledItemDelegate(parent), m_window(parent) {}
-
-QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    return QStyledItemDelegate::sizeHint(option, index);
-}
-
+QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const { return QStyledItemDelegate::sizeHint(option, index); }
 void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    painter->save();
-    painter->setRenderHint(QPainter::Antialiasing);
-
+    painter->save(); painter->setRenderHint(QPainter::Antialiasing);
     QRect rect = option.rect.adjusted(4, 4, -4, -4);
-
     QColor bgColor = QColor(0x1E2230);
     if (option.state & QStyle::State_Selected) bgColor = m_window->currentAccentColor().darker(150);
     else if (option.state & QStyle::State_MouseOver) bgColor = QColor(0x2A2E3F);
-
-    painter->setBrush(bgColor); painter->setPen(Qt::NoPen);
-    painter->drawRoundedRect(rect, 8, 8);
-
+    painter->setBrush(bgColor); painter->setPen(Qt::NoPen); painter->drawRoundedRect(rect, 8, 8);
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
     if (icon.isNull()) icon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
     QString text = index.data(Qt::DisplayRole).toString();
-
     painter->setPen(Qt::white);
-
-    // Auto-Layout
     bool isWideList = rect.width() > (rect.height() * 1.5);
-
     if (isWideList) {
-        // LISTE
-        int iconDim = rect.height() - 16;
-        if (iconDim < 16) iconDim = 16;
+        int iconDim = rect.height() - 16; if (iconDim < 16) iconDim = 16;
         QRect iconRect(rect.left() + 10, rect.center().y() - iconDim/2, iconDim, iconDim);
-
-        // KREIS ENTFERNT
         icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
-
-        QRect textRect = rect;
-        textRect.setLeft(iconRect.right() + 15);
-        textRect.setRight(rect.right() - 40);
-
+        QRect textRect = rect; textRect.setLeft(iconRect.right() + 15); textRect.setRight(rect.right() - 40);
         QFont f = painter->font(); f.setBold(true); f.setPointSize(10); painter->setFont(f);
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
     } else {
-        // RASTER
-        int textH = 24;
-        if (rect.height() < 60) textH = 0;
-
-        int maxIconH = rect.height() - textH - 10;
-        int maxIconW = rect.width() - 10;
-
-        int iconDim = qMin(maxIconW, maxIconH);
-        if (iconDim < 20) iconDim = 20;
-
-        int contentHeight = iconDim + textH;
-        int startY = rect.top() + (rect.height() - contentHeight) / 2;
-
+        int textH = 24; if (rect.height() < 60) textH = 0;
+        int maxIconH = rect.height() - textH - 10; int maxIconW = rect.width() - 10;
+        int iconDim = qMin(maxIconW, maxIconH); if (iconDim < 20) iconDim = 20;
+        int contentHeight = iconDim + textH; int startY = rect.top() + (rect.height() - contentHeight) / 2;
         QRect iconRect(rect.center().x() - iconDim/2, startY, iconDim, iconDim);
-
-        // KREIS ENTFERNT
         icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
-
         if (textH > 0) {
             QRect textRect(rect.left() + 2, iconRect.bottom() + 2, rect.width() - 4, textH);
             QFont f = painter->font(); f.setPointSize(9); painter->setFont(f);
@@ -193,25 +167,17 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
             painter->drawText(textRect, text, opt);
         }
     }
-
     QIcon menuIcon = m_window->createModernIcon("more_vert", Qt::gray);
-    QRect menuRect(rect.right() - 24, rect.top() + 4, 20, 20);
-    if(isWideList) menuRect.moveTop(rect.center().y() - 10);
+    QRect menuRect(rect.right() - 24, rect.top() + 4, 20, 20); if(isWideList) menuRect.moveTop(rect.center().y() - 10);
     menuIcon.paint(painter, menuRect, Qt::AlignCenter);
-
     painter->restore();
 }
-
 bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) {
     if (event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent *me = static_cast<QMouseEvent*>(event);
         QRect rect = option.rect.adjusted(4,4,-4,-4);
-        int clickArea = 40;
-        QRect menuRect(rect.right() - clickArea, rect.top(), clickArea, rect.height());
-        if (menuRect.contains(me->pos())) {
-            m_window->showContextMenu(QCursor::pos(), index);
-            return true;
-        }
+        int clickArea = 40; QRect menuRect(rect.right() - clickArea, rect.top(), clickArea, rect.height());
+        if (menuRect.contains(me->pos())) { m_window->showContextMenu(QCursor::pos(), index); return true; }
     }
     return QStyledItemDelegate::editorEvent(event, model, option, index);
 }
@@ -299,9 +265,8 @@ void MainWindow::applyTheme() {
     this->setStyleSheet(style);
 
     if(m_sidebarContainer) m_sidebarContainer->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
-    if(m_sidebarHeader) m_sidebarHeader->setStyleSheet("background-color: #161925;");
     if(m_sidebarStrip) m_sidebarStrip->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
-    if(m_folderTree) m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }");
+    if(m_navSidebar) m_navSidebar->setStyleSheet("QListWidget { background-color: transparent; border: none; outline: 0; margin-left: 5px; margin-right: 5px; } QListWidget::item { border: none; }");
 
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
     if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
@@ -321,7 +286,7 @@ void MainWindow::updateGrid() {
 
         QSize itemS(s, s);
         m_fileListView->setItemSize(itemS);
-        m_fileListView->setIconSize(itemS); // WICHTIG: Damit die Icons skalieren
+        m_fileListView->setIconSize(itemS);
 
         if (m_currentProfile.snapToGrid) {
             int gridW = itemS.width() + m_currentProfile.gridSpacing;
@@ -362,8 +327,6 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         btn->setIconSize(QSize(iconSize, iconSize));
     }
 
-    if (m_sidebarHeader) m_sidebarHeader->setFixedHeight(btnSize + 20);
-
     int fabS = btnSize + 16;
     if (m_fabNote) {
         m_fabNote->setFixedSize(fabS, fabS);
@@ -388,23 +351,32 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 }
 
 QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
-    int size = 64; QPixmap pixmap(size, size); pixmap.fill(Qt::transparent); QPainter p(&pixmap); p.setRenderHint(QPainter::Antialiasing); p.setPen(QPen(color, 5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)); p.setBrush(Qt::NoBrush);
-    if (name == "more_vert") { p.setBrush(color); p.setPen(Qt::NoPen); p.drawEllipse(28, 14, 8, 8); p.drawEllipse(28, 28, 8, 8); p.drawEllipse(28, 42, 8, 8); }
+    int size = 64; QPixmap pixmap(size, size); pixmap.fill(Qt::transparent); QPainter p(&pixmap); p.setRenderHint(QPainter::Antialiasing); p.setPen(QPen(color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)); p.setBrush(Qt::NoBrush);
+
+    if (name == "folder") { p.drawRect(14, 20, 36, 28); p.drawLine(14,20, 24,12); p.drawLine(24,12, 50,20); }
+    else if (name == "cloud") { p.drawEllipse(12, 28, 16, 16); p.drawEllipse(24, 20, 20, 20); p.drawEllipse(40, 28, 14, 14); }
+    else if (name == "share") { p.drawEllipse(44, 16, 8, 8); p.drawEllipse(44, 48, 8, 8); p.drawEllipse(16, 32, 8, 8); p.drawLine(22, 30, 42, 20); p.drawLine(22, 34, 42, 46); }
+    else if (name == "drive") { p.drawPolygon(QPolygonF() << QPointF(32, 10) << QPointF(54, 50) << QPointF(10, 50)); }
+    else if (name == "dropbox") { p.drawLine(16, 24, 32, 36); p.drawLine(32, 36, 48, 24); p.drawLine(48, 24, 32, 12); p.drawLine(32, 12, 16, 24); p.drawLine(16, 24, 16, 40); p.drawLine(16, 40, 32, 52); p.drawLine(32, 52, 48, 40); p.drawLine(48, 40, 48, 24); }
+    else if (name == "onedrive") { p.drawEllipse(20, 24, 16, 14); p.drawEllipse(36, 20, 14, 14); }
+    else if (name == "device") { p.drawRoundedRect(20, 14, 24, 36, 4, 4); p.drawLine(20, 42, 44, 42); p.setPen(QPen(color, 2)); p.drawPoint(32, 46); }
+
+    else if (name == "more_vert") { p.setBrush(color); p.setPen(Qt::NoPen); p.drawEllipse(28, 14, 8, 8); p.drawEllipse(28, 28, 8, 8); p.drawEllipse(28, 42, 8, 8); }
     else if (name == "arrow_left") { QPainterPath path; path.moveTo(42, 12); path.lineTo(20, 32); path.lineTo(42, 52); p.drawPath(path); }
     else if (name == "arrow_right") { QPainterPath path; path.moveTo(20, 12); path.lineTo(42, 32); path.lineTo(20, 52); p.drawPath(path); }
-    if(name=="menu") { p.drawLine(12,20,52,20); p.drawLine(12,32,52,32); p.drawLine(12,44,52,44); }
-    if(name=="save") { p.drawRoundedRect(14,14,36,36,6,6); p.drawLine(22,14,22,26); p.drawLine(42,14,42,26); p.drawLine(22,26,42,26); }
-    if(name=="undo") { QPainterPath pa; pa.moveTo(40,20); pa.arcTo(20,20,30,30,90,180); p.drawPath(pa); p.drawLine(20,35,10,25); p.drawLine(20,15,10,25); }
-    if(name=="redo") { QPainterPath pa; pa.moveTo(24,20); pa.arcTo(14,20,30,30,90,-180); p.drawPath(pa); p.drawLine(44,35,54,25); p.drawLine(44,15,54,25); }
-    if(name=="pen") { QPainterPath pa; pa.moveTo(12,52); pa.lineTo(22,52); pa.lineTo(50,24); pa.lineTo(40,14); pa.lineTo(12,42); pa.closeSubpath(); p.drawPath(pa); }
-    if(name=="eraser") { p.drawRoundedRect(15,15,34,34,5,5); p.drawLine(25,25,39,39); p.drawLine(39,25,25,39); }
-    if(name=="lasso") { p.drawEllipse(15,15,34,34); p.drawLine(45,45,55,55); }
-    if(name=="format_inf") { p.drawEllipse(10,22,22,20); p.drawEllipse(32,22,22,20); }
-    if(name=="format_a4") { p.drawRect(20,12,24,40); p.drawLine(26,20,38,20); p.drawLine(26,30,38,30); }
-    if(name=="settings") { p.drawEllipse(20,20,24,24); p.drawLine(32,10,32,20); p.drawLine(32,44,32,54); p.drawLine(10,32,20,32); p.drawLine(44,32,54,32); }
-    if(name=="add") { p.drawLine(32, 14, 32, 50); p.drawLine(14, 32, 50, 32); }
-    if(name=="cursor") { QPainterPath pa; pa.moveTo(20,20); pa.lineTo(30,50); pa.lineTo(38,38); pa.lineTo(50,50); p.setPen(QPen(color, 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)); p.drawPath(pa); }
-    if(name=="close") { p.drawLine(20,20,44,44); p.drawLine(44,20,20,44); }
+    else if(name=="menu") { p.drawLine(12,20,52,20); p.drawLine(12,32,52,32); p.drawLine(12,44,52,44); }
+    else if(name=="save") { p.drawRoundedRect(14,14,36,36,6,6); p.drawLine(22,14,22,26); p.drawLine(42,14,42,26); p.drawLine(22,26,42,26); }
+    else if(name=="undo") { QPainterPath pa; pa.moveTo(40,20); pa.arcTo(20,20,30,30,90,180); p.drawPath(pa); p.drawLine(20,35,10,25); p.drawLine(20,15,10,25); }
+    else if(name=="redo") { QPainterPath pa; pa.moveTo(24,20); pa.arcTo(14,20,30,30,90,-180); p.drawPath(pa); p.drawLine(44,35,54,25); p.drawLine(44,15,54,25); }
+    else if(name=="pen") { QPainterPath pa; pa.moveTo(12,52); pa.lineTo(22,52); pa.lineTo(50,24); pa.lineTo(40,14); pa.lineTo(12,42); pa.closeSubpath(); p.drawPath(pa); }
+    else if(name=="eraser") { p.drawRoundedRect(15,15,34,34,5,5); p.drawLine(25,25,39,39); p.drawLine(39,25,25,39); }
+    else if(name=="lasso") { p.drawEllipse(15,15,34,34); p.drawLine(45,45,55,55); }
+    else if(name=="format_inf") { p.drawEllipse(10,22,22,20); p.drawEllipse(32,22,22,20); }
+    else if(name=="format_a4") { p.drawRect(20,12,24,40); p.drawLine(26,20,38,20); p.drawLine(26,30,38,30); }
+    else if(name=="settings") { p.drawEllipse(20,20,24,24); p.drawLine(32,10,32,20); p.drawLine(32,44,32,54); p.drawLine(10,32,20,32); p.drawLine(44,32,54,32); }
+    else if(name=="add") { p.drawLine(32, 14, 32, 50); p.drawLine(14, 32, 50, 32); }
+    else if(name=="cursor") { QPainterPath pa; pa.moveTo(20,20); pa.lineTo(30,50); pa.lineTo(38,38); pa.lineTo(50,50); p.setPen(QPen(color, 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)); p.drawPath(pa); }
+    else if(name=="close") { p.drawLine(20,20,44,44); p.drawLine(44,20,20,44); }
     return QIcon(pixmap);
 }
 
@@ -431,7 +403,7 @@ void MainWindow::setupUi() {
     QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer); overviewLayout->setContentsMargins(30, 30, 30, 30);
     QHBoxLayout *topBar = new QHBoxLayout();
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Zurück"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
-    btnSettings = new ModernButton(this); btnSettings->setIcon(createModernIcon("settings", Qt::white)); connect(btnSettings, &QAbstractButton::clicked, this, &MainWindow::onOpenSettings); topBar->addWidget(btnSettings);
+
     btnNewNote = new ModernButton(this); btnNewNote->setIcon(createModernIcon("add", Qt::white)); btnNewNote->setToolTip("Neue Notiz erstellen"); connect(btnNewNote, &QAbstractButton::clicked, this, &MainWindow::onNewPage); topBar->addWidget(btnNewNote);
     topBar->addStretch(); overviewLayout->addLayout(topBar);
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
@@ -489,53 +461,97 @@ void MainWindow::setupSidebar() {
     m_sidebarContainer->setFixedWidth(250);
 
     QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
-    layout->setContentsMargins(0,0,0,0);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
-    m_sidebarHeader = new QWidget(m_sidebarContainer);
-    m_sidebarHeader->setFixedHeight(60);
-    QHBoxLayout *hLayout = new QHBoxLayout(m_sidebarHeader);
-    hLayout->setContentsMargins(15, 0, 15, 0);
+    // --- TITLE HEADER ---
+    QWidget *header = new QWidget(m_sidebarContainer);
+    header->setFixedHeight(70);
+    QHBoxLayout *headerLay = new QHBoxLayout(header);
+    headerLay->setContentsMargins(20, 20, 20, 0);
+    QLabel *lblTitle = new QLabel("Blop Notizen", header);
+    lblTitle->setStyleSheet("font-size: 18px; font-weight: bold; color: white;");
+    headerLay->addWidget(lblTitle);
 
-    QLabel *lblWorkspace = new QLabel("Meine Dateien", m_sidebarHeader);
-    lblWorkspace->setStyleSheet("color: #E0E0E0; font-weight: bold; font-size: 14px;");
-    hLayout->addWidget(lblWorkspace);
-    hLayout->addStretch();
-
-    m_closeSidebarBtn = new QPushButton("«", m_sidebarHeader);
+    // Close Sidebar (Small)
+    m_closeSidebarBtn = new QPushButton("«", header);
     m_closeSidebarBtn->setFixedSize(24,24);
     m_closeSidebarBtn->setCursor(Qt::PointingHandCursor);
     m_closeSidebarBtn->setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 16px; } QPushButton:hover { color: white; background: #333; border-radius: 4px; }");
     connect(m_closeSidebarBtn, &QPushButton::clicked, this, &MainWindow::onToggleSidebar);
-    hLayout->addWidget(m_closeSidebarBtn);
+    headerLay->addStretch();
+    headerLay->addWidget(m_closeSidebarBtn);
+    layout->addWidget(header);
 
-    layout->addWidget(m_sidebarHeader);
+    // --- LIST NAVIGATION ---
+    m_navSidebar = new QListWidget(m_sidebarContainer);
+    m_navSidebar->setItemDelegate(new SidebarNavDelegate(this));
+    m_navSidebar->setFrameShape(QFrame::NoFrame);
+    m_navSidebar->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
-    m_folderTree = new QTreeView(m_sidebarContainer);
-    m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; margin-left: 15px; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }");
+    // ZÄHLEN DER ELEMENTE IM HAUPTVERZEICHNIS (Dateien + Ordner, keine Dots)
+    QDir rootDir(m_rootPath);
+    int rootCount = rootDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
+    QString rootCountStr = QString::number(rootCount);
 
-    m_folderTree->setModel(m_fileModel);
-    m_folderTree->setRootIndex(m_fileModel->index(m_rootPath));
-    m_folderTree->setRootIsDecorated(false);
-    m_folderTree->setHeaderHidden(true);
-    m_folderTree->setColumnHidden(1, true);
-    m_folderTree->setColumnHidden(2, true);
-    m_folderTree->setColumnHidden(3, true);
-    m_folderTree->setMouseTracking(true);
-    m_folderTree->viewport()->setAttribute(Qt::WA_Hover);
-    m_folderTree->setIndentation(0);
-    m_folderTree->setUniformRowHeights(true);
-    m_folderTree->setItemDelegate(new SidebarItemDelegate(this));
-    m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_folderTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    connect(m_folderTree, &QWidget::customContextMenuRequested, this, &MainWindow::onSidebarContextMenu);
-    connect(m_folderTree, &QTreeView::clicked, this, &MainWindow::onFolderSelected);
-    connect(m_folderTree, &QTreeView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
-    m_folderTree->setDragEnabled(true);
-    m_folderTree->setAcceptDrops(true);
-    m_folderTree->setDropIndicatorShown(true);
-    m_folderTree->setDragDropMode(QAbstractItemView::DragDrop);
-    layout->addWidget(m_folderTree);
+    // Elemente hinzufügen
+    auto addItem = [this, rootCountStr](QString name, QString icon, bool isHeader = false) {
+        QListWidgetItem *item = new QListWidgetItem(m_navSidebar);
+        item->setText(name);
+        if (!isHeader) {
+            item->setIcon(createModernIcon(icon, QColor(200, 200, 200)));
+            // Echte Counter setzen
+            if (name == "Alle" || name == "Blop Notizen") {
+                item->setData(Qt::UserRole + 2, rootCountStr);
+            }
+        }
+        item->setData(Qt::UserRole + 1, isHeader); // IsHeader Flag
 
+        if (isHeader) {
+            item->setFlags(Qt::NoItemFlags); // Nicht wählbar
+        } else {
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        }
+    };
+
+    addItem("Alle", "folder");
+    addItem("Blop Notizen", "folder"); // Früher "Gerät"
+    addItem("Gerät Dateien", "device"); // Früher "Wolke"
+    addItem("Von mir geteilt", "share");
+    addItem("Mit mir geteilt", "share");
+
+    addItem("Integrationen", "", true); // Header
+    addItem("Google Drive", "drive");
+    addItem("OneDrive", "onedrive");
+    addItem("Dropbox", "dropbox");
+
+    // Tags entfernt
+
+    // Standard Auswahl: Blop Notizen
+    m_navSidebar->setCurrentRow(1);
+
+    connect(m_navSidebar, &QListWidget::itemClicked, this, &MainWindow::onNavItemClicked);
+    layout->addWidget(m_navSidebar);
+
+    // --- BOTTOM BAR (Settings) ---
+    QWidget *bottomBar = new QWidget(m_sidebarContainer);
+    bottomBar->setFixedHeight(60);
+    QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar);
+    bottomLay->setContentsMargins(15, 0, 15, 15);
+
+    m_btnSidebarSettings = new QPushButton(bottomBar);
+    m_btnSidebarSettings->setIcon(createModernIcon("settings", QColor(150,150,150)));
+    m_btnSidebarSettings->setIconSize(QSize(24, 24));
+    m_btnSidebarSettings->setFixedSize(40, 40);
+    m_btnSidebarSettings->setCursor(Qt::PointingHandCursor);
+    m_btnSidebarSettings->setStyleSheet("QPushButton { background: #252526; border-radius: 20px; border: 1px solid #444; } QPushButton:hover { background: #333; border: 1px solid #555; }");
+    connect(m_btnSidebarSettings, &QPushButton::clicked, this, &MainWindow::onOpenSettings);
+
+    bottomLay->addWidget(m_btnSidebarSettings);
+    bottomLay->addStretch();
+    layout->addWidget(bottomBar);
+
+    // --- FAB (Floating Action Button) ---
     m_fabFolder = new QPushButton("+", m_sidebarContainer);
     m_fabFolder->setCursor(Qt::PointingHandCursor);
     m_fabFolder->setFixedSize(40, 40);
@@ -545,27 +561,53 @@ void MainWindow::setupSidebar() {
     shadowFolder->setColor(QColor(0,0,0,80));
     m_fabFolder->setGraphicsEffect(shadowFolder);
     connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+    // Positionierung passiert im resizeEvent
 
     m_mainSplitter->addWidget(m_sidebarContainer);
 }
 
-void MainWindow::onSidebarContextMenu(const QPoint &pos) {
-    QModelIndex index = m_folderTree->indexAt(pos);
-    if (!index.isValid()) return;
-    QMenu menu(this);
-    menu.addAction("Umbenennen", [this, index]() { startRename(index); });
-    menu.addAction("Kopieren", [this, index]() { performCopy(index); });
-    QAction* delAct = menu.addAction("Löschen");
-    connect(delAct, &QAction::triggered, [this, index]() {
-        QString path = m_fileModel->filePath(index);
-        QMessageBox::StandardButton res = QMessageBox::question(this, "Löschen", "Wirklich löschen?");
-        if (res == QMessageBox::Yes) {
-            if (m_fileModel->isDir(index)) { QDir(path).removeRecursively(); }
-            else { QFile::remove(path); }
-        }
-    });
-    menu.exec(m_folderTree->mapToGlobal(pos));
+void MainWindow::onNavItemClicked(QListWidgetItem *item) {
+    if (!item) return;
+    QString name = item->text();
+
+    // Logik für die Auswahl
+    if (name == "Blop Notizen" || name == "Alle") {
+        m_fileModel->setRootPath(m_rootPath); // Reset auf App-Ordner
+        m_fileListView->setModel(m_fileModel);
+        m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
+        m_fabNote->show();
+        m_fabFolder->show();
+    }
+    else if (name == "Gerät Dateien") {
+        // Zugriff auf "Dieser PC" / Laufwerke
+        // Wir setzen den Pfad auf Root, damit der Watcher aktiv ist
+        m_fileModel->setRootPath(QDir::rootPath());
+
+        m_fileListView->setModel(m_fileModel);
+
+        // WICHTIG: RootIndex auf "Invalid" (QModelIndex()) setzen zeigt die Laufwerke an
+        m_fileListView->setRootIndex(QModelIndex());
+
+        // FABs verstecken (Notizen und Ordner erstellen auf Root-Ebene meist nicht sinnvoll)
+        m_fabNote->hide();
+        m_fabFolder->hide();
+    }
+    else if (name == "Google Drive" || name == "OneDrive" || name == "Dropbox") {
+        // Platzhalter für Cloud-Integration
+        m_fileListView->setRootIndex(QModelIndex()); // Leer
+        m_fabNote->hide();
+        m_fabFolder->hide();
+
+        QMessageBox::information(this, "Cloud Integration", "Die Verbindung zu " + name + " wird in einer zukünftigen Version verfügbar sein.");
+    }
 }
+
+void MainWindow::onSidebarContextMenu(const QPoint &pos) {
+    // Kontextmenü jetzt für Nav Items? Eher nicht nötig für statische Items.
+    // Falls nötig, hier implementieren.
+}
+
+// ... Rest der Datei (unverändert, bis auf resizeEvent Anpassung für FAB) ...
 
 void MainWindow::performCopy(const QModelIndex &index) {
     QString srcPath = m_fileModel->filePath(index);
@@ -776,7 +818,6 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         m_editorTabs->addTab(canvas, index.data().toString()); m_editorTabs->setCurrentWidget(canvas); m_rightStack->setCurrentWidget(m_editorContainer); setActiveTool(m_activeToolType); updateSidebarState();
     }
 }
-void MainWindow::onFolderSelected(const QModelIndex &index) { if (m_fileModel->isDir(index)) { m_fileListView->setRootIndex(index); m_fileModel->setRootPath(m_fileModel->filePath(index)); updateOverviewBackButton(); } }
 void MainWindow::onBackToOverview() { m_rightStack->setCurrentWidget(m_overviewContainer); updateSidebarState(); }
 void MainWindow::showContextMenu(const QPoint &globalPos, const QModelIndex &index) { QMenu menu(this); menu.addAction("Öffnen", [this, index](){ onFileDoubleClicked(index); }); menu.addAction("Umbenennen", [this, index](){ startRename(index); }); menu.addAction("Löschen", [this, index](){ m_fileModel->remove(index); }); menu.exec(globalPos); }
 void MainWindow::startRename(const QModelIndex &index) { m_indexToRename = index; showRenameOverlay(index.data().toString()); }
@@ -862,4 +903,3 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
-

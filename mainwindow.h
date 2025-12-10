@@ -5,6 +5,7 @@
 #include <QTabWidget>
 #include <QTreeView>
 #include <QListView>
+#include <QListWidget> // Neu
 #include <QFileSystemModel>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -26,16 +27,14 @@
 
 class MainWindow;
 
-// --- SidebarItemDelegate ---
-class SidebarItemDelegate : public QStyledItemDelegate
+// --- SidebarNavDelegate (Neu für das Drawboard-Design) ---
+class SidebarNavDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
 public:
-    explicit SidebarItemDelegate(MainWindow *parent);
+    explicit SidebarNavDelegate(MainWindow *parent);
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-    bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) override;
-
 private:
     MainWindow *m_window;
 };
@@ -79,7 +78,7 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
     friend class ModernItemDelegate;
-    friend class SidebarItemDelegate;
+    friend class SidebarNavDelegate; // Friend Update
 
 public:
     MainWindow(QWidget *parent = nullptr);
@@ -109,10 +108,10 @@ private slots:
     void onOpenSettings();
 
     void updateTheme(QColor accentColor);
-    void updateInputMode(bool penOnly); // Hier fehlte wahrscheinlich die Deklaration
+    void updateInputMode(bool penOnly);
     void applyProfile(const UiProfile& profile);
 
-    void onFolderSelected(const QModelIndex &index);
+    void onNavItemClicked(QListWidgetItem *item); // Neu: Navigation
     void onFileDoubleClicked(const QModelIndex &index);
     void onBackToOverview();
 
@@ -190,11 +189,15 @@ private:
     bool m_isSidebarOpen;
 
     QWidget *m_sidebarContainer;
-    QWidget *m_sidebarHeader;
-    QTreeView *m_folderTree;
+    // QWidget *m_sidebarHeader; // Entfernt, da Titel jetzt anders ist
+    QListWidget *m_navSidebar;   // Neu: Ersetzt TreeView
     QFileSystemModel *m_fileModel;
     QPushButton *m_fabFolder;
     QPushButton *m_closeSidebarBtn;
+
+    // Neu: Settings Button unten in der Sidebar
+    QPushButton *m_btnSidebarSettings;
+
     QWidget *m_overviewContainer;
     FreeGridView *m_fileListView;
     QPushButton *m_fabNote;
@@ -216,11 +219,10 @@ private:
 
     QComboBox *m_comboProfiles;
     QComboBox *m_comboToolbarStyle;
-    QSlider *m_sliderToolbarScale; // Hier fehlte wahrscheinlich die Deklaration
+    QSlider *m_sliderToolbarScale;
 
     QWidget *m_floatingTools;
 
-    ModernButton *btnSettings;
     ModernButton *btnEditorSettings;
     ModernButton *btnBackOverview;
     ModernButton *btnNewNote;
