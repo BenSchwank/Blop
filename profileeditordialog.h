@@ -8,6 +8,8 @@ class QLabel;
 class QCheckBox;
 class ModernToolbar;
 class QGroupBox;
+class QPushButton;
+class QButtonGroup; // Neu
 
 class ProfileEditorDialog : public QDialog {
     Q_OBJECT
@@ -23,12 +25,24 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
-    void onValuesChanged();
+    void onValuesChanged();      // Für die komplexen Slider
+    void onSimpleStepClicked(int id); // Neu: Für die 5 Buttons
+    void toggleMode();           // Umschalten
 
 private:
     UiProfile m_profile;
+
+    bool m_isSimpleMode{true};
+    QPushButton *m_btnToggleMode;
+
+    QWidget *m_simpleContainer;
+    QWidget *m_complexContainer;
+
+    // --- Elemente Einfacher Modus (Neu) ---
+    QButtonGroup *m_btnGroupSimple; // Verwaltet die 5 Buttons
+
+    // --- Elemente Komplexer Modus ---
     QSlider *m_slIconSize;
-    // Kein ItemHeight Slider mehr
     QSlider *m_slButtonSize;
     QSlider *m_slGridSpace;
     QSlider *m_slToolbarScale;
@@ -44,5 +58,9 @@ private:
 
     QPoint m_dragPos;
 
+    // Faktoren für die 5 Schritte: XS, S, M, L, XL
+    const QVector<double> m_stepFactors = {0.75, 0.85, 1.0, 1.25, 1.5};
+
     void setupUi();
+    void updateSimpleFromComplex();
 };
