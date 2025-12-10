@@ -323,6 +323,7 @@ void MainWindow::updateGrid() {
 
         QSize itemS(s, s);
         m_fileListView->setItemSize(itemS);
+        m_fileListView->setIconSize(itemS);
 
         if (m_currentProfile.snapToGrid) {
             int gridW = itemS.width() + m_currentProfile.gridSpacing;
