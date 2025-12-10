@@ -31,18 +31,15 @@ void FreeGridView::setItemSize(const QSize &size) {
 
 QPoint FreeGridView::calculateSnapPosition(const QPoint &pos)
 {
-    // Wir snappen am Layout-Grid (gridSize), nicht am feinen visuellen Raster
     QSize grid = gridSize();
     if (grid.isEmpty()) return pos;
 
     int w = grid.width();
     int h = grid.height();
 
-    // Auf nächste Zelle runden
     int x = qRound((double)pos.x() / w) * w;
     int y = qRound((double)pos.y() / h) * h;
 
-    // Zentrieren im Grid? Optional. Hier: Oben-Links Snap
     return QPoint(x, y);
 }
 
@@ -50,30 +47,28 @@ void FreeGridView::paintEvent(QPaintEvent *e)
 {
     QPainter p(viewport());
 
-    // 1. Visuelles Raster (FEIN, fix 30px)
-    // Unabhängig von gridSize(), damit es immer gut aussieht
-    int visualStep = 30;
+    // OPTIMIERUNG: Statt jeden Punkt einzeln in einer Schleife zu zeichnen,
+    // nutzen wir ein gekacheltes Pixmap (Cached Bitmap). Das ist deutlich schneller.
 
-    p.setPen(QColor(255, 255, 255, 10));
+    static QPixmap tilePix;
+    if (tilePix.isNull() || tilePix.width() != 30) {
+        tilePix = QPixmap(30, 30);
+        tilePix.fill(Qt::transparent);
+        QPainter pt(&tilePix);
+        pt.setPen(QColor(255, 255, 255, 10));
+        pt.drawPoint(10, 10);
+    }
 
     int startX = horizontalScrollBar()->value();
     int startY = verticalScrollBar()->value();
-    int w = viewport()->width();
-    int h = viewport()->height();
 
-    int offX = startX % visualStep;
-    int offY = startY % visualStep;
-
-    for (int x = -offX; x < w; x += visualStep) {
-        for (int y = -offY; y < h; y += visualStep) {
-            p.drawPoint(x + 10, y + 10);
-        }
-    }
+    // drawTiledPixmap füllt den Bereich effizient
+    p.drawTiledPixmap(viewport()->rect(), tilePix, QPoint(-startX % 30, -startY % 30));
 
     // 2. Items zeichnen
     QListView::paintEvent(e);
 
-    // 3. Ghost (Größe entspricht ItemSize)
+    // 3. Ghost
     if (m_showGhost) {
         p.save();
         QColor ghostColor = m_accentColor;
@@ -82,12 +77,8 @@ void FreeGridView::paintEvent(QPaintEvent *e)
         p.setPen(QPen(m_accentColor, 2, Qt::DashLine));
 
         QRect ghostVisual = m_ghostRect;
-        // Wir nutzen die Item-Größe für den Ghost, nicht das ganze Grid-Feld
         ghostVisual.setSize(m_itemSize);
 
-        // Optional: Zentrieren im Grid-Feld
-        // Da m_ghostRect oben links am Grid snappt, schieben wir es etwas ein
-        // wenn ItemSize kleiner als GridSize ist.
         QSize grid = gridSize();
         if (!grid.isEmpty()) {
             int offsetX = (grid.width() - m_itemSize.width()) / 2;
@@ -117,7 +108,7 @@ void FreeGridView::dragMoveEvent(QDragMoveEvent *e)
 {
     QPoint pos = e->position().toPoint();
     QPoint snapPos = calculateSnapPosition(pos);
-    m_ghostRect = QRect(snapPos, gridSize()); // Basis ist Grid
+    m_ghostRect = QRect(snapPos, gridSize());
     viewport()->update();
     QListView::dragMoveEvent(e);
 }

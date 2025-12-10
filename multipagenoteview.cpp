@@ -6,7 +6,7 @@
 #include <QScrollBar>
 #include <cmath>
 #include <algorithm>
-#include <QPointingDevice> // WICHTIG für Qt 6
+#include <QPointingDevice>
 #include <QImage>
 #include <QPainter>
 #include <QPdfWriter>
@@ -18,9 +18,20 @@ static constexpr int PageSpacing = 40;
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     setScene(&scene_);
     setBackgroundBrush(UIStyles::SceneBackground);
+
+    // OPTIMIERUNG:
+    // DontSavePainterState: Spart das Speichern/Wiederherstellen des Painter-Status (schneller)
+    // DontAdjustForAntialiasing: Verhindert aufwändige Randberechnungen für Antialiasing
+    setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
+
     setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     setDragMode(QGraphicsView::ScrollHandDrag);
-    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+
+    // WICHTIGSTE ÄNDERUNG:
+    // Statt FullViewportUpdate (alles neu zeichnen) nutzen wir BoundingRectViewportUpdate.
+    // Das zeichnet nur dort neu, wo sich wirklich etwas geändert hat (z.B. unter dem Stift).
+    setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
+
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setAcceptDrops(false);
     viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
@@ -34,12 +45,15 @@ void MultiPageNoteView::setNote(Note *note) {
 
     if (!note_) return;
 
+    // OPTIMIERUNG: Items ohne Index hinzufügen, da wir keine komplexe Kollisionserkennung brauchen
+    // Das beschleunigt das Hinzufügen vieler Striche.
+    bool wasBlocked = scene_.blockSignals(true);
+
     for (int i = 0; i < note_->pages.size(); ++i) {
         for (const auto &s : note_->pages[i].strokes) {
             auto item = new QGraphicsPathItem(s.path);
             item->setZValue(1.0);
 
-            // Fix für QPen Fehler: if/else statt komplexer Ternary-Operator
             QPen pen;
             if (s.isEraser) {
                 pen = QPen(UIStyles::PageBackground, s.width);
@@ -52,11 +66,11 @@ void MultiPageNoteView::setNote(Note *note) {
             item->setPos(pageRect(i).topLeft());
         }
     }
+    scene_.blockSignals(wasBlocked);
 }
 
 void MultiPageNoteView::layoutPages() {
     if (!note_) return;
-    // Fix für std::max Fehler (expliziter Cast auf int)
     int n = std::max(1, (int)note_->pages.size());
     qreal y = 0;
     for (int i = 0; i < n; ++i) {
@@ -181,7 +195,6 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
 
 void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     if (e->button() == Qt::LeftButton) {
-        // Fix: Qt 6 QTabletEvent Konstruktor
         QTabletEvent fake(QEvent::TabletPress,
                           QPointingDevice::primaryPointingDevice(),
                           e->position(),
@@ -198,7 +211,6 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
 
 void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     if (e->buttons() & Qt::LeftButton && drawing_) {
-        // Fix: Qt 6 QTabletEvent Konstruktor
         QTabletEvent fake(QEvent::TabletMove,
                           QPointingDevice::primaryPointingDevice(),
                           e->position(),
@@ -215,7 +227,6 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 
 void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     if (drawing_) {
-        // Fix: Qt 6 QTabletEvent Konstruktor
         QTabletEvent fake(QEvent::TabletRelease,
                           QPointingDevice::primaryPointingDevice(),
                           e->position(),

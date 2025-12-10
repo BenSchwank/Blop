@@ -158,8 +158,7 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         if (iconDim < 16) iconDim = 16;
         QRect iconRect(rect.left() + 10, rect.center().y() - iconDim/2, iconDim, iconDim);
 
-        painter->setBrush(QColor(255, 255, 255, 10));
-        painter->drawEllipse(iconRect.adjusted(-2,-2,2,2));
+        // KREIS ENTFERNT
         icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 
         QRect textRect = rect;
@@ -184,8 +183,7 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
         QRect iconRect(rect.center().x() - iconDim/2, startY, iconDim, iconDim);
 
-        painter->setBrush(QColor(255, 255, 255, 10));
-        painter->drawEllipse(iconRect.adjusted(-4,-4,4,4));
+        // KREIS ENTFERNT
         icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 
         if (textH > 0) {
@@ -323,7 +321,7 @@ void MainWindow::updateGrid() {
 
         QSize itemS(s, s);
         m_fileListView->setItemSize(itemS);
-        m_fileListView->setIconSize(itemS);
+        m_fileListView->setIconSize(itemS); // WICHTIG: Damit die Icons skalieren
 
         if (m_currentProfile.snapToGrid) {
             int gridW = itemS.width() + m_currentProfile.gridSpacing;
@@ -864,3 +862,4 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
+

@@ -42,13 +42,16 @@ CanvasView::CanvasView(QWidget *parent)
 {
     m_scene = new QGraphicsScene(this); setScene(m_scene); m_a4Rect = QRectF(0, 0, 794 * 1.5, 1123 * 1.5);
 
+    // OPTIMIERUNG: Flags für Performance
+    setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
+    setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
+
     setRenderHint(QPainter::Antialiasing);
     setRenderHint(QPainter::SmoothPixmapTransform);
 
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
 
-    // KORREKTUR: Geste auf dem Viewport registrieren
     viewport()->grabGesture(Qt::PinchGesture);
 
     setPageFormat(true);
@@ -82,6 +85,8 @@ void CanvasView::setPageColor(const QColor &color) {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
+    // OPTIMIERUNG: Unnötiges Zeichnen vermeiden, wenn das Rechteck nicht sichtbar ist
+    // (Wird bereits durch QGraphicsView optimiert, aber hier sicherstellen)
     if (m_isInfinite) {
         painter->fillRect(rect, m_pageColor);
     } else {
@@ -162,6 +167,8 @@ bool CanvasView::loadFromFile() {
     quint32 magic; in >> magic; if (magic != 0xB10B0001) return false;
     m_scene->clear(); m_undoList.clear(); m_redoList.clear();
     int count; in >> count;
+    // OPTIMIERUNG: Signale blockieren beim Laden vieler Items
+    bool wasBlocked = m_scene->blockSignals(true);
     for (int i = 0; i < count; ++i) {
         QPointF pos; QColor color; int width; QPainterPath path;
         in >> pos >> color >> width >> path;
@@ -171,6 +178,7 @@ bool CanvasView::loadFromFile() {
         item->setFlag(QGraphicsItem::ItemIsSelectable);
         item->setFlag(QGraphicsItem::ItemIsMovable);
     }
+    m_scene->blockSignals(wasBlocked);
     return true;
 }
 
