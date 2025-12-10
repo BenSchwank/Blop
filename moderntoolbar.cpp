@@ -15,7 +15,7 @@
 #include <QParallelAnimationGroup>
 
 // --- Helper Button ---
-ToolbarBtn::ToolbarBtn(const QString& name, QWidget* parent) : QWidget(parent), m_iconName(name) {
+ToolbarBtn::ToolbarBtn(const QString& iconName, QWidget* parent) : QWidget(parent), m_iconName(iconName) {
     setBtnSize(40);
     setCursor(Qt::PointingHandCursor);
 }
@@ -24,7 +24,9 @@ void ToolbarBtn::setBtnSize(int s) {
 }
 void ToolbarBtn::setIcon(const QString& name) { m_iconName = name; update(); }
 void ToolbarBtn::setActive(bool active) { m_active = active; update(); }
-void ToolbarBtn::mousePressEvent(QMouseEvent* e) { if(e->button()==Qt::LeftButton) emit clicked(); }
+void ToolbarBtn::mousePressEvent(QMouseEvent* e) {
+    if(e->button()==Qt::LeftButton) emit clicked();
+}
 void ToolbarBtn::enterEvent(QEnterEvent*) { m_hover = true; update(); }
 void ToolbarBtn::leaveEvent(QEvent*) { m_hover = false; update(); }
 void ToolbarBtn::animateSelect() {
@@ -55,10 +57,12 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     setWindowFlags(Qt::FramelessWindowHint);
     setMouseTracking(true);
     if (parent) parent->installEventFilter(this);
+
     btnPen = new ToolbarBtn("pen", this); btnEraser = new ToolbarBtn("eraser", this);
     btnLasso = new ToolbarBtn("lasso", this); btnUndo = new ToolbarBtn("undo", this); btnRedo = new ToolbarBtn("redo", this);
     m_buttons = {btnUndo, btnEraser, btnPen, btnLasso, btnRedo};
     m_customColors = {Qt::black, Qt::white, Qt::red, Qt::blue, Qt::green, Qt::yellow};
+
     auto handleToolClick = [this](ToolMode m) {
         if(mode_ == m) {
             if (m_settingsState == SettingsState::Closed) {
@@ -67,11 +71,13 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
             } else { m_settingsState = SettingsState::Closed; update(); }
         } else { setToolMode(m); emit toolChanged(m); }
     };
+
     connect(btnPen, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Pen); });
     connect(btnEraser, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Eraser); });
     connect(btnLasso, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Lasso); });
     connect(btnUndo, &ToolbarBtn::clicked, this, &ModernToolbar::undoRequested);
     connect(btnRedo, &ToolbarBtn::clicked, this, &ModernToolbar::redoRequested);
+
     setStyle(Normal); setToolMode(ToolMode::Pen);
 }
 
@@ -111,7 +117,7 @@ void ModernToolbar::constrainToParent() {
     if (m_style == Radial && m_radialType == HalfEdge) { snapToEdge(); move(x(), newY); }
     else {
         if (newX < 0) newX = 0;
-        if (newX > qMax(0, maxX)) newX = qMax(0, maxX); // FIX: Crash Prevention
+        if (newX > qMax(0, maxX)) newX = qMax(0, maxX);
         move(newX, newY);
     }
 }
@@ -139,6 +145,13 @@ void ModernToolbar::setToolMode(ToolMode mode) {
 
 void ModernToolbar::setStyle(Style style) {
     m_style = style; m_settingsState = SettingsState::Closed;
+
+    // Im Radial-Modus ignorieren die Buttons die Maus -> Scrollen möglich
+    bool buttonsIgnoreMouse = (style == Radial);
+    for(auto* b : m_buttons) {
+        b->setAttribute(Qt::WA_TransparentForMouseEvents, buttonsIgnoreMouse);
+    }
+
     if (m_style == Normal) {
         setMinimumSize(50, 50); setMaximumSize(1200, 1200);
         if (m_orientation == Vertical) resize(55, 310); else resize(310, 55);
@@ -183,22 +196,62 @@ void ModernToolbar::wheelEvent(QWheelEvent *e) {
 }
 
 void ModernToolbar::checkOrientation(const QPoint& globalPos) {
+    Q_UNUSED(globalPos); // Wir nutzen jetzt geometry()
     if (!parentWidget() || m_style != Normal) return;
-    QPoint local = parentWidget()->mapFromGlobal(globalPos);
-    int w = parentWidget()->width(); int h = parentWidget()->height();
-    int distLeft = local.x(); int distRight = w - local.x(); int distTop = local.y(); int distBottom = h - local.y();
-    int minDistSide = qMin(distLeft, distRight); int minDistVert = qMin(distTop, distBottom);
-    if (minDistVert < 100 && minDistVert < minDistSide) { setOrientation(Horizontal); } else { setOrientation(Vertical); }
+
+    // Prüfen, ob eine Kante der Toolbar nah am Rand des Parents ist
+    QRect myRect = geometry();
+    int parentW = parentWidget()->width();
+    int parentH = parentWidget()->height();
+
+    int distLeft = myRect.left();
+    int distRight = parentW - myRect.right();
+    int distTop = myRect.top();
+    int distBottom = parentH - myRect.bottom();
+
+    // Schwelle für das Andocken
+    int threshold = 80;
+
+    // Priorität: Oben/Unten -> Horizontal, Links/Rechts -> Vertikal
+    // Wir prüfen die MINIMALE Distanz.
+
+    bool horizontal = false;
+
+    // Wenn wir nah an Oben oder Unten sind:
+    if (distTop < threshold || distBottom < threshold) {
+        horizontal = true;
+    }
+    // Wenn wir nah an Links oder Rechts sind:
+    else if (distLeft < threshold || distRight < threshold) {
+        horizontal = false;
+    }
+    // Wenn wir irgendwo in der Mitte sind, behalten wir die Orientierung bei (Hysterese)
+    else {
+        return;
+    }
+
+    setOrientation(horizontal ? Horizontal : Vertical, true);
 }
 
-void ModernToolbar::setOrientation(Orientation o) {
+void ModernToolbar::setOrientation(Orientation o, bool animate) {
     if (m_orientation == o) return;
     m_orientation = o;
-    QSize s = size(); QPropertyAnimation* anim = new QPropertyAnimation(this, "size");
-    anim->setDuration(200); anim->setStartValue(s); anim->setEndValue(QSize(s.height(), s.width()));
-    anim->setEasingCurve(QEasingCurve::InOutQuad);
-    connect(anim, &QPropertyAnimation::finished, this, [this](){ updateLayout(); });
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
+
+    QSize currentS = size();
+    QSize targetS(currentS.height(), currentS.width());
+
+    if (animate) {
+        QPropertyAnimation* anim = new QPropertyAnimation(this, "size");
+        anim->setDuration(250);
+        anim->setStartValue(currentS);
+        anim->setEndValue(targetS);
+        anim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(anim, &QPropertyAnimation::valueChanged, this, [this](const QVariant&){ updateLayout(); });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+    } else {
+        resize(targetS);
+        updateLayout();
+    }
 }
 
 int ModernToolbar::calculateMinLength() {
@@ -210,27 +263,56 @@ int ModernToolbar::calculateMinLength() {
 void ModernToolbar::updateLayout(bool animate) {
     if (m_style == Normal) {
         int w = width(); int h = height();
-        int len = (m_orientation == Vertical) ? h : w; int breadth = (m_orientation == Vertical) ? w : h;
-        int btnS = breadth - 14; if (btnS > 48) btnS = 48; if (btnS < 20) btnS = 20;
+        int len = (m_orientation == Vertical) ? h : w;
+
+        // FIX: Wir nehmen immer die schmalere Seite für die Button-Größe.
+        // Das verhindert riesige Buttons während der Rotations-Animation.
+        int breadth = qMin(w, h);
+
+        int btnS = breadth - 14;
+        if (btnS > 48) btnS = 48; if (btnS < 20) btnS = 20;
+
         for(auto* b : m_buttons) b->setBtnSize(btnS);
-        int dragSize = 50; int handleSize = 30; int available = len - dragSize - handleSize; int content = 5 * btnS;
-        int gap = 8; if (available > content) { gap = (available - content) / 6; if (gap > 25) gap = 25; } if (gap < 5) gap = 5;
+
+        int dragSize = 50; int handleSize = 30;
+        int available = len - dragSize - handleSize;
+        int content = 5 * btnS;
+
+        int gap = 8;
+        if (available > content) { gap = (available - content) / 6; if (gap > 25) gap = 25; }
+        if (gap < 5) gap = 5;
+
         int currentPos = dragSize;
         auto place = [&](ToolbarBtn* b) {
             int bx, by;
-            if (m_orientation == Vertical) { bx = (breadth - btnS) / 2; by = currentPos; currentPos += btnS + gap; }
-            else { bx = currentPos; by = (breadth - btnS) / 2; currentPos += btnS + gap; }
-            if(animate) { QPropertyAnimation* anim = new QPropertyAnimation(b, "pos"); anim->setDuration(200); anim->setEndValue(QPoint(bx, by)); anim->setEasingCurve(QEasingCurve::OutQuad); anim->start(QAbstractAnimation::DeleteWhenStopped); } else { b->move(bx, by); }
+            if (m_orientation == Vertical) { bx = (w - btnS) / 2; by = currentPos; currentPos += btnS + gap; }
+            else { bx = currentPos; by = (h - btnS) / 2; currentPos += btnS + gap; }
+
+            if(animate) {
+                QPropertyAnimation* anim = new QPropertyAnimation(b, "pos");
+                anim->setDuration(200); anim->setEndValue(QPoint(bx, by));
+                anim->setEasingCurve(QEasingCurve::OutQuad);
+                anim->start(QAbstractAnimation::DeleteWhenStopped);
+            } else {
+                b->move(bx, by);
+            }
         };
-        place(btnUndo); place(btnRedo); currentPos += 5; place(btnPen); place(btnEraser); place(btnLasso); for(auto b : m_buttons) b->show();
+        place(btnUndo); place(btnRedo); currentPos += 5; place(btnPen); place(btnEraser); place(btnLasso);
+        for(auto b : m_buttons) b->show();
     } else {
         int cx = width() / 2; int cy = height() / 2; int btnS = 40 * m_scale;
         if (m_radialType == HalfEdge) {
+            int paintCx = m_isDockedLeft ? 0 : width();
             int r = 70 * m_scale; double baseAngle = m_isDockedLeft ? 0.0 : 180.0; double spacing = 35.0;
             for (int i = 0; i < m_buttons.size(); ++i) {
                 int relativeIdx = i - 2; double angleDeg = baseAngle + (relativeIdx * spacing) + m_scrollAngle; double angleRad = angleDeg * 3.14159 / 180.0;
-                int localCx = m_isDockedLeft ? 0 : width(); int bx = localCx + r * std::cos(angleRad) - btnS/2; int by = cy + r * std::sin(angleRad) - btnS/2;
-                m_buttons[i]->move(bx, by); bool visible = false; if (m_isDockedLeft) visible = std::cos(angleRad) > 0.05; else visible = std::cos(angleRad) < -0.05; m_buttons[i]->setVisible(visible);
+                int bx = paintCx + r * std::cos(angleRad) - btnS/2;
+                int by = cy + r * std::sin(angleRad) - btnS/2;
+                m_buttons[i]->move(bx, by);
+                bool visible = false;
+                if (m_isDockedLeft) visible = std::cos(angleRad) > 0.05;
+                else visible = std::cos(angleRad) < -0.05;
+                m_buttons[i]->setVisible(visible);
             }
         } else {
             int r = 65 * m_scale; int centerBtnX = (width() - btnS) / 2; int centerBtnY = (height() - btnS) / 2;
@@ -294,20 +376,50 @@ void ModernToolbar::paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int r
     }
 }
 
+ToolbarBtn* ModernToolbar::getRadialButtonAt(const QPoint& pos) {
+    for(auto* b : m_buttons) {
+        if(b->isVisible() && b->geometry().contains(pos)) {
+            return b;
+        }
+    }
+    return nullptr;
+}
+
 void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     if (e->button() == Qt::LeftButton) {
+        if (m_style == Radial) {
+            int cx = (m_radialType == HalfEdge) ? (m_isDockedLeft ? 0 : width()) : width()/2;
+            int cy = height()/2;
+            int dx = e->pos().x() - cx; int dy = e->pos().y() - cy;
+            double dist = std::sqrt(dx*dx + dy*dy);
+            int rMain = 95 * m_scale;
+            if (dist > 50 * m_scale && dist < rMain) {
+                m_isScrolling = true;
+                m_hasScrolled = false;
+                m_dragStartAngle = std::atan2(-dy, dx) * 180.0 / 3.14159;
+                m_scrollStartAngleVal = m_scrollAngle;
+                return;
+            }
+        }
+
         if (m_isResizing) return;
         if (m_style == Normal && !m_isPreview) {
             int handleSize = 30; if (e->pos().x() > width() - handleSize && e->pos().y() > height() - handleSize) { m_isResizing = true; dragStartPos_ = e->pos(); resizeStartPos_ = e->pos(); startSize_ = size(); return; }
         }
-        int cx = width()/2; int cy = height()/2; if (m_style == Radial && m_radialType == HalfEdge) { cx = m_isDockedLeft ? 0 : width(); }
+
+        int dragR = 45 * m_scale;
+        int cx = width()/2; int cy = height()/2;
+        if (m_style == Radial && m_radialType == HalfEdge) cx = m_isDockedLeft ? 0 : width();
         int dx = e->pos().x() - cx; int dy = e->pos().y() - cy; double dist = std::sqrt(dx*dx + dy*dy);
-        int rMain = 95 * m_scale; int r1_out = 135 * m_scale; int r2_out = 175 * m_scale; int dragR = 45 * m_scale;
 
         if (!m_isPreview && m_style == Radial && dist < dragR) { m_isDragging = true; dragStartPos_ = e->pos(); return; }
-        if (!m_isPreview && m_style == Normal) { if (m_orientation == Vertical && e->pos().y() < 50) { m_isDragging = true; dragStartPos_ = e->pos(); return; } if (m_orientation == Horizontal && e->pos().x() < 50) { m_isDragging = true; dragStartPos_ = e->pos(); return; } }
+        if (!m_isPreview && m_style == Normal) {
+            if (m_orientation == Vertical && e->pos().y() < 50) { m_isDragging = true; dragStartPos_ = e->pos(); return; }
+            if (m_orientation == Horizontal && e->pos().x() < 50) { m_isDragging = true; dragStartPos_ = e->pos(); return; }
+        }
 
         if (m_style == Radial && m_settingsState != SettingsState::Closed) {
+            int rMain = 95 * m_scale; int r1_out = 135 * m_scale; int r2_out = 175 * m_scale;
             if (dist > rMain && dist < r1_out) { handleRadialSettingsClick(e->pos(), cx, cy, rMain, r1_out); return; }
             if (dist > r1_out && dist < r2_out && m_settingsState != SettingsState::Main) { handleRadialSettingsClick(e->pos(), cx, cy, r1_out, r2_out); return; }
         }
@@ -341,24 +453,68 @@ void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy,
 }
 
 void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
+    if (m_style == Radial && m_isScrolling) {
+        int cx = (m_radialType == HalfEdge) ? (m_isDockedLeft ? 0 : width()) : width()/2;
+        int cy = height()/2;
+        int dx = e->pos().x() - cx; int dy = e->pos().y() - cy;
+        double currentAngle = std::atan2(-dy, dx) * 180.0 / 3.14159;
+        double delta = currentAngle - m_dragStartAngle;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+
+        // FIX: Vorzeichen geändert für natürlicheres Scroll-Gefühl
+        m_scrollAngle = m_scrollStartAngleVal - delta;
+
+        if (m_scrollAngle > 140) m_scrollAngle = 140;
+        if (m_scrollAngle < -140) m_scrollAngle = -140;
+
+        if (std::abs(delta) > 2.0) m_hasScrolled = true;
+
+        updateLayout();
+        return;
+    }
+
     if (m_isResizing && m_style == Normal) {
         QPoint delta = e->pos() - resizeStartPos_; int newW = startSize_.width() + delta.x(); int newH = startSize_.height() + delta.y(); int minL = calculateMinLength();
         if (m_orientation == Vertical) { if (newH < minL) newH = minL; if (newW < 50) newW = 50; if(newW > 100) newW = 100; } else { if (newW < minL) newW = minL; if (newH < 50) newH = 50; if(newH > 100) newH = 100; }
         resize(newW, newH); constrainToParent(); return;
     }
     if (m_isDragging && (e->buttons() & Qt::LeftButton) && !m_isPreview) {
-        if (m_style == Normal) { checkOrientation(e->globalPosition().toPoint()); }
         if (!parentWidget()) return;
-        QPoint newPos = mapToParent(e->pos()) - dragStartPos_; int maxY = parentWidget()->height() - height(); int maxX = parentWidget()->width() - width();
+
+        // Erst bewegen, DANN orientierung prüfen
+        QPoint newPos = mapToParent(e->pos()) - dragStartPos_;
+        int maxY = parentWidget()->height() - height();
+        int maxX = parentWidget()->width() - width();
+
         if (m_style == Radial && m_radialType == HalfEdge) {
-            int limitedX = qBound(-width()/2, newPos.x(), parentWidget()->width() - width()/2); move(limitedX, qBound(0, newPos.y(), maxY));
-            bool newIsLeft = (x() + width()/2 < parentWidget()->width() / 2); if (newIsLeft != m_isDockedLeft) { m_isDockedLeft = newIsLeft; updateLayout(); update(); }
-        } else { move(qBound(0, newPos.x(), maxX), qBound(0, newPos.y(), maxY)); }
+            int limitedX = qBound(-width()/2, newPos.x(), parentWidget()->width() - width()/2);
+            move(limitedX, qBound(0, newPos.y(), maxY));
+            bool newIsLeft = (x() + width()/2 < parentWidget()->width() / 2);
+            if (newIsLeft != m_isDockedLeft) { m_isDockedLeft = newIsLeft; updateLayout(); update(); }
+        } else {
+            move(qBound(0, newPos.x(), maxX), qBound(0, newPos.y(), maxY));
+            if (m_style == Normal) checkOrientation(e->globalPosition().toPoint());
+        }
     }
     if (m_style == Normal && !m_isPreview) { if (e->pos().x() > width() - 30 && e->pos().y() > height() - 30) setCursor(Qt::SizeFDiagCursor); else setCursor(Qt::ArrowCursor); }
 }
 
-void ModernToolbar::mouseReleaseEvent(QMouseEvent *) { m_isDragging = false; m_isResizing = false; if (m_style == Radial && m_radialType == HalfEdge) { snapToEdge(); } else { constrainToParent(); } }
+void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
+    if (m_style == Radial && m_isScrolling) {
+        m_isScrolling = false;
+        if (!m_hasScrolled) {
+            if (ToolbarBtn* b = getRadialButtonAt(e->pos())) {
+                b->triggerClick();
+            }
+        }
+        return;
+    }
+
+    m_isDragging = false;
+    m_isResizing = false;
+    if (m_style == Radial && m_radialType == HalfEdge) { snapToEdge(); } else { constrainToParent(); }
+}
 void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 void ModernToolbar::showVerticalPopup() {
     QDialog* popup = new QDialog(this->window()); popup->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint); popup->setAttribute(Qt::WA_TranslucentBackground);

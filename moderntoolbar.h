@@ -22,6 +22,9 @@ public:
     float pulseScale() const { return m_pulseScale; }
     void setPulseScale(float s) { m_pulseScale = s; update(); }
 
+    // Hilfsmethode um Klick von außen auszulösen
+    void triggerClick() { animateSelect(); emit clicked(); }
+
 signals:
     void clicked();
 protected:
@@ -61,8 +64,6 @@ public:
     RadialType radialType() const { return m_radialType; }
 
     void setDraggable(bool enable) { m_draggable = enable; }
-
-    // NEU: Preview Mode verhindert Layout-Springen und Abstürze
     void setPreviewMode(bool enable) { m_isPreview = enable; }
 
     void setScale(qreal scale);
@@ -110,9 +111,13 @@ private:
     bool m_isDragging{false};
     bool m_isResizing{false};
     bool m_draggable{true};
-
-    // Preview Flag
     bool m_isPreview{false};
+
+    // --- NEU: Scroll Logic ---
+    bool m_isScrolling{false};      // Sind wir im Scroll-Modus?
+    bool m_hasScrolled{false};      // Haben wir uns signifikant bewegt?
+    double m_dragStartAngle{0.0};   // Winkel beim Start des Drags
+    double m_scrollStartAngleVal{0.0}; // Scroll-Winkel beim Start
 
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
@@ -132,10 +137,13 @@ private:
     void updateLayout(bool animate = false);
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);
-    void setOrientation(Orientation o);
+    void setOrientation(Orientation o, bool animate); // Neu: animate Parameter
 
     void reorderButtons();
     ToolbarBtn* getButtonForMode(ToolMode m);
+
+    // Hit Test für Radial Menü
+    ToolbarBtn* getRadialButtonAt(const QPoint& pos);
 
     void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
