@@ -3,7 +3,7 @@
 #include "canvasview.h"
 #include "UIStyles.h"
 #include "moderntoolbar.h"
-#include "ProfileEditorDialog.h" // NEU: Muss hier inkludiert sein
+#include "ProfileEditorDialog.h"
 
 #include <QApplication>
 #include <QStyle>
@@ -29,10 +29,13 @@
 #include <QTimer>
 #include <QPropertyAnimation>
 #include <QComboBox>
+#include <QLineEdit>
 #include <utility>
+#include <algorithm>
 
-// ... (SidebarItemDelegate, ModernItemDelegate, ModernButton Code bitte wie gehabt beibehalten) ...
-// ... (Hier aus Platzgründen gekürzt, bitte einfach stehen lassen) ...
+// ============================================================================
+// 1. DELEGATES & BUTTONS
+// ============================================================================
 
 // --- SidebarItemDelegate ---
 SidebarItemDelegate::SidebarItemDelegate(MainWindow *parent)
@@ -56,7 +59,49 @@ void SidebarItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
     int depth = 0; QModelIndex p = index.parent(); while(p.isValid()) { depth++; p = p.parent(); }
 
-    QStyledItemDelegate::paint(painter, option, index);
+    int indentStep = 15;
+    int baseIndent = 10;
+    int currentIndent = baseIndent + (depth * indentStep);
+
+    const QFileSystemModel* model = qobject_cast<const QFileSystemModel*>(index.model());
+    bool isDir = model ? model->isDir(index) : false;
+
+    if (isDir) {
+        int arrowSize = 10;
+        QRect arrowRect(option.rect.left() + currentIndent - 12, option.rect.center().y() - arrowSize/2, arrowSize, arrowSize);
+        const QTreeView* tree = qobject_cast<const QTreeView*>(option.widget);
+        bool isExpanded = tree ? tree->isExpanded(index) : false;
+        painter->setBrush(QColor(200, 200, 200)); painter->setPen(Qt::NoPen);
+        QPainterPath path;
+        if (isExpanded) {
+            path.moveTo(arrowRect.left(), arrowRect.top() + 2); path.lineTo(arrowRect.right(), arrowRect.top() + 2); path.lineTo(arrowRect.center().x(), arrowRect.bottom() - 2);
+        } else {
+            path.moveTo(arrowRect.left() + 2, arrowRect.top()); path.lineTo(arrowRect.left() + 2, arrowRect.bottom()); path.lineTo(arrowRect.right() - 2, arrowRect.center().y());
+        }
+        path.closeSubpath(); painter->drawPath(path);
+    }
+
+    int iconSize = 18;
+    int iconX = option.rect.left() + currentIndent;
+    QRect iconRect(iconX, option.rect.center().y() - iconSize/2, iconSize, iconSize);
+
+    QColor iconColor = (option.state & QStyle::State_Selected) ? m_window->currentAccentColor() : QColor(180, 180, 180);
+    QIcon standardIcon = index.data(Qt::DecorationRole).value<QIcon>();
+    if (!standardIcon.isNull()) {
+        standardIcon.paint(painter, iconRect, Qt::AlignCenter, (option.state & QStyle::State_Selected) ? QIcon::Selected : QIcon::Normal);
+    } else {
+        painter->setPen(QPen(iconColor, 1.5)); painter->setBrush(Qt::NoBrush);
+        if (isDir) painter->drawRoundedRect(iconRect.adjusted(1,3,-1,-2), 2, 2);
+        else painter->drawRoundedRect(iconRect.adjusted(3,1,-3,-1), 2, 2);
+    }
+
+    QRect textRect = option.rect;
+    textRect.setLeft(iconRect.right() + 10);
+    textRect.setRight(option.rect.right() - 5);
+    painter->setPen((option.state & QStyle::State_Selected) ? Qt::white : QColor(220, 220, 220));
+    painter->setFont(m_window->font());
+    QString text = index.data(Qt::DisplayRole).toString();
+    painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
     painter->restore();
 }
 
@@ -64,14 +109,13 @@ bool SidebarItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, 
     if (event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent* me = static_cast<QMouseEvent*>(event);
         int depth = 0; QModelIndex p = index.parent(); while(p.isValid()) { depth++; p = p.parent(); }
-        int currentIndent = 5 + (depth * 3);
-        QRect expandRect(option.rect.left(), option.rect.top(), currentIndent + 20, option.rect.height());
+        int currentIndent = 10 + (depth * 15);
+        QRect expandRect(option.rect.left(), option.rect.top(), currentIndent, option.rect.height());
         QTreeView* tree = qobject_cast<QTreeView*>(const_cast<QWidget*>(option.widget));
         QFileSystemModel* fsModel = qobject_cast<QFileSystemModel*>(model);
         if (tree && fsModel && fsModel->isDir(index)) {
             if (expandRect.contains(me->pos())) {
-                if (tree->isExpanded(index)) tree->collapse(index);
-                else tree->expand(index);
+                if (tree->isExpanded(index)) tree->collapse(index); else tree->expand(index);
                 return true;
             }
         }
@@ -83,18 +127,14 @@ bool SidebarItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, 
 ModernItemDelegate::ModernItemDelegate(MainWindow *parent) : QStyledItemDelegate(parent), m_window(parent) {}
 
 QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    QSize size = QStyledItemDelegate::sizeHint(option, index);
-    size.setHeight(m_window->isTouchMode() ? 70 : 48);
-    if (const FreeGridView *view = qobject_cast<const FreeGridView*>(option.widget)) {
-        size.setWidth(view->itemSize().width());
-    }
-    return size;
+    return QStyledItemDelegate::sizeHint(option, index);
 }
 
 void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing);
-    QRect rect = option.rect.adjusted(2, 2, -2, -2);
+
+    QRect rect = option.rect.adjusted(4, 4, -4, -4);
 
     QColor bgColor = QColor(0x1E2230);
     if (option.state & QStyle::State_Selected) bgColor = m_window->currentAccentColor().darker(150);
@@ -105,34 +145,70 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
     if (icon.isNull()) icon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
-
-    int iconSize = m_window->isTouchMode() ? 36 : 28;
-    QRect iconRect(rect.left() + 10, rect.center().y() - iconSize/2, iconSize, iconSize);
-
-    painter->setBrush(QColor(255, 255, 255, 10));
-    painter->drawEllipse(iconRect.adjusted(-4,-4,4,4));
-    icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
-
-    QRect textRect = rect; textRect.setLeft(iconRect.right() + 20); textRect.setRight(rect.right() - 40);
-    painter->setPen(Qt::white);
-    QFont f = painter->font(); f.setBold(true); f.setPointSize(m_window->isTouchMode() ? 12 : 10);
-    painter->setFont(f);
-
     QString text = index.data(Qt::DisplayRole).toString();
-    QString elidedText = painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width());
-    painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, elidedText);
+
+    painter->setPen(Qt::white);
+
+    // Auto-Layout
+    bool isWideList = rect.width() > (rect.height() * 1.5);
+
+    if (isWideList) {
+        // LISTE
+        int iconDim = rect.height() - 16;
+        if (iconDim < 16) iconDim = 16;
+        QRect iconRect(rect.left() + 10, rect.center().y() - iconDim/2, iconDim, iconDim);
+
+        painter->setBrush(QColor(255, 255, 255, 10));
+        painter->drawEllipse(iconRect.adjusted(-2,-2,2,2));
+        icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+
+        QRect textRect = rect;
+        textRect.setLeft(iconRect.right() + 15);
+        textRect.setRight(rect.right() - 40);
+
+        QFont f = painter->font(); f.setBold(true); f.setPointSize(10); painter->setFont(f);
+        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
+    } else {
+        // RASTER
+        int textH = 24;
+        if (rect.height() < 60) textH = 0;
+
+        int maxIconH = rect.height() - textH - 10;
+        int maxIconW = rect.width() - 10;
+
+        int iconDim = qMin(maxIconW, maxIconH);
+        if (iconDim < 20) iconDim = 20;
+
+        int contentHeight = iconDim + textH;
+        int startY = rect.top() + (rect.height() - contentHeight) / 2;
+
+        QRect iconRect(rect.center().x() - iconDim/2, startY, iconDim, iconDim);
+
+        painter->setBrush(QColor(255, 255, 255, 10));
+        painter->drawEllipse(iconRect.adjusted(-4,-4,4,4));
+        icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+
+        if (textH > 0) {
+            QRect textRect(rect.left() + 2, iconRect.bottom() + 2, rect.width() - 4, textH);
+            QFont f = painter->font(); f.setPointSize(9); painter->setFont(f);
+            QTextOption opt; opt.setAlignment(Qt::AlignCenter); opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+            painter->drawText(textRect, text, opt);
+        }
+    }
 
     QIcon menuIcon = m_window->createModernIcon("more_vert", Qt::gray);
-    QRect menuRect(rect.right() - 35, rect.center().y() - 12, 24, 24);
+    QRect menuRect(rect.right() - 24, rect.top() + 4, 20, 20);
+    if(isWideList) menuRect.moveTop(rect.center().y() - 10);
     menuIcon.paint(painter, menuRect, Qt::AlignCenter);
+
     painter->restore();
 }
 
 bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) {
     if (event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent *me = static_cast<QMouseEvent*>(event);
-        QRect rect = option.rect;
-        int clickArea = 50;
+        QRect rect = option.rect.adjusted(4,4,-4,-4);
+        int clickArea = 40;
         QRect menuRect(rect.right() - clickArea, rect.top(), clickArea, rect.height());
         if (menuRect.contains(me->pos())) {
             m_window->showContextMenu(QCursor::pos(), index);
@@ -160,7 +236,11 @@ void ModernButton::paintEvent(QPaintEvent *) {
     QIcon::Mode mode = isChecked() ? QIcon::Active : QIcon::Normal; ic.paint(&p, 0, 0, iconS, iconS, Qt::AlignCenter, mode);
 }
 
-// ... MainWindow Konstruktor & andere Methoden ...
+
+// ============================================================================
+// 2. MAINWINDOW IMPLEMENTIERUNG
+// ============================================================================
+
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(nullptr) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
 
@@ -219,10 +299,12 @@ void MainWindow::applyTheme() {
     if (m_fileListView) m_fileListView->setAccentColor(m_currentAccentColor);
     QString style = QString("QMainWindow { background-color: #0F111A; } QListView { background: transparent; border: none; outline: 0; } QTabWidget::pane { border: 0; background: #0F111A; } QTabBar::tab { background: #161925; color: #888; padding: 10px 25px; border-top-left-radius: 12px; border-top-right-radius: 12px; } QTabBar::tab:selected { background: %1; color: white; } QMenu { background-color: #252526; border: 1px solid #444; border-radius: 10px; padding: 10px; color: #E0E0E0; } QMenu::item { padding: 8px 20px; border-radius: 5px; } QMenu::item:selected { background-color: %2; color: white; }").arg(c, c_light);
     this->setStyleSheet(style);
+
     if(m_sidebarContainer) m_sidebarContainer->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
     if(m_sidebarHeader) m_sidebarHeader->setStyleSheet("background-color: #161925;");
     if(m_sidebarStrip) m_sidebarStrip->setStyleSheet("background-color: #161925; border-right: 1px solid #1F2335;");
     if(m_folderTree) m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }");
+
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
     if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
     QString fabStyle = QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: 28px; font-size: 32px; font-weight: 300; border: none; }").arg(c, c_light);
@@ -236,10 +318,10 @@ void MainWindow::onGridSpacingChanged(int value) { m_currentProfile.gridSpacing 
 
 void MainWindow::updateGrid() {
     if (m_fileListView) {
-        int h = isTouchMode() ? 80 : 60;
-        if (m_currentProfile.iconSize > 200) h += 20;
+        int s = m_currentProfile.iconSize;
+        if (s <= 20) s = 20;
 
-        QSize itemS(m_currentProfile.iconSize, h);
+        QSize itemS(s, s);
         m_fileListView->setItemSize(itemS);
 
         if (m_currentProfile.snapToGrid) {
@@ -303,11 +385,9 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 
     QEvent resizeEv(QEvent::Resize);
     QApplication::sendEvent(this, &resizeEv);
-
     this->repaint();
 }
 
-// ... QIcon Helper und andere Methoden ...
 QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     int size = 64; QPixmap pixmap(size, size); pixmap.fill(Qt::transparent); QPainter p(&pixmap); p.setRenderHint(QPainter::Antialiasing); p.setPen(QPen(color, 5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin)); p.setBrush(Qt::NoBrush);
     if (name == "more_vert") { p.setBrush(color); p.setPen(Qt::NoPen); p.drawEllipse(28, 14, 8, 8); p.drawEllipse(28, 28, 8, 8); p.drawEllipse(28, 42, 8, 8); }
@@ -388,61 +468,236 @@ void MainWindow::setupUi() {
 }
 
 void MainWindow::setupSidebar() {
-    m_sidebarStrip = new QWidget(this); m_sidebarStrip->setFixedWidth(60); m_sidebarStrip->hide();
-    QVBoxLayout* stripLayout = new QVBoxLayout(m_sidebarStrip); stripLayout->setContentsMargins(0, 10, 0, 0); stripLayout->setSpacing(20);
-    btnStripMenu = new ModernButton(m_sidebarStrip); btnStripMenu->setIcon(createModernIcon("menu", Qt::white)); btnStripMenu->setFixedSize(40, 40); connect(btnStripMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
-    stripLayout->addWidget(btnStripMenu, 0, Qt::AlignHCenter); stripLayout->addStretch();
+    m_sidebarStrip = new QWidget(this);
+    m_sidebarStrip->setFixedWidth(60);
+    m_sidebarStrip->hide();
+
+    QVBoxLayout* stripLayout = new QVBoxLayout(m_sidebarStrip);
+    stripLayout->setContentsMargins(0, 10, 0, 0);
+    stripLayout->setSpacing(20);
+
+    btnStripMenu = new ModernButton(m_sidebarStrip);
+    btnStripMenu->setIcon(createModernIcon("menu", Qt::white));
+    btnStripMenu->setFixedSize(40, 40);
+    connect(btnStripMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
+
+    stripLayout->addWidget(btnStripMenu, 0, Qt::AlignHCenter);
+    stripLayout->addStretch();
+
     m_mainSplitter->addWidget(m_sidebarStrip);
-    m_sidebarContainer = new QWidget(this); m_sidebarContainer->setFixedWidth(250); QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer); layout->setContentsMargins(0,0,0,0);
-    m_sidebarHeader = new QWidget(m_sidebarContainer); m_sidebarHeader->setFixedHeight(60); QHBoxLayout *hLayout = new QHBoxLayout(m_sidebarHeader); hLayout->setContentsMargins(15, 0, 15, 0);
-    QLabel *lblWorkspace = new QLabel("Meine Dateien", m_sidebarHeader); lblWorkspace->setStyleSheet("color: #E0E0E0; font-weight: bold; font-size: 14px;"); hLayout->addWidget(lblWorkspace); hLayout->addStretch();
-    m_closeSidebarBtn = new QPushButton("«", m_sidebarHeader); m_closeSidebarBtn->setFixedSize(24,24); m_closeSidebarBtn->setCursor(Qt::PointingHandCursor); m_closeSidebarBtn->setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 16px; } QPushButton:hover { color: white; background: #333; border-radius: 4px; }"); connect(m_closeSidebarBtn, &QPushButton::clicked, this, &MainWindow::onToggleSidebar); hLayout->addWidget(m_closeSidebarBtn); layout->addWidget(m_sidebarHeader);
-    m_folderTree = new QTreeView(m_sidebarContainer); m_folderTree->setModel(m_fileModel); m_folderTree->setRootIndex(m_fileModel->index(m_rootPath)); m_folderTree->setRootIsDecorated(false); m_folderTree->setHeaderHidden(true); m_folderTree->setColumnHidden(1, true); m_folderTree->setColumnHidden(2, true); m_folderTree->setColumnHidden(3, true); m_folderTree->setMouseTracking(true); m_folderTree->viewport()->setAttribute(Qt::WA_Hover); m_folderTree->setIndentation(0); m_folderTree->setUniformRowHeights(true); m_folderTree->setItemDelegate(new SidebarItemDelegate(this)); m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu); m_folderTree->setEditTriggers(QAbstractItemView::NoEditTriggers); connect(m_folderTree, &QWidget::customContextMenuRequested, this, &MainWindow::onSidebarContextMenu); connect(m_folderTree, &QTreeView::clicked, this, &MainWindow::onFolderSelected); connect(m_folderTree, &QTreeView::doubleClicked, this, &MainWindow::onFileDoubleClicked); m_folderTree->setDragEnabled(true); m_folderTree->setAcceptDrops(true); m_folderTree->setDropIndicatorShown(true); m_folderTree->setDragDropMode(QAbstractItemView::DragDrop); layout->addWidget(m_folderTree);
-    m_fabFolder = new QPushButton("+", m_sidebarContainer); m_fabFolder->setCursor(Qt::PointingHandCursor); m_fabFolder->setFixedSize(40, 40); QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+
+    m_sidebarContainer = new QWidget(this);
+    m_sidebarContainer->setFixedWidth(250);
+
+    QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
+    layout->setContentsMargins(0,0,0,0);
+
+    m_sidebarHeader = new QWidget(m_sidebarContainer);
+    m_sidebarHeader->setFixedHeight(60);
+    QHBoxLayout *hLayout = new QHBoxLayout(m_sidebarHeader);
+    hLayout->setContentsMargins(15, 0, 15, 0);
+
+    QLabel *lblWorkspace = new QLabel("Meine Dateien", m_sidebarHeader);
+    lblWorkspace->setStyleSheet("color: #E0E0E0; font-weight: bold; font-size: 14px;");
+    hLayout->addWidget(lblWorkspace);
+    hLayout->addStretch();
+
+    m_closeSidebarBtn = new QPushButton("«", m_sidebarHeader);
+    m_closeSidebarBtn->setFixedSize(24,24);
+    m_closeSidebarBtn->setCursor(Qt::PointingHandCursor);
+    m_closeSidebarBtn->setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 16px; } QPushButton:hover { color: white; background: #333; border-radius: 4px; }");
+    connect(m_closeSidebarBtn, &QPushButton::clicked, this, &MainWindow::onToggleSidebar);
+    hLayout->addWidget(m_closeSidebarBtn);
+
+    layout->addWidget(m_sidebarHeader);
+
+    m_folderTree = new QTreeView(m_sidebarContainer);
+    m_folderTree->setStyleSheet("QTreeView { background-color: transparent; border: none; outline: 0; margin-left: 15px; } QTreeView::item { border: none; } QTreeView::branch { background: transparent; }");
+
+    m_folderTree->setModel(m_fileModel);
+    m_folderTree->setRootIndex(m_fileModel->index(m_rootPath));
+    m_folderTree->setRootIsDecorated(false);
+    m_folderTree->setHeaderHidden(true);
+    m_folderTree->setColumnHidden(1, true);
+    m_folderTree->setColumnHidden(2, true);
+    m_folderTree->setColumnHidden(3, true);
+    m_folderTree->setMouseTracking(true);
+    m_folderTree->viewport()->setAttribute(Qt::WA_Hover);
+    m_folderTree->setIndentation(0);
+    m_folderTree->setUniformRowHeights(true);
+    m_folderTree->setItemDelegate(new SidebarItemDelegate(this));
+    m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_folderTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    connect(m_folderTree, &QWidget::customContextMenuRequested, this, &MainWindow::onSidebarContextMenu);
+    connect(m_folderTree, &QTreeView::clicked, this, &MainWindow::onFolderSelected);
+    connect(m_folderTree, &QTreeView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
+    m_folderTree->setDragEnabled(true);
+    m_folderTree->setAcceptDrops(true);
+    m_folderTree->setDropIndicatorShown(true);
+    m_folderTree->setDragDropMode(QAbstractItemView::DragDrop);
+    layout->addWidget(m_folderTree);
+
+    m_fabFolder = new QPushButton("+", m_sidebarContainer);
+    m_fabFolder->setCursor(Qt::PointingHandCursor);
+    m_fabFolder->setFixedSize(40, 40);
+    QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this);
+    shadowFolder->setBlurRadius(20);
+    shadowFolder->setOffset(0, 4);
+    shadowFolder->setColor(QColor(0,0,0,80));
+    m_fabFolder->setGraphicsEffect(shadowFolder);
+    connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+
     m_mainSplitter->addWidget(m_sidebarContainer);
 }
 
 void MainWindow::onSidebarContextMenu(const QPoint &pos) {
-    QModelIndex index = m_folderTree->indexAt(pos); if (!index.isValid()) return;
-    QMenu menu(this); menu.addAction("Umbenennen", [this, index]() { startRename(index); }); menu.addAction("Kopieren", [this, index]() { performCopy(index); });
-    QAction* delAct = menu.addAction("Löschen"); connect(delAct, &QAction::triggered, [this, index]() { QString path = m_fileModel->filePath(index); QMessageBox::StandardButton res = QMessageBox::question(this, "Löschen", "Wirklich löschen?"); if (res == QMessageBox::Yes) { if (m_fileModel->isDir(index)) { QDir(path).removeRecursively(); } else { QFile::remove(path); } } });
+    QModelIndex index = m_folderTree->indexAt(pos);
+    if (!index.isValid()) return;
+    QMenu menu(this);
+    menu.addAction("Umbenennen", [this, index]() { startRename(index); });
+    menu.addAction("Kopieren", [this, index]() { performCopy(index); });
+    QAction* delAct = menu.addAction("Löschen");
+    connect(delAct, &QAction::triggered, [this, index]() {
+        QString path = m_fileModel->filePath(index);
+        QMessageBox::StandardButton res = QMessageBox::question(this, "Löschen", "Wirklich löschen?");
+        if (res == QMessageBox::Yes) {
+            if (m_fileModel->isDir(index)) { QDir(path).removeRecursively(); }
+            else { QFile::remove(path); }
+        }
+    });
     menu.exec(m_folderTree->mapToGlobal(pos));
 }
 
 void MainWindow::performCopy(const QModelIndex &index) {
-    QString srcPath = m_fileModel->filePath(index); QFileInfo info(srcPath); QString newName = info.baseName() + " Kopie"; if (!info.suffix().isEmpty()) newName += "." + info.suffix(); QString dstPath = info.dir().filePath(newName); int i = 1; while (QFile::exists(dstPath)) { newName = info.baseName() + QString(" Kopie %1").arg(i++); if (!info.suffix().isEmpty()) newName += "." + info.suffix(); dstPath = info.dir().filePath(newName); }
-    if (info.isDir()) { copyRecursive(srcPath, dstPath); } else { QFile::copy(srcPath, dstPath); }
+    QString srcPath = m_fileModel->filePath(index);
+    QFileInfo info(srcPath);
+    QString newName = info.baseName() + " Kopie";
+    if (!info.suffix().isEmpty()) newName += "." + info.suffix();
+    QString dstPath = info.dir().filePath(newName);
+    int i = 1;
+    while (QFile::exists(dstPath)) {
+        newName = info.baseName() + QString(" Kopie %1").arg(i++);
+        if (!info.suffix().isEmpty()) newName += "." + info.suffix();
+        dstPath = info.dir().filePath(newName);
+    }
+    if (info.isDir()) { copyRecursive(srcPath, dstPath); }
+    else { QFile::copy(srcPath, dstPath); }
 }
 
 bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
-    QDir dir(src); if (!dir.exists()) return false; QDir().mkpath(dst);
-    for (const QString &entry : dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) { QString srcItem = src + "/" + entry; QString dstItem = dst + "/" + entry; if (QFileInfo(srcItem).isDir()) { if (!copyRecursive(srcItem, dstItem)) return false; } else { if (!QFile::copy(srcItem, dstItem)) return false; } } return true;
+    QDir dir(src);
+    if (!dir.exists()) return false;
+    QDir().mkpath(dst);
+    for (const QString &entry : dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
+        QString srcItem = src + "/" + entry;
+        QString dstItem = dst + "/" + entry;
+        if (QFileInfo(srcItem).isDir()) {
+            if (!copyRecursive(srcItem, dstItem)) return false;
+        } else {
+            if (!QFile::copy(srcItem, dstItem)) return false;
+        }
+    }
+    return true;
 }
 
-void MainWindow::onNavigateUp() { QModelIndex current = m_fileListView->rootIndex(); if (current.isValid()) { QModelIndex parent = current.parent(); m_fileListView->setRootIndex(parent); updateOverviewBackButton(); } }
-void MainWindow::updateOverviewBackButton() { QModelIndex current = m_fileListView->rootIndex(); QModelIndex root = m_fileModel->index(m_rootPath); bool canGoUp = (current != root && current.isValid()); btnBackOverview->setVisible(canGoUp); }
+void MainWindow::onNavigateUp() {
+    QModelIndex current = m_fileListView->rootIndex();
+    if (current.isValid()) {
+        QModelIndex parent = current.parent();
+        m_fileListView->setRootIndex(parent);
+        updateOverviewBackButton();
+    }
+}
+
+void MainWindow::updateOverviewBackButton() {
+    QModelIndex current = m_fileListView->rootIndex();
+    QModelIndex root = m_fileModel->index(m_rootPath);
+    bool canGoUp = (current != root && current.isValid());
+    btnBackOverview->setVisible(canGoUp);
+}
 
 void MainWindow::setupRightSidebar() {
-    m_rightSidebar = new QWidget(this); m_rightSidebar->setFixedWidth(250); m_rightSidebar->hide();
-    QVBoxLayout *layout = new QVBoxLayout(m_rightSidebar); layout->setContentsMargins(20, 20, 20, 20); layout->setSpacing(15);
-    QHBoxLayout *header = new QHBoxLayout; QLabel *title = new QLabel("Einstellungen"); title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;"); header->addWidget(title); header->addStretch();
-    ModernButton *closeBtn = new ModernButton(this); closeBtn->setIcon(createModernIcon("close", Qt::white)); closeBtn->setFixedSize(30,30); connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar); header->addWidget(closeBtn); layout->addLayout(header);
-    m_lblActiveNote = new QLabel("Keine Notiz", m_rightSidebar); m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;"); m_lblActiveNote->setWordWrap(true); m_lblActiveNote->setAlignment(Qt::AlignCenter); layout->addWidget(m_lblActiveNote);
+    m_rightSidebar = new QWidget(this);
+    m_rightSidebar->setFixedWidth(250);
+    m_rightSidebar->hide();
+    QVBoxLayout *layout = new QVBoxLayout(m_rightSidebar);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(15);
+    QHBoxLayout *header = new QHBoxLayout;
+    QLabel *title = new QLabel("Einstellungen");
+    title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;");
+    header->addWidget(title);
+    header->addStretch();
+    ModernButton *closeBtn = new ModernButton(this);
+    closeBtn->setIcon(createModernIcon("close", Qt::white));
+    closeBtn->setFixedSize(30,30);
+    connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar);
+    header->addWidget(closeBtn);
+    layout->addLayout(header);
+    m_lblActiveNote = new QLabel("Keine Notiz", m_rightSidebar);
+    m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;");
+    m_lblActiveNote->setWordWrap(true);
+    m_lblActiveNote->setAlignment(Qt::AlignCenter);
+    layout->addWidget(m_lblActiveNote);
     layout->addWidget(new QLabel("Seitenformat:", m_rightSidebar));
-    m_btnFormatInfinite = new QPushButton("Unendlich"); m_btnFormatInfinite->setCheckable(true); m_btnFormatInfinite->setChecked(true); m_btnFormatInfinite->setCursor(Qt::PointingHandCursor); m_btnFormatInfinite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }"); connect(m_btnFormatInfinite, &QPushButton::clicked, [this](){ setCanvasFormat(true); });
-    m_btnFormatA4 = new QPushButton("DIN A4"); m_btnFormatA4->setCheckable(true); m_btnFormatA4->setCursor(Qt::PointingHandCursor); m_btnFormatA4->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }"); connect(m_btnFormatA4, &QPushButton::clicked, [this](){ setCanvasFormat(false); });
-    QButtonGroup *grp = new QButtonGroup(this); grp->addButton(m_btnFormatInfinite); grp->addButton(m_btnFormatA4); grp->setExclusive(true); layout->addWidget(m_btnFormatInfinite); layout->addWidget(m_btnFormatA4);
+    m_btnFormatInfinite = new QPushButton("Unendlich");
+    m_btnFormatInfinite->setCheckable(true);
+    m_btnFormatInfinite->setChecked(true);
+    m_btnFormatInfinite->setCursor(Qt::PointingHandCursor);
+    m_btnFormatInfinite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnFormatInfinite, &QPushButton::clicked, [this](){ setCanvasFormat(true); });
+    m_btnFormatA4 = new QPushButton("DIN A4");
+    m_btnFormatA4->setCheckable(true);
+    m_btnFormatA4->setCursor(Qt::PointingHandCursor);
+    m_btnFormatA4->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnFormatA4, &QPushButton::clicked, [this](){ setCanvasFormat(false); });
+    QButtonGroup *grp = new QButtonGroup(this);
+    grp->addButton(m_btnFormatInfinite);
+    grp->addButton(m_btnFormatA4);
+    grp->setExclusive(true);
+    layout->addWidget(m_btnFormatInfinite);
+    layout->addWidget(m_btnFormatA4);
     layout->addWidget(new QLabel("Seitenfarbe:", m_rightSidebar));
-    m_btnColorWhite = new QPushButton("Hell"); m_btnColorWhite->setCheckable(true); m_btnColorWhite->setChecked(true); m_btnColorWhite->setCursor(Qt::PointingHandCursor); m_btnColorWhite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }"); connect(m_btnColorWhite, &QPushButton::clicked, [this](){ setPageColor(false); });
-    m_btnColorDark = new QPushButton("Dunkel"); m_btnColorDark->setCheckable(true); m_btnColorDark->setCursor(Qt::PointingHandCursor); m_btnColorDark->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }"); connect(m_btnColorDark, &QPushButton::clicked, [this](){ setPageColor(true); });
-    QButtonGroup *grpColor = new QButtonGroup(this); grpColor->addButton(m_btnColorWhite); grpColor->addButton(m_btnColorDark); grpColor->setExclusive(true); layout->addWidget(m_btnColorWhite); layout->addWidget(m_btnColorDark);
+    m_btnColorWhite = new QPushButton("Hell");
+    m_btnColorWhite->setCheckable(true);
+    m_btnColorWhite->setChecked(true);
+    m_btnColorWhite->setCursor(Qt::PointingHandCursor);
+    m_btnColorWhite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnColorWhite, &QPushButton::clicked, [this](){ setPageColor(false); });
+    m_btnColorDark = new QPushButton("Dunkel");
+    m_btnColorDark->setCheckable(true);
+    m_btnColorDark->setCursor(Qt::PointingHandCursor);
+    m_btnColorDark->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnColorDark, &QPushButton::clicked, [this](){ setPageColor(true); });
+    QButtonGroup *grpColor = new QButtonGroup(this);
+    grpColor->addButton(m_btnColorWhite);
+    grpColor->addButton(m_btnColorDark);
+    grpColor->setExclusive(true);
+    layout->addWidget(m_btnColorWhite);
+    layout->addWidget(m_btnColorDark);
     layout->addWidget(new QLabel("Eingabemodus:", m_rightSidebar));
-    m_btnInputPen = new QPushButton("Nur Stift\n(1 Finger scrollt)"); m_btnInputPen->setCheckable(true); m_btnInputPen->setChecked(true); m_btnInputPen->setCursor(Qt::PointingHandCursor); m_btnInputPen->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }"); connect(m_btnInputPen, &QPushButton::clicked, [this](){ updateInputMode(true); });
-    m_btnInputTouch = new QPushButton("Touch & Stift\n(2 Finger scrollen)"); m_btnInputTouch->setCheckable(true); m_btnInputTouch->setCursor(Qt::PointingHandCursor); m_btnInputTouch->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }"); connect(m_btnInputTouch, &QPushButton::clicked, [this](){ updateInputMode(false); });
-    QButtonGroup *grpInput = new QButtonGroup(this); grpInput->addButton(m_btnInputPen); grpInput->addButton(m_btnInputTouch); grpInput->setExclusive(true); layout->addWidget(m_btnInputPen); layout->addWidget(m_btnInputTouch);
-
+    m_btnInputPen = new QPushButton("Nur Stift\n(1 Finger scrollt)");
+    m_btnInputPen->setCheckable(true);
+    m_btnInputPen->setChecked(true);
+    m_btnInputPen->setCursor(Qt::PointingHandCursor);
+    m_btnInputPen->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnInputPen, &QPushButton::clicked, [this](){ updateInputMode(true); });
+    m_btnInputTouch = new QPushButton("Touch & Stift\n(2 Finger scrollen)");
+    m_btnInputTouch->setCheckable(true);
+    m_btnInputTouch->setCursor(Qt::PointingHandCursor);
+    m_btnInputTouch->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
+    connect(m_btnInputTouch, &QPushButton::clicked, [this](){ updateInputMode(false); });
+    QButtonGroup *grpInput = new QButtonGroup(this);
+    grpInput->addButton(m_btnInputPen);
+    grpInput->addButton(m_btnInputTouch);
+    grpInput->setExclusive(true);
+    layout->addWidget(m_btnInputPen);
+    layout->addWidget(m_btnInputTouch);
     layout->addWidget(new QLabel("Werkzeugleiste:", m_rightSidebar));
-    m_comboToolbarStyle = new QComboBox(); m_comboToolbarStyle->addItems({"Vertikal", "Radial (Voll)", "Radial (Halb)"}); m_comboToolbarStyle->setStyleSheet("QComboBox { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; } QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }"); m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
+    m_comboToolbarStyle = new QComboBox();
+    m_comboToolbarStyle->addItems({"Vertikal", "Radial (Voll)", "Radial (Halb)"});
+    m_comboToolbarStyle->setStyleSheet("QComboBox { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; } QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }");
+    m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
     connect(m_comboToolbarStyle, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) { if (index == 0) tb->setStyle(ModernToolbar::Normal); else if (index == 1) { tb->setStyle(ModernToolbar::Radial); tb->setRadialType(ModernToolbar::FullCircle); } else { tb->setStyle(ModernToolbar::Radial); tb->setRadialType(ModernToolbar::HalfEdge); } }
@@ -479,7 +734,10 @@ void MainWindow::setupRightSidebar() {
     layout->addWidget(m_comboProfiles);
 
     layout->addWidget(new QLabel("Größe Werkzeugleiste:", m_rightSidebar));
-    m_sliderToolbarScale = new QSlider(Qt::Horizontal); m_sliderToolbarScale->setRange(50, 150); m_sliderToolbarScale->setValue(100); m_sliderToolbarScale->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
+    m_sliderToolbarScale = new QSlider(Qt::Horizontal);
+    m_sliderToolbarScale->setRange(50, 150);
+    m_sliderToolbarScale->setValue(100);
+    m_sliderToolbarScale->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
     connect(m_sliderToolbarScale, &QSlider::valueChanged, [this](int val){ ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools); if(tb) tb->setScale(val / 100.0); }); layout->addWidget(m_sliderToolbarScale);
 
     layout->addStretch();
@@ -537,20 +795,17 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 void MainWindow::onNewPage() { bool ok; QString text = QInputDialog::getText(this, "Neue Notiz", "Name:", QLineEdit::Normal, "Neue Notiz", &ok); if (ok && !text.isEmpty()) { QString path = m_fileModel->rootPath() + "/" + text + ".blop"; QFile file(path); if (file.open(QIODevice::WriteOnly)) { file.close(); } } }
 void MainWindow::onCreateFolder() { bool ok; QString text = QInputDialog::getText(this, "Neuer Ordner", "Name:", QLineEdit::Normal, "Neuer Ordner", &ok); if (ok && !text.isEmpty()) { m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text); } }
 
-// --- HIER IST DIE WICHTIGE ÄNDERUNG ---
-// Wir nutzen eine Schleife, um Dialoge nacheinander zu öffnen und Modality-Probleme zu vermeiden.
+// --- HIER IST DIE FUNKTION onOpenSettings ---
 void MainWindow::onOpenSettings() {
     QWidget *overlay = new QWidget(this);
     overlay->setGeometry(this->rect());
-    overlay->setStyleSheet("background-color: rgba(0, 0, 0, 150);"); // Halbtransparent
+    overlay->setStyleSheet("background-color: rgba(0, 0, 0, 150);");
     overlay->show();
 
-    // Schleife, damit wir zwischen Settings und Editor hin und her springen können
     bool keepOpen = true;
     while (keepOpen) {
         SettingsDialog dlg(m_profileManager, this);
 
-        // Sync Toolbar Config
         ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools);
         if(toolbar) {
             bool isRad = (toolbar->currentStyle() == ModernToolbar::Radial); bool isHalf = (toolbar->radialType() == ModernToolbar::HalfEdge);
@@ -560,23 +815,17 @@ void MainWindow::onOpenSettings() {
         connect(&dlg, &SettingsDialog::accentColorChanged, this, &MainWindow::updateTheme);
         connect(&dlg, &SettingsDialog::toolbarStyleChanged, [this, toolbar](bool radial){ if(toolbar) toolbar->setStyle(radial ? ModernToolbar::Radial : ModernToolbar::Normal); });
 
-        // Settings Dialog ausführen (modal)
+        // Settings Dialog (modal)
         int res = dlg.exec();
 
-        // Prüfen, ob der User den Editor öffnen will
         if (res == SettingsDialog::EditProfileCode) {
-            // Settings Dialog ist jetzt geschlossen (wichtig!)
-
-            // Overlay kurz ausblenden, damit man freie Sicht auf die App hat
             overlay->hide();
 
-            // Editor öffnen
             QString id = dlg.profileIdToEdit();
             UiProfile p = m_profileManager->profileById(id);
             UiProfile original = p;
 
-            ProfileEditorDialog editor(p, this); // Modal über MainWindow
-
+            ProfileEditorDialog editor(p, this);
             // Live Preview
             connect(&editor, &ProfileEditorDialog::previewRequested, this, &MainWindow::applyProfile);
 
@@ -584,20 +833,14 @@ void MainWindow::onOpenSettings() {
                 m_profileManager->updateProfile(editor.getProfile(), true);
                 applyProfile(editor.getProfile());
             } else {
-                // Abbrechen
                 m_profileManager->updateProfile(original, true);
                 applyProfile(m_profileManager->currentProfile());
             }
-
-            // Overlay wieder zeigen für das nächste Settings Fenster
             overlay->show();
-            // Loop läuft weiter -> Settings öffnen sich wieder
         } else {
-            // User hat Settings geschlossen (Abbrechen oder OK)
             keepOpen = false;
         }
     }
-
     delete overlay;
 }
 

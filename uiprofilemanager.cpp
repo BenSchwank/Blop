@@ -28,7 +28,7 @@ void UiProfileManager::ensureDefaults() {
     desktop.id = "{desktop-default}";
     desktop.name = "Desktop (Kompakt)";
     desktop.iconSize = 100;
-    desktop.gridSpacing = 20;
+    desktop.gridSpacing = 10;
     desktop.toolbarScale = 1.0;
     desktop.buttonSize = 32;
     m_profiles.append(desktop);
@@ -36,7 +36,7 @@ void UiProfileManager::ensureDefaults() {
     UiProfile tablet;
     tablet.id = "{tablet-default}";
     tablet.name = "Tablet (Groß)";
-    tablet.iconSize = 180;
+    tablet.iconSize = 160;
     tablet.gridSpacing = 30;
     tablet.toolbarScale = 1.3;
     tablet.buttonSize = 56;
@@ -122,20 +122,11 @@ void UiProfileManager::updateProfile(const UiProfile &profile, bool saveToDisk) 
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == profile.id) {
             bool nameChanged = (m_profiles[i].name != profile.name);
-
             m_profiles[i] = profile;
 
-            if (saveToDisk) {
-                saveProfiles();
-            }
-
-            if (nameChanged) {
-                emit listChanged();
-            }
-
-            if (m_currentId == profile.id) {
-                emit profileChanged(profile);
-            }
+            if (saveToDisk) saveProfiles();
+            if (nameChanged) emit listChanged();
+            if (m_currentId == profile.id) emit profileChanged(profile);
             return;
         }
     }

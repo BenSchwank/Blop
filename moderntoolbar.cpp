@@ -111,7 +111,7 @@ void ModernToolbar::constrainToParent() {
     if (m_style == Radial && m_radialType == HalfEdge) { snapToEdge(); move(x(), newY); }
     else {
         if (newX < 0) newX = 0;
-        if (newX > qMax(0, maxX)) newX = qMax(0, maxX);
+        if (newX > qMax(0, maxX)) newX = qMax(0, maxX); // FIX: Crash Prevention
         move(newX, newY);
     }
 }

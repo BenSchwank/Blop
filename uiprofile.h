@@ -7,16 +7,15 @@ struct UiProfile {
     QString id;
     QString name;
 
-    // Konfigurierbare Parameter
-    int iconSize{100};          // Größe der Datei-Icons (px)
-    int gridSpacing{20};        // Abstand im Raster
-    double toolbarScale{1.0};   // Skalierung der ModernToolbar (0.5 - 2.0)
-    int buttonSize{40};         // Größe von UI-Buttons (px)
-    bool snapToGrid{true};      // Rasterung aktivieren
+    // Parameter
+    int iconSize{100};          // Gesamtgröße (Breite & Höhe)
+    int gridSpacing{20};
+    double toolbarScale{1.0};
+    int buttonSize{40};
+    bool snapToGrid{true};
 
     UiProfile() : id(QUuid::createUuid().toString()), name("Neues Profil") {}
 
-    // Hilfsmethoden für JSON Serialisierung
     QJsonObject toJson() const {
         QJsonObject obj;
         obj["id"] = id;
@@ -41,8 +40,5 @@ struct UiProfile {
         return p;
     }
 
-    // Hilfsfunktion um zu entscheiden, ob wir im "Touch Modus" sind (für Delegates)
-    bool isTouchOptimized() const {
-        return buttonSize >= 50;
-    }
+    bool isTouchOptimized() const { return buttonSize >= 50; }
 };

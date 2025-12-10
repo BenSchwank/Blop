@@ -6,7 +6,7 @@
 class QSlider;
 class QLabel;
 class QCheckBox;
-class ModernToolbar; // Forward Declaration
+class ModernToolbar;
 class QGroupBox;
 
 class ProfileEditorDialog : public QDialog {
@@ -28,6 +28,7 @@ private slots:
 private:
     UiProfile m_profile;
     QSlider *m_slIconSize;
+    // Kein ItemHeight Slider mehr
     QSlider *m_slButtonSize;
     QSlider *m_slGridSpace;
     QSlider *m_slToolbarScale;
@@ -38,8 +39,8 @@ private:
     QLabel *m_lblGridVal;
     QLabel *m_lblToolbarVal;
 
-    ModernToolbar* m_previewToolbar; // Die Live-Vorschau Toolbar
-    QGroupBox* m_previewBox;         // Container dafür
+    ModernToolbar* m_previewToolbar;
+    QGroupBox* m_previewBox;
 
     QPoint m_dragPos;
 

@@ -27,7 +27,7 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
                   "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #888; }");
 
     if (parent) {
-        resize(580, 520);
+        resize(580, 550);
         QPoint parentCenter = parent->mapToGlobal(parent->rect().center());
         move(parentCenter.x() - width() / 2, parentCenter.y() - height() / 2);
     }
@@ -49,7 +49,7 @@ void ProfileEditorDialog::setupUi() {
     leftWidget->setStyleSheet("background: transparent; border: none;");
     QVBoxLayout *leftLayout = new QVBoxLayout(leftWidget);
     leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(20);
+    leftLayout->setSpacing(15);
 
     QLabel *title = new QLabel("Profil bearbeiten: " + m_profile.name, this);
     title->setStyleSheet("font-size: 18px; color: #5E5CE6; margin-bottom: 10px;");
@@ -70,9 +70,10 @@ void ProfileEditorDialog::setupUi() {
         connect(outSl, &QSlider::valueChanged, this, &ProfileEditorDialog::onValuesChanged);
     };
 
-    addSlider(leftLayout, "Icon Größe (px)", 60, 300, m_profile.iconSize, m_slIconSize, m_lblIconVal);
+    addSlider(leftLayout, "Element Größe (px)", 40, 500, m_profile.iconSize, m_slIconSize, m_lblIconVal);
+
     addSlider(leftLayout, "Button / Touch Target (px)", 24, 80, m_profile.buttonSize, m_slButtonSize, m_lblBtnVal);
-    addSlider(leftLayout, "Werkzeugleiste Skalierung (nur Radial) %", 50, 200, (int)(m_profile.toolbarScale * 100), m_slToolbarScale, m_lblToolbarVal);
+    addSlider(leftLayout, "Toolbar Skalierung (%)", 50, 200, (int)(m_profile.toolbarScale * 100), m_slToolbarScale, m_lblToolbarVal);
     m_lblToolbarVal->setText(QString::number(m_slToolbarScale->value()) + "%");
     addSlider(leftLayout, "Raster Abstand (px)", 0, 100, m_profile.gridSpacing, m_slGridSpace, m_lblGridVal);
 
@@ -99,7 +100,7 @@ void ProfileEditorDialog::setupUi() {
     m_previewBox->setStyleSheet("QGroupBox { background: #252526; border: 1px solid #444; }");
 
     m_previewToolbar = new ModernToolbar(m_previewBox);
-    m_previewToolbar->setPreviewMode(true); // FIX: WICHTIG! ZUERST SETZEN
+    m_previewToolbar->setPreviewMode(true);
     m_previewToolbar->setStyle(ModernToolbar::Radial);
     m_previewToolbar->setRadialType(ModernToolbar::FullCircle);
     m_previewToolbar->setDraggable(false);
@@ -123,7 +124,6 @@ void ProfileEditorDialog::onValuesChanged() {
 
     if (m_previewToolbar) {
         m_previewToolbar->setScale(m_profile.toolbarScale);
-        // Zentrieren manuell
         int cx = m_previewBox->width() / 2;
         int cy = m_previewBox->height() / 2;
         m_previewToolbar->move(cx - m_previewToolbar->width()/2, cy - m_previewToolbar->height()/2);
