@@ -52,6 +52,13 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
     painter->setRenderHint(QPainter::Antialiasing);
 
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
+    bool isExpandable = index.data(Qt::UserRole + 6).toBool(); // Ist es ein Ordner?
+    bool isExpanded = index.data(Qt::UserRole + 3).toBool();
+
+    // Tiefe abrufen (0 = Root, 1 = Subfolder, etc.)
+    int depth = index.data(Qt::UserRole + 9).toInt();
+    int indent = 15 * depth; // 15px Einrückung pro Ebene
+
     QString text = index.data(Qt::DisplayRole).toString();
 
     if (isHeader) {
@@ -62,26 +69,19 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         f.setPointSize(9);
         painter->setFont(f);
 
-        // Kleines Dreieck/Pfeil für Collapse State zeichnen
-        bool collapsed = index.data(Qt::UserRole + 3).toBool();
-
-        int arrowSize = 8;
+        // Pfeil zeichnen (Header sind immer expandable)
         int arrowX = option.rect.left() + 15;
         int arrowY = option.rect.center().y();
 
         QPainterPath arrow;
+        // Header Logic: true = collapsed (hidden items)
+        bool collapsed = index.data(Qt::UserRole + 3).toBool();
         if (collapsed) {
-            arrow.moveTo(arrowX, arrowY - 4);
-            arrow.lineTo(arrowX + 5, arrowY);
-            arrow.lineTo(arrowX, arrowY + 4);
+            arrow.moveTo(arrowX, arrowY - 4); arrow.lineTo(arrowX + 5, arrowY); arrow.lineTo(arrowX, arrowY + 4);
         } else {
-            arrow.moveTo(arrowX, arrowY - 2);
-            arrow.lineTo(arrowX + 8, arrowY - 2);
-            arrow.lineTo(arrowX + 4, arrowY + 3);
+            arrow.moveTo(arrowX, arrowY - 2); arrow.lineTo(arrowX + 8, arrowY - 2); arrow.lineTo(arrowX + 4, arrowY + 3);
         }
-        painter->setBrush(QColor(150, 150, 150));
-        painter->setPen(Qt::NoPen);
-        painter->drawPath(arrow);
+        painter->setBrush(QColor(150, 150, 150)); painter->setPen(Qt::NoPen); painter->drawPath(arrow);
 
         QRect textRect = option.rect.adjusted(30, 0, -15, 0);
         painter->setPen(QColor(150, 150, 150));
@@ -95,60 +95,58 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         painter->drawLine(lineX, lineY, option.rect.right() - 15, lineY);
 
     } else {
-        // --- ITEM STYLE ---
-        QRect rect = option.rect.adjusted(8, 2, -8, -2);
+        // --- ITEM STYLE (Angepasst für Unterordner) ---
+        // Rechteck anpassen für dynamische Einrückung
+        QRect rect = option.rect.adjusted(8 + indent, 2, -8, -2);
+
         bool selected = (option.state & QStyle::State_Selected);
         bool hover = (option.state & QStyle::State_MouseOver);
 
         if (selected) {
-            painter->setBrush(m_window->currentAccentColor().darker(120));
-            painter->setPen(Qt::NoPen);
-            painter->drawRoundedRect(rect, 10, 10);
+            painter->setBrush(m_window->currentAccentColor().darker(120)); painter->setPen(Qt::NoPen); painter->drawRoundedRect(rect, 10, 10);
         } else if (hover) {
-            painter->setBrush(QColor(255, 255, 255, 10));
-            painter->setPen(Qt::NoPen);
-            painter->drawRoundedRect(rect, 10, 10);
+            painter->setBrush(QColor(255, 255, 255, 10)); painter->setPen(Qt::NoPen); painter->drawRoundedRect(rect, 10, 10);
+        }
+
+        // Pfeil zeichnen, wenn aufklappbar (links vom Icon)
+        int iconOffset = 10;
+        if (isExpandable) {
+            int arrowX = rect.left() + 6;
+            int arrowY = rect.center().y();
+            QPainterPath arrow;
+            // Ordner Logic: true = expanded
+            if (isExpanded) {
+                arrow.moveTo(arrowX, arrowY - 2); arrow.lineTo(arrowX + 8, arrowY - 2); arrow.lineTo(arrowX + 4, arrowY + 3);
+            } else {
+                arrow.moveTo(arrowX, arrowY - 4); arrow.lineTo(arrowX + 5, arrowY); arrow.lineTo(arrowX, arrowY + 4);
+            }
+            painter->setBrush(selected ? Qt::white : QColor(180,180,180)); painter->setPen(Qt::NoPen); painter->drawPath(arrow);
+            iconOffset = 18; // Platz für Pfeil machen
         }
 
         QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
         int iconSize = 20;
-        QRect iconRect(rect.left() + 10, rect.center().y() - iconSize/2, iconSize, iconSize);
+        QRect iconRect(rect.left() + iconOffset, rect.center().y() - iconSize/2, iconSize, iconSize);
 
         QIcon::Mode mode = selected ? QIcon::Selected : QIcon::Normal;
-        if (selected) {
-            icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::On);
-        } else {
-            painter->setOpacity(0.7);
-            icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::Off);
-            painter->setOpacity(1.0);
-        }
+        if (selected) { icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::On); }
+        else { painter->setOpacity(0.7); icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::Off); painter->setOpacity(1.0); }
 
-        QRect textRect = rect;
-        textRect.setLeft(iconRect.right() + 12);
-        textRect.setRight(rect.right() - 40);
+        QRect textRect = rect; textRect.setLeft(iconRect.right() + 12); textRect.setRight(rect.right() - 40);
 
         painter->setPen(selected ? Qt::white : QColor(200, 200, 200));
-        QFont f = m_window->font();
-        f.setPointSize(10);
-        if (selected) f.setBold(true);
-        painter->setFont(f);
+        QFont f = m_window->font(); f.setPointSize(10); if (selected) f.setBold(true); painter->setFont(f);
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
 
         QString count = index.data(Qt::UserRole + 2).toString();
         if (!count.isEmpty()) {
-            int badgeW = 24;
-            int badgeH = 18;
+            int badgeW = 24; int badgeH = 18;
             QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH/2, badgeW, badgeH);
-
             painter->setPen(selected ? Qt::white : m_window->currentAccentColor());
-            QFont bf = f;
-            bf.setBold(true);
-            bf.setPointSize(9);
-            painter->setFont(bf);
+            QFont bf = f; bf.setBold(true); bf.setPointSize(9); painter->setFont(bf);
             painter->drawText(badgeRect, Qt::AlignCenter, count);
         }
     }
-
     painter->restore();
 }
 
@@ -301,11 +299,12 @@ void MainWindow::applyTheme() {
     // FIX: Dynamischer Radius und Zentrierung
     auto getFabStyle = [&](int w) {
         int r = w / 2;
-        int fs = r + 4;
+        int fs = r + 4; // Font size slightly larger than radius
         return QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
             .arg(c, c_light).arg(r).arg(fs);
     };
 
+    // Nur stylen, wenn Objekte existieren
     if(m_fabNote) m_fabNote->setStyleSheet(getFabStyle(m_fabNote->width()));
     if(m_fabFolder) m_fabFolder->setStyleSheet(getFabStyle(m_fabFolder->width()));
 }
@@ -367,9 +366,11 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         m_fabNote->setFixedSize(fabS, fabS);
         QString c = m_currentAccentColor.name();
         QString c_light = m_currentAccentColor.lighter(130).name();
-        // Dynamischer Radius & Zentrierung
+        // Dynamischer Radius & Zentrierung (auch hier, falls Profile gewechselt wird)
+        int r = fabS / 2;
+        int fs = r + 4;
         m_fabNote->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
-                                     .arg(c, c_light).arg(fabS/2).arg(fabS/2 + 4));
+                                     .arg(c, c_light).arg(r).arg(fs));
     }
 
     if (m_comboProfiles) {
@@ -444,7 +445,7 @@ void MainWindow::setupUi() {
     QHBoxLayout *topBar = new QHBoxLayout();
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Zurück"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
 
-    // btnNewNote entfernt (wie gewünscht)
+    // btnNewNote entfernt
 
     topBar->addStretch(); overviewLayout->addLayout(topBar);
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
@@ -537,10 +538,15 @@ void MainWindow::setupSidebar() {
     auto addItem = [this, rootCountStr](QString name, QString icon, bool isHeader = false) {
         QListWidgetItem *item = new QListWidgetItem(m_navSidebar);
         item->setText(name);
+        // Default Tiefe 0
+        item->setData(Qt::UserRole + 9, 0);
+
         if (!isHeader) {
             item->setIcon(createModernIcon(icon, QColor(200, 200, 200)));
             if (name == "Alle" || name == "Blop Notizen") {
                 item->setData(Qt::UserRole + 2, rootCountStr);
+                // WICHTIG: Pfad für Root Items setzen
+                item->setData(Qt::UserRole + 10, m_rootPath);
             }
         }
         item->setData(Qt::UserRole + 1, isHeader);
@@ -550,6 +556,10 @@ void MainWindow::setupSidebar() {
             if (name == "Clouds") item->setData(Qt::UserRole + 4, "clouds_header");
         } else {
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            // Folder expansion logic
+            if (name == "Blop Notizen" || name == "Alle") {
+                item->setData(Qt::UserRole + 6, true); // IsExpandable
+            }
             if (name == "Google Drive" || name == "OneDrive" || name == "Dropbox") {
                 item->setData(Qt::UserRole + 5, "clouds_item");
             }
@@ -621,34 +631,50 @@ void MainWindow::updateSidebarBadges() {
 void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     if (!item) return;
 
+    // Header Logic
     bool isHeader = item->data(Qt::UserRole + 1).toBool();
     if (isHeader) {
-        if (item->text() == "Clouds") {
-            toggleSection(item);
+        if (item->text() == "Clouds") toggleSection(item);
+        return;
+    }
+
+    // Pfad aus Item holen
+    QString path = item->data(Qt::UserRole + 10).toString();
+    bool isExpandable = item->data(Qt::UserRole + 6).toBool();
+
+    // Wenn es ein Pfad ist und ein Ordner -> View aktualisieren UND ggf. toggeln
+    if (!path.isEmpty() && QFileInfo(path).isDir()) {
+        // View Update
+        m_fileModel->setRootPath(path);
+        m_fileListView->setModel(m_fileModel);
+        m_fileListView->setRootIndex(m_fileModel->index(path));
+        m_fabNote->show();
+        m_fabFolder->show();
+        updateOverviewBackButton();
+
+        if (isExpandable) {
+            toggleFolderContent(item);
         }
         return;
     }
 
-    QString name = item->text();
-
-    if (name == "Blop Notizen" || name == "Alle") {
-        m_fileModel->setRootPath(m_rootPath);
-        m_fileListView->setModel(m_fileModel);
-        m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
-        m_fabNote->show();
-        m_fabFolder->show();
+    // Wenn es eine Datei ist
+    if (!path.isEmpty() && QFileInfo(path).isFile()) {
+        onFileDoubleClicked(m_fileModel->index(path));
+        return;
     }
-    else if (name == "Gerät Dateien") {
+
+    // Fallback für statische Items ohne Pfad
+    QString name = item->text();
+    if (name == "Gerät Dateien") {
         m_fileModel->setRootPath(QDir::rootPath());
         m_fileListView->setModel(m_fileModel);
         m_fileListView->setRootIndex(QModelIndex());
-        m_fabNote->hide();
-        m_fabFolder->hide();
+        m_fabNote->hide(); m_fabFolder->hide();
     }
     else if (name == "Google Drive" || name == "OneDrive" || name == "Dropbox") {
         m_fileListView->setRootIndex(QModelIndex());
-        m_fabNote->hide();
-        m_fabFolder->hide();
+        m_fabNote->hide(); m_fabFolder->hide();
         QMessageBox::information(this, "Cloud Integration", "Die Verbindung zu " + name + " wird in einer zukünftigen Version verfügbar sein.");
     }
 }
@@ -664,6 +690,64 @@ void MainWindow::toggleSection(QListWidgetItem* headerItem) {
         if (item->data(Qt::UserRole + 5).toString() == "clouds_item") {
             item->setHidden(newState);
         }
+    }
+}
+
+void MainWindow::toggleFolderContent(QListWidgetItem* parentItem) {
+    bool isExpanded = parentItem->data(Qt::UserRole + 3).toBool();
+
+    QString parentPath = parentItem->data(Qt::UserRole + 10).toString();
+    if(parentPath.isEmpty()) {
+        if (parentItem->text() == "Blop Notizen" || parentItem->text() == "Alle") parentPath = m_rootPath;
+        else return;
+    }
+
+    int currentDepth = parentItem->data(Qt::UserRole + 9).toInt();
+
+    if (isExpanded) {
+        // ZUKLAPPEN
+        int row = m_navSidebar->row(parentItem) + 1;
+        while (row < m_navSidebar->count()) {
+            QListWidgetItem* child = m_navSidebar->item(row);
+            int childDepth = child->data(Qt::UserRole + 9).toInt();
+
+            if (childDepth > currentDepth) {
+                delete m_navSidebar->takeItem(row);
+            } else {
+                break;
+            }
+        }
+        parentItem->setData(Qt::UserRole + 3, false);
+    } else {
+        // AUFKLAPPEN
+        QDir dir(parentPath);
+        QFileInfoList list = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+
+        int insertRow = m_navSidebar->row(parentItem) + 1;
+        for (const QFileInfo& info : list) {
+            QListWidgetItem* child = new QListWidgetItem();
+            child->setText(info.fileName());
+
+            child->setData(Qt::UserRole + 10, info.absoluteFilePath());
+            child->setData(Qt::UserRole + 9, currentDepth + 1);
+            child->setData(Qt::UserRole + 8, parentItem->text());
+
+            if (info.isDir()) {
+                child->setIcon(createModernIcon("folder", QColor(180, 180, 180)));
+                child->setData(Qt::UserRole + 6, true); // Expandable
+                child->setData(Qt::UserRole + 3, false); // Initial collapsed
+            } else {
+                // Datei Icon
+                QPixmap pix(64,64); pix.fill(Qt::transparent);
+                QPainter p(&pix); p.setRenderHint(QPainter::Antialiasing);
+                p.setBrush(Qt::NoBrush); p.setPen(QPen(QColor(180,180,180), 2));
+                p.drawRoundedRect(16, 10, 32, 44, 4, 4); p.drawLine(20, 18, 44, 18); p.drawLine(20, 26, 44, 26);
+                child->setIcon(QIcon(pix));
+            }
+
+            m_navSidebar->insertItem(insertRow++, child);
+        }
+        parentItem->setData(Qt::UserRole + 3, true);
     }
 }
 
@@ -686,8 +770,6 @@ void MainWindow::onCreateFolder() {
 }
 
 void MainWindow::onSidebarContextMenu(const QPoint &pos) {
-    // Kontextmenü jetzt für Nav Items? Eher nicht nötig für statische Items.
-    // Falls nötig, hier implementieren.
 }
 
 void MainWindow::performCopy(const QModelIndex &index) {

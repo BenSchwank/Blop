@@ -5,7 +5,7 @@
 #include <QTabWidget>
 #include <QTreeView>
 #include <QListView>
-#include <QListWidget>
+#include <QListWidget> // Wichtig für die neue Navigation
 #include <QFileSystemModel>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -27,7 +27,7 @@
 
 class MainWindow;
 
-// --- SidebarNavDelegate ---
+// --- SidebarNavDelegate (für das neue Design) ---
 class SidebarNavDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
@@ -139,7 +139,7 @@ private slots:
     void onContentModified();
     void performAutoSave();
 
-    // NEU: Live Update für Badges
+    // Updates für Sidebar Zähler
     void updateSidebarBadges();
 
     void onNavigateUp();
@@ -168,8 +168,9 @@ private:
     void performCopy(const QModelIndex &index);
     bool copyRecursive(const QString &src, const QString &dst);
 
-    // NEU: Toggle Sektion
+    // Helpers für Sidebar Logik
     void toggleSection(QListWidgetItem* headerItem);
+    void toggleFolderContent(QListWidgetItem* parentItem);
 
     CanvasView* getCurrentCanvas();
     void setActiveTool(CanvasView::ToolType tool);
@@ -193,7 +194,6 @@ private:
     ModernButton *btnEditorMenu;
 
     bool m_isSidebarOpen;
-    bool m_isCloudsCollapsed{false}; // Zustand speichern
 
     QWidget *m_sidebarContainer;
     QListWidget *m_navSidebar;
@@ -230,7 +230,8 @@ private:
 
     ModernButton *btnEditorSettings;
     ModernButton *btnBackOverview;
-    ModernButton *btnNewNote;
+
+    // btnNewNote wurde entfernt
 
     QString m_rootPath;
     QColor m_currentAccentColor;
