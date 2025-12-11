@@ -31,7 +31,6 @@ void ToolbarBtn::setActive(bool active) { m_active = active; update(); }
 
 void ToolbarBtn::mousePressEvent(QMouseEvent* e) {
     // Normalerweise fängt ModernToolbar die Events im Radial Mode ab.
-    // Falls Style=Normal ist, greift dies hier:
     if(e->button()==Qt::LeftButton) emit clicked();
 }
 
@@ -107,7 +106,6 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
             // Wenn das aktive Tool erneut geklickt wird: Einstellungen öffnen/schließen
             if (m_settingsState == SettingsState::Closed) {
                 m_settingsState = SettingsState::Main;
-                // Bei "Normal" (Leiste) Pop-up, bei "Radial" (Kreis) Ring öffnen
                 if (m_style == Normal) showVerticalPopup();
                 else update();
             } else {
@@ -115,7 +113,6 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
                 update();
             }
         } else {
-            // Neues Tool aktivieren
             setToolMode(m);
             emit toolChanged(m);
         }
@@ -190,7 +187,7 @@ void ModernToolbar::constrainToParent() {
 void ModernToolbar::reorderButtons() {
     ToolbarBtn* targetBtn = getButtonForMode(mode_);
     int targetIdx = m_buttons.indexOf(targetBtn);
-    int centerIdx = 2; // Index 2 ist die Mitte
+    int centerIdx = 2;
     if (targetIdx != -1 && targetIdx != centerIdx) {
         std::swap(m_buttons[targetIdx], m_buttons[centerIdx]);
     }
@@ -198,7 +195,6 @@ void ModernToolbar::reorderButtons() {
 }
 
 void ModernToolbar::setToolMode(ToolMode mode) {
-    // Bei FullCircle tauschen wir Buttons, damit das aktive in der Mitte ist
     if (m_style == Radial && m_radialType == FullCircle && mode_ != mode) {
         ToolbarBtn* targetBtn = getButtonForMode(mode);
         int targetIdx = m_buttons.indexOf(targetBtn);
@@ -210,7 +206,7 @@ void ModernToolbar::setToolMode(ToolMode mode) {
     }
 
     mode_ = mode;
-    m_settingsState = SettingsState::Closed; // Reset settings beim Wechsel
+    m_settingsState = SettingsState::Closed;
 
     btnPen->setActive(mode == ToolMode::Pen);
     btnEraser->setActive(mode == ToolMode::Eraser);
@@ -227,8 +223,6 @@ void ModernToolbar::setStyle(Style style) {
     m_style = style;
     m_settingsState = SettingsState::Closed;
 
-    // Im Radial-Modus ignorieren die Buttons die Maus -> Scrollen möglich
-    // WICHTIG: Wir lassen dies 'true', aber fangen Klicks jetzt manuell in mousePressEvent ab!
     bool buttonsIgnoreMouse = (style == Radial);
     for(auto* b : m_buttons) {
         b->setAttribute(Qt::WA_TransparentForMouseEvents, buttonsIgnoreMouse);
@@ -409,7 +403,7 @@ void ModernToolbar::updateLayout(bool animate) {
                 m_buttons[i]->setVisible(visible);
             }
         } else {
-            // Full Circle Layout (Kreuz-Anordnung)
+            // Full Circle Layout
             int r = 65 * m_scale;
             int centerBtnX = (width() - btnS) / 2;
             int centerBtnY = (height() - btnS) / 2;
@@ -424,7 +418,6 @@ void ModernToolbar::updateLayout(bool animate) {
                 } else { b->move(bx, by); }
             };
 
-            // Mitte (Aktives Tool), Oben, Rechts, Unten, Links
             moveBtn(m_buttons[2], centerBtnX, centerBtnY);
             moveBtn(m_buttons[1], centerBtnX, centerBtnY - r);
             moveBtn(m_buttons[3], centerBtnX + r, centerBtnY);
@@ -506,13 +499,12 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 void ModernToolbar::paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle) {
     p.setPen(Qt::NoPen);
 
-    // Farben definieren: Je nach Modus hervorheben
     QColor col1 = (m_settingsState == SettingsState::ColorSelect || m_settingsState == SettingsState::EraserMode) ? QColor(0x5E5CE6) : QColor(60,60,60);
     QColor col2 = (m_settingsState == SettingsState::SizeSelect || m_settingsState == SettingsState::LassoMode) ? QColor(0x5E5CE6) : QColor(60,60,60);
 
     double midAngle = startAngle + spanAngle / 2.0;
 
-    // Segment 1 (z.B. Oben bei FullCircle, Unten bei HalfEdge Links) -> Farbe
+    // Segment 1
     QPainterPath path1;
     path1.arcMoveTo(cx - rOut, cy - rOut, rOut*2, rOut*2, startAngle);
     path1.arcTo(cx - rOut, cy - rOut, rOut*2, rOut*2, startAngle, spanAngle/2);
@@ -521,7 +513,6 @@ void ModernToolbar::paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int r
     p.setBrush(col1);
     p.drawPath(path1);
 
-    // Icon (3 Punkte für Farbe)
     double a1 = startAngle + spanAngle/4.0;
     double rad1 = -a1 * 3.14159 / 180.0;
     double rMid = (rIn + rOut) / 2.0;
@@ -532,7 +523,7 @@ void ModernToolbar::paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int r
     p.drawEllipse(QPointF(sx1-6, sy1+4), 3, 3);
     p.drawEllipse(QPointF(sx1+6, sy1+4), 3, 3);
 
-    // Segment 2 (z.B. Unten bei FullCircle) -> Größe
+    // Segment 2
     QPainterPath path2;
     path2.arcMoveTo(cx - rOut, cy - rOut, rOut*2, rOut*2, midAngle);
     path2.arcTo(cx - rOut, cy - rOut, rOut*2, rOut*2, midAngle, spanAngle/2);
@@ -541,7 +532,6 @@ void ModernToolbar::paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int r
     p.setBrush(col2);
     p.drawPath(path2);
 
-    // Icon (1 großer Punkt für Größe)
     double a2 = midAngle + spanAngle/4.0;
     double rad2 = -a2 * 3.14159 / 180.0;
     int sx2 = cx + rMid * std::cos(rad2);
@@ -554,7 +544,6 @@ void ModernToolbar::paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int r
     p.setBrush(QColor(40,40,40));
     p.setPen(Qt::NoPen);
 
-    // Hintergrund Ring 2
     QPainterPath bg;
     bg.arcMoveTo(cx - rOut, cy - rOut, rOut*2, rOut*2, startAngle);
     bg.arcTo(cx - rOut, cy - rOut, rOut*2, rOut*2, startAngle, spanAngle);
@@ -612,49 +601,38 @@ ToolbarBtn* ModernToolbar::getRadialButtonAt(const QPoint& pos) {
 
 void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     if (e->button() == Qt::LeftButton) {
-        // 1. ZUERST prüfen, ob wir einen Button treffen.
-        // Das ist wichtig im Radial-Modus, da die Buttons Maus-transparent sind.
+        // Reset state
+        m_pressedButton = nullptr;
+        m_isScrolling = false;
+        m_hasScrolled = false;
+
+        // 1. Button Detection
         if (m_style == Radial) {
-            if (ToolbarBtn* b = getRadialButtonAt(e->pos())) {
-                m_pressedButton = b;
-                return; // Kein Drag starten, Button hat Vorrang!
-            }
+            m_pressedButton = getRadialButtonAt(e->pos());
         }
 
-        // 2. Radial Logik (Settings Ringe / Scrollen)
-        if (m_style == Radial) {
-            int cx = (m_radialType == HalfEdge) ? (m_isDockedLeft ? 0 : width()) : width()/2;
+        // 2. Scroll Logic für HalfEdge initialisieren
+        // (Wichtig: Wir starten Scrollen AUCH wenn ein Button getroffen wurde)
+        if (m_style == Radial && m_radialType == HalfEdge) {
+            int cx = m_isDockedLeft ? 0 : width();
             int cy = height()/2;
             int dx = e->pos().x() - cx;
             int dy = e->pos().y() - cy;
+
+            m_dragStartAngle = std::atan2(-dy, dx) * 180.0 / 3.14159;
+            m_scrollStartAngleVal = m_scrollAngle;
+            m_isScrolling = true;
+        }
+
+        // Full Circle: Keine Scroll-Logik, aber wir checken Ring-Klicks sofort
+        if (m_style == Radial && m_radialType == FullCircle && !m_pressedButton) {
+            int cx = width()/2; int cy = height()/2;
+            int dx = e->pos().x() - cx; int dy = e->pos().y() - cy;
             double dist = std::sqrt(dx*dx + dy*dy);
-
-            // Scroll Erkennung (nur HalfEdge)
-            int rMain = 95 * m_scale;
-            if (dist > 50 * m_scale && dist < rMain && m_radialType == HalfEdge) {
-                m_isScrolling = true;
-                m_hasScrolled = false;
-                m_dragStartAngle = std::atan2(-dy, dx) * 180.0 / 3.14159;
-                m_scrollStartAngleVal = m_scrollAngle;
-                return;
-            }
-
-            // Klick auf Ringe
+            int rMain = 95 * m_scale; int r1_out = 135 * m_scale; int r2_out = 175 * m_scale;
             if (m_settingsState != SettingsState::Closed) {
-                int r1_out = 135 * m_scale;
-                int r2_out = 175 * m_scale;
-
-                // Ring 1 (Kategorie)
-                if (dist > rMain && dist < r1_out) {
-                    handleRadialSettingsClick(e->pos(), cx, cy, rMain, r1_out);
-                    return;
-                }
-
-                // Ring 2 (Werte)
-                if (dist > r1_out && dist < r2_out && m_settingsState != SettingsState::Main) {
-                    handleRadialSettingsClick(e->pos(), cx, cy, r1_out, r2_out);
-                    return;
-                }
+                if (dist > rMain && dist < r1_out) { handleRadialSettingsClick(e->pos(), cx, cy, rMain, r1_out); return; }
+                if (dist > r1_out && dist < r2_out && m_settingsState != SettingsState::Main) { handleRadialSettingsClick(e->pos(), cx, cy, r1_out, r2_out); return; }
             }
         }
 
@@ -664,7 +642,8 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
             int handleSize = 30; if (e->pos().x() > width() - handleSize && e->pos().y() > height() - handleSize) { m_isResizing = true; dragStartPos_ = e->pos(); resizeStartPos_ = e->pos(); startSize_ = size(); return; }
         }
 
-        // 4. Dragging (Verschieben)
+        // 4. Dragging (Verschieben der Toolbar)
+        // Nur wenn NICHT gescrollt wird und kein Button gedrückt ist (außer bei FullCircle Drag)
         int dragR = 45 * m_scale;
         int cx = width()/2;
         int cy = height()/2;
@@ -673,8 +652,12 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
         int dy = e->pos().y() - cy;
         double dist = std::sqrt(dx*dx + dy*dy);
 
-        // Im Radial-Modus nur Draggen wenn in der Mitte (aber kein Button getroffen wurde, s.o.)
-        if (!m_isPreview && m_style == Radial && dist < dragR) { m_isDragging = true; dragStartPos_ = e->pos(); return; }
+        // Im Radial-Modus Drag nur in der Mitte erlauben
+        if (!m_isPreview && m_style == Radial && dist < dragR && !m_pressedButton) {
+            m_isDragging = true; dragStartPos_ = e->pos(); return;
+        }
+
+        // Normal Mode Drag
         if (!m_isPreview && m_style == Normal) {
             if (m_orientation == Vertical && e->pos().y() < 50) { m_isDragging = true; dragStartPos_ = e->pos(); return; }
             if (m_orientation == Horizontal && e->pos().x() < 50) { m_isDragging = true; dragStartPos_ = e->pos(); return; }
@@ -684,7 +667,7 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
 
 void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int, int) {
     double angle = std::atan2(-(pos.y() - cy), (pos.x() - cx)) * 180.0 / 3.14159;
-    if (angle < 0) angle += 360.0; // Normalisierung auf 0-360
+    if (angle < 0) angle += 360.0;
 
     int dx = pos.x() - cx;
     int dy = pos.y() - cy;
@@ -693,10 +676,10 @@ void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy,
     bool isRing2 = (dist > 135 * m_scale);
 
     double startA = 0;
-    double spanA = 360;
+    double spanAngleDeg = 360; // FIX: Variable renamed to avoid confusion
     if (m_radialType == HalfEdge) {
         startA = m_isDockedLeft ? -90 : 90;
-        spanA = 180;
+        spanAngleDeg = 180;
     }
 
     double currentA = angle;
@@ -705,13 +688,11 @@ void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy,
     double relA = currentA - startA;
     while(relA < 0) relA += 360;
 
-    if (m_radialType == HalfEdge && (relA < 0 || relA > spanA)) return;
+    if (m_radialType == HalfEdge && (relA < 0 || relA > spanAngleDeg)) return;
 
-    // --- Logik für Ring 1 (Umschalten zwischen Kategorien) ---
+    // Ring 1 (Kategorie)
     if (!isRing2) {
-        double midLimit = spanA / 2.0;
-
-        // FullCircle: 0-180 (Oben) -> Farbe, 180-360 (Unten) -> Größe
+        double midLimit = spanAngleDeg / 2.0;
         if (relA < midLimit) {
             if (m_settingsState == SettingsState::ColorSelect) m_settingsState = SettingsState::SizeSelect;
             else m_settingsState = SettingsState::ColorSelect;
@@ -721,11 +702,11 @@ void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy,
         }
         update();
     }
-    // --- Logik für Ring 2 (Wert setzen) ---
+    // Ring 2 (Wert)
     else {
         if (m_settingsState == SettingsState::ColorSelect) {
             int count = m_customColors.size();
-            double step = spanA / (count + 1);
+            double step = spanAngleDeg / (count + 1);
             int idx = (int)(relA / step) - 1;
 
             if (idx >= 0 && idx < count) {
@@ -745,7 +726,7 @@ void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy,
             }
         } else if (m_settingsState == SettingsState::SizeSelect) {
             int count = 5;
-            double step = spanA / (count + 1);
+            double step = spanAngleDeg / (count + 1);
             int idx = (int)(relA / step) - 1;
 
             if (idx >= 0 && idx < count) {
@@ -758,9 +739,7 @@ void ModernToolbar::handleRadialSettingsClick(const QPoint& pos, int cx, int cy,
 }
 
 void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
-    // Falls Button gedrückt wird, kein Move erlauben
-    if (m_pressedButton) return;
-
+    // --- SCROLLING LOGIK FÜR HALFEDGE ---
     if (m_style == Radial && m_isScrolling && m_radialType == HalfEdge) {
         int cx = m_isDockedLeft ? 0 : width();
         int cy = height()/2;
@@ -771,11 +750,19 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         if (delta > 180) delta -= 360;
         if (delta < -180) delta += 360;
 
+        // Wenn Bewegung signifikant ist:
+        if (std::abs(delta) > 2.0) {
+            m_hasScrolled = true;
+            // Falls ein Button gedrückt war, diesen abbrechen!
+            if (m_pressedButton) {
+                m_pressedButton = nullptr;
+            }
+        }
+
         m_scrollAngle = m_scrollStartAngleVal - delta;
         if (m_scrollAngle > 140) m_scrollAngle = 140;
         if (m_scrollAngle < -140) m_scrollAngle = -140;
 
-        if (std::abs(delta) > 2.0) m_hasScrolled = true;
         updateLayout();
         return;
     }
@@ -806,30 +793,38 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
-    // 1. Button Release Logik (Entscheidend für Klicks!)
+    // 1. Button Release (Falls nicht durch Scrollen abgebrochen)
     if (m_pressedButton) {
-        // Nur klicken, wenn man auch über dem Button loslässt
-        if (getRadialButtonAt(e->pos()) == m_pressedButton) {
-            m_pressedButton->triggerClick();
-        }
+        // Sicherstellen, dass wir noch über dem Button sind (optional)
+        m_pressedButton->triggerClick();
         m_pressedButton = nullptr;
-        return;
     }
 
-    // 2. Scroll Logic
-    if (m_style == Radial && m_isScrolling) {
-        m_isScrolling = false;
-        // Falls kaum gescrollt wurde, evtl. Klick (Fallback)
-        if (!m_hasScrolled) {
-            if (ToolbarBtn* b = getRadialButtonAt(e->pos())) {
-                b->triggerClick();
-            }
+    // 2. Settings Release (HalfEdge)
+    // Wenn NICHT gescrollt wurde und KEIN Button gedrückt war,
+    // prüfen wir auf Settings-Ringe (da wir sie in Press übersprungen haben)
+    if (m_style == Radial && m_radialType == HalfEdge && !m_hasScrolled && !m_pressedButton) {
+        int cx = m_isDockedLeft ? 0 : width();
+        int cy = height()/2;
+        int dx = e->pos().x() - cx;
+        int dy = e->pos().y() - cy;
+        double dist = std::sqrt(dx*dx + dy*dy);
+        int rMain = 95 * m_scale;
+
+        // Settings-Check (Ringe)
+        if (m_settingsState != SettingsState::Closed && dist > rMain) {
+            int r1_out = 135 * m_scale;
+            int r2_out = 175 * m_scale;
+            if (dist < r1_out) handleRadialSettingsClick(e->pos(), cx, cy, rMain, r1_out);
+            else if (dist < r2_out && m_settingsState != SettingsState::Main) handleRadialSettingsClick(e->pos(), cx, cy, r1_out, r2_out);
         }
-        return;
     }
 
     m_isDragging = false;
     m_isResizing = false;
+    m_isScrolling = false;
+    m_hasScrolled = false;
+
     if (m_style == Radial && m_radialType == HalfEdge) { snapToEdge(); } else { constrainToParent(); }
 }
 
