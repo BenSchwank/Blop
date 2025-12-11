@@ -5,7 +5,7 @@
 #include <QTabWidget>
 #include <QTreeView>
 #include <QListView>
-#include <QListWidget> // Neu
+#include <QListWidget>
 #include <QFileSystemModel>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -27,7 +27,7 @@
 
 class MainWindow;
 
-// --- SidebarNavDelegate (Neu für das Drawboard-Design) ---
+// --- SidebarNavDelegate ---
 class SidebarNavDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
@@ -78,7 +78,7 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
     friend class ModernItemDelegate;
-    friend class SidebarNavDelegate; // Friend Update
+    friend class SidebarNavDelegate;
 
 public:
     MainWindow(QWidget *parent = nullptr);
@@ -111,7 +111,7 @@ private slots:
     void updateInputMode(bool penOnly);
     void applyProfile(const UiProfile& profile);
 
-    void onNavItemClicked(QListWidgetItem *item); // Neu: Navigation
+    void onNavItemClicked(QListWidgetItem *item);
     void onFileDoubleClicked(const QModelIndex &index);
     void onBackToOverview();
 
@@ -139,6 +139,9 @@ private slots:
     void onContentModified();
     void performAutoSave();
 
+    // NEU: Live Update für Badges
+    void updateSidebarBadges();
+
     void onNavigateUp();
 
     void onWinMinimize();
@@ -165,6 +168,9 @@ private:
     void performCopy(const QModelIndex &index);
     bool copyRecursive(const QString &src, const QString &dst);
 
+    // NEU: Toggle Sektion
+    void toggleSection(QListWidgetItem* headerItem);
+
     CanvasView* getCurrentCanvas();
     void setActiveTool(CanvasView::ToolType tool);
 
@@ -187,15 +193,14 @@ private:
     ModernButton *btnEditorMenu;
 
     bool m_isSidebarOpen;
+    bool m_isCloudsCollapsed{false}; // Zustand speichern
 
     QWidget *m_sidebarContainer;
-    // QWidget *m_sidebarHeader; // Entfernt, da Titel jetzt anders ist
-    QListWidget *m_navSidebar;   // Neu: Ersetzt TreeView
+    QListWidget *m_navSidebar;
     QFileSystemModel *m_fileModel;
     QPushButton *m_fabFolder;
     QPushButton *m_closeSidebarBtn;
 
-    // Neu: Settings Button unten in der Sidebar
     QPushButton *m_btnSidebarSettings;
 
     QWidget *m_overviewContainer;

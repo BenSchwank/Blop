@@ -42,7 +42,6 @@ SidebarNavDelegate::SidebarNavDelegate(MainWindow *parent)
     : QStyledItemDelegate(parent), m_window(parent) {}
 
 QSize SidebarNavDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    // Header sind kleiner, Items größer
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
     return QSize(option.rect.width(), isHeader ? 40 : 44);
 }
@@ -62,7 +61,29 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         f.setPointSize(9);
         painter->setFont(f);
 
-        QRect textRect = option.rect.adjusted(15, 0, -15, 0);
+        // Kleines Dreieck/Pfeil für Collapse State
+        bool collapsed = index.data(Qt::UserRole + 3).toBool();
+
+        int arrowSize = 8;
+        int arrowX = option.rect.left() + 15;
+        int arrowY = option.rect.center().y();
+
+        QPainterPath arrow;
+        if (collapsed) {
+            arrow.moveTo(arrowX, arrowY - 4);
+            arrow.lineTo(arrowX + 5, arrowY);
+            arrow.lineTo(arrowX, arrowY + 4);
+        } else {
+            arrow.moveTo(arrowX, arrowY - 2);
+            arrow.lineTo(arrowX + 8, arrowY - 2);
+            arrow.lineTo(arrowX + 4, arrowY + 3);
+        }
+        painter->setBrush(QColor(150, 150, 150));
+        painter->setPen(Qt::NoPen);
+        painter->drawPath(arrow);
+
+        QRect textRect = option.rect.adjusted(30, 0, -15, 0);
+        painter->setPen(QColor(150, 150, 150));
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
 
         QFontMetrics fm(f);
@@ -112,7 +133,6 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         painter->setFont(f);
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
 
-        // Counter Badge (Rechts)
         QString count = index.data(Qt::UserRole + 2).toString();
         if (!count.isEmpty()) {
             int badgeW = 24;
@@ -254,7 +274,13 @@ void MainWindow::mousePressEvent(QMouseEvent *event) { if (event->button() == Qt
 void MainWindow::mouseMoveEvent(QMouseEvent *event) { if (event->buttons() & Qt::LeftButton && m_titleBarWidget && m_titleBarWidget->geometry().contains(mapFromGlobal(QCursor::pos())) && !isMaximized()) { move(event->globalPosition().toPoint() - m_windowDragPos); event->accept(); return; } QMainWindow::mouseMoveEvent(event); }
 
 void MainWindow::onContentModified() { m_autoSaveTimer->start(); }
-void MainWindow::performAutoSave() { CanvasView* cv = getCurrentCanvas(); if (cv) cv->saveToFile(); }
+void MainWindow::performAutoSave() {
+    CanvasView* cv = getCurrentCanvas();
+    if (cv) {
+        cv->saveToFile();
+        updateSidebarBadges();
+    }
+}
 CanvasView* MainWindow::getCurrentCanvas() { QWidget* current = m_editorTabs->currentWidget(); if (current) return qobject_cast<CanvasView*>(current); return nullptr; }
 void MainWindow::onToggleFloatingTools() {}
 
@@ -397,6 +423,10 @@ void MainWindow::setupUi() {
     mainLayout->addWidget(m_titleBarWidget);
     m_mainSplitter = new QSplitter(Qt::Horizontal, m_centralContainer); mainLayout->addWidget(m_mainSplitter);
     m_fileModel = new QFileSystemModel(this); m_fileModel->setRootPath(m_rootPath); m_fileModel->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot); m_fileModel->setReadOnly(false);
+
+    connect(m_fileModel, &QFileSystemModel::rowsInserted, this, &MainWindow::updateSidebarBadges);
+    connect(m_fileModel, &QFileSystemModel::rowsRemoved, this, &MainWindow::updateSidebarBadges);
+
     setupSidebar();
     m_rightStack = new QStackedWidget(this);
     m_overviewContainer = new QWidget(this); m_overviewContainer->installEventFilter(this);
@@ -489,51 +519,50 @@ void MainWindow::setupSidebar() {
     m_navSidebar->setFrameShape(QFrame::NoFrame);
     m_navSidebar->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
-    // ZÄHLEN DER ELEMENTE IM HAUPTVERZEICHNIS (Dateien + Ordner, keine Dots)
     QDir rootDir(m_rootPath);
     int rootCount = rootDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
     QString rootCountStr = QString::number(rootCount);
 
-    // Elemente hinzufügen
     auto addItem = [this, rootCountStr](QString name, QString icon, bool isHeader = false) {
         QListWidgetItem *item = new QListWidgetItem(m_navSidebar);
         item->setText(name);
         if (!isHeader) {
             item->setIcon(createModernIcon(icon, QColor(200, 200, 200)));
-            // Echte Counter setzen
             if (name == "Alle" || name == "Blop Notizen") {
                 item->setData(Qt::UserRole + 2, rootCountStr);
             }
         }
-        item->setData(Qt::UserRole + 1, isHeader); // IsHeader Flag
+        item->setData(Qt::UserRole + 1, isHeader);
 
         if (isHeader) {
-            item->setFlags(Qt::NoItemFlags); // Nicht wählbar
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            if (name == "Clouds") item->setData(Qt::UserRole + 4, "clouds_header");
         } else {
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            if (name == "Google Drive" || name == "OneDrive" || name == "Dropbox") {
+                item->setData(Qt::UserRole + 5, "clouds_item");
+            }
         }
     };
 
     addItem("Alle", "folder");
-    addItem("Blop Notizen", "folder"); // Früher "Gerät"
-    addItem("Gerät Dateien", "device"); // Früher "Wolke"
+    addItem("Blop Notizen", "folder");
+    addItem("Gerät Dateien", "device");
     addItem("Von mir geteilt", "share");
     addItem("Mit mir geteilt", "share");
 
-    addItem("Integrationen", "", true); // Header
+    addItem("Clouds", "", true);
     addItem("Google Drive", "drive");
     addItem("OneDrive", "onedrive");
     addItem("Dropbox", "dropbox");
 
-    // Tags entfernt
-
-    // Standard Auswahl: Blop Notizen
     m_navSidebar->setCurrentRow(1);
 
     connect(m_navSidebar, &QListWidget::itemClicked, this, &MainWindow::onNavItemClicked);
     layout->addWidget(m_navSidebar);
 
-    // --- BOTTOM BAR (Settings) ---
+    updateSidebarBadges();
+
     QWidget *bottomBar = new QWidget(m_sidebarContainer);
     bottomBar->setFixedHeight(60);
     QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar);
@@ -551,7 +580,6 @@ void MainWindow::setupSidebar() {
     bottomLay->addStretch();
     layout->addWidget(bottomBar);
 
-    // --- FAB (Floating Action Button) ---
     m_fabFolder = new QPushButton("+", m_sidebarContainer);
     m_fabFolder->setCursor(Qt::PointingHandCursor);
     m_fabFolder->setFixedSize(40, 40);
@@ -561,44 +589,88 @@ void MainWindow::setupSidebar() {
     shadowFolder->setColor(QColor(0,0,0,80));
     m_fabFolder->setGraphicsEffect(shadowFolder);
     connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
-    // Positionierung passiert im resizeEvent
 
     m_mainSplitter->addWidget(m_sidebarContainer);
 }
 
+void MainWindow::updateSidebarBadges() {
+    QDir rootDir(m_rootPath);
+    int rootCount = rootDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
+    QString rootCountStr = QString::number(rootCount);
+
+    for(int i = 0; i < m_navSidebar->count(); ++i) {
+        QListWidgetItem* item = m_navSidebar->item(i);
+        QString name = item->text();
+        if (name == "Alle" || name == "Blop Notizen") {
+            item->setData(Qt::UserRole + 2, rootCountStr);
+        }
+    }
+}
+
 void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     if (!item) return;
+
+    bool isHeader = item->data(Qt::UserRole + 1).toBool();
+    if (isHeader) {
+        if (item->text() == "Clouds") {
+            toggleSection(item);
+        }
+        return;
+    }
+
     QString name = item->text();
 
-    // Logik für die Auswahl
     if (name == "Blop Notizen" || name == "Alle") {
-        m_fileModel->setRootPath(m_rootPath); // Reset auf App-Ordner
+        m_fileModel->setRootPath(m_rootPath);
         m_fileListView->setModel(m_fileModel);
         m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
         m_fabNote->show();
         m_fabFolder->show();
     }
     else if (name == "Gerät Dateien") {
-        // Zugriff auf "Dieser PC" / Laufwerke
-        // Wir setzen den Pfad auf Root, damit der Watcher aktiv ist
         m_fileModel->setRootPath(QDir::rootPath());
-
         m_fileListView->setModel(m_fileModel);
-
-        // WICHTIG: RootIndex auf "Invalid" (QModelIndex()) setzen zeigt die Laufwerke an
         m_fileListView->setRootIndex(QModelIndex());
-
-        // FABs verstecken (Notizen und Ordner erstellen auf Root-Ebene meist nicht sinnvoll)
         m_fabNote->hide();
         m_fabFolder->hide();
     }
     else if (name == "Google Drive" || name == "OneDrive" || name == "Dropbox") {
-        // Platzhalter für Cloud-Integration
-        m_fileListView->setRootIndex(QModelIndex()); // Leer
+        m_fileListView->setRootIndex(QModelIndex());
         m_fabNote->hide();
         m_fabFolder->hide();
-
         QMessageBox::information(this, "Cloud Integration", "Die Verbindung zu " + name + " wird in einer zukünftigen Version verfügbar sein.");
+    }
+}
+
+void MainWindow::toggleSection(QListWidgetItem* headerItem) {
+    bool isCollapsed = headerItem->data(Qt::UserRole + 3).toBool();
+    bool newState = !isCollapsed;
+
+    headerItem->setData(Qt::UserRole + 3, newState);
+
+    for(int i = 0; i < m_navSidebar->count(); ++i) {
+        QListWidgetItem* item = m_navSidebar->item(i);
+        if (item->data(Qt::UserRole + 5).toString() == "clouds_item") {
+            item->setHidden(newState);
+        }
+    }
+}
+
+void MainWindow::onNewPage() {
+    bool ok;
+    QString text = QInputDialog::getText(this, "Neue Notiz", "Name:", QLineEdit::Normal, "Neue Notiz", &ok);
+    if (ok && !text.isEmpty()) {
+        QString path = m_fileModel->rootPath() + "/" + text + ".blop";
+        QFile file(path);
+        if (file.open(QIODevice::WriteOnly)) { file.close(); }
+    }
+}
+
+void MainWindow::onCreateFolder() {
+    bool ok;
+    QString text = QInputDialog::getText(this, "Neuer Ordner", "Name:", QLineEdit::Normal, "Neuer Ordner", &ok);
+    if (ok && !text.isEmpty()) {
+        m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text);
     }
 }
 
@@ -606,8 +678,6 @@ void MainWindow::onSidebarContextMenu(const QPoint &pos) {
     // Kontextmenü jetzt für Nav Items? Eher nicht nötig für statische Items.
     // Falls nötig, hier implementieren.
 }
-
-// ... Rest der Datei (unverändert, bis auf resizeEvent Anpassung für FAB) ...
 
 void MainWindow::performCopy(const QModelIndex &index) {
     QString srcPath = m_fileModel->filePath(index);
@@ -832,8 +902,6 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     if (m_renameOverlay) { m_renameOverlay->resize(size()); if (m_renameInput) m_renameInput->move(width()/2 - 150, height()/2 - 20); }
     if (m_editorTabs && m_floatingTools) { int top = 0; if (m_editorTabs->tabBar()) { QPoint tabsPos = m_editorTabs->mapTo(m_editorCenterWidget, QPoint(0,0)); top = tabsPos.y() + m_editorTabs->tabBar()->height(); } ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools); if (tb) tb->setTopBound(top); }
 }
-void MainWindow::onNewPage() { bool ok; QString text = QInputDialog::getText(this, "Neue Notiz", "Name:", QLineEdit::Normal, "Neue Notiz", &ok); if (ok && !text.isEmpty()) { QString path = m_fileModel->rootPath() + "/" + text + ".blop"; QFile file(path); if (file.open(QIODevice::WriteOnly)) { file.close(); } } }
-void MainWindow::onCreateFolder() { bool ok; QString text = QInputDialog::getText(this, "Neuer Ordner", "Name:", QLineEdit::Normal, "Neuer Ordner", &ok); if (ok && !text.isEmpty()) { m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text); } }
 
 // --- HIER IST DIE FUNKTION onOpenSettings ---
 void MainWindow::onOpenSettings() {
