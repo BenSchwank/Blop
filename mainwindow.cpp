@@ -42,6 +42,7 @@ SidebarNavDelegate::SidebarNavDelegate(MainWindow *parent)
     : QStyledItemDelegate(parent), m_window(parent) {}
 
 QSize SidebarNavDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    // Header sind kleiner, Items größer
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
     return QSize(option.rect.width(), isHeader ? 40 : 44);
 }
@@ -61,7 +62,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         f.setPointSize(9);
         painter->setFont(f);
 
-        // Kleines Dreieck/Pfeil für Collapse State
+        // Kleines Dreieck/Pfeil für Collapse State zeichnen
         bool collapsed = index.data(Qt::UserRole + 3).toBool();
 
         int arrowSize = 8;
@@ -296,9 +297,17 @@ void MainWindow::applyTheme() {
 
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
     if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
-    QString fabStyle = QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: 28px; font-size: 32px; font-weight: 300; border: none; }").arg(c, c_light);
-    if(m_fabNote) m_fabNote->setStyleSheet(fabStyle);
-    if(m_fabFolder) { QString s = fabStyle; s.replace("28px","20px"); s.replace("32px","24px"); m_fabFolder->setStyleSheet(s); }
+
+    // FIX: Dynamischer Radius und Zentrierung
+    auto getFabStyle = [&](int w) {
+        int r = w / 2;
+        int fs = r + 4;
+        return QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
+            .arg(c, c_light).arg(r).arg(fs);
+    };
+
+    if(m_fabNote) m_fabNote->setStyleSheet(getFabStyle(m_fabNote->width()));
+    if(m_fabFolder) m_fabFolder->setStyleSheet(getFabStyle(m_fabFolder->width()));
 }
 
 void MainWindow::updateTheme(QColor accentColor) { m_currentAccentColor = accentColor; applyTheme(); }
@@ -358,7 +367,8 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         m_fabNote->setFixedSize(fabS, fabS);
         QString c = m_currentAccentColor.name();
         QString c_light = m_currentAccentColor.lighter(130).name();
-        m_fabNote->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; }")
+        // Dynamischer Radius & Zentrierung
+        m_fabNote->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
                                      .arg(c, c_light).arg(fabS/2).arg(fabS/2 + 4));
     }
 
@@ -434,7 +444,8 @@ void MainWindow::setupUi() {
     QHBoxLayout *topBar = new QHBoxLayout();
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Zurück"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
 
-    btnNewNote = new ModernButton(this); btnNewNote->setIcon(createModernIcon("add", Qt::white)); btnNewNote->setToolTip("Neue Notiz erstellen"); connect(btnNewNote, &QAbstractButton::clicked, this, &MainWindow::onNewPage); topBar->addWidget(btnNewNote);
+    // btnNewNote entfernt (wie gewünscht)
+
     topBar->addStretch(); overviewLayout->addLayout(topBar);
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
     m_fileListView->setSpacing(20); m_fileListView->setFrameShape(QFrame::NoFrame); m_fileListView->setItemDelegate(new ModernItemDelegate(this));
