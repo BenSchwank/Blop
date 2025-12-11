@@ -7,6 +7,7 @@
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
+// --- Helper Button Class ---
 class ToolbarBtn : public QWidget {
     Q_OBJECT
     Q_PROPERTY(float pulseScale READ pulseScale WRITE setPulseScale)
@@ -22,16 +23,18 @@ public:
     float pulseScale() const { return m_pulseScale; }
     void setPulseScale(float s) { m_pulseScale = s; update(); }
 
-    // Hilfsmethode um Klick von außen auszulösen
+    // Löst das Klick-Signal manuell aus (für die Radial-Logik)
     void triggerClick() { animateSelect(); emit clicked(); }
 
 signals:
     void clicked();
+
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
+
 private:
     QString m_iconName;
     bool m_active{false};
@@ -40,9 +43,11 @@ private:
     float m_pulseScale{1.0f};
 };
 
+// --- Main Toolbar Class ---
 class ModernToolbar : public QWidget {
     Q_OBJECT
     Q_PROPERTY(QSize size READ size WRITE resize)
+
 public:
     enum Style { Normal, Radial };
     enum RadialType { FullCircle, HalfEdge };
@@ -113,17 +118,20 @@ private:
     bool m_draggable{true};
     bool m_isPreview{false};
 
-    // --- NEU: Scroll Logic ---
-    bool m_isScrolling{false};      // Sind wir im Scroll-Modus?
-    bool m_hasScrolled{false};      // Haben wir uns signifikant bewegt?
-    double m_dragStartAngle{0.0};   // Winkel beim Start des Drags
-    double m_scrollStartAngleVal{0.0}; // Scroll-Winkel beim Start
+    // Scroll Logic (für HalfEdge)
+    bool m_isScrolling{false};
+    bool m_hasScrolled{false};
+    double m_dragStartAngle{0.0};
+    double m_scrollStartAngleVal{0.0};
 
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
 
     qreal m_scale{1.0};
     int m_topBound{0};
+
+    // WICHTIG: Speichert den gedrückten Button
+    ToolbarBtn* m_pressedButton{nullptr};
 
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
@@ -137,12 +145,12 @@ private:
     void updateLayout(bool animate = false);
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);
-    void setOrientation(Orientation o, bool animate); // Neu: animate Parameter
+    void setOrientation(Orientation o, bool animate);
 
     void reorderButtons();
     ToolbarBtn* getButtonForMode(ToolMode m);
 
-    // Hit Test für Radial Menü
+    // Hit Test helper
     ToolbarBtn* getRadialButtonAt(const QPoint& pos);
 
     void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
