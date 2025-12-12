@@ -184,7 +184,11 @@ void ModernToolbar::constrainToParent() {
     int newX = x();
     int newY = y();
 
-    if (newY < m_topBound) newY = m_topBound;
+    // ÄNDERUNG: Im Radial-Modus ignorieren wir die Top-Bound (Tab-Leiste)
+    // Damit kann man die Toolbar bis ganz nach oben (0) schieben.
+    int effectiveTop = (m_style == Radial) ? 0 : m_topBound;
+
+    if (newY < effectiveTop) newY = effectiveTop;
     if (newY > maxY) newY = maxY;
 
     if (m_style == Radial && m_radialType == HalfEdge) {
@@ -285,8 +289,6 @@ void ModernToolbar::setRadialType(RadialType type) {
 // =============================================================================
 void ModernToolbar::updateHitbox() {
     // 1. PERFORMANCE: Während des Draggings KEINE Masken-Updates!
-    // setMask ist extrem teuer. Wir haben die Maske im mousePressEvent entfernt
-    // und stellen sie erst im mouseReleaseEvent wieder her.
     if (m_isDragging) return;
 
     if (m_style != Radial) {
@@ -295,9 +297,9 @@ void ModernToolbar::updateHitbox() {
         return;
     }
 
-    // Ghosting Fix
+    // Ghosting Fix (nur beim Schließen)
     if (m_settingsState == SettingsState::Closed && !m_cachedMask.isEmpty()) {
-        // Optionaler Repaint bei Statusänderung
+        // Wir erzwingen ein Repaint nur, wenn wir gerade etwas eingeklappt haben
     }
 
     // Basis-Radius
@@ -428,7 +430,6 @@ int ModernToolbar::calculateMinLength() {
 
 void ModernToolbar::updateLayout(bool animate) {
     // 2. PERFORMANCE: Keine Button-Animationen während des Draggings!
-    // Das verhindert, dass Buttons "hinterherfliegen" oder Ruckeln verursachen.
     if (m_isDragging) animate = false;
 
     if (m_style == Normal) {
@@ -755,7 +756,11 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
                 m_isDragging = true;
                 dragStartPos_ = e->pos();
                 m_isScrolling = false;
-                clearMask(); // PERFORMANCE: Maske einmalig entfernen!
+
+                // FIX: Globalen Offset berechnen für stabiles Dragging
+                m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0,0));
+
+                clearMask(); // Wichtig für Performance
                 return;
             }
         }
@@ -860,9 +865,12 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
     if (m_isDragging) {
         if (!parentWidget()) return;
 
-        // Nutze mapFromGlobal für stabile Koordinaten relativ zum Parent
-        QPoint globalMousePos = parentWidget()->mapFromGlobal(e->globalPosition().toPoint());
-        QPoint newTopLeft = globalMousePos - dragStartPos_;
+        // FIX: Neue Position basierend auf globalem Offset für smooth drag
+        QPoint newPosGlobal = e->globalPosition().toPoint() - m_dragOffset;
+        QPoint newTopLeft = parentWidget()->mapFromGlobal(newPosGlobal);
+
+        // Globale Mausposition für Docking-Checks
+        QPoint globalMousePosInParent = parentWidget()->mapFromGlobal(e->globalPosition().toPoint());
 
         int parentW = parentWidget()->width();
         int parentH = parentWidget()->height();
@@ -873,38 +881,40 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
 
             // A) ANDOCKEN (Full -> Half)
             if (m_radialType == FullCircle) {
-                if (globalMousePos.x() < snapDist) {
+                if (globalMousePosInParent.x() < snapDist) {
                     m_isDockedLeft = true;
                     setRadialType(HalfEdge);
                     move(0, y());
-                    dragStartPos_.setX(globalMousePos.x());
+                    m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0,0));
                     return;
                 }
-                else if (globalMousePos.x() > (parentW - snapDist)) {
+                else if (globalMousePosInParent.x() > (parentW - snapDist)) {
                     m_isDockedLeft = false;
                     setRadialType(HalfEdge);
                     move(parentW - width(), y());
-                    dragStartPos_.setX(globalMousePos.x() - (parentW - width()));
+                    m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0,0));
                     return;
                 }
             }
             // B) ABREISSEN (Half -> Full)
             else if (m_radialType == HalfEdge) {
                 bool pullAway = false;
-                if (m_isDockedLeft && globalMousePos.x() > tearDist) pullAway = true;
-                else if (!m_isDockedLeft && globalMousePos.x() < (parentW - tearDist)) pullAway = true;
+                if (m_isDockedLeft && globalMousePosInParent.x() > tearDist) pullAway = true;
+                else if (!m_isDockedLeft && globalMousePosInParent.x() < (parentW - tearDist)) pullAway = true;
 
                 if (pullAway) {
                     setRadialType(FullCircle);
-                    clearMask(); // Erneut Maske entfernen nach Moduswechsel!
-                    int newX = globalMousePos.x() - (width() / 2);
+                    clearMask(); // Maske erneut entfernen nach Moduswechsel
+                    int newX = globalMousePosInParent.x() - (width() / 2);
                     move(newX, y());
-                    dragStartPos_.setX(width() / 2);
+                    m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0,0));
                     return;
                 } else {
                     // AM RAND SLIDEN
                     int fixedX = m_isDockedLeft ? 0 : (parentW - width());
-                    move(fixedX, qBound(m_topBound, newTopLeft.y(), parentH - height()));
+                    // ÄNDERUNG: m_topBound hier ignorieren, damit man bis zum Rand sliden kann
+                    int effectiveTop = 0;
+                    move(fixedX, qBound(effectiveTop, newTopLeft.y(), parentH - height()));
                     return;
                 }
             }
@@ -913,13 +923,17 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         // Freie Bewegung
         int rVisual = 175 * m_scale;
         int rWidget = width() / 2;
-        int effectivePadding = (rWidget - rVisual) + 20;
+        // FIX: Padding entfernen damit wir an den Rand kommen
+        int effectivePadding = (rWidget - rVisual);
 
         int minX = -effectivePadding;
         int maxX = parentW - width() + effectivePadding;
         int maxY = parentH - height();
 
-        move(qBound(minX, newTopLeft.x(), maxX), qBound(m_topBound, newTopLeft.y(), maxY));
+        // ÄNDERUNG: m_topBound nur verwenden, wenn NICHT Radial
+        int effectiveTop = (m_style == Radial) ? 0 : m_topBound;
+
+        move(qBound(minX, newTopLeft.x(), maxX), qBound(effectiveTop, newTopLeft.y(), maxY));
         return;
     }
 
@@ -929,7 +943,12 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         resize(newW, newH); constrainToParent(); return;
     }
 
-    if (m_style == Normal && !m_isPreview) { if (e->pos().x() > width() - 30 && e->pos().y() > height() - 30) setCursor(Qt::SizeFDiagCursor); else setCursor(Qt::ArrowCursor); }
+    if (m_style == Normal && !m_isPreview) {
+        if (e->pos().x() > width() - 30 && e->pos().y() > height() - 30)
+            setCursor(Qt::SizeFDiagCursor);
+        else
+            setCursor(Qt::ArrowCursor);
+    }
 }
 
 void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
@@ -958,9 +977,13 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
     }
 
     if (m_isDragging) {
-        m_cachedMask = QRegion(); // Reset erzwingen
-        updateHitbox(); // Maske wiederherstellen
-        if (m_style == Normal) checkOrientation(e->globalPosition().toPoint());
+        m_cachedMask = QRegion(); // Reset cached mask force update
+        updateHitbox();
+
+        // JETZT erst Orientation prüfen, wenn nötig
+        if (m_style == Normal) {
+            checkOrientation(e->globalPosition().toPoint());
+        }
     }
 
     m_isDragging = false;

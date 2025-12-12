@@ -4,7 +4,7 @@
 #include <QVector>
 #include <QColor>
 #include <QPropertyAnimation>
-#include <QRegion> // Wichtig
+#include <QRegion>
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
@@ -106,6 +106,7 @@ private:
     SettingsState m_settingsState{SettingsState::Closed};
 
     QPoint dragStartPos_;
+    QPoint m_dragOffset; // NEU: Globaler Offset für präzises Dragging
     QPoint resizeStartPos_;
     QSize startSize_;
 
@@ -125,7 +126,6 @@ private:
     qreal m_scale{1.0};
     int m_topBound{0};
 
-    // Performance Optimization: Cache Mask
     QRegion m_cachedMask;
 
     ToolbarBtn* m_pressedButton{nullptr};

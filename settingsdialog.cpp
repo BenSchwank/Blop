@@ -72,16 +72,18 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
 
     QRadioButton* rNorm = new QRadioButton("Vertikal / Adaptiv", grpToolbar);
     rNorm->setObjectName("radioVert");
-    QRadioButton* rFull = new QRadioButton("Radial (Voll)", grpToolbar);
-    rFull->setObjectName("radioRadial");
-    QRadioButton* rHalf = new QRadioButton("Radial (Halb)", grpToolbar);
-    rHalf->setObjectName("radioRadialHalf");
 
-    tbLay->addWidget(rNorm); tbLay->addWidget(rFull); tbLay->addWidget(rHalf);
+    // ÄNDERUNG: Nur noch ein Radial Button
+    QRadioButton* rFull = new QRadioButton("Radial", grpToolbar);
+    rFull->setObjectName("radioRadial");
+
+    tbLay->addWidget(rNorm);
+    tbLay->addWidget(rFull);
     contentLay->addWidget(grpToolbar);
 
     QButtonGroup* bgToolbar = new QButtonGroup(this);
-    bgToolbar->addButton(rNorm, 0); bgToolbar->addButton(rFull, 1); bgToolbar->addButton(rHalf, 2);
+    bgToolbar->addButton(rNorm, 0);
+    bgToolbar->addButton(rFull, 1);
     connect(bgToolbar, &QButtonGroup::idClicked, [this](int id){ emit toolbarStyleChanged(id > 0); });
 
     contentLay->addWidget(new QLabel("Akzentfarbe:", contentWidget));
@@ -161,20 +163,17 @@ void SettingsDialog::onProfileContextMenu(const QPoint &pos) {
 
 void SettingsDialog::openEditor(const QString &profileId) {
     m_editId = profileId;
-    // Wir schließen den Dialog mit einem speziellen Code.
-    // MainWindow fängt diesen ab und öffnet den Editor.
-    // Das verhindert Modality-Probleme und Freezes.
     done(EditProfileCode);
 }
 
-void SettingsDialog::setToolbarConfig(bool isRadial, bool isHalf) {
+void SettingsDialog::setToolbarConfig(bool isRadial, bool) { // 2. Parameter ignoriert
     QRadioButton* rVert = this->findChild<QRadioButton*>("radioVert");
     QRadioButton* rFull = this->findChild<QRadioButton*>("radioRadial");
-    QRadioButton* rHalf = this->findChild<QRadioButton*>("radioRadialHalf");
+
     if (isRadial) {
-        if (isHalf && rHalf) rHalf->setChecked(true);
-        else if (rFull) rFull->setChecked(true);
+        if (rFull) rFull->setChecked(true);
     } else if (rVert) {
         rVert->setChecked(true);
     }
 }
+
