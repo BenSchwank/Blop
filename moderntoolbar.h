@@ -4,6 +4,7 @@
 #include <QVector>
 #include <QColor>
 #include <QPropertyAnimation>
+#include <QRegion> // Wichtig
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
@@ -22,8 +23,6 @@ public:
     void animateSelect();
     float pulseScale() const { return m_pulseScale; }
     void setPulseScale(float s) { m_pulseScale = s; update(); }
-
-    // Löst das Klick-Signal manuell aus (für die Radial-Logik)
     void triggerClick() { animateSelect(); emit clicked(); }
 
 signals:
@@ -81,11 +80,9 @@ signals:
     void toolChanged(ToolMode mode);
     void undoRequested();
     void redoRequested();
-
     void penConfigChanged(QColor c, int w);
     void eraserConfigChanged(EraserMode m);
     void lassoConfigChanged(LassoMode m);
-
     void scaleChanged(qreal newScale);
 
 protected:
@@ -96,7 +93,6 @@ protected:
     void mouseReleaseEvent(QMouseEvent*) override;
     void wheelEvent(QWheelEvent*) override;
     void leaveEvent(QEvent*) override;
-
     void showEvent(QShowEvent*) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
 
@@ -118,7 +114,6 @@ private:
     bool m_draggable{true};
     bool m_isPreview{false};
 
-    // Scroll Logic (für HalfEdge)
     bool m_isScrolling{false};
     bool m_hasScrolled{false};
     double m_dragStartAngle{0.0};
@@ -130,9 +125,10 @@ private:
     qreal m_scale{1.0};
     int m_topBound{0};
 
-    // WICHTIG: Speichert den gedrückten Button
-    ToolbarBtn* m_pressedButton{nullptr};
+    // Performance Optimization: Cache Mask
+    QRegion m_cachedMask;
 
+    ToolbarBtn* m_pressedButton{nullptr};
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
     ToolbarBtn* btnLasso;
@@ -146,11 +142,8 @@ private:
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);
     void setOrientation(Orientation o, bool animate);
-
     void reorderButtons();
     ToolbarBtn* getButtonForMode(ToolMode m);
-
-    // Hit Test helper
     ToolbarBtn* getRadialButtonAt(const QPoint& pos);
 
     void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
@@ -158,5 +151,6 @@ private:
     void handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int innerR, int outerR);
     void showVerticalPopup();
 
+    void updateHitbox();
     int calculateMinLength();
 };
