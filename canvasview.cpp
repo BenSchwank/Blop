@@ -599,4 +599,3 @@ void CanvasView::applyEraser(const QPointF &pos) {
     }
     if (erased) emit contentModified();
 }
-

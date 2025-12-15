@@ -136,7 +136,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
         painter->setPen(selected ? Qt::white : QColor(200, 200, 200));
         QFont f = m_window->font(); f.setPointSize(10); if (selected) f.setBold(true); painter->setFont(f);
-        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
+        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
 
         QString count = index.data(Qt::UserRole + 2).toString();
         if (!count.isEmpty()) {
@@ -242,6 +242,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_autoSaveTimer->setInterval(1500);
     m_autoSaveTimer->setSingleShot(true);
     connect(m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::performAutoSave);
+
+    // NEU: Timer für verzögerte Gitterabstand-Anwendung (Debouncing)
+    m_gridSpacingTimer = new QTimer(this);
+    m_gridSpacingTimer->setInterval(100); // 100 ms debounce time
+    m_gridSpacingTimer->setSingleShot(true);
+    connect(m_gridSpacingTimer, &QTimer::timeout, this, &MainWindow::applyDelayedGridSpacing);
 
     createDefaultFolder();
     setupUi();
@@ -843,6 +849,8 @@ void MainWindow::setupRightSidebar() {
     m_lblActiveNote->setWordWrap(true);
     m_lblActiveNote->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_lblActiveNote);
+
+    // --- SEITENFORMAT (Infinite / A4) ---
     layout->addWidget(new QLabel("Seitenformat:", m_rightSidebar));
     m_btnFormatInfinite = new QPushButton("Unendlich");
     m_btnFormatInfinite->setCheckable(true);
@@ -861,6 +869,63 @@ void MainWindow::setupRightSidebar() {
     grp->setExclusive(true);
     layout->addWidget(m_btnFormatInfinite);
     layout->addWidget(m_btnFormatA4);
+
+    // --- SEITENLAYOUT (Blank, Lined, Squared, Dotted) (NEU) ---
+    layout->addWidget(new QLabel("Seitenlayout:", m_rightSidebar));
+
+    m_btnStyleBlank = new QPushButton("Leer");
+    m_btnStyleLined = new QPushButton("Liniert");
+    m_btnStyleSquared = new QPushButton("Kariert");
+    m_btnStyleDotted = new QPushButton("Gepunktet");
+
+    m_btnStyleBlank->setCheckable(true);
+    m_btnStyleLined->setCheckable(true);
+    m_btnStyleSquared->setCheckable(true);
+    m_btnStyleDotted->setCheckable(true);
+
+    QString btnStyleTemplate = "QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: %1; border: 1px solid %1; }";
+    QString accentColorName = m_currentAccentColor.name();
+    QString styleSheet = btnStyleTemplate.arg(accentColorName);
+
+    m_btnStyleBlank->setStyleSheet(styleSheet);
+    m_btnStyleLined->setStyleSheet(styleSheet);
+    m_btnStyleSquared->setStyleSheet(styleSheet);
+    m_btnStyleDotted->setStyleSheet(styleSheet);
+
+    m_grpPageStyle = new QButtonGroup(this);
+    m_grpPageStyle->addButton(m_btnStyleBlank, (int)PageStyle::Blank);
+    m_grpPageStyle->addButton(m_btnStyleLined, (int)PageStyle::Lined);
+    m_grpPageStyle->addButton(m_btnStyleSquared, (int)PageStyle::Squared);
+    m_grpPageStyle->addButton(m_btnStyleDotted, (int)PageStyle::Dotted);
+    m_grpPageStyle->setExclusive(true);
+
+    // Verbindung des ButtonGroups-Signals mit neuem Slot
+    connect(m_grpPageStyle, QOverload<QAbstractButton*, bool>::of(&QButtonGroup::buttonToggled),
+            this, &MainWindow::onPageStyleButtonToggled);
+
+    // Horizontales Layout für die Stil-Buttons
+    QWidget* styleBtnsContainer = new QWidget(m_rightSidebar);
+    QHBoxLayout* styleBtnsLayout = new QHBoxLayout(styleBtnsContainer);
+    styleBtnsLayout->setContentsMargins(0,0,0,0);
+    styleBtnsLayout->addWidget(m_btnStyleBlank);
+    styleBtnsLayout->addWidget(m_btnStyleLined);
+    styleBtnsLayout->addWidget(m_btnStyleSquared);
+    styleBtnsLayout->addWidget(m_btnStyleDotted);
+
+    layout->addWidget(styleBtnsContainer);
+
+    // Raster Abstand Slider (NEU)
+    layout->addWidget(new QLabel("Raster Abstand (px):", m_rightSidebar));
+    m_sliderGridSpacing = new QSlider(Qt::Horizontal);
+    m_sliderGridSpacing->setRange(10, 80); // Sensible range for grid spacing
+    m_sliderGridSpacing->setValue(40);     // Default value
+    m_sliderGridSpacing->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
+
+    // VERBINDUNG GEÄNDERT: Startet jetzt den Timer
+    connect(m_sliderGridSpacing, &QSlider::valueChanged, this, &MainWindow::onPageGridSpacingSliderChanged);
+    layout->addWidget(m_sliderGridSpacing);
+
+    // --- SEITENFARBE ---
     layout->addWidget(new QLabel("Seitenfarbe:", m_rightSidebar));
     m_btnColorWhite = new QPushButton("Hell");
     m_btnColorWhite->setCheckable(true);
@@ -879,6 +944,8 @@ void MainWindow::setupRightSidebar() {
     grpColor->setExclusive(true);
     layout->addWidget(m_btnColorWhite);
     layout->addWidget(m_btnColorDark);
+
+    // --- EINGABEMODUS ---
     layout->addWidget(new QLabel("Eingabemodus:", m_rightSidebar));
     m_btnInputPen = new QPushButton("Nur Stift\n(1 Finger scrollt)");
     m_btnInputPen->setCheckable(true);
@@ -897,6 +964,8 @@ void MainWindow::setupRightSidebar() {
     grpInput->setExclusive(true);
     layout->addWidget(m_btnInputPen);
     layout->addWidget(m_btnInputTouch);
+
+    // --- WERKZEUGLEISTE ---
     layout->addWidget(new QLabel("Werkzeugleiste:", m_rightSidebar));
     m_comboToolbarStyle = new QComboBox();
     m_comboToolbarStyle->addItems({"Vertikal", "Radial (Voll)", "Radial (Halb)"});
@@ -947,6 +1016,38 @@ void MainWindow::setupRightSidebar() {
     layout->addStretch();
 }
 
+void MainWindow::updateInputMode(bool penOnly) { m_penOnlyMode = penOnly; CanvasView* cv = getCurrentCanvas(); if (cv) cv->setPenMode(penOnly); }
+
+// NEUER SLOT: Handler für Seitenlayout-Buttons
+void MainWindow::onPageStyleButtonToggled(QAbstractButton *button, bool checked) {
+    if (!checked) return;
+    // FIX: PageStyle ist nicht in CanvasView::PageStyle::
+    PageStyle style = (PageStyle)m_grpPageStyle->id(button);
+    CanvasView* cv = getCurrentCanvas();
+    if (cv) {
+        // Der GridSize wird sofort übernommen, da die Style-Auswahl nicht geruckelt wird.
+        cv->setPageStyle(style);
+        cv->setGridSize(m_sliderGridSpacing->value());
+    }
+}
+
+// NEUER SLOT: Handler für den Rasterabstand-Slider (DEBOUNCING LOGIC)
+void MainWindow::onPageGridSpacingSliderChanged(int value) {
+    // Startet den Timer. Bei jedem neuen Event wird der Timer zurückgesetzt (restart),
+    // sodass applyDelayedGridSpacing erst aufgerufen wird, wenn der Benutzer 100ms lang
+    // keine Änderung vorgenommen hat.
+    m_gridSpacingTimer->start();
+}
+
+// NEUER SLOT: Verzögerte Anwendung des Gitterabstands (Performance Fix)
+void MainWindow::applyDelayedGridSpacing() {
+    CanvasView* cv = getCurrentCanvas();
+    if (cv) {
+        // WICHTIG: SetGridSize wird nur einmal aufgerufen, wenn der Benutzer fertig ist.
+        cv->setGridSize(m_sliderGridSpacing->value());
+    }
+}
+
 void MainWindow::animateSidebar(bool show) {
     int start = show ? 0 : 250; int end = show ? 250 : 0; m_isSidebarOpen = show; if (show) { m_sidebarContainer->setVisible(true); updateSidebarState(); }
     QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "maximumWidth"); anim->setDuration(250); anim->setStartValue(start); anim->setEndValue(end); anim->setEasingCurve(QEasingCurve::OutCubic);
@@ -965,6 +1066,16 @@ void MainWindow::onToggleRightSidebar() {
             bool inf = cv->isInfinite();
             m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
             bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
+
+            // Seitenlayout und Rasterabstand aktualisieren
+            int styleId = (int)cv->pageStyle();
+            QAbstractButton *styleBtn = m_grpPageStyle->button(styleId);
+            if (styleBtn) styleBtn->setChecked(true);
+
+            // Blockiere Signale, um zu verhindern, dass m_gridSpacingTimer direkt beim Öffnen startet
+            m_sliderGridSpacing->blockSignals(true);
+            m_sliderGridSpacing->setValue(cv->gridSize());
+            m_sliderGridSpacing->blockSignals(false);
         }
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) {
@@ -1046,7 +1157,6 @@ void MainWindow::onOpenSettings() {
 }
 
 void MainWindow::setCanvasFormat(bool infinite) { CanvasView *cv = getCurrentCanvas(); if (cv) cv->setPageFormat(infinite); }
-void MainWindow::updateInputMode(bool penOnly) { m_penOnlyMode = penOnly; CanvasView* cv = getCurrentCanvas(); if (cv) cv->setPenMode(penOnly); }
 void MainWindow::setPageColor(bool dark) { CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setPageColor(dark ? UIStyles::SceneBackground : UIStyles::PageBackground); } }
 void MainWindow::setActiveTool(CanvasView::ToolType tool) { m_activeToolType = tool; ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools); if(toolbar) { toolbar->setToolMode((ToolMode)tool); } CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setTool(tool); } }
 void MainWindow::switchToSelectTool() { onToolSelect(); }
@@ -1060,7 +1170,20 @@ void MainWindow::onTabChanged(int index) {
     CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setPenMode(m_penOnlyMode); } setActiveTool(m_activeToolType);
     if (m_lblActiveNote) { QString text = "Keine Notiz"; if (index >= 0) { text = m_editorTabs->tabText(index); } m_lblActiveNote->setText(text); }
     if (m_rightSidebar && m_rightSidebar->isVisible()) {
-        if (cv) { bool inf = cv->isInfinite(); m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode); bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark); }
+        if (cv) {
+            bool inf = cv->isInfinite(); m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
+            bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
+
+            // NEU: Seitenlayout und Rasterabstand aktualisieren
+            int styleId = (int)cv->pageStyle();
+            QAbstractButton *styleBtn = m_grpPageStyle->button(styleId);
+            if (styleBtn) styleBtn->setChecked(true);
+
+            // Blockiere Signale, um zu verhindern, dass m_gridSpacingTimer direkt beim Tabwechsel startet
+            m_sliderGridSpacing->blockSignals(true);
+            m_sliderGridSpacing->setValue(cv->gridSize());
+            m_sliderGridSpacing->blockSignals(false);
+        }
     }
     updateSidebarState();
 }

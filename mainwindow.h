@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QLabel>
 #include <QComboBox>
+#include <QButtonGroup>
 
 #include "freegridview.h"
 #include "canvasview.h"
@@ -68,6 +69,7 @@ public:
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    // KORREKTUR: Doppelten 'model'-Parameter entfernt
     bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) override;
 
 private:
@@ -136,7 +138,13 @@ private slots:
     void setCanvasFormat(bool infinite);
     void setPageColor(bool dark);
 
+    // NEUE SLOTS für Seitenlayout und Gitterabstand
+    void onPageStyleButtonToggled(QAbstractButton *button, bool checked);
+    void onPageGridSpacingSliderChanged(int value);
+    void applyDelayedGridSpacing();
+
     void onContentModified();
+    // KORREKTUR: Fehlenden Rückgabetyp 'void' hinzugefügt
     void performAutoSave();
 
     // Updates für Sidebar Zähler
@@ -144,6 +152,7 @@ private slots:
 
     void onNavigateUp();
 
+    // KORREKTUR: Fehlenden Rückgabetyp 'void' hinzugefügt
     void onWinMinimize();
     void onWinMaximize();
     void onWinClose();
@@ -222,6 +231,14 @@ private:
     QPushButton *m_btnUiDesktop;
     QPushButton *m_btnUiTouch;
 
+    // NEUE ELEMENTE für Seitenlayout
+    QButtonGroup *m_grpPageStyle;
+    QPushButton *m_btnStyleBlank;
+    QPushButton *m_btnStyleLined;
+    QPushButton *m_btnStyleSquared;
+    QPushButton *m_btnStyleDotted;
+    QSlider *m_sliderGridSpacing;
+
     QComboBox *m_comboProfiles;
     QComboBox *m_comboToolbarStyle;
     QSlider *m_sliderToolbarScale;
@@ -245,6 +262,7 @@ private:
     bool m_touchMode;
 
     QTimer *m_autoSaveTimer;
+    QTimer *m_gridSpacingTimer; // NEU: Für Debouncing
 
     CanvasView::ToolType m_activeToolType;
 
