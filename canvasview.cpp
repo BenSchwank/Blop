@@ -12,6 +12,11 @@
 #include <QDataStream>
 #include <QInputDevice>
 
+// Definition der A4 Maße und des Abstands
+static constexpr float PAGE_WIDTH = 794 * 1.5f;
+static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
+static constexpr float PAGE_GAP = 60.0f; // Deutlicher Abstand zwischen den Seiten
+
 SelectionMenu::SelectionMenu(QWidget* parent) : QWidget(parent) {
     setStyleSheet(
         "QWidget { background-color: #252526; border-radius: 8px; border: 1px solid #444; }"
@@ -40,7 +45,9 @@ CanvasView::CanvasView(QWidget *parent)
     , m_isPanning(false)
     , m_pullDistance(0.0f)
 {
-    m_scene = new QGraphicsScene(this); setScene(m_scene); m_a4Rect = QRectF(0, 0, 794 * 1.5, 1123 * 1.5);
+    m_scene = new QGraphicsScene(this); setScene(m_scene);
+    // Initiale Seite ohne Gap
+    m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
     // OPTIMIERUNG: Flags für Performance
     setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
@@ -52,7 +59,10 @@ CanvasView::CanvasView(QWidget *parent)
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
 
-    viewport()->grabGesture(Qt::PinchGesture);
+    // GESTEN AKTIVIEREN (Wichtig für Pinch-Zoom)
+    // FIX: grabGesture auf 'this' aufrufen, nicht auf viewport(), damit event() es sieht
+    grabGesture(Qt::PinchGesture);
+    viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
 
     setPageFormat(true);
     setMouseTracking(true);
@@ -85,15 +95,27 @@ void CanvasView::setPageColor(const QColor &color) {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
-    // OPTIMIERUNG: Unnötiges Zeichnen vermeiden, wenn das Rechteck nicht sichtbar ist
-    // (Wird bereits durch QGraphicsView optimiert, aber hier sicherstellen)
     if (m_isInfinite) {
         painter->fillRect(rect, m_pageColor);
     } else {
+        // Hintergrund der Szene (die Lücken) grau zeichnen
         painter->fillRect(rect, UIStyles::SceneBackground);
-        QRectF pageRect = m_a4Rect.intersected(rect);
-        if (!pageRect.isEmpty()) {
-            painter->fillRect(pageRect, m_pageColor);
+
+        // Einzelne Seiten zeichnen
+        qreal currentY = 0;
+
+        // Wir iterieren durch den Gesamtbereich und zeichnen Seiten
+        // Solange wir noch innerhalb der SceneRect-Höhe sind
+        while (currentY < m_a4Rect.height()) {
+            QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
+
+            // Nur zeichnen, wenn die Seite im sichtbaren Bereich (rect) liegt (Optimierung)
+            if (pageRect.intersects(rect)) {
+                painter->fillRect(pageRect, m_pageColor);
+            }
+
+            // Nächste Seite startet nach Seite + Lücke
+            currentY += PAGE_HEIGHT + PAGE_GAP;
         }
     }
 }
@@ -104,7 +126,19 @@ void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
         painter->save();
         painter->setPen(QPen(QColor(0,0,0, 40), 2, Qt::DashLine));
         painter->setBrush(Qt::NoBrush);
-        painter->drawRect(m_a4Rect);
+
+        // Rahmen um jede Seite zeichnen
+        qreal currentY = 0;
+        while (currentY < m_a4Rect.height()) {
+            QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
+
+            if (pageRect.intersects(rect)) {
+                painter->drawRect(pageRect);
+            }
+
+            currentY += PAGE_HEIGHT + PAGE_GAP;
+        }
+
         if (m_pullDistance > 10.0f) drawPullIndicator(painter);
         painter->restore();
     }
@@ -134,8 +168,8 @@ void CanvasView::drawPullIndicator(QPainter* painter) {
 }
 
 void CanvasView::addNewPage() {
-    float a4Height = 1123 * 1.5;
-    m_a4Rect.setHeight(m_a4Rect.height() + a4Height);
+    // Höhe der Szene erweitern um eine Seite + Lücke
+    m_a4Rect.setHeight(m_a4Rect.height() + PAGE_HEIGHT + PAGE_GAP);
     setSceneRect(m_a4Rect);
     viewport()->update();
 }
@@ -280,7 +314,21 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         QPointF scenePos = mapToScene(event->pos());
         if (m_selectionMenu->isVisible() && !itemAt(event->pos())) m_selectionMenu->hide();
-        if (!m_isInfinite && !m_a4Rect.contains(scenePos)) return;
+
+        // Prüfung, ob wir auf einer Seite sind (inkl. Lücken-Check)
+        bool onPage = false;
+        if (!m_isInfinite) {
+            qreal currentY = 0;
+            while(currentY < m_a4Rect.height()) {
+                QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
+                if (pageRect.contains(scenePos)) {
+                    onPage = true;
+                    break;
+                }
+                currentY += PAGE_HEIGHT + PAGE_GAP;
+            }
+            if (!onPage) return; // Klick im Zwischenraum ignorieren
+        }
 
         if (m_currentTool == ToolType::Select) {
             QGraphicsView::mousePressEvent(event);
@@ -389,23 +437,43 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     QGraphicsView::mouseReleaseEvent(event);
 }
 
+// --- GESTEN EVENT HANDLING (für Pinch-Zoom) ---
 bool CanvasView::event(QEvent *event) {
-    if (event->type() == QEvent::Gesture) { gestureEvent(static_cast<QGestureEvent*>(event)); return true; }
+    if (event->type() == QEvent::Gesture) {
+        gestureEvent(static_cast<QGestureEvent*>(event));
+        return true;
+    }
     return QGraphicsView::event(event);
 }
-void CanvasView::gestureEvent(QGestureEvent *event) { if (QGesture *pinch = event->gesture(Qt::PinchGesture)) { pinchTriggered(static_cast<QPinchGesture *>(pinch)); } }
+
+void CanvasView::gestureEvent(QGestureEvent *event) {
+    if (QGesture *pinch = event->gesture(Qt::PinchGesture)) {
+        pinchTriggered(static_cast<QPinchGesture *>(pinch));
+    }
+}
+
 void CanvasView::pinchTriggered(QPinchGesture *gesture) {
+    // Wenn gezoomt wird, brechen wir Zeichnen/Ein-Finger-Pan ab
     if (m_isDrawing) {
         m_isDrawing = false;
         if (m_currentItem) { m_scene->removeItem(m_currentItem); delete m_currentItem; m_currentItem = nullptr; }
         if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; }
     }
+    if (m_isPanning) {
+        m_isPanning = false;
+    }
+
+    // Zoom-Logik
     QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
     if (changeFlags & QPinchGesture::ScaleFactorChanged) {
         qreal factor = gesture->scaleFactor();
         double currentScale = transform().m11();
-        if (!((currentScale < 0.1 && factor < 1) || (currentScale > 10 && factor > 1))) { scale(factor, factor); }
+        if (!((currentScale < 0.1 && factor < 1) || (currentScale > 10 && factor > 1))) {
+            scale(factor, factor);
+        }
     }
+
+    // Panning mit 2 Fingern
     if (gesture->state() == Qt::GestureUpdated) {
         QPoint delta = gesture->centerPoint().toPoint() - gesture->lastCenterPoint().toPoint();
         if (!delta.isNull()) {
