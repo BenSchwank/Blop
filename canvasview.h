@@ -4,6 +4,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
+#include <QGraphicsTextItem>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QUndoStack>
@@ -11,6 +12,14 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QPinchGesture>
+
+// Definition der Hintergrund-Stile
+enum class PageStyle {
+    Blank,
+    Lined,
+    Squared,
+    Dotted
+};
 
 class SelectionMenu : public QWidget {
     Q_OBJECT
@@ -31,7 +40,9 @@ public:
         Pen,
         Eraser,
         Lasso,
-        Select
+        Select,
+        Highlighter, // NEU
+        Text         // NEU
     };
 
     explicit CanvasView(QWidget *parent = nullptr);
@@ -41,9 +52,16 @@ public:
 
     void setPenMode(bool enabled) { m_penOnlyMode = enabled; }
 
-    // NEU: Seite färben
     void setPageColor(const QColor &color);
     QColor pageColor() const { return m_pageColor; }
+
+    // NEU: Hintergrund-Stil setzen
+    void setPageStyle(PageStyle style);
+    PageStyle pageStyle() const { return m_pageStyle; }
+
+    // NEU: Rastergröße setzen (für Kariert/Liniert)
+    void setGridSize(int size);
+    int gridSize() const { return m_gridSize; }
 
     void setTool(ToolType tool);
     void setPenColor(const QColor &color);
@@ -87,6 +105,11 @@ private:
     bool m_penOnlyMode;
     QColor m_pageColor;
 
+    // NEU: Hintergrund-Variablen
+    PageStyle m_pageStyle;
+    int m_gridSize;
+    QPixmap m_bgTile; // Cache für das Hintergrund-Muster
+
     QRectF m_a4Rect;
 
     ToolType m_currentTool;
@@ -107,6 +130,7 @@ private:
     float m_pullDistance;
     void addNewPage();
     void drawPullIndicator(QPainter* painter);
+    void updateBackgroundTile(); // Hilfsfunktion zum Erstellen des Musters
 
     void applyEraser(const QPointF &pos);
     void finishLasso();

@@ -15,7 +15,7 @@
 // Definition der A4 Maße und des Abstands
 static constexpr float PAGE_WIDTH = 794 * 1.5f;
 static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
-static constexpr float PAGE_GAP = 60.0f; // Deutlicher Abstand zwischen den Seiten
+static constexpr float PAGE_GAP = 60.0f;
 
 SelectionMenu::SelectionMenu(QWidget* parent) : QWidget(parent) {
     setStyleSheet(
@@ -39,6 +39,8 @@ CanvasView::CanvasView(QWidget *parent)
     , m_isInfinite(true)
     , m_penOnlyMode(true)
     , m_pageColor(UIStyles::PageBackground)
+    , m_pageStyle(PageStyle::Squared) // Default: Kariert
+    , m_gridSize(40)                  // Default Rastergröße
     , m_currentTool(ToolType::Pen)
     , m_penColor(Qt::black)
     , m_penWidth(3)
@@ -46,10 +48,8 @@ CanvasView::CanvasView(QWidget *parent)
     , m_pullDistance(0.0f)
 {
     m_scene = new QGraphicsScene(this); setScene(m_scene);
-    // Initiale Seite ohne Gap
     m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
-    // OPTIMIERUNG: Flags für Performance
     setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
     setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
 
@@ -59,14 +59,15 @@ CanvasView::CanvasView(QWidget *parent)
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
 
-    // GESTEN AKTIVIEREN (Wichtig für Pinch-Zoom)
-    // FIX: grabGesture auf 'this' aufrufen, nicht auf viewport(), damit event() es sieht
     grabGesture(Qt::PinchGesture);
     viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
 
     setPageFormat(true);
     setMouseTracking(true);
     setDragMode(QGraphicsView::NoDrag);
+
+    // Initialisiere das Hintergrundmuster
+    updateBackgroundTile();
 
     m_selectionMenu = new SelectionMenu(this);
     connect(m_selectionMenu, &SelectionMenu::deleteRequested, this, &CanvasView::deleteSelection);
@@ -79,6 +80,9 @@ void CanvasView::setPageColor(const QColor &color) {
     for (auto *item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type) {
             QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem*>(item);
+            // Ignoriere Highlighter beim Farben-Umschalten
+            if (pathItem->zValue() == 0.1) continue;
+
             QColor c = pathItem->pen().color();
             if (isNowDark && (c == Qt::black || c == QColor(0,0,0))) {
                 QPen p = pathItem->pen(); p.setColor(Qt::white); pathItem->setPen(p);
@@ -90,31 +94,88 @@ void CanvasView::setPageColor(const QColor &color) {
     if (isNowDark && (m_penColor == Qt::black)) m_penColor = Qt::white;
     else if (!isNowDark && (m_penColor == Qt::white)) m_penColor = Qt::black;
     m_pageColor = color;
+
+    // Hintergrundmuster muss neu generiert werden (Farbe der Linien anpassen)
+    updateBackgroundTile();
+
     viewport()->update();
     emit contentModified();
+}
+
+void CanvasView::setPageStyle(PageStyle style) {
+    if (m_pageStyle != style) {
+        m_pageStyle = style;
+        updateBackgroundTile();
+        viewport()->update();
+    }
+}
+
+void CanvasView::setGridSize(int size) {
+    if (m_gridSize != size && size > 5) {
+        m_gridSize = size;
+        updateBackgroundTile();
+        viewport()->update();
+    }
+}
+
+// Erstellt ein kleines Kachel-Bild für den Hintergrund (Performance!)
+void CanvasView::updateBackgroundTile() {
+    if (m_pageStyle == PageStyle::Blank) {
+        m_bgTile = QPixmap();
+        return;
+    }
+
+    int size = m_gridSize;
+    m_bgTile = QPixmap(size, size);
+    m_bgTile.fill(Qt::transparent);
+
+    QPainter p(&m_bgTile);
+    // Linienfarbe leicht sichtbar machen, abhängig von PageColor
+    QColor lineColor = (m_pageColor.value() < 128) ? QColor(255,255,255, 30) : QColor(0,0,0, 20);
+    p.setPen(QPen(lineColor, 1));
+
+    if (m_pageStyle == PageStyle::Squared) {
+        p.drawLine(0, size-1, size, size-1); // Horizontale Linie unten
+        p.drawLine(size-1, 0, size-1, size); // Vertikale Linie rechts
+    }
+    else if (m_pageStyle == PageStyle::Lined) {
+        p.drawLine(0, size-1, size, size-1); // Nur Horizontale Linie
+    }
+    else if (m_pageStyle == PageStyle::Dotted) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(lineColor);
+        p.drawEllipse(size-2, size-2, 2, 2); // Punkt unten rechts
+    }
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
     if (m_isInfinite) {
         painter->fillRect(rect, m_pageColor);
+        if (m_pageStyle != PageStyle::Blank && !m_bgTile.isNull()) {
+            painter->drawTiledPixmap(rect, m_bgTile, QPointF(0,0));
+        }
     } else {
-        // Hintergrund der Szene (die Lücken) grau zeichnen
         painter->fillRect(rect, UIStyles::SceneBackground);
 
-        // Einzelne Seiten zeichnen
         qreal currentY = 0;
-
-        // Wir iterieren durch den Gesamtbereich und zeichnen Seiten
-        // Solange wir noch innerhalb der SceneRect-Höhe sind
         while (currentY < m_a4Rect.height()) {
             QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
 
-            // Nur zeichnen, wenn die Seite im sichtbaren Bereich (rect) liegt (Optimierung)
             if (pageRect.intersects(rect)) {
+                // Papierhintergrund
                 painter->fillRect(pageRect, m_pageColor);
-            }
 
-            // Nächste Seite startet nach Seite + Lücke
+                // Muster zeichnen (Tiling)
+                if (m_pageStyle != PageStyle::Blank && !m_bgTile.isNull()) {
+                    painter->save();
+                    // Clip auf Seitengröße, damit Muster nicht über den Rand geht
+                    painter->setClipRect(pageRect);
+                    // Brush Origin auf Seitenanfang setzen, damit das Muster auf jeder Seite oben anfängt
+                    painter->setBrushOrigin(pageRect.topLeft());
+                    painter->fillRect(pageRect, m_bgTile);
+                    painter->restore();
+                }
+            }
             currentY += PAGE_HEIGHT + PAGE_GAP;
         }
     }
@@ -127,15 +188,12 @@ void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
         painter->setPen(QPen(QColor(0,0,0, 40), 2, Qt::DashLine));
         painter->setBrush(Qt::NoBrush);
 
-        // Rahmen um jede Seite zeichnen
         qreal currentY = 0;
         while (currentY < m_a4Rect.height()) {
             QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
-
             if (pageRect.intersects(rect)) {
                 painter->drawRect(pageRect);
             }
-
             currentY += PAGE_HEIGHT + PAGE_GAP;
         }
 
@@ -168,7 +226,6 @@ void CanvasView::drawPullIndicator(QPainter* painter) {
 }
 
 void CanvasView::addNewPage() {
-    // Höhe der Szene erweitern um eine Seite + Lücke
     m_a4Rect.setHeight(m_a4Rect.height() + PAGE_HEIGHT + PAGE_GAP);
     setSceneRect(m_a4Rect);
     viewport()->update();
@@ -182,11 +239,14 @@ bool CanvasView::saveToFile() {
     out << (quint32)0xB10B0001;
     QList<QGraphicsItem*> items = m_scene->items(Qt::AscendingOrder);
     int count = 0;
+    // Zähle nur Pfad-Items, nicht Text oder Lasso
     for(auto* item : std::as_const(items)) { if(item->type() == QGraphicsPathItem::Type && item != m_lassoItem) count++; }
     out << count;
     for (auto* item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type && item != m_lassoItem) {
             QGraphicsPathItem* pathItem = static_cast<QGraphicsPathItem*>(item);
+            // Speichere zusätzlich Z-Value, um Highlighter zu unterscheiden (optional für später, hier basic)
+            // Format hier ist simpel, Highlighter wird als normaler Pfad mit Farbe gespeichert
             out << pathItem->pos() << pathItem->pen().color() << (int)pathItem->pen().width() << pathItem->path();
         }
     }
@@ -201,7 +261,6 @@ bool CanvasView::loadFromFile() {
     quint32 magic; in >> magic; if (magic != 0xB10B0001) return false;
     m_scene->clear(); m_undoList.clear(); m_redoList.clear();
     int count; in >> count;
-    // OPTIMIERUNG: Signale blockieren beim Laden vieler Items
     bool wasBlocked = m_scene->blockSignals(true);
     for (int i = 0; i < count; ++i) {
         QPointF pos; QColor color; int width; QPainterPath path;
@@ -209,6 +268,10 @@ bool CanvasView::loadFromFile() {
         QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
         QGraphicsPathItem* item = m_scene->addPath(path, pen);
         item->setPos(pos);
+        // Highlighter erkennen anhand Alpha? (optional)
+        if (color.alpha() < 255) item->setZValue(0.1);
+        else item->setZValue(1.0);
+
         item->setFlag(QGraphicsItem::ItemIsSelectable);
         item->setFlag(QGraphicsItem::ItemIsMovable);
     }
@@ -220,9 +283,12 @@ void CanvasView::setTool(ToolType tool) {
     m_currentTool = tool;
     if (tool == ToolType::Select) {
         setCursor(Qt::ArrowCursor); setDragMode(QGraphicsView::RubberBandDrag);
+    } else if (tool == ToolType::Text) {
+        setCursor(Qt::IBeamCursor); setDragMode(QGraphicsView::NoDrag);
     } else {
         clearSelection(); setDragMode(QGraphicsView::NoDrag);
         if (tool == ToolType::Pen) setCursor(Qt::CrossCursor);
+        else if (tool == ToolType::Highlighter) setCursor(Qt::CrossCursor); // Highlighter Cursor
         else if (tool == ToolType::Eraser) setCursor(Qt::ForbiddenCursor);
         else if (tool == ToolType::Lasso) setCursor(Qt::CrossCursor);
     }
@@ -247,6 +313,7 @@ void CanvasView::duplicateSelection() {
             QGraphicsPathItem* newItem = m_scene->addPath(pathItem->path(), pathItem->pen());
             newItem->setPos(item->pos() + QPointF(20, 20));
             newItem->setFlag(QGraphicsItem::ItemIsSelectable); newItem->setFlag(QGraphicsItem::ItemIsMovable);
+            newItem->setZValue(pathItem->zValue());
             newItem->setSelected(true); m_undoList.append(newItem);
         }
     }
@@ -315,7 +382,6 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
         QPointF scenePos = mapToScene(event->pos());
         if (m_selectionMenu->isVisible() && !itemAt(event->pos())) m_selectionMenu->hide();
 
-        // Prüfung, ob wir auf einer Seite sind (inkl. Lücken-Check)
         bool onPage = false;
         if (!m_isInfinite) {
             qreal currentY = 0;
@@ -327,7 +393,7 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
                 }
                 currentY += PAGE_HEIGHT + PAGE_GAP;
             }
-            if (!onPage) return; // Klick im Zwischenraum ignorieren
+            if (!onPage) return;
         }
 
         if (m_currentTool == ToolType::Select) {
@@ -341,9 +407,27 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             m_currentItem = m_scene->addPath(m_currentPath, QPen(m_penColor, m_penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
             m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            qDeleteAll(m_redoList);
-            m_redoList.clear();
-            m_undoList.append(m_currentItem);
+            m_currentItem->setZValue(1.0); // Stift oben
+            qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
+            event->accept();
+            return;
+        }
+        else if (m_currentTool == ToolType::Highlighter) {
+            m_isDrawing = true;
+            m_currentPath = QPainterPath();
+            m_currentPath.moveTo(scenePos);
+
+            // Highlighter: Farbe mit Alpha und dickerer Strich
+            QColor hlColor = m_penColor;
+            hlColor.setAlpha(80); // Transparenz
+            int hlWidth = 24;     // Dicker Strich
+
+            m_currentItem = m_scene->addPath(m_currentPath, QPen(hlColor, hlWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
+            m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
+            m_currentItem->setZValue(0.1); // Hinter normalem Stift, aber vor Hintergrund
+
+            qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
             event->accept();
             return;
         }
@@ -359,6 +443,19 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             m_currentPath = QPainterPath();
             m_currentPath.moveTo(scenePos);
             m_lassoItem = m_scene->addPath(m_currentPath, QPen(QColor(0x5E5CE6), 2, Qt::DashLine));
+            event->accept();
+            return;
+        }
+        else if (m_currentTool == ToolType::Text) {
+            // Text Tool Implementierung (Basic)
+            QGraphicsTextItem* textItem = m_scene->addText("Text");
+            textItem->setPos(scenePos);
+            textItem->setDefaultTextColor(m_penColor);
+            QFont f; f.setPointSize(12); textItem->setFont(f);
+            textItem->setTextInteractionFlags(Qt::TextEditorInteraction);
+            textItem->setFocus();
+            textItem->setZValue(2.0); // Ganz oben
+            m_undoList.append(textItem);
             event->accept();
             return;
         }
@@ -391,7 +488,7 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 
     QPointF scenePos = mapToScene(event->pos());
     if (m_isDrawing) {
-        if (m_currentTool == ToolType::Pen && m_currentItem) {
+        if ((m_currentTool == ToolType::Pen || m_currentTool == ToolType::Highlighter) && m_currentItem) {
             m_currentPath.lineTo(scenePos);
             m_currentItem->setPath(m_currentPath);
         }
@@ -437,7 +534,6 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     QGraphicsView::mouseReleaseEvent(event);
 }
 
-// --- GESTEN EVENT HANDLING (für Pinch-Zoom) ---
 bool CanvasView::event(QEvent *event) {
     if (event->type() == QEvent::Gesture) {
         gestureEvent(static_cast<QGestureEvent*>(event));
@@ -453,17 +549,13 @@ void CanvasView::gestureEvent(QGestureEvent *event) {
 }
 
 void CanvasView::pinchTriggered(QPinchGesture *gesture) {
-    // Wenn gezoomt wird, brechen wir Zeichnen/Ein-Finger-Pan ab
     if (m_isDrawing) {
         m_isDrawing = false;
         if (m_currentItem) { m_scene->removeItem(m_currentItem); delete m_currentItem; m_currentItem = nullptr; }
         if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; }
     }
-    if (m_isPanning) {
-        m_isPanning = false;
-    }
+    if (m_isPanning) m_isPanning = false;
 
-    // Zoom-Logik
     QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
     if (changeFlags & QPinchGesture::ScaleFactorChanged) {
         qreal factor = gesture->scaleFactor();
@@ -472,8 +564,6 @@ void CanvasView::pinchTriggered(QPinchGesture *gesture) {
             scale(factor, factor);
         }
     }
-
-    // Panning mit 2 Fingern
     if (gesture->state() == Qt::GestureUpdated) {
         QPoint delta = gesture->centerPoint().toPoint() - gesture->lastCenterPoint().toPoint();
         if (!delta.isNull()) {
@@ -505,6 +595,8 @@ void CanvasView::applyEraser(const QPointF &pos) {
     bool erased = false;
     for (auto* item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type) { m_scene->removeItem(item); m_undoList.removeOne(item); delete item; erased = true; }
+        else if (item->type() == QGraphicsTextItem::Type) { m_scene->removeItem(item); m_undoList.removeOne(item); delete item; erased = true; }
     }
     if (erased) emit contentModified();
 }
+
