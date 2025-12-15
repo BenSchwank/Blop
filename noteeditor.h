@@ -16,6 +16,9 @@ public:
     void setNote(Note *note);
     Note *note() const { return note_; }
 
+    // NEU: Zugriff auf die View erlauben, damit MainWindow Zoom/Farbe steuern kann
+    MultiPageNoteView* view() const { return canvas_; }
+
     std::function<void(Note *)> onSaveRequested;
 
 protected:
@@ -23,7 +26,7 @@ protected:
     void resizeEvent(QResizeEvent *) override;
 
 private:
-    Note *note_{nullptr}; // <--- Hier hinzugefügt
+    Note *note_{nullptr};
     QTabWidget *tabs_{nullptr};
     QTextEdit *text_{nullptr};
     MultiPageNoteView *canvas_{nullptr};

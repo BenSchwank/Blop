@@ -106,7 +106,7 @@ private:
     SettingsState m_settingsState{SettingsState::Closed};
 
     QPoint dragStartPos_;
-    QPoint m_dragOffset; // NEU: Globaler Offset für präzises Dragging
+    QPoint m_dragOffset;
     QPoint resizeStartPos_;
     QSize startSize_;
 
@@ -129,8 +129,11 @@ private:
     QRegion m_cachedMask;
 
     ToolbarBtn* m_pressedButton{nullptr};
+
+    // Buttons
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
+    ToolbarBtn* btnHighlighter; // NEU
     ToolbarBtn* btnLasso;
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;

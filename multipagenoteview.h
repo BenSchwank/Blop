@@ -5,9 +5,12 @@
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QTabletEvent>
-#include <functional> // Wichtig
+#include <QPinchGesture>
+#include <QGestureEvent>
+#include <functional>
 #include "Note.h"
 #include "ToolMode.h"
+#include "PageItem.h"
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
@@ -20,6 +23,9 @@ public:
     void setToolMode(ToolMode m) { mode_ = m; }
     void setPenColor(const QColor& c) { penColor_ = c; }
     void setPenWidth(qreal w) { penWidth_ = w; }
+
+    void setPenOnlyMode(bool enabled) { m_penOnlyMode = enabled; }
+    bool penOnlyMode() const { return m_penOnlyMode; }
 
     bool exportPageToPng(int pageIndex, const QString &path);
     bool exportPageToPdf(int pageIndex, const QString &path);
@@ -35,17 +41,27 @@ protected:
     void mouseReleaseEvent(QMouseEvent*) override;
     bool viewportEvent(QEvent* e) override;
 
+    // Wichtig für Pinch-Gesten
+    bool event(QEvent *event) override;
+
 private:
     QGraphicsScene scene_;
-    Note* note_{nullptr}; // <--- Hier definiert
+    Note* note_{nullptr};
     ToolMode mode_{ToolMode::Pen};
     qreal zoom_{1.0};
     bool drawing_{false};
     int currentPage_{0};
 
+    bool m_penOnlyMode{true};
+
+    // Manuelles Panning
+    bool m_isPanning{false};
+    QPoint m_lastPanPos;
+
     QColor penColor_{Qt::black};
     qreal penWidth_{2.0};
-    QVector<QGraphicsRectItem*> pageItems_;
+
+    QVector<PageItem*> pageItems_;
 
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
@@ -54,4 +70,7 @@ private:
     void ensureOverscrollPage();
     int pageAt(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
+
+    void gestureEvent(QGestureEvent *event);
+    void pinchTriggered(QPinchGesture *gesture);
 };

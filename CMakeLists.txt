@@ -38,6 +38,8 @@ qt_add_executable(Blop
     uiprofile.h
     uiprofilemanager.h uiprofilemanager.cpp
     profileeditordialog.h profileeditordialog.cpp
+    PageItem.h
+    Note.h
 )
 
 target_link_libraries(Blop PRIVATE Qt6::Widgets)

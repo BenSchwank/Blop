@@ -11,6 +11,7 @@ struct Stroke {
     qreal width{2.0};
     QColor color{Qt::black};
     bool isEraser{false};
+    bool isHighlighter{false}; // NEU
     int pageIndex{0};
 };
 
@@ -22,7 +23,7 @@ struct Note {
     QString id;
     QString title;
     QVector<NotePage> pages;
-    // Simple helpers
+
     void ensurePage(int index) {
         if (index >= pages.size()) pages.resize(index + 1);
     }

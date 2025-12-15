@@ -2,5 +2,6 @@
 enum class ToolMode {
     Pen,
     Eraser,
-    Lasso
+    Lasso,
+    Highlighter
 };
