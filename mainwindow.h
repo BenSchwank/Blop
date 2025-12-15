@@ -5,7 +5,7 @@
 #include <QTabWidget>
 #include <QTreeView>
 #include <QListView>
-#include <QListWidget> // Wichtig für die neue Navigation
+#include <QListWidget>
 #include <QFileSystemModel>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -28,7 +28,7 @@
 
 class MainWindow;
 
-// --- SidebarNavDelegate (für das neue Design) ---
+// --- SidebarNavDelegate ---
 class SidebarNavDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
@@ -60,18 +60,15 @@ private:
     QColor m_accentColor;
 };
 
-// --- ModernItemDelegate ---
+// --- ModernItemDelegate (wieder benötigt für FreeGridView) ---
 class ModernItemDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
 public:
     explicit ModernItemDelegate(MainWindow *parent);
-
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-    // KORREKTUR: Doppelten 'model'-Parameter entfernt
     bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) override;
-
 private:
     MainWindow *m_window;
 };
@@ -114,7 +111,7 @@ private slots:
     void applyProfile(const UiProfile& profile);
 
     void onNavItemClicked(QListWidgetItem *item);
-    void onFileDoubleClicked(const QModelIndex &index);
+    void onFileDoubleClicked(const QModelIndex &index); // Wieder da
     void onBackToOverview();
 
     void onSidebarContextMenu(const QPoint &pos);
@@ -138,21 +135,17 @@ private slots:
     void setCanvasFormat(bool infinite);
     void setPageColor(bool dark);
 
-    // NEUE SLOTS für Seitenlayout und Gitterabstand
     void onPageStyleButtonToggled(QAbstractButton *button, bool checked);
     void onPageGridSpacingSliderChanged(int value);
     void applyDelayedGridSpacing();
 
     void onContentModified();
-    // KORREKTUR: Fehlenden Rückgabetyp 'void' hinzugefügt
     void performAutoSave();
 
-    // Updates für Sidebar Zähler
     void updateSidebarBadges();
 
     void onNavigateUp();
 
-    // KORREKTUR: Fehlenden Rückgabetyp 'void' hinzugefügt
     void onWinMinimize();
     void onWinMaximize();
     void onWinClose();
@@ -177,7 +170,6 @@ private:
     void performCopy(const QModelIndex &index);
     bool copyRecursive(const QString &src, const QString &dst);
 
-    // Helpers für Sidebar Logik
     void toggleSection(QListWidgetItem* headerItem);
     void toggleFolderContent(QListWidgetItem* parentItem);
 
@@ -213,7 +205,7 @@ private:
     QPushButton *m_btnSidebarSettings;
 
     QWidget *m_overviewContainer;
-    FreeGridView *m_fileListView;
+    FreeGridView *m_fileListView; // Wieder da: FreeGridView
     QPushButton *m_fabNote;
 
     QWidget *m_editorContainer;
@@ -231,7 +223,6 @@ private:
     QPushButton *m_btnUiDesktop;
     QPushButton *m_btnUiTouch;
 
-    // NEUE ELEMENTE für Seitenlayout
     QButtonGroup *m_grpPageStyle;
     QPushButton *m_btnStyleBlank;
     QPushButton *m_btnStyleLined;
@@ -248,8 +239,6 @@ private:
     ModernButton *btnEditorSettings;
     ModernButton *btnBackOverview;
 
-    // btnNewNote wurde entfernt
-
     QString m_rootPath;
     QColor m_currentAccentColor;
     QColor m_penColor;
@@ -262,7 +251,7 @@ private:
     bool m_touchMode;
 
     QTimer *m_autoSaveTimer;
-    QTimer *m_gridSpacingTimer; // NEU: Für Debouncing
+    QTimer *m_gridSpacingTimer;
 
     CanvasView::ToolType m_activeToolType;
 

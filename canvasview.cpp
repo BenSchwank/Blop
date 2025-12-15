@@ -11,11 +11,13 @@
 #include <QFile>
 #include <QDataStream>
 #include <QInputDevice>
+#include <QtMath>
 
 // Definition der A4 Maße und des Abstands
 static constexpr float PAGE_WIDTH = 794 * 1.5f;
 static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
 static constexpr float PAGE_GAP = 60.0f;
+static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
 
 SelectionMenu::SelectionMenu(QWidget* parent) : QWidget(parent) {
     setStyleSheet(
@@ -39,8 +41,8 @@ CanvasView::CanvasView(QWidget *parent)
     , m_isInfinite(true)
     , m_penOnlyMode(true)
     , m_pageColor(UIStyles::PageBackground)
-    , m_pageStyle(PageStyle::Squared) // Default: Kariert
-    , m_gridSize(40)                  // Default Rastergröße
+    , m_pageStyle(PageStyle::Squared)
+    , m_gridSize(40)
     , m_currentTool(ToolType::Pen)
     , m_penColor(Qt::black)
     , m_penWidth(3)
@@ -50,11 +52,11 @@ CanvasView::CanvasView(QWidget *parent)
     m_scene = new QGraphicsScene(this); setScene(m_scene);
     m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
+    // Performance-Optimierungen
     setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
     setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
-
     setRenderHint(QPainter::Antialiasing);
-    setRenderHint(QPainter::SmoothPixmapTransform);
+    setRenderHint(QPainter::SmoothPixmapTransform, false);
 
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
@@ -66,7 +68,6 @@ CanvasView::CanvasView(QWidget *parent)
     setMouseTracking(true);
     setDragMode(QGraphicsView::NoDrag);
 
-    // Initialisiere das Hintergrundmuster
     updateBackgroundTile();
 
     m_selectionMenu = new SelectionMenu(this);
@@ -80,7 +81,6 @@ void CanvasView::setPageColor(const QColor &color) {
     for (auto *item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type) {
             QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem*>(item);
-            // Ignoriere Highlighter beim Farben-Umschalten
             if (pathItem->zValue() == 0.1) continue;
 
             QColor c = pathItem->pen().color();
@@ -95,9 +95,7 @@ void CanvasView::setPageColor(const QColor &color) {
     else if (!isNowDark && (m_penColor == Qt::white)) m_penColor = Qt::black;
     m_pageColor = color;
 
-    // Hintergrundmuster muss neu generiert werden (Farbe der Linien anpassen)
     updateBackgroundTile();
-
     viewport()->update();
     emit contentModified();
 }
@@ -118,111 +116,156 @@ void CanvasView::setGridSize(int size) {
     }
 }
 
-// Erstellt ein kleines Kachel-Bild für den Hintergrund (Performance!)
 void CanvasView::updateBackgroundTile() {
-    if (m_pageStyle == PageStyle::Blank) {
-        m_bgTile = QPixmap();
-        return;
-    }
+    int baseSize = m_gridSize;
+    int multiplier = 512 / baseSize;
+    if (multiplier < 1) multiplier = 1;
+    int texSize = baseSize * multiplier;
 
-    int size = m_gridSize;
-    m_bgTile = QPixmap(size, size);
-    m_bgTile.fill(Qt::transparent);
+    m_bgTile = QPixmap(texSize, texSize);
+    m_bgTile.fill(m_pageColor);
+
+    if (m_pageStyle == PageStyle::Blank) return;
 
     QPainter p(&m_bgTile);
-    // Linienfarbe leicht sichtbar machen, abhängig von PageColor
     QColor lineColor = (m_pageColor.value() < 128) ? QColor(255,255,255, 30) : QColor(0,0,0, 20);
+    p.setRenderHint(QPainter::Antialiasing, false);
     p.setPen(QPen(lineColor, 1));
 
     if (m_pageStyle == PageStyle::Squared) {
-        p.drawLine(0, size-1, size, size-1); // Horizontale Linie unten
-        p.drawLine(size-1, 0, size-1, size); // Vertikale Linie rechts
+        for (int i = 1; i <= multiplier; ++i) {
+            int pos = i * baseSize - 1;
+            p.drawLine(0, pos, texSize, pos);
+            p.drawLine(pos, 0, pos, texSize);
+        }
     }
     else if (m_pageStyle == PageStyle::Lined) {
-        p.drawLine(0, size-1, size, size-1); // Nur Horizontale Linie
+        for (int i = 1; i <= multiplier; ++i) {
+            int pos = i * baseSize - 1;
+            p.drawLine(0, pos, texSize, pos);
+        }
     }
     else if (m_pageStyle == PageStyle::Dotted) {
         p.setPen(Qt::NoPen);
         p.setBrush(lineColor);
-        p.drawEllipse(size-2, size-2, 2, 2); // Punkt unten rechts
+        for (int x = 1; x <= multiplier; ++x) {
+            for (int y = 1; y <= multiplier; ++y) {
+                p.drawRect(x * baseSize - 2, y * baseSize - 2, 2, 2);
+            }
+        }
     }
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
-    if (m_isInfinite) {
-        painter->fillRect(rect, m_pageColor);
-        if (m_pageStyle != PageStyle::Blank && !m_bgTile.isNull()) {
-            painter->drawTiledPixmap(rect, m_bgTile, QPointF(0,0));
-        }
-    } else {
+    if (!m_isInfinite) {
         painter->fillRect(rect, UIStyles::SceneBackground);
+    }
 
-        qreal currentY = 0;
-        while (currentY < m_a4Rect.height()) {
-            QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
+    painter->save();
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter->setRenderHint(QPainter::Antialiasing, false);
 
-            if (pageRect.intersects(rect)) {
-                // Papierhintergrund
-                painter->fillRect(pageRect, m_pageColor);
+    if (m_isInfinite) {
+        painter->drawTiledPixmap(rect, m_bgTile, QPointF(0,0));
+    } else {
+        int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
+        int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
+        int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
+        if (endPage > maxPage) endPage = maxPage;
 
-                // Muster zeichnen (Tiling)
-                if (m_pageStyle != PageStyle::Blank && !m_bgTile.isNull()) {
-                    painter->save();
-                    // Clip auf Seitengröße, damit Muster nicht über den Rand geht
-                    painter->setClipRect(pageRect);
-                    // Brush Origin auf Seitenanfang setzen, damit das Muster auf jeder Seite oben anfängt
-                    painter->setBrushOrigin(pageRect.topLeft());
-                    painter->fillRect(pageRect, m_bgTile);
-                    painter->restore();
-                }
-            }
-            currentY += PAGE_HEIGHT + PAGE_GAP;
+        for (int i = startPage; i <= endPage; ++i) {
+            qreal y = i * TOTAL_PAGE_HEIGHT;
+            QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
+            painter->setBrushOrigin(pageRect.topLeft());
+            painter->drawTiledPixmap(pageRect, m_bgTile);
         }
     }
+    painter->restore();
 }
 
 void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
     QGraphicsView::drawForeground(painter, rect);
+
+    // Indikator zeichnen (jetzt unabhängig vom Infinite-Status sichtbar, wenn gezogen wird)
+    if (m_pullDistance > 1.0f) {
+        drawPullIndicator(painter);
+    }
+
     if (!m_isInfinite) {
         painter->save();
-        painter->setPen(QPen(QColor(0,0,0, 40), 2, Qt::DashLine));
+
+        // Rahmen für Seiten (Schnellere Linien)
+        painter->setPen(QPen(QColor(0,0,0, 60), 1, Qt::SolidLine));
         painter->setBrush(Qt::NoBrush);
 
-        qreal currentY = 0;
-        while (currentY < m_a4Rect.height()) {
-            QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
-            if (pageRect.intersects(rect)) {
-                painter->drawRect(pageRect);
-            }
-            currentY += PAGE_HEIGHT + PAGE_GAP;
+        int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
+        int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
+        int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
+        if (endPage > maxPage) endPage = maxPage;
+
+        for (int i = startPage; i <= endPage; ++i) {
+            qreal y = i * TOTAL_PAGE_HEIGHT;
+            QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
+            painter->drawRect(pageRect);
         }
 
-        if (m_pullDistance > 10.0f) drawPullIndicator(painter);
         painter->restore();
     }
 }
 
+// FIX: Position deutlich nach oben korrigiert
 void CanvasView::drawPullIndicator(QPainter* painter) {
-    painter->resetTransform();
-    int w = viewport()->width(); int h = viewport()->height();
-    float maxPull = 250.0f; float progress = qMin(m_pullDistance / maxPull, 1.0f);
-    int size = 60; int yPos = h - size - 30; int xPos = (w - size) / 2;
+    painter->save();
+    painter->resetTransform(); // Wichtig: Zeichne in Bildschirm-Koordinaten
+    painter->setClipping(false); // Wichtig: Über alles drüber zeichnen
+
+    int w = viewport()->width();
+    int h = viewport()->height();
+    float maxPull = 250.0f;
+    float progress = qMin(m_pullDistance / maxPull, 1.0f);
+
+    int size = 60;
+    // HIER GEÄNDERT: Position viel höher (150px vom unteren Rand + leichter Slide nach oben)
+    int yPos = h - size - 150 - (progress * 20);
+    int xPos = (w - size) / 2;
     QRect circleRect(xPos, yPos, size, size);
-    painter->setRenderHint(QPainter::Antialiasing);
-    painter->setBrush(QColor(0, 0, 0, 150)); painter->setPen(Qt::NoPen); painter->drawEllipse(circleRect);
+
+    painter->setRenderHint(QPainter::Antialiasing, true);
+
+    // Hintergrundkreis
+    painter->setBrush(QColor(40, 40, 40, 200));
+    painter->setPen(Qt::NoPen);
+    painter->drawEllipse(circleRect);
+
+    // Blauer Lade-Kreis
     if (progress > 0.05f) {
-        QPen arcPen(QColor(0x5E5CE6)); arcPen.setWidth(4); arcPen.setCapStyle(Qt::RoundCap);
-        painter->setPen(arcPen); painter->setBrush(Qt::NoBrush);
+        QPen arcPen(QColor(0x5E5CE6));
+        arcPen.setWidth(4);
+        arcPen.setCapStyle(Qt::RoundCap);
+        painter->setPen(arcPen);
+        painter->setBrush(Qt::NoBrush);
         int spanAngle = -progress * 360 * 16;
         painter->drawArc(circleRect.adjusted(8, 8, -8, -8), 90 * 16, spanAngle);
     }
-    if (progress > 0.2f) {
-        painter->setPen(QPen(Qt::white, 3));
-        int center = size / 2; int pSize = (size / 4) * progress;
+
+    // Das PLUS-Symbol
+    if (progress > 0.15f) {
+        painter->setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap));
+        int center = size / 2;
+
+        // Größe des Plus wächst mit Progress
+        float growFactor = (progress - 0.15f) / 0.85f; // 0.0 bis 1.0
+        int pSize = 12 * growFactor;
+
         QPoint c = circleRect.center();
-        painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y());
+
+        // Vertikale Linie
         painter->drawLine(c.x(), c.y() - pSize, c.x(), c.y() + pSize);
+        // Horizontale Linie
+        painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y());
     }
+
+    painter->restore();
 }
 
 void CanvasView::addNewPage() {
@@ -239,14 +282,11 @@ bool CanvasView::saveToFile() {
     out << (quint32)0xB10B0001;
     QList<QGraphicsItem*> items = m_scene->items(Qt::AscendingOrder);
     int count = 0;
-    // Zähle nur Pfad-Items, nicht Text oder Lasso
     for(auto* item : std::as_const(items)) { if(item->type() == QGraphicsPathItem::Type && item != m_lassoItem) count++; }
     out << count;
     for (auto* item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type && item != m_lassoItem) {
             QGraphicsPathItem* pathItem = static_cast<QGraphicsPathItem*>(item);
-            // Speichere zusätzlich Z-Value, um Highlighter zu unterscheiden (optional für später, hier basic)
-            // Format hier ist simpel, Highlighter wird als normaler Pfad mit Farbe gespeichert
             out << pathItem->pos() << pathItem->pen().color() << (int)pathItem->pen().width() << pathItem->path();
         }
     }
@@ -268,10 +308,8 @@ bool CanvasView::loadFromFile() {
         QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
         QGraphicsPathItem* item = m_scene->addPath(path, pen);
         item->setPos(pos);
-        // Highlighter erkennen anhand Alpha? (optional)
         if (color.alpha() < 255) item->setZValue(0.1);
         else item->setZValue(1.0);
-
         item->setFlag(QGraphicsItem::ItemIsSelectable);
         item->setFlag(QGraphicsItem::ItemIsMovable);
     }
@@ -288,7 +326,7 @@ void CanvasView::setTool(ToolType tool) {
     } else {
         clearSelection(); setDragMode(QGraphicsView::NoDrag);
         if (tool == ToolType::Pen) setCursor(Qt::CrossCursor);
-        else if (tool == ToolType::Highlighter) setCursor(Qt::CrossCursor); // Highlighter Cursor
+        else if (tool == ToolType::Highlighter) setCursor(Qt::CrossCursor);
         else if (tool == ToolType::Eraser) setCursor(Qt::ForbiddenCursor);
         else if (tool == ToolType::Lasso) setCursor(Qt::CrossCursor);
     }

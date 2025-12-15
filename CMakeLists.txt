@@ -29,7 +29,6 @@ qt_add_executable(Blop
     noteeditor.h
     multipagenoteview.cpp
     multipagenoteview.h
-    # --- NEUE DATEIEN HINZUGEFÜGT ---
     moderntoolbar.cpp
     moderntoolbar.h
     ToolMode.h
