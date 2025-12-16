@@ -9,7 +9,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# HIER WICHTIG: "OpenGLWidgets" hinzufügen
+find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets)
 
 qt_add_executable(Blop
     main.cpp
@@ -41,4 +42,5 @@ qt_add_executable(Blop
     Note.h
 )
 
-target_link_libraries(Blop PRIVATE Qt6::Widgets)
+# HIER WICHTIG: Mit OpenGLWidgets verlinken
+target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::OpenGLWidgets)

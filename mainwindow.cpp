@@ -397,7 +397,6 @@ void MainWindow::setupUi() {
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Zurück"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
     topBar->addStretch(); overviewLayout->addLayout(topBar);
 
-    // WIEDERHERGESTELLT: FreeGridView
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
     m_fileListView->setSpacing(20); m_fileListView->setFrameShape(QFrame::NoFrame); m_fileListView->setItemDelegate(new ModernItemDelegate(this));
     connect(m_fileListView, &QListView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
@@ -614,7 +613,14 @@ void MainWindow::setupRightSidebar() {
     m_btnStyleBlank->setCheckable(true); m_btnStyleLined->setCheckable(true); m_btnStyleSquared->setCheckable(true); m_btnStyleDotted->setCheckable(true);
     QString btnStyleTemplate = "QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: %1; border: 1px solid %1; }"; QString accentColorName = m_currentAccentColor.name(); QString styleSheet = btnStyleTemplate.arg(accentColorName);
     m_btnStyleBlank->setStyleSheet(styleSheet); m_btnStyleLined->setStyleSheet(styleSheet); m_btnStyleSquared->setStyleSheet(styleSheet); m_btnStyleDotted->setStyleSheet(styleSheet);
-    m_grpPageStyle = new QButtonGroup(this); m_grpPageStyle->addButton(m_btnStyleBlank, (int)PageStyle::Blank); m_grpPageStyle->addButton(m_btnStyleLined, (int)PageStyle::Lined); m_grpPageStyle->addButton(m_btnStyleSquared, (int)PageStyle::Squared); m_grpPageStyle->addButton(m_btnStyleDotted, (int)PageStyle::Dotted); m_grpPageStyle->setExclusive(true);
+
+    // HIER WAR DER FEHLER: Wir nutzen jetzt CanvasView::PageStyle
+    m_grpPageStyle = new QButtonGroup(this);
+    m_grpPageStyle->addButton(m_btnStyleBlank, (int)CanvasView::PageStyle::Blank);
+    m_grpPageStyle->addButton(m_btnStyleLined, (int)CanvasView::PageStyle::Lined);
+    m_grpPageStyle->addButton(m_btnStyleSquared, (int)CanvasView::PageStyle::Squared);
+    m_grpPageStyle->addButton(m_btnStyleDotted, (int)CanvasView::PageStyle::Dotted);
+    m_grpPageStyle->setExclusive(true);
     connect(m_grpPageStyle, QOverload<QAbstractButton*, bool>::of(&QButtonGroup::buttonToggled), this, &MainWindow::onPageStyleButtonToggled);
     QWidget* styleBtnsContainer = new QWidget(m_rightSidebar); QHBoxLayout* styleBtnsLayout = new QHBoxLayout(styleBtnsContainer); styleBtnsLayout->setContentsMargins(0,0,0,0); styleBtnsLayout->addWidget(m_btnStyleBlank); styleBtnsLayout->addWidget(m_btnStyleLined); styleBtnsLayout->addWidget(m_btnStyleSquared); styleBtnsLayout->addWidget(m_btnStyleDotted); layout->addWidget(styleBtnsContainer);
 
@@ -659,7 +665,8 @@ void MainWindow::updateInputMode(bool penOnly) { m_penOnlyMode = penOnly; Canvas
 
 void MainWindow::onPageStyleButtonToggled(QAbstractButton *button, bool checked) {
     if (!checked) return;
-    PageStyle style = (PageStyle)m_grpPageStyle->id(button);
+    // HIER GEÄNDERT: Namespace hinzugefügt
+    CanvasView::PageStyle style = (CanvasView::PageStyle)m_grpPageStyle->id(button);
     CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setPageStyle(style); cv->setGridSize(m_sliderGridSpacing->value()); }
 }
 
