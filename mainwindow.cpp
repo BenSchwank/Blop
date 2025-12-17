@@ -236,14 +236,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 }
 MainWindow::~MainWindow() {}
 
-// NEU: Die Funktion für den Update Check mit DEINER URL
+// NEU: Die Funktion für den Update Check mit DEINER URL (Blop-releases)
 void MainWindow::checkForUpdates() {
     if (!m_netManager) {
         m_netManager = new QNetworkAccessManager(this);
     }
 
-    // URL angepasst auf dein Repo "BenSchwank/Blop"
-    QUrl url("https://api.github.com/repos/BenSchwank/Blop/releases/tags/nightly");
+    // URL angepasst auf dein öffentliches Repo "BenSchwank/Blop-releases"
+    QUrl url("https://api.github.com/repos/BenSchwank/Blop-releases/releases/tags/nightly");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Blop-App");
 
@@ -862,3 +862,4 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
+

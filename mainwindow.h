@@ -103,7 +103,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
-    // NEU: Update Check Funktion
+    // NEU: Update Check Slot
     void checkForUpdates();
 
     void onNewPage();

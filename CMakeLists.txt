@@ -42,7 +42,7 @@ qt_add_executable(Blop
     profileeditordialog.h profileeditordialog.cpp
     PageItem.h
     Note.h
-    # Falls du BlopAsyncImageProvider hast, hier lassen, sonst entfernen:
+    # Falls vorhanden:
     # BlopAsyncImageProvider.h BlopAsyncImageProvider.cpp
 )
 
