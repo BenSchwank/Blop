@@ -27,7 +27,7 @@
 
 #include "freegridview.h"
 #include "canvasview.h"
-#include "UiProfileManager.h"
+#include "uiprofilemanager.h"
 
 class MainWindow;
 

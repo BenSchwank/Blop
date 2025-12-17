@@ -1,7 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QVector>
-#include "UiProfile.h"
+#include "uiprofile.h"
 
 class UiProfileManager : public QObject {
     Q_OBJECT

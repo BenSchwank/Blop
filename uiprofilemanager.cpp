@@ -1,4 +1,4 @@
-#include "UiProfileManager.h"
+#include "uiprofilemanager.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>

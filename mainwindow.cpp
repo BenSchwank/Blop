@@ -3,7 +3,7 @@
 #include "canvasview.h"
 #include "UIStyles.h"
 #include "moderntoolbar.h"
-#include "ProfileEditorDialog.h"
+#include "profileeditordialog.h"
 #include "newnotedialog.h"
 
 #include <QApplication>

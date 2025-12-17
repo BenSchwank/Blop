@@ -1,7 +1,7 @@
 #pragma once
 #include <QDialog>
 #include <QPoint>
-#include "UiProfile.h"
+#include "uiprofile.h"
 
 class QSlider;
 class QLabel;

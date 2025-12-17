@@ -3,7 +3,7 @@
 
 #include <QDialog>
 #include <QColor>
-#include "UiProfileManager.h"
+#include "uiprofilemanager.h"
 
 namespace Ui {
 class SettingsDialog;

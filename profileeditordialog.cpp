@@ -1,4 +1,4 @@
-#include "ProfileEditorDialog.h"
+#include "profileeditordialog.h"
 #include "moderntoolbar.h"
 
 #include <QVBoxLayout>
