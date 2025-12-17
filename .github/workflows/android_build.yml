@@ -26,8 +26,7 @@ jobs:
           host: 'linux'
           target: 'android'
           arch: 'android_arm64_v8a'
-          # Wir stellen sicher, dass alle Werkzeuge da sind
-          tools: 'tools_cmake'
+          # HIER WURDE DIE FEHLERHAFTE "TOOLS" ZEILE GELÖSCHT
 
       - name: Install Ninja
         run: sudo apt-get install -y ninja-build
@@ -35,20 +34,25 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
+      # Wir schauen nach, wo Qt installiert wurde, um sicherzugehen
+      - name: Check Qt Path
+        run: |
+          echo "Suche nach Qt Installation..."
+          ls -F ${{ runner.workspace }}/Qt/6.6.0/
+
       - name: Configure CMake
         working-directory: build
         run: |
-          # Debugging: Wir lassen uns anzeigen, welche Qt-Ordner existieren
-          echo "Inhalt des Qt-Ordners:"
-          ls -F ${{ runner.workspace }}/Qt/6.6.0/
+          # Wir setzen den Pfad zum "Host" (Linux) Qt, das automatisch mitinstalliert wurde
+          export HOST_QT_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
           
-          # Hier ist der Trick: Wir nutzen runner.workspace für den Pfad
-          qt-cmake .. -G "Ninja" \
+          # Wir nutzen den Android-spezifischen CMake Wrapper
+          ${{ runner.workspace }}/Qt/6.6.0/android_arm64_v8a/bin/qt-cmake .. -G "Ninja" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
-            -DQT_HOST_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
+            -DQT_HOST_PATH=$HOST_QT_PATH
 
       - name: Build
         working-directory: build
