@@ -7,6 +7,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QObject>
+#include <QtQuick/qquickimageprovider.h>
 
 // Die Response-Klasse kapselt das Ergebnis und signalisiert, wann es fertig ist.
 class BlopImageResponse : public QQuickImageResponse

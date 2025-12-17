@@ -9,7 +9,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# WICHTIG: Network hinzugefügt
+# WICHTIG: Zurück zum Original (Nur Widgets und Network)
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
 qt_add_executable(Blop
@@ -42,9 +42,9 @@ qt_add_executable(Blop
     profileeditordialog.h profileeditordialog.cpp
     PageItem.h
     Note.h
-    BlopAsyncImageProvider.h BlopAsyncImageProvider.cpp
-    BlopImageResponse.h BlopImageResponse.cpp
+    # HIER ENTFERNT: BlopAsyncImageProvider und BlopImageResponse
+    # Diese verursachen den Fehler und werden für Desktop nicht gebraucht.
 )
 
-# WICHTIG: Qt6::Network hinzugefügt
+# WICHTIG: Keine QML/Quick Abhängigkeiten mehr
 target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::Network)
