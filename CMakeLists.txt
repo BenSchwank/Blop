@@ -30,7 +30,7 @@ qt_add_executable(Blop
     # Dialoge & Einstellungen (alles klein)
     settingsdialog.cpp
     settingsdialog.h
-    settingsdialog.ui
+    SettingsDialog.ui
     newnotedialog.h
     newnotedialog.cpp
     profileeditordialog.h
