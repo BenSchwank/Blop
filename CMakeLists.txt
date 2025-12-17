@@ -9,7 +9,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# WICHTIG: "Network" hinzugefügt für Internetzugriff
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
 qt_add_executable(Blop
     main.cpp
@@ -31,8 +32,8 @@ qt_add_executable(Blop
     multipagenoteview.h
     moderntoolbar.cpp
     moderntoolbar.h
-    newnotedialog.h   # NEU
-    newnotedialog.cpp # NEU
+    newnotedialog.h
+    newnotedialog.cpp
     ToolMode.h
     ToolSettings.h
     UIStyles.h
@@ -41,6 +42,9 @@ qt_add_executable(Blop
     profileeditordialog.h profileeditordialog.cpp
     PageItem.h
     Note.h
+    # Falls du BlopAsyncImageProvider hast, hier lassen, sonst entfernen:
+    # BlopAsyncImageProvider.h BlopAsyncImageProvider.cpp
 )
 
-target_link_libraries(Blop PRIVATE Qt6::Widgets)
+# WICHTIG: "Qt6::Network" hinzugefügt
+target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::Network)

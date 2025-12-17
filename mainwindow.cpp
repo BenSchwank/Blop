@@ -4,7 +4,7 @@
 #include "UIStyles.h"
 #include "moderntoolbar.h"
 #include "ProfileEditorDialog.h"
-#include "newnotedialog.h" // NEU
+#include "newnotedialog.h"
 
 #include <QApplication>
 #include <QStyle>
@@ -34,6 +34,14 @@
 #include <QDataStream>
 #include <utility>
 #include <algorithm>
+// NEU: Netzwerk & Desktop Services
+#include <QNetworkRequest>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDesktopServices>
+#include <QDateTime>
+#include <QLocale>
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -222,8 +230,67 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 
     updateSidebarState();
     updateOverviewBackButton();
+
+    // NEU: Update Check nach 2 Sekunden starten
+    QTimer::singleShot(2000, this, &MainWindow::checkForUpdates);
 }
 MainWindow::~MainWindow() {}
+
+// NEU: Die Funktion für den Update Check mit DEINER URL
+void MainWindow::checkForUpdates() {
+    if (!m_netManager) {
+        m_netManager = new QNetworkAccessManager(this);
+    }
+
+    // URL angepasst auf dein Repo "BenSchwank/Blop"
+    QUrl url("https://api.github.com/repos/BenSchwank/Blop/releases/tags/nightly");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Blop-App");
+
+    QNetworkReply *reply = m_netManager->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            QJsonObject obj = doc.object();
+
+            // Release Zeit vom Server (z.B. "2023-10-27T10:00:00Z")
+            QString publishedAt = obj["published_at"].toString();
+            QDateTime serverDate = QDateTime::fromString(publishedAt, Qt::ISODate);
+
+            // Eigene Build-Zeit ermitteln
+            QString buildDateStr = QString("%1 %2").arg(__DATE__).arg(__TIME__);
+            QLocale usLocale(QLocale::English, QLocale::UnitedStates);
+            QDateTime localDate = usLocale.toDateTime(buildDateStr, "MMM d yyyy hh:mm:ss");
+            if (!localDate.isValid()) {
+                localDate = usLocale.toDateTime(buildDateStr, "MMM  d yyyy hh:mm:ss");
+            }
+
+            // Wenn Server neuer ist als lokaler Build -> Update verfügbar!
+            if (serverDate.isValid() && localDate.isValid() && serverDate > localDate) {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle("Update verfügbar");
+                msgBox.setText("Eine neue Version von Blop ist verfügbar!");
+                msgBox.setInformativeText("Möchtest du das Update jetzt herunterladen?");
+                msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+                msgBox.setDefaultButton(QMessageBox::Yes);
+
+                msgBox.setStyleSheet("QMessageBox { background-color: #252526; color: white; } QLabel { color: white; } QPushButton { background-color: #5E5CE6; color: white; border: none; padding: 5px 15px; border-radius: 4px; } QPushButton:hover { background-color: #4b49c9; }");
+
+                if (msgBox.exec() == QMessageBox::Yes) {
+                    if (obj.contains("assets") && obj["assets"].isArray()) {
+                        QJsonArray assets = obj["assets"].toArray();
+                        if (!assets.isEmpty()) {
+                            QString downloadUrl = assets.first().toObject()["browser_download_url"].toString();
+                            QDesktopServices::openUrl(QUrl(downloadUrl));
+                        }
+                    }
+                }
+            }
+        }
+        reply->deleteLater();
+    });
+}
 
 void MainWindow::setupTitleBar() {
     m_titleBarWidget = new QWidget(this);
@@ -399,7 +466,6 @@ void MainWindow::setupUi() {
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Zurück"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
     topBar->addStretch(); overviewLayout->addLayout(topBar);
 
-    // WIEDERHERGESTELLT: FreeGridView
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
     m_fileListView->setSpacing(20); m_fileListView->setFrameShape(QFrame::NoFrame); m_fileListView->setItemDelegate(new ModernItemDelegate(this));
     connect(m_fileListView, &QListView::doubleClicked, this, &MainWindow::onFileDoubleClicked);

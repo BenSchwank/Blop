@@ -21,6 +21,9 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QButtonGroup>
+// NEU: Netzwerk für Update-Check
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 
 #include "freegridview.h"
 #include "canvasview.h"
@@ -60,7 +63,7 @@ private:
     QColor m_accentColor;
 };
 
-// --- ModernItemDelegate (wieder benötigt für FreeGridView) ---
+// --- ModernItemDelegate ---
 class ModernItemDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
@@ -100,6 +103,9 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
+    // NEU: Update Check Funktion
+    void checkForUpdates();
+
     void onNewPage();
     void onCreateFolder();
 
@@ -111,7 +117,7 @@ private slots:
     void applyProfile(const UiProfile& profile);
 
     void onNavItemClicked(QListWidgetItem *item);
-    void onFileDoubleClicked(const QModelIndex &index); // Wieder da
+    void onFileDoubleClicked(const QModelIndex &index);
     void onBackToOverview();
 
     void onSidebarContextMenu(const QPoint &pos);
@@ -132,7 +138,6 @@ private slots:
     void onTabChanged(int index);
 
     void onToggleRightSidebar();
-    // setCanvasFormat entfernt - wird beim Erstellen festgelegt
     void setPageColor(bool dark);
 
     void onPageStyleButtonToggled(QAbstractButton *button, bool checked);
@@ -205,7 +210,7 @@ private:
     QPushButton *m_btnSidebarSettings;
 
     QWidget *m_overviewContainer;
-    FreeGridView *m_fileListView; // Wieder da: FreeGridView
+    FreeGridView *m_fileListView;
     QPushButton *m_fabNote;
 
     QWidget *m_editorContainer;
@@ -258,6 +263,9 @@ private:
     QModelIndex m_indexToRename;
     QWidget *m_renameOverlay;
     QLineEdit *m_renameInput;
+
+    // NEU: Network Manager für Internetzugriff
+    QNetworkAccessManager *m_netManager{nullptr};
 };
 
 #endif // MAINWINDOW_H
