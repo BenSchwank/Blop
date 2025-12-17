@@ -48,3 +48,4 @@ qt_add_executable(Blop
 
 # WICHTIG: Keine QML/Quick Abhängigkeiten mehr
 target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::Network)
+#test
