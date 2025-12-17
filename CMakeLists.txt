@@ -59,4 +59,13 @@ qt_add_executable(Blop
     uiprofile.h
 )
 
+
+# --- NEU HINZUFÜGEN ---
+if(ANDROID)
+    # Wir zwingen Qt, Android SDK 33 zu nutzen (das ist stabil)
+    set_property(TARGET Blop PROPERTY QT_ANDROID_COMPILE_SDK_VERSION 33)
+    set_property(TARGET Blop PROPERTY QT_ANDROID_TARGET_SDK_VERSION 33)
+endif()
+# ----------------------
+
 target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::Network)
