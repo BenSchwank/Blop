@@ -1,33 +1,51 @@
 name: Android Build & Release
+
 on:
   push:
     branches: [ "master" ]
+
 jobs:
   build:
     name: Android Build
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      # --- FIX: Löscht das kaputte Android SDK 36 ---
+      # Das muss VOR der Installation von Qt und dem Build passieren
+      - name: Remove broken Android SDK 36
+        run: |
+          echo "Removing broken Android SDK 36..."
+          sudo rm -rf /usr/local/lib/android/sdk/platforms/android-36*
+          sudo rm -rf /usr/local/lib/android/sdk/build-tools/36*
+          echo "Done. SDK 36 removed."
+
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+
       - name: Install Ninja
         run: sudo apt-get install -y ninja-build
+
       - name: Install Qt via aqtinstall
         run: |
           pip install aqtinstall
           mkdir -p ${{ runner.workspace }}/Qt
           python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt
           python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt
+
       - name: Create Build Directory
         run: mkdir build
+
       - name: Configure CMake
         working-directory: build
         run: |
@@ -39,6 +57,15 @@ jobs:
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
             -DQT_HOST_PATH=$QT_HOST_PATH
-      - name: Build
+
+      - name: Build APK
         working-directory: build
-        run: ninja
+        # Wir bauen explizit das Target für die APK Erstellung
+        run: cmake --build . --target Blop_make_apk
+
+      # --- NEU: Lädt die fertige App hoch, damit du sie runterladen kannst ---
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blop-App
+          path: build/android-build/Blop.apk
