@@ -1,0 +1,78 @@
+name: Windows Build & Release
+
+# Dieser Workflow startet, wenn du auf den 'main' Branch pushst
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build & Deploy
+    runs-on: windows-latest
+
+    steps:
+      # 1. Code aus dem Repository holen
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2. Qt installieren (Wir nehmen Qt 6.6.0 passend zu deinem Projekt)
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.6.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+
+      # 3. Compiler-Umgebung (MSVC) einrichten
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # 4. Ordner für den Build erstellen
+      - name: Create Build Directory
+        run: mkdir build
+
+      # 5. CMake konfigurieren
+      - name: Configure CMake
+        working-directory: build
+        run: cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      # 6. Kompilieren (Erstellt die Blop.exe)
+      - name: Build
+        working-directory: build
+        run: nmake
+
+      # 7. Deployment-Ordner vorbereiten
+      - name: Prepare Deployment
+        run: mkdir deployment
+
+      # 8. Blop.exe in den Deployment-Ordner kopieren
+      - name: Copy Executable
+        run: copy build\Blop.exe deployment\Blop.exe
+
+      # 9. Qt-Abhängigkeiten (DLLs) automatisch hinzufügen (windeployqt)
+      - name: Run windeployqt
+        run: windeployqt --dir deployment deployment\Blop.exe
+
+      # 10. Alles in eine ZIP-Datei packen
+      - name: Zip Release
+        uses: TheDoctor0/zip-release@0.7.1
+        with:
+          type: 'zip'
+          filename: 'Blop_Windows.zip'
+          directory: 'deployment'
+
+      # 11. Release auf GitHub erstellen und hochladen (als "Nightly")
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly
+          name: Nightly Build (Aktuellster Commit)
+          files: deployment/Blop_Windows.zip
+          draft: false
+          prerelease: true
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
