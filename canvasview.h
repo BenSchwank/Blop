@@ -4,15 +4,22 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
+#include <QGraphicsTextItem>
+#include <QMouseEvent>
+#include <QWheelEvent>
 #include <QUndoStack>
-#include <QMenu>
+#include <QWidget>
 #include <QPushButton>
-#include <QBoxLayout>
-#include <QObject>
-#include <QGestureEvent>
+#include <QHBoxLayout>
 #include <QPinchGesture>
-#include <QVector>
-#include <QPointF>
+
+// Definition der Hintergrund-Stile
+enum class PageStyle {
+    Blank,
+    Lined,
+    Squared,
+    Dotted
+};
 
 class SelectionMenu : public QWidget {
     Q_OBJECT
@@ -29,110 +36,109 @@ class CanvasView : public QGraphicsView
     Q_OBJECT
 
 public:
-    enum class ToolType { Pen, Eraser, Select, Lasso, Highlighter, Text };
-    enum class PageStyle { Blank, Lined, Squared, Dotted };
+    enum class ToolType {
+        Pen,
+        Eraser,
+        Lasso,
+        Select,
+        Highlighter, // NEU
+        Text         // NEU
+    };
 
     explicit CanvasView(QWidget *parent = nullptr);
+
+    void setPageFormat(bool isInfinite);
+    bool isInfinite() const { return m_isInfinite; }
+
+    void setPenMode(bool enabled) { m_penOnlyMode = enabled; }
+
+    void setPageColor(const QColor &color);
+    QColor pageColor() const { return m_pageColor; }
+
+    // NEU: Hintergrund-Stil setzen
+    void setPageStyle(PageStyle style);
+    PageStyle pageStyle() const { return m_pageStyle; }
+
+    // NEU: Rastergröße setzen (für Kariert/Liniert)
+    void setGridSize(int size);
+    int gridSize() const { return m_gridSize; }
 
     void setTool(ToolType tool);
     void setPenColor(const QColor &color);
     void setPenWidth(int width);
-    void setPenMode(bool penOnly) { m_penOnlyMode = penOnly; }
-
-    void setPageFormat(bool isInfinite);
-    void setPageColor(const QColor &color);
-    void setPageStyle(PageStyle style);
-    void setGridSize(int size);
-
-    bool isInfinite() const { return m_isInfinite; }
-    QColor pageColor() const { return m_pageColor; }
-    PageStyle pageStyle() const { return m_pageStyle; }
-    int gridSize() const { return m_gridSize; }
-
-    void setFilePath(const QString &path) { m_filePath = path; }
-    bool saveToFile();
-    bool loadFromFile();
 
     void undo();
     void redo();
     bool canUndo() const;
     bool canRedo() const;
 
-signals:
-    void contentModified();
-
-protected:
-    void wheelEvent(QWheelEvent *event) override;
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
-    void mouseReleaseEvent(QMouseEvent *event) override;
-
-    // Performance Rendering
-    void drawBackground(QPainter *painter, const QRectF &rect) override;
-    void drawForeground(QPainter *painter, const QRectF &rect) override;
-    void drawItems(QPainter *painter, int numItems, QGraphicsItem *items[], const QStyleOptionGraphicsItem options[]) override;
-
-    bool event(QEvent *event) override;
-    void gestureEvent(QGestureEvent *event);
-    void pinchTriggered(class QPinchGesture *gesture);
-
-private slots:
     void deleteSelection();
     void duplicateSelection();
     void copySelection();
 
+    void setFilePath(const QString &path) { m_filePath = path; }
+    QString filePath() const { return m_filePath; }
+    bool saveToFile();
+    bool loadFromFile();
+
+signals:
+    void contentModified();
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
+
+    bool event(QEvent *event) override;
+
+    void drawBackground(QPainter *painter, const QRectF &rect) override;
+    void drawForeground(QPainter *painter, const QRectF &rect) override;
+
 private:
-    void addNewPage();
-    void finishLasso();
-    void applyEraser(const QPointF &pos);
-    void updateSelectionMenuPosition();
-    void clearSelection();
-    void updateBackgroundTile();
-    void drawPullIndicator(QPainter* painter);
-    void updateBakeState();
-
-    // Pfad-Vereinfachung (Douglas-Peucker)
-    QPainterPath simplifyPath(const QVector<QPointF> &points, float epsilon);
-    void rdp(const QVector<QPointF> &points, float epsilon, int start, int end, QVector<bool> &keep);
-
     QGraphicsScene *m_scene;
-    ToolType m_currentTool;
-
-    // Drawing State
-    bool m_isDrawing;
-    QPainterPath m_currentPath;
-    // NEU: Speichert Rohdaten für die Optimierung
-    QVector<QPointF> m_currentPoints;
-
     QGraphicsPathItem *m_currentItem;
-    QGraphicsPathItem *m_lassoItem;
-
-    // Configuration
+    QPainterPath m_currentPath;
+    bool m_isDrawing;
     bool m_isInfinite;
+
     bool m_penOnlyMode;
     QColor m_pageColor;
+
+    // NEU: Hintergrund-Variablen
     PageStyle m_pageStyle;
     int m_gridSize;
+    QPixmap m_bgTile; // Cache für das Hintergrund-Muster
 
+    QRectF m_a4Rect;
+
+    ToolType m_currentTool;
     QColor m_penColor;
     int m_penWidth;
 
-    // Navigation
-    bool m_isPanning;
-    QPoint m_lastPanPos;
-    qreal m_pullDistance;
-
-    // Data
     QString m_filePath;
-    QRectF m_a4Rect;
-    QPixmap m_bgTile;
 
-    // Undo/Redo
     QList<QGraphicsItem*> m_undoList;
     QList<QGraphicsItem*> m_redoList;
 
+    QGraphicsPathItem *m_lassoItem;
     SelectionMenu *m_selectionMenu;
-    bool m_bakeStrokes;
+
+    bool m_isPanning;
+    QPoint m_lastPanPos;
+
+    float m_pullDistance;
+    void addNewPage();
+    void drawPullIndicator(QPainter* painter);
+    void updateBackgroundTile(); // Hilfsfunktion zum Erstellen des Musters
+
+    void applyEraser(const QPointF &pos);
+    void finishLasso();
+    void updateSelectionMenuPosition();
+    void clearSelection();
+
+    void gestureEvent(QGestureEvent *event);
+    void pinchTriggered(QPinchGesture *gesture);
 };
 
 #endif // CANVASVIEW_H

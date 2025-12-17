@@ -4,6 +4,7 @@
 #include "UIStyles.h"
 #include "moderntoolbar.h"
 #include "ProfileEditorDialog.h"
+#include "newnotedialog.h" // NEU
 
 #include <QApplication>
 #include <QStyle>
@@ -30,6 +31,7 @@
 #include <QPropertyAnimation>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QDataStream>
 #include <utility>
 #include <algorithm>
 
@@ -397,6 +399,7 @@ void MainWindow::setupUi() {
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Zurück"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
     topBar->addStretch(); overviewLayout->addLayout(topBar);
 
+    // WIEDERHERGESTELLT: FreeGridView
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
     m_fileListView->setSpacing(20); m_fileListView->setFrameShape(QFrame::NoFrame); m_fileListView->setItemDelegate(new ModernItemDelegate(this));
     connect(m_fileListView, &QListView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
@@ -549,10 +552,26 @@ void MainWindow::toggleFolderContent(QListWidgetItem* parentItem) {
 }
 
 void MainWindow::onNewPage() {
-    bool ok; QString text = QInputDialog::getText(this, "Neue Notiz", "Name:", QLineEdit::Normal, "Neue Notiz", &ok);
-    if (ok && !text.isEmpty()) {
-        QString path = m_fileModel->rootPath() + "/" + text + ".blop";
-        QFile file(path); if (file.open(QIODevice::WriteOnly)) { file.close(); }
+    NewNoteDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString name = dlg.getNoteName();
+        bool isInfinite = dlg.isInfiniteFormat();
+
+        // Dateinamen bereinigen
+        QString safeName = name;
+        safeName.replace("/", "_").replace("\\", "_");
+
+        QString path = m_fileModel->rootPath() + "/" + safeName + ".blop";
+
+        // Datei initial erstellen mit Header
+        QFile file(path);
+        if (file.open(QIODevice::WriteOnly)) {
+            QDataStream out(&file);
+            out << (quint32)0xB10B0002; // Version 2
+            out << isInfinite;          // Format Flag
+            out << (int)0;              // 0 Items
+            file.close();
+        }
     }
 }
 
@@ -601,26 +620,33 @@ void MainWindow::setupRightSidebar() {
     ModernButton *closeBtn = new ModernButton(this); closeBtn->setIcon(createModernIcon("close", Qt::white)); closeBtn->setFixedSize(30,30); connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar); header->addWidget(closeBtn); layout->addLayout(header);
     m_lblActiveNote = new QLabel("Keine Notiz", m_rightSidebar); m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;"); m_lblActiveNote->setWordWrap(true); m_lblActiveNote->setAlignment(Qt::AlignCenter); layout->addWidget(m_lblActiveNote);
 
-    layout->addWidget(new QLabel("Seitenformat:", m_rightSidebar));
-    m_btnFormatInfinite = new QPushButton("Unendlich"); m_btnFormatInfinite->setCheckable(true); m_btnFormatInfinite->setChecked(true); m_btnFormatInfinite->setCursor(Qt::PointingHandCursor); m_btnFormatInfinite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
-    connect(m_btnFormatInfinite, &QPushButton::clicked, [this](){ setCanvasFormat(true); });
-    m_btnFormatA4 = new QPushButton("DIN A4"); m_btnFormatA4->setCheckable(true); m_btnFormatA4->setCursor(Qt::PointingHandCursor); m_btnFormatA4->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
-    connect(m_btnFormatA4, &QPushButton::clicked, [this](){ setCanvasFormat(false); });
-    QButtonGroup *grp = new QButtonGroup(this); grp->addButton(m_btnFormatInfinite); grp->addButton(m_btnFormatA4); grp->setExclusive(true); layout->addWidget(m_btnFormatInfinite); layout->addWidget(m_btnFormatA4);
+    layout->addWidget(new QLabel("Seitenformat (Festgelegt):", m_rightSidebar));
+
+    // Buttons nur noch zur Anzeige (disabled), da Immutable
+    m_btnFormatInfinite = new QPushButton("Unendlich");
+    m_btnFormatInfinite->setCheckable(true);
+    m_btnFormatInfinite->setEnabled(false); // Immutable!
+    m_btnFormatInfinite->setStyleSheet("QPushButton { background: #333; color: #888; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }");
+
+    m_btnFormatA4 = new QPushButton("DIN A4");
+    m_btnFormatA4->setCheckable(true);
+    m_btnFormatA4->setEnabled(false); // Immutable!
+    m_btnFormatA4->setStyleSheet("QPushButton { background: #333; color: #888; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }");
+
+    QButtonGroup *grp = new QButtonGroup(this);
+    grp->addButton(m_btnFormatInfinite);
+    grp->addButton(m_btnFormatA4);
+    grp->setExclusive(true);
+
+    layout->addWidget(m_btnFormatInfinite);
+    layout->addWidget(m_btnFormatA4);
 
     layout->addWidget(new QLabel("Seitenlayout:", m_rightSidebar));
     m_btnStyleBlank = new QPushButton("Leer"); m_btnStyleLined = new QPushButton("Liniert"); m_btnStyleSquared = new QPushButton("Kariert"); m_btnStyleDotted = new QPushButton("Gepunktet");
     m_btnStyleBlank->setCheckable(true); m_btnStyleLined->setCheckable(true); m_btnStyleSquared->setCheckable(true); m_btnStyleDotted->setCheckable(true);
     QString btnStyleTemplate = "QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: %1; border: 1px solid %1; }"; QString accentColorName = m_currentAccentColor.name(); QString styleSheet = btnStyleTemplate.arg(accentColorName);
     m_btnStyleBlank->setStyleSheet(styleSheet); m_btnStyleLined->setStyleSheet(styleSheet); m_btnStyleSquared->setStyleSheet(styleSheet); m_btnStyleDotted->setStyleSheet(styleSheet);
-
-    // HIER WAR DER FEHLER: Wir nutzen jetzt CanvasView::PageStyle
-    m_grpPageStyle = new QButtonGroup(this);
-    m_grpPageStyle->addButton(m_btnStyleBlank, (int)CanvasView::PageStyle::Blank);
-    m_grpPageStyle->addButton(m_btnStyleLined, (int)CanvasView::PageStyle::Lined);
-    m_grpPageStyle->addButton(m_btnStyleSquared, (int)CanvasView::PageStyle::Squared);
-    m_grpPageStyle->addButton(m_btnStyleDotted, (int)CanvasView::PageStyle::Dotted);
-    m_grpPageStyle->setExclusive(true);
+    m_grpPageStyle = new QButtonGroup(this); m_grpPageStyle->addButton(m_btnStyleBlank, (int)PageStyle::Blank); m_grpPageStyle->addButton(m_btnStyleLined, (int)PageStyle::Lined); m_grpPageStyle->addButton(m_btnStyleSquared, (int)PageStyle::Squared); m_grpPageStyle->addButton(m_btnStyleDotted, (int)PageStyle::Dotted); m_grpPageStyle->setExclusive(true);
     connect(m_grpPageStyle, QOverload<QAbstractButton*, bool>::of(&QButtonGroup::buttonToggled), this, &MainWindow::onPageStyleButtonToggled);
     QWidget* styleBtnsContainer = new QWidget(m_rightSidebar); QHBoxLayout* styleBtnsLayout = new QHBoxLayout(styleBtnsContainer); styleBtnsLayout->setContentsMargins(0,0,0,0); styleBtnsLayout->addWidget(m_btnStyleBlank); styleBtnsLayout->addWidget(m_btnStyleLined); styleBtnsLayout->addWidget(m_btnStyleSquared); styleBtnsLayout->addWidget(m_btnStyleDotted); layout->addWidget(styleBtnsContainer);
 
@@ -665,8 +691,7 @@ void MainWindow::updateInputMode(bool penOnly) { m_penOnlyMode = penOnly; Canvas
 
 void MainWindow::onPageStyleButtonToggled(QAbstractButton *button, bool checked) {
     if (!checked) return;
-    // HIER GEÄNDERT: Namespace hinzugefügt
-    CanvasView::PageStyle style = (CanvasView::PageStyle)m_grpPageStyle->id(button);
+    PageStyle style = (PageStyle)m_grpPageStyle->id(button);
     CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setPageStyle(style); cv->setGridSize(m_sliderGridSpacing->value()); }
 }
 
@@ -688,7 +713,12 @@ void MainWindow::onToggleRightSidebar() {
     if (!isVisible) {
         CanvasView *cv = getCurrentCanvas();
         if (cv) {
-            bool inf = cv->isInfinite(); m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
+            bool inf = cv->isInfinite();
+            // Nur noch Anzeige, kein Signal-Trigger
+            m_btnFormatInfinite->setChecked(inf);
+            m_btnFormatA4->setChecked(!inf);
+
+            m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
             bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
             int styleId = (int)cv->pageStyle(); QAbstractButton *styleBtn = m_grpPageStyle->button(styleId); if (styleBtn) styleBtn->setChecked(true);
             m_sliderGridSpacing->blockSignals(true); m_sliderGridSpacing->setValue(cv->gridSize()); m_sliderGridSpacing->blockSignals(false);
@@ -744,7 +774,6 @@ void MainWindow::onOpenSettings() {
     delete overlay;
 }
 
-void MainWindow::setCanvasFormat(bool infinite) { CanvasView *cv = getCurrentCanvas(); if (cv) cv->setPageFormat(infinite); }
 void MainWindow::setPageColor(bool dark) { CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setPageColor(dark ? UIStyles::SceneBackground : UIStyles::PageBackground); } }
 void MainWindow::setActiveTool(CanvasView::ToolType tool) { m_activeToolType = tool; ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools); if(toolbar) { toolbar->setToolMode((ToolMode)tool); } CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setTool(tool); } }
 void MainWindow::switchToSelectTool() { onToolSelect(); }

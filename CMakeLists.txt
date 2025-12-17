@@ -9,8 +9,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# HIER WICHTIG: "OpenGLWidgets" hinzufügen
-find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 qt_add_executable(Blop
     main.cpp
@@ -32,6 +31,8 @@ qt_add_executable(Blop
     multipagenoteview.h
     moderntoolbar.cpp
     moderntoolbar.h
+    newnotedialog.h   # NEU
+    newnotedialog.cpp # NEU
     ToolMode.h
     ToolSettings.h
     UIStyles.h
@@ -42,5 +43,4 @@ qt_add_executable(Blop
     Note.h
 )
 
-# HIER WICHTIG: Mit OpenGLWidgets verlinken
-target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::OpenGLWidgets)
+target_link_libraries(Blop PRIVATE Qt6::Widgets)

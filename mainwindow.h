@@ -132,7 +132,7 @@ private slots:
     void onTabChanged(int index);
 
     void onToggleRightSidebar();
-    void setCanvasFormat(bool infinite);
+    // setCanvasFormat entfernt - wird beim Erstellen festgelegt
     void setPageColor(bool dark);
 
     void onPageStyleButtonToggled(QAbstractButton *button, bool checked);
