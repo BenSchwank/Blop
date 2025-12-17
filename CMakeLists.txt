@@ -19,9 +19,9 @@ qt_add_executable(Blop
     mainwindow.ui
     canvasview.cpp
     canvasview.h
-    settingsdialog.cpp
-    settingsdialog.h
-    settingsdialog.ui
+    Settingsdialog.cpp
+    Settingsdialog.h
+    Settingsdialog.ui
     freegridview.h
     freegridview.cpp
     notemanager.cpp
