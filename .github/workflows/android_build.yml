@@ -23,10 +23,11 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           version: '6.6.0'
-          host: 'linux'
           target: 'android'
           arch: 'android_arm64_v8a'
-          # HIER WURDE DIE FEHLERHAFTE "TOOLS" ZEILE GELÖSCHT
+          # Wir entfernen 'host: linux', damit der Standard greift
+          # Wir aktivieren Caching, das hilft oft bei fehlenden Teilen
+          cache: 'true'
 
       - name: Install Ninja
         run: sudo apt-get install -y ninja-build
@@ -34,19 +35,25 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
-      # Wir schauen nach, wo Qt installiert wurde, um sicherzugehen
-      - name: Check Qt Path
-        run: |
-          echo "Suche nach Qt Installation..."
-          ls -F ${{ runner.workspace }}/Qt/6.6.0/
-
+      # --- DIAGNOSE & CONFIG ---
       - name: Configure CMake
         working-directory: build
         run: |
-          # Wir setzen den Pfad zum "Host" (Linux) Qt, das automatisch mitinstalliert wurde
-          export HOST_QT_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
+          echo "=== DIAGNOSE START ==="
+          echo "Wir schauen nach, welche Qt-Ordner existieren:"
+          ls -F ${{ runner.workspace }}/Qt/6.6.0/
+          echo "=== DIAGNOSE ENDE ==="
+
+          # Wir suchen den gcc_64 Ordner automatisch
+          export HOST_QT_PATH=$(find ${{ runner.workspace }}/Qt/6.6.0/ -maxdepth 1 -type d -name "*gcc_64*" | head -n 1)
           
-          # Wir nutzen den Android-spezifischen CMake Wrapper
+          if [ -z "$HOST_QT_PATH" ]; then
+            echo "ACHTUNG: Kein Host-Qt (gcc_64) gefunden! Der Build wird wahrscheinlich fehlschlagen."
+          else
+            echo "Host-Qt gefunden bei: $HOST_QT_PATH"
+          fi
+
+          # CMake Befehl mit dem gefundenen Pfad
           ${{ runner.workspace }}/Qt/6.6.0/android_arm64_v8a/bin/qt-cmake .. -G "Ninja" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
