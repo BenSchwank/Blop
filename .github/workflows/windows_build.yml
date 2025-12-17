@@ -2,7 +2,7 @@ name: Windows Build & Release
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master" ] # HIER GEÄNDERT: "master" statt "main"
   pull_request:
     branches: [ "master" ]
 
@@ -63,17 +63,16 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
-      # 11. Hochladen ins ÖFFENTLICHE Repository
+      # 11. Hochladen ins ÖFFENTLICHE Repository (Blop-releases)
       - name: Upload Release to Public Repo
         uses: softprops/action-gh-release@v1
         with:
-          # Hier verwenden wir dein Secret, um Zugriff auf das andere Repo zu haben
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: nightly
-          name: Nightly Build (Aktuellster Commit)
+          name: Nightly Build (Latest)
+          body: "Automatischer Build aus dem Master-Branch."
           files: deployment/Blop_Windows.zip
           draft: false
           prerelease: true
           overwrite: true
-          # WICHTIG: Das Ziel ist dein öffentliches Repo
-          repository: BenSchwank/Blop-releases
+          repository: BenSchwank/Blop-releases  # Dein öffentliches Ziel-Repo

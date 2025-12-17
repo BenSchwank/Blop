@@ -264,7 +264,7 @@ private:
     QWidget *m_renameOverlay;
     QLineEdit *m_renameInput;
 
-    // NEU: Network Manager für Internetzugriff
+    // NEU: Network Manager
     QNetworkAccessManager *m_netManager{nullptr};
 };
 
