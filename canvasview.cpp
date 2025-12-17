@@ -52,9 +52,11 @@ CanvasView::CanvasView(QWidget *parent)
     m_scene = new QGraphicsScene(this); setScene(m_scene);
     m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
-    // Performance-Optimierungen
-    setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
-    setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
+    // FullViewportUpdate verhindert visuelle Artefakte ("Swimming") beim Scrollen.
+    // Dank der neuen manuellen Tiling-Logik ist dies nun performant genug.
+    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+
+    setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
     setRenderHint(QPainter::Antialiasing);
     setRenderHint(QPainter::SmoothPixmapTransform, false);
 
@@ -81,7 +83,7 @@ void CanvasView::setPageColor(const QColor &color) {
     for (auto *item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type) {
             QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem*>(item);
-            if (pathItem->zValue() == 0.1) continue;
+            if (pathItem->zValue() == 0.1) continue; // Highlighter ignorieren
 
             QColor c = pathItem->pen().color();
             if (isNowDark && (c == Qt::black || c == QColor(0,0,0))) {
@@ -117,26 +119,39 @@ void CanvasView::setGridSize(int size) {
 }
 
 void CanvasView::updateBackgroundTile() {
+    // PERFORMANCE FIX:
+    // Wir erstellen eine "Kachel" (Cache), die groß genug ist (z.B. ~512px),
+    // damit wir im drawBackground() nur wenige Bilder kopieren müssen, statt tausende Linien zu zeichnen.
+
     int baseSize = m_gridSize;
+    if (baseSize < 1) baseSize = 40;
+
+    // Wir wollen eine Kachelgröße von ca. 512px erreichen, aber exakt teilbar durch gridsize
     int multiplier = 512 / baseSize;
     if (multiplier < 1) multiplier = 1;
     int texSize = baseSize * multiplier;
 
+    // Cache erstellen (Transparent, damit wir Hintergrundfarbe separat füllen können)
     m_bgTile = QPixmap(texSize, texSize);
-    m_bgTile.fill(m_pageColor);
+    m_bgTile.fill(Qt::transparent);
 
     if (m_pageStyle == PageStyle::Blank) return;
 
     QPainter p(&m_bgTile);
     QColor lineColor = (m_pageColor.value() < 128) ? QColor(255,255,255, 30) : QColor(0,0,0, 20);
+
+    // Antialiasing aus für knackige Linien (und Performance)
     p.setRenderHint(QPainter::Antialiasing, false);
-    p.setPen(QPen(lineColor, 1));
+    p.setPen(QPen(lineColor, 1)); // Breite 1 ist Standard
 
     if (m_pageStyle == PageStyle::Squared) {
+        // Gitter zeichnen.
+        // WICHTIG: Wir zeichnen die Linien so, dass sie beim Aneinanderlegen der Kacheln nahtlos sind.
+        // pos = i * baseSize - 1 sorgt dafür, dass die Linie am rechten/unteren Rand des Pixels sitzt.
         for (int i = 1; i <= multiplier; ++i) {
             int pos = i * baseSize - 1;
-            p.drawLine(0, pos, texSize, pos);
-            p.drawLine(pos, 0, pos, texSize);
+            p.drawLine(0, pos, texSize, pos); // Horizontal
+            p.drawLine(pos, 0, pos, texSize); // Vertikal
         }
     }
     else if (m_pageStyle == PageStyle::Lined) {
@@ -161,13 +176,48 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
         painter->fillRect(rect, UIStyles::SceneBackground);
     }
 
-    painter->save();
-    painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-    painter->setRenderHint(QPainter::Antialiasing, false);
-
     if (m_isInfinite) {
-        painter->drawTiledPixmap(rect, m_bgTile, QPointF(0,0));
-    } else {
+        painter->save();
+
+        // 1. Solider Hintergrund (sehr schnell)
+        painter->fillRect(rect, m_pageColor);
+
+        // 2. Gitter Manuell "Kacheln" (Blitting)
+        // Das ist der Schlüssel zur Performance UND Stabilität.
+        // Statt tausende Linien zu zeichnen, kopieren wir nur unsere vorbereitete Kachel (m_bgTile).
+
+        if (!m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
+
+            // Level of Detail: Wenn rausgezoomt, Gitter evtl. ausblenden?
+            // (Hier optional, da Blitting so schnell ist, dass es meist egal ist)
+
+            int tileSize = m_bgTile.width();
+            if (tileSize > 0) {
+                // Berechne Startpunkte basierend auf Szenen-Koordinaten (snapping)
+                // floor stellt sicher, dass wir beim Scrollen in den negativen Bereich korrekt bleiben
+                long startX = static_cast<long>(std::floor(rect.left() / tileSize)) * tileSize;
+                long startY = static_cast<long>(std::floor(rect.top() / tileSize)) * tileSize;
+
+                painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+                painter->setRenderHint(QPainter::Antialiasing, false);
+
+                // Schleife über den sichtbaren Bereich
+                for (qreal x = startX; x < rect.right(); x += tileSize) {
+                    for (qreal y = startY; y < rect.bottom(); y += tileSize) {
+                        painter->drawPixmap(x, y, m_bgTile);
+                    }
+                }
+            }
+        }
+        painter->restore();
+    }
+    else {
+        // Nicht-Unendlich (Seiten-Modus)
+        // Hier nutzen wir drawTiledPixmap, da wir den BrushOrigin auf die Seite setzen können.
+        painter->save();
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter->setRenderHint(QPainter::Antialiasing, false);
+
         int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
         int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
         int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
@@ -176,25 +226,27 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
         for (int i = startPage; i <= endPage; ++i) {
             qreal y = i * TOTAL_PAGE_HEIGHT;
             QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
+
+            // Hintergrund füllen
+            painter->fillRect(pageRect, m_pageColor);
+
+            // Muster darüber
             painter->setBrushOrigin(pageRect.topLeft());
             painter->drawTiledPixmap(pageRect, m_bgTile);
         }
+        painter->restore();
     }
-    painter->restore();
 }
 
 void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
     QGraphicsView::drawForeground(painter, rect);
 
-    // Indikator zeichnen (jetzt unabhängig vom Infinite-Status sichtbar, wenn gezogen wird)
     if (m_pullDistance > 1.0f) {
         drawPullIndicator(painter);
     }
 
     if (!m_isInfinite) {
         painter->save();
-
-        // Rahmen für Seiten (Schnellere Linien)
         painter->setPen(QPen(QColor(0,0,0, 60), 1, Qt::SolidLine));
         painter->setBrush(Qt::NoBrush);
 
@@ -208,16 +260,14 @@ void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
             QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
             painter->drawRect(pageRect);
         }
-
         painter->restore();
     }
 }
 
-// FIX: Position deutlich nach oben korrigiert
 void CanvasView::drawPullIndicator(QPainter* painter) {
     painter->save();
-    painter->resetTransform(); // Wichtig: Zeichne in Bildschirm-Koordinaten
-    painter->setClipping(false); // Wichtig: Über alles drüber zeichnen
+    painter->resetTransform();
+    painter->setClipping(false);
 
     int w = viewport()->width();
     int h = viewport()->height();
@@ -225,19 +275,16 @@ void CanvasView::drawPullIndicator(QPainter* painter) {
     float progress = qMin(m_pullDistance / maxPull, 1.0f);
 
     int size = 60;
-    // HIER GEÄNDERT: Position viel höher (150px vom unteren Rand + leichter Slide nach oben)
     int yPos = h - size - 150 - (progress * 20);
     int xPos = (w - size) / 2;
     QRect circleRect(xPos, yPos, size, size);
 
     painter->setRenderHint(QPainter::Antialiasing, true);
 
-    // Hintergrundkreis
     painter->setBrush(QColor(40, 40, 40, 200));
     painter->setPen(Qt::NoPen);
     painter->drawEllipse(circleRect);
 
-    // Blauer Lade-Kreis
     if (progress > 0.05f) {
         QPen arcPen(QColor(0x5E5CE6));
         arcPen.setWidth(4);
@@ -248,23 +295,16 @@ void CanvasView::drawPullIndicator(QPainter* painter) {
         painter->drawArc(circleRect.adjusted(8, 8, -8, -8), 90 * 16, spanAngle);
     }
 
-    // Das PLUS-Symbol
     if (progress > 0.15f) {
         painter->setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap));
         int center = size / 2;
-
-        // Größe des Plus wächst mit Progress
-        float growFactor = (progress - 0.15f) / 0.85f; // 0.0 bis 1.0
+        float growFactor = (progress - 0.15f) / 0.85f;
         int pSize = 12 * growFactor;
-
         QPoint c = circleRect.center();
 
-        // Vertikale Linie
         painter->drawLine(c.x(), c.y() - pSize, c.x(), c.y() + pSize);
-        // Horizontale Linie
         painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y());
     }
-
     painter->restore();
 }
 
@@ -280,9 +320,7 @@ bool CanvasView::saveToFile() {
     if (!file.open(QIODevice::WriteOnly)) return false;
     QDataStream out(&file);
 
-    // VERSION 2: Magic Number geändert, um Format-Flag zu unterstützen
     out << (quint32)0xB10B0002;
-    // Format speichern
     out << m_isInfinite;
 
     QList<QGraphicsItem*> items = m_scene->items(Qt::AscendingOrder);
@@ -307,18 +345,14 @@ bool CanvasView::loadFromFile() {
     quint32 magic;
     in >> magic;
 
-    // Version Check
     if (magic == 0xB10B0001) {
-        // Alte Version: Standardmäßig Unendlich
         m_isInfinite = true;
     } else if (magic == 0xB10B0002) {
-        // Neue Version: Format lesen
         in >> m_isInfinite;
     } else {
-        return false; // Unbekanntes Format
+        return false;
     }
 
-    // Canvas entsprechend konfigurieren
     setPageFormat(m_isInfinite);
 
     m_scene->clear(); m_undoList.clear(); m_redoList.clear();
@@ -476,17 +510,13 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             m_isDrawing = true;
             m_currentPath = QPainterPath();
             m_currentPath.moveTo(scenePos);
-
-            // Highlighter: Farbe mit Alpha und dickerer Strich
             QColor hlColor = m_penColor;
-            hlColor.setAlpha(80); // Transparenz
-            int hlWidth = 24;     // Dicker Strich
-
+            hlColor.setAlpha(80);
+            int hlWidth = 24;
             m_currentItem = m_scene->addPath(m_currentPath, QPen(hlColor, hlWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
             m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            m_currentItem->setZValue(0.1); // Hinter normalem Stift, aber vor Hintergrund
-
+            m_currentItem->setZValue(0.1);
             qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
             event->accept();
             return;
@@ -507,14 +537,13 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             return;
         }
         else if (m_currentTool == ToolType::Text) {
-            // Text Tool Implementierung (Basic)
             QGraphicsTextItem* textItem = m_scene->addText("Text");
             textItem->setPos(scenePos);
             textItem->setDefaultTextColor(m_penColor);
             QFont f; f.setPointSize(12); textItem->setFont(f);
             textItem->setTextInteractionFlags(Qt::TextEditorInteraction);
             textItem->setFocus();
-            textItem->setZValue(2.0); // Ganz oben
+            textItem->setZValue(2.0);
             m_undoList.append(textItem);
             event->accept();
             return;
@@ -659,4 +688,3 @@ void CanvasView::applyEraser(const QPointF &pos) {
     }
     if (erased) emit contentModified();
 }
-
