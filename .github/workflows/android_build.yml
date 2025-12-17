@@ -1,93 +1,44 @@
 name: Android Build & Release
-
 on:
   push:
     branches: [ "master" ]
-
 jobs:
   build:
     name: Android Build
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      # 1. Java Setup (für Android SDK)
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      # 2. Python Setup (um Qt manuell zu laden)
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-
-      # 3. Ninja Builder installieren
       - name: Install Ninja
         run: sudo apt-get install -y ninja-build
-
-      # 4. Qt Installation (Der Trick: Wir laden Desktop UND Android manuell)
       - name: Install Qt via aqtinstall
         run: |
-          # Tool installieren
           pip install aqtinstall
-          
-          # Zielordner definieren
           mkdir -p ${{ runner.workspace }}/Qt
-          
-          echo "Installiere Qt Desktop (für die Werkzeuge)..."
           python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt
-          
-          echo "Installiere Qt Android (für die App)..."
           python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt
-
-      # 5. Build Ordner
       - name: Create Build Directory
         run: mkdir build
-
-      # 6. CMake Konfigurieren (Jetzt finden wir garantiert alles)
       - name: Configure CMake
         working-directory: build
         run: |
-          # Pfade definieren
           export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
           export QT_ANDROID_PATH=${{ runner.workspace }}/Qt/6.6.0/android_arm64_v8a
-          
-          # Debugging: Beweis, dass jetzt beide Ordner da sind
-          ls -F ${{ runner.workspace }}/Qt/6.6.0/
-          
-          # Der Build-Befehl
           ${QT_ANDROID_PATH}/bin/qt-cmake .. -G "Ninja" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
             -DQT_HOST_PATH=$QT_HOST_PATH
-
-      # 7. Bauen
       - name: Build
         working-directory: build
         run: ninja
-
-      # 8. APK finden und vorbereiten
-      - name: Prepare APK
-        run: |
-          mkdir deployment
-          find build -name "*.apk" -exec cp {} deployment/Blop_Android.apk \;
-
-      # 9. Hochladen
-      - name: Upload Release to Public Repo
-        uses: softprops/action-gh-release@v1
-        with:
-          token: ${{ secrets.RELEASE_TOKEN }}
-          tag_name: nightly
-          name: Nightly Build (Latest)
-          files: deployment/Blop_Android.apk
-          draft: false
-          prerelease: true
-          overwrite: true
-          repository: BenSchwank/Blop-releases
