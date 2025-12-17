@@ -103,8 +103,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
-    // NEU: Update Check Slot
-    void checkForUpdates();
+    void checkForUpdates(); // Slot für Updates
 
     void onNewPage();
     void onCreateFolder();
@@ -264,8 +263,7 @@ private:
     QWidget *m_renameOverlay;
     QLineEdit *m_renameInput;
 
-    // NEU: Network Manager
-    QNetworkAccessManager *m_netManager{nullptr};
+    QNetworkAccessManager *m_netManager{nullptr}; // Manager für Updates
 };
 
 #endif // MAINWINDOW_H
