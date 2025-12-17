@@ -862,3 +862,4 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
+//test
