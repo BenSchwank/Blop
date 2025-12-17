@@ -3,9 +3,9 @@ name: Windows Build & Release
 # Dieser Workflow startet, wenn du auf den 'main' Branch pushst
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
   build:
