@@ -41,8 +41,8 @@ public:
         Eraser,
         Lasso,
         Select,
-        Highlighter, // NEU
-        Text         // NEU
+        Highlighter,
+        Text
     };
 
     explicit CanvasView(QWidget *parent = nullptr);
@@ -55,11 +55,9 @@ public:
     void setPageColor(const QColor &color);
     QColor pageColor() const { return m_pageColor; }
 
-    // NEU: Hintergrund-Stil setzen
     void setPageStyle(PageStyle style);
     PageStyle pageStyle() const { return m_pageStyle; }
 
-    // NEU: Rastergröße setzen (für Kariert/Liniert)
     void setGridSize(int size);
     int gridSize() const { return m_gridSize; }
 
@@ -80,6 +78,10 @@ public:
     QString filePath() const { return m_filePath; }
     bool saveToFile();
     bool loadFromFile();
+
+public slots:
+    // NEU: Passt die Szene an den Inhalt an
+    void updateSceneRect();
 
 signals:
     void contentModified();
@@ -105,10 +107,9 @@ private:
     bool m_penOnlyMode;
     QColor m_pageColor;
 
-    // NEU: Hintergrund-Variablen
     PageStyle m_pageStyle;
     int m_gridSize;
-    QPixmap m_bgTile; // Cache für das Hintergrund-Muster
+    QPixmap m_bgTile;
 
     QRectF m_a4Rect;
 
@@ -130,7 +131,7 @@ private:
     float m_pullDistance;
     void addNewPage();
     void drawPullIndicator(QPainter* painter);
-    void updateBackgroundTile(); // Hilfsfunktion zum Erstellen des Musters
+    void updateBackgroundTile();
 
     void applyEraser(const QPointF &pos);
     void finishLasso();

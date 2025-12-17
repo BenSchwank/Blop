@@ -52,9 +52,9 @@ CanvasView::CanvasView(QWidget *parent)
     m_scene = new QGraphicsScene(this); setScene(m_scene);
     m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
-    // FullViewportUpdate verhindert visuelle Artefakte ("Swimming") beim Scrollen.
-    // Dank der neuen manuellen Tiling-Logik ist dies nun performant genug.
-    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+    // PERFORMANCE: BoundingRectViewportUpdate ist der Standard für High-Performance.
+    // Es zeichnet nur minimale Bereiche neu.
+    setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
 
     setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
     setRenderHint(QPainter::Antialiasing);
@@ -72,9 +72,44 @@ CanvasView::CanvasView(QWidget *parent)
 
     updateBackgroundTile();
 
+    connect(this, &CanvasView::contentModified, this, &CanvasView::updateSceneRect);
+
     m_selectionMenu = new SelectionMenu(this);
     connect(m_selectionMenu, &SelectionMenu::deleteRequested, this, &CanvasView::deleteSelection);
     connect(m_selectionMenu, &SelectionMenu::duplicateRequested, this, &CanvasView::duplicateSelection);
+}
+
+void CanvasView::setPageFormat(bool isInfinite) {
+    m_isInfinite = isInfinite;
+    if (m_isInfinite) {
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        updateSceneRect();
+    }
+    else {
+        m_scene->setSceneRect(m_a4Rect);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    }
+    m_scene->update();
+    viewport()->update();
+}
+
+void CanvasView::updateSceneRect() {
+    if (!m_isInfinite) return;
+
+    QRectF contentRect = m_scene->itemsBoundingRect();
+    qreal margin = 2000.0; // Platz zum Wachsen
+
+    if (contentRect.isNull()) {
+        contentRect = QRectF(0, 0, width(), height());
+    }
+
+    contentRect.adjust(-margin, -margin, margin, margin);
+    QRectF viewRect = mapToScene(viewport()->rect()).boundingRect();
+    contentRect = contentRect.united(viewRect);
+
+    m_scene->setSceneRect(contentRect);
 }
 
 void CanvasView::setPageColor(const QColor &color) {
@@ -83,7 +118,7 @@ void CanvasView::setPageColor(const QColor &color) {
     for (auto *item : std::as_const(items)) {
         if (item->type() == QGraphicsPathItem::Type) {
             QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem*>(item);
-            if (pathItem->zValue() == 0.1) continue; // Highlighter ignorieren
+            if (pathItem->zValue() == 0.1) continue;
 
             QColor c = pathItem->pen().color();
             if (isNowDark && (c == Qt::black || c == QColor(0,0,0))) {
@@ -119,39 +154,29 @@ void CanvasView::setGridSize(int size) {
 }
 
 void CanvasView::updateBackgroundTile() {
-    // PERFORMANCE FIX:
-    // Wir erstellen eine "Kachel" (Cache), die groß genug ist (z.B. ~512px),
-    // damit wir im drawBackground() nur wenige Bilder kopieren müssen, statt tausende Linien zu zeichnen.
-
     int baseSize = m_gridSize;
     if (baseSize < 1) baseSize = 40;
 
-    // Wir wollen eine Kachelgröße von ca. 512px erreichen, aber exakt teilbar durch gridsize
     int multiplier = 512 / baseSize;
     if (multiplier < 1) multiplier = 1;
     int texSize = baseSize * multiplier;
 
-    // Cache erstellen (Transparent, damit wir Hintergrundfarbe separat füllen können)
     m_bgTile = QPixmap(texSize, texSize);
     m_bgTile.fill(Qt::transparent);
 
     if (m_pageStyle == PageStyle::Blank) return;
 
     QPainter p(&m_bgTile);
-    QColor lineColor = (m_pageColor.value() < 128) ? QColor(255,255,255, 30) : QColor(0,0,0, 20);
+    p.setRenderHint(QPainter::Antialiasing, false); // Aus für Schärfe & Speed
 
-    // Antialiasing aus für knackige Linien (und Performance)
-    p.setRenderHint(QPainter::Antialiasing, false);
-    p.setPen(QPen(lineColor, 1)); // Breite 1 ist Standard
+    QColor lineColor = (m_pageColor.value() < 128) ? QColor(255,255,255, 30) : QColor(0,0,0, 20);
+    p.setPen(QPen(lineColor, 1));
 
     if (m_pageStyle == PageStyle::Squared) {
-        // Gitter zeichnen.
-        // WICHTIG: Wir zeichnen die Linien so, dass sie beim Aneinanderlegen der Kacheln nahtlos sind.
-        // pos = i * baseSize - 1 sorgt dafür, dass die Linie am rechten/unteren Rand des Pixels sitzt.
         for (int i = 1; i <= multiplier; ++i) {
             int pos = i * baseSize - 1;
-            p.drawLine(0, pos, texSize, pos); // Horizontal
-            p.drawLine(pos, 0, pos, texSize); // Vertikal
+            p.drawLine(0, pos, texSize, pos);
+            p.drawLine(pos, 0, pos, texSize);
         }
     }
     else if (m_pageStyle == PageStyle::Lined) {
@@ -172,52 +197,50 @@ void CanvasView::updateBackgroundTile() {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
+    // 1. Solider Hintergrund
     if (!m_isInfinite) {
         painter->fillRect(rect, UIStyles::SceneBackground);
+    } else {
+        painter->fillRect(rect, m_pageColor);
     }
 
-    if (m_isInfinite) {
+    if (m_isInfinite && !m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
+        // LOD (Level of Detail) Check:
+        // Wenn das Gitter auf dem Bildschirm kleiner als 8 Pixel wird (z.B. beim Rauszoomen),
+        // zeichnen wir es gar nicht mehr. Das verhindert massiven Performance-Einbruch bei großen Ansichten.
+        double zoomLevel = transform().m11();
+        if (m_gridSize * zoomLevel < 8.0) {
+            return;
+        }
+
         painter->save();
 
-        // 1. Solider Hintergrund (sehr schnell)
-        painter->fillRect(rect, m_pageColor);
+        // 2. Gitter mit drawTiledPixmap (Hardware-beschleunigt wo möglich)
+        // Trick gegen "Schwimmen": Wir berechnen den Offset relativ zum Szenen-Ursprung (0,0).
+        // fmod stellt sicher, dass das Muster immer an (0,0) ausgerichtet ist, egal wo 'rect' ist.
 
-        // 2. Gitter Manuell "Kacheln" (Blitting)
-        // Das ist der Schlüssel zur Performance UND Stabilität.
-        // Statt tausende Linien zu zeichnen, kopieren wir nur unsere vorbereitete Kachel (m_bgTile).
+        qreal w = m_bgTile.width();
+        qreal h = m_bgTile.height();
 
-        if (!m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
+        qreal left = rect.left();
+        qreal top = rect.top();
 
-            // Level of Detail: Wenn rausgezoomt, Gitter evtl. ausblenden?
-            // (Hier optional, da Blitting so schnell ist, dass es meist egal ist)
+        // Offset berechnen (Modulo mit korrekter Behandlung negativer Zahlen)
+        qreal ox = std::fmod(left, w);
+        if (ox < 0) ox += w;
 
-            int tileSize = m_bgTile.width();
-            if (tileSize > 0) {
-                // Berechne Startpunkte basierend auf Szenen-Koordinaten (snapping)
-                // floor stellt sicher, dass wir beim Scrollen in den negativen Bereich korrekt bleiben
-                long startX = static_cast<long>(std::floor(rect.left() / tileSize)) * tileSize;
-                long startY = static_cast<long>(std::floor(rect.top() / tileSize)) * tileSize;
+        qreal oy = std::fmod(top, h);
+        if (oy < 0) oy += h;
 
-                painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-                painter->setRenderHint(QPainter::Antialiasing, false);
+        // BoundingRectViewportUpdate macht 'rect' oft sehr klein (nur der neue Streifen).
+        // drawTiledPixmap füllt diesen Streifen perfekt und nahtlos.
+        painter->drawTiledPixmap(rect, m_bgTile, QPointF(ox, oy));
 
-                // Schleife über den sichtbaren Bereich
-                for (qreal x = startX; x < rect.right(); x += tileSize) {
-                    for (qreal y = startY; y < rect.bottom(); y += tileSize) {
-                        painter->drawPixmap(x, y, m_bgTile);
-                    }
-                }
-            }
-        }
         painter->restore();
     }
-    else {
-        // Nicht-Unendlich (Seiten-Modus)
-        // Hier nutzen wir drawTiledPixmap, da wir den BrushOrigin auf die Seite setzen können.
+    else if (!m_isInfinite) {
+        // Seiten-Modus
         painter->save();
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-        painter->setRenderHint(QPainter::Antialiasing, false);
-
         int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
         int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
         int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
@@ -227,10 +250,7 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
             qreal y = i * TOTAL_PAGE_HEIGHT;
             QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
 
-            // Hintergrund füllen
             painter->fillRect(pageRect, m_pageColor);
-
-            // Muster darüber
             painter->setBrushOrigin(pageRect.topLeft());
             painter->drawTiledPixmap(pageRect, m_bgTile);
         }
@@ -370,6 +390,10 @@ bool CanvasView::loadFromFile() {
         item->setFlag(QGraphicsItem::ItemIsMovable);
     }
     m_scene->blockSignals(wasBlocked);
+
+    // Nach Laden anpassen
+    if (m_isInfinite) updateSceneRect();
+
     return true;
 }
 
@@ -391,12 +415,32 @@ void CanvasView::setTool(ToolType tool) {
 void CanvasView::setPenColor(const QColor &color) { m_penColor = color; }
 void CanvasView::setPenWidth(int width) { m_penWidth = width; }
 
-void CanvasView::undo() { if (m_undoList.isEmpty()) return; QGraphicsItem* lastItem = m_undoList.takeLast(); if (m_scene->items().contains(lastItem)) { m_scene->removeItem(lastItem); m_redoList.append(lastItem); emit contentModified(); } }
-void CanvasView::redo() { if (m_redoList.isEmpty()) return; QGraphicsItem* item = m_redoList.takeLast(); m_scene->addItem(item); m_undoList.append(item); emit contentModified(); }
+void CanvasView::undo() {
+    if (m_undoList.isEmpty()) return;
+    QGraphicsItem* lastItem = m_undoList.takeLast();
+    if (m_scene->items().contains(lastItem)) {
+        m_scene->removeItem(lastItem);
+        m_redoList.append(lastItem);
+        emit contentModified();
+    }
+}
+void CanvasView::redo() {
+    if (m_redoList.isEmpty()) return;
+    QGraphicsItem* item = m_redoList.takeLast();
+    m_scene->addItem(item);
+    m_undoList.append(item);
+    emit contentModified();
+}
 bool CanvasView::canUndo() const { return !m_undoList.isEmpty(); }
 bool CanvasView::canRedo() const { return !m_redoList.isEmpty(); }
 
-void CanvasView::deleteSelection() { const QList<QGraphicsItem*> selected = m_scene->selectedItems(); if (selected.isEmpty()) return; for (auto* item : std::as_const(selected)) m_scene->removeItem(item); m_selectionMenu->hide(); emit contentModified(); }
+void CanvasView::deleteSelection() {
+    const QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.isEmpty()) return;
+    for (auto* item : std::as_const(selected)) m_scene->removeItem(item);
+    m_selectionMenu->hide();
+    emit contentModified();
+}
 
 void CanvasView::duplicateSelection() {
     const QList<QGraphicsItem*> selected = m_scene->selectedItems(); if (selected.isEmpty()) return;
@@ -417,13 +461,6 @@ void CanvasView::duplicateSelection() {
 void CanvasView::copySelection() {}
 void CanvasView::clearSelection() { m_scene->clearSelection(); if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; } m_selectionMenu->hide(); }
 
-void CanvasView::setPageFormat(bool isInfinite) {
-    m_isInfinite = isInfinite;
-    if (m_isInfinite) { m_scene->setSceneRect(-50000, -50000, 100000, 100000); setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff); }
-    else { m_scene->setSceneRect(m_a4Rect); setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded); setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded); }
-    m_scene->update(); viewport()->update();
-}
-
 void CanvasView::wheelEvent(QWheelEvent *event)
 {
     if (event->modifiers() & Qt::ControlModifier) {
@@ -432,6 +469,9 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         double currentScale = transform().m11();
         if ((currentScale < 0.1 && factor < 1) || (currentScale > 10 && factor > 1)) return;
         scale(factor, factor);
+
+        // Nach Zoom ggf. neu zeichnen (um LOD anzupassen)
+        viewport()->update();
         event->accept();
     } else {
         if (!m_isInfinite) {
@@ -510,13 +550,17 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             m_isDrawing = true;
             m_currentPath = QPainterPath();
             m_currentPath.moveTo(scenePos);
+
+            // Highlighter: Farbe mit Alpha und dickerer Strich
             QColor hlColor = m_penColor;
-            hlColor.setAlpha(80);
-            int hlWidth = 24;
+            hlColor.setAlpha(80); // Transparenz
+            int hlWidth = 24;     // Dicker Strich
+
             m_currentItem = m_scene->addPath(m_currentPath, QPen(hlColor, hlWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
             m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            m_currentItem->setZValue(0.1);
+            m_currentItem->setZValue(0.1); // Hinter normalem Stift, aber vor Hintergrund
+
             qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
             event->accept();
             return;
@@ -537,13 +581,14 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             return;
         }
         else if (m_currentTool == ToolType::Text) {
+            // Text Tool Implementierung (Basic)
             QGraphicsTextItem* textItem = m_scene->addText("Text");
             textItem->setPos(scenePos);
             textItem->setDefaultTextColor(m_penColor);
             QFont f; f.setPointSize(12); textItem->setFont(f);
             textItem->setTextInteractionFlags(Qt::TextEditorInteraction);
             textItem->setFocus();
-            textItem->setZValue(2.0);
+            textItem->setZValue(2.0); // Ganz oben
             m_undoList.append(textItem);
             event->accept();
             return;
@@ -616,7 +661,9 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         if (m_currentTool == ToolType::Lasso && m_isDrawing) finishLasso();
         if (!m_scene->selectedItems().isEmpty()) updateSelectionMenuPosition();
-        if (m_isDrawing) { emit contentModified(); }
+        if (m_isDrawing) {
+            emit contentModified(); // Triggert Anpassung der Szene
+        }
         m_isDrawing = false;
         m_currentItem = nullptr;
     }
