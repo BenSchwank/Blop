@@ -26,6 +26,8 @@ jobs:
           host: 'linux'
           target: 'android'
           arch: 'android_arm64_v8a'
+          # Wir stellen sicher, dass alle Werkzeuge da sind
+          tools: 'tools_cmake'
 
       - name: Install Ninja
         run: sudo apt-get install -y ninja-build
@@ -33,20 +35,20 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
-      # --- HIER IST DIE WICHTIGE ÄNDERUNG ---
       - name: Configure CMake
         working-directory: build
         run: |
-          # Wir definieren den Pfad zu den Linux-Tools (Host Path)
-          # Die Action installiert Qt standardmäßig in /home/runner/work/DeinRepo/Qt/Version/
-          export HOST_QT_PATH=/home/runner/work/Blop/Qt/6.6.0/gcc_64
+          # Debugging: Wir lassen uns anzeigen, welche Qt-Ordner existieren
+          echo "Inhalt des Qt-Ordners:"
+          ls -F ${{ runner.workspace }}/Qt/6.6.0/
           
+          # Hier ist der Trick: Wir nutzen runner.workspace für den Pfad
           qt-cmake .. -G "Ninja" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
-            -DQT_HOST_PATH=$HOST_QT_PATH
+            -DQT_HOST_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
 
       - name: Build
         working-directory: build
@@ -55,7 +57,6 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir deployment
-          # Suche nach der APK und kopiere sie
           find build -name "*.apk" -exec cp {} deployment/Blop_Android.apk \;
 
       - name: Upload Release to Public Repo
