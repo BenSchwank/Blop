@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 
+# --- WICHTIG: Zwingt Android SDK 33 (Stabil) ---
+# Das muss VOR dem "project()"-Befehl stehen!
+if(ANDROID)
+    set(ANDROID_PLATFORM "android-33")
+endif()
+
 project(Blop VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
@@ -14,12 +20,12 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 qt_add_executable(Blop
     main.cpp
 
-    # Hauptfenster (alles klein laut Bild)
+    # Hauptfenster
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
 
-    # Canvas & Views (alles klein)
+    # Canvas & Views
     canvasview.cpp
     canvasview.h
     freegridview.h
@@ -27,16 +33,16 @@ qt_add_executable(Blop
     multipagenoteview.cpp
     multipagenoteview.h
 
-    # Dialoge & Einstellungen (alles klein)
+    # Dialoge & Einstellungen
     settingsdialog.cpp
     settingsdialog.h
-    SettingsDialog.ui
+    SettingsDialog.ui   # Großgeschrieben!
     newnotedialog.h
     newnotedialog.cpp
     profileeditordialog.h
     profileeditordialog.cpp
 
-    # Manager & Editor (alles klein)
+    # Manager & Editor
     notemanager.cpp
     notemanager.h
     noteeditor.cpp
@@ -44,28 +50,28 @@ qt_add_executable(Blop
     uiprofilemanager.h
     uiprofilemanager.cpp
 
-    # Toolbar (alles klein)
+    # Toolbar
     moderntoolbar.cpp
     moderntoolbar.h
 
-    # Dateien mit Großbuchstaben (laut deinem Bild)
+    # Hilfs-Header (Großgeschrieben laut deinen Infos)
     Note.h
     PageItem.h
     ToolMode.h
     ToolSettings.h
     UIStyles.h
 
-    # Profil Header (klein laut Bild)
+    # Profil Header
     uiprofile.h
 )
 
-
-# --- NEU HINZUFÜGEN ---
-if(ANDROID)
-    # Wir zwingen Qt, Android SDK 33 zu nutzen (das ist stabil)
-    set_property(TARGET Blop PROPERTY QT_ANDROID_COMPILE_SDK_VERSION 33)
-    set_property(TARGET Blop PROPERTY QT_ANDROID_TARGET_SDK_VERSION 33)
-endif()
-# ----------------------
-
 target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::Network)
+
+# --- WICHTIG: Konfiguration für das Android-Package (APK) ---
+if(ANDROID)
+    set_target_properties(Blop PROPERTIES
+        QT_ANDROID_COMPILE_SDK_VERSION "33"
+        QT_ANDROID_TARGET_SDK_VERSION "33"
+        QT_ANDROID_MIN_SDK_VERSION "23"
+    )
+endif()
