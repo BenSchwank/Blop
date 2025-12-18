@@ -68,25 +68,24 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # 3. Signieren (Mit den KORRIGIERTEN Namen für ilharp)
+      # 3. Signieren
       - name: Sign APK
         id: sign_app
         uses: ilharp/sign-android-release@v1
         with:
-          # ACHTUNG: Hier sind die neuen Namen!
-          releaseDir: build/android-build              # War vorher releaseDirectory
-          signingKey: ${{ secrets.ANDROID_KEYSTORE_BASE64 }} # War vorher signingKeyBase64
-          keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}   # War vorher alias
+          releaseDir: build/android-build
+          signingKey: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
           keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          buildToolsVersion: 34.0.0                    # War vorher buildTools
+          buildToolsVersion: 34.0.0
 
-      # 4. Upload (Achtung: Output heißt jetzt 'signedFile')
+      # 4. Upload (Jetzt mit WILDCARD - damit er garantiert was findet!)
       - name: Release to Public Repo
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          # Der Output-Name hat sich bei diesem Plugin auch geändert:
-          files: ${{ steps.sign_app.outputs.signedFile }}
+          # ÄNDERUNG: Wir nehmen einfach alles, was nach APK aussieht im Ordner!
+          files: build/android-build/*.apk
           repository: BenSchwank/Blop-releases
           token: ${{ secrets.RELEASE_TOKEN }}
