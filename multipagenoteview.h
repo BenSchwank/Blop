@@ -41,7 +41,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent*) override;
     bool viewportEvent(QEvent* e) override;
 
-    // Wichtig für Pinch-Gesten
+    // Important for pinch gestures
     bool event(QEvent *event) override;
 
 private:
@@ -54,7 +54,7 @@ private:
 
     bool m_penOnlyMode{true};
 
-    // Manuelles Panning
+    // Manual Panning
     bool m_isPanning{false};
     QPoint m_lastPanPos;
 

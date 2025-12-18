@@ -13,7 +13,7 @@
 #include <QHBoxLayout>
 #include <QPinchGesture>
 
-// Definition der Hintergrund-Stile
+// Definition of background styles
 enum class PageStyle {
     Blank,
     Lined,
@@ -80,7 +80,7 @@ public:
     bool loadFromFile();
 
 public slots:
-    // NEU: Passt die Szene an den Inhalt an
+    // NEW: Adjusts the scene to content
     void updateSceneRect();
 
 signals:

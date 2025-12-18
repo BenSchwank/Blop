@@ -133,7 +133,7 @@ private:
     // Buttons
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
-    ToolbarBtn* btnHighlighter; // NEU
+    ToolbarBtn* btnHighlighter; // NEW
     ToolbarBtn* btnLasso;
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;

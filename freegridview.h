@@ -16,7 +16,7 @@ public:
 
     void setAccentColor(const QColor &c) { m_accentColor = c; }
 
-    // Setzt die visuelle Größe des Items (Klickbereich)
+    // Sets the visual size of the item (click area)
     void setItemSize(const QSize &size);
     QSize itemSize() const { return m_itemSize; }
 
@@ -31,7 +31,7 @@ private:
     QRect m_ghostRect;
     bool m_showGhost;
     QColor m_accentColor;
-    QSize m_itemSize; // Die Größe des Inhalts (Ordner)
+    QSize m_itemSize; // The size of the content (folder)
 
     QPoint calculateSnapPosition(const QPoint &pos);
 };

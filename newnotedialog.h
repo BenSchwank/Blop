@@ -28,12 +28,12 @@ private:
     QPushButton *m_btnCreate;
     QPushButton *m_btnCancel;
 
-    // Format Auswahl
+    // Format Selection
     QPushButton *m_btnFormatInfinite;
     QPushButton *m_btnFormatA4;
     QButtonGroup *m_groupFormat;
 
-    // Helper für Dragging (Frameless Window)
+    // Helper for dragging (Frameless Window)
     QPoint m_dragPos;
 };
 
