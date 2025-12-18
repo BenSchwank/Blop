@@ -51,7 +51,7 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
-      # 2. CMake Konfiguration (Release Modus)
+      # 2. CMake Konfiguration
       - name: Configure CMake
         working-directory: build
         run: |
@@ -68,25 +68,25 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # 3. Signieren (MIT DEM REPARIERTEN PLUGIN 'ilharp')
+      # 3. Signieren (Mit den KORRIGIERTEN Namen für ilharp)
       - name: Sign APK
         id: sign_app
-        # HIER IST DER WECHSEL: ilharp statt r0adkll
         uses: ilharp/sign-android-release@v1
         with:
-          releaseDirectory: build/android-build
-          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          # ACHTUNG: Hier sind die neuen Namen!
+          releaseDir: build/android-build              # War vorher releaseDirectory
+          signingKey: ${{ secrets.ANDROID_KEYSTORE_BASE64 }} # War vorher signingKeyBase64
+          keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}   # War vorher alias
           keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          # Jetzt funktioniert dieser Befehl, weil 'ilharp' ihn kennt:
-          buildTools: 34.0.0
+          buildToolsVersion: 34.0.0                    # War vorher buildTools
 
-      # 4. Upload ins ÖFFENTLICHE Repo (Nur die signierte Datei)
+      # 4. Upload (Achtung: Output heißt jetzt 'signedFile')
       - name: Release to Public Repo
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          # Der Output-Name hat sich bei diesem Plugin auch geändert:
+          files: ${{ steps.sign_app.outputs.signedFile }}
           repository: BenSchwank/Blop-releases
           token: ${{ secrets.RELEASE_TOKEN }}
