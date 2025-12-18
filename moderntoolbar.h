@@ -23,7 +23,6 @@ public:
 
     void animateSelect();
 
-    // FIX: float -> qreal
     qreal pulseScale() const { return m_pulseScale; }
     void setPulseScale(qreal s) { m_pulseScale = s; update(); }
 

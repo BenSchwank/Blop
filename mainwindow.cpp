@@ -175,13 +175,13 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
 }
 
 // --- ModernButton ---
-// FIX: qreal statt float
+// qreal statt float!
 ModernButton::ModernButton(QWidget *parent) : QToolButton(parent), m_scale(1.0), m_accentColor(Qt::white) {
     m_anim = new QPropertyAnimation(this, "scale", this); m_anim->setDuration(150); m_anim->setEasingCurve(QEasingCurve::OutQuad);
     setCursor(Qt::PointingHandCursor); setStyleSheet("border: none; background: transparent;");
     setIconSize(QSize(24, 24));
 }
-// FIX: qreal
+// qreal
 void ModernButton::setScale(qreal s) { m_scale = s; update(); }
 void ModernButton::setAccentColor(QColor c) { m_accentColor = c; update(); }
 void ModernButton::enterEvent(QEnterEvent *event) { m_anim->stop(); m_anim->setEndValue(1.2); m_anim->start(); QToolButton::enterEvent(event); }
@@ -232,7 +232,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     updateSidebarState();
     updateOverviewBackButton();
 
-    // NEU: Update Check nach 2 Sekunden starten
     QTimer::singleShot(2000, this, &MainWindow::checkForUpdates);
 }
 MainWindow::~MainWindow() {}
@@ -242,7 +241,6 @@ void MainWindow::checkForUpdates() {
         m_netManager = new QNetworkAccessManager(this);
     }
 
-    // URL angepasst auf dein öffentliches Repo "BenSchwank/Blop-releases"
     QUrl url("https://api.github.com/repos/BenSchwank/Blop-releases/releases/tags/nightly");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Blop-App");
