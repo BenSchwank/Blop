@@ -4,10 +4,10 @@ on:
   push:
     branches: [ "master" ]
     tags:
-      - 'v*' # Reagiert auf Tags wie v1.0, v0.5, etc.
+      - 'v*' # Reagiert auf Tags wie v1.0, v1.1 ...
 
 permissions:
-  contents: write  # WICHTIG: Erlaubt dem Bot, Releases zu erstellen
+  contents: write  # Zwingend notwendig für Releases
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # --- FIX: Löscht instabile SDKs (36 & 35) ---
+      # 1. Instabile SDKs löschen
       - name: Remove unstable Android SDKs
         run: |
           echo "Removing unstable Android SDKs..."
@@ -27,6 +27,7 @@ jobs:
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-35*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/35*
 
+      # 2. Umgebung vorbereiten
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
@@ -51,6 +52,7 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
+      # 3. CMake konfigurieren
       - name: Configure CMake
         working-directory: build
         run: |
@@ -63,22 +65,24 @@ jobs:
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
             -DQT_HOST_PATH=$QT_HOST_PATH
 
+      # 4. Bauen
       - name: Build APK
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # 1. Immer als Artifact hochladen (für normale Tests)
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Blop-App
-          path: build/android-build/Blop.apk
+      # --- DEBUG: Zeigt uns im Log, wo die Datei wirklich liegt ---
+      - name: List Build Files (Debug)
+        run: |
+          echo "Listing files in build/android-build:"
+          ls -R build/android-build
 
-      # 2. NUR wenn es ein Tag ist -> Erstelle ein offizielles Release
+      # 5. Release erstellen (Mit Wildcard *.apk)
       - name: Release APK
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: build/android-build/Blop.apk
+          # Wir suchen nach JEDER .apk Datei in diesem Ordner
+          files: build/android-build/*.apk
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
