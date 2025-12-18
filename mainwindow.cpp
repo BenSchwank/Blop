@@ -176,7 +176,7 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
 }
 
 // --- ModernButton ---
-// FIX: qreal
+// FIX: qreal statt float
 ModernButton::ModernButton(QWidget *parent) : QToolButton(parent), m_scale(1.0), m_accentColor(Qt::white) {
     m_anim = new QPropertyAnimation(this, "scale", this); m_anim->setDuration(150); m_anim->setEasingCurve(QEasingCurve::OutQuad);
     setCursor(Qt::PointingHandCursor); setStyleSheet("border: none; background: transparent;");
@@ -864,3 +864,4 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
+//test

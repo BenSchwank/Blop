@@ -268,7 +268,7 @@ private:
     QWidget *m_renameOverlay;
     QLineEdit *m_renameInput;
 
-    QNetworkAccessManager *m_netManager{nullptr}; // Manager for updates
+    QNetworkAccessManager *m_netManager{nullptr};
 };
 
 #endif // MAINWINDOW_H
