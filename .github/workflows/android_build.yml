@@ -1,13 +1,10 @@
-name: Android Build & Release
+name: Android Build & Publish to Public Repo
 
 on:
   push:
     branches: [ "master" ]
     tags:
-      - 'v*' # Reagiert auf Tags wie v1.0, v1.1 ...
-
-permissions:
-  contents: write  # Zwingend notwendig für Releases
+      - 'v*' # Reagiert auf Tags im PRIVATEN Repo (z.B. v1.0)
 
 jobs:
   build:
@@ -21,13 +18,11 @@ jobs:
       # 1. Instabile SDKs löschen
       - name: Remove unstable Android SDKs
         run: |
-          echo "Removing unstable Android SDKs..."
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-36*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/36*
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-35*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/35*
 
-      # 2. Umgebung vorbereiten
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
@@ -52,7 +47,6 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
-      # 3. CMake konfigurieren
       - name: Configure CMake
         working-directory: build
         run: |
@@ -65,24 +59,20 @@ jobs:
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
             -DQT_HOST_PATH=$QT_HOST_PATH
 
-      # 4. Bauen
       - name: Build APK
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # --- DEBUG: Zeigt uns im Log, wo die Datei wirklich liegt ---
-      - name: List Build Files (Debug)
-        run: |
-          echo "Listing files in build/android-build:"
-          ls -R build/android-build
+      # --- DEBUG: Prüfen, ob die Datei da ist ---
+      - name: List Build Files
+        run: ls -R build/android-build
 
-      # 5. Release erstellen (Mit Wildcard *.apk)
-      - name: Release APK
+      # --- WICHTIG: Upload in das ÖFFENTLICHE Repository ---
+      - name: Release to Public Repo
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          # Wir suchen nach JEDER .apk Datei in diesem Ordner
           files: build/android-build/*.apk
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HIER passiert die Magie: Wir senden es an das andere Repo
+          repository: BenSchwank/Blop-releases
+          token: ${{ secrets.RELEASE_TOKEN }}
