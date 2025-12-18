@@ -21,7 +21,6 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QButtonGroup>
-// Network for Update Check
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 
@@ -47,7 +46,7 @@ private:
 class ModernButton : public QToolButton
 {
     Q_OBJECT
-    // FIX: float -> qreal
+    // FIX: float -> qreal (Behebt qmltyperegistrar Fehler)
     Q_PROPERTY(qreal scale READ scale WRITE setScale)
 public:
     explicit ModernButton(QWidget *parent = nullptr);
@@ -108,7 +107,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
-    void checkForUpdates(); // Slot for updates
+    void checkForUpdates();
 
     void onNewPage();
     void onCreateFolder();

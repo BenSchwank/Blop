@@ -34,7 +34,6 @@
 #include <QDataStream>
 #include <utility>
 #include <algorithm>
-// NEU: Netzwerk & Desktop Services
 #include <QNetworkRequest>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -238,7 +237,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 }
 MainWindow::~MainWindow() {}
 
-// NEU: Die Funktion für den Update Check mit DEINER URL (Blop-releases)
 void MainWindow::checkForUpdates() {
     if (!m_netManager) {
         m_netManager = new QNetworkAccessManager(this);
@@ -256,11 +254,9 @@ void MainWindow::checkForUpdates() {
             QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             QJsonObject obj = doc.object();
 
-            // Release Zeit vom Server (z.B. "2023-10-27T10:00:00Z")
             QString publishedAt = obj["published_at"].toString();
             QDateTime serverDate = QDateTime::fromString(publishedAt, Qt::ISODate);
 
-            // Eigene Build-Zeit ermitteln
             QString buildDateStr = QString("%1 %2").arg(__DATE__).arg(__TIME__);
             QLocale usLocale(QLocale::English, QLocale::UnitedStates);
             QDateTime localDate = usLocale.toDateTime(buildDateStr, "MMM d yyyy hh:mm:ss");
@@ -268,7 +264,6 @@ void MainWindow::checkForUpdates() {
                 localDate = usLocale.toDateTime(buildDateStr, "MMM  d yyyy hh:mm:ss");
             }
 
-            // Wenn Server neuer ist als lokaler Build -> Update verfügbar!
             if (serverDate.isValid() && localDate.isValid() && serverDate > localDate) {
                 QMessageBox msgBox(this);
                 msgBox.setWindowTitle("Update verfügbar");
@@ -864,4 +859,3 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
-//test
