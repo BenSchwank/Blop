@@ -3,6 +3,11 @@ name: Android Build & Release
 on:
   push:
     branches: [ "master" ]
+    tags:
+      - 'v*' # Reagiert auf Tags wie v1.0, v0.5, etc.
+
+permissions:
+  contents: write  # WICHTIG: Erlaubt dem Bot, Releases zu erstellen
 
 jobs:
   build:
@@ -13,16 +18,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # --- FIX UPDATE: Löscht SDK 36 UND SDK 35 ---
-      # Beide sind zu neu für die Qt 6.6 Tools und verursachen den aapt2 Fehler.
+      # --- FIX: Löscht instabile SDKs (36 & 35) ---
       - name: Remove unstable Android SDKs
         run: |
-          echo "Removing unstable Android SDKs (36 and 35)..."
+          echo "Removing unstable Android SDKs..."
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-36*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/36*
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-35*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/35*
-          echo "Done. Forced fallback to stable SDK (34 or 33)."
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -64,8 +67,18 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      - name: Upload APK
+      # 1. Immer als Artifact hochladen (für normale Tests)
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Blop-App
           path: build/android-build/Blop.apk
+
+      # 2. NUR wenn es ein Tag ist -> Erstelle ein offizielles Release
+      - name: Release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/android-build/Blop.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
