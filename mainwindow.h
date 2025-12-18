@@ -21,7 +21,7 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QButtonGroup>
-// NEU: Netzwerk für Update-Check
+// Network for Update Check
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 
@@ -103,7 +103,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
 
 private slots:
-    void checkForUpdates(); // Slot für Updates
+    void checkForUpdates(); // Slot for updates
 
     void onNewPage();
     void onCreateFolder();
@@ -263,7 +263,7 @@ private:
     QWidget *m_renameOverlay;
     QLineEdit *m_renameInput;
 
-    QNetworkAccessManager *m_netManager{nullptr}; // Manager für Updates
+    QNetworkAccessManager *m_netManager{nullptr}; // Manager for updates
 };
 
 #endif // MAINWINDOW_H

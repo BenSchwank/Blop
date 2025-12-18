@@ -17,7 +17,7 @@ class SettingsDialog : public QDialog
     Q_OBJECT
 
 public:
-    // Spezieller Rückgabewert, wenn der User den Editor öffnen will
+    // Special return code when user wants to open the editor
     static const int EditProfileCode = QDialog::Accepted + 1;
 
     explicit SettingsDialog(UiProfileManager* profileMgr, QWidget *parent = nullptr);
@@ -25,7 +25,7 @@ public:
 
     void setToolbarConfig(bool isRadial, bool isHalf);
 
-    // Damit MainWindow weiß, welches Profil bearbeitet werden soll
+    // Helper so MainWindow knows which profile to edit
     QString profileIdToEdit() const { return m_editId; }
 
 signals:
@@ -46,7 +46,7 @@ private:
     Ui::SettingsDialog *ui;
     UiProfileManager *m_profileManager;
     QListWidget *m_profileList;
-    QString m_editId; // Gespeicherte ID für den Editor
+    QString m_editId; // Stored ID for editor
 
     void refreshProfileList();
     void openEditor(const QString &profileId);
