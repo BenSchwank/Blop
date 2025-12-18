@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Android Stabilisierung
+# Android Setup
 if(ANDROID)
     set(ANDROID_PLATFORM "android-33")
 endif()
@@ -14,13 +14,13 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# NEU: Quick und Qml hinzugefügt
+# Alle Pakete suchen (Quick, Controls2, Qml sind wichtig für Android)
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 qt_add_executable(Blop
     main.cpp
 
-    # Hauptfenster & C++ Views (Behalten wir, damit die Logik da bleibt)
+    # C++ Klassen (Widgets)
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
@@ -40,19 +40,17 @@ qt_add_executable(Blop
     profileeditordialog.h
     profileeditordialog.cpp
 
-    # Manager
+    # Manager & Logik
     notemanager.cpp
     notemanager.h
     noteeditor.cpp
     noteeditor.h
     uiprofilemanager.h
     uiprofilemanager.cpp
-
-    # Toolbar
     moderntoolbar.cpp
     moderntoolbar.h
 
-    # Helper Headers
+    # Hilfs-Dateien
     Note.h
     PageItem.h
     ToolMode.h
@@ -60,14 +58,14 @@ qt_add_executable(Blop
     UIStyles.h
     uiprofile.h
 
-    # WICHTIG: Image Provider für deine Thumbnails hinzufügen
+    # WICHTIG: Deine Image-Provider Dateien
     BlopAsyncImageProvider.h
     BlopAsyncImageProvider.cpp
     BlopImageResponse.h
     BlopImageResponse.cpp
 )
 
-# NEU: Das QML-Modul registrieren
+# QML Modul registrieren (Damit Main.qml gefunden wird)
 qt_add_qml_module(Blop
     URI Blop
     VERSION 1.0
@@ -75,7 +73,7 @@ qt_add_qml_module(Blop
         Main.qml
 )
 
-# NEU: Libraries linken
+# Bibliotheken linken
 target_link_libraries(Blop PRIVATE
     Qt6::Widgets
     Qt6::Network
@@ -84,7 +82,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::Qml
 )
 
-# Android Settings
+# Android Build Einstellungen
 if(ANDROID)
     set_target_properties(Blop PROPERTIES
         QT_ANDROID_COMPILE_SDK_VERSION "33"

@@ -1,85 +1,70 @@
 #include "BlopImageResponse.h"
+#include <QThreadPool>
+#include <QImageReader>
+#include <QUrl>
 #include <QDebug>
 
-// =============================================================================
-// ImageGenerationJob Implementation (läuft im Worker-Thread)
-// =============================================================================
+// --- BlopImageResponse Implementierung ---
 
-ImageGenerationJob::ImageGenerationJob(QSize size, QColor bgColor, QColor accentColor, BlopImageResponse* response)
-    : m_size(size), m_bgColor(bgColor), m_accentColor(accentColor), m_response(response)
+BlopImageResponse::BlopImageResponse(const QString &id, const QSize &requestedSize)
 {
-    setAutoDelete(true);
+    // Starte den Worker sofort
+    BlopImageRunnable *runnable = new BlopImageRunnable(id, requestedSize, this);
+    // Qt kümmert sich um das Löschen des Runnables nach 'run()'
+    runnable->setAutoDelete(true);
+    QThreadPool::globalInstance()->start(runnable);
 }
 
-void ImageGenerationJob::run()
+QQuickTextureFactory *BlopImageResponse::textureFactory() const
 {
-    // Hier findet die rechenintensive Arbeit statt, die vorher den UI-Thread blockiert hat.
-
-    // 1. QImage erstellen (muss QImage sein, da QPixmap an GUI-Thread gebunden ist)
-    QImage image(m_size, QImage::Format_ARGB32_Premultiplied);
-    image.fill(Qt::transparent);
-
-    QPainter p(&image);
-    p.setRenderHint(QPainter::Antialiasing);
-
-    // 2. Rendering-Logik (Simulierte Darstellung aus ModernItemDelegate)
-    // Hier sollten Sie die tatsächliche Zeichnungslogik für Ihre Notiz-Vorschau einfügen.
-    // (Ausschnitt basierend auf der Logik in mainwindow.cpp für ModernItemDelegate)
-
-    QRect rect(0, 0, m_size.width(), m_size.height());
-    QRect adjustedRect = rect.adjusted(4, 4, -4, -4);
-
-    // a) Einfacher Offset-Schatten
-    p.setBrush(QColor(0, 0, 0, 80));
-    p.setPen(Qt::NoPen);
-    p.drawRoundedRect(adjustedRect.translated(2, 2), 8, 8);
-
-    // b) Haupt-Hintergrund (z.B. aus der Farbe des UI-Profils)
-    p.setBrush(m_bgColor);
-    p.setPen(Qt::NoPen);
-    p.drawRoundedRect(adjustedRect, 8, 8);
-
-    // c) Simulierter Akzent/Hover-Effekt Rahmen (optional)
-    p.setPen(QPen(m_accentColor, 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(adjustedRect.adjusted(1, 1, -1, -1), 8, 8);
-
-    // 3. Ergebnis an den UI-Thread senden
-    QMetaObject::invokeMethod(m_response, "handleFinished", Qt::QueuedConnection, Q_ARG(QImage, image));
-}
-
-
-// =============================================================================
-// BlopImageResponse Implementation (kommuniziert mit UI-Thread)
-// =============================================================================
-
-BlopImageResponse::BlopImageResponse(QSize size, QColor bgColor, QColor accentColor)
-    : m_job(new ImageGenerationJob(size, bgColor, accentColor, this))
-{
-    // Startet den Worker-Job im globalen Thread Pool.
-    // Dies blockiert NICHT den UI-Thread.
-    QThreadPool::globalInstance()->start(m_job);
-}
-
-BlopImageResponse::~BlopImageResponse()
-{
-    // Der Job ist AutoDelete, es muss kein manuelles Löschen erfolgen.
-}
-
-QQuickTextureFactory* BlopImageResponse::textureFactory() const
-{
-    // WICHTIG: Erstellen des TextureFactory MUSS im GUI-Thread erfolgen!
-    // Die Konvertierung von QImage zu QQuickTextureFactory::Texture erfolgt hier.
-    if (m_image.isNull())
-        return nullptr;
-
     return QQuickTextureFactory::textureFactoryForImage(m_image);
 }
 
-void BlopImageResponse::handleFinished(const QImage& result)
+void BlopImageResponse::handleDone(QImage image)
 {
-    // DIESER SLOT WIRD DANK Qt::QueuedConnection IM GUI-THREAD AUSGEFÜHRT!
-    m_image = result;
-    // Informiert die QML-Engine, dass das Bild fertig ist.
-    emit finished();
+    m_image = image;
+    emit finished(); // Sag QML Bescheid, dass wir fertig sind
+}
+
+// --- BlopImageRunnable Implementierung ---
+
+BlopImageRunnable::BlopImageRunnable(const QString &id, const QSize &requestedSize, BlopImageResponse *response)
+    : m_id(id), m_requestedSize(requestedSize), m_response(response)
+{
+}
+
+void BlopImageRunnable::run()
+{
+    // Pfad bereinigen (file:/// entfernen für lokale Dateien)
+    QString cleanPath = m_id;
+    if (cleanPath.startsWith("file:///")) {
+#ifdef Q_OS_WIN
+        cleanPath = cleanPath.mid(8); // "file:///C:/..." -> "C:/..."
+#else
+        cleanPath = cleanPath.mid(7); // "file:///home..." -> "/home..."
+#endif
+    }
+
+    QImageReader reader(cleanPath);
+
+    // Performance: Wenn QML eine Größe wünscht, laden wir das Bild direkt kleiner!
+    if (m_requestedSize.isValid()) {
+        reader.setScaledSize(m_requestedSize);
+    }
+
+    QImage image = reader.read();
+
+    if (image.isNull()) {
+        // Fallback: Leeres Bild, falls Ladefehler
+        image = QImage(m_requestedSize.isValid() ? m_requestedSize : QSize(50, 50), QImage::Format_ARGB32);
+        image.fill(Qt::transparent);
+    }
+
+    // Übergabe an den Haupt-Thread (Thread-Safe!)
+    if (m_response) {
+        // Wir nutzen invokeMethod, damit 'handleDone' sicher im UI-Thread läuft
+        QMetaObject::invokeMethod(m_response.data(), [=]() {
+            if (m_response) m_response->handleDone(image);
+        });
+    }
 }

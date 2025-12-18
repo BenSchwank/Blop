@@ -1,55 +1,39 @@
 #pragma once
+
 #include <QQuickImageResponse>
-#include <QQuickTextureFactory>
 #include <QRunnable>
-#include <QThreadPool>
-#include <QPainter>
 #include <QImage>
-#include <QColor>
 #include <QObject>
+#include <QPointer>
 
-class BlopImageResponse; // Forward declaration
-
-/**
- * @brief Führt die rechenintensive Bildgenerierung in einem Worker-Thread durch.
- * Ersetzt die synchrone Logik aus ModernItemDelegate::paint.
- */
-class ImageGenerationJob : public QRunnable
-{
-public:
-    ImageGenerationJob(QSize size, QColor bgColor, QColor accentColor, BlopImageResponse* response);
-    void run() override;
-
-private:
-    QSize m_size;
-    QColor m_bgColor;
-    QColor m_accentColor;
-    BlopImageResponse* m_response;
-};
-
-/**
- * @brief Kapselt die asynchrone Operation und liefert das Ergebnis an die QML-Engine.
- */
-class BlopImageResponse : public QObject, public QQuickImageResponse
+// Die Response-Klasse (FIX: Erbt NUR von QQuickImageResponse)
+class BlopImageResponse : public QQuickImageResponse
 {
     Q_OBJECT
-
 public:
-    BlopImageResponse(QSize size, QColor bgColor, QColor accentColor);
-    ~BlopImageResponse() override;
+    BlopImageResponse(const QString &id, const QSize &requestedSize);
 
-    // Liefert die fertige Textur (wird im UI-Thread aufgerufen).
-    QQuickTextureFactory* textureFactory() const override;
+    // Liefert die fertige Textur an QML
+    QQuickTextureFactory *textureFactory() const override;
 
-signals:
-    // Signalisiert der QML-Engine, dass das Bild fertig ist.
-    void finished() override;
-
-private slots:
-    // Wird vom Worker-Thread aufgerufen (Qt::QueuedConnection), läuft im UI-Thread.
-    void handleFinished(const QImage& result);
+    // Helper für den Worker-Thread
+    void handleDone(QImage image);
 
 private:
     QImage m_image;
-    ImageGenerationJob* m_job;
+};
+
+// Der Worker-Thread (Lädt das Bild im Hintergrund)
+class BlopImageRunnable : public QRunnable
+{
+public:
+    BlopImageRunnable(const QString &id, const QSize &requestedSize, BlopImageResponse *response);
+
+    void run() override;
+
+private:
+    QString m_id;
+    QSize m_requestedSize;
+    // Sicherer Pointer, falls die Response gelöscht wird bevor der Thread fertig ist
+    QPointer<BlopImageResponse> m_response;
 };
