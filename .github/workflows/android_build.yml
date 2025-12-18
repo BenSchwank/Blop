@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "master" ]
     tags:
-      - 'v*' # Reagiert auf Tags im PRIVATEN Repo (z.B. v1.0)
+      - 'v*'
 
 jobs:
   build:
@@ -15,9 +15,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 1. Instabile SDKs löschen
+      # 1. Alte/Kaputte SDKs löschen
       - name: Remove unstable Android SDKs
         run: |
+          echo "Removing unstable Android SDKs..."
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-36*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/36*
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-35*
@@ -47,6 +48,7 @@ jobs:
       - name: Create Build Directory
         run: mkdir build
 
+      # 2. CMake im RELEASE Modus
       - name: Configure CMake
         working-directory: build
         run: |
@@ -63,16 +65,23 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # --- DEBUG: Prüfen, ob die Datei da ist ---
-      - name: List Build Files
-        run: ls -R build/android-build
+      # 3. Signieren (Erzeugt Blop-signed.apk)
+      - name: Sign APK
+        id: sign_app
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: build/android-build
+          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
-      # --- WICHTIG: Upload in das ÖFFENTLICHE Repository ---
+      # 4. Upload ins ÖFFENTLICHE Repo (NUR die signierte Datei)
       - name: Release to Public Repo
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: build/android-build/*.apk
-          # HIER passiert die Magie: Wir senden es an das andere Repo
+          # Hier MUSS 'signedReleaseFile' stehen!
+          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
           repository: BenSchwank/Blop-releases
           token: ${{ secrets.RELEASE_TOKEN }}
