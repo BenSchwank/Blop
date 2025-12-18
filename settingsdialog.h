@@ -53,3 +53,4 @@ private:
 };
 
 #endif // SETTINGSDIALOG_H
+//for
