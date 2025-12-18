@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-# --- WICHTIG: Zwingt Android SDK 33 (Stabil) ---
-# Das muss VOR dem "project()"-Befehl stehen!
+# Android Stabilisierung
 if(ANDROID)
     set(ANDROID_PLATFORM "android-33")
 endif()
@@ -15,17 +14,16 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
+# NEU: Quick und Qml hinzugefügt
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 qt_add_executable(Blop
     main.cpp
 
-    # Hauptfenster
+    # Hauptfenster & C++ Views (Behalten wir, damit die Logik da bleibt)
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
-
-    # Canvas & Views
     canvasview.cpp
     canvasview.h
     freegridview.h
@@ -33,16 +31,16 @@ qt_add_executable(Blop
     multipagenoteview.cpp
     multipagenoteview.h
 
-    # Dialoge & Einstellungen
+    # Dialoge
     settingsdialog.cpp
     settingsdialog.h
-    SettingsDialog.ui   # Großgeschrieben!
+    SettingsDialog.ui
     newnotedialog.h
     newnotedialog.cpp
     profileeditordialog.h
     profileeditordialog.cpp
 
-    # Manager & Editor
+    # Manager
     notemanager.cpp
     notemanager.h
     noteeditor.cpp
@@ -54,20 +52,39 @@ qt_add_executable(Blop
     moderntoolbar.cpp
     moderntoolbar.h
 
-    # Hilfs-Header (Großgeschrieben laut deinen Infos)
+    # Helper Headers
     Note.h
     PageItem.h
     ToolMode.h
     ToolSettings.h
     UIStyles.h
-
-    # Profil Header
     uiprofile.h
+
+    # WICHTIG: Image Provider für deine Thumbnails hinzufügen
+    BlopAsyncImageProvider.h
+    BlopAsyncImageProvider.cpp
+    BlopImageResponse.h
+    BlopImageResponse.cpp
 )
 
-target_link_libraries(Blop PRIVATE Qt6::Widgets Qt6::Network)
+# NEU: Das QML-Modul registrieren
+qt_add_qml_module(Blop
+    URI Blop
+    VERSION 1.0
+    QML_FILES
+        Main.qml
+)
 
-# --- WICHTIG: Konfiguration für das Android-Package (APK) ---
+# NEU: Libraries linken
+target_link_libraries(Blop PRIVATE
+    Qt6::Widgets
+    Qt6::Network
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::Qml
+)
+
+# Android Settings
 if(ANDROID)
     set_target_properties(Blop PROPERTIES
         QT_ANDROID_COMPILE_SDK_VERSION "33"
