@@ -40,9 +40,9 @@ void ToolbarBtn::leaveEvent(QEvent*) { m_hover = false; update(); }
 void ToolbarBtn::animateSelect() {
     QPropertyAnimation* anim = new QPropertyAnimation(this, "pulseScale");
     anim->setDuration(300);
-    anim->setKeyValueAt(0, 1.0f);
-    anim->setKeyValueAt(0.5, 1.3f);
-    anim->setKeyValueAt(1, 1.0f);
+    anim->setKeyValueAt(0, 1.0);
+    anim->setKeyValueAt(0.5, 1.3);
+    anim->setKeyValueAt(1, 1.0);
     anim->setEasingCurve(QEasingCurve::OutBack);
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }

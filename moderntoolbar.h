@@ -11,7 +11,7 @@
 // --- Helper Button Class ---
 class ToolbarBtn : public QWidget {
     Q_OBJECT
-    // ÄNDERUNG: float -> qreal
+    // FIX: float -> qreal
     Q_PROPERTY(qreal pulseScale READ pulseScale WRITE setPulseScale)
 
 public:
@@ -23,7 +23,7 @@ public:
 
     void animateSelect();
 
-    // ÄNDERUNG: float -> qreal
+    // FIX: float -> qreal
     qreal pulseScale() const { return m_pulseScale; }
     void setPulseScale(qreal s) { m_pulseScale = s; update(); }
 
@@ -44,7 +44,7 @@ private:
     bool m_hover{false};
     int m_size{40};
 
-    // ÄNDERUNG: float -> qreal
+    // FIX: float -> qreal
     qreal m_pulseScale{1.0};
 };
 

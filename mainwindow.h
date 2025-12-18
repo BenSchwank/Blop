@@ -47,12 +47,12 @@ private:
 class ModernButton : public QToolButton
 {
     Q_OBJECT
-    // ÄNDERUNG: float -> qreal
+    // FIX: float -> qreal
     Q_PROPERTY(qreal scale READ scale WRITE setScale)
 public:
     explicit ModernButton(QWidget *parent = nullptr);
 
-    // ÄNDERUNG: float -> qreal
+    // FIX: float -> qreal
     qreal scale() const { return m_scale; }
     void setScale(qreal s);
 
@@ -62,7 +62,7 @@ protected:
     void leaveEvent(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
 private:
-    // ÄNDERUNG: float -> qreal
+    // FIX: float -> qreal
     qreal m_scale;
     QPropertyAnimation *m_anim;
     QColor m_accentColor;

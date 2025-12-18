@@ -176,13 +176,13 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
 }
 
 // --- ModernButton ---
-// ÄNDERUNG: qreal statt float
+// FIX: qreal
 ModernButton::ModernButton(QWidget *parent) : QToolButton(parent), m_scale(1.0), m_accentColor(Qt::white) {
     m_anim = new QPropertyAnimation(this, "scale", this); m_anim->setDuration(150); m_anim->setEasingCurve(QEasingCurve::OutQuad);
     setCursor(Qt::PointingHandCursor); setStyleSheet("border: none; background: transparent;");
     setIconSize(QSize(24, 24));
 }
-// ÄNDERUNG: qreal
+// FIX: qreal
 void ModernButton::setScale(qreal s) { m_scale = s; update(); }
 void ModernButton::setAccentColor(QColor c) { m_accentColor = c; update(); }
 void ModernButton::enterEvent(QEnterEvent *event) { m_anim->stop(); m_anim->setEndValue(1.2); m_anim->start(); QToolButton::enterEvent(event); }
@@ -864,4 +864,3 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
-//test
