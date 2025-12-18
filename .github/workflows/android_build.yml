@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 1. Instabile Android SDKs entfernen (Wichtig!)
+      # 1. Instabile Android SDKs entfernen
       - name: Remove unstable Android SDKs
         run: |
           echo "Removing unstable Android SDKs..."
@@ -68,17 +68,18 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # 3. Signieren (MIT FIX FÜR BUILD TOOLS)
+      # 3. Signieren (MIT DEM REPARIERTEN PLUGIN 'ilharp')
       - name: Sign APK
         id: sign_app
-        uses: r0adkll/sign-android-release@v1
+        # HIER IST DER WECHSEL: ilharp statt r0adkll
+        uses: ilharp/sign-android-release@v1
         with:
           releaseDirectory: build/android-build
           signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           alias: ${{ secrets.ANDROID_KEY_ALIAS }}
           keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          # WICHTIG: Erzwingt Version 34.0.0 (statt der alten 29.0.3)
+          # Jetzt funktioniert dieser Befehl, weil 'ilharp' ihn kennt:
           buildTools: 34.0.0
 
       # 4. Upload ins ÖFFENTLICHE Repo (Nur die signierte Datei)
