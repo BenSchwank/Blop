@@ -7,6 +7,11 @@ endif()
 
 project(Blop VERSION 0.1 LANGUAGES CXX)
 
+# --- FIX: UTF-8 Encoding für MSVC erzwingen (Wichtig für GitHub Actions!) ---
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)

@@ -46,13 +46,13 @@ private:
 class ModernButton : public QToolButton
 {
     Q_OBJECT
-    // WICHTIG: qreal statt float verhindert den JSON-Fehler
-    Q_PROPERTY(qreal scale READ scale WRITE setScale)
+    // FIX: double statt qreal für Windows Build
+    Q_PROPERTY(double scale READ scale WRITE setScale)
 public:
     explicit ModernButton(QWidget *parent = nullptr);
 
-    qreal scale() const { return m_scale; }
-    void setScale(qreal s);
+    double scale() const { return m_scale; }
+    void setScale(double s);
 
     void setAccentColor(QColor c);
 protected:
@@ -60,7 +60,7 @@ protected:
     void leaveEvent(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
 private:
-    qreal m_scale;
+    double m_scale;
     QPropertyAnimation *m_anim;
     QColor m_accentColor;
 };
