@@ -46,13 +46,13 @@ private:
 class ModernButton : public QToolButton
 {
     Q_OBJECT
-    // FIX: double statt qreal für Windows Build
-    Q_PROPERTY(double scale READ scale WRITE setScale)
+    // FIX: Renamed to buttonScale to avoid conflicts and used double
+    Q_PROPERTY(double buttonScale READ buttonScale WRITE setButtonScale)
 public:
     explicit ModernButton(QWidget *parent = nullptr);
 
-    double scale() const { return m_scale; }
-    void setScale(double s);
+    double buttonScale() const { return m_scale; }
+    void setButtonScale(double s);
 
     void setAccentColor(QColor c);
 protected:

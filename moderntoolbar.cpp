@@ -38,7 +38,8 @@ void ToolbarBtn::enterEvent(QEnterEvent*) { m_hover = true; update(); }
 void ToolbarBtn::leaveEvent(QEvent*) { m_hover = false; update(); }
 
 void ToolbarBtn::animateSelect() {
-    QPropertyAnimation* anim = new QPropertyAnimation(this, "pulseScale");
+    // FIX: Using animScale
+    QPropertyAnimation* anim = new QPropertyAnimation(this, "animScale");
     anim->setDuration(300);
     anim->setKeyValueAt(0, 1.0);
     anim->setKeyValueAt(0.5, 1.3);
@@ -69,9 +70,9 @@ void ToolbarBtn::paintEvent(QPaintEvent*) {
     int h = height();
     p.translate(w/2, h/2);
 
-    // FIX: double cast
+    // FIX: double cast and animScale
     double scale = (double)w / 110.0;
-    scale *= m_pulseScale;
+    scale *= m_animScale;
     p.scale(scale, scale);
     p.translate(-32, -32);
 
@@ -1005,8 +1006,8 @@ void ModernToolbar::showVerticalPopup() {
     QVBoxLayout* lay = new QVBoxLayout(popup); lay->setContentsMargins(10,10,10,10);
 
     if (mode_ == ToolMode::Pen || mode_ == ToolMode::Highlighter) {
-        if (mode_ == ToolMode::Pen) lay->addWidget(new QLabel("Stift"));
-        else lay->addWidget(new QLabel("Textmarker"));
+        if (mode_ == ToolMode::Pen) lay->addWidget(new QLabel("Pen"));
+        else lay->addWidget(new QLabel("Highlighter"));
 
         QSlider* sl = new QSlider(Qt::Horizontal); sl->setRange(1, 40);
         sl->setValue(m_config.penWidth);

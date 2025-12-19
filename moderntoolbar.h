@@ -11,8 +11,8 @@
 // --- Helper Button Class ---
 class ToolbarBtn : public QWidget {
     Q_OBJECT
-    // FIX: double statt qreal
-    Q_PROPERTY(double pulseScale READ pulseScale WRITE setPulseScale)
+    // FIX: Renamed to animScale, type double
+    Q_PROPERTY(double animScale READ animScale WRITE setAnimScale)
 
 public:
     explicit ToolbarBtn(const QString& iconName, QWidget* parent = nullptr);
@@ -23,8 +23,8 @@ public:
 
     void animateSelect();
 
-    double pulseScale() const { return m_pulseScale; }
-    void setPulseScale(double s) { m_pulseScale = s; update(); }
+    double animScale() const { return m_animScale; }
+    void setAnimScale(double s) { m_animScale = s; update(); }
 
     void triggerClick() { animateSelect(); emit clicked(); }
 
@@ -43,14 +43,13 @@ private:
     bool m_hover{false};
     int m_size{40};
 
-    double m_pulseScale{1.0};
+    double m_animScale{1.0};
 };
 
 // --- Main Toolbar Class ---
 class ModernToolbar : public QWidget {
     Q_OBJECT
-    // FIX: Problem property 'size' entfernt. Verursacht JSON Errors.
-    // Q_PROPERTY(QSize size READ size WRITE resize)
+    // FIX: Removed problematic size property completely
 
 public:
     enum Style { Normal, Radial };
@@ -75,8 +74,8 @@ public:
     void setDraggable(bool enable) { m_draggable = enable; }
     void setPreviewMode(bool enable) { m_isPreview = enable; }
 
-    void setScale(double scale); // double
-    double scale() const { return m_scale; } // double
+    void setScale(double scale);
+    double scale() const { return m_scale; }
 
     void constrainToParent();
     void setTopBound(int top);
@@ -88,7 +87,7 @@ signals:
     void penConfigChanged(QColor c, int w);
     void eraserConfigChanged(EraserMode m);
     void lassoConfigChanged(LassoMode m);
-    void scaleChanged(double newScale); // double
+    void scaleChanged(double newScale);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -128,7 +127,7 @@ private:
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
 
-    double m_scale{1.0}; // double
+    double m_scale{1.0};
     int m_topBound{0};
 
     QRegion m_cachedMask;
@@ -138,7 +137,7 @@ private:
     // Buttons
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
-    ToolbarBtn* btnHighlighter;
+    ToolbarBtn* btnHighlighter; // NEW
     ToolbarBtn* btnLasso;
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;
