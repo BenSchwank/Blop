@@ -14,12 +14,7 @@ int main(int argc, char *argv[])
     // QApplication ist zwingend für Widget-Mix
     QApplication a(argc, argv);
 
-    QQmlApplicationEngine engine;
-
-    // 1. Image Provider registrieren
-    engine.addImageProvider("blop", new BlopAsyncImageProvider);
-
-    // 2. Pfad für Notizen bestimmen
+    // --- SETUP FÜR ALLE PLATTFORMEN (Pfade etc.) ---
 #ifdef Q_OS_ANDROID
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 #else
@@ -29,19 +24,29 @@ int main(int argc, char *argv[])
     QDir dir(path);
     if (!dir.exists()) dir.mkpath(".");
 
-    // Pfad an QML übergeben
+    // --- UNTERSCHEIDUNG: WINDOWS/DESKTOP vs. ANDROID ---
+
+#ifdef Q_OS_ANDROID
+    // === ANDROID: Starte QML ===
+    QQmlApplicationEngine engine;
+    engine.addImageProvider("blop", new BlopAsyncImageProvider);
     engine.rootContext()->setContextProperty("notesPath", QUrl::fromLocalFile(path));
 
-    // 3. QML laden
     const QUrl url("qrc:/Blop/Main.qml");
-
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                      &a, [url](QObject *obj, const QUrl &objUrl) {
                          if (!obj && url == objUrl)
                              QCoreApplication::exit(-1);
                      }, Qt::QueuedConnection);
-
     engine.load(url);
+
+#else
+    // === WINDOWS / DESKTOP: Starte C++ MainWindow ===
+    // Das hier hat gefehlt!
+    MainWindow w;
+    w.show();
+
+#endif
 
     return a.exec();
 }

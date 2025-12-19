@@ -2,8 +2,8 @@
 #include <QColor>
 
 enum class EraserMode {
-    Standard, // Pixelgenau
-    Stroke    // Ganzen Strich löschen
+    Standard, // Pixel exact
+    Stroke    // Delete whole stroke
 };
 
 enum class LassoMode {
@@ -11,7 +11,7 @@ enum class LassoMode {
     Rectangular
 };
 
-// Container für alle aktuellen Einstellungen
+// Config container
 struct ToolConfig {
     QColor penColor{Qt::black};
     int penWidth{3};

@@ -43,14 +43,14 @@ private:
     bool m_hover{false};
     int m_size{40};
 
-    // FIX: double statt qreal
     double m_pulseScale{1.0};
 };
 
 // --- Main Toolbar Class ---
 class ModernToolbar : public QWidget {
     Q_OBJECT
-    Q_PROPERTY(QSize size READ size WRITE resize)
+    // FIX: Problem property 'size' entfernt. Verursacht JSON Errors.
+    // Q_PROPERTY(QSize size READ size WRITE resize)
 
 public:
     enum Style { Normal, Radial };
@@ -75,8 +75,8 @@ public:
     void setDraggable(bool enable) { m_draggable = enable; }
     void setPreviewMode(bool enable) { m_isPreview = enable; }
 
-    void setScale(qreal scale);
-    qreal scale() const { return m_scale; }
+    void setScale(double scale); // double
+    double scale() const { return m_scale; } // double
 
     void constrainToParent();
     void setTopBound(int top);
@@ -88,7 +88,7 @@ signals:
     void penConfigChanged(QColor c, int w);
     void eraserConfigChanged(EraserMode m);
     void lassoConfigChanged(LassoMode m);
-    void scaleChanged(qreal newScale);
+    void scaleChanged(double newScale); // double
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -128,7 +128,7 @@ private:
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
 
-    qreal m_scale{1.0};
+    double m_scale{1.0}; // double
     int m_topBound{0};
 
     QRegion m_cachedMask;
@@ -138,7 +138,7 @@ private:
     // Buttons
     ToolbarBtn* btnPen;
     ToolbarBtn* btnEraser;
-    ToolbarBtn* btnHighlighter; // NEW
+    ToolbarBtn* btnHighlighter;
     ToolbarBtn* btnLasso;
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;
