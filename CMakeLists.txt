@@ -7,7 +7,7 @@ endif()
 
 project(Blop VERSION 0.1 LANGUAGES CXX)
 
-# --- FIX: UTF-8 Encoding für MSVC erzwingen (Wichtig für GitHub Actions!) ---
+# UTF-8 für MSVC erzwingen (trotzdem gute Praxis)
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
@@ -19,7 +19,6 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Alle Pakete suchen (Quick, Controls2, Qml sind wichtig für Android)
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 qt_add_executable(Blop
@@ -63,20 +62,24 @@ qt_add_executable(Blop
     UIStyles.h
     uiprofile.h
 
-    # WICHTIG: Deine Image-Provider Dateien
+    # Image-Provider (werden kompiliert, aber auf Windows nicht registriert)
     BlopAsyncImageProvider.h
     BlopAsyncImageProvider.cpp
     BlopImageResponse.h
     BlopImageResponse.cpp
 )
 
-# QML Modul registrieren (Damit Main.qml gefunden wird)
-qt_add_qml_module(Blop
-    URI Blop
-    VERSION 1.0
-    QML_FILES
-        Main.qml
-)
+# --- FIX: QML Modul NUR für Android registrieren ---
+# Auf Windows nutzen wir Widgets, daher brauchen wir keine QML-Typ-Registrierung.
+# Das verhindert den "illegal value" Fehler im qmltyperegistrar.
+if(ANDROID)
+    qt_add_qml_module(Blop
+        URI Blop
+        VERSION 1.0
+        QML_FILES
+            Main.qml
+    )
+endif()
 
 # Bibliotheken linken
 target_link_libraries(Blop PRIVATE
