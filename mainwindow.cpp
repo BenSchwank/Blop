@@ -203,6 +203,9 @@ void ModernButton::paintEvent(QPaintEvent *) {
 // ============================================================================
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(nullptr) {
+    // FIX: Pointer nullen, damit er sauber ist
+    m_titleBarWidget = nullptr;
+
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
 
     m_profileManager = new UiProfileManager(this);
@@ -330,6 +333,8 @@ void MainWindow::applyTheme() {
     if(m_navSidebar) m_navSidebar->setStyleSheet("QListWidget { background-color: transparent; border: none; outline: 0; margin-left: 5px; margin-right: 5px; } QListWidget::item { border: none; }");
 
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
+
+    // Titelleiste nur stylen, wenn vorhanden
     if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
 
     auto getFabStyle = [&](int w) {
@@ -445,10 +450,19 @@ void MainWindow::createDefaultFolder() {
 }
 
 void MainWindow::setupUi() {
+// FIX: Titlebar NICHT auf Android erstellen
+#ifndef Q_OS_ANDROID
     setupTitleBar();
+#endif
+
     m_centralContainer = new QWidget(this); setCentralWidget(m_centralContainer);
     QVBoxLayout* mainLayout = new QVBoxLayout(m_centralContainer); mainLayout->setContentsMargins(0, 0, 0, 0); mainLayout->setSpacing(0);
-    mainLayout->addWidget(m_titleBarWidget);
+
+    // FIX: Nur hinzufügen, wenn auch erstellt
+    if (m_titleBarWidget) {
+        mainLayout->addWidget(m_titleBarWidget);
+    }
+
     m_mainSplitter = new QSplitter(Qt::Horizontal, m_centralContainer); mainLayout->addWidget(m_mainSplitter);
     m_fileModel = new QFileSystemModel(this); m_fileModel->setRootPath(m_rootPath); m_fileModel->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot); m_fileModel->setReadOnly(false);
 
@@ -860,4 +874,3 @@ void MainWindow::onTabChanged(int index) {
     }
     updateSidebarState();
 }
-
