@@ -43,6 +43,25 @@
 #include <QLocale>
 
 // ============================================================================
+// KONFIGURATION FÜR ANDROID SCALING
+// ============================================================================
+#ifdef Q_OS_ANDROID
+static const int SIDEBAR_WIDTH = 300; // Breiter für Touch
+static const int ROW_HEIGHT_HEADER = 50;
+static const int ROW_HEIGHT_ITEM = 60; // Höher für Touch
+static const int FONT_SIZE_BASE = 14;  // Größere Schrift
+static const int FONT_SIZE_HEADER = 20;
+static const int MARGIN_OVERVIEW = 10; // Weniger Rand auf kleinen Screens
+#else
+static const int SIDEBAR_WIDTH = 250;
+static const int ROW_HEIGHT_HEADER = 40;
+static const int ROW_HEIGHT_ITEM = 44;
+static const int FONT_SIZE_BASE = 10;
+static const int FONT_SIZE_HEADER = 18;
+static const int MARGIN_OVERVIEW = 30;
+#endif
+
+// ============================================================================
 // 1. DELEGATES & BUTTONS
 // ============================================================================
 
@@ -52,7 +71,7 @@ SidebarNavDelegate::SidebarNavDelegate(MainWindow *parent)
 
 QSize SidebarNavDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
-    return QSize(option.rect.width(), isHeader ? 40 : 44);
+    return QSize(option.rect.width(), isHeader ? ROW_HEIGHT_HEADER : ROW_HEIGHT_ITEM);
 }
 
 void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
@@ -69,7 +88,10 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
     if (isHeader) {
         painter->setPen(QColor(150, 150, 150));
-        QFont f = m_window->font(); f.setBold(true); f.setPointSize(9); painter->setFont(f);
+        QFont f = m_window->font(); f.setBold(true);
+        f.setPointSize(FONT_SIZE_BASE - 1); // Kleiner als Base
+        painter->setFont(f);
+
         int arrowX = option.rect.left() + 15; int arrowY = option.rect.center().y();
         QPainterPath arrow;
         bool collapsed = index.data(Qt::UserRole + 3).toBool();
@@ -101,6 +123,10 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
         QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
         int iconSize = 20;
+#ifdef Q_OS_ANDROID
+        iconSize = 26; // Größeres Icon auf Android
+#endif
+
         QRect iconRect(rect.left() + iconOffset, rect.center().y() - iconSize/2, iconSize, iconSize);
         QIcon::Mode mode = selected ? QIcon::Selected : QIcon::Normal;
         if (selected) { icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::On); }
@@ -108,7 +134,12 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
         QRect textRect = rect; textRect.setLeft(iconRect.right() + 12); textRect.setRight(rect.right() - 40);
         painter->setPen(selected ? Qt::white : QColor(200, 200, 200));
-        QFont f = m_window->font(); f.setPointSize(10); if (selected) f.setBold(true); painter->setFont(f);
+
+        QFont f = m_window->font();
+        f.setPointSize(FONT_SIZE_BASE);
+        if (selected) f.setBold(true);
+        painter->setFont(f);
+
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
 
         QString count = index.data(Qt::UserRole + 2).toString();
@@ -116,7 +147,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
             int badgeW = 24; int badgeH = 18;
             QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH/2, badgeW, badgeH);
             painter->setPen(selected ? Qt::white : m_window->currentAccentColor());
-            QFont bf = f; bf.setBold(true); bf.setPointSize(9); painter->setFont(bf);
+            QFont bf = f; bf.setBold(true); bf.setPointSize(FONT_SIZE_BASE - 1); painter->setFont(bf);
             painter->drawText(badgeRect, Qt::AlignCenter, count);
         }
     }
@@ -143,7 +174,7 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         QRect iconRect(rect.left() + 10, rect.center().y() - iconDim/2, iconDim, iconDim);
         icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
         QRect textRect = rect; textRect.setLeft(iconRect.right() + 15); textRect.setRight(rect.right() - 40);
-        QFont f = painter->font(); f.setBold(true); f.setPointSize(10); painter->setFont(f);
+        QFont f = painter->font(); f.setBold(true); f.setPointSize(FONT_SIZE_BASE); painter->setFont(f);
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
     } else {
         int textH = 24; if (rect.height() < 60) textH = 0;
@@ -154,7 +185,7 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
         if (textH > 0) {
             QRect textRect(rect.left() + 2, iconRect.bottom() + 2, rect.width() - 4, textH);
-            QFont f = painter->font(); f.setPointSize(9); painter->setFont(f);
+            QFont f = painter->font(); f.setPointSize(FONT_SIZE_BASE - 1); painter->setFont(f);
             QTextOption opt; opt.setAlignment(Qt::AlignCenter); opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
             painter->drawText(textRect, text, opt);
         }
@@ -203,10 +234,17 @@ void ModernButton::paintEvent(QPaintEvent *) {
 // ============================================================================
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(nullptr) {
-    // FIX: Pointer nullen, damit er sauber ist
+    // Sicherstellen, dass der Pointer null ist, falls wir ihn nicht erstellen
     m_titleBarWidget = nullptr;
 
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+
+    // Globale Schrift anpassen für Android
+#ifdef Q_OS_ANDROID
+    QFont f = this->font();
+    f.setPointSize(FONT_SIZE_BASE);
+    this->setFont(f);
+#endif
 
     m_profileManager = new UiProfileManager(this);
     connect(m_profileManager, &UiProfileManager::profileChanged, this, &MainWindow::applyProfile);
@@ -472,7 +510,10 @@ void MainWindow::setupUi() {
     setupSidebar();
     m_rightStack = new QStackedWidget(this);
     m_overviewContainer = new QWidget(this); m_overviewContainer->installEventFilter(this);
-    QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer); overviewLayout->setContentsMargins(30, 30, 30, 30);
+
+    QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
+    // ANPASSUNG: Kleinere Margins für Android
+    overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW);
 
     QHBoxLayout *topBar = new QHBoxLayout();
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Back"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
@@ -522,12 +563,21 @@ void MainWindow::setupSidebar() {
     stripLayout->addWidget(btnStripMenu, 0, Qt::AlignHCenter); stripLayout->addStretch();
     m_mainSplitter->addWidget(m_sidebarStrip);
 
-    m_sidebarContainer = new QWidget(this); m_sidebarContainer->setFixedWidth(250);
+    m_sidebarContainer = new QWidget(this);
+    // ANPASSUNG: Dynamische Breite
+    m_sidebarContainer->setFixedWidth(SIDEBAR_WIDTH);
+
     QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
 
     QWidget *header = new QWidget(m_sidebarContainer); header->setFixedHeight(70);
     QHBoxLayout *headerLay = new QHBoxLayout(header); headerLay->setContentsMargins(20, 20, 20, 0);
-    QLabel *lblTitle = new QLabel("Blop Notes", header); lblTitle->setStyleSheet("font-size: 18px; font-weight: bold; color: white;"); headerLay->addWidget(lblTitle);
+    QLabel *lblTitle = new QLabel("Blop Notes", header);
+
+    // ANPASSUNG: Schriftgröße
+    QString headerStyle = QString("font-size: %1px; font-weight: bold; color: white;").arg(FONT_SIZE_HEADER);
+    lblTitle->setStyleSheet(headerStyle);
+
+    headerLay->addWidget(lblTitle);
     m_closeSidebarBtn = new QPushButton("«", header); m_closeSidebarBtn->setFixedSize(24,24); m_closeSidebarBtn->setCursor(Qt::PointingHandCursor); m_closeSidebarBtn->setStyleSheet("QPushButton { background: transparent; color: #888; border: none; font-size: 16px; } QPushButton:hover { color: white; background: #333; border-radius: 4px; }");
     connect(m_closeSidebarBtn, &QPushButton::clicked, this, &MainWindow::onToggleSidebar); headerLay->addStretch(); headerLay->addWidget(m_closeSidebarBtn); layout->addWidget(header);
 
@@ -692,9 +742,19 @@ void MainWindow::updateOverviewBackButton() {
 }
 
 void MainWindow::setupRightSidebar() {
-    m_rightSidebar = new QWidget(this); m_rightSidebar->setFixedWidth(250); m_rightSidebar->hide();
+    m_rightSidebar = new QWidget(this);
+    // ANPASSUNG: Dynamische Breite
+    m_rightSidebar->setFixedWidth(SIDEBAR_WIDTH);
+
+    m_rightSidebar->hide();
     QVBoxLayout *layout = new QVBoxLayout(m_rightSidebar); layout->setContentsMargins(20, 20, 20, 20); layout->setSpacing(15);
-    QHBoxLayout *header = new QHBoxLayout; QLabel *title = new QLabel("Settings"); title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;"); header->addWidget(title); header->addStretch();
+    QHBoxLayout *header = new QHBoxLayout; QLabel *title = new QLabel("Settings");
+
+    // ANPASSUNG: Schriftgröße
+    QString headerStyle = QString("font-size: %1px; font-weight: bold; color: white;").arg(FONT_SIZE_HEADER - 2); // Etwas kleiner als Main Header
+    title->setStyleSheet(headerStyle);
+
+    header->addWidget(title); header->addStretch();
     ModernButton *closeBtn = new ModernButton(this); closeBtn->setIcon(createModernIcon("close", Qt::white)); closeBtn->setFixedSize(30,30); connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar); header->addWidget(closeBtn); layout->addLayout(header);
     m_lblActiveNote = new QLabel("No Note", m_rightSidebar); m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;"); m_lblActiveNote->setWordWrap(true); m_lblActiveNote->setAlignment(Qt::AlignCenter); layout->addWidget(m_lblActiveNote);
 
@@ -777,13 +837,24 @@ void MainWindow::onPageGridSpacingSliderChanged(int value) { m_gridSpacingTimer-
 void MainWindow::applyDelayedGridSpacing() { CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setGridSize(m_sliderGridSpacing->value()); } }
 
 void MainWindow::animateSidebar(bool show) {
-    int start = show ? 0 : 250; int end = show ? 250 : 0; m_isSidebarOpen = show; if (show) { m_sidebarContainer->setVisible(true); updateSidebarState(); }
+    // ANPASSUNG: Dynamische Breite für Animation
+    int start = show ? 0 : SIDEBAR_WIDTH;
+    int end = show ? SIDEBAR_WIDTH : 0;
+
+    m_isSidebarOpen = show; if (show) { m_sidebarContainer->setVisible(true); updateSidebarState(); }
     QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "maximumWidth"); anim->setDuration(250); anim->setStartValue(start); anim->setEndValue(end); anim->setEasingCurve(QEasingCurve::OutCubic);
     connect(anim, &QPropertyAnimation::finished, [this, show](){ if (!show) { m_sidebarContainer->hide(); updateSidebarState(); } }); anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 void MainWindow::onToggleSidebar() { bool isVisible = m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0; animateSidebar(!isVisible); }
 void MainWindow::updateSidebarState() { bool isEditor = (m_rightStack->currentWidget() == m_editorContainer); if (m_floatingTools) { m_floatingTools->setVisible(isEditor); } if (m_isSidebarOpen) { m_sidebarStrip->hide(); btnEditorMenu->hide(); return; } if (isEditor) { m_sidebarStrip->hide(); btnEditorMenu->show(); } else { m_sidebarStrip->show(); btnEditorMenu->hide(); } }
-void MainWindow::animateRightSidebar(bool show) { int start = show ? 0 : 250; int end = show ? 250 : 0; m_rightSidebar->setVisible(true); QPropertyAnimation *anim = new QPropertyAnimation(m_rightSidebar, "maximumWidth"); anim->setDuration(250); anim->setStartValue(start); anim->setEndValue(end); anim->setEasingCurve(QEasingCurve::OutCubic); connect(anim, &QPropertyAnimation::finished, [this, show](){ if (!show) m_rightSidebar->hide(); }); anim->start(QAbstractAnimation::DeleteWhenStopped); }
+
+void MainWindow::animateRightSidebar(bool show) {
+    // ANPASSUNG: Dynamische Breite für Animation
+    int start = show ? 0 : SIDEBAR_WIDTH;
+    int end = show ? SIDEBAR_WIDTH : 0;
+
+    m_rightSidebar->setVisible(true); QPropertyAnimation *anim = new QPropertyAnimation(m_rightSidebar, "maximumWidth"); anim->setDuration(250); anim->setStartValue(start); anim->setEndValue(end); anim->setEasingCurve(QEasingCurve::OutCubic); connect(anim, &QPropertyAnimation::finished, [this, show](){ if (!show) m_rightSidebar->hide(); }); anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
 
 void MainWindow::onToggleRightSidebar() {
     bool isVisible = m_rightSidebar->isVisible() && m_rightSidebar->width() > 0;

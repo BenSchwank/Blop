@@ -42,7 +42,13 @@ void UiProfileManager::ensureDefaults() {
     tablet.buttonSize = 56;
     m_profiles.append(tablet);
 
+    // ANPASSUNG: Auf Android standardmäßig das Tablet-Profil nutzen
+#ifdef Q_OS_ANDROID
+    m_currentId = tablet.id;
+#else
     m_currentId = desktop.id;
+#endif
+
     saveProfiles();
     emit listChanged();
 }
