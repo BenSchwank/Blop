@@ -54,14 +54,14 @@ static const int ROW_HEIGHT_ITEM = 64;
 static const int FONT_SIZE_BASE = 16;
 static const int FONT_SIZE_HEADER = 22;
 
-// Abstände für Notch und Navigationsleiste
-static const int MARGIN_ANDROID_TOP = 60;
-static const int MARGIN_ANDROID_BOTTOM = 60;
+// ANPASSUNG: Ränder für Statusbar (oben). Unten machen wir es manuell im ResizeEvent.
+static const int MARGIN_ANDROID_TOP = 50;
 static const int MARGIN_ANDROID_SIDE = 16;
 
 // FAB Konfiguration Android
 static const int FAB_SIZE_ANDROID = 56; // Standard Material Size
-static const int FAB_BOTTOM_OFFSET = 30; // Abstand ZUSÄTZLICH zum Margin
+// Dies bestimmt, wie weit die Buttons vom unteren Bildschirmrand entfernt sind
+static const int FAB_DISTANCE_FROM_BOTTOM = 30;
 #else
 static const int SIDEBAR_WIDTH = 250;
 static const int ROW_HEIGHT_HEADER = 40;
@@ -476,7 +476,7 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         btn->setIconSize(QSize(iconSize, iconSize));
     }
 
-    // FIX: Auf Android Standardgröße erzwingen
+    // FIX: Auf Android IMMER 56px Größe für beide FABs erzwingen
     int fabS;
 #ifdef Q_OS_ANDROID
     fabS = FAB_SIZE_ANDROID; // 56px fixed
@@ -484,6 +484,7 @@ void MainWindow::applyProfile(const UiProfile &profile) {
     fabS = btnSize + 16;
 #endif
 
+    // Styling und Größe für RECHTEN Button (Note)
     if (m_fabNote) {
         m_fabNote->setFixedSize(fabS, fabS);
         QString c = m_currentAccentColor.name();
@@ -492,6 +493,17 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         int fs = r + 4;
         m_fabNote->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
                                      .arg(c, c_light).arg(r).arg(fs));
+    }
+
+    // Styling und Größe für LINKEN Button (Folder)
+    if (m_fabFolder) {
+        m_fabFolder->setFixedSize(fabS, fabS);
+        QString c = m_currentAccentColor.name();
+        QString c_light = m_currentAccentColor.lighter(130).name();
+        int r = fabS / 2;
+        int fs = r + 4;
+        m_fabFolder->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
+                                       .arg(c, c_light).arg(r).arg(fs));
     }
 
     if (m_comboProfiles) {
@@ -564,7 +576,7 @@ void MainWindow::setupUi() {
 
     // ANPASSUNG: Spezifische Margins für Android (oben/unten größer für Statusbar/Nav)
 #ifdef Q_OS_ANDROID
-    overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, MARGIN_ANDROID_TOP, MARGIN_ANDROID_SIDE, MARGIN_ANDROID_BOTTOM);
+    overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, MARGIN_ANDROID_TOP, MARGIN_ANDROID_SIDE, 120); // 120 unten, damit Button Platz hat
 #else
     overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW);
 #endif
@@ -592,10 +604,7 @@ void MainWindow::setupUi() {
     connect(m_fileListView, &QWidget::customContextMenuRequested, [this](const QPoint &pos){ QModelIndex index = m_fileListView->indexAt(pos); if (index.isValid()) showContextMenu(m_fileListView->mapToGlobal(pos), index); });
     overviewLayout->addWidget(m_fileListView);
 
-    m_fabNote = new QPushButton("+", m_overviewContainer); m_fabNote->setCursor(Qt::PointingHandCursor);
-    // Initialgröße (wird in applyProfile angepasst)
-    m_fabNote->setFixedSize(56, 56);
-
+    m_fabNote = new QPushButton("+", m_overviewContainer); m_fabNote->setCursor(Qt::PointingHandCursor); m_fabNote->setFixedSize(56, 56);
     QGraphicsDropShadowEffect* shadow1 = new QGraphicsDropShadowEffect(this); shadow1->setBlurRadius(30); shadow1->setOffset(0, 8); shadow1->setColor(QColor(0,0,0,100)); m_fabNote->setGraphicsEffect(shadow1); connect(m_fabNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
     m_editorContainer = new QWidget(this); m_editorContainer->installEventFilter(this);
@@ -646,7 +655,7 @@ void MainWindow::setupSidebar() {
 
     // ANPASSUNG: Ränder auch für Sidebar
 #ifdef Q_OS_ANDROID
-    layout->setContentsMargins(0, MARGIN_ANDROID_TOP, 0, MARGIN_ANDROID_BOTTOM);
+    layout->setContentsMargins(0, MARGIN_ANDROID_TOP, 0, 0); // Unten 0, da wir den Button absolut setzen
 #else
     layout->setContentsMargins(0, 0, 0, 0);
 #endif
@@ -683,24 +692,22 @@ void MainWindow::setupSidebar() {
     m_navSidebar->setCurrentRow(1);
     connect(m_navSidebar, &QListWidget::itemClicked, this, &MainWindow::onNavItemClicked); layout->addWidget(m_navSidebar); updateSidebarBadges();
 
-    QWidget *bottomBar = new QWidget(m_sidebarContainer); bottomBar->setFixedHeight(60);
+    // Bottom Bar (für Settings)
+    QWidget *bottomBar = new QWidget(m_sidebarContainer);
+
+    // Höhe anpassen für Android (damit Button nicht verdeckt wird)
+#ifdef Q_OS_ANDROID
+    bottomBar->setFixedHeight(80);
+#else
+    bottomBar->setFixedHeight(60);
+#endif
+
     QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar); bottomLay->setContentsMargins(15, 0, 15, 15);
     m_btnSidebarSettings = new QPushButton(bottomBar); m_btnSidebarSettings->setIcon(createModernIcon("settings", QColor(150,150,150))); m_btnSidebarSettings->setIconSize(QSize(24, 24)); m_btnSidebarSettings->setFixedSize(40, 40); m_btnSidebarSettings->setCursor(Qt::PointingHandCursor); m_btnSidebarSettings->setStyleSheet("QPushButton { background: #252526; border-radius: 20px; border: 1px solid #444; } QPushButton:hover { background: #333; border: 1px solid #555; }");
     connect(m_btnSidebarSettings, &QPushButton::clicked, this, &MainWindow::onOpenSettings); bottomLay->addWidget(m_btnSidebarSettings); bottomLay->addStretch(); layout->addWidget(bottomBar);
 
-    m_fabFolder = new QPushButton("+", m_sidebarContainer); m_fabFolder->setCursor(Qt::PointingHandCursor);
-    // FIX: Standardgröße 56px auch für den linken Button
-    m_fabFolder->setFixedSize(56, 56);
-
+    m_fabFolder = new QPushButton("+", m_sidebarContainer); m_fabFolder->setCursor(Qt::PointingHandCursor); m_fabFolder->setFixedSize(40, 40);
     QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder); m_mainSplitter->addWidget(m_sidebarContainer);
-
-    // FAB Style auch für den linken Button anwenden
-    QString c = m_currentAccentColor.name();
-    QString c_light = m_currentAccentColor.lighter(130).name();
-    int r = 56 / 2;
-    int fs = r + 4;
-    m_fabFolder->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
-                                   .arg(c, c_light).arg(r).arg(fs));
 }
 
 void MainWindow::updateSidebarBadges() {
@@ -1019,8 +1026,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 
 #ifdef Q_OS_ANDROID
     fabSize = FAB_SIZE_ANDROID;
-    // Auf Android viel höher schieben, damit Nav-Leiste nicht überdeckt
-    bottomOffset = MARGIN_ANDROID_BOTTOM + FAB_BOTTOM_OFFSET;
+    // Auf Android viel niedriger setzen (näher am Rand), aber sicher
+    bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
 #else
     if (isTouchMode()) bottomOffset = 100;
 #endif
@@ -1038,6 +1045,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     if (m_fabFolder && m_sidebarContainer) {
         // Positionierung relativ zum Sidebar Container
         // Gleiche Höhe (y) wie der rechte Button
+        // Etwas weiter weg vom linken Rand (20px), damit er nicht mit Settings Button kollidiert
         int x = m_sidebarContainer->width() - fabSize - 20;
         int y = m_sidebarContainer->height() - fabSize - bottomOffset;
         m_fabFolder->move(x, y);
