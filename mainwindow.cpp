@@ -43,7 +43,7 @@
 #include <QLocale>
 
 // ============================================================================
-// KONFIGURATION FÜR ANDROID SCALING
+// KONFIGURATION FÜR ANDROID SCALING & MARGINS
 // ============================================================================
 #ifdef Q_OS_ANDROID
 static const int SIDEBAR_WIDTH = 300; // Breiter für Touch
@@ -51,7 +51,11 @@ static const int ROW_HEIGHT_HEADER = 50;
 static const int ROW_HEIGHT_ITEM = 60; // Höher für Touch
 static const int FONT_SIZE_BASE = 14;  // Größere Schrift
 static const int FONT_SIZE_HEADER = 20;
-static const int MARGIN_OVERVIEW = 10; // Weniger Rand auf kleinen Screens
+
+// NEU: Größere Sicherheitsabstände für Statusleiste (oben) und Nav-Bar (unten)
+static const int MARGIN_ANDROID_TOP = 45;
+static const int MARGIN_ANDROID_BOTTOM = 45;
+static const int MARGIN_ANDROID_SIDE = 15;
 #else
 static const int SIDEBAR_WIDTH = 250;
 static const int ROW_HEIGHT_HEADER = 40;
@@ -512,8 +516,13 @@ void MainWindow::setupUi() {
     m_overviewContainer = new QWidget(this); m_overviewContainer->installEventFilter(this);
 
     QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
-    // ANPASSUNG: Kleinere Margins für Android
+
+    // ANPASSUNG: Spezifische Margins für Android (oben/unten größer)
+#ifdef Q_OS_ANDROID
+    overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, MARGIN_ANDROID_TOP, MARGIN_ANDROID_SIDE, MARGIN_ANDROID_BOTTOM);
+#else
     overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW);
+#endif
 
     QHBoxLayout *topBar = new QHBoxLayout();
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Back"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
@@ -567,7 +576,16 @@ void MainWindow::setupSidebar() {
     // ANPASSUNG: Dynamische Breite
     m_sidebarContainer->setFixedWidth(SIDEBAR_WIDTH);
 
-    QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
+    QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
+
+    // ANPASSUNG: Ränder auch für Sidebar
+#ifdef Q_OS_ANDROID
+    layout->setContentsMargins(0, MARGIN_ANDROID_TOP, 0, MARGIN_ANDROID_BOTTOM);
+#else
+    layout->setContentsMargins(0, 0, 0, 0);
+#endif
+
+    layout->setSpacing(0);
 
     QWidget *header = new QWidget(m_sidebarContainer); header->setFixedHeight(70);
     QHBoxLayout *headerLay = new QHBoxLayout(header); headerLay->setContentsMargins(20, 20, 20, 0);
