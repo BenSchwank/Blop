@@ -48,16 +48,15 @@
 // KONFIGURATION FÜR ANDROID SCALING & MARGINS
 // ============================================================================
 #ifdef Q_OS_ANDROID
-// Sidebar etwas schmaler als Fullscreen, damit man sieht, dass es ein Drawer ist
 static const int SIDEBAR_WIDTH = 280;
 static const int ROW_HEIGHT_HEADER = 50;
-static const int ROW_HEIGHT_ITEM = 64; // Schön hoch für Finger
+static const int ROW_HEIGHT_ITEM = 64;
 static const int FONT_SIZE_BASE = 16;
 static const int FONT_SIZE_HEADER = 22;
 
-// Sicherheitsabstände für Notch und Nav-Bar
-static const int MARGIN_ANDROID_TOP = 50;
-static const int MARGIN_ANDROID_BOTTOM = 50;
+// ANPASSUNG: Noch größere Abstände (60px) für Kamera-Notch und Navigationsleiste
+static const int MARGIN_ANDROID_TOP = 60;
+static const int MARGIN_ANDROID_BOTTOM = 60;
 static const int MARGIN_ANDROID_SIDE = 16;
 #else
 static const int SIDEBAR_WIDTH = 250;
@@ -111,7 +110,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         int lineX = textRect.left() + textW + 10; int lineY = option.rect.center().y();
         painter->setPen(QColor(60, 60, 60)); painter->drawLine(lineX, lineY, option.rect.right() - 15, lineY);
     } else {
-        QRect rect = option.rect.adjusted(8 + indent, 4, -8, -4); // Mehr Margin zwischen Items
+        QRect rect = option.rect.adjusted(8 + indent, 4, -8, -4);
         bool selected = (option.state & QStyle::State_Selected);
         bool hover = (option.state & QStyle::State_MouseOver);
 
@@ -171,7 +170,6 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
     if (option.state & QStyle::State_Selected) bgColor = m_window->currentAccentColor().darker(150);
     else if (option.state & QStyle::State_MouseOver) bgColor = QColor(0x2A2E3F);
 
-    // Runderer Look auf Android
     painter->setBrush(bgColor); painter->setPen(Qt::NoPen); painter->drawRoundedRect(rect, 12, 12);
 
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
@@ -179,7 +177,6 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
     QString text = index.data(Qt::DisplayRole).toString();
     painter->setPen(Qt::white);
 
-    // Logik für Darstellung (Liste oder Grid)
     bool isWideList = rect.width() > (rect.height() * 1.5);
 
     if (isWideList) {
@@ -191,13 +188,11 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         QFont f = painter->font(); f.setBold(true); f.setPointSize(FONT_SIZE_BASE); painter->setFont(f);
         painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, painter->fontMetrics().elidedText(text, Qt::ElideRight, textRect.width()));
     } else {
-        // Grid View Style
-        int textH = 30; // Mehr Platz für Text
+        int textH = 30;
         int maxIconH = rect.height() - textH - 10;
         int maxIconW = rect.width() - 20;
         int iconDim = qMin(maxIconW, maxIconH);
 
-        // Icon zentrieren
         int contentHeight = iconDim + textH;
         int startY = rect.top() + (rect.height() - contentHeight) / 2;
         QRect iconRect(rect.center().x() - iconDim/2, startY, iconDim, iconDim);
@@ -212,7 +207,6 @@ void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         }
     }
 
-    // Kontext-Menü Punkte (3 Dots)
     QIcon menuIcon = m_window->createModernIcon("more_vert", Qt::gray);
     int dotSize = 24;
     QRect menuRect(rect.right() - dotSize - 4, rect.top() + 4, dotSize, dotSize);
@@ -225,7 +219,7 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
     if (event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent *me = static_cast<QMouseEvent*>(event);
         QRect rect = option.rect.adjusted(4,4,-4,-4);
-        int clickArea = 50; // Größerer Klickbereich für Touch
+        int clickArea = 50;
         QRect menuRect(rect.right() - clickArea, rect.top(), clickArea, rect.height());
         if (menuRect.contains(me->pos())) { m_window->showContextMenu(QCursor::pos(), index); return true; }
     }
@@ -234,7 +228,6 @@ bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
 
 // --- ModernButton ---
 ModernButton::ModernButton(QWidget *parent) : QToolButton(parent), m_scale(1.0), m_accentColor(Qt::white) {
-    // FIX: Using buttonScale property
     m_anim = new QPropertyAnimation(this, "buttonScale", this);
     m_anim->setDuration(150);
     m_anim->setEasingCurve(QEasingCurve::OutQuad);
@@ -242,7 +235,6 @@ ModernButton::ModernButton(QWidget *parent) : QToolButton(parent), m_scale(1.0),
     setCursor(Qt::PointingHandCursor); setStyleSheet("border: none; background: transparent;");
     setIconSize(QSize(24, 24));
 }
-// FIX: double instead of qreal
 void ModernButton::setButtonScale(double s) { m_scale = s; update(); }
 void ModernButton::setAccentColor(QColor c) { m_accentColor = c; update(); }
 void ModernButton::enterEvent(QEnterEvent *event) { m_anim->stop(); m_anim->setEndValue(1.2); m_anim->start(); QToolButton::enterEvent(event); }
@@ -265,7 +257,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
 
-    // Globale Schrift anpassen für Android
 #ifdef Q_OS_ANDROID
     QFont f = this->font();
     f.setPointSize(FONT_SIZE_BASE);
@@ -281,7 +272,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_activeToolType = CanvasView::ToolType::Pen;
     m_penOnlyMode = true;
     m_lblActiveNote = nullptr;
-    m_isSidebarOpen = true; // Auf Desktop an, auf Android wird es unten angepasst
+    m_isSidebarOpen = true;
 
     m_autoSaveTimer = new QTimer(this);
     m_autoSaveTimer->setInterval(1500);
@@ -301,13 +292,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 
     // Initiale Sidebar Status Logic
 #ifdef Q_OS_ANDROID
-    // Android: Sidebar startet geschlossen, Content ist maximiert
     m_isSidebarOpen = false;
     m_sidebarContainer->hide();
     m_sidebarStrip->hide();
-    btnEditorMenu->show(); // Hamburger Menu immer zeigen
-
-    // Verhindern, dass Splitter den Content klein macht
+    btnEditorMenu->show();
     m_mainSplitter->setSizes(QList<int>({0, 1000}));
 #else
     updateSidebarState();
@@ -315,14 +303,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 
     updateOverviewBackButton();
 
-    // Einmaliges Update Layout für Grid
     QTimer::singleShot(100, this, &MainWindow::updateGrid);
-
     QTimer::singleShot(2000, this, &MainWindow::checkForUpdates);
 }
 MainWindow::~MainWindow() {}
 
-// ... [checkForUpdates code bleibt gleich] ...
 void MainWindow::checkForUpdates() {
     if (!m_netManager) {
         m_netManager = new QNetworkAccessManager(this);
@@ -428,11 +413,9 @@ void MainWindow::updateGrid() {
 
 #ifdef Q_OS_ANDROID
     // === ANDROID RESPONSIVE GRID LOGIC ===
-    // Wir ignorieren hier das Profil teilweise und berechnen basierend auf Screen Width
     int screenWidth = m_fileListView->width();
     if(screenWidth <= 0) screenWidth = QApplication::primaryScreen()->availableGeometry().width();
 
-    // Ziel: ca. 2 bis 3 Spalten auf Phone
     int columns = 2; // Default Phone Portrait
     if (screenWidth > 600) columns = 4; // Tablet
     if (screenWidth > 900) columns = 6;
@@ -440,28 +423,20 @@ void MainWindow::updateGrid() {
     int spacing = 15;
     m_fileListView->setSpacing(spacing);
 
-    // Breite minus Spacing berechnen
     int totalSpacing = (columns + 1) * spacing;
     int itemWidth = (screenWidth - totalSpacing) / columns;
-
-    // Höhe etwas größer für Text
     int itemHeight = itemWidth + 40;
 
     m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
-    m_fileListView->setIconSize(QSize(itemWidth - 20, itemWidth - 20)); // Großes Icon
-
-    // Grid Size setzen für Layout
+    m_fileListView->setIconSize(QSize(itemWidth - 20, itemWidth - 20));
     m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
 
 #else
-    // === DESKTOP LOGIC (wie bisher) ===
     int s = m_currentProfile.iconSize;
     if (s <= 20) s = 20;
-
     QSize itemS(s, s);
     m_fileListView->setItemSize(itemS);
     m_fileListView->setIconSize(itemS);
-
     if (m_currentProfile.snapToGrid) {
         int gridW = itemS.width() + m_currentProfile.gridSpacing;
         int gridH = itemS.height() + m_currentProfile.gridSpacing;
@@ -584,6 +559,14 @@ void MainWindow::setupUi() {
 #endif
 
     QHBoxLayout *topBar = new QHBoxLayout();
+
+    // NEU: Menu Button for Overview
+    btnOverviewMenu = new ModernButton(this);
+    btnOverviewMenu->setIcon(createModernIcon("menu", Qt::white));
+    btnOverviewMenu->setToolTip("Menu");
+    connect(btnOverviewMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
+    topBar->addWidget(btnOverviewMenu);
+
     btnBackOverview = new ModernButton(this); btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white)); btnBackOverview->setToolTip("Back"); btnBackOverview->hide(); connect(btnBackOverview, &QAbstractButton::clicked, this, &MainWindow::onNavigateUp); topBar->addWidget(btnBackOverview);
     topBar->addStretch(); overviewLayout->addLayout(topBar);
 
@@ -952,7 +935,40 @@ void MainWindow::animateSidebar(bool show) {
     connect(anim, &QPropertyAnimation::finished, [this, show](){ if (!show) { m_sidebarContainer->hide(); updateSidebarState(); } }); anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 void MainWindow::onToggleSidebar() { bool isVisible = m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0; animateSidebar(!isVisible); }
-void MainWindow::updateSidebarState() { bool isEditor = (m_rightStack->currentWidget() == m_editorContainer); if (m_floatingTools) { m_floatingTools->setVisible(isEditor); } if (m_isSidebarOpen) { m_sidebarStrip->hide(); btnEditorMenu->hide(); return; } if (isEditor) { m_sidebarStrip->hide(); btnEditorMenu->show(); } else { m_sidebarStrip->show(); btnEditorMenu->hide(); } }
+
+// ANPASSUNG: Logik für Menü-Button Sichtbarkeit
+void MainWindow::updateSidebarState() {
+    bool isEditor = (m_rightStack->currentWidget() == m_editorContainer);
+    if (m_floatingTools) m_floatingTools->setVisible(isEditor);
+
+#ifdef Q_OS_ANDROID
+    m_sidebarStrip->hide();
+
+    if (isEditor) {
+        btnEditorMenu->show();
+        btnOverviewMenu->hide();
+    } else {
+        btnEditorMenu->hide();
+        // Menü-Button in der Übersicht immer anzeigen, damit man Sidebar öffnen kann
+        btnOverviewMenu->show();
+    }
+#else
+    if (m_isSidebarOpen) {
+        m_sidebarStrip->hide();
+        btnEditorMenu->hide();
+        btnOverviewMenu->hide();
+    } else {
+        if (isEditor) {
+            m_sidebarStrip->hide();
+            btnEditorMenu->show();
+        } else {
+            m_sidebarStrip->show();
+            btnEditorMenu->hide();
+            btnOverviewMenu->hide();
+        }
+    }
+#endif
+}
 
 void MainWindow::animateRightSidebar(bool show) {
     // ANPASSUNG: Dynamische Breite für Animation

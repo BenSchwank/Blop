@@ -46,7 +46,6 @@ private:
 class ModernButton : public QToolButton
 {
     Q_OBJECT
-    // FIX: Renamed to buttonScale to avoid conflicts and used double
     Q_PROPERTY(double buttonScale READ buttonScale WRITE setButtonScale)
 public:
     explicit ModernButton(QWidget *parent = nullptr);
@@ -199,6 +198,9 @@ private:
     QWidget *m_sidebarStrip;
     ModernButton *btnStripMenu;
     ModernButton *btnEditorMenu;
+
+    // NEU: Button für das Menü in der Übersicht
+    ModernButton *btnOverviewMenu;
 
     bool m_isSidebarOpen;
 
