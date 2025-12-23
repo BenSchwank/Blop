@@ -54,10 +54,14 @@ static const int ROW_HEIGHT_ITEM = 64;
 static const int FONT_SIZE_BASE = 16;
 static const int FONT_SIZE_HEADER = 22;
 
-// ANPASSUNG: Noch größere Abstände (60px) für Kamera-Notch und Navigationsleiste
+// Abstände für Notch und Navigationsleiste
 static const int MARGIN_ANDROID_TOP = 60;
 static const int MARGIN_ANDROID_BOTTOM = 60;
 static const int MARGIN_ANDROID_SIDE = 16;
+
+// FAB Konfiguration Android
+static const int FAB_SIZE_ANDROID = 56; // Standard Material Size
+static const int FAB_BOTTOM_OFFSET = 30; // Abstand ZUSÄTZLICH zum Margin
 #else
 static const int SIDEBAR_WIDTH = 250;
 static const int ROW_HEIGHT_HEADER = 40;
@@ -130,7 +134,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
         int iconSize = 24;
 #ifdef Q_OS_ANDROID
-        iconSize = 32; // Deutlich größere Icons in der Sidebar
+        iconSize = 32;
 #endif
 
         QRect iconRect(rect.left() + iconOffset, rect.center().y() - iconSize/2, iconSize, iconSize);
@@ -472,7 +476,14 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         btn->setIconSize(QSize(iconSize, iconSize));
     }
 
-    int fabS = btnSize + 16;
+    // FIX: Auf Android Standardgröße erzwingen
+    int fabS;
+#ifdef Q_OS_ANDROID
+    fabS = FAB_SIZE_ANDROID; // 56px fixed
+#else
+    fabS = btnSize + 16;
+#endif
+
     if (m_fabNote) {
         m_fabNote->setFixedSize(fabS, fabS);
         QString c = m_currentAccentColor.name();
@@ -581,7 +592,10 @@ void MainWindow::setupUi() {
     connect(m_fileListView, &QWidget::customContextMenuRequested, [this](const QPoint &pos){ QModelIndex index = m_fileListView->indexAt(pos); if (index.isValid()) showContextMenu(m_fileListView->mapToGlobal(pos), index); });
     overviewLayout->addWidget(m_fileListView);
 
-    m_fabNote = new QPushButton("+", m_overviewContainer); m_fabNote->setCursor(Qt::PointingHandCursor); m_fabNote->setFixedSize(56, 56);
+    m_fabNote = new QPushButton("+", m_overviewContainer); m_fabNote->setCursor(Qt::PointingHandCursor);
+    // Initialgröße (wird in applyProfile angepasst)
+    m_fabNote->setFixedSize(56, 56);
+
     QGraphicsDropShadowEffect* shadow1 = new QGraphicsDropShadowEffect(this); shadow1->setBlurRadius(30); shadow1->setOffset(0, 8); shadow1->setColor(QColor(0,0,0,100)); m_fabNote->setGraphicsEffect(shadow1); connect(m_fabNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
     m_editorContainer = new QWidget(this); m_editorContainer->installEventFilter(this);
@@ -674,8 +688,19 @@ void MainWindow::setupSidebar() {
     m_btnSidebarSettings = new QPushButton(bottomBar); m_btnSidebarSettings->setIcon(createModernIcon("settings", QColor(150,150,150))); m_btnSidebarSettings->setIconSize(QSize(24, 24)); m_btnSidebarSettings->setFixedSize(40, 40); m_btnSidebarSettings->setCursor(Qt::PointingHandCursor); m_btnSidebarSettings->setStyleSheet("QPushButton { background: #252526; border-radius: 20px; border: 1px solid #444; } QPushButton:hover { background: #333; border: 1px solid #555; }");
     connect(m_btnSidebarSettings, &QPushButton::clicked, this, &MainWindow::onOpenSettings); bottomLay->addWidget(m_btnSidebarSettings); bottomLay->addStretch(); layout->addWidget(bottomBar);
 
-    m_fabFolder = new QPushButton("+", m_sidebarContainer); m_fabFolder->setCursor(Qt::PointingHandCursor); m_fabFolder->setFixedSize(40, 40);
+    m_fabFolder = new QPushButton("+", m_sidebarContainer); m_fabFolder->setCursor(Qt::PointingHandCursor);
+    // FIX: Standardgröße 56px auch für den linken Button
+    m_fabFolder->setFixedSize(56, 56);
+
     QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder); m_mainSplitter->addWidget(m_sidebarContainer);
+
+    // FAB Style auch für den linken Button anwenden
+    QString c = m_currentAccentColor.name();
+    QString c_light = m_currentAccentColor.lighter(130).name();
+    int r = 56 / 2;
+    int fs = r + 4;
+    m_fabFolder->setStyleSheet(QString("QPushButton { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); color: white; border-radius: %3px; font-size: %4px; font-weight: 300; border: none; text-align: center; padding-bottom: 4px; }")
+                                   .arg(c, c_light).arg(r).arg(fs));
 }
 
 void MainWindow::updateSidebarBadges() {
@@ -935,40 +960,7 @@ void MainWindow::animateSidebar(bool show) {
     connect(anim, &QPropertyAnimation::finished, [this, show](){ if (!show) { m_sidebarContainer->hide(); updateSidebarState(); } }); anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 void MainWindow::onToggleSidebar() { bool isVisible = m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0; animateSidebar(!isVisible); }
-
-// ANPASSUNG: Logik für Menü-Button Sichtbarkeit
-void MainWindow::updateSidebarState() {
-    bool isEditor = (m_rightStack->currentWidget() == m_editorContainer);
-    if (m_floatingTools) m_floatingTools->setVisible(isEditor);
-
-#ifdef Q_OS_ANDROID
-    m_sidebarStrip->hide();
-
-    if (isEditor) {
-        btnEditorMenu->show();
-        btnOverviewMenu->hide();
-    } else {
-        btnEditorMenu->hide();
-        // Menü-Button in der Übersicht immer anzeigen, damit man Sidebar öffnen kann
-        btnOverviewMenu->show();
-    }
-#else
-    if (m_isSidebarOpen) {
-        m_sidebarStrip->hide();
-        btnEditorMenu->hide();
-        btnOverviewMenu->hide();
-    } else {
-        if (isEditor) {
-            m_sidebarStrip->hide();
-            btnEditorMenu->show();
-        } else {
-            m_sidebarStrip->show();
-            btnEditorMenu->hide();
-            btnOverviewMenu->hide();
-        }
-    }
-#endif
-}
+void MainWindow::updateSidebarState() { bool isEditor = (m_rightStack->currentWidget() == m_editorContainer); if (m_floatingTools) { m_floatingTools->setVisible(isEditor); } if (m_isSidebarOpen) { m_sidebarStrip->hide(); btnEditorMenu->hide(); return; } if (isEditor) { m_sidebarStrip->hide(); btnEditorMenu->show(); } else { m_sidebarStrip->show(); btnEditorMenu->hide(); } }
 
 void MainWindow::animateRightSidebar(bool show) {
     // ANPASSUNG: Dynamische Breite für Animation
@@ -1021,9 +1013,37 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     // ANPASSUNG: Grid bei Resize neu berechnen
     updateGrid();
 
-    int fabOffset = isTouchMode() ? 100 : 80;
-    if (m_fabNote && m_overviewContainer) { m_fabNote->move(m_overviewContainer->width() - fabOffset, m_overviewContainer->height() - fabOffset); m_fabNote->raise(); }
-    if (m_fabFolder && m_sidebarContainer) { int sidebarW = m_sidebarContainer->width(); int sidebarH = m_sidebarContainer->height(); int btnS = m_fabFolder->width(); m_fabFolder->move(sidebarW - btnS - 20, sidebarH - btnS - 20); m_fabFolder->raise(); }
+    // Berechnung des Offsets für die Buttons
+    int fabSize = 56;
+    int bottomOffset = 80; // Desktop Standard
+
+#ifdef Q_OS_ANDROID
+    fabSize = FAB_SIZE_ANDROID;
+    // Auf Android viel höher schieben, damit Nav-Leiste nicht überdeckt
+    bottomOffset = MARGIN_ANDROID_BOTTOM + FAB_BOTTOM_OFFSET;
+#else
+    if (isTouchMode()) bottomOffset = 100;
+#endif
+
+    // Rechter Button (Neue Notiz)
+    if (m_fabNote && m_overviewContainer) {
+        // Positionierung relativ zum Overview Container
+        int x = m_overviewContainer->width() - fabSize - 30; // 30px Rand rechts
+        int y = m_overviewContainer->height() - fabSize - bottomOffset;
+        m_fabNote->move(x, y);
+        m_fabNote->raise();
+    }
+
+    // Linker Button (Neuer Ordner) - im Sidebar Container
+    if (m_fabFolder && m_sidebarContainer) {
+        // Positionierung relativ zum Sidebar Container
+        // Gleiche Höhe (y) wie der rechte Button
+        int x = m_sidebarContainer->width() - fabSize - 20;
+        int y = m_sidebarContainer->height() - fabSize - bottomOffset;
+        m_fabFolder->move(x, y);
+        m_fabFolder->raise();
+    }
+
     if (m_renameOverlay) { m_renameOverlay->resize(size()); if (m_renameInput) m_renameInput->move(width()/2 - 150, height()/2 - 20); }
     if (m_editorTabs && m_floatingTools) { int top = 0; if (m_editorTabs->tabBar()) { QPoint tabsPos = m_editorTabs->mapTo(m_editorCenterWidget, QPoint(0,0)); top = tabsPos.y() + m_editorTabs->tabBar()->height(); } ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools); if (tb) tb->setTopBound(top); }
 }
