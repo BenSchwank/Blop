@@ -12,3 +12,4 @@ static const QColor ToolbarBorder = QColor(80,80,80);
 static const QColor Accent = QColor("#4FC3F7");
 static const QColor Text = QColor("#EEEEEE");
 }
+//
