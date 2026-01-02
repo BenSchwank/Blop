@@ -1,10 +1,6 @@
 #pragma once
 #include "Note.h"
-#include "moderntoolbar.h"
 #include "multipagenoteview.h"
-#include <QTabWidget>
-#include <QTextEdit>
-#include <QTimer>
 #include <QWidget>
 #include <functional>
 
@@ -16,22 +12,17 @@ public:
     void setNote(Note *note);
     Note *note() const { return note_; }
 
-    // NEU: Zugriff auf die View erlauben, damit MainWindow Zoom/Farbe steuern kann
+    // Zugriff auf die View für MainWindow
     MultiPageNoteView* view() const { return canvas_; }
 
     std::function<void(Note *)> onSaveRequested;
 
-protected:
-    bool eventFilter(QObject *, QEvent *) override;
-    void resizeEvent(QResizeEvent *) override;
-
 private:
     Note *note_{nullptr};
-    QTabWidget *tabs_{nullptr};
-    QTextEdit *text_{nullptr};
+
+    // Nur noch der Canvas, keine eigene Toolbar
     MultiPageNoteView *canvas_{nullptr};
-    ModernToolbar *toolbar_{nullptr};
-    QTimer textSaveDebounce_;
+
     void setupUi();
     void setupShortcuts();
 };

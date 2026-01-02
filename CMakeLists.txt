@@ -7,7 +7,6 @@ endif()
 
 project(Blop VERSION 0.1 LANGUAGES CXX)
 
-# UTF-8 für MSVC erzwingen (trotzdem gute Praxis)
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
@@ -23,8 +22,6 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 qt_add_executable(Blop
     main.cpp
-
-    # C++ Klassen (Widgets)
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
@@ -34,8 +31,6 @@ qt_add_executable(Blop
     freegridview.cpp
     multipagenoteview.cpp
     multipagenoteview.h
-
-    # Dialoge
     settingsdialog.cpp
     settingsdialog.h
     SettingsDialog.ui
@@ -43,8 +38,6 @@ qt_add_executable(Blop
     newnotedialog.cpp
     profileeditordialog.h
     profileeditordialog.cpp
-
-    # Manager & Logik
     notemanager.cpp
     notemanager.h
     noteeditor.cpp
@@ -54,7 +47,10 @@ qt_add_executable(Blop
     moderntoolbar.cpp
     moderntoolbar.h
 
-    # Hilfs-Dateien
+    # NEU: PageManager
+    pagemanager.h
+    pagemanager.cpp
+
     Note.h
     PageItem.h
     ToolMode.h
@@ -62,16 +58,12 @@ qt_add_executable(Blop
     UIStyles.h
     uiprofile.h
 
-    # Image-Provider (werden kompiliert, aber auf Windows nicht registriert)
     BlopAsyncImageProvider.h
     BlopAsyncImageProvider.cpp
     BlopImageResponse.h
     BlopImageResponse.cpp
 )
 
-# --- FIX: QML Modul NUR für Android registrieren ---
-# Auf Windows nutzen wir Widgets, daher brauchen wir keine QML-Typ-Registrierung.
-# Das verhindert den "illegal value" Fehler im qmltyperegistrar.
 if(ANDROID)
     qt_add_qml_module(Blop
         URI Blop
@@ -81,7 +73,6 @@ if(ANDROID)
     )
 endif()
 
-# Bibliotheken linken
 target_link_libraries(Blop PRIVATE
     Qt6::Widgets
     Qt6::Network
@@ -90,7 +81,6 @@ target_link_libraries(Blop PRIVATE
     Qt6::Qml
 )
 
-# Android Build Einstellungen
 if(ANDROID)
     set_target_properties(Blop PROPERTIES
         QT_ANDROID_COMPILE_SDK_VERSION "33"

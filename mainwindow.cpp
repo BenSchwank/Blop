@@ -5,6 +5,9 @@
 #include "moderntoolbar.h"
 #include "profileeditordialog.h"
 #include "newnotedialog.h"
+#include "multipagenoteview.h"
+#include "noteeditor.h"
+#include "notemanager.h"
 
 #include <QApplication>
 #include <QStyle>
@@ -54,13 +57,10 @@ static const int ROW_HEIGHT_ITEM = 64;
 static const int FONT_SIZE_BASE = 16;
 static const int FONT_SIZE_HEADER = 22;
 
-// ANPASSUNG: Ränder für Statusbar (oben). Unten machen wir es manuell im ResizeEvent.
 static const int MARGIN_ANDROID_TOP = 50;
 static const int MARGIN_ANDROID_SIDE = 16;
 
-// FAB Konfiguration Android
-static const int FAB_SIZE_ANDROID = 56; // Standard Material Size
-// Dies bestimmt, wie weit die Buttons vom unteren Bildschirmrand entfernt sind
+static const int FAB_SIZE_ANDROID = 56;
 static const int FAB_DISTANCE_FROM_BOTTOM = 30;
 #else
 static const int SIDEBAR_WIDTH = 250;
@@ -294,7 +294,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     applyProfile(m_profileManager->currentProfile());
     applyTheme();
 
-    // Initiale Sidebar Status Logic
 #ifdef Q_OS_ANDROID
     m_isSidebarOpen = false;
     m_sidebarContainer->hide();
@@ -394,7 +393,6 @@ void MainWindow::applyTheme() {
 
     if(m_rightSidebar) m_rightSidebar->setStyleSheet("background-color: #161925; border-left: 1px solid #1F2335;");
 
-    // Titelleiste nur stylen, wenn vorhanden
     if(m_titleBarWidget) m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
 
     auto getFabStyle = [&](int w) {
@@ -416,12 +414,11 @@ void MainWindow::updateGrid() {
     if (!m_fileListView) return;
 
 #ifdef Q_OS_ANDROID
-    // === ANDROID RESPONSIVE GRID LOGIC ===
     int screenWidth = m_fileListView->width();
     if(screenWidth <= 0) screenWidth = QApplication::primaryScreen()->availableGeometry().width();
 
-    int columns = 2; // Default Phone Portrait
-    if (screenWidth > 600) columns = 4; // Tablet
+    int columns = 2;
+    if (screenWidth > 600) columns = 4;
     if (screenWidth > 900) columns = 6;
 
     int spacing = 15;
@@ -476,15 +473,13 @@ void MainWindow::applyProfile(const UiProfile &profile) {
         btn->setIconSize(QSize(iconSize, iconSize));
     }
 
-    // FIX: Auf Android IMMER 56px Größe für beide FABs erzwingen
     int fabS;
 #ifdef Q_OS_ANDROID
-    fabS = FAB_SIZE_ANDROID; // 56px fixed
+    fabS = FAB_SIZE_ANDROID;
 #else
     fabS = btnSize + 16;
 #endif
 
-    // Styling und Größe für RECHTEN Button (Note)
     if (m_fabNote) {
         m_fabNote->setFixedSize(fabS, fabS);
         QString c = m_currentAccentColor.name();
@@ -495,7 +490,6 @@ void MainWindow::applyProfile(const UiProfile &profile) {
                                      .arg(c, c_light).arg(r).arg(fs));
     }
 
-    // Styling und Größe für LINKEN Button (Folder)
     if (m_fabFolder) {
         m_fabFolder->setFixedSize(fabS, fabS);
         QString c = m_currentAccentColor.name();
@@ -535,6 +529,7 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     else if (name == "drive") { p.drawPolygon(QPolygonF() << QPointF(32, 10) << QPointF(54, 50) << QPointF(10, 50)); }
     else if (name == "dropbox") { p.drawLine(16, 24, 32, 36); p.drawLine(32, 36, 48, 24); p.drawLine(48, 24, 32, 12); p.drawLine(32, 12, 16, 24); p.drawLine(16, 24, 16, 40); p.drawLine(16, 40, 32, 52); p.drawLine(32, 52, 48, 40); p.drawLine(48, 40, 48, 24); }
     else if (name == "onedrive") { p.drawEllipse(20, 24, 16, 14); p.drawEllipse(36, 20, 14, 14); }
+    else if (name == "pages") { p.drawRect(14, 14, 28, 36); p.drawRect(22, 22, 28, 36); } // Button Icon
     return QIcon(pixmap);
 }
 
@@ -549,7 +544,6 @@ void MainWindow::createDefaultFolder() {
 }
 
 void MainWindow::setupUi() {
-// FIX: Titlebar NICHT auf Android erstellen
 #ifndef Q_OS_ANDROID
     setupTitleBar();
 #endif
@@ -557,7 +551,6 @@ void MainWindow::setupUi() {
     m_centralContainer = new QWidget(this); setCentralWidget(m_centralContainer);
     QVBoxLayout* mainLayout = new QVBoxLayout(m_centralContainer); mainLayout->setContentsMargins(0, 0, 0, 0); mainLayout->setSpacing(0);
 
-    // FIX: Nur hinzufügen, wenn auch erstellt
     if (m_titleBarWidget) {
         mainLayout->addWidget(m_titleBarWidget);
     }
@@ -574,16 +567,13 @@ void MainWindow::setupUi() {
 
     QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 
-    // ANPASSUNG: Spezifische Margins für Android (oben/unten größer für Statusbar/Nav)
 #ifdef Q_OS_ANDROID
-    overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, MARGIN_ANDROID_TOP, MARGIN_ANDROID_SIDE, 120); // 120 unten, damit Button Platz hat
+    overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, MARGIN_ANDROID_TOP, MARGIN_ANDROID_SIDE, 120);
 #else
     overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW, MARGIN_OVERVIEW);
 #endif
 
     QHBoxLayout *topBar = new QHBoxLayout();
-
-    // NEU: Menu Button for Overview
     btnOverviewMenu = new ModernButton(this);
     btnOverviewMenu->setIcon(createModernIcon("menu", Qt::white));
     btnOverviewMenu->setToolTip("Menu");
@@ -596,7 +586,6 @@ void MainWindow::setupUi() {
     m_fileListView = new FreeGridView(this); m_fileListView->setModel(m_fileModel); m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
     m_fileListView->setSpacing(20); m_fileListView->setFrameShape(QFrame::NoFrame); m_fileListView->setItemDelegate(new ModernItemDelegate(this));
 
-    // NEU: Touch Scrolling aktivieren
     QScroller::grabGesture(m_fileListView, QScroller::LeftMouseButtonGesture);
 
     connect(m_fileListView, &QListView::doubleClicked, this, &MainWindow::onFileDoubleClicked);
@@ -614,9 +603,16 @@ void MainWindow::setupUi() {
     btnEditorMenu = new ModernButton(this); btnEditorMenu->setIcon(createModernIcon("menu", Qt::white)); connect(btnEditorMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar); editorHeader->addWidget(btnEditorMenu);
     ModernButton *backBtn = new ModernButton(this); backBtn->setIcon(createModernIcon("arrow_left", Qt::white)); connect(backBtn, &QAbstractButton::clicked, this, &MainWindow::onBackToOverview); editorHeader->addWidget(backBtn);
     editorHeader->addStretch();
+
+    // HIER: Page Manager Button
+    m_btnPages = new ModernButton(this);
+    m_btnPages->setIcon(createModernIcon("pages", Qt::white));
+    m_btnPages->setToolTip("Seiten verwalten");
+    connect(m_btnPages, &ModernButton::clicked, this, &MainWindow::onTogglePageManager);
+    editorHeader->addWidget(m_btnPages);
+
     btnEditorSettings = new ModernButton(this); btnEditorSettings->setIcon(createModernIcon("settings", Qt::white)); connect(btnEditorSettings, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar); editorHeader->addWidget(btnEditorSettings);
 
-    // ANPASSUNG: Editor Header braucht auch Margin auf Android
 #ifdef Q_OS_ANDROID
     editorHeader->setContentsMargins(10, MARGIN_ANDROID_TOP - 10, 10, 0);
 #endif
@@ -632,6 +628,11 @@ void MainWindow::setupUi() {
     });
     editorMainLayout->addWidget(m_editorCenterWidget);
     setupRightSidebar();
+
+    // Page Manager initialisieren (versteckt)
+    m_pageManager = new PageManager(m_editorCenterWidget);
+    m_pageManager->hide();
+
     editorMainLayout->addWidget(m_rightSidebar);
     m_rightStack->addWidget(m_overviewContainer); m_rightStack->addWidget(m_editorContainer); m_mainSplitter->addWidget(m_rightStack); m_mainSplitter->setStretchFactor(0, 0); m_mainSplitter->setStretchFactor(1, 1); m_mainSplitter->setCollapsible(0, true); m_mainSplitter->setStyleSheet("QSplitter::handle { background-color: transparent; }");
     setWindowTitle("Blop");
@@ -648,14 +649,12 @@ void MainWindow::setupSidebar() {
     m_mainSplitter->addWidget(m_sidebarStrip);
 
     m_sidebarContainer = new QWidget(this);
-    // ANPASSUNG: Dynamische Breite
     m_sidebarContainer->setFixedWidth(SIDEBAR_WIDTH);
 
     QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
 
-    // ANPASSUNG: Ränder auch für Sidebar
 #ifdef Q_OS_ANDROID
-    layout->setContentsMargins(0, MARGIN_ANDROID_TOP, 0, 0); // Unten 0, da wir den Button absolut setzen
+    layout->setContentsMargins(0, MARGIN_ANDROID_TOP, 0, 0);
 #else
     layout->setContentsMargins(0, 0, 0, 0);
 #endif
@@ -666,7 +665,6 @@ void MainWindow::setupSidebar() {
     QHBoxLayout *headerLay = new QHBoxLayout(header); headerLay->setContentsMargins(20, 20, 20, 0);
     QLabel *lblTitle = new QLabel("Blop Notes", header);
 
-    // ANPASSUNG: Schriftgröße
     QString headerStyle = QString("font-size: %1px; font-weight: bold; color: white;").arg(FONT_SIZE_HEADER);
     lblTitle->setStyleSheet(headerStyle);
 
@@ -676,7 +674,6 @@ void MainWindow::setupSidebar() {
 
     m_navSidebar = new QListWidget(m_sidebarContainer); m_navSidebar->setItemDelegate(new SidebarNavDelegate(this)); m_navSidebar->setFrameShape(QFrame::NoFrame); m_navSidebar->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
-    // NEU: Kinetic Scrolling auch in der Sidebar
     QScroller::grabGesture(m_navSidebar, QScroller::LeftMouseButtonGesture);
 
     QDir rootDir(m_rootPath); int rootCount = rootDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count(); QString rootCountStr = QString::number(rootCount);
@@ -692,10 +689,8 @@ void MainWindow::setupSidebar() {
     m_navSidebar->setCurrentRow(1);
     connect(m_navSidebar, &QListWidget::itemClicked, this, &MainWindow::onNavItemClicked); layout->addWidget(m_navSidebar); updateSidebarBadges();
 
-    // Bottom Bar (für Settings)
     QWidget *bottomBar = new QWidget(m_sidebarContainer);
 
-    // Höhe anpassen für Android (damit Button nicht verdeckt wird)
 #ifdef Q_OS_ANDROID
     bottomBar->setFixedHeight(80);
 #else
@@ -732,7 +727,6 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
         m_fabNote->show(); m_fabFolder->show(); updateOverviewBackButton();
         if (isExpandable) toggleFolderContent(item);
 
-        // ANPASSUNG: Auf Android Sidebar schließen nach Klick
 #ifdef Q_OS_ANDROID
         onToggleSidebar();
 #endif
@@ -792,26 +786,38 @@ void MainWindow::toggleFolderContent(QListWidgetItem* parentItem) {
     }
 }
 
+// ----------------------------------------------------------------------------
+// UPDATED: Korrektes JSON Format für A4 Notizen erstellen
+// ----------------------------------------------------------------------------
 void MainWindow::onNewPage() {
     NewNoteDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
         QString name = dlg.getNoteName();
         bool isInfinite = dlg.isInfiniteFormat();
 
-        // Dateinamen bereinigen
         QString safeName = name;
         safeName.replace("/", "_").replace("\\", "_");
 
         QString path = m_fileModel->rootPath() + "/" + safeName + ".blop";
 
-        // Datei initial erstellen mit Header
-        QFile file(path);
-        if (file.open(QIODevice::WriteOnly)) {
-            QDataStream out(&file);
-            out << (quint32)0xB10B0002; // Version 2
-            out << isInfinite;          // Format Flag
-            out << (int)0;              // 0 Items
-            file.close();
+        if (isInfinite) {
+            // ALT: Binärformat für Infinite Canvas
+            QFile file(path);
+            if (file.open(QIODevice::WriteOnly)) {
+                QDataStream out(&file);
+                out << (quint32)0xB10B0002;
+                out << isInfinite;
+                out << (int)0;
+                file.close();
+            }
+        } else {
+            // NEU: JSON Format für A4 (PageManager kompatibel)
+            Note note;
+            note.id = QUuid::createUuid().toString();
+            note.title = name;
+            // Eine leere Seite hinzufügen
+            note.pages.append(NotePage());
+            NoteManager::saveNote(note, path);
         }
     }
 }
@@ -856,7 +862,6 @@ void MainWindow::updateOverviewBackButton() {
 
 void MainWindow::setupRightSidebar() {
     m_rightSidebar = new QWidget(this);
-    // ANPASSUNG: Dynamische Breite
     m_rightSidebar->setFixedWidth(SIDEBAR_WIDTH);
 
     m_rightSidebar->hide();
@@ -871,8 +876,7 @@ void MainWindow::setupRightSidebar() {
     layout->setSpacing(15);
     QHBoxLayout *header = new QHBoxLayout; QLabel *title = new QLabel("Settings");
 
-    // ANPASSUNG: Schriftgröße
-    QString headerStyle = QString("font-size: %1px; font-weight: bold; color: white;").arg(FONT_SIZE_HEADER - 2); // Etwas kleiner als Main Header
+    QString headerStyle = QString("font-size: %1px; font-weight: bold; color: white;").arg(FONT_SIZE_HEADER - 2);
     title->setStyleSheet(headerStyle);
 
     header->addWidget(title); header->addStretch();
@@ -881,15 +885,14 @@ void MainWindow::setupRightSidebar() {
 
     layout->addWidget(new QLabel("Page Format (Fixed):", m_rightSidebar));
 
-    // Buttons nur noch zur Anzeige (disabled), da Immutable
     m_btnFormatInfinite = new QPushButton("Infinite");
     m_btnFormatInfinite->setCheckable(true);
-    m_btnFormatInfinite->setEnabled(false); // Immutable!
+    m_btnFormatInfinite->setEnabled(false);
     m_btnFormatInfinite->setStyleSheet("QPushButton { background: #333; color: #888; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }");
 
     m_btnFormatA4 = new QPushButton("A4");
     m_btnFormatA4->setCheckable(true);
-    m_btnFormatA4->setEnabled(false); // Immutable!
+    m_btnFormatA4->setEnabled(false);
     m_btnFormatA4->setStyleSheet("QPushButton { background: #333; color: #888; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }");
 
     QButtonGroup *grp = new QButtonGroup(this);
@@ -958,7 +961,6 @@ void MainWindow::onPageGridSpacingSliderChanged(int value) { m_gridSpacingTimer-
 void MainWindow::applyDelayedGridSpacing() { CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setGridSize(m_sliderGridSpacing->value()); } }
 
 void MainWindow::animateSidebar(bool show) {
-    // ANPASSUNG: Dynamische Breite für Animation
     int start = show ? 0 : SIDEBAR_WIDTH;
     int end = show ? SIDEBAR_WIDTH : 0;
 
@@ -970,7 +972,6 @@ void MainWindow::onToggleSidebar() { bool isVisible = m_sidebarContainer->isVisi
 void MainWindow::updateSidebarState() { bool isEditor = (m_rightStack->currentWidget() == m_editorContainer); if (m_floatingTools) { m_floatingTools->setVisible(isEditor); } if (m_isSidebarOpen) { m_sidebarStrip->hide(); btnEditorMenu->hide(); return; } if (isEditor) { m_sidebarStrip->hide(); btnEditorMenu->show(); } else { m_sidebarStrip->show(); btnEditorMenu->hide(); } }
 
 void MainWindow::animateRightSidebar(bool show) {
-    // ANPASSUNG: Dynamische Breite für Animation
     int start = show ? 0 : SIDEBAR_WIDTH;
     int end = show ? SIDEBAR_WIDTH : 0;
 
@@ -984,7 +985,6 @@ void MainWindow::onToggleRightSidebar() {
         CanvasView *cv = getCurrentCanvas();
         if (cv) {
             bool inf = cv->isInfinite();
-            // Nur noch Anzeige, kein Signal-Trigger
             m_btnFormatInfinite->setChecked(inf);
             m_btnFormatA4->setChecked(!inf);
 
@@ -1002,12 +1002,99 @@ void MainWindow::onToggleRightSidebar() {
     }
 }
 
-void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
-    if (m_fileModel->isDir(index)) { m_fileListView->setRootIndex(index); m_fileModel->setRootPath(m_fileModel->filePath(index)); updateOverviewBackButton(); } else {
-        CanvasView *canvas = new CanvasView(this); canvas->setPenColor(m_penColor); canvas->setPenWidth(m_penWidth); canvas->setPenMode(m_penOnlyMode); canvas->setFilePath(m_fileModel->filePath(index)); canvas->loadFromFile(); connect(canvas, &CanvasView::contentModified, this, &MainWindow::onContentModified);
-        m_editorTabs->addTab(canvas, index.data().toString()); m_editorTabs->setCurrentWidget(canvas); m_rightStack->setCurrentWidget(m_editorContainer); setActiveTool(m_activeToolType); updateSidebarState();
+// ----------------------------------------------------------------------------
+// UPDATED: Page Manager Toggle Logic mit Format-Prüfung
+// ----------------------------------------------------------------------------
+void MainWindow::onTogglePageManager() {
+    if (m_pageManager->isVisible()) {
+        m_pageManager->hide();
+    } else {
+        m_pageManager->resize(240, m_editorCenterWidget->height());
+        m_pageManager->move(m_editorCenterWidget->width() - 240, 0);
+        m_pageManager->raise();
+
+        QWidget* current = m_editorTabs->currentWidget();
+
+        MultiPageNoteView* mpv = nullptr;
+
+        if (NoteEditor* editor = qobject_cast<NoteEditor*>(current)) {
+            mpv = editor->view();
+        } else {
+            mpv = qobject_cast<MultiPageNoteView*>(current);
+        }
+
+        if (mpv) {
+            m_pageManager->setNoteView(mpv);
+            connect(m_pageManager, &PageManager::pageSelected, mpv, &MultiPageNoteView::scrollToPage);
+            connect(m_pageManager, &PageManager::pageOrderChanged, [mpv, this]() {
+                if(mpv->onSaveRequested && mpv->note()) mpv->onSaveRequested(mpv->note());
+            });
+
+            m_pageManager->show();
+            m_pageManager->refreshThumbnails();
+        } else {
+            QMessageBox::information(this, "Nicht verfügbar", "Der Seitenmanager ist nur für A4-Notizen verfügbar.");
+        }
     }
 }
+
+// ----------------------------------------------------------------------------
+// UPDATED: Automatisches Erkennen von Binary vs JSON Format
+// ----------------------------------------------------------------------------
+void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
+    if (m_fileModel->isDir(index)) {
+        m_fileListView->setRootIndex(index);
+        m_fileModel->setRootPath(m_fileModel->filePath(index));
+        updateOverviewBackButton();
+    } else {
+        QString path = m_fileModel->filePath(index);
+        QString fileName = index.data().toString();
+
+        bool isBinary = false;
+        {
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly)) {
+                QDataStream in(&f);
+                quint32 magic;
+                in >> magic;
+                if (magic == 0xB10B0001 || magic == 0xB10B0002) isBinary = true;
+                f.close();
+            }
+        }
+
+        if (isBinary) {
+            CanvasView *canvas = new CanvasView(this);
+            canvas->setPenColor(m_penColor);
+            canvas->setPenWidth(m_penWidth);
+            canvas->setPenMode(m_penOnlyMode);
+            canvas->setFilePath(path);
+            canvas->loadFromFile();
+            connect(canvas, &CanvasView::contentModified, this, &MainWindow::onContentModified);
+            m_editorTabs->addTab(canvas, fileName);
+            m_editorTabs->setCurrentWidget(canvas);
+        } else {
+            Note note;
+            if (NoteManager::loadNote(path, note)) {
+                NoteEditor* editor = new NoteEditor(this);
+
+                Note* heapNote = new Note(note);
+                editor->setNote(heapNote);
+
+                editor->onSaveRequested = [path](Note* n){
+                    NoteManager::saveNote(*n, path);
+                };
+
+                m_editorTabs->addTab(editor, fileName);
+                m_editorTabs->setCurrentWidget(editor);
+            }
+        }
+
+        m_rightStack->setCurrentWidget(m_editorContainer);
+        setActiveTool(m_activeToolType);
+        updateSidebarState();
+    }
+}
+
 void MainWindow::onBackToOverview() { m_rightStack->setCurrentWidget(m_overviewContainer); updateSidebarState(); }
 void MainWindow::showContextMenu(const QPoint &globalPos, const QModelIndex &index) { QMenu menu(this); menu.addAction("Open", [this, index](){ onFileDoubleClicked(index); }); menu.addAction("Rename", [this, index](){ startRename(index); }); menu.addAction("Delete", [this, index](){ m_fileModel->remove(index); }); menu.exec(globalPos); }
 void MainWindow::startRename(const QModelIndex &index) { m_indexToRename = index; showRenameOverlay(index.data().toString()); }
@@ -1017,35 +1104,26 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) { return QMainWindow::
 void MainWindow::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);
 
-    // ANPASSUNG: Grid bei Resize neu berechnen
     updateGrid();
 
-    // Berechnung des Offsets für die Buttons
     int fabSize = 56;
-    int bottomOffset = 80; // Desktop Standard
+    int bottomOffset = 80;
 
 #ifdef Q_OS_ANDROID
     fabSize = FAB_SIZE_ANDROID;
-    // Auf Android viel niedriger setzen (näher am Rand), aber sicher
     bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
 #else
     if (isTouchMode()) bottomOffset = 100;
 #endif
 
-    // Rechter Button (Neue Notiz)
     if (m_fabNote && m_overviewContainer) {
-        // Positionierung relativ zum Overview Container
-        int x = m_overviewContainer->width() - fabSize - 30; // 30px Rand rechts
+        int x = m_overviewContainer->width() - fabSize - 30;
         int y = m_overviewContainer->height() - fabSize - bottomOffset;
         m_fabNote->move(x, y);
         m_fabNote->raise();
     }
 
-    // Linker Button (Neuer Ordner) - im Sidebar Container
     if (m_fabFolder && m_sidebarContainer) {
-        // Positionierung relativ zum Sidebar Container
-        // Gleiche Höhe (y) wie der rechte Button
-        // Etwas weiter weg vom linken Rand (20px), damit er nicht mit Settings Button kollidiert
         int x = m_sidebarContainer->width() - fabSize - 20;
         int y = m_sidebarContainer->height() - fabSize - bottomOffset;
         m_fabFolder->move(x, y);
@@ -1054,6 +1132,11 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 
     if (m_renameOverlay) { m_renameOverlay->resize(size()); if (m_renameInput) m_renameInput->move(width()/2 - 150, height()/2 - 20); }
     if (m_editorTabs && m_floatingTools) { int top = 0; if (m_editorTabs->tabBar()) { QPoint tabsPos = m_editorTabs->mapTo(m_editorCenterWidget, QPoint(0,0)); top = tabsPos.y() + m_editorTabs->tabBar()->height(); } ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools); if (tb) tb->setTopBound(top); }
+
+    if (m_pageManager && m_pageManager->isVisible()) {
+        m_pageManager->resize(240, m_editorCenterWidget->height());
+        m_pageManager->move(m_editorCenterWidget->width() - 240, 0);
+    }
 }
 
 void MainWindow::onOpenSettings() {
@@ -1078,7 +1161,38 @@ void MainWindow::onOpenSettings() {
 }
 
 void MainWindow::setPageColor(bool dark) { CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setPageColor(dark ? UIStyles::SceneBackground : UIStyles::PageBackground); } }
-void MainWindow::setActiveTool(CanvasView::ToolType tool) { m_activeToolType = tool; ModernToolbar* toolbar = qobject_cast<ModernToolbar*>(m_floatingTools); if(toolbar) { toolbar->setToolMode((ToolMode)tool); } CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setTool(tool); } }
+
+// ----------------------------------------------------------------------------
+// UPDATED: Tool Handling für BEIDE Editor-Typen
+// ----------------------------------------------------------------------------
+void MainWindow::setActiveTool(CanvasView::ToolType tool) {
+    m_activeToolType = tool;
+
+    // 1. Toolbar updaten
+    if (auto* tb = qobject_cast<ModernToolbar*>(m_floatingTools)) {
+        ToolMode tm = ToolMode::Pen;
+        if (tool == CanvasView::ToolType::Eraser) tm = ToolMode::Eraser;
+        else if (tool == CanvasView::ToolType::Lasso) tm = ToolMode::Lasso;
+        else if (tool == CanvasView::ToolType::Highlighter) tm = ToolMode::Highlighter;
+        tb->setToolMode(tm);
+    }
+
+    // 2. Aktiven Editor updaten
+    QWidget* current = m_editorTabs->currentWidget();
+
+    if (auto* cv = qobject_cast<CanvasView*>(current)) {
+        cv->setTool(tool);
+    }
+    else if (auto* editor = qobject_cast<NoteEditor*>(current)) {
+        ToolMode tm = ToolMode::Pen;
+        if (tool == CanvasView::ToolType::Eraser) tm = ToolMode::Eraser;
+        else if (tool == CanvasView::ToolType::Lasso) tm = ToolMode::Lasso;
+        else if (tool == CanvasView::ToolType::Highlighter) tm = ToolMode::Highlighter;
+
+        if (editor->view()) editor->view()->setToolMode(tm);
+    }
+}
+
 void MainWindow::switchToSelectTool() { onToolSelect(); }
 void MainWindow::onToolSelect() { setActiveTool(CanvasView::ToolType::Select); }
 void MainWindow::onToolPen() { if (m_activeToolType == CanvasView::ToolType::Pen) {} else { setActiveTool(CanvasView::ToolType::Pen); } }
@@ -1086,16 +1200,39 @@ void MainWindow::onToolEraser() { setActiveTool(CanvasView::ToolType::Eraser); }
 void MainWindow::onToolLasso() { setActiveTool(CanvasView::ToolType::Lasso); }
 void MainWindow::onUndo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->undo(); }
 void MainWindow::onRedo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->redo(); }
+
+// ----------------------------------------------------------------------------
+// UPDATED: Tab Change Handling (Button Sichtbarkeit)
+// ----------------------------------------------------------------------------
 void MainWindow::onTabChanged(int index) {
-    CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setPenMode(m_penOnlyMode); } setActiveTool(m_activeToolType);
-    if (m_lblActiveNote) { QString text = "No Note"; if (index >= 0) { text = m_editorTabs->tabText(index); } m_lblActiveNote->setText(text); }
-    if (m_rightSidebar && m_rightSidebar->isVisible()) {
-        if (cv) {
-            bool inf = cv->isInfinite(); m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
-            bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
-            int styleId = (int)cv->pageStyle(); QAbstractButton *styleBtn = m_grpPageStyle->button(styleId); if (styleBtn) styleBtn->setChecked(true);
-            m_sliderGridSpacing->blockSignals(true); m_sliderGridSpacing->setValue(cv->gridSize()); m_sliderGridSpacing->blockSignals(false);
-        }
+    QWidget* current = m_editorTabs->currentWidget();
+
+    CanvasView *cv = qobject_cast<CanvasView*>(current);
+    NoteEditor *editor = qobject_cast<NoteEditor*>(current);
+
+    setActiveTool(m_activeToolType);
+
+    if (m_lblActiveNote) {
+        QString text = "No Note";
+        if (index >= 0) text = m_editorTabs->tabText(index);
+        m_lblActiveNote->setText(text);
     }
+
+    if (m_rightSidebar && m_rightSidebar->isVisible() && cv) {
+        bool inf = cv->isInfinite(); m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
+        bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
+        int styleId = (int)cv->pageStyle(); QAbstractButton *styleBtn = m_grpPageStyle->button(styleId); if (styleBtn) styleBtn->setChecked(true);
+        m_sliderGridSpacing->blockSignals(true); m_sliderGridSpacing->setValue(cv->gridSize()); m_sliderGridSpacing->blockSignals(false);
+    }
+
+    // Page Manager Button nur zeigen, wenn NoteEditor (A4) aktiv ist
+    if(m_btnPages) {
+        m_btnPages->setVisible(editor != nullptr);
+    }
+
+    if (editor == nullptr && m_pageManager && m_pageManager->isVisible()) {
+        m_pageManager->hide();
+    }
+
     updateSidebarState();
 }

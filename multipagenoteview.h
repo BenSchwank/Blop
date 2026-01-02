@@ -30,6 +30,15 @@ public:
     bool exportPageToPng(int pageIndex, const QString &path);
     bool exportPageToPdf(int pageIndex, const QString &path);
 
+    // NEU: Thumbnail Generierung für PageManager
+    QPixmap generateThumbnail(int pageIndex, QSize size);
+
+    // NEU: Seite verschieben
+    void movePage(int fromIndex, int toIndex);
+
+    // NEU: Scrollt zu einer bestimmten Seite
+    void scrollToPage(int pageIndex);
+
     std::function<void(Note*)> onSaveRequested;
 
 protected:
@@ -40,8 +49,6 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     bool viewportEvent(QEvent* e) override;
-
-    // Important for pinch gestures
     bool event(QEvent *event) override;
 
 private:
@@ -53,8 +60,6 @@ private:
     int currentPage_{0};
 
     bool m_penOnlyMode{true};
-
-    // Manual Panning
     bool m_isPanning{false};
     QPoint m_lastPanPos;
 
@@ -62,7 +67,6 @@ private:
     qreal penWidth_{2.0};
 
     QVector<PageItem*> pageItems_;
-
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
 

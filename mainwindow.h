@@ -3,7 +3,6 @@
 
 #include <QMainWindow>
 #include <QTabWidget>
-#include <QTreeView>
 #include <QListView>
 #include <QListWidget>
 #include <QFileSystemModel>
@@ -27,6 +26,7 @@
 #include "freegridview.h"
 #include "canvasview.h"
 #include "uiprofilemanager.h"
+#include "pagemanager.h" // Wichtig: PageManager Header
 
 class MainWindow;
 
@@ -138,6 +138,8 @@ private slots:
     void onTabChanged(int index);
 
     void onToggleRightSidebar();
+    void onTogglePageManager(); // NEU: Slot für Button
+
     void setPageColor(bool dark);
 
     void onPageStyleButtonToggled(QAbstractButton *button, bool checked);
@@ -199,7 +201,6 @@ private:
     ModernButton *btnStripMenu;
     ModernButton *btnEditorMenu;
 
-    // NEU: Button für das Menü in der Übersicht
     ModernButton *btnOverviewMenu;
 
     bool m_isSidebarOpen;
@@ -243,8 +244,10 @@ private:
     QSlider *m_sliderToolbarScale;
 
     QWidget *m_floatingTools;
+    PageManager *m_pageManager; // NEU: Member für Overlay
 
     ModernButton *btnEditorSettings;
+    ModernButton *m_btnPages; // NEU: Der Button
     ModernButton *btnBackOverview;
 
     QString m_rootPath;
