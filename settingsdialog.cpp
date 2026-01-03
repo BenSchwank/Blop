@@ -13,6 +13,7 @@
 #include <QButtonGroup>
 #include <QRadioButton>
 #include <QLineEdit>
+#include <QScroller> // WICHTIG
 
 SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     QDialog(parent),
@@ -37,6 +38,9 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setStyleSheet("background: transparent;");
 
+    // WICHTIG: Touch-Scrolling aktivieren
+    QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
+
     QWidget* contentWidget = new QWidget();
     contentWidget->setStyleSheet("background: transparent;");
     QVBoxLayout* contentLay = new QVBoxLayout(contentWidget);
@@ -54,6 +58,10 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     m_profileList->setStyleSheet("QListWidget { background: #222; border: 1px solid #333; border-radius: 5px; color: white; } QListWidget::item { padding: 8px; } QListWidget::item:selected { background: #5E5CE6; }");
     m_profileList->setFixedHeight(120);
     m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // WICHTIG: Touch-Scrolling auch für die Liste
+    QScroller::grabGesture(m_profileList, QScroller::LeftMouseButtonGesture);
+
     connect(m_profileList, &QListWidget::customContextMenuRequested, this, &SettingsDialog::onProfileContextMenu);
     connect(m_profileList, &QListWidget::itemClicked, this, &SettingsDialog::onProfileClicked);
 
@@ -73,7 +81,6 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     QRadioButton* rNorm = new QRadioButton("Vertikal / Adaptiv", grpToolbar);
     rNorm->setObjectName("radioVert");
 
-    // ÄNDERUNG: Nur noch ein Radial Button
     QRadioButton* rFull = new QRadioButton("Radial", grpToolbar);
     rFull->setObjectName("radioRadial");
 
@@ -166,7 +173,7 @@ void SettingsDialog::openEditor(const QString &profileId) {
     done(EditProfileCode);
 }
 
-void SettingsDialog::setToolbarConfig(bool isRadial, bool) { // 2. Parameter ignoriert
+void SettingsDialog::setToolbarConfig(bool isRadial, bool) {
     QRadioButton* rVert = this->findChild<QRadioButton*>("radioVert");
     QRadioButton* rFull = this->findChild<QRadioButton*>("radioRadial");
 
@@ -176,4 +183,3 @@ void SettingsDialog::setToolbarConfig(bool isRadial, bool) { // 2. Parameter ign
         rVert->setChecked(true);
     }
 }
-

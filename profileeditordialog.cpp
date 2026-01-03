@@ -11,6 +11,8 @@
 #include <QMouseEvent>
 #include <QButtonGroup>
 #include <cmath>
+#include <QScrollArea> // NEU
+#include <QScroller>   // NEU
 
 ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     : QDialog(parent), m_profile(profile), m_previewToolbar(nullptr)
@@ -20,7 +22,7 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground, false);
 
     if (parent) {
-        resize(650, 600); // Etwas breiter für die 5 Buttons
+        resize(650, 600);
         QPoint parentCenter = parent->mapToGlobal(parent->rect().center());
         move(parentCenter.x() - width() / 2, parentCenter.y() - height() / 2);
     }
@@ -48,12 +50,28 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
 }
 
 void ProfileEditorDialog::setupUi() {
-    QHBoxLayout *mainLayout = new QHBoxLayout(this);
+    // Layout Struktur ändern: Alles in eine ScrollArea packen
+    QVBoxLayout *dialogLayout = new QVBoxLayout(this);
+    dialogLayout->setContentsMargins(0, 0, 0, 0);
+
+    QScrollArea *scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("background: transparent;");
+
+    // WICHTIG: Touch-Scrolling aktivieren
+    QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
+
+    QWidget *contentWidget = new QWidget(scroll);
+    contentWidget->setStyleSheet("background: transparent;");
+
+    // Das ursprüngliche Layout kommt jetzt in das contentWidget
+    QHBoxLayout *mainLayout = new QHBoxLayout(contentWidget);
     mainLayout->setContentsMargins(20, 20, 20, 20);
     mainLayout->setSpacing(20);
 
     // --- LINKE SEITE ---
-    QWidget *leftWidget = new QWidget(this);
+    QWidget *leftWidget = new QWidget(contentWidget);
     leftWidget->setStyleSheet("background: transparent; border: none;");
     QVBoxLayout *leftLayout = new QVBoxLayout(leftWidget);
     leftLayout->setContentsMargins(0, 0, 0, 0);
@@ -77,7 +95,7 @@ void ProfileEditorDialog::setupUi() {
     // ---------------------------------------------------------
     // CONTAINER 1: Einfacher Modus (5 Buttons)
     // ---------------------------------------------------------
-    m_simpleContainer = new QWidget(this);
+    m_simpleContainer = new QWidget(contentWidget);
     QVBoxLayout *simpleLay = new QVBoxLayout(m_simpleContainer);
     simpleLay->setContentsMargins(0, 20, 0, 0);
     simpleLay->setSpacing(20);
@@ -105,7 +123,6 @@ void ProfileEditorDialog::setupUi() {
         b->setCursor(Qt::PointingHandCursor);
         b->setFixedHeight(50);
 
-        // Spezielles Styling für Toggle-Verhalten
         b->setStyleSheet(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; font-weight: bold; }"
             "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
@@ -117,7 +134,6 @@ void ProfileEditorDialog::setupUi() {
     }
     simpleLay->addLayout(hSteps);
 
-    // Erklärungstext unter den Buttons (optional, ändert sich vielleicht je nach Auswahl)
     QLabel *lblHint = new QLabel("Dies passt Icons, Buttons und Abstände automatisch an.", m_simpleContainer);
     lblHint->setStyleSheet("color: #666; font-style: italic; font-size: 12px; margin-top: 10px;");
     lblHint->setAlignment(Qt::AlignCenter);
@@ -128,7 +144,7 @@ void ProfileEditorDialog::setupUi() {
     // ---------------------------------------------------------
     // CONTAINER 2: Komplexer Modus
     // ---------------------------------------------------------
-    m_complexContainer = new QWidget(this);
+    m_complexContainer = new QWidget(contentWidget);
     QVBoxLayout *complexLay = new QVBoxLayout(m_complexContainer);
     complexLay->setContentsMargins(0, 10, 0, 0);
     complexLay->setSpacing(15);
@@ -176,7 +192,7 @@ void ProfileEditorDialog::setupUi() {
     leftLayout->addLayout(btns);
 
     // --- RECHTE SEITE ---
-    m_previewBox = new QGroupBox("Vorschau (Radial)", this);
+    m_previewBox = new QGroupBox("Vorschau (Radial)", contentWidget);
     m_previewBox->setFixedWidth(200);
     m_previewBox->setStyleSheet("QGroupBox { background: #252526; border: 1px solid #444; }");
 
@@ -189,6 +205,10 @@ void ProfileEditorDialog::setupUi() {
 
     mainLayout->addWidget(leftWidget, 1);
     mainLayout->addWidget(m_previewBox, 0);
+
+    // ScrollArea fertigstellen
+    scroll->setWidget(contentWidget);
+    dialogLayout->addWidget(scroll);
 }
 
 void ProfileEditorDialog::toggleMode() {
@@ -204,13 +224,11 @@ void ProfileEditorDialog::toggleMode() {
     }
 }
 
-// Logik für die 5 Buttons
 void ProfileEditorDialog::onSimpleStepClicked(int id) {
     if (id < 0 || id >= m_stepFactors.size()) return;
 
     double factor = m_stepFactors[id];
 
-    // Basiswerte (entsprechen "Normal" / Faktor 1.0)
     const int baseIcon = 100;
     const int baseButton = 40;
     const int baseGrid = 20;
@@ -221,7 +239,6 @@ void ProfileEditorDialog::onSimpleStepClicked(int id) {
     m_profile.gridSpacing = (int)(baseGrid * factor);
     m_profile.toolbarScale = baseToolbar * factor;
 
-    // Slider synchronisieren (ohne doppelte Signale)
     bool oldBlock = m_slIconSize->blockSignals(true);
     m_slIconSize->setValue(m_profile.iconSize);
     m_slButtonSize->setValue(m_profile.buttonSize);
@@ -229,13 +246,11 @@ void ProfileEditorDialog::onSimpleStepClicked(int id) {
     m_slToolbarScale->setValue((int)(m_profile.toolbarScale * 100));
     m_slIconSize->blockSignals(oldBlock);
 
-    // Labels aktualisieren
     m_lblIconVal->setText(QString::number(m_profile.iconSize));
     m_lblBtnVal->setText(QString::number(m_profile.buttonSize));
     m_lblGridVal->setText(QString::number(m_profile.gridSpacing));
     m_lblToolbarVal->setText(QString::number((int)(m_profile.toolbarScale * 100)) + "%");
 
-    // Vorschau aktualisieren
     if (m_previewToolbar) {
         m_previewToolbar->setScale(m_profile.toolbarScale);
         int cx = m_previewBox->width() / 2;
@@ -247,11 +262,9 @@ void ProfileEditorDialog::onSimpleStepClicked(int id) {
 }
 
 void ProfileEditorDialog::updateSimpleFromComplex() {
-    // Wir versuchen herauszufinden, welcher der 5 Schritte am ehesten passt.
-    // Wir nehmen "Toolbar Scale" als Indikator.
     double currentScale = m_profile.toolbarScale;
 
-    int bestIdx = 2; // Default "Normal"
+    int bestIdx = 2;
     double minDiff = 100.0;
 
     for(int i=0; i<m_stepFactors.size(); ++i) {
@@ -262,7 +275,6 @@ void ProfileEditorDialog::updateSimpleFromComplex() {
         }
     }
 
-    // Button als gecheckt markieren (Signal blockieren, damit wir nicht rekursiv Werte setzen)
     m_btnGroupSimple->blockSignals(true);
     if(auto btn = m_btnGroupSimple->button(bestIdx)) {
         btn->setChecked(true);
@@ -270,7 +282,6 @@ void ProfileEditorDialog::updateSimpleFromComplex() {
     m_btnGroupSimple->blockSignals(false);
 }
 
-// Logik für Komplexen Modus
 void ProfileEditorDialog::onValuesChanged() {
     m_profile.iconSize = m_slIconSize->value();
     m_profile.buttonSize = m_slButtonSize->value();
@@ -293,6 +304,7 @@ void ProfileEditorDialog::onValuesChanged() {
     emit previewRequested(m_profile);
 }
 
+// Window Dragging bleibt erhalten (wenn man nicht auf scrollbaren Inhalt klickt)
 void ProfileEditorDialog::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         m_dragPos = event->globalPosition().toPoint() - frameGeometry().topLeft();

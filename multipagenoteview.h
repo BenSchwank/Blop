@@ -30,13 +30,15 @@ public:
     bool exportPageToPng(int pageIndex, const QString &path);
     bool exportPageToPdf(int pageIndex, const QString &path);
 
-    // NEU: Thumbnail Generierung für PageManager
+    // Thumbnail Generator
     QPixmap generateThumbnail(int pageIndex, QSize size);
 
-    // NEU: Seite verschieben
+    // Seiten-Manipulation
     void movePage(int fromIndex, int toIndex);
+    void deletePage(int index);
+    void duplicatePage(int index);
 
-    // NEU: Scrollt zu einer bestimmten Seite
+    // Scrollen
     void scrollToPage(int pageIndex);
 
     std::function<void(Note*)> onSaveRequested;

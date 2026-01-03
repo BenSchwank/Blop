@@ -18,14 +18,21 @@ static constexpr int PageSpacing = 60;
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     setScene(&scene_);
     setBackgroundBrush(UIStyles::SceneBackground);
+
+    // Gesten aktivieren
     viewport()->grabGesture(Qt::PinchGesture);
+    grabGesture(Qt::PinchGesture);
+
     setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
     setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
+
     setDragMode(QGraphicsView::NoDrag);
     setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setAcceptDrops(false);
-    viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+
+    // Wichtig: Touch Events akzeptieren, aber NICHT manuell filtern in event()
+    viewport()->setAttribute(Qt::WA_AcceptTouchEvents);
 }
 
 void MultiPageNoteView::setNote(Note *note) {
@@ -94,7 +101,6 @@ int MultiPageNoteView::pageAt(const QPointF &scenePos) const {
     return -1;
 }
 
-// NEU: Thumbnail Generator
 QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, QSize size) {
     if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size()) {
         QPixmap blank(size);
@@ -102,17 +108,12 @@ QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, QSize size) {
         return blank;
     }
 
-    // 1. In ein A4 Image rendern
     QImage img(A4W, A4H, QImage::Format_ARGB32_Premultiplied);
-    img.fill(Qt::white); // WICHTIG: Weißer Hintergrund wie gefordert
+    img.fill(Qt::white);
 
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // Grid zeichnen (optional, hier einfach nur weiß lassen oder leichtes Grid)
-    // Wenn Grid gewünscht, hier drawRects einfügen. Wir lassen es clean weiß.
-
-    // Striche zeichnen
     for (const auto &s : note_->pages[pageIndex].strokes) {
         QColor c = s.color;
         if (s.isHighlighter) c.setAlpha(80);
@@ -129,31 +130,39 @@ QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, QSize size) {
     }
     p.end();
 
-    // 2. Skalieren auf gewünschte Thumbnail Größe
     return QPixmap::fromImage(img.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
-// NEU: Seite verschieben
 void MultiPageNoteView::movePage(int from, int to) {
     if (!note_ || from == to) return;
     if (from < 0 || from >= note_->pages.size()) return;
     if (to < 0 || to >= note_->pages.size()) return;
 
-    // Daten verschieben
     NotePage page = note_->pages.takeAt(from);
     note_->pages.insert(to, page);
 
-    // Neu zeichnen
     setNote(note_);
+    if (onSaveRequested) onSaveRequested(note_);
+}
 
-    // Speichern auslösen
+void MultiPageNoteView::deletePage(int index) {
+    if (!note_ || index < 0 || index >= note_->pages.size()) return;
+    note_->pages.removeAt(index);
+    if (note_->pages.isEmpty()) note_->pages.append(NotePage());
+    setNote(note_);
+    if (onSaveRequested) onSaveRequested(note_);
+}
+
+void MultiPageNoteView::duplicatePage(int index) {
+    if (!note_ || index < 0 || index >= note_->pages.size()) return;
+    NotePage copy = note_->pages[index];
+    note_->pages.insert(index + 1, copy);
+    setNote(note_);
     if (onSaveRequested) onSaveRequested(note_);
 }
 
 void MultiPageNoteView::scrollToPage(int pageIndex) {
     if (pageIndex >= 0 && pageIndex < pageItems_.size()) {
-        centerOn(pageItems_[pageIndex]);
-        // Besser: Oben ausrichten
         QRectF r = pageItems_[pageIndex]->sceneBoundingRect();
         verticalScrollBar()->setValue(r.top() - 20);
     }
@@ -186,9 +195,6 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
 }
 
 bool MultiPageNoteView::viewportEvent(QEvent *ev) {
-    if (ev->type() == QEvent::TouchBegin || ev->type() == QEvent::TouchUpdate || ev->type() == QEvent::TouchEnd) {
-        return QGraphicsView::viewportEvent(ev);
-    }
     return QGraphicsView::viewportEvent(ev);
 }
 
@@ -197,6 +203,7 @@ bool MultiPageNoteView::event(QEvent *event) {
         gestureEvent(static_cast<QGestureEvent*>(event));
         return true;
     }
+    // HIER WAR DER FEHLER: Wir lassen Touch-Events jetzt durch
     return QGraphicsView::event(event);
 }
 
@@ -207,21 +214,30 @@ void MultiPageNoteView::gestureEvent(QGestureEvent *event) {
 }
 
 void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
+    // Wenn gezoomt wird, kein Panning & Zeichnen erlauben
+    m_isPanning = false;
+    drawing_ = false;
+    setCursor(Qt::ArrowCursor);
+
     QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
     if (changeFlags & QPinchGesture::ScaleFactorChanged) {
         qreal factor = gesture->scaleFactor();
         qreal currentScale = transform().m11();
+
         if ((currentScale < 0.25 && factor < 1.0) || (currentScale > 4.0 && factor > 1.0)) {
+            // Limit
         } else {
             scale(factor, factor);
             zoom_ *= factor;
         }
     }
+
     if (changeFlags & QPinchGesture::CenterPointChanged) {
         QPointF delta = gesture->centerPoint() - gesture->lastCenterPoint();
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
     }
+
     if (gesture->state() == Qt::GestureFinished) {
         ensureOverscrollPage();
     }
@@ -232,15 +248,29 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
     if (!isTouch && e->source() == Qt::MouseEventSynthesizedBySystem) isTouch = true;
 
+    // --- FALL 1: Nur-Stift-Modus (Finger = Pannen/Scrollen) ---
     if (m_penOnlyMode && isTouch) {
-        e->accept(); return;
+        m_isPanning = true;
+        m_lastPanPos = e->pos();
+        setCursor(Qt::ClosedHandCursor);
+        e->accept();
+        return;
     }
-    if (!m_penOnlyMode && isTouch) {
-        m_isPanning = true; m_lastPanPos = e->pos(); setCursor(Qt::ClosedHandCursor); e->accept(); return;
-    }
+
+    // --- FALL 2: Stift & Touch Modus (Finger = Zeichnen) ---
     if (e->button() == Qt::LeftButton) {
-        QTabletEvent fake(QEvent::TabletPress, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
+        QTabletEvent fake(QEvent::TabletPress,
+                          QPointingDevice::primaryPointingDevice(),
+                          e->position(), e->globalPosition(),
+                          1.0, 0, 0, 0, 0, 0,
+                          e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
+
+        if (drawing_) {
+            e->accept(); // WICHTIG: Event nehmen, damit kein Default-Verhalten (Scroll/Select) startet
+        } else {
+            QGraphicsView::mousePressEvent(e);
+        }
     } else {
         QGraphicsView::mousePressEvent(e);
     }
@@ -252,58 +282,114 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     if (!isTouch && e->source() == Qt::MouseEventSynthesizedBySystem) isTouch = true;
 
     if (m_isPanning) {
-        QPoint delta = e->pos() - m_lastPanPos; m_lastPanPos = e->pos();
+        QPoint delta = e->pos() - m_lastPanPos;
+        m_lastPanPos = e->pos();
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-        ensureOverscrollPage(); e->accept(); return;
+        ensureOverscrollPage();
+        e->accept();
+        return;
     }
-    if (m_penOnlyMode && isTouch) { e->accept(); return; }
 
+    // Wenn nicht gezeichnet wird, Event weitergeben
     if (e->buttons() & Qt::LeftButton && drawing_) {
-        QTabletEvent fake(QEvent::TabletMove, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
+        QTabletEvent fake(QEvent::TabletMove,
+                          QPointingDevice::primaryPointingDevice(),
+                          e->position(), e->globalPosition(),
+                          1.0, 0, 0, 0, 0, 0,
+                          e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
-    } else { QGraphicsView::mouseMoveEvent(e); }
+        e->accept();
+    } else {
+        QGraphicsView::mouseMoveEvent(e);
+    }
 }
 
 void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
-    if (m_isPanning) { m_isPanning = false; setCursor(Qt::ArrowCursor); e->accept(); return; }
+    if (m_isPanning) {
+        m_isPanning = false;
+        setCursor(Qt::ArrowCursor);
+        e->accept();
+        return;
+    }
+
     if (drawing_) {
-        QTabletEvent fake(QEvent::TabletRelease, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
+        QTabletEvent fake(QEvent::TabletRelease,
+                          QPointingDevice::primaryPointingDevice(),
+                          e->position(), e->globalPosition(),
+                          1.0, 0, 0, 0, 0, 0,
+                          e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
-    } else { QGraphicsView::mouseReleaseEvent(e); }
+        e->accept();
+    } else {
+        QGraphicsView::mouseReleaseEvent(e);
+    }
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
     if (!note_ || mode_ == ToolMode::Lasso) { e->ignore(); return; }
     QPointF scenePos = mapToScene(e->position().toPoint());
     int p = pageAt(scenePos);
-    if (p < 0) { e->ignore(); return; }
+
+    if (p < 0) {
+        e->ignore();
+        return;
+    }
+
     QPointF local = scenePos - pageRect(p).topLeft();
 
     if (e->type() == QEvent::TabletPress) {
-        drawing_ = true; currentPage_ = p;
-        currentStroke_ = Stroke{}; currentStroke_.pageIndex = p;
+        drawing_ = true;
+        currentPage_ = p;
+        currentStroke_ = Stroke{};
+        currentStroke_.pageIndex = p;
         currentStroke_.isEraser = (mode_ == ToolMode::Eraser);
         currentStroke_.isHighlighter = (mode_ == ToolMode::Highlighter);
 
-        if (currentStroke_.isEraser) { currentStroke_.width = 20.0; currentStroke_.color = UIStyles::PageBackground; }
-        else if (currentStroke_.isHighlighter) { currentStroke_.width = 24.0; QColor c = penColor_; c.setAlpha(80); currentStroke_.color = c; }
-        else { currentStroke_.width = std::max<qreal>(2.0, e->pressure() * 4.0); currentStroke_.color = penColor_; }
+        if (currentStroke_.isEraser) {
+            currentStroke_.width = 20.0;
+            currentStroke_.color = UIStyles::PageBackground;
+        } else if (currentStroke_.isHighlighter) {
+            currentStroke_.width = 24.0;
+            QColor c = penColor_;
+            c.setAlpha(80);
+            currentStroke_.color = c;
+        } else {
+            currentStroke_.width = std::max<qreal>(2.0, e->pressure() * 4.0);
+            currentStroke_.color = penColor_;
+        }
 
-        currentStroke_.points.push_back(local); currentStroke_.path = QPainterPath(local);
+        currentStroke_.points.push_back(local);
+        currentStroke_.path = QPainterPath(local);
+
         currentPathItem_ = new QGraphicsPathItem();
         QPen pen(currentStroke_.color, currentStroke_.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
         currentPathItem_->setPen(pen);
-        if (currentStroke_.isHighlighter) currentPathItem_->setZValue(0.5); else currentPathItem_->setZValue(1.0);
-        scene_.addItem(currentPathItem_); currentPathItem_->setPos(pageRect(p).topLeft());
+
+        if (currentStroke_.isHighlighter) currentPathItem_->setZValue(0.5);
+        else currentPathItem_->setZValue(1.0);
+
+        scene_.addItem(currentPathItem_);
+        currentPathItem_->setPos(pageRect(p).topLeft());
         e->accept();
+
     } else if (e->type() == QEvent::TabletMove && drawing_) {
-        currentStroke_.points.push_back(local); currentStroke_.path.lineTo(local); currentPathItem_->setPath(currentStroke_.path); e->accept();
+        currentStroke_.points.push_back(local);
+        currentStroke_.path.lineTo(local);
+        currentPathItem_->setPath(currentStroke_.path);
+        e->accept();
+
     } else if (e->type() == QEvent::TabletRelease && drawing_) {
         drawing_ = false;
-        if (note_) { note_->pages[currentPage_].strokes.push_back(currentStroke_); if (onSaveRequested) onSaveRequested(note_); }
-        currentPathItem_ = nullptr; e->accept();
-    } else { e->ignore(); }
+        if (note_) {
+            note_->pages[currentPage_].strokes.push_back(currentStroke_);
+            if (onSaveRequested) onSaveRequested(note_);
+        }
+        currentPathItem_ = nullptr;
+        e->accept();
+    } else {
+        e->ignore();
+    }
 }
 
 bool MultiPageNoteView::exportPageToPng(int pageIndex, const QString &path) {
