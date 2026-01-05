@@ -11,11 +11,12 @@ struct Stroke {
     qreal width{2.0};
     QColor color{Qt::black};
     bool isEraser{false};
-    bool isHighlighter{false}; // NEU
+    bool isHighlighter{false};
     int pageIndex{0};
 };
 
 struct NotePage {
+    QString title; // Speichert den Namen der Seite
     QVector<Stroke> strokes;
 };
 
@@ -25,6 +26,10 @@ struct Note {
     QVector<NotePage> pages;
 
     void ensurePage(int index) {
-        if (index >= pages.size()) pages.resize(index + 1);
+        if (index >= pages.size()) {
+            pages.resize(index + 1);
+            // Automatische Benennung: "Seite 1", "Seite 2" usw.
+            pages[index].title = QString("Seite %1").arg(index + 1);
+        }
     }
 };

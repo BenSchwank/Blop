@@ -8,6 +8,7 @@
 #include "multipagenoteview.h"
 #include "noteeditor.h"
 #include "notemanager.h"
+#include "pagemanager.h"
 
 #include <QApplication>
 #include <QStyle>

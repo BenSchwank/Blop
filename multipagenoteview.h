@@ -27,19 +27,16 @@ public:
     void setPenOnlyMode(bool enabled) { m_penOnlyMode = enabled; }
     bool penOnlyMode() const { return m_penOnlyMode; }
 
+    // --- Export ---
     bool exportPageToPng(int pageIndex, const QString &path);
     bool exportPageToPdf(int pageIndex, const QString &path);
 
-    // Thumbnail Generator
-    QPixmap generateThumbnail(int pageIndex, QSize size);
-
-    // Seiten-Manipulation
+    // --- Page Management (NEU: Fix für Compiler-Fehler) ---
+    QPixmap generateThumbnail(int pageIndex, QSize targetSize = QSize());
     void movePage(int fromIndex, int toIndex);
     void deletePage(int index);
     void duplicatePage(int index);
-
-    // Scrollen
-    void scrollToPage(int pageIndex);
+    void scrollToPage(int index);
 
     std::function<void(Note*)> onSaveRequested;
 
@@ -51,6 +48,8 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     bool viewportEvent(QEvent* e) override;
+
+    // Wichtig für Pinch-Gesten
     bool event(QEvent *event) override;
 
 private:
@@ -62,6 +61,8 @@ private:
     int currentPage_{0};
 
     bool m_penOnlyMode{true};
+
+    // Manuelles Panning
     bool m_isPanning{false};
     QPoint m_lastPanPos;
 
@@ -69,6 +70,7 @@ private:
     qreal penWidth_{2.0};
 
     QVector<PageItem*> pageItems_;
+
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
 
@@ -79,4 +81,7 @@ private:
 
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);
+
+    // Bricht das aktuelle Zeichnen ab (z.B. bei Gestenstart)
+    void cancelDrawing();
 };

@@ -13,7 +13,7 @@
 #include <QButtonGroup>
 #include <QRadioButton>
 #include <QLineEdit>
-#include <QScroller> // WICHTIG
+#include <QScroller> // Hinzugefügt für Kinetic Scrolling
 
 SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     QDialog(parent),
@@ -38,7 +38,7 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setStyleSheet("background: transparent;");
 
-    // WICHTIG: Touch-Scrolling aktivieren
+    // KINETIC SCROLLING: Geste für ScrollArea aktivieren
     QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
 
     QWidget* contentWidget = new QWidget();
@@ -59,7 +59,7 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     m_profileList->setFixedHeight(120);
     m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    // WICHTIG: Touch-Scrolling auch für die Liste
+    // KINETIC SCROLLING: Geste für die Profil-Liste aktivieren
     QScroller::grabGesture(m_profileList, QScroller::LeftMouseButtonGesture);
 
     connect(m_profileList, &QListWidget::customContextMenuRequested, this, &SettingsDialog::onProfileContextMenu);
@@ -173,7 +173,7 @@ void SettingsDialog::openEditor(const QString &profileId) {
     done(EditProfileCode);
 }
 
-void SettingsDialog::setToolbarConfig(bool isRadial, bool) {
+void SettingsDialog::setToolbarConfig(bool isRadial, bool) { // 2. Parameter ignoriert
     QRadioButton* rVert = this->findChild<QRadioButton*>("radioVert");
     QRadioButton* rFull = this->findChild<QRadioButton*>("radioRadial");
 
