@@ -92,6 +92,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
     bool isExpandable = index.data(Qt::UserRole + 6).toBool();
+    // bool isExpanded = index.data(Qt::UserRole + 3).toBool();
     int depth = index.data(Qt::UserRole + 9).toInt();
     int indent = 15 * depth;
 
@@ -301,7 +302,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_sidebarContainer->hide();
     m_sidebarStrip->hide();
     btnEditorMenu->show();
-    // ANPASSUNG FEHLER 3: Kein Splitter Resizing auf Android
+    // FIX 3: Auf Android ist der Handle 0, damit kein User ihn verschiebt
+    m_mainSplitter->setHandleWidth(0);
 #else
     updateSidebarState();
 #endif
@@ -722,12 +724,12 @@ void MainWindow::setupSidebar() {
     QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
 
     // FIX FEHLER 3: Overlay-Logik
-    // Wir setzen das Parent auf 'this' (MainWindow), damit die Sidebar komplett unabhängig
-    // vom Layout des CentralWidgets ist. Das verhindert das Verschieben des Inhalts.
+    // Wir setzen das Parent auf 'this' (MainWindow) und STARTEN BEI 0 statt -280.
+    // Aber wir HIDE sie.
 #ifdef Q_OS_ANDROID
     m_sidebarContainer->setParent(this);
+    m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, this->height());
     m_sidebarContainer->hide();
-    m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, this->height());
 #else
     m_mainSplitter->addWidget(m_sidebarContainer);
 #endif
@@ -1063,6 +1065,8 @@ void MainWindow::animateSidebar(bool show) {
     int endX = show ? 0 : -SIDEBAR_WIDTH;
 
     if (show) {
+        // FIX: Startposition explizit setzen, bevor wir anzeigen
+        m_sidebarContainer->move(-SIDEBAR_WIDTH, 0);
         m_sidebarContainer->raise();
         m_sidebarContainer->show();
     }
@@ -1242,14 +1246,13 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     fabSize = FAB_SIZE_ANDROID;
     bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
 
-    // FIX SHIFTING: Wir nutzen 'this->height()', was die volle Fensterhöhe ist.
-    // Die Sidebar ist jetzt ein Kind von 'this', daher ist die Geometrie relativ zum Fenster.
+    // FIX: KEINE negativen Koordinaten für geschlossene Sidebar
+    // Wir positionieren sie nur neu, wenn sie OFFEN ist.
     if (m_isSidebarOpen && m_sidebarContainer) {
-        m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, this->height());
-    } else if (m_sidebarContainer) {
-        // Wenn versteckt, schieben wir sie aus dem Bild
-        m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, this->height());
+        m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, m_centralContainer->height());
     }
+    // Wenn geschlossen, macht hide() den Job. Wir lassen die Position so wie sie ist (oder 0,0),
+    // Hauptsache sie wird nicht auf -280 gezwungen.
 #else
     if (isTouchMode()) bottomOffset = 100;
 #endif
