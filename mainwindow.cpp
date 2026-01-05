@@ -92,7 +92,6 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
     bool isExpandable = index.data(Qt::UserRole + 6).toBool();
-    // bool isExpanded = index.data(Qt::UserRole + 3).toBool();
     int depth = index.data(Qt::UserRole + 9).toInt();
     int indent = 15 * depth;
 
@@ -559,6 +558,12 @@ void MainWindow::setupUi() {
     }
 
     m_mainSplitter = new QSplitter(Qt::Horizontal, m_centralContainer); mainLayout->addWidget(m_mainSplitter);
+
+    // FIX: Splitter Handle auf Android deaktivieren
+#ifdef Q_OS_ANDROID
+    m_mainSplitter->setHandleWidth(0);
+#endif
+
     m_fileModel = new QFileSystemModel(this); m_fileModel->setRootPath(m_rootPath); m_fileModel->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot); m_fileModel->setReadOnly(false);
 
     connect(m_fileModel, &QFileSystemModel::rowsInserted, this, &MainWindow::updateSidebarBadges);
@@ -634,7 +639,12 @@ void MainWindow::setupUi() {
 
     // Page Manager initialisieren (versteckt)
     // Parent ist Center Widget, damit er als Overlay agiert
+    // FIX: Auf Android besser 'this' als Parent für absolute Positionierung
+#ifdef Q_OS_ANDROID
+    m_pageManager = new PageManager(this);
+#else
     m_pageManager = new PageManager(m_editorCenterWidget);
+#endif
     m_pageManager->hide();
 
     editorMainLayout->addWidget(m_rightSidebar);
@@ -712,10 +722,12 @@ void MainWindow::setupSidebar() {
     QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
 
     // FIX FEHLER 3: Overlay-Logik
+    // Wir setzen das Parent auf 'this' (MainWindow), damit die Sidebar komplett unabhängig
+    // vom Layout des CentralWidgets ist. Das verhindert das Verschieben des Inhalts.
 #ifdef Q_OS_ANDROID
-    m_sidebarContainer->setParent(m_centralContainer);
+    m_sidebarContainer->setParent(this);
     m_sidebarContainer->hide();
-    m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, m_centralContainer->height());
+    m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, this->height());
 #else
     m_mainSplitter->addWidget(m_sidebarContainer);
 #endif
@@ -914,14 +926,12 @@ void MainWindow::setupRightSidebar() {
     QScrollArea *scroll = new QScrollArea(m_rightSidebar);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // Horizontal Scrollbar weg
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setStyleSheet("QScrollArea { background: transparent; } QScrollBar { width: 4px; background: transparent; } QScrollBar::handle { background: #444; border-radius: 2px; }");
 
-    // WICHTIG: Das Widget erstellen, aber noch nicht dem ScrollArea zuweisen
     QWidget *scrollContent = new QWidget();
 
     // WICHTIG: Verhindert horizontales Expandieren über das Limit hinaus!
-    // Dadurch wird horizontaler Scroll unmöglich.
     scrollContent->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::MinimumExpanding);
 
     QVBoxLayout *layout = new QVBoxLayout(scrollContent);
@@ -1232,10 +1242,13 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     fabSize = FAB_SIZE_ANDROID;
     bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
 
+    // FIX SHIFTING: Wir nutzen 'this->height()', was die volle Fensterhöhe ist.
+    // Die Sidebar ist jetzt ein Kind von 'this', daher ist die Geometrie relativ zum Fenster.
     if (m_isSidebarOpen && m_sidebarContainer) {
-        m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, m_centralContainer->height());
+        m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, this->height());
     } else if (m_sidebarContainer) {
-        m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, m_centralContainer->height());
+        // Wenn versteckt, schieben wir sie aus dem Bild
+        m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, this->height());
     }
 #else
     if (isTouchMode()) bottomOffset = 100;
