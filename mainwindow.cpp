@@ -8,7 +8,7 @@
 #include "multipagenoteview.h"
 #include "noteeditor.h"
 #include "notemanager.h"
-#include "pagemanager.h"
+#include "pagemanager.h" // WICHTIG: Hat gefehlt!
 
 #include <QApplication>
 #include <QStyle>
@@ -300,7 +300,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_sidebarContainer->hide();
     m_sidebarStrip->hide();
     btnEditorMenu->show();
-    m_mainSplitter->setSizes(QList<int>({0, 1000}));
+    // ANPASSUNG FEHLER 3: Kein Splitter Resizing auf Android
 #else
     updateSidebarState();
 #endif
@@ -631,6 +631,7 @@ void MainWindow::setupUi() {
     setupRightSidebar();
 
     // Page Manager initialisieren (versteckt)
+    // Parent ist Center Widget, damit er als Overlay agiert
     m_pageManager = new PageManager(m_editorCenterWidget);
     m_pageManager->hide();
 
@@ -647,7 +648,10 @@ void MainWindow::setupSidebar() {
     stripLayout->setContentsMargins(0, 10, 0, 0); stripLayout->setSpacing(20);
     btnStripMenu = new ModernButton(m_sidebarStrip); btnStripMenu->setIcon(createModernIcon("menu", Qt::white)); btnStripMenu->setFixedSize(40, 40); connect(btnStripMenu, &QAbstractButton::clicked, this, &MainWindow::onToggleSidebar);
     stripLayout->addWidget(btnStripMenu, 0, Qt::AlignHCenter); stripLayout->addStretch();
-    m_mainSplitter->addWidget(m_sidebarStrip);
+
+#ifndef Q_OS_ANDROID
+    m_mainSplitter->addWidget(m_sidebarStrip); // Strip only on Desktop
+#endif
 
     m_sidebarContainer = new QWidget(this);
     m_sidebarContainer->setFixedWidth(SIDEBAR_WIDTH);
@@ -703,7 +707,16 @@ void MainWindow::setupSidebar() {
     connect(m_btnSidebarSettings, &QPushButton::clicked, this, &MainWindow::onOpenSettings); bottomLay->addWidget(m_btnSidebarSettings); bottomLay->addStretch(); layout->addWidget(bottomBar);
 
     m_fabFolder = new QPushButton("+", m_sidebarContainer); m_fabFolder->setCursor(Qt::PointingHandCursor); m_fabFolder->setFixedSize(40, 40);
-    QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder); m_mainSplitter->addWidget(m_sidebarContainer);
+    QGraphicsDropShadowEffect* shadowFolder = new QGraphicsDropShadowEffect(this); shadowFolder->setBlurRadius(20); shadowFolder->setOffset(0, 4); shadowFolder->setColor(QColor(0,0,0,80)); m_fabFolder->setGraphicsEffect(shadowFolder); connect(m_fabFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+
+    // FIX FEHLER 3: Overlay-Logik
+#ifdef Q_OS_ANDROID
+    m_sidebarContainer->setParent(m_centralContainer);
+    m_sidebarContainer->hide();
+    m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, m_centralContainer->height());
+#else
+    m_mainSplitter->addWidget(m_sidebarContainer);
+#endif
 }
 
 void MainWindow::updateSidebarBadges() {
@@ -962,12 +975,37 @@ void MainWindow::onPageGridSpacingSliderChanged(int value) { m_gridSpacingTimer-
 void MainWindow::applyDelayedGridSpacing() { CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setGridSize(m_sliderGridSpacing->value()); } }
 
 void MainWindow::animateSidebar(bool show) {
+#ifdef Q_OS_ANDROID
+    // FIX FEHLER 3: Overlay-Animation statt Splitter
+    m_isSidebarOpen = show;
+    int startX = show ? -SIDEBAR_WIDTH : 0;
+    int endX = show ? 0 : -SIDEBAR_WIDTH;
+
+    if (show) {
+        m_sidebarContainer->raise(); // Wichtig: Über dem Inhalt
+        m_sidebarContainer->show();
+    }
+
+    QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "pos");
+    anim->setDuration(250);
+    anim->setStartValue(QPoint(startX, 0));
+    anim->setEndValue(QPoint(endX, 0));
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(anim, &QPropertyAnimation::finished, [this, show](){
+        if (!show) m_sidebarContainer->hide();
+        updateSidebarState();
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+
+#else
+    // Desktop Splitter Animation
     int start = show ? 0 : SIDEBAR_WIDTH;
     int end = show ? SIDEBAR_WIDTH : 0;
 
     m_isSidebarOpen = show; if (show) { m_sidebarContainer->setVisible(true); updateSidebarState(); }
     QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "maximumWidth"); anim->setDuration(250); anim->setStartValue(start); anim->setEndValue(end); anim->setEasingCurve(QEasingCurve::OutCubic);
     connect(anim, &QPropertyAnimation::finished, [this, show](){ if (!show) { m_sidebarContainer->hide(); updateSidebarState(); } }); anim->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
 }
 void MainWindow::onToggleSidebar() { bool isVisible = m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0; animateSidebar(!isVisible); }
 void MainWindow::updateSidebarState() { bool isEditor = (m_rightStack->currentWidget() == m_editorContainer); if (m_floatingTools) { m_floatingTools->setVisible(isEditor); } if (m_isSidebarOpen) { m_sidebarStrip->hide(); btnEditorMenu->hide(); return; } if (isEditor) { m_sidebarStrip->hide(); btnEditorMenu->show(); } else { m_sidebarStrip->show(); btnEditorMenu->hide(); } }
@@ -1010,6 +1048,7 @@ void MainWindow::onTogglePageManager() {
     if (m_pageManager->isVisible()) {
         m_pageManager->hide();
     } else {
+        // Overlay-Positionierung
         m_pageManager->resize(240, m_editorCenterWidget->height());
         m_pageManager->move(m_editorCenterWidget->width() - 240, 0);
         m_pageManager->raise();
@@ -1113,6 +1152,13 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 #ifdef Q_OS_ANDROID
     fabSize = FAB_SIZE_ANDROID;
     bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
+
+    // FIX FEHLER 3: Sidebar Größe bei Rotation anpassen (Overlay)
+    if (m_isSidebarOpen && m_sidebarContainer) {
+        m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, m_centralContainer->height());
+    } else if (m_sidebarContainer) {
+        m_sidebarContainer->setGeometry(-SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, m_centralContainer->height());
+    }
 #else
     if (isTouchMode()) bottomOffset = 100;
 #endif
