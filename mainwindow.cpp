@@ -8,7 +8,7 @@
 #include "multipagenoteview.h"
 #include "noteeditor.h"
 #include "notemanager.h"
-#include "pagemanager.h" // WICHTIG: Hat gefehlt!
+#include "pagemanager.h"
 
 #include <QApplication>
 #include <QStyle>
@@ -47,6 +47,7 @@
 #include <QLocale>
 #include <QScreen>
 #include <QScroller>
+#include <QScrollArea>
 
 // ============================================================================
 // KONFIGURATION FÜR ANDROID SCALING & MARGINS
@@ -91,7 +92,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
     bool isHeader = index.data(Qt::UserRole + 1).toBool();
     bool isExpandable = index.data(Qt::UserRole + 6).toBool();
-    bool isExpanded = index.data(Qt::UserRole + 3).toBool();
+    // bool isExpanded = index.data(Qt::UserRole + 3).toBool();
     int depth = index.data(Qt::UserRole + 9).toInt();
     int indent = 15 * depth;
 
@@ -126,6 +127,7 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
         if (isExpandable) {
             int arrowX = rect.left() + 6; int arrowY = rect.center().y();
             QPainterPath arrow;
+            bool isExpanded = index.data(Qt::UserRole + 3).toBool();
             if (isExpanded) { arrow.moveTo(arrowX, arrowY - 2); arrow.lineTo(arrowX + 8, arrowY - 2); arrow.lineTo(arrowX + 4, arrowY + 3); }
             else { arrow.moveTo(arrowX, arrowY - 4); arrow.lineTo(arrowX + 5, arrowY); arrow.lineTo(arrowX, arrowY + 4); }
             painter->setBrush(selected ? Qt::white : QColor(180,180,180)); painter->setPen(Qt::NoPen); painter->drawPath(arrow);
@@ -877,27 +879,62 @@ void MainWindow::updateOverviewBackButton() {
 void MainWindow::setupRightSidebar() {
     m_rightSidebar = new QWidget(this);
     m_rightSidebar->setFixedWidth(SIDEBAR_WIDTH);
-
     m_rightSidebar->hide();
-    QVBoxLayout *layout = new QVBoxLayout(m_rightSidebar);
+
+    // === FIX 2: QScrollArea für die Settings-Sidebar ===
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_rightSidebar);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+
+    // -- Header (bleibt fixiert) --
+    QWidget* headerWidget = new QWidget(m_rightSidebar);
 
 #ifdef Q_OS_ANDROID
-    layout->setContentsMargins(20, MARGIN_ANDROID_TOP + 10, 20, 20);
+    headerWidget->setContentsMargins(20, MARGIN_ANDROID_TOP + 10, 20, 10);
 #else
-    layout->setContentsMargins(20, 20, 20, 20);
+    headerWidget->setContentsMargins(20, 20, 20, 10);
 #endif
 
-    layout->setSpacing(15);
-    QHBoxLayout *header = new QHBoxLayout; QLabel *title = new QLabel("Settings");
-
+    QHBoxLayout *header = new QHBoxLayout(headerWidget);
+    header->setContentsMargins(0,0,0,0);
+    QLabel *title = new QLabel("Settings");
     QString headerStyle = QString("font-size: %1px; font-weight: bold; color: white;").arg(FONT_SIZE_HEADER - 2);
     title->setStyleSheet(headerStyle);
+    header->addWidget(title);
+    header->addStretch();
+    ModernButton *closeBtn = new ModernButton(this);
+    closeBtn->setIcon(createModernIcon("close", Qt::white));
+    closeBtn->setFixedSize(30,30);
+    connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar);
+    header->addWidget(closeBtn);
 
-    header->addWidget(title); header->addStretch();
-    ModernButton *closeBtn = new ModernButton(this); closeBtn->setIcon(createModernIcon("close", Qt::white)); closeBtn->setFixedSize(30,30); connect(closeBtn, &QAbstractButton::clicked, this, &MainWindow::onToggleRightSidebar); header->addWidget(closeBtn); layout->addLayout(header);
-    m_lblActiveNote = new QLabel("No Note", m_rightSidebar); m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;"); m_lblActiveNote->setWordWrap(true); m_lblActiveNote->setAlignment(Qt::AlignCenter); layout->addWidget(m_lblActiveNote);
+    mainLayout->addWidget(headerWidget);
 
-    layout->addWidget(new QLabel("Page Format (Fixed):", m_rightSidebar));
+    // -- Scrollable Content --
+    QScrollArea *scroll = new QScrollArea(m_rightSidebar);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // Horizontal Scrollbar weg
+    scroll->setStyleSheet("QScrollArea { background: transparent; } QScrollBar { width: 4px; background: transparent; } QScrollBar::handle { background: #444; border-radius: 2px; }");
+
+    // WICHTIG: Das Widget erstellen, aber noch nicht dem ScrollArea zuweisen
+    QWidget *scrollContent = new QWidget();
+
+    // WICHTIG: Verhindert horizontales Expandieren über das Limit hinaus!
+    // Dadurch wird horizontaler Scroll unmöglich.
+    scrollContent->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::MinimumExpanding);
+
+    QVBoxLayout *layout = new QVBoxLayout(scrollContent);
+    layout->setContentsMargins(20, 0, 20, 20);
+    layout->setSpacing(15);
+
+    m_lblActiveNote = new QLabel("No Note", scrollContent);
+    m_lblActiveNote->setStyleSheet("color: #5E5CE6; font-size: 14px; font-weight: bold; margin-bottom: 5px;");
+    m_lblActiveNote->setWordWrap(true);
+    m_lblActiveNote->setAlignment(Qt::AlignCenter);
+    layout->addWidget(m_lblActiveNote);
+
+    layout->addWidget(new QLabel("Page Format (Fixed):", scrollContent));
 
     m_btnFormatInfinite = new QPushButton("Infinite");
     m_btnFormatInfinite->setCheckable(true);
@@ -917,72 +954,106 @@ void MainWindow::setupRightSidebar() {
     layout->addWidget(m_btnFormatInfinite);
     layout->addWidget(m_btnFormatA4);
 
-    layout->addWidget(new QLabel("Layout:", m_rightSidebar));
+    layout->addWidget(new QLabel("Layout:", scrollContent));
     m_btnStyleBlank = new QPushButton("Blank"); m_btnStyleLined = new QPushButton("Lined"); m_btnStyleSquared = new QPushButton("Squared"); m_btnStyleDotted = new QPushButton("Dotted");
     m_btnStyleBlank->setCheckable(true); m_btnStyleLined->setCheckable(true); m_btnStyleSquared->setCheckable(true); m_btnStyleDotted->setCheckable(true);
     QString btnStyleTemplate = "QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: %1; border: 1px solid %1; }"; QString accentColorName = m_currentAccentColor.name(); QString styleSheet = btnStyleTemplate.arg(accentColorName);
     m_btnStyleBlank->setStyleSheet(styleSheet); m_btnStyleLined->setStyleSheet(styleSheet); m_btnStyleSquared->setStyleSheet(styleSheet); m_btnStyleDotted->setStyleSheet(styleSheet);
     m_grpPageStyle = new QButtonGroup(this); m_grpPageStyle->addButton(m_btnStyleBlank, (int)PageStyle::Blank); m_grpPageStyle->addButton(m_btnStyleLined, (int)PageStyle::Lined); m_grpPageStyle->addButton(m_btnStyleSquared, (int)PageStyle::Squared); m_grpPageStyle->addButton(m_btnStyleDotted, (int)PageStyle::Dotted); m_grpPageStyle->setExclusive(true);
     connect(m_grpPageStyle, QOverload<QAbstractButton*, bool>::of(&QButtonGroup::buttonToggled), this, &MainWindow::onPageStyleButtonToggled);
-    QWidget* styleBtnsContainer = new QWidget(m_rightSidebar); QHBoxLayout* styleBtnsLayout = new QHBoxLayout(styleBtnsContainer); styleBtnsLayout->setContentsMargins(0,0,0,0); styleBtnsLayout->addWidget(m_btnStyleBlank); styleBtnsLayout->addWidget(m_btnStyleLined); styleBtnsLayout->addWidget(m_btnStyleSquared); styleBtnsLayout->addWidget(m_btnStyleDotted); layout->addWidget(styleBtnsContainer);
+    QWidget* styleBtnsContainer = new QWidget(scrollContent); QHBoxLayout* styleBtnsLayout = new QHBoxLayout(styleBtnsContainer); styleBtnsLayout->setContentsMargins(0,0,0,0); styleBtnsLayout->addWidget(m_btnStyleBlank); styleBtnsLayout->addWidget(m_btnStyleLined); styleBtnsLayout->addWidget(m_btnStyleSquared); styleBtnsLayout->addWidget(m_btnStyleDotted); layout->addWidget(styleBtnsContainer);
 
-    layout->addWidget(new QLabel("Grid Spacing (px):", m_rightSidebar));
+    layout->addWidget(new QLabel("Grid Spacing (px):", scrollContent));
     m_sliderGridSpacing = new QSlider(Qt::Horizontal); m_sliderGridSpacing->setRange(10, 80); m_sliderGridSpacing->setValue(40); m_sliderGridSpacing->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
     connect(m_sliderGridSpacing, &QSlider::valueChanged, this, &MainWindow::onPageGridSpacingSliderChanged); layout->addWidget(m_sliderGridSpacing);
 
-    layout->addWidget(new QLabel("Page Color:", m_rightSidebar));
+    layout->addWidget(new QLabel("Page Color:", scrollContent));
     m_btnColorWhite = new QPushButton("Light"); m_btnColorWhite->setCheckable(true); m_btnColorWhite->setChecked(true); m_btnColorWhite->setCursor(Qt::PointingHandCursor); m_btnColorWhite->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnColorWhite, &QPushButton::clicked, [this](){ setPageColor(false); });
     m_btnColorDark = new QPushButton("Dark"); m_btnColorDark->setCheckable(true); m_btnColorDark->setCursor(Qt::PointingHandCursor); m_btnColorDark->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnColorDark, &QPushButton::clicked, [this](){ setPageColor(true); });
     QButtonGroup *grpColor = new QButtonGroup(this); grpColor->addButton(m_btnColorWhite); grpColor->addButton(m_btnColorDark); grpColor->setExclusive(true); layout->addWidget(m_btnColorWhite); layout->addWidget(m_btnColorDark);
 
-    layout->addWidget(new QLabel("Input Mode:", m_rightSidebar));
+    layout->addWidget(new QLabel("Input Mode:", scrollContent));
     m_btnInputPen = new QPushButton("Pen Only\n(1 Finger scrolls)"); m_btnInputPen->setCheckable(true); m_btnInputPen->setChecked(true); m_btnInputPen->setCursor(Qt::PointingHandCursor); m_btnInputPen->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnInputPen, &QPushButton::clicked, [this](){ updateInputMode(true); });
     m_btnInputTouch = new QPushButton("Touch & Pen\n(2 Fingers scroll)"); m_btnInputTouch->setCheckable(true); m_btnInputTouch->setCursor(Qt::PointingHandCursor); m_btnInputTouch->setStyleSheet("QPushButton { background: #333; color: white; border: 1px solid #444; padding: 10px; border-radius: 5px; text-align: left; } QPushButton:checked { background: #5E5CE6; border: 1px solid #5E5CE6; }");
     connect(m_btnInputTouch, &QPushButton::clicked, [this](){ updateInputMode(false); });
     QButtonGroup *grpInput = new QButtonGroup(this); grpInput->addButton(m_btnInputPen); grpInput->addButton(m_btnInputTouch); grpInput->setExclusive(true); layout->addWidget(m_btnInputPen); layout->addWidget(m_btnInputTouch);
 
-    layout->addWidget(new QLabel("Toolbar Style:", m_rightSidebar));
+    layout->addWidget(new QLabel("Toolbar Style:", scrollContent));
     m_comboToolbarStyle = new QComboBox(); m_comboToolbarStyle->addItems({"Vertical", "Radial (Full)", "Radial (Half)"}); m_comboToolbarStyle->setStyleSheet("QComboBox { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; } QComboBox QAbstractItemView { background: #333; color: white; selection-background-color: #5E5CE6; }"); m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
     connect(m_comboToolbarStyle, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index){ ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools); if (tb) { if (index == 0) tb->setStyle(ModernToolbar::Normal); else if (index == 1) { tb->setStyle(ModernToolbar::Radial); tb->setRadialType(ModernToolbar::FullCircle); } else { tb->setStyle(ModernToolbar::Radial); tb->setRadialType(ModernToolbar::HalfEdge); } } });
     layout->addWidget(m_comboToolbarStyle);
 
-    layout->addWidget(new QLabel("UI Profile:", m_rightSidebar));
+    layout->addWidget(new QLabel("UI Profile:", scrollContent));
     m_comboProfiles = new QComboBox(); m_comboProfiles->setStyleSheet(m_comboToolbarStyle->styleSheet()); m_comboProfiles->setCursor(Qt::PointingHandCursor);
     for (const auto& p : m_profileManager->profiles()) { m_comboProfiles->addItem(p.name, p.id); } m_comboProfiles->setCurrentText(m_currentProfile.name);
     connect(m_comboProfiles, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int){ QString id = m_comboProfiles->currentData().toString(); m_profileManager->setCurrentProfile(id); });
     connect(m_profileManager, &UiProfileManager::listChanged, [this](){ m_comboProfiles->blockSignals(true); m_comboProfiles->clear(); for (const auto& p : m_profileManager->profiles()) { m_comboProfiles->addItem(p.name, p.id); } int idx = m_comboProfiles->findData(m_currentProfile.id); if(idx != -1) m_comboProfiles->setCurrentIndex(idx); m_comboProfiles->blockSignals(false); });
     layout->addWidget(m_comboProfiles);
 
-    layout->addWidget(new QLabel("Toolbar Size:", m_rightSidebar));
+    layout->addWidget(new QLabel("Toolbar Size:", scrollContent));
     m_sliderToolbarScale = new QSlider(Qt::Horizontal); m_sliderToolbarScale->setRange(50, 150); m_sliderToolbarScale->setValue(100); m_sliderToolbarScale->setStyleSheet("QSlider::groove:horizontal { border: 1px solid #333; height: 6px; background: #1A1A1A; margin: 2px 0; border-radius: 3px; } QSlider::handle:horizontal { background: #5E5CE6; border: 1px solid #5E5CE6; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }");
     connect(m_sliderToolbarScale, &QSlider::valueChanged, [this](int val){ ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools); if(tb) tb->setScale(val / 100.0); }); layout->addWidget(m_sliderToolbarScale);
 
     layout->addStretch();
+
+    scroll->setWidget(scrollContent);
+    mainLayout->addWidget(scroll);
+
+    // Gesten aktivieren, damit man auf dem Touchscreen scrollen kann
+    QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
 }
 
-void MainWindow::updateInputMode(bool penOnly) { m_penOnlyMode = penOnly; CanvasView* cv = getCurrentCanvas(); if (cv) cv->setPenMode(penOnly); }
+// === FIX 1: Support für NoteEditor (Touch/Pen Mode Fix) ===
+void MainWindow::updateInputMode(bool penOnly) {
+    m_penOnlyMode = penOnly;
+
+    // Prüfe BEIDE Editor-Typen
+    QWidget* current = m_editorTabs->currentWidget();
+
+    // Fall 1: Alter Editor (Binary)
+    if(auto* cv = qobject_cast<CanvasView*>(current)) {
+        cv->setPenMode(penOnly);
+    }
+    // Fall 2: Neuer Editor (JSON / MultiPage)
+    else if(auto* editor = qobject_cast<NoteEditor*>(current)) {
+        if(editor->view()) editor->view()->setPenOnlyMode(penOnly);
+    }
+}
 
 void MainWindow::onPageStyleButtonToggled(QAbstractButton *button, bool checked) {
     if (!checked) return;
     PageStyle style = (PageStyle)m_grpPageStyle->id(button);
-    CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setPageStyle(style); cv->setGridSize(m_sliderGridSpacing->value()); }
+
+    QWidget* current = m_editorTabs->currentWidget();
+    if(auto* cv = qobject_cast<CanvasView*>(current)) {
+        cv->setPageStyle(style); cv->setGridSize(m_sliderGridSpacing->value());
+    }
+    else if(auto* editor = qobject_cast<NoteEditor*>(current)) {
+        // Hinweis: PageStyle Support für NoteEditor müsste hier implementiert werden,
+        // falls MultiPageNoteView dies unterstützt (aktuell nur Basis-Implementierung).
+        // if(editor->view()) ...
+    }
 }
 
 void MainWindow::onPageGridSpacingSliderChanged(int value) { m_gridSpacingTimer->start(); }
-void MainWindow::applyDelayedGridSpacing() { CanvasView* cv = getCurrentCanvas(); if (cv) { cv->setGridSize(m_sliderGridSpacing->value()); } }
+void MainWindow::applyDelayedGridSpacing() {
+    QWidget* current = m_editorTabs->currentWidget();
+    if(auto* cv = qobject_cast<CanvasView*>(current)) {
+        cv->setGridSize(m_sliderGridSpacing->value());
+    }
+}
 
 void MainWindow::animateSidebar(bool show) {
 #ifdef Q_OS_ANDROID
-    // FIX FEHLER 3: Overlay-Animation statt Splitter
     m_isSidebarOpen = show;
     int startX = show ? -SIDEBAR_WIDTH : 0;
     int endX = show ? 0 : -SIDEBAR_WIDTH;
 
     if (show) {
-        m_sidebarContainer->raise(); // Wichtig: Über dem Inhalt
+        m_sidebarContainer->raise();
         m_sidebarContainer->show();
     }
 
@@ -998,7 +1069,6 @@ void MainWindow::animateSidebar(bool show) {
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 
 #else
-    // Desktop Splitter Animation
     int start = show ? 0 : SIDEBAR_WIDTH;
     int end = show ? SIDEBAR_WIDTH : 0;
 
@@ -1021,17 +1091,31 @@ void MainWindow::onToggleRightSidebar() {
     bool isVisible = m_rightSidebar->isVisible() && m_rightSidebar->width() > 0;
     animateRightSidebar(!isVisible);
     if (!isVisible) {
-        CanvasView *cv = getCurrentCanvas();
+        // State Syncing
+        QWidget* current = m_editorTabs->currentWidget();
+        CanvasView *cv = qobject_cast<CanvasView*>(current);
+        NoteEditor *editor = qobject_cast<NoteEditor*>(current);
+
         if (cv) {
             bool inf = cv->isInfinite();
             m_btnFormatInfinite->setChecked(inf);
             m_btnFormatA4->setChecked(!inf);
 
+            // Sync settings
             m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
             bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
             int styleId = (int)cv->pageStyle(); QAbstractButton *styleBtn = m_grpPageStyle->button(styleId); if (styleBtn) styleBtn->setChecked(true);
             m_sliderGridSpacing->blockSignals(true); m_sliderGridSpacing->setValue(cv->gridSize()); m_sliderGridSpacing->blockSignals(false);
         }
+        else if (editor) {
+            // NoteEditor (A4) settings sync
+            m_btnFormatInfinite->setChecked(false);
+            m_btnFormatA4->setChecked(true);
+
+            m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
+            // Page Color etc. abrufen wenn im Editor verfügbar
+        }
+
         ModernToolbar* tb = qobject_cast<ModernToolbar*>(m_floatingTools);
         if (tb) {
             if (tb->currentStyle() == ModernToolbar::Normal) { m_comboToolbarStyle->setCurrentIndex(0); }
@@ -1041,20 +1125,15 @@ void MainWindow::onToggleRightSidebar() {
     }
 }
 
-// ----------------------------------------------------------------------------
-// UPDATED: Page Manager Toggle Logic mit Format-Prüfung
-// ----------------------------------------------------------------------------
 void MainWindow::onTogglePageManager() {
     if (m_pageManager->isVisible()) {
         m_pageManager->hide();
     } else {
-        // Overlay-Positionierung
         m_pageManager->resize(240, m_editorCenterWidget->height());
         m_pageManager->move(m_editorCenterWidget->width() - 240, 0);
         m_pageManager->raise();
 
         QWidget* current = m_editorTabs->currentWidget();
-
         MultiPageNoteView* mpv = nullptr;
 
         if (NoteEditor* editor = qobject_cast<NoteEditor*>(current)) {
@@ -1078,9 +1157,6 @@ void MainWindow::onTogglePageManager() {
     }
 }
 
-// ----------------------------------------------------------------------------
-// UPDATED: Automatisches Erkennen von Binary vs JSON Format
-// ----------------------------------------------------------------------------
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
     if (m_fileModel->isDir(index)) {
         m_fileListView->setRootIndex(index);
@@ -1120,6 +1196,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                 Note* heapNote = new Note(note);
                 editor->setNote(heapNote);
 
+                // Initiale Pen Mode Settings anwenden
+                if(editor->view()) editor->view()->setPenOnlyMode(m_penOnlyMode);
+
                 editor->onSaveRequested = [path](Note* n){
                     NoteManager::saveNote(*n, path);
                 };
@@ -1153,7 +1232,6 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     fabSize = FAB_SIZE_ANDROID;
     bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
 
-    // FIX FEHLER 3: Sidebar Größe bei Rotation anpassen (Overlay)
     if (m_isSidebarOpen && m_sidebarContainer) {
         m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, m_centralContainer->height());
     } else if (m_sidebarContainer) {
@@ -1207,11 +1285,14 @@ void MainWindow::onOpenSettings() {
     delete overlay;
 }
 
-void MainWindow::setPageColor(bool dark) { CanvasView *cv = getCurrentCanvas(); if (cv) { cv->setPageColor(dark ? UIStyles::SceneBackground : UIStyles::PageBackground); } }
+void MainWindow::setPageColor(bool dark) {
+    QWidget* current = m_editorTabs->currentWidget();
+    if(auto* cv = qobject_cast<CanvasView*>(current)) {
+        cv->setPageColor(dark ? UIStyles::SceneBackground : UIStyles::PageBackground);
+    }
+    // NoteEditor support to be added similarly
+}
 
-// ----------------------------------------------------------------------------
-// UPDATED: Tool Handling für BEIDE Editor-Typen
-// ----------------------------------------------------------------------------
 void MainWindow::setActiveTool(CanvasView::ToolType tool) {
     m_activeToolType = tool;
 
@@ -1248,9 +1329,6 @@ void MainWindow::onToolLasso() { setActiveTool(CanvasView::ToolType::Lasso); }
 void MainWindow::onUndo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->undo(); }
 void MainWindow::onRedo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->redo(); }
 
-// ----------------------------------------------------------------------------
-// UPDATED: Tab Change Handling (Button Sichtbarkeit)
-// ----------------------------------------------------------------------------
 void MainWindow::onTabChanged(int index) {
     QWidget* current = m_editorTabs->currentWidget();
 
@@ -1265,14 +1343,10 @@ void MainWindow::onTabChanged(int index) {
         m_lblActiveNote->setText(text);
     }
 
-    if (m_rightSidebar && m_rightSidebar->isVisible() && cv) {
-        bool inf = cv->isInfinite(); m_btnFormatInfinite->setChecked(inf); m_btnFormatA4->setChecked(!inf); m_btnInputPen->setChecked(m_penOnlyMode); m_btnInputTouch->setChecked(!m_penOnlyMode);
-        bool isDark = (cv->pageColor() == UIStyles::SceneBackground); m_btnColorDark->setChecked(isDark); m_btnColorWhite->setChecked(!isDark);
-        int styleId = (int)cv->pageStyle(); QAbstractButton *styleBtn = m_grpPageStyle->button(styleId); if (styleBtn) styleBtn->setChecked(true);
-        m_sliderGridSpacing->blockSignals(true); m_sliderGridSpacing->setValue(cv->gridSize()); m_sliderGridSpacing->blockSignals(false);
+    if (m_rightSidebar && m_rightSidebar->isVisible()) {
+        onToggleRightSidebar(); // Sync UI
     }
 
-    // Page Manager Button nur zeigen, wenn NoteEditor (A4) aktiv ist
     if(m_btnPages) {
         m_btnPages->setVisible(editor != nullptr);
     }
