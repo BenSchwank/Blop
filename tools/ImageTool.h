@@ -16,13 +16,11 @@ public:
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene) return false;
 
-        // Öffne Datei-Dialog (nur Desktop, Android braucht später QML Integration)
         QString fileName = QFileDialog::getOpenFileName(nullptr, "Bild öffnen", "", "Bilder (*.png *.jpg *.jpeg)");
 
         if (!fileName.isEmpty()) {
             QPixmap pixmap(fileName);
             if (!pixmap.isNull()) {
-                // Bild skalieren wenn zu riesig
                 if (pixmap.width() > 800) pixmap = pixmap.scaledToWidth(800, Qt::SmoothTransformation);
 
                 auto* item = new QGraphicsPixmapItem(pixmap);
@@ -34,7 +32,6 @@ public:
                 emit contentModified();
             }
         }
-        // 'true' zurückgeben verhindert, dass CanvasView andere Dinge tut
         return true;
     }
 };

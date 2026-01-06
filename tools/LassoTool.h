@@ -15,18 +15,16 @@ public:
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene) return false;
 
-        // Vorherige Auswahl aufheben
         scene->clearSelection();
 
-        // Start des Lassos
         m_selectionPath = QPainterPath();
         m_selectionPath.moveTo(event->scenePos());
 
-        // Visuelles Feedback (gestrichelte Linie)
         m_lassoVisual = new QGraphicsPathItem();
         m_lassoVisual->setPen(QPen(QColor(0x5E5CE6), 2, Qt::DashLine));
         m_lassoVisual->setPath(m_selectionPath);
-        m_lassoVisual->setZValue(100); // Ganz oben
+        m_lassoVisual->setZValue(100);
+
         scene->addItem(m_lassoVisual);
 
         return true;
@@ -43,14 +41,11 @@ public:
 
     bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_lassoVisual) {
-            // Pfad schließen
             m_selectionPath.closeSubpath();
             m_lassoVisual->setPath(m_selectionPath);
 
-            // Alles im Pfad auswählen!
             scene->setSelectionArea(m_selectionPath, QTransform());
 
-            // Visualisierung entfernen
             scene->removeItem(m_lassoVisual);
             delete m_lassoVisual;
             m_lassoVisual = nullptr;

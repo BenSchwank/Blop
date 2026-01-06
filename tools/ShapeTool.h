@@ -16,8 +16,6 @@ public:
         if (!scene) return false;
         m_startPos = event->scenePos();
 
-        // Default: Rechteck (später über Config steuerbar)
-        // Wir erstellen ein Rechteck mit Größe 0
         auto* item = new QGraphicsRectItem(QRectF(m_startPos, QSizeF(0,0)));
 
         QPen pen(m_config.penColor, 3);
@@ -31,13 +29,9 @@ public:
 
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentShape) {
-            // Rechteck aufziehen
             QRectF rect(m_startPos, event->scenePos());
-
-            // Casten und setzen
             if (auto* r = dynamic_cast<QGraphicsRectItem*>(m_currentShape))
                 r->setRect(rect.normalized());
-
             return true;
         }
         return false;

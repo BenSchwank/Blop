@@ -7,30 +7,33 @@
 // Deine Header
 #include "mainwindow.h"
 #include "tools/ToolUIBridge.h"
-#include "tools/ToolFactory.h"  // <--- WICHTIG: Hast du diesen Include?
+#include "tools/ToolFactory.h" // <--- WICHTIG: Include hinzugefügt
 
 int main(int argc, char *argv[])
 {
+    // QApplication ist zwingend für Widget-Mix
     QApplication a(argc, argv);
 
-    // --- SETUP (Pfade) ---
+    // --- SETUP FÜR ALLE PLATTFORMEN ---
 #ifdef Q_OS_ANDROID
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 #else
     QString path = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
 #endif
+
     QDir dir(path);
     if (!dir.exists()) dir.mkpath(".");
 
-    // --- WICHTIG: HIER WERDEN DIE TOOLS GELADEN ---
-    // Wenn diese Zeile fehlt, kennt die App keine Werkzeuge!
+    // --- WICHTIG: WERKZEUGE REGISTRIEREN ---
+    // Das hat gefehlt! Ohne das ist der ToolManager leer.
     ToolFactory::registerAllTools();
 
-    // --- QML BRIDGE ---
+    // --- QML BRIDGE REGISTRIEREN ---
     qmlRegisterSingletonInstance("Blop", 1, 0, "Bridge", &ToolUIBridge::instance());
 
-    // --- WINDOW STARTEN ---
+    // --- HAUPTFENSTER STARTEN ---
     MainWindow w;
+
 #ifdef Q_OS_ANDROID
     w.showFullScreen();
 #else

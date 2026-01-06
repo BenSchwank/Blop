@@ -1,6 +1,5 @@
 #pragma once
 #include "AbstractTool.h"
-#include <QGraphicsSceneMouseEvent>
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 
@@ -25,10 +24,6 @@ public:
             return true;
         }
         return false;
-    }
-
-    void drawOverlay(QPainter* painter, const QRectF& rect) override {
-        // Optional: Cursor Kreis malen
     }
 
 private:

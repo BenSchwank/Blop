@@ -1,9 +1,7 @@
 #pragma once
 #include "AbstractTool.h"
-#include <QGraphicsSceneMouseEvent>
 #include <QGraphicsPathItem>
 #include <QPen>
-#include <QGraphicsScene>
 
 class AbstractStrokeTool : public AbstractTool {
     Q_OBJECT
@@ -13,6 +11,7 @@ public:
 
     // --- Input Handling ---
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
+        // Wir nutzen die übergebene 'scene', da event->scene() null sein kann
         if (!scene) return false;
 
         m_currentPath = QPainterPath();
@@ -25,7 +24,7 @@ public:
 
         m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
 
-        scene->addItem(m_currentItem); // Hier benutzen wir jetzt "scene" direkt
+        scene->addItem(m_currentItem);
         return true;
     }
 

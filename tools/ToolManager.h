@@ -6,6 +6,9 @@
 #include "../ToolMode.h"
 #include "../ToolSettings.h"
 
+// Forward Declaration, damit wir den Include Loop vermeiden
+class ToolFactory;
+
 class ToolManager : public QObject {
     Q_OBJECT
 
@@ -15,7 +18,6 @@ public:
         return _instance;
     }
 
-    // Registriert ein Tool (wird in Schritt 3+ genutzt)
     void registerTool(AbstractTool* tool) {
         if(tool) {
             m_tools[tool->mode()] = tool;
@@ -23,10 +25,8 @@ public:
         }
     }
 
-    // Wechselt das aktive Werkzeug
     void selectTool(ToolMode mode) {
         if (m_activeTool && m_activeTool->mode() == mode) {
-            // Second Tap Event -> Settings öffnen
             emit m_activeTool->requestSettingsMenu();
             return;
         }
@@ -37,18 +37,16 @@ public:
 
         if (m_tools.contains(mode)) {
             m_activeTool = m_tools[mode];
-            m_activeTool->setConfig(m_globalConfig); // Aktuelle Config anwenden
+            m_activeTool->setConfig(m_globalConfig);
             m_activeTool->onActivated();
             emit toolChanged(m_activeTool);
         } else {
-            // Fallback oder Fehlerbehandlung
             m_activeTool = nullptr;
         }
     }
 
     AbstractTool* activeTool() const { return m_activeTool; }
 
-    // Globale Konfiguration aktualisieren
     void updateConfig(const ToolConfig& config) {
         m_globalConfig = config;
         if (m_activeTool) {
