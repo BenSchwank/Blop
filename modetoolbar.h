@@ -3,12 +3,7 @@
 
 #include <QToolBar>
 #include <QPaintEvent>
-
-enum class Mode {
-    Pen,
-    Eraser,
-    Lasso
-};
+#include "ToolMode.h" // Einbindung von ToolMode
 
 class ModeToolBar : public QToolBar {
     Q_OBJECT
@@ -17,17 +12,17 @@ public:
     explicit ModeToolBar(QWidget* parent = nullptr);
     ~ModeToolBar();
 
-    void setMode(Mode mode);
-    Mode currentMode() const { return m_mode; }
+    void setMode(ToolMode mode);
+    ToolMode currentMode() const { return m_mode; }
 
 signals:
-    void modeChanged(Mode mode);
+    void modeChanged(ToolMode mode);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    Mode m_mode{Mode::Pen};
+    ToolMode m_mode{ToolMode::Pen};
 };
 
 #endif // MODETOOLBAR_H

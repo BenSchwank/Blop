@@ -1,6 +1,8 @@
 #include "canvasview.h"
 #include "mainwindow.h"
 #include "UIStyles.h"
+#include "tools/ToolManager.h"
+#include "tools/AbstractTool.h"
 #include <QScrollBar>
 #include <QGraphicsItem>
 #include <QPainterPath>
@@ -53,7 +55,6 @@ CanvasView::CanvasView(QWidget *parent)
     m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
     // PERFORMANCE: BoundingRectViewportUpdate ist der Standard für High-Performance.
-    // Es zeichnet nur minimale Bereiche neu.
     setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
 
     setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
@@ -73,6 +74,11 @@ CanvasView::CanvasView(QWidget *parent)
     updateBackgroundTile();
 
     connect(this, &CanvasView::contentModified, this, &CanvasView::updateSceneRect);
+
+    // NEU: Auto-Update wenn ToolManager Signal sendet (für Overlay/Redraws)
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool*){
+        viewport()->update();
+    });
 
     m_selectionMenu = new SelectionMenu(this);
     connect(m_selectionMenu, &SelectionMenu::deleteRequested, this, &CanvasView::deleteSelection);
@@ -167,7 +173,7 @@ void CanvasView::updateBackgroundTile() {
     if (m_pageStyle == PageStyle::Blank) return;
 
     QPainter p(&m_bgTile);
-    p.setRenderHint(QPainter::Antialiasing, false); // Aus für Schärfe & Speed
+    p.setRenderHint(QPainter::Antialiasing, false);
 
     QColor lineColor = (m_pageColor.value() < 128) ? QColor(255,255,255, 30) : QColor(0,0,0, 20);
     p.setPen(QPen(lineColor, 1));
@@ -197,7 +203,6 @@ void CanvasView::updateBackgroundTile() {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
-    // 1. Solider Hintergrund
     if (!m_isInfinite) {
         painter->fillRect(rect, UIStyles::SceneBackground);
     } else {
@@ -205,41 +210,25 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
     }
 
     if (m_isInfinite && !m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
-        // LOD (Level of Detail) Check:
-        // Wenn das Gitter auf dem Bildschirm kleiner als 8 Pixel wird (z.B. beim Rauszoomen),
-        // zeichnen wir es gar nicht mehr. Das verhindert massiven Performance-Einbruch bei großen Ansichten.
         double zoomLevel = transform().m11();
         if (m_gridSize * zoomLevel < 8.0) {
             return;
         }
 
         painter->save();
-
-        // 2. Gitter mit drawTiledPixmap (Hardware-beschleunigt wo möglich)
-        // Trick gegen "Schwimmen": Wir berechnen den Offset relativ zum Szenen-Ursprung (0,0).
-        // fmod stellt sicher, dass das Muster immer an (0,0) ausgerichtet ist, egal wo 'rect' ist.
-
         qreal w = m_bgTile.width();
         qreal h = m_bgTile.height();
-
         qreal left = rect.left();
         qreal top = rect.top();
-
-        // Offset berechnen (Modulo mit korrekter Behandlung negativer Zahlen)
         qreal ox = std::fmod(left, w);
         if (ox < 0) ox += w;
-
         qreal oy = std::fmod(top, h);
         if (oy < 0) oy += h;
 
-        // BoundingRectViewportUpdate macht 'rect' oft sehr klein (nur der neue Streifen).
-        // drawTiledPixmap füllt diesen Streifen perfekt und nahtlos.
         painter->drawTiledPixmap(rect, m_bgTile, QPointF(ox, oy));
-
         painter->restore();
     }
     else if (!m_isInfinite) {
-        // Seiten-Modus
         painter->save();
         int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
         int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
@@ -249,7 +238,6 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
         for (int i = startPage; i <= endPage; ++i) {
             qreal y = i * TOTAL_PAGE_HEIGHT;
             QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
-
             painter->fillRect(pageRect, m_pageColor);
             painter->setBrushOrigin(pageRect.topLeft());
             painter->drawTiledPixmap(pageRect, m_bgTile);
@@ -265,11 +253,18 @@ void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
         drawPullIndicator(painter);
     }
 
+    // NEU: Tool Overlay zeichnen (z.B. Lineal)
+    AbstractTool* tool = ToolManager::instance().activeTool();
+    if (tool) {
+        painter->save();
+        tool->drawOverlay(painter, rect);
+        painter->restore();
+    }
+
     if (!m_isInfinite) {
         painter->save();
         painter->setPen(QPen(QColor(0,0,0, 60), 1, Qt::SolidLine));
         painter->setBrush(Qt::NoBrush);
-
         int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
         int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
         int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
@@ -470,7 +465,6 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         if ((currentScale < 0.1 && factor < 1) || (currentScale > 10 && factor > 1)) return;
         scale(factor, factor);
 
-        // Nach Zoom ggf. neu zeichnen (um LOD anzupassen)
         viewport()->update();
         event->accept();
     } else {
@@ -489,6 +483,9 @@ void CanvasView::wheelEvent(QWheelEvent *event)
     }
 }
 
+// ==========================================================
+// MOUSE EVENTS: HIER IST DIE INTEGRATION DER NEUEN TOOLS
+// ==========================================================
 void CanvasView::mousePressEvent(QMouseEvent *event) {
     const QInputDevice* dev = event->device();
     bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
@@ -511,6 +508,28 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
         event->accept();
         return;
     }
+
+    // --- NEU: TOOL ARCHITECTURE INTEGRATION ---
+    AbstractTool* newTool = ToolManager::instance().activeTool();
+    if (newTool && event->button() == Qt::LeftButton) {
+        // Konvertiere QMouseEvent zu QGraphicsSceneMouseEvent für das Tool
+        QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMousePress);
+        QPointF scenePos = mapToScene(event->pos());
+        scEvent.setScenePos(scenePos);
+        scEvent.setButton(event->button());
+        scEvent.setButtons(event->buttons());
+        scEvent.setModifiers(event->modifiers());
+
+        // Das Event an das Tool weitergeben (MIT scene Pointer)
+        if(newTool->handleMousePress(&scEvent, m_scene)) {
+            // Wenn das Tool das Event verarbeitet hat (z.B. Zeichnen gestartet)
+            m_isDrawing = true;
+            event->accept();
+            return;
+        }
+    }
+
+    // --- FALLBACK: ALTE LOGIK (Falls kein neues Tool aktiv ist) ---
 
     if (event->button() == Qt::LeftButton) {
         QPointF scenePos = mapToScene(event->pos());
@@ -535,13 +554,14 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             return;
         }
         else if (m_currentTool == ToolType::Pen) {
+            // Alte Pen Logik... wird jetzt durch PenTool ersetzt, wenn aktiv
             m_isDrawing = true;
             m_currentPath = QPainterPath();
             m_currentPath.moveTo(scenePos);
             m_currentItem = m_scene->addPath(m_currentPath, QPen(m_penColor, m_penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
             m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            m_currentItem->setZValue(1.0); // Stift oben
+            m_currentItem->setZValue(1.0);
             qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
             event->accept();
             return;
@@ -551,15 +571,14 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             m_currentPath = QPainterPath();
             m_currentPath.moveTo(scenePos);
 
-            // Highlighter: Farbe mit Alpha und dickerer Strich
             QColor hlColor = m_penColor;
-            hlColor.setAlpha(80); // Transparenz
-            int hlWidth = 24;     // Dicker Strich
+            hlColor.setAlpha(80);
+            int hlWidth = 24;
 
             m_currentItem = m_scene->addPath(m_currentPath, QPen(hlColor, hlWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable);
             m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            m_currentItem->setZValue(0.1); // Hinter normalem Stift, aber vor Hintergrund
+            m_currentItem->setZValue(0.1);
 
             qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
             event->accept();
@@ -581,14 +600,13 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
             return;
         }
         else if (m_currentTool == ToolType::Text) {
-            // Text Tool Implementierung (Basic)
             QGraphicsTextItem* textItem = m_scene->addText("Text");
             textItem->setPos(scenePos);
             textItem->setDefaultTextColor(m_penColor);
             QFont f; f.setPointSize(12); textItem->setFont(f);
             textItem->setTextInteractionFlags(Qt::TextEditorInteraction);
             textItem->setFocus();
-            textItem->setZValue(2.0); // Ganz oben
+            textItem->setZValue(2.0);
             m_undoList.append(textItem);
             event->accept();
             return;
@@ -620,6 +638,22 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
+    // --- NEU: TOOL INTEGRATION ---
+    AbstractTool* newTool = ToolManager::instance().activeTool();
+    if (newTool && m_isDrawing) {
+        QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseMove);
+        QPointF scenePos = mapToScene(event->pos());
+        scEvent.setScenePos(scenePos);
+        scEvent.setButtons(event->buttons());
+        scEvent.setModifiers(event->modifiers());
+
+        if (newTool->handleMouseMove(&scEvent, m_scene)) { // Pass m_scene
+            event->accept();
+            return;
+        }
+    }
+
+    // --- ALTE LOGIK ---
     QPointF scenePos = mapToScene(event->pos());
     if (m_isDrawing) {
         if ((m_currentTool == ToolType::Pen || m_currentTool == ToolType::Highlighter) && m_currentItem) {
@@ -658,11 +692,28 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
         event->accept();
         return;
     }
+
+    // --- NEU: TOOL INTEGRATION ---
+    AbstractTool* newTool = ToolManager::instance().activeTool();
+    if (newTool && event->button() == Qt::LeftButton) {
+        QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseRelease);
+        QPointF scenePos = mapToScene(event->pos());
+        scEvent.setScenePos(scenePos);
+        scEvent.setButton(event->button());
+
+        if (newTool->handleMouseRelease(&scEvent, m_scene)) { // Pass m_scene
+            m_isDrawing = false;
+            emit contentModified();
+            event->accept();
+            return;
+        }
+    }
+
     if (event->button() == Qt::LeftButton) {
         if (m_currentTool == ToolType::Lasso && m_isDrawing) finishLasso();
         if (!m_scene->selectedItems().isEmpty()) updateSelectionMenuPosition();
         if (m_isDrawing) {
-            emit contentModified(); // Triggert Anpassung der Szene
+            emit contentModified();
         }
         m_isDrawing = false;
         m_currentItem = nullptr;

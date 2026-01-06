@@ -11,7 +11,6 @@
 // --- Helper Button Class ---
 class ToolbarBtn : public QWidget {
     Q_OBJECT
-    // FIX: Renamed to animScale, type double
     Q_PROPERTY(double animScale READ animScale WRITE setAnimScale)
 
 public:
@@ -49,7 +48,6 @@ private:
 // --- Main Toolbar Class ---
 class ModernToolbar : public QWidget {
     Q_OBJECT
-    // FIX: Removed problematic size property completely
 
 public:
     enum Style { Normal, Radial };
@@ -88,6 +86,9 @@ signals:
     void eraserConfigChanged(EraserMode m);
     void lassoConfigChanged(LassoMode m);
     void scaleChanged(double newScale);
+
+    // NEU: Einstellungen Button angeklickt (Second Tap)
+    void settingsRequested();
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -134,11 +135,19 @@ private:
 
     ToolbarBtn* m_pressedButton{nullptr};
 
-    // Buttons
+    // --- BUTTONS (Erweitert) ---
     ToolbarBtn* btnPen;
+    ToolbarBtn* btnPencil;       // Neu
+    ToolbarBtn* btnHighlighter;
     ToolbarBtn* btnEraser;
-    ToolbarBtn* btnHighlighter; // NEW
     ToolbarBtn* btnLasso;
+    ToolbarBtn* btnImage;        // Neu
+    ToolbarBtn* btnRuler;        // Neu
+    ToolbarBtn* btnShape;        // Neu
+    ToolbarBtn* btnStickyNote;   // Neu
+    ToolbarBtn* btnText;         // Neu
+    ToolbarBtn* btnHand;         // Neu
+
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;
 

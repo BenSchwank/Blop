@@ -1,5 +1,6 @@
 #include "moderntoolbar.h"
 #include "UIStyles.h"
+#include "tools/ToolManager.h" // Wichtig: ToolManager Verbindung
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -38,7 +39,6 @@ void ToolbarBtn::enterEvent(QEnterEvent*) { m_hover = true; update(); }
 void ToolbarBtn::leaveEvent(QEvent*) { m_hover = false; update(); }
 
 void ToolbarBtn::animateSelect() {
-    // FIX: Using animScale
     QPropertyAnimation* anim = new QPropertyAnimation(this, "animScale");
     anim->setDuration(300);
     anim->setKeyValueAt(0, 1.0);
@@ -70,14 +70,21 @@ void ToolbarBtn::paintEvent(QPaintEvent*) {
     int h = height();
     p.translate(w/2, h/2);
 
-    // FIX: double cast and animScale
     double scale = (double)w / 110.0;
     scale *= m_animScale;
     p.scale(scale, scale);
     p.translate(-32, -32);
 
+    // --- ICONS ---
     if(m_iconName=="pen") {
         QPainterPath pa; pa.moveTo(12,52); pa.lineTo(22,52); pa.lineTo(50,24); pa.lineTo(40,14); pa.lineTo(12,42); pa.closeSubpath(); p.drawPath(pa);
+    }
+    else if(m_iconName=="pencil") {
+        QPainterPath pa; pa.moveTo(14,50); pa.lineTo(24,50); pa.lineTo(52,22); pa.lineTo(42,12); pa.lineTo(14,40); pa.closeSubpath();
+        p.drawPath(pa);
+        // Spitze schraffieren
+        p.drawLine(16,48, 22,42);
+        p.drawLine(18,50, 24,44);
     }
     else if(m_iconName=="highlighter") {
         p.setPen(Qt::NoPen);
@@ -90,10 +97,54 @@ void ToolbarBtn::paintEvent(QPaintEvent*) {
         p.drawRect(-6, -30, 12, 6);
         p.restore();
     }
-    else if(m_iconName=="eraser") { p.drawRoundedRect(15,15,34,34,5,5); p.drawLine(25,25,39,39); p.drawLine(39,25,25,39); }
-    else if(m_iconName=="lasso") { p.drawEllipse(15,15,34,34); p.drawLine(45,45,55,55); }
-    else if(m_iconName=="undo") { QPainterPath pa; pa.moveTo(40,20); pa.arcTo(20,20,30,30,90,180); p.drawPath(pa); p.drawLine(20,35,10,25); p.drawLine(20,15,10,25); }
-    else if(m_iconName=="redo") { QPainterPath pa; pa.moveTo(24,20); pa.arcTo(14,20,30,30,90,-180); p.drawPath(pa); p.drawLine(44,35,54,25); p.drawLine(44,15,54,25); }
+    else if(m_iconName=="eraser") {
+        p.drawRoundedRect(15,15,34,34,5,5);
+        p.drawLine(25,25,39,39);
+        p.drawLine(39,25,25,39);
+    }
+    else if(m_iconName=="lasso") {
+        p.drawEllipse(15,15,34,34);
+        p.drawLine(45,45,55,55);
+    }
+    else if(m_iconName=="ruler") {
+        p.save();
+        p.translate(32, 32); p.rotate(-45);
+        p.drawRect(-10, -25, 20, 50);
+        for(int i=-20; i<=20; i+=10) p.drawLine(-10, i, -5, i);
+        p.restore();
+    }
+    else if(m_iconName=="shape") {
+        p.drawRect(12, 32, 20, 20);
+        p.drawEllipse(32, 12, 20, 20);
+    }
+    else if(m_iconName=="stickynote") {
+        QPainterPath pa;
+        pa.moveTo(15, 15); pa.lineTo(40, 15); pa.lineTo(50, 25); pa.lineTo(50, 50); pa.lineTo(15, 50); pa.closeSubpath();
+        p.drawPath(pa);
+        p.drawLine(40, 15, 40, 25); p.drawLine(40, 25, 50, 25); // Eselsohr
+    }
+    else if(m_iconName=="text") {
+        p.drawLine(20, 15, 44, 15); // T oben
+        p.drawLine(32, 15, 32, 49); // T unten
+        p.drawLine(28, 49, 36, 49); // Fuß
+    }
+    else if(m_iconName=="image") {
+        p.drawRect(10, 15, 44, 34);
+        p.drawEllipse(16, 20, 8, 8); // Sonne
+        p.drawLine(10, 40, 20, 30); p.drawLine(20, 30, 30, 40); p.drawLine(30, 40, 40, 25); p.drawLine(40, 25, 54, 45); // Berge
+    }
+    else if(m_iconName=="hand") {
+        p.drawRoundedRect(20, 25, 24, 24, 4, 4); // Handfläche
+        p.drawLine(20, 25, 20, 15); p.drawLine(28, 25, 28, 12); // Finger
+    }
+    else if(m_iconName=="undo") {
+        QPainterPath pa; pa.moveTo(40,20); pa.arcTo(20,20,30,30,90,180); p.drawPath(pa);
+        p.drawLine(20,35,10,25); p.drawLine(20,15,10,25);
+    }
+    else if(m_iconName=="redo") {
+        QPainterPath pa; pa.moveTo(24,20); pa.arcTo(14,20,30,30,90,-180); p.drawPath(pa);
+        p.drawLine(44,35,54,25); p.drawLine(44,15,54,25);
+    }
 }
 
 // =============================================================================
@@ -106,40 +157,71 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     setMouseTracking(true);
     if (parent) parent->installEventFilter(this);
 
+    // Initialisiere alle Buttons
     btnPen = new ToolbarBtn("pen", this);
-    btnEraser = new ToolbarBtn("eraser", this);
+    btnPencil = new ToolbarBtn("pencil", this);
     btnHighlighter = new ToolbarBtn("highlighter", this);
+    btnEraser = new ToolbarBtn("eraser", this);
     btnLasso = new ToolbarBtn("lasso", this);
+    btnRuler = new ToolbarBtn("ruler", this);
+    btnShape = new ToolbarBtn("shape", this);
+    btnStickyNote = new ToolbarBtn("stickynote", this);
+    btnText = new ToolbarBtn("text", this);
+    btnImage = new ToolbarBtn("image", this);
+    btnHand = new ToolbarBtn("hand", this);
+
     btnUndo = new ToolbarBtn("undo", this);
     btnRedo = new ToolbarBtn("redo", this);
 
-    m_buttons = {btnUndo, btnEraser, btnHighlighter, btnPen, btnLasso, btnRedo};
+    // Reihenfolge in der Toolbar (Undo/Redo sind oft separat in updateLayout, der Rest hier)
+    // Die Logik in updateLayout nutzt diese Liste für die Tools.
+    // Undo/Redo sind speziell.
+    m_buttons = {
+        btnUndo,
+        btnPen, btnPencil, btnHighlighter, btnEraser,
+        btnLasso, btnRuler, btnShape, btnStickyNote,
+        btnText, btnImage, btnHand,
+        btnRedo
+    };
+
     m_customColors = {Qt::black, Qt::white, Qt::red, Qt::blue, Qt::green, Qt::yellow};
 
+    // Zentrale Klick-Funktion
     auto handleToolClick = [this](ToolMode m) {
         if(mode_ == m) {
+            // Second Tap -> Settings
+            emit settingsRequested(); // Signal für View/QML
+
+            // Alte Overlay Logik (Falls noch verwendet)
             if (m_settingsState == SettingsState::Closed) {
                 m_settingsState = SettingsState::Main;
                 if (m_style == Normal) showVerticalPopup();
-                else {
-                    update();
-                    updateHitbox();
-                }
+                else { update(); updateHitbox(); }
             } else {
                 m_settingsState = SettingsState::Closed;
-                update();
-                updateHitbox();
+                update(); updateHitbox();
             }
         } else {
+            // New Tool Selected
             setToolMode(m);
             emit toolChanged(m);
+            // DIRECT LINK TO ARCHITECTURE
+            ToolManager::instance().selectTool(m);
         }
     };
 
     connect(btnPen, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Pen); });
-    connect(btnEraser, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Eraser); });
+    connect(btnPencil, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Pencil); });
     connect(btnHighlighter, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Highlighter); });
+    connect(btnEraser, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Eraser); });
     connect(btnLasso, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Lasso); });
+    connect(btnRuler, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Ruler); });
+    connect(btnShape, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Shape); });
+    connect(btnStickyNote, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::StickyNote); });
+    connect(btnText, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Text); });
+    connect(btnImage, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Image); });
+    connect(btnHand, &ToolbarBtn::clicked, [=](){ handleToolClick(ToolMode::Hand); });
+
     connect(btnUndo, &ToolbarBtn::clicked, this, &ModernToolbar::undoRequested);
     connect(btnRedo, &ToolbarBtn::clicked, this, &ModernToolbar::redoRequested);
 
@@ -170,14 +252,22 @@ bool ModernToolbar::eventFilter(QObject* watched, QEvent* event) {
 void ModernToolbar::setTopBound(int top) { m_topBound = top; constrainToParent(); }
 
 ToolbarBtn* ModernToolbar::getButtonForMode(ToolMode m) {
-    if (m == ToolMode::Pen) return btnPen;
-    if (m == ToolMode::Eraser) return btnEraser;
-    if (m == ToolMode::Highlighter) return btnHighlighter;
-    if (m == ToolMode::Lasso) return btnLasso;
-    return btnPen;
+    switch(m) {
+    case ToolMode::Pen: return btnPen;
+    case ToolMode::Pencil: return btnPencil; // <--- Das muss da sein
+    case ToolMode::Highlighter: return btnHighlighter;
+    case ToolMode::Eraser: return btnEraser;
+    case ToolMode::Lasso: return btnLasso;
+    case ToolMode::Ruler: return btnRuler;
+    case ToolMode::Shape: return btnShape;
+    case ToolMode::StickyNote: return btnStickyNote;
+    case ToolMode::Text: return btnText;
+    case ToolMode::Image: return btnImage;
+    case ToolMode::Hand: return btnHand;
+    default: return btnPen;
+    }
 }
 
-// FIX: double
 void ModernToolbar::setScale(double s) {
     if (s < 0.5) s = 0.5; if (s > 2.0) s = 2.0;
     m_scale = s;
@@ -229,37 +319,49 @@ void ModernToolbar::constrainToParent() {
 void ModernToolbar::reorderButtons() {
     ToolbarBtn* targetBtn = getButtonForMode(mode_);
     int targetIdx = m_buttons.indexOf(targetBtn);
-    int centerIdx = 0;
+    // Center Index is usually 0 if used in ring calc
+    // But m_buttons includes Undo/Redo at ends.
+    // Let's find logic in updateLayout.
+    // In FullCircle: m_buttons[0] is center.
+    // We want active tool at m_buttons[0] if possible for center display?
+    // Actually the code uses m_buttons[0] for center.
+    // Let's swap active tool to index 0?
+    // Be careful with Undo/Redo which are in m_buttons.
+    // We should probably NOT swap Undo/Redo into center.
 
-    if (targetIdx != -1 && targetIdx != centerIdx) {
-        m_buttons.move(targetIdx, centerIdx);
+    // Simplification: Just swap active tool to index 0 (if it's not undo/redo)
+    if (targetIdx > 0 && targetIdx < m_buttons.size() - 1) {
+        m_buttons.move(targetIdx, 0);
     }
+
     updateLayout(false);
 }
 
 void ModernToolbar::setToolMode(ToolMode mode) {
     if (m_style == Radial && m_radialType == FullCircle && mode_ != mode) {
         ToolbarBtn* targetBtn = getButtonForMode(mode);
-        int targetIdx = m_buttons.indexOf(targetBtn);
-        int centerIdx = 0;
-        if (targetIdx != -1 && targetIdx != centerIdx) {
-            m_buttons.move(targetIdx, centerIdx);
-            updateLayout(true);
+        if (targetBtn) {
+            int targetIdx = m_buttons.indexOf(targetBtn);
+            // Move to index 0 for center position, but preserve Undo/Redo if needed?
+            // Let's just swap to front.
+            if (targetIdx != -1) {
+                m_buttons.move(targetIdx, 0);
+                updateLayout(true);
+            }
         }
     }
 
     mode_ = mode;
     m_settingsState = SettingsState::Closed;
 
-    btnPen->setActive(mode == ToolMode::Pen);
-    btnEraser->setActive(mode == ToolMode::Eraser);
-    btnHighlighter->setActive(mode == ToolMode::Highlighter);
-    btnLasso->setActive(mode == ToolMode::Lasso);
+    // Reset all actives
+    for(auto* b : m_buttons) b->setActive(false);
 
-    if (mode == ToolMode::Pen) btnPen->animateSelect();
-    else if (mode == ToolMode::Eraser) btnEraser->animateSelect();
-    else if (mode == ToolMode::Highlighter) btnHighlighter->animateSelect();
-    else if (mode == ToolMode::Lasso) btnLasso->animateSelect();
+    ToolbarBtn* activeBtn = getButtonForMode(mode);
+    if(activeBtn) {
+        activeBtn->setActive(true);
+        activeBtn->animateSelect();
+    }
 
     update();
     updateHitbox();
@@ -277,7 +379,8 @@ void ModernToolbar::setStyle(Style style) {
 
     if (m_style == Normal) {
         setMinimumSize(50, 50); setMaximumSize(1200, 1200);
-        if (m_orientation == Vertical) resize(55, 360); else resize(360, 55);
+        if (m_orientation == Vertical) resize(55, calculateMinLength()); // Better height calc
+        else resize(calculateMinLength(), 55);
     } else {
         int size = 460 * m_scale; setFixedSize(size, size); reorderButtons();
     }
@@ -380,8 +483,10 @@ void ModernToolbar::wheelEvent(QWheelEvent *e) {
     if (m_style == Radial && m_radialType == HalfEdge) {
         double delta = e->angleDelta().y() / 8.0;
         m_scrollAngle += delta;
-        if (m_scrollAngle > 140) m_scrollAngle = 140;
-        if (m_scrollAngle < -140) m_scrollAngle = -140;
+        // Scroll Limits - Adapt based on number of buttons!
+        double maxScroll = (m_buttons.size() * 30.0);
+        if (m_scrollAngle > maxScroll) m_scrollAngle = maxScroll;
+        if (m_scrollAngle < -maxScroll) m_scrollAngle = -maxScroll;
         updateLayout();
         e->accept();
     } else {
@@ -461,7 +566,7 @@ void ModernToolbar::updateLayout(bool animate) {
         int content = m_buttons.size() * btnS;
         int gap = 8;
         if (available > content) { gap = (available - content) / (m_buttons.size() + 1); if (gap > 25) gap = 25; }
-        if (gap < 5) gap = 5;
+        if (gap < 2) gap = 2;
 
         int currentPos = dragSize;
         auto place = [&](ToolbarBtn* b) {
@@ -478,8 +583,12 @@ void ModernToolbar::updateLayout(bool animate) {
                 b->move(bx, by);
             }
         };
-        place(btnUndo); place(btnRedo); currentPos += 5;
-        place(btnPen); place(btnHighlighter); place(btnEraser); place(btnLasso);
+
+        // Sequentiell platzieren
+        // Wir nehmen m_buttons wie es ist (Undo am Anfang, Redo am Ende)
+        for(auto* b : m_buttons) {
+            place(b);
+        }
 
         for(auto b : m_buttons) b->show();
     } else {
@@ -492,7 +601,7 @@ void ModernToolbar::updateLayout(bool animate) {
             double spacing = 35.0;
 
             for (int i = 0; i < m_buttons.size(); ++i) {
-                int relativeIdx = i - 2;
+                int relativeIdx = i - 2; // Offset start
                 double angleDeg = baseAngle + (relativeIdx * spacing) + m_scrollAngle;
                 double angleRad = angleDeg * 3.14159 / 180.0;
                 int bx = paintCx + r * std::cos(angleRad) - btnS/2;
@@ -514,6 +623,7 @@ void ModernToolbar::updateLayout(bool animate) {
                 m_buttons[i]->setVisible(visible);
             }
         } else {
+            // FULL CIRCLE
             int r = 65 * m_scale;
             int centerBtnX = (width() - btnS) / 2;
             int centerBtnY = (height() - btnS) / 2;
@@ -528,10 +638,14 @@ void ModernToolbar::updateLayout(bool animate) {
                 } else { b->move(bx, by); }
             };
 
+            // Index 0 (Aktives Tool) kommt in die Mitte
             moveBtn(m_buttons[0], centerBtnX, centerBtnY);
 
-            int numRing = 5;
-            double angleStep = 360.0 / numRing;
+            // Der Rest im Kreis
+            int countRing = m_buttons.size() - 1;
+            if (countRing < 1) countRing = 1;
+
+            double angleStep = 360.0 / countRing;
             double startAngle = -90.0;
 
             for(int i=1; i<m_buttons.size(); ++i) {
@@ -868,8 +982,10 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         if (std::abs(delta) > 1.0) m_hasScrolled = true;
 
         m_scrollAngle = m_scrollStartAngleVal - delta;
-        if (m_scrollAngle > 140) m_scrollAngle = 140;
-        if (m_scrollAngle < -140) m_scrollAngle = -140;
+        // Scroll Limits - Dynamisch angepasst!
+        double maxScroll = (m_buttons.size() * 30.0);
+        if (m_scrollAngle > maxScroll) m_scrollAngle = maxScroll;
+        if (m_scrollAngle < -maxScroll) m_scrollAngle = -maxScroll;
 
         updateLayout();
         return;
@@ -1005,6 +1121,7 @@ void ModernToolbar::showVerticalPopup() {
     popup->setStyleSheet("background-color: #2D2D30; border: 1px solid #555; border-radius: 8px; color: white;");
     QVBoxLayout* lay = new QVBoxLayout(popup); lay->setContentsMargins(10,10,10,10);
 
+    // Simplifiziert für Pen/Highlighter, kann später ausgebaut werden
     if (mode_ == ToolMode::Pen || mode_ == ToolMode::Highlighter) {
         if (mode_ == ToolMode::Pen) lay->addWidget(new QLabel("Pen"));
         else lay->addWidget(new QLabel("Highlighter"));

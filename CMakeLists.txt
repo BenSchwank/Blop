@@ -51,6 +51,20 @@ qt_add_executable(Blop
     pagemanager.h
     pagemanager.cpp
 
+    # NEU: Tool Architecture (Müssen im Ordner "tools/" liegen)
+    tools/AbstractTool.h
+    tools/ToolManager.h
+    tools/ToolUIBridge.h
+
+    # NEU: Implementierte Tools (Schritt 3)
+    tools/AbstractStrokeTool.h
+    tools/WritingTools.h
+    tools/EraserTool.h
+    tools/LassoTool.h      # NEU
+    tools/ShapeTool.h      # NEU
+    tools/ImageTool.h      # NEU
+    tools/ToolFactory.h
+
     Note.h
     PageItem.h
     ToolMode.h
@@ -70,6 +84,7 @@ if(ANDROID)
         VERSION 1.0
         QML_FILES
             Main.qml
+            ui/ToolSettingsOverlay.qml
     )
 endif()
 
