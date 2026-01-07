@@ -1,5 +1,4 @@
 #pragma once
-
 #include <QObject>
 #include <QInputEvent>
 #include <QGraphicsSceneMouseEvent>
@@ -22,13 +21,14 @@ public:
     virtual void onActivated() {}
     virtual void onDeactivated() {}
 
-    // WICHTIG: Die Methoden akzeptieren jetzt 'QGraphicsScene* scene'
+    // WICHTIG: Signatur mit 'QGraphicsScene* scene'.
+    // Wenn eine abgeleitete Klasse dies nicht EXAKT so hat, wird diese Basis-Methode
+    // aufgerufen, die 'false' zurückgibt -> Fallback in CanvasView.
     virtual bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
     virtual bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
     virtual bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
 
     virtual bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) { return false; }
-
     virtual void drawOverlay(QPainter* painter, const QRectF& rect) {}
 
     virtual void setConfig(const ToolConfig& config) { m_config = config; }

@@ -26,7 +26,6 @@ public:
         m_lassoVisual->setZValue(100);
 
         scene->addItem(m_lassoVisual);
-
         return true;
     }
 

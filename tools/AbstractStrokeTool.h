@@ -9,9 +9,9 @@ class AbstractStrokeTool : public AbstractTool {
 public:
     using AbstractTool::AbstractTool;
 
-    // --- Input Handling ---
+    // 'override' erzwingt, dass die Signatur zur Basisklasse passt.
+    // Falls hier ein Compiler-Fehler kommt, stimmt AbstractTool.h nicht.
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        // Wir nutzen die übergebene 'scene', da event->scene() null sein kann
         if (!scene) return false;
 
         m_currentPath = QPainterPath();
@@ -22,10 +22,11 @@ public:
         m_currentItem->setPen(createPen());
         m_currentItem->setZValue(getZValue());
 
+        // Optimierung
         m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
 
         scene->addItem(m_currentItem);
-        return true;
+        return true; // WICHTIG: true, damit CanvasView NICHT den alten Code ausführt
     }
 
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
