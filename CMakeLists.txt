@@ -54,6 +54,7 @@ qt_add_executable(Blop
     # NEU: Tool Architecture Basis
     tools/AbstractTool.h
     tools/ToolManager.h
+    tools/ToolManager.cpp  # <--- HIER HINZUGEFÜGT
     tools/ToolUIBridge.h
     tools/ToolFactory.h
 

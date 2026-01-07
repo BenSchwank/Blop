@@ -1,5 +1,7 @@
 #include "multipagenoteview.h"
 #include "UIStyles.h"
+#include "tools/ToolManager.h"   // <--- NEU: Wichtig für die neuen Tools
+#include "tools/AbstractTool.h"  // <--- NEU
 #include <QGraphicsRectItem>
 #include <QPainterPath>
 #include <QPen>
@@ -10,6 +12,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QPdfWriter>
+#include <QGraphicsSceneMouseEvent> // <--- NEU: Für Event-Weiterleitung
 
 static constexpr int A4W = 793;
 static constexpr int A4H = 1122;
@@ -31,6 +34,11 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     setAcceptDrops(false);
 
     viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+
+    // NEU: Wenn sich das Tool ändert (z.B. Lasso gewählt), View aktualisieren (für Overlay/Cursor)
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool*){
+        viewport()->update();
+    });
 }
 
 void MultiPageNoteView::setNote(Note *note) {
@@ -103,16 +111,14 @@ int MultiPageNoteView::pageAt(const QPointF &scenePos) const {
     return -1;
 }
 
-// NEU: Helper zum Hinzufügen einer Seite
 void MultiPageNoteView::addNewPage() {
     if (!note_) return;
-    note_->ensurePage(note_->pages.size()); // Fügt am Ende eine Seite an
+    note_->ensurePage(note_->pages.size());
     layoutPages();
     if (onSaveRequested) onSaveRequested(note_);
 }
 
 void MultiPageNoteView::resizeEvent(QResizeEvent *) {
-    // Kein automatisches ensureOverscrollPage mehr hier
 }
 
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
@@ -123,13 +129,10 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
         zoom_ *= factor;
         e->accept();
     } else {
-        // PULL-TO-ADD LOGIK FÜR MAUSRAD/TOUCHPAD
         QScrollBar *vb = verticalScrollBar();
-        // Wenn wir unten sind UND weiter runter wollen (delta < 0)
         if (vb->value() >= vb->maximum() && e->angleDelta().y() < 0) {
-            // Widerstand simulieren (Faktor 0.5)
             m_pullDistance += std::abs(e->angleDelta().y()) * 0.5;
-            viewport()->update(); // Für drawForeground
+            viewport()->update();
 
             if (m_pullDistance > 250.0f) {
                 addNewPage();
@@ -139,7 +142,6 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
             return;
         }
 
-        // Reset wenn man wieder hochscrollt
         if (m_pullDistance > 0 && e->angleDelta().y() > 0) {
             m_pullDistance = 0;
             viewport()->update();
@@ -170,7 +172,7 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
     if (gesture->state() == Qt::GestureStarted) {
         m_isZooming = true;
         m_isPanning = false;
-        m_pullDistance = 0; // Pull abbrechen bei Zoom
+        m_pullDistance = 0;
         viewport()->update();
     }
 
@@ -214,7 +216,26 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
         }
     }
 
+    // --- NEU: Zuerst den ToolManager prüfen ---
+    // Damit funktionieren Lasso, Eraser etc. aus der Toolbar
+    AbstractTool* tool = ToolManager::instance().activeTool();
+    if (tool && e->button() == Qt::LeftButton) {
+        QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMousePress);
+        scEvent.setScenePos(mapToScene(e->pos()));
+        scEvent.setButton(e->button());
+        scEvent.setButtons(e->buttons());
+        scEvent.setModifiers(e->modifiers());
+
+        // Wir übergeben unsere lokale 'scene_'
+        if (tool->handleMousePress(&scEvent, &scene_)) {
+            e->accept();
+            return; // Tool hat Event verarbeitet -> fertig
+        }
+    }
+    // ------------------------------------------
+
     if (e->button() == Qt::LeftButton) {
+        // Fallback zur alten Logik (interner Pen)
         QTabletEvent fake(QEvent::TabletPress, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
     } else {
@@ -229,11 +250,8 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
         QPoint delta = e->pos() - m_lastPanPos;
         m_lastPanPos = e->pos();
 
-        // PULL-TO-ADD LOGIK FÜR TOUCH PANNING
         QScrollBar *vb = verticalScrollBar();
-        // delta.y() < 0 bedeutet Finger bewegt sich nach oben -> wir wollen nach unten scrollen
         if (vb->value() >= vb->maximum() && delta.y() < 0) {
-            // Widerstand: Nur die Hälfte der Bewegung wird als Pull gewertet
             m_pullDistance += std::abs(delta.y()) * 0.5;
             viewport()->update();
 
@@ -242,11 +260,8 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
                 m_pullDistance = 0;
             }
         } else {
-            // Normales Scrollen
             horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
             verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-
-            // Wenn wir nicht mehr am Ende sind, Pull zurücksetzen
             if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
         }
 
@@ -260,6 +275,22 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 
     if (m_penOnlyMode && isTouch && !m_isPanning) { e->accept(); return; }
 
+    // --- NEU: ToolManager Move Event ---
+    AbstractTool* tool = ToolManager::instance().activeTool();
+    if (tool) {
+        QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseMove);
+        scEvent.setScenePos(mapToScene(e->pos()));
+        scEvent.setButtons(e->buttons());
+        scEvent.setModifiers(e->modifiers());
+
+        if (tool->handleMouseMove(&scEvent, &scene_)) {
+            e->accept();
+            return;
+        }
+    }
+    // -----------------------------------
+
+    // Fallback: Alte Logik
     if (e->buttons() & Qt::LeftButton && drawing_) {
         QTabletEvent fake(QEvent::TabletMove, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
@@ -269,7 +300,6 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
-    // Wenn losgelassen wird und Pull noch aktiv war -> Zurücksetzen (Bounce Back Effekt visuell)
     if (m_pullDistance > 0) {
         m_pullDistance = 0;
         viewport()->update();
@@ -284,6 +314,22 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 
     if (m_isZooming) { e->accept(); return; }
 
+    // --- NEU: ToolManager Release Event ---
+    AbstractTool* tool = ToolManager::instance().activeTool();
+    if (tool && e->button() == Qt::LeftButton) {
+        QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseRelease);
+        scEvent.setScenePos(mapToScene(e->pos()));
+        scEvent.setButton(e->button());
+
+        if (tool->handleMouseRelease(&scEvent, &scene_)) {
+            // Optional: Speichern triggern, wenn Tool fertig ist
+            if (onSaveRequested) onSaveRequested(note_);
+            e->accept();
+            return;
+        }
+    }
+    // --------------------------------------
+
     if (drawing_) {
         QTabletEvent fake(QEvent::TabletRelease, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
@@ -293,6 +339,15 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
+    // --- NEU: Wenn ein Tool (z.B. Lasso) aktiv ist, Tablet-Event ignorieren ---
+    // Dadurch generiert Qt ein MouseEvent, das wir oben im mousePressEvent abfangen
+    // und an das Lasso-Tool weiterleiten.
+    if (ToolManager::instance().activeTool()) {
+        e->ignore();
+        return;
+    }
+
+    // --- Alte Logik (nur aktiv, wenn KEIN ToolManager-Tool aktiv ist) ---
     if (!note_ || mode_ == ToolMode::Lasso) { e->ignore(); return; }
 
     QPointF scenePos = mapToScene(e->position().toPoint());
@@ -411,18 +466,25 @@ void MultiPageNoteView::scrollToPage(int pageIndex) {
     verticalScrollBar()->setValue(r.top());
 }
 
-// NEU: Zeichnen des Pull-Indicators
 void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
     QGraphicsView::drawForeground(painter, rect);
 
     if (m_pullDistance > 1.0f) {
         drawPullIndicator(painter);
     }
+
+    // --- NEU: Tool Overlay (z.B. Selektionsrahmen) zeichnen ---
+    AbstractTool* tool = ToolManager::instance().activeTool();
+    if (tool) {
+        painter->save();
+        tool->drawOverlay(painter, rect);
+        painter->restore();
+    }
 }
 
 void MultiPageNoteView::drawPullIndicator(QPainter* painter) {
     painter->save();
-    painter->resetTransform(); // Wir zeichnen im Viewport-Koordinatensystem
+    painter->resetTransform();
     painter->setClipping(false);
 
     int w = viewport()->width();
@@ -431,19 +493,16 @@ void MultiPageNoteView::drawPullIndicator(QPainter* painter) {
     float progress = qMin(m_pullDistance / maxPull, 1.0f);
 
     int size = 60;
-    // Der Indikator erscheint von unten
     int yPos = h - size - 50 - (progress * 20);
     int xPos = (w - size) / 2;
     QRect circleRect(xPos, yPos, size, size);
 
     painter->setRenderHint(QPainter::Antialiasing, true);
 
-    // Hintergrundkreis (dunkel)
     painter->setBrush(QColor(40, 40, 40, 200));
     painter->setPen(Qt::NoPen);
     painter->drawEllipse(circleRect);
 
-    // Fortschrittsbogen (Akzentfarbe)
     if (progress > 0.05f) {
         QPen arcPen(QColor(0x5E5CE6));
         arcPen.setWidth(4);
@@ -454,11 +513,9 @@ void MultiPageNoteView::drawPullIndicator(QPainter* painter) {
         painter->drawArc(circleRect.adjusted(8, 8, -8, -8), 90 * 16, spanAngle);
     }
 
-    // Plus-Icon in der Mitte (erscheint erst ab gewissem Pull)
     if (progress > 0.15f) {
         painter->setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap));
         int center = size / 2;
-        // Icon wächst leicht mit
         float growFactor = (progress - 0.15f) / 0.85f;
         int pSize = 12 * qMin(growFactor, 1.0f);
         QPoint c = circleRect.center();

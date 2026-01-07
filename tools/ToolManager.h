@@ -6,62 +6,25 @@
 #include "../ToolMode.h"
 #include "../ToolSettings.h"
 
-// Forward Declaration, damit wir den Include Loop vermeiden
-class ToolFactory;
-
 class ToolManager : public QObject {
     Q_OBJECT
 
 public:
-    static ToolManager& instance() {
-        static ToolManager _instance;
-        return _instance;
-    }
+    static ToolManager& instance();
 
-    void registerTool(AbstractTool* tool) {
-        if(tool) {
-            m_tools[tool->mode()] = tool;
-            tool->setParent(this);
-        }
-    }
+    void registerTool(AbstractTool* tool);
+    void selectTool(ToolMode mode);
+    AbstractTool* activeTool() const;
 
-    void selectTool(ToolMode mode) {
-        if (m_activeTool && m_activeTool->mode() == mode) {
-            emit m_activeTool->requestSettingsMenu();
-            return;
-        }
-
-        if (m_activeTool) {
-            m_activeTool->onDeactivated();
-        }
-
-        if (m_tools.contains(mode)) {
-            m_activeTool = m_tools[mode];
-            m_activeTool->setConfig(m_globalConfig);
-            m_activeTool->onActivated();
-            emit toolChanged(m_activeTool);
-        } else {
-            m_activeTool = nullptr;
-        }
-    }
-
-    AbstractTool* activeTool() const { return m_activeTool; }
-
-    void updateConfig(const ToolConfig& config) {
-        m_globalConfig = config;
-        if (m_activeTool) {
-            m_activeTool->setConfig(config);
-        }
-    }
-
-    ToolConfig config() const { return m_globalConfig; }
+    void updateConfig(const ToolConfig& config);
+    ToolConfig config() const;
 
 signals:
     void toolChanged(AbstractTool* newTool);
 
 private:
-    ToolManager() = default;
-    ~ToolManager() = default;
+    ToolManager();
+    ~ToolManager() override = default;
     ToolManager(const ToolManager&) = delete;
     ToolManager& operator=(const ToolManager&) = delete;
 

@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_ANDROID
     w.showFullScreen();
 #else
-    w.show();
+    w.showFullScreen();
 #endif
 
     return a.exec();

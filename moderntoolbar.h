@@ -86,8 +86,6 @@ signals:
     void eraserConfigChanged(EraserMode m);
     void lassoConfigChanged(LassoMode m);
     void scaleChanged(double newScale);
-
-    // NEU: Einstellungen Button angeklickt (Second Tap)
     void settingsRequested();
 
 protected:
@@ -135,18 +133,18 @@ private:
 
     ToolbarBtn* m_pressedButton{nullptr};
 
-    // --- BUTTONS (Erweitert) ---
+    // Buttons
     ToolbarBtn* btnPen;
-    ToolbarBtn* btnPencil;       // Neu
+    ToolbarBtn* btnPencil;
     ToolbarBtn* btnHighlighter;
     ToolbarBtn* btnEraser;
     ToolbarBtn* btnLasso;
-    ToolbarBtn* btnImage;        // Neu
-    ToolbarBtn* btnRuler;        // Neu
-    ToolbarBtn* btnShape;        // Neu
-    ToolbarBtn* btnStickyNote;   // Neu
-    ToolbarBtn* btnText;         // Neu
-    ToolbarBtn* btnHand;         // Neu
+    ToolbarBtn* btnRuler;
+    ToolbarBtn* btnShape;
+    ToolbarBtn* btnStickyNote;
+    ToolbarBtn* btnText;
+    ToolbarBtn* btnImage;
+    ToolbarBtn* btnHand;
 
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;
@@ -165,7 +163,8 @@ private:
     void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
     void handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int innerR, int outerR);
-    void showVerticalPopup();
+
+    void showVerticalPopup(); // Neues Overlay
 
     void updateHitbox();
     int calculateMinLength();
