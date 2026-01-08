@@ -78,7 +78,6 @@ signals:
     void toolChanged(ToolMode mode);
     void undoRequested();
     void redoRequested();
-    // Diese Signale werden nur noch passiv genutzt, da QML die Config direkt setzt
     void penConfigChanged(QColor c, int w);
     void scaleChanged(double newScale);
     void settingsRequested();
@@ -144,6 +143,7 @@ private:
     ToolbarBtn* btnRedo;
 
     QVector<ToolbarBtn*> m_buttons;
+    QList<QColor> m_customColors; // Für das Menü
 
     void updateLayout(bool animate = false);
     void snapToEdge();
@@ -155,4 +155,7 @@ private:
 
     void updateHitbox();
     int calculateMinLength();
+
+    // Neues Menü
+    void showSettingsPopup();
 };

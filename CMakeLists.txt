@@ -57,6 +57,7 @@ qt_add_executable(Blop
     tools/ToolManager.cpp  # <--- HIER HINZUGEFÜGT
     tools/ToolUIBridge.h
     tools/ToolFactory.h
+    tools/StrokeItem.h
 
     # NEU: Die Werkzeuge selbst
     tools/AbstractStrokeTool.h
