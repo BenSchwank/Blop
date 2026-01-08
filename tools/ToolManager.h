@@ -6,6 +6,9 @@
 #include "../ToolMode.h"
 #include "../ToolSettings.h"
 
+// Forward Declaration
+class ToolFactory;
+
 class ToolManager : public QObject {
     Q_OBJECT
 
@@ -23,8 +26,8 @@ signals:
     void toolChanged(AbstractTool* newTool);
 
 private:
-    ToolManager();
-    ~ToolManager() override = default;
+    ToolManager() = default;
+    ~ToolManager() = default;
     ToolManager(const ToolManager&) = delete;
     ToolManager& operator=(const ToolManager&) = delete;
 

@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Qt.labs.folderlistmodel
+// WICHTIG: Importiert den Ordner "ui", wo ToolSettingsOverlay.qml liegt
+import "ui"
 
 ApplicationWindow {
     id: window
@@ -68,7 +70,7 @@ ApplicationWindow {
             rightMargin: Qt.platform.os === "android" ? 10 : 30
 
             model: FolderListModel {
-                folder: notesPath // Kommt jetzt aus main.cpp
+                folder: notesPath // Kommt aus main.cpp (Context Property)
                 nameFilters: ["*.blop"]
                 showDirs: false
                 sortField: FolderListModel.Name
@@ -87,7 +89,7 @@ ApplicationWindow {
                         anchors.fill: parent
                         onClicked: {
                             console.log("Öffne Notiz: " + fileName)
-                            // Hier später Logik zum Öffnen einbauen
+                            // Hier Logik zum Öffnen einbauen (z.B. Signal an C++)
                         }
                     }
 
@@ -136,5 +138,12 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    // --- NEU: Das Einstellungs-Overlay ---
+    // Es ist unsichtbar, bis "Bridge.settingsVisible" true wird.
+    // Da es ein Popup ist, legt es sich automatisch über alles andere.
+    ToolSettingsOverlay {
+        id: settingsUI
     }
 }

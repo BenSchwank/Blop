@@ -54,10 +54,6 @@ public:
     enum RadialType { FullCircle, HalfEdge };
     enum Orientation { Vertical, Horizontal };
 
-    enum class SettingsState {
-        Closed, Main, ColorSelect, SizeSelect, EraserMode, LassoMode
-    };
-
     explicit ModernToolbar(QWidget* parent=nullptr);
 
     void setToolMode(ToolMode mode);
@@ -82,9 +78,8 @@ signals:
     void toolChanged(ToolMode mode);
     void undoRequested();
     void redoRequested();
+    // Diese Signale werden nur noch passiv genutzt, da QML die Config direkt setzt
     void penConfigChanged(QColor c, int w);
-    void eraserConfigChanged(EraserMode m);
-    void lassoConfigChanged(LassoMode m);
     void scaleChanged(double newScale);
     void settingsRequested();
 
@@ -106,7 +101,6 @@ private:
 
     ToolMode mode_{ToolMode::Pen};
     ToolConfig m_config;
-    SettingsState m_settingsState{SettingsState::Closed};
 
     QPoint dragStartPos_;
     QPoint m_dragOffset;
@@ -150,7 +144,6 @@ private:
     ToolbarBtn* btnRedo;
 
     QVector<ToolbarBtn*> m_buttons;
-    QList<QColor> m_customColors;
 
     void updateLayout(bool animate = false);
     void snapToEdge();
@@ -159,12 +152,6 @@ private:
     void reorderButtons();
     ToolbarBtn* getButtonForMode(ToolMode m);
     ToolbarBtn* getRadialButtonAt(const QPoint& pos);
-
-    void paintRadialRing1(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
-    void paintRadialRing2(QPainter& p, int cx, int cy, int rIn, int rOut, double startAngle, double spanAngle);
-    void handleRadialSettingsClick(const QPoint& pos, int cx, int cy, int innerR, int outerR);
-
-    void showVerticalPopup(); // Neues Overlay
 
     void updateHitbox();
     int calculateMinLength();

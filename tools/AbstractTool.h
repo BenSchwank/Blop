@@ -21,9 +21,6 @@ public:
     virtual void onActivated() {}
     virtual void onDeactivated() {}
 
-    // WICHTIG: Signatur mit 'QGraphicsScene* scene'.
-    // Wenn eine abgeleitete Klasse dies nicht EXAKT so hat, wird diese Basis-Methode
-    // aufgerufen, die 'false' zurückgibt -> Fallback in CanvasView.
     virtual bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
     virtual bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
     virtual bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
@@ -33,6 +30,11 @@ public:
 
     virtual void setConfig(const ToolConfig& config) { m_config = config; }
     ToolConfig config() const { return m_config; }
+
+    // WICHTIG: Diese Methode muss public sein!
+    void triggerSettingsMenu() {
+        emit requestSettingsMenu();
+    }
 
 signals:
     void overlayChanged();

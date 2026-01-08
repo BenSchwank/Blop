@@ -3,18 +3,19 @@
 #include <QDir>
 #include <QUrl>
 #include <QQmlEngine>
+#include <QtQml> // Wichtig für qmlRegisterSingletonInstance
 
 // Deine Header
 #include "mainwindow.h"
 #include "tools/ToolUIBridge.h"
-#include "tools/ToolFactory.h" // <--- WICHTIG: Include hinzugefügt
+#include "tools/ToolFactory.h"
 
 int main(int argc, char *argv[])
 {
-    // QApplication ist zwingend für Widget-Mix
+    // QApplication ist zwingend für Widget-Mix (da wir QMainWindow nutzen)
     QApplication a(argc, argv);
 
-    // --- SETUP FÜR ALLE PLATTFORMEN ---
+    // --- SETUP FÜR SPEICHERPFADE ---
 #ifdef Q_OS_ANDROID
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 #else
@@ -25,10 +26,11 @@ int main(int argc, char *argv[])
     if (!dir.exists()) dir.mkpath(".");
 
     // --- WICHTIG: WERKZEUGE REGISTRIEREN ---
-    // Das hat gefehlt! Ohne das ist der ToolManager leer.
+    // Registriert alle Tools im ToolManager, damit sie verfügbar sind
     ToolFactory::registerAllTools();
 
     // --- QML BRIDGE REGISTRIEREN ---
+    // Das macht die C++ Klasse "ToolUIBridge" in QML unter dem Namen "Bridge" verfügbar
     qmlRegisterSingletonInstance("Blop", 1, 0, "Bridge", &ToolUIBridge::instance());
 
     // --- HAUPTFENSTER STARTEN ---
@@ -37,7 +39,7 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_ANDROID
     w.showFullScreen();
 #else
-    w.showFullScreen();
+    w.showMaximized(); // Oder showFullScreen() je nach Wunsch
 #endif
 
     return a.exec();

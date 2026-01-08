@@ -5,8 +5,6 @@ ToolManager& ToolManager::instance() {
     return _instance;
 }
 
-ToolManager::ToolManager() = default;
-
 void ToolManager::registerTool(AbstractTool* tool) {
     if(tool) {
         m_tools[tool->mode()] = tool;
@@ -15,9 +13,9 @@ void ToolManager::registerTool(AbstractTool* tool) {
 }
 
 void ToolManager::selectTool(ToolMode mode) {
-    // Wenn das Tool schon aktiv ist, Toggle-Menü anfordern
+    // Wenn das Tool schon aktiv ist -> Menü öffnen via Public Method
     if (m_activeTool && m_activeTool->mode() == mode) {
-        emit m_activeTool->requestSettingsMenu();
+        m_activeTool->triggerSettingsMenu();
         return;
     }
 
@@ -33,7 +31,6 @@ void ToolManager::selectTool(ToolMode mode) {
         m_activeTool->onActivated();
         emit toolChanged(m_activeTool);
     } else {
-        // Fallback, wenn Tool nicht gefunden wurde
         m_activeTool = nullptr;
     }
 }

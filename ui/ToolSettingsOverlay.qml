@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
+import Blop 1.0
 
 Popup {
     id: root
@@ -59,7 +60,7 @@ Popup {
         }
     }
 
-    // --- Components ---
+    // --- Komponenten ---
     component SectionLabel: Label { color: "#B0B0B0"; font.pixelSize: 12; font.weight: Font.Medium; Layout.topMargin: 8 }
     component CustomSlider: Slider {
         Layout.fillWidth: true
@@ -131,12 +132,6 @@ Popup {
                         border.width: 2; border.color: (Bridge.penColor == modelData) ? "white" : "#444"
                         MouseArea { anchors.fill: parent; onClicked: Bridge.penColor = modelData }
                     }
-                }
-                Rectangle {
-                    width: 32; height: 32; radius: 16;
-                    gradient: Gradient { GradientStop { position: 0.0; color: "red" } GradientStop { position: 1.0; color: "blue" } }
-                    border.color: "#fff"; border.width: 1
-                    MouseArea { anchors.fill: parent; onClicked: console.log("Farbrad") }
                 }
             }
         }
@@ -223,11 +218,6 @@ Popup {
                 OptionButton { text: "📋 Kopieren"; checkable: false }
                 OptionButton { text: "🗑️ Löschen"; checkable: false; palette.buttonText: "#FF3B30" }
                 OptionButton { text: "🎨 Farbe"; checkable: false }
-                Button {
-                    text: "📸 Screenshot"; Layout.columnSpan: 2; Layout.fillWidth: true
-                    background: Rectangle { color: "#3A3A3E"; radius: 6; border.color: "#555" }
-                    contentItem: Text { text: parent.text; color: "white"; horizontalAlignment: Text.AlignHCenter }
-                }
             }
             CustomSwitch { text: "Seitenverhältnis sperren"; checked: Bridge.aspectLock; onToggled: Bridge.aspectLock = checked }
         }
@@ -268,15 +258,6 @@ Popup {
         id: rulerComponent
         ColumnLayout {
             spacing: 15
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter; width: 100; height: 100; radius: 50
-                color: "#252526"; border.color: "#5E5CE6"; border.width: 3
-                Column {
-                    anchors.centerIn: parent
-                    Text { text: "0°"; color: "white"; font.pixelSize: 24; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
-                    Text { text: "Winkel"; color: "#888"; font.pixelSize: 11; anchors.horizontalCenter: parent.horizontalCenter }
-                }
-            }
             SectionLabel { text: "Einheit" }
             RowLayout {
                 OptionButton { text: "cm"; checked: Bridge.rulerUnit === 0; onClicked: Bridge.rulerUnit = 0 }
@@ -312,7 +293,7 @@ Popup {
                 IconButton { text: "▒"; checked: Bridge.shapeFill === 2; onClicked: Bridge.shapeFill = 2 }
             }
             ColumnLayout {
-                visible: Bridge.shapeType === 5 // Nur bei Graph
+                visible: Bridge.shapeType === 5
                 SectionLabel { text: "Koordinaten-Optionen" }
                 CustomSwitch { text: "X-Achse"; checked: Bridge.showXAxis; onToggled: Bridge.showXAxis = checked }
                 CustomSwitch { text: "Y-Achse"; checked: Bridge.showYAxis; onToggled: Bridge.showYAxis = checked }
@@ -360,7 +341,7 @@ Popup {
             spacing: 12
             SectionLabel { text: "Schriftart" }
             ComboBox {
-                model: ["Segoe UI", "Arial", "Courier New", "Verdana", "Comic Sans MS"]
+                model: ["Segoe UI", "Arial", "Courier New", "Verdana"]
                 Layout.fillWidth: true
             }
             RowLayout {
@@ -388,15 +369,7 @@ Popup {
         }
     }
 
-    // --- PLATZHALTER ---
-    Component {
-        id: placeholderComponent
-        ColumnLayout {
-            spacing: 10
-            Text { text: "Einstellungen"; color: "white"; Layout.alignment: Qt.AlignHCenter }
-            Text { text: "Keine Optionen verfügbar."; color: "#888"; horizontalAlignment: Text.AlignHCenter; Layout.alignment: Qt.AlignHCenter }
-        }
-    }
+    Component { id: placeholderComponent; Item{} }
 
     function getToolName(mode) {
         var names = ["Füller", "Bleistift", "Textmarker", "Radierer", "Lasso", "Bild", "Lineal", "Formen", "Notiz", "Text"];
