@@ -143,7 +143,7 @@ private:
     ToolbarBtn* btnRedo;
 
     QVector<ToolbarBtn*> m_buttons;
-    QList<QColor> m_customColors; // Für das Menü
+    QList<QColor> m_customColors;
 
     void updateLayout(bool animate = false);
     void snapToEdge();

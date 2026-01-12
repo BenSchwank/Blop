@@ -1,8 +1,8 @@
 #include "canvasview.h"
 #include "mainwindow.h"
 #include "UIStyles.h"
-#include "tools/ToolManager.h"  // <--- NEU
-#include "tools/AbstractTool.h" // <--- NEU
+#include "tools/ToolManager.h"
+#include "tools/AbstractTool.h"
 #include <QScrollBar>
 #include <QGraphicsItem>
 #include <QPainterPath>
@@ -14,21 +14,430 @@
 #include <QDataStream>
 #include <QInputDevice>
 #include <QtMath>
+#include <QClipboard>
+#include <QApplication>
+#include <QColorDialog>
+#include <QFileDialog>
+#include <QPainter>
+#include <QCursor>
+#include <QBitmap>
+#include <QStyleOptionGraphicsItem>
 
-// ... (SelectionMenu Code bleibt gleich) ...
-SelectionMenu::SelectionMenu(QWidget* parent) : QWidget(parent) {
-    setStyleSheet(
-        "QWidget { background-color: #252526; border-radius: 8px; border: 1px solid #444; }"
-        "QPushButton { background: transparent; border: none; color: white; font-weight: bold; padding: 5px 10px; }"
-        "QPushButton:hover { background-color: #3E3E42; border-radius: 4px; }"
-        );
-    setAttribute(Qt::WA_StyledBackground);
-    QHBoxLayout *layout = new QHBoxLayout(this); layout->setContentsMargins(5, 5, 5, 5); layout->setSpacing(5);
-    QPushButton *btnCopy = new QPushButton("Kopieren", this); connect(btnCopy, &QPushButton::clicked, this, &SelectionMenu::copyRequested); layout->addWidget(btnCopy);
-    QPushButton *btnDup = new QPushButton("Duplizieren", this); connect(btnDup, &QPushButton::clicked, this, &SelectionMenu::duplicateRequested); layout->addWidget(btnDup);
-    QPushButton *btnDel = new QPushButton("Löschen", this); btnDel->setStyleSheet("color: #FF5555;"); connect(btnDel, &QPushButton::clicked, this, &SelectionMenu::deleteRequested); layout->addWidget(btnDel);
-    adjustSize(); hide();
-}
+static constexpr float PAGE_WIDTH = 794 * 1.5f;
+static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
+static constexpr float PAGE_GAP = 60.0f;
+static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
+
+// =============================================================================
+// SELECTION MENU
+// =============================================================================
+class SelectionMenu : public QWidget {
+    Q_OBJECT
+public:
+    explicit SelectionMenu(QWidget* parent = nullptr) : QWidget(parent) {
+        setStyleSheet(
+            "QWidget { background-color: #252526; border-radius: 8px; border: 1px solid #444; }"
+            "QPushButton { background: transparent; border: none; color: white; font-weight: bold; padding: 5px 8px; font-size: 14px; }"
+            "QPushButton:hover { background-color: #3E3E42; border-radius: 4px; }"
+            );
+        setAttribute(Qt::WA_StyledBackground);
+        QHBoxLayout *layout = new QHBoxLayout(this);
+        layout->setContentsMargins(5, 5, 5, 5); layout->setSpacing(2);
+
+        auto addBtn = [&](QString text, auto signal) {
+            QPushButton *btn = new QPushButton(text, this);
+            connect(btn, &QPushButton::clicked, this, signal);
+            layout->addWidget(btn);
+        };
+
+        addBtn("🔄", &SelectionMenu::transformRequested);
+        addBtn("✂️", &SelectionMenu::cutRequested);
+        addBtn("📋", &SelectionMenu::copyRequested);
+        addBtn("🎨", &SelectionMenu::colorRequested);
+        addBtn("📐", &SelectionMenu::cropRequested);
+        addBtn("📸", &SelectionMenu::screenshotRequested);
+
+        QFrame* line = new QFrame; line->setFrameShape(QFrame::VLine); line->setStyleSheet("color: #555;"); layout->addWidget(line);
+        QPushButton *btnDel = new QPushButton("🗑️", this); btnDel->setStyleSheet("color: #FF5555;");
+        connect(btnDel, &QPushButton::clicked, this, &SelectionMenu::deleteRequested); layout->addWidget(btnDel);
+        adjustSize(); hide();
+    }
+signals:
+    void deleteRequested(); void duplicateRequested(); void copyRequested(); void cutRequested();
+    void colorRequested(); void screenshotRequested(); void cropRequested();
+    void transformRequested();
+};
+
+// =============================================================================
+// CROP MENU
+// =============================================================================
+class CropMenu : public QWidget {
+    Q_OBJECT
+public:
+    explicit CropMenu(QWidget* parent = nullptr) : QWidget(parent) {
+        setStyleSheet(
+            "QWidget { background-color: #1E1E1E; border-radius: 8px; border: 1px solid #5E5CE6; }"
+            "QPushButton { background: #333; border: none; color: #DDD; border-radius: 4px; padding: 6px 12px; font-size: 12px; }"
+            "QPushButton:checked { background-color: #5E5CE6; color: white; }"
+            "QPushButton:hover { background-color: #444; }"
+            "QPushButton#ApplyBtn { background-color: #2E7D32; color: white; }"
+            "QPushButton#CancelBtn { background-color: #C62828; color: white; }"
+            );
+        setAttribute(Qt::WA_StyledBackground);
+        QHBoxLayout *layout = new QHBoxLayout(this);
+        layout->setContentsMargins(8, 8, 8, 8); layout->setSpacing(8);
+
+        btnRect = new QPushButton("Rechteck", this); btnRect->setCheckable(true);
+        btnFree = new QPushButton("Freihand", this); btnFree->setCheckable(true);
+
+        QButtonGroup* grp = new QButtonGroup(this);
+        grp->addButton(btnRect); grp->addButton(btnFree);
+
+        connect(btnRect, &QPushButton::clicked, this, &CropMenu::rectRequested);
+        connect(btnFree, &QPushButton::clicked, this, &CropMenu::freehandRequested);
+
+        layout->addWidget(btnRect);
+        layout->addWidget(btnFree);
+
+        QFrame* line = new QFrame; line->setFrameShape(QFrame::VLine); line->setStyleSheet("color: #555;"); layout->addWidget(line);
+
+        QPushButton* btnApply = new QPushButton("✔", this); btnApply->setObjectName("ApplyBtn");
+        QPushButton* btnCancel = new QPushButton("✕", this); btnCancel->setObjectName("CancelBtn");
+
+        connect(btnApply, &QPushButton::clicked, this, &CropMenu::applyRequested);
+        connect(btnCancel, &QPushButton::clicked, this, &CropMenu::cancelRequested);
+
+        layout->addWidget(btnApply);
+        layout->addWidget(btnCancel);
+        adjustSize(); hide();
+    }
+    void setMode(bool rect) { if(rect) btnRect->setChecked(true); else btnFree->setChecked(true); }
+
+signals:
+    void rectRequested(); void freehandRequested(); void applyRequested(); void cancelRequested();
+private:
+    QPushButton *btnRect, *btnFree;
+};
+
+// =============================================================================
+// CROP RESIZER
+// =============================================================================
+class CropResizer : public QGraphicsObject {
+public:
+    enum Handle { None, TopLeft, Top, TopRight, Left, Right, BottomLeft, Bottom, BottomRight, Center };
+    CropResizer(QRectF rect) : m_rect(rect) {
+        setFlags(ItemIsSelectable | ItemIsMovable);
+        setAcceptHoverEvents(true);
+    }
+    QRectF boundingRect() const override { return m_rect.adjusted(-10, -10, 10, 10); }
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override {
+        painter->setPen(QPen(QColor(Qt::white), 2, Qt::DashLine));
+        painter->setBrush(QColor(255, 255, 255, 30));
+        painter->drawRect(m_rect);
+        painter->setPen(QPen(QColor(Qt::black), 1)); painter->setBrush(Qt::white);
+        QList<QPointF> handles = {m_rect.topLeft(), m_rect.topRight(), m_rect.bottomLeft(), m_rect.bottomRight(),
+                                  QPointF(m_rect.center().x(), m_rect.top()), QPointF(m_rect.center().x(), m_rect.bottom()),
+                                  QPointF(m_rect.left(), m_rect.center().y()), QPointF(m_rect.right(), m_rect.center().y())};
+        for(auto p : handles) painter->drawEllipse(p, 5, 5);
+    }
+    QRectF currentRect() const { return mapRectToScene(m_rect); }
+protected:
+    void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override {
+        Handle h = handleAt(event->pos());
+        if (h == TopLeft || h == BottomRight) setCursor(Qt::SizeFDiagCursor);
+        else if (h == TopRight || h == BottomLeft) setCursor(Qt::SizeBDiagCursor);
+        else if (h == Top || h == Bottom) setCursor(Qt::SizeVerCursor);
+        else if (h == Left || h == Right) setCursor(Qt::SizeHorCursor);
+        else setCursor(Qt::SizeAllCursor);
+        QGraphicsObject::hoverMoveEvent(event);
+    }
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
+        m_dragHandle = handleAt(event->pos());
+        m_startPos = event->pos(); m_startRect = m_rect;
+        if (m_dragHandle == None) m_dragHandle = Center;
+    }
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override {
+        if (m_dragHandle == Center) { moveBy(event->pos().x() - m_startPos.x(), event->pos().y() - m_startPos.y()); return; }
+        QPointF pos = event->pos();
+        qreal l = m_startRect.left(), r = m_startRect.right(), t = m_startRect.top(), b = m_startRect.bottom();
+        if (m_dragHandle==TopLeft || m_dragHandle==Left || m_dragHandle==BottomLeft) l = pos.x();
+        if (m_dragHandle==TopRight || m_dragHandle==Right || m_dragHandle==BottomRight) r = pos.x();
+        if (m_dragHandle==TopLeft || m_dragHandle==Top || m_dragHandle==TopRight) t = pos.y();
+        if (m_dragHandle==BottomLeft || m_dragHandle==Bottom || m_dragHandle==BottomRight) b = pos.y();
+        m_rect = QRectF(QPointF(l, t), QPointF(r, b)).normalized();
+        prepareGeometryChange(); update();
+    }
+private:
+    Handle handleAt(QPointF pos) {
+        double r = 8.0;
+        if (QVector2D(pos - m_rect.topLeft()).length() < r) return TopLeft;
+        if (QVector2D(pos - m_rect.topRight()).length() < r) return TopRight;
+        if (QVector2D(pos - m_rect.bottomLeft()).length() < r) return BottomLeft;
+        if (QVector2D(pos - m_rect.bottomRight()).length() < r) return BottomRight;
+        if (QVector2D(pos - QPointF(m_rect.center().x(), m_rect.top())).length() < r) return Top;
+        if (QVector2D(pos - QPointF(m_rect.center().x(), m_rect.bottom())).length() < r) return Bottom;
+        if (QVector2D(pos - QPointF(m_rect.left(), m_rect.center().y())).length() < r) return Left;
+        if (QVector2D(pos - QPointF(m_rect.right(), m_rect.center().y())).length() < r) return Right;
+        return None;
+    }
+    QRectF m_rect; QRectF m_startRect; QPointF m_startPos; Handle m_dragHandle;
+};
+
+// =============================================================================
+// TRANSFORM OVERLAY (SHARED COORDINATE SYSTEM)
+// =============================================================================
+class TransformOverlay : public QGraphicsObject {
+public:
+    enum Handle { None, TopLeft, Top, TopRight, Left, Right, BottomLeft, Bottom, BottomRight, Rotate, Center };
+
+    TransformOverlay(QGraphicsItem* targetItem) : m_target(targetItem) {
+        setFlags(ItemIsSelectable | ItemIsMovable);
+        setAcceptHoverEvents(true);
+        // Overlay übernimmt exakt die Transform vom Target -> Gemeinsames Koordinatensystem
+        sync();
+    }
+
+    QRectF boundingRect() const override {
+        // Die visuelle Box ist immer im lokalen System (unskaliert)
+        return m_localBaseRect.adjusted(-30, -50, 30, 30);
+    }
+
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) override {
+        // LOD berechnen, damit Strichstärke und Handles konstant bleiben beim Zoomen/Skalieren
+        qreal lod = option->levelOfDetailFromTransform(painter->worldTransform());
+        if (lod < 0.001) lod = 1.0;
+
+        qreal handleR = 6.0 / lod;
+        qreal lineW = 2.0 / lod;
+
+        // 1. Rahmen (Lokal gezeichnet, dreht sich mit dem Item mit)
+        QPen framePen(QColor(0x5E5CE6), lineW, Qt::SolidLine);
+        framePen.setCosmetic(true);
+        painter->setPen(framePen);
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRect(m_localBaseRect);
+
+        // 2. Griffe (An Ecken positionieren, aber Gegen-Rotieren für "starren" Look)
+        painter->setPen(QPen(QColor(Qt::black), 1.0/lod));
+        painter->setBrush(QColor(Qt::white));
+
+        auto drawStableHandle = [&](QPointF pos, bool isBar, bool verticalBar) {
+            painter->save();
+            painter->translate(pos);
+            // Counter-Rotate: Wir drehen zurück um die aktuelle Rotation des Objekts
+            // Dadurch bleiben die Icons "gerade" zum Bildschirm.
+            painter->rotate(-this->rotation());
+            // Counter-Scale: Damit sie nicht verzerrt werden wenn das Objekt skaliert ist
+            // (Aber wir haben Scale eigentlich im Overlay auf 1, siehe sync)
+
+            if (isBar) {
+                qreal w = 6.0 / lod; qreal h = 16.0 / lod;
+                if (!verticalBar) std::swap(w, h);
+                painter->drawRoundedRect(QRectF(-w/2, -h/2, w, h), 2.0/lod, 2.0/lod);
+            } else {
+                painter->drawEllipse(QPointF(0,0), handleR, handleR);
+            }
+            painter->restore();
+        };
+
+        drawStableHandle(m_localBaseRect.topLeft(), false, false);
+        drawStableHandle(m_localBaseRect.topRight(), false, false);
+        drawStableHandle(m_localBaseRect.bottomLeft(), false, false);
+        drawStableHandle(m_localBaseRect.bottomRight(), false, false);
+
+        drawStableHandle(QPointF(m_localBaseRect.center().x(), m_localBaseRect.top()), true, false);
+        drawStableHandle(QPointF(m_localBaseRect.center().x(), m_localBaseRect.bottom()), true, false);
+        drawStableHandle(QPointF(m_localBaseRect.left(), m_localBaseRect.center().y()), true, true);
+        drawStableHandle(QPointF(m_localBaseRect.right(), m_localBaseRect.center().y()), true, true);
+
+        // Rotation Handle
+        QPointF rotAnchor(m_localBaseRect.center().x(), m_localBaseRect.top());
+        QPointF rotPos(rotAnchor.x(), rotAnchor.y() - (30.0 / lod));
+
+        painter->setPen(QPen(QColor(0x5E5CE6), 1.0/lod, Qt::DashLine));
+        painter->drawLine(rotAnchor, rotPos);
+
+        painter->save();
+        painter->translate(rotPos);
+        painter->rotate(-this->rotation()); // Rigid
+
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(0x5E5CE6));
+        painter->drawEllipse(QPointF(0,0), handleR, handleR);
+
+        painter->setPen(QPen(QColor(Qt::white), 1.5/lod));
+        painter->setBrush(Qt::NoBrush);
+        qreal iconSize = handleR * 0.6;
+        painter->drawArc(QRectF(-iconSize, -iconSize, iconSize*2, iconSize*2), 0, 270*16);
+        painter->restore();
+    }
+
+    void sync() {
+        prepareGeometryChange();
+        // Wir kopieren ALLES vom Target.
+        // Das heißt, unser Koordinatensystem ist identisch mit dem des Targets.
+        setPos(m_target->pos());
+        setRotation(m_target->rotation());
+        setTransform(m_target->transform());
+        setTransformOriginPoint(m_target->transformOriginPoint());
+
+        // Das Rechteck ist das lokale Bounding Rect des Targets
+        m_localBaseRect = m_target->boundingRect();
+        update();
+    }
+
+protected:
+    void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override {
+        Handle h = handleAt(event->pos());
+        if (h == Rotate) setCursor(Qt::PointingHandCursor);
+        else if (h != None && h != Center) setCursor(Qt::SizeAllCursor);
+        else setCursor(Qt::ArrowCursor);
+        QGraphicsObject::hoverMoveEvent(event);
+    }
+
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
+        m_dragHandle = handleAt(event->pos());
+
+        // WICHTIG: Da wir im gleichen Koordinatensystem sind wie das Target,
+        // ist event->pos() bereits "Orthogonal" zur Seite ausgerichtet!
+        m_startLocalPos = event->pos();
+
+        m_initialTransform = m_target->transform();
+        m_initialLocalRect = m_localBaseRect;
+        m_initialRotation = m_target->rotation();
+        m_startScenePos = event->scenePos(); // Für Rotation brauchen wir Scene
+
+        if (m_dragHandle == None) m_dragHandle = Center;
+    }
+
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override {
+        if (m_dragHandle == Center) {
+            // Verschieben (in Scene Coords)
+            QPointF delta = event->scenePos() - m_startScenePos;
+            m_target->moveBy(delta.x(), delta.y());
+            m_startScenePos = event->scenePos();
+            sync();
+            return;
+        }
+
+        if (m_dragHandle == Rotate) {
+            // Rotation (in Scene Coords berechnet für Winkel)
+            QPointF center = m_target->sceneBoundingRect().center();
+            QLineF startLine(center, m_startScenePos);
+            QLineF currentLine(center, event->scenePos());
+
+            qreal angleDiff = currentLine.angle() - startLine.angle();
+            qreal newRotation = m_initialRotation - angleDiff;
+
+            qreal snap = 45.0;
+            qreal mod = std::fmod(newRotation, snap);
+            if (mod < 0) mod += snap;
+            if (mod < 5.0) newRotation -= mod;
+            else if (mod > (snap - 5.0)) newRotation += (snap - mod);
+
+            m_target->setRotation(newRotation);
+            sync();
+            return;
+        }
+
+        // --- SKALIEREN (ORTHOGONAL) ---
+        // Da event->pos() lokal ist, ist .x() immer "Breite" und .y() immer "Höhe",
+        // egal wie das Objekt gedreht ist!
+        QPointF currLocal = event->pos();
+        QRectF r = m_initialLocalRect;
+
+        // Grenzen anpassen basierend auf Mausbewegung
+        qreal l = r.left(), right = r.right(), t = r.top(), b = r.bottom();
+
+        if (m_dragHandle==TopLeft || m_dragHandle==Left || m_dragHandle==BottomLeft)   l = currLocal.x();
+        if (m_dragHandle==TopRight || m_dragHandle==Right || m_dragHandle==BottomRight) right = currLocal.x();
+        if (m_dragHandle==TopLeft || m_dragHandle==Top || m_dragHandle==TopRight)       t = currLocal.y();
+        if (m_dragHandle==BottomLeft || m_dragHandle==Bottom || m_dragHandle==BottomRight) b = currLocal.y();
+
+        // Schutz vor Umklappen
+        if (right - l < 10) { if (l == r.left()) right = l + 10; else l = right - 10; }
+        if (b - t < 10) { if (t == r.top()) b = t + 10; else t = b - 10; }
+
+        qreal sx = (right - l) / r.width();
+        qreal sy = (b - t) / r.height();
+
+        // Pivot bestimmen (Lokal)
+        QPointF pivot;
+        if (m_dragHandle == TopLeft) pivot = r.bottomRight();
+        else if (m_dragHandle == TopRight) pivot = r.bottomLeft();
+        else if (m_dragHandle == BottomRight) pivot = r.topLeft();
+        else if (m_dragHandle == BottomLeft) pivot = r.topRight();
+        else if (m_dragHandle == Top) pivot = QPointF(r.center().x(), r.bottom());
+        else if (m_dragHandle == Bottom) pivot = QPointF(r.center().x(), r.top());
+        else if (m_dragHandle == Left) pivot = QPointF(r.right(), r.center().y());
+        else if (m_dragHandle == Right) pivot = QPointF(r.left(), r.center().y());
+        else pivot = r.center();
+
+        // Matrix anwenden
+        QTransform trans;
+        trans.translate(pivot.x(), pivot.y());
+        trans.scale(sx, sy);
+        trans.translate(-pivot.x(), -pivot.y());
+
+        m_target->setTransform(trans * m_initialTransform);
+        sync();
+    }
+
+private:
+    Handle handleAt(QPointF pos) {
+        // Pos ist Lokal! (da hoverMoveEvent lokal ist durch Parent-Sync)
+        // Aber Vorsicht: Paint nutzt LOD für Größe, HitTest sollte das auch tun?
+        // Einfachheitshalber nutzen wir einen fixen Hit-Radius im lokalen Raum,
+        // der "gut genug" ist, oder wir müssten LOD holen.
+
+        qreal lod = 1.0;
+        if(scene() && !scene()->views().isEmpty()) lod = scene()->views().first()->transform().m11();
+
+        // Hit Radius muss invers zum Scale sein, damit er am Bildschirm gleich groß wirkt?
+        // Da das Overlay mit skaliert wird (durch sync transform), werden lokale 10px
+        // riesig wenn das Obj riesig ist.
+        // WICHTIG: Das Overlay hat das Transform vom Target. Wenn Target Scale=2, ist Overlay Scale=2.
+        // Das heißt, lokale Koordinaten sind "klein".
+        // Um konstante Hit-Area zu haben, müssen wir LOD rausrechnen.
+
+        // Target Scale Factor approximieren
+        QTransform t = m_target->transform();
+        qreal objScale = std::sqrt(t.m11()*t.m11() + t.m12()*t.m12()); // avg scale
+        if(objScale < 0.01) objScale = 1;
+
+        double hitR = (15.0 / lod) / objScale;
+        double rotDist = (30.0 / lod) / objScale;
+
+        QPointF rotPos(m_localBaseRect.center().x(), m_localBaseRect.top() - rotDist);
+
+        if (QVector2D(pos - rotPos).length() < hitR) return Rotate;
+        if (QVector2D(pos - m_localBaseRect.topLeft()).length() < hitR) return TopLeft;
+        if (QVector2D(pos - m_localBaseRect.topRight()).length() < hitR) return TopRight;
+        if (QVector2D(pos - m_localBaseRect.bottomLeft()).length() < hitR) return BottomLeft;
+        if (QVector2D(pos - m_localBaseRect.bottomRight()).length() < hitR) return BottomRight;
+
+        if (QVector2D(pos - QPointF(m_localBaseRect.center().x(), m_localBaseRect.top())).length() < hitR) return Top;
+        if (QVector2D(pos - QPointF(m_localBaseRect.center().x(), m_localBaseRect.bottom())).length() < hitR) return Bottom;
+        if (QVector2D(pos - QPointF(m_localBaseRect.left(), m_localBaseRect.center().y())).length() < hitR) return Left;
+        if (QVector2D(pos - QPointF(m_localBaseRect.right(), m_localBaseRect.center().y())).length() < hitR) return Right;
+
+        return None;
+    }
+
+    QGraphicsItem* m_target;
+    QRectF m_localBaseRect;
+
+    QPointF m_startLocalPos;
+    QPointF m_startScenePos; // Nur für Rotation
+    Handle m_dragHandle;
+    QTransform m_initialTransform;
+    QRectF m_initialLocalRect;
+    qreal m_initialRotation;
+};
+
+// =============================================================================
+// CANVAS VIEW IMPLEMENTATION
+// =============================================================================
 
 CanvasView::CanvasView(QWidget *parent)
     : QGraphicsView(parent)
@@ -45,9 +454,12 @@ CanvasView::CanvasView(QWidget *parent)
     , m_penWidth(3)
     , m_isPanning(false)
     , m_pullDistance(0.0f)
+    , m_cropResizer(nullptr)
+    , m_transformOverlay(nullptr)
+    , m_transformGroup(nullptr)
 {
     m_scene = new QGraphicsScene(this); setScene(m_scene);
-    m_a4Rect = QRectF(0, 0, 794 * 1.5f, 1123 * 1.5f); // PAGE_WIDTH/HEIGHT
+    m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
     setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
     setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
@@ -55,27 +467,36 @@ CanvasView::CanvasView(QWidget *parent)
     setRenderHint(QPainter::SmoothPixmapTransform, false);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
+
     grabGesture(Qt::PinchGesture);
     viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+
     setPageFormat(true);
     setMouseTracking(true);
     setDragMode(QGraphicsView::NoDrag);
+
     updateBackgroundTile();
 
     connect(this, &CanvasView::contentModified, this, &CanvasView::updateSceneRect);
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool*){ viewport()->update(); });
 
-    // NEU: Update bei Tool-Wechsel (z.B. für Overlay)
-    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool*){
-        viewport()->update();
-    });
-
+    // --- MENUS ---
     m_selectionMenu = new SelectionMenu(this);
     connect(m_selectionMenu, &SelectionMenu::deleteRequested, this, &CanvasView::deleteSelection);
     connect(m_selectionMenu, &SelectionMenu::duplicateRequested, this, &CanvasView::duplicateSelection);
-}
+    connect(m_selectionMenu, &SelectionMenu::copyRequested, this, &CanvasView::copySelection);
+    connect(m_selectionMenu, &SelectionMenu::cutRequested, this, &CanvasView::cutSelection);
+    connect(m_selectionMenu, &SelectionMenu::colorRequested, this, &CanvasView::changeSelectionColor);
+    connect(m_selectionMenu, &SelectionMenu::screenshotRequested, this, &CanvasView::screenshotSelection);
+    connect(m_selectionMenu, &SelectionMenu::cropRequested, this, &CanvasView::startCropSession);
+    connect(m_selectionMenu, &SelectionMenu::transformRequested, this, &CanvasView::startTransformSession);
 
-// ... (setPageFormat, updateSceneRect, setPageColor, setPageStyle, setGridSize, updateBackgroundTile, drawBackground bleiben gleich) ...
-// Hier zur Abkürzung nur die geänderten Teile:
+    m_cropMenu = new CropMenu(this);
+    connect(m_cropMenu, &CropMenu::rectRequested, this, &CanvasView::setCropModeRect);
+    connect(m_cropMenu, &CropMenu::freehandRequested, this, &CanvasView::setCropModeFreehand);
+    connect(m_cropMenu, &CropMenu::applyRequested, this, &CanvasView::applyCrop);
+    connect(m_cropMenu, &CropMenu::cancelRequested, this, &CanvasView::cancelCrop);
+}
 
 void CanvasView::setPageFormat(bool isInfinite) {
     m_isInfinite = isInfinite;
@@ -97,7 +518,7 @@ void CanvasView::updateSceneRect() {
     if (!m_isInfinite) return;
     QRectF contentRect = m_scene->itemsBoundingRect();
     qreal margin = 2000.0;
-    if (contentRect.isNull()) contentRect = QRectF(0, 0, width(), height());
+    if (contentRect.isNull()) { contentRect = QRectF(0, 0, width(), height()); }
     contentRect.adjust(-margin, -margin, margin, margin);
     QRectF viewRect = mapToScene(viewport()->rect()).boundingRect();
     contentRect = contentRect.united(viewRect);
@@ -162,12 +583,14 @@ void CanvasView::updateBackgroundTile() {
             p.drawLine(0, pos, texSize, pos);
             p.drawLine(pos, 0, pos, texSize);
         }
-    } else if (m_pageStyle == PageStyle::Lined) {
+    }
+    else if (m_pageStyle == PageStyle::Lined) {
         for (int i = 1; i <= multiplier; ++i) {
             int pos = i * baseSize - 1;
             p.drawLine(0, pos, texSize, pos);
         }
-    } else if (m_pageStyle == PageStyle::Dotted) {
+    }
+    else if (m_pageStyle == PageStyle::Dotted) {
         p.setPen(Qt::NoPen);
         p.setBrush(lineColor);
         for (int x = 1; x <= multiplier; ++x) {
@@ -179,8 +602,8 @@ void CanvasView::updateBackgroundTile() {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
-    if (!m_isInfinite) painter->fillRect(rect, UIStyles::SceneBackground);
-    else painter->fillRect(rect, m_pageColor);
+    if (!m_isInfinite) { painter->fillRect(rect, UIStyles::SceneBackground); }
+    else { painter->fillRect(rect, m_pageColor); }
 
     if (m_isInfinite && !m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
         double zoomLevel = transform().m11();
@@ -191,17 +614,16 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
         qreal oy = std::fmod(rect.top(), h); if (oy < 0) oy += h;
         painter->drawTiledPixmap(rect, m_bgTile, QPointF(ox, oy));
         painter->restore();
-    } else if (!m_isInfinite) {
-        // (Page Mode code...)
+    }
+    else if (!m_isInfinite) {
         painter->save();
-        float PAGE_HEIGHT = 1123 * 1.5f; float PAGE_GAP = 60.0f; float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
         int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
         int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
         int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
         if (endPage > maxPage) endPage = maxPage;
         for (int i = startPage; i <= endPage; ++i) {
             qreal y = i * TOTAL_PAGE_HEIGHT;
-            QRectF pageRect(0, y, 794 * 1.5f, PAGE_HEIGHT);
+            QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
             painter->fillRect(pageRect, m_pageColor);
             painter->setBrushOrigin(pageRect.topLeft());
             painter->drawTiledPixmap(pageRect, m_bgTile);
@@ -213,37 +635,29 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
 void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
     QGraphicsView::drawForeground(painter, rect);
     if (m_pullDistance > 1.0f) drawPullIndicator(painter);
-
-    // --- NEU: OVERLAY FÜR TOOLS ---
     AbstractTool* tool = ToolManager::instance().activeTool();
     if (tool) {
         painter->save();
         tool->drawOverlay(painter, rect);
         painter->restore();
     }
-
     if (!m_isInfinite) {
-        // (Page Borders Code...)
         painter->save();
-        painter->setPen(QPen(QColor(0,0,0, 60), 1, Qt::SolidLine)); painter->setBrush(Qt::NoBrush);
-        float PAGE_HEIGHT = 1123 * 1.5f; float PAGE_GAP = 60.0f; float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
+        painter->setPen(QPen(QColor(0,0,0, 60), 1, Qt::SolidLine));
+        painter->setBrush(Qt::NoBrush);
         int startPage = std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
         int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
         int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
         if (endPage > maxPage) endPage = maxPage;
         for (int i = startPage; i <= endPage; ++i) {
-            QRectF pageRect(0, i * TOTAL_PAGE_HEIGHT, 794 * 1.5f, PAGE_HEIGHT);
+            QRectF pageRect(0, i * TOTAL_PAGE_HEIGHT, PAGE_WIDTH, PAGE_HEIGHT);
             painter->drawRect(pageRect);
         }
         painter->restore();
     }
 }
 
-// ... (drawPullIndicator, addNewPage, saveToFile, loadFromFile bleiben gleich) ...
-// Hier wieder die Abkürzung zu den relevanten Teilen:
-
 void CanvasView::drawPullIndicator(QPainter* painter) {
-    // (Original Code beibehalten)
     painter->save();
     painter->resetTransform();
     painter->setClipping(false);
@@ -269,7 +683,7 @@ void CanvasView::drawPullIndicator(QPainter* painter) {
 }
 
 void CanvasView::addNewPage() {
-    m_a4Rect.setHeight(m_a4Rect.height() + (1123 * 1.5f) + 60.0f);
+    m_a4Rect.setHeight(m_a4Rect.height() + PAGE_HEIGHT + PAGE_GAP);
     setSceneRect(m_a4Rect);
     viewport()->update();
 }
@@ -286,7 +700,7 @@ bool CanvasView::saveToFile() {
     for(auto* item : std::as_const(items)) { if(item->type() == QGraphicsPathItem::Type && item != m_lassoItem) count++; }
     out << count;
     for (auto* item : std::as_const(items)) {
-        if (item->type() == QGraphicsPathItem::Type && item != m_lassoItem) {
+        if (item->type() == QGraphicsPathItem::Type && item != m_lassoItem && item != m_cropResizer && item != m_transformOverlay) {
             QGraphicsPathItem* pathItem = static_cast<QGraphicsPathItem*>(item);
             out << pathItem->pos() << pathItem->pen().color() << (int)pathItem->pen().width() << pathItem->path();
         }
@@ -300,9 +714,7 @@ bool CanvasView::loadFromFile() {
     if (!file.open(QIODevice::ReadOnly)) return false;
     QDataStream in(&file);
     quint32 magic; in >> magic;
-    if (magic == 0xB10B0001) m_isInfinite = true;
-    else if (magic == 0xB10B0002) in >> m_isInfinite;
-    else return false;
+    if (magic == 0xB10B0001) { m_isInfinite = true; } else if (magic == 0xB10B0002) { in >> m_isInfinite; } else { return false; }
     setPageFormat(m_isInfinite);
     m_scene->clear(); m_undoList.clear(); m_redoList.clear();
     int count; in >> count;
@@ -314,7 +726,7 @@ bool CanvasView::loadFromFile() {
         QGraphicsPathItem* item = m_scene->addPath(path, pen);
         item->setPos(pos);
         if (color.alpha() < 255) item->setZValue(0.1); else item->setZValue(1.0);
-        item->setFlag(QGraphicsItem::ItemIsSelectable); item->setFlag(QGraphicsItem::ItemIsMovable);
+        item->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
     }
     m_scene->blockSignals(wasBlocked);
     if (m_isInfinite) updateSceneRect();
@@ -346,7 +758,10 @@ void CanvasView::undo() {
 }
 void CanvasView::redo() {
     if (m_redoList.isEmpty()) return;
-    QGraphicsItem* item = m_redoList.takeLast(); m_scene->addItem(item); m_undoList.append(item); emit contentModified();
+    QGraphicsItem* item = m_redoList.takeLast();
+    m_scene->addItem(item);
+    m_undoList.append(item);
+    emit contentModified();
 }
 bool CanvasView::canUndo() const { return !m_undoList.isEmpty(); }
 bool CanvasView::canRedo() const { return !m_redoList.isEmpty(); }
@@ -367,7 +782,7 @@ void CanvasView::duplicateSelection() {
             QGraphicsPathItem* pathItem = static_cast<QGraphicsPathItem*>(item);
             QGraphicsPathItem* newItem = m_scene->addPath(pathItem->path(), pathItem->pen());
             newItem->setPos(item->pos() + QPointF(20, 20));
-            newItem->setFlag(QGraphicsItem::ItemIsSelectable); newItem->setFlag(QGraphicsItem::ItemIsMovable);
+            newItem->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
             newItem->setZValue(pathItem->zValue());
             newItem->setSelected(true); m_undoList.append(newItem);
         }
@@ -375,8 +790,185 @@ void CanvasView::duplicateSelection() {
     updateSelectionMenuPosition(); emit contentModified();
 }
 
-void CanvasView::copySelection() {}
-void CanvasView::clearSelection() { m_scene->clearSelection(); if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; } m_selectionMenu->hide(); }
+void CanvasView::copySelection() {
+    const QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.isEmpty()) return;
+    QRectF selRect; for(auto* i : selected) selRect = selRect.united(i->sceneBoundingRect());
+    if (!selRect.isEmpty()) {
+        QImage img(selRect.size().toSize(), QImage::Format_ARGB32); img.fill(Qt::transparent);
+        QPainter p(&img); m_scene->render(&p, QRectF(0,0,img.width(),img.height()), selRect);
+        QGuiApplication::clipboard()->setImage(img);
+    }
+    m_selectionMenu->hide();
+}
+
+void CanvasView::cutSelection() { copySelection(); deleteSelection(); }
+
+void CanvasView::changeSelectionColor() {
+    QColor c = QColorDialog::getColor(Qt::black, this, "Farbe ändern");
+    if (c.isValid()) {
+        for (auto* item : m_scene->selectedItems()) {
+            if (auto* pi = dynamic_cast<QGraphicsPathItem*>(item)) {
+                QPen p = pi->pen(); p.setColor(c); pi->setPen(p);
+            }
+        }
+        m_scene->update();
+    }
+    m_selectionMenu->hide();
+}
+
+void CanvasView::screenshotSelection() {
+    const QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.isEmpty()) return;
+    QRectF selRect; for(auto* i : selected) selRect = selRect.united(i->sceneBoundingRect());
+    if (!selRect.isEmpty()) {
+        QImage img(selRect.size().toSize(), QImage::Format_ARGB32); img.fill(Qt::transparent);
+        QPainter p(&img); m_scene->render(&p, QRectF(0,0,img.width(),img.height()), selRect);
+        QString path = QFileDialog::getSaveFileName(this, "Save", "sel.png", "*.png");
+        if(!path.isEmpty()) img.save(path);
+    }
+    m_selectionMenu->hide();
+}
+
+// === CROP SYSTEM (MIT BILDERN) ===
+
+void CanvasView::startCropSession() {
+    m_selectionMenu->hide();
+    m_interactionMode = InteractionMode::Crop; // Mode setzen
+    updateCropMenuPosition();
+    m_cropMenu->show();
+    setCropModeRect();
+}
+
+void CanvasView::setCropModeRect() {
+    m_cropSubMode = 1; // Rect
+    m_cropMenu->setMode(true);
+
+    QRectF totalRect;
+    for(auto* i : m_scene->selectedItems()) totalRect = totalRect.united(i->sceneBoundingRect());
+
+    if (m_cropResizer) { m_scene->removeItem(m_cropResizer); delete m_cropResizer; }
+    m_cropResizer = new CropResizer(totalRect.isEmpty() ? QRectF(0,0,200,200) : totalRect);
+    m_cropResizer->setZValue(99999);
+    m_scene->addItem(m_cropResizer);
+
+    m_lassoItem = nullptr;
+}
+
+void CanvasView::setCropModeFreehand() {
+    m_cropSubMode = 2; // Freehand
+    m_cropMenu->setMode(false);
+    if (m_cropResizer) { m_scene->removeItem(m_cropResizer); delete m_cropResizer; m_cropResizer = nullptr; }
+}
+
+void CanvasView::applyCrop() {
+    QPainterPath clipPath;
+
+    if (m_cropSubMode == 1 && m_cropResizer) {
+        clipPath.addRect(m_cropResizer->currentRect());
+        m_scene->removeItem(m_cropResizer); delete m_cropResizer; m_cropResizer = nullptr;
+    }
+    else if (m_cropSubMode == 2 && m_lassoItem) {
+        clipPath = m_lassoItem->path();
+        m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr;
+    }
+
+    if (clipPath.isEmpty()) {
+        m_cropMenu->hide(); m_interactionMode = InteractionMode::None; return;
+    }
+
+    for (auto* item : m_scene->selectedItems()) {
+        if (auto* pathItem = dynamic_cast<QGraphicsPathItem*>(item)) {
+            QPainterPath localClip = item->mapFromScene(clipPath);
+            localClip.setFillRule(Qt::WindingFill);
+            QPainterPath result = pathItem->path().intersected(localClip);
+            pathItem->setPath(result);
+        }
+        else if (auto* pixmapItem = dynamic_cast<QGraphicsPixmapItem*>(item)) {
+            QPainterPath localClip = item->mapFromScene(clipPath);
+            QPixmap original = pixmapItem->pixmap();
+            if (original.isNull()) continue;
+            QPixmap result(original.size()); result.fill(Qt::transparent);
+            QPainter p(&result); p.setRenderHint(QPainter::Antialiasing);
+            p.setClipPath(localClip);
+            p.drawPixmap(0, 0, original); p.end();
+            pixmapItem->setPixmap(result);
+        }
+    }
+
+    m_cropMenu->hide();
+    m_interactionMode = InteractionMode::None;
+    emit contentModified();
+}
+
+void CanvasView::cancelCrop() {
+    if (m_cropResizer) { m_scene->removeItem(m_cropResizer); delete m_cropResizer; m_cropResizer = nullptr; }
+    if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; }
+    m_cropMenu->hide();
+    m_interactionMode = InteractionMode::None;
+}
+
+// === TRANSFORM SYSTEM (FIXED) ===
+
+void CanvasView::startTransformSession() {
+    if (m_scene->selectedItems().isEmpty()) return;
+
+    m_selectionMenu->hide();
+    m_interactionMode = InteractionMode::Transform;
+
+    // Erstelle Gruppe für gemeinsame Transformation
+    m_transformGroup = m_scene->createItemGroup(m_scene->selectedItems());
+
+    // WICHTIG: Setze den Drehpunkt auf die Mitte der Gruppe!
+    // Das behebt das "komische Drehen".
+    QRectF grpRect = m_transformGroup->boundingRect();
+    m_transformGroup->setTransformOriginPoint(grpRect.center());
+
+    // Erstelle Overlay auf der Gruppe
+    m_transformOverlay = new TransformOverlay(m_transformGroup);
+    m_transformOverlay->setZValue(99999);
+    m_scene->addItem(m_transformOverlay);
+}
+
+void CanvasView::applyTransform() {
+    if (m_transformOverlay) { m_scene->removeItem(m_transformOverlay); delete m_transformOverlay; m_transformOverlay = nullptr; }
+    if (m_transformGroup) { m_scene->destroyItemGroup(m_transformGroup); m_transformGroup = nullptr; }
+    m_interactionMode = InteractionMode::None;
+    emit contentModified();
+}
+
+void CanvasView::updateSelectionMenuPosition() {
+    if (m_scene->selectedItems().isEmpty()) { m_selectionMenu->hide(); return; }
+    QRectF totalRect;
+    for (auto* item : m_scene->selectedItems()) totalRect = totalRect.united(item->sceneBoundingRect());
+    QPoint viewPos = mapFromScene(totalRect.topLeft());
+    int x = viewPos.x() + (mapFromScene(totalRect.bottomRight()).x() - viewPos.x()) / 2 - m_selectionMenu->width() / 2;
+    int y = viewPos.y() - m_selectionMenu->height() - 10;
+    x = qMax(0, qMin(x, width() - m_selectionMenu->width()));
+    y = qMax(0, y);
+    m_selectionMenu->move(x, y);
+    m_selectionMenu->show(); m_selectionMenu->raise();
+}
+
+void CanvasView::updateCropMenuPosition() {
+    QRectF totalRect;
+    for (auto* item : m_scene->selectedItems()) totalRect = totalRect.united(item->sceneBoundingRect());
+    if (totalRect.isEmpty()) totalRect = mapToScene(viewport()->rect()).boundingRect();
+
+    QPoint viewPos = mapFromScene(totalRect.topLeft());
+    int x = viewPos.x() + (mapFromScene(totalRect.bottomRight()).x() - viewPos.x()) / 2 - m_cropMenu->width() / 2;
+    int y = viewPos.y() - m_cropMenu->height() - 10;
+    x = qMax(0, qMin(x, width() - m_cropMenu->width()));
+    y = qMax(0, y);
+    m_cropMenu->move(x, y);
+}
+
+void CanvasView::clearSelection() {
+    if (m_interactionMode != InteractionMode::None) return; // Nicht aufheben während Transform/Crop
+    m_scene->clearSelection();
+    if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; }
+    m_selectionMenu->hide();
+}
 
 void CanvasView::wheelEvent(QWheelEvent *event) {
     if (event->modifiers() & Qt::ControlModifier) {
@@ -395,17 +987,15 @@ void CanvasView::wheelEvent(QWheelEvent *event) {
                 viewport()->update();
                 if (m_pullDistance > 250.0f) { addNewPage(); m_pullDistance = 0; }
                 event->accept(); return;
-            } else { if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); } }
+            } else {
+                if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); }
+            }
         }
         QGraphicsView::wheelEvent(event);
     }
 }
 
-// ==========================================================
-// MOUSE EVENTS: HIER IST DER FIX
-// ==========================================================
 void CanvasView::mousePressEvent(QMouseEvent *event) {
-    // 1. Touch/Pan Logic
     const QInputDevice* dev = event->device();
     bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
     if (!isTouch && event->source() == Qt::MouseEventSynthesizedBySystem) isTouch = true;
@@ -417,8 +1007,27 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
         m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return;
     }
 
-    // 2. --- NEUE TOOL ARCHITEKTUR ---
-    // Hier fragen wir den ToolManager. Wenn der ein Tool hat, benutzen wir es.
+    // --- INTERACTION MODES ---
+    if (m_interactionMode == InteractionMode::Crop) {
+        if (m_cropSubMode == 2) { // Freehand
+            m_isDrawing = true; m_currentPath = QPainterPath(); m_currentPath.moveTo(mapToScene(event->pos()));
+            if (!m_lassoItem) {
+                m_lassoItem = new QGraphicsPathItem();
+                m_lassoItem->setPen(QPen(Qt::red, 2, Qt::DashLine)); m_lassoItem->setZValue(99999);
+                m_scene->addItem(m_lassoItem);
+            }
+        }
+        QGraphicsView::mousePressEvent(event); return;
+    }
+
+    if (m_interactionMode == InteractionMode::Transform) {
+        if (m_transformOverlay && !m_transformOverlay->isUnderMouse()) {
+            applyTransform();
+        } else {
+            QGraphicsView::mousePressEvent(event); return;
+        }
+    }
+
     AbstractTool* newTool = ToolManager::instance().activeTool();
     if (newTool && event->button() == Qt::LeftButton) {
         QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMousePress);
@@ -428,47 +1037,27 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
         scEvent.setButtons(event->buttons());
         scEvent.setModifiers(event->modifiers());
 
-        // WICHTIG: Wir übergeben 'm_scene' an das Tool!
         if(newTool->handleMousePress(&scEvent, m_scene)) {
             m_isDrawing = true;
             event->accept();
-            return; // Wir verlassen die Funktion hier, damit der alte Code nicht ausgeführt wird!
+            return;
         }
     }
-
-    // 3. --- ALTE LOGIK (FALLBACK) ---
-    // Dieser Teil wird nur ausgeführt, wenn KEIN neues Tool aktiv ist.
-    // Da wir aber oben registerAllTools() gemacht haben, sollte dieser Teil fast nie mehr erreicht werden,
-    // außer für spezielle Fälle wie SelectionMenu Klicks.
 
     if (event->button() == Qt::LeftButton) {
         QPointF scenePos = mapToScene(event->pos());
         if (m_selectionMenu->isVisible() && !itemAt(event->pos())) m_selectionMenu->hide();
 
-        // (Hier folgt dein alter Code für Seiten-Checks und alte Tools...)
         bool onPage = false;
         if (!m_isInfinite) {
-            float PAGE_HEIGHT = 1123 * 1.5f; float PAGE_GAP = 60.0f;
             qreal currentY = 0;
             while(currentY < m_a4Rect.height()) {
-                QRectF pageRect(0, currentY, 794 * 1.5f, PAGE_HEIGHT);
+                QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
                 if (pageRect.contains(scenePos)) { onPage = true; break; }
                 currentY += PAGE_HEIGHT + PAGE_GAP;
             }
             if (!onPage) return;
         }
-
-        if (m_currentTool == ToolType::Select) { QGraphicsView::mousePressEvent(event); return; }
-        else if (m_currentTool == ToolType::Pen) {
-            // Alte Pen Implementierung...
-            m_isDrawing = true; m_currentPath = QPainterPath(); m_currentPath.moveTo(scenePos);
-            m_currentItem = m_scene->addPath(m_currentPath, QPen(m_penColor, m_penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-            m_currentItem->setFlag(QGraphicsItem::ItemIsSelectable); m_currentItem->setFlag(QGraphicsItem::ItemIsMovable);
-            m_currentItem->setZValue(1.0);
-            qDeleteAll(m_redoList); m_redoList.clear(); m_undoList.append(m_currentItem);
-            event->accept(); return;
-        }
-        // ... (Rest der alten Tools)
     }
     QGraphicsView::mousePressEvent(event);
 }
@@ -477,39 +1066,25 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
     if (m_isPanning) {
         QPoint delta = event->pos() - m_lastPanPos;
         m_lastPanPos = event->pos();
-        if (!m_isInfinite) { /* Scroll Logic */ }
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
         event->accept(); return;
     }
 
-    // --- NEU: TOOL ---
+    if (m_interactionMode == InteractionMode::Crop && m_cropSubMode == 2 && m_isDrawing && m_lassoItem) {
+        m_currentPath.lineTo(mapToScene(event->pos())); m_lassoItem->setPath(m_currentPath); return;
+    }
+
     AbstractTool* newTool = ToolManager::instance().activeTool();
-    if (newTool && m_isDrawing) {
+    if (newTool && m_isDrawing && m_interactionMode == InteractionMode::None) {
         QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseMove);
         QPointF scenePos = mapToScene(event->pos());
         scEvent.setScenePos(scenePos);
         scEvent.setButtons(event->buttons());
         scEvent.setModifiers(event->modifiers());
-
-        if (newTool->handleMouseMove(&scEvent, m_scene)) {
-            event->accept();
-            return;
-        }
+        if (newTool->handleMouseMove(&scEvent, m_scene)) { event->accept(); return; }
     }
-
-    // --- ALT ---
-    QPointF scenePos = mapToScene(event->pos());
-    if (m_isDrawing) {
-        if ((m_currentTool == ToolType::Pen || m_currentTool == ToolType::Highlighter) && m_currentItem) {
-            m_currentPath.lineTo(scenePos); m_currentItem->setPath(m_currentPath);
-        }
-        else if (m_currentTool == ToolType::Eraser) { applyEraser(scenePos); }
-        else if (m_currentTool == ToolType::Lasso && m_lassoItem) { m_currentPath.lineTo(scenePos); m_lassoItem->setPath(m_currentPath); }
-        event->accept();
-    } else {
-        QGraphicsView::mouseMoveEvent(event);
-    }
+    QGraphicsView::mouseMoveEvent(event);
 }
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
@@ -520,9 +1095,12 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     if (m_penOnlyMode && isTouch) { m_isPanning = false; if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); } setTool(m_currentTool); event->accept(); return; }
     if (event->button() == Qt::MiddleButton) { m_isPanning = false; if (m_pullDistance > 0) { m_pullDistance = 0; viewport()->update(); } setTool(m_currentTool); event->accept(); return; }
 
-    // --- NEU: TOOL ---
+    if (m_interactionMode == InteractionMode::Crop && m_cropSubMode == 2 && m_isDrawing) {
+        m_isDrawing = false; m_currentPath.closeSubpath(); if(m_lassoItem) m_lassoItem->setPath(m_currentPath); return;
+    }
+
     AbstractTool* newTool = ToolManager::instance().activeTool();
-    if (newTool && event->button() == Qt::LeftButton) {
+    if (newTool && m_isDrawing && event->button() == Qt::LeftButton && m_interactionMode == InteractionMode::None) {
         QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseRelease);
         QPointF scenePos = mapToScene(event->pos());
         scEvent.setScenePos(scenePos);
@@ -531,30 +1109,54 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
         if (newTool->handleMouseRelease(&scEvent, m_scene)) {
             m_isDrawing = false;
             emit contentModified();
+            if (newTool->mode() == ToolMode::Lasso) { finishLasso(); }
             event->accept();
             return;
         }
     }
-
-    if (event->button() == Qt::LeftButton) {
-        if (m_currentTool == ToolType::Lasso && m_isDrawing) finishLasso();
-        if (!m_scene->selectedItems().isEmpty()) updateSelectionMenuPosition();
-        if (m_isDrawing) emit contentModified();
-        m_isDrawing = false; m_currentItem = nullptr;
-    }
     QGraphicsView::mouseReleaseEvent(event);
 }
 
-// ... (Rest der Datei: event, gestureEvent, pinchTriggered, finishLasso, updateSelectionMenuPosition, applyEraser - bleibt gleich) ...
-bool CanvasView::event(QEvent *event) { if (event->type() == QEvent::Gesture) { gestureEvent(static_cast<QGestureEvent*>(event)); return true; } return QGraphicsView::event(event); }
-void CanvasView::gestureEvent(QGestureEvent *event) { if (QGesture *pinch = event->gesture(Qt::PinchGesture)) { pinchTriggered(static_cast<QPinchGesture *>(pinch)); } }
+bool CanvasView::event(QEvent *event) {
+    if (event->type() == QEvent::Gesture) { gestureEvent(static_cast<QGestureEvent*>(event)); return true; }
+    return QGraphicsView::event(event);
+}
+
+void CanvasView::gestureEvent(QGestureEvent *event) {
+    if (QGesture *pinch = event->gesture(Qt::PinchGesture)) pinchTriggered(static_cast<QPinchGesture *>(pinch));
+}
+
 void CanvasView::pinchTriggered(QPinchGesture *gesture) {
     if (m_isDrawing) { m_isDrawing = false; if (m_currentItem) { m_scene->removeItem(m_currentItem); delete m_currentItem; m_currentItem = nullptr; } if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; } }
     if (m_isPanning) m_isPanning = false;
     QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
-    if (changeFlags & QPinchGesture::ScaleFactorChanged) { qreal factor = gesture->scaleFactor(); double currentScale = transform().m11(); if (!((currentScale < 0.1 && factor < 1) || (currentScale > 10 && factor > 1))) scale(factor, factor); }
-    if (gesture->state() == Qt::GestureUpdated) { QPoint delta = gesture->centerPoint().toPoint() - gesture->lastCenterPoint().toPoint(); if (!delta.isNull()) { horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x()); verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y()); } }
+    if (changeFlags & QPinchGesture::ScaleFactorChanged) {
+        qreal factor = gesture->scaleFactor();
+        double currentScale = transform().m11();
+        if (!((currentScale < 0.1 && factor < 1) || (currentScale > 10 && factor > 1))) scale(factor, factor);
+    }
+    if (gesture->state() == Qt::GestureUpdated) {
+        QPoint delta = gesture->centerPoint().toPoint() - gesture->lastCenterPoint().toPoint();
+        if (!delta.isNull()) {
+            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+        }
+    }
 }
-void CanvasView::finishLasso() { if (!m_lassoItem) return; m_currentPath.closeSubpath(); m_lassoItem->setPath(m_currentPath); m_scene->setSelectionArea(m_currentPath, QTransform()); m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; MainWindow* mw = qobject_cast<MainWindow*>(window()); if (mw) mw->switchToSelectTool(); if (!m_scene->selectedItems().isEmpty()) updateSelectionMenuPosition(); }
-void CanvasView::updateSelectionMenuPosition() { if (m_scene->selectedItems().isEmpty()) { m_selectionMenu->hide(); return; } QRectF totalRect; const QList<QGraphicsItem*> items = m_scene->selectedItems(); for (auto* item : items) totalRect = totalRect.united(item->sceneBoundingRect()); QPoint viewPos = mapFromScene(totalRect.topLeft()); int x = viewPos.x() + (mapFromScene(totalRect.bottomRight()).x() - viewPos.x()) / 2 - m_selectionMenu->width() / 2; int y = viewPos.y() - m_selectionMenu->height() - 10; x = qMax(0, qMin(x, width() - m_selectionMenu->width())); y = qMax(0, y); m_selectionMenu->move(x, y); m_selectionMenu->show(); m_selectionMenu->raise(); }
-void CanvasView::applyEraser(const QPointF &pos) { QRectF eraserRect(pos.x() - 10, pos.y() - 10, 20, 20); const QList<QGraphicsItem*> items = m_scene->items(eraserRect); bool erased = false; for (auto* item : std::as_const(items)) { if (item->type() == QGraphicsPathItem::Type) { m_scene->removeItem(item); m_undoList.removeOne(item); delete item; erased = true; } else if (item->type() == QGraphicsTextItem::Type) { m_scene->removeItem(item); m_undoList.removeOne(item); delete item; erased = true; } } if (erased) emit contentModified(); }
+
+void CanvasView::finishLasso() {
+    if (!m_scene->selectedItems().isEmpty()) updateSelectionMenuPosition();
+    else m_selectionMenu->hide();
+}
+
+void CanvasView::applyEraser(const QPointF &pos) {
+    QRectF eraserRect(pos.x() - 10, pos.y() - 10, 20, 20); const QList<QGraphicsItem*> items = m_scene->items(eraserRect);
+    bool erased = false;
+    for (auto* item : std::as_const(items)) {
+        if (item->type() == QGraphicsPathItem::Type) { m_scene->removeItem(item); m_undoList.removeOne(item); delete item; erased = true; }
+        else if (item->type() == QGraphicsTextItem::Type) { m_scene->removeItem(item); m_undoList.removeOne(item); delete item; erased = true; }
+    }
+    if (erased) emit contentModified();
+}
+
+#include "canvasview.moc"
