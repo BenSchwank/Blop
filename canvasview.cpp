@@ -22,11 +22,79 @@
 #include <QCursor>
 #include <QBitmap>
 #include <QStyleOptionGraphicsItem>
+#include <QVector2D>
 
 static constexpr float PAGE_WIDTH = 794 * 1.5f;
 static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
 static constexpr float PAGE_GAP = 60.0f;
 static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
+
+// =============================================================================
+// HELPER: BAKING TRANSFORM
+// =============================================================================
+// Integriert Pos, Rotation und Scale in die Transform-Matrix und setzt Properties zurück.
+// Verhindert Shearing beim Skalieren rotierter Objekte.
+static void bakeTransform(QGraphicsItem* item) {
+    if (!item) return;
+
+    // 1. Berechne die effektive Local-to-Parent Matrix
+    // Wir nutzen sceneTransform(), um alle Properties (Pos, Rot, Origin) einzufangen,
+    // und rechnen den Parent wieder raus.
+    QTransform localToParent = item->sceneTransform();
+    if (item->parentItem()) {
+        localToParent = localToParent * item->parentItem()->sceneTransform().inverted();
+    }
+
+    // 2. Setze alles als reine Matrix
+    item->setTransform(localToParent);
+
+    // 3. Resette die Properties, da sie nun in der Matrix stecken
+    item->setPos(0, 0);
+    item->setRotation(0);
+    item->setScale(1.0);
+}
+
+// =============================================================================
+// HELPER: ROTATED CURSOR GENERATOR
+// =============================================================================
+static QCursor getRotatedCursor(Qt::CursorShape shape, qreal angle) {
+    qreal baseAngle = 0;
+    bool isDoubleArrow = false;
+
+    if (shape == Qt::SizeVerCursor) { baseAngle = 90; isDoubleArrow = true; }
+    else if (shape == Qt::SizeHorCursor) { baseAngle = 0; isDoubleArrow = true; }
+    else if (shape == Qt::SizeBDiagCursor) { baseAngle = 45; isDoubleArrow = true; }
+    else if (shape == Qt::SizeFDiagCursor) { baseAngle = 135; isDoubleArrow = true; }
+
+    if (!isDoubleArrow) return QCursor(shape);
+
+    qreal totalAngle = baseAngle + angle;
+
+    int size = 32;
+    QPixmap pix(size, size);
+    pix.fill(Qt::transparent);
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    // Zentrieren und Rotieren
+    p.translate(size/2, size/2);
+    p.rotate(totalAngle);
+
+    // Pfeil zeichnen (Weiß mit schwarzer Umrandung)
+    QPen whitePen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap);
+    QPen blackPen(Qt::black, 1, Qt::SolidLine, Qt::RoundCap);
+
+    auto drawArrow = [&](QPainter& p) {
+        p.drawLine(-9, 0, 9, 0);
+        p.drawLine(-9, 0, -5, -4); p.drawLine(-9, 0, -5, 4);
+        p.drawLine(9, 0, 5, -4); p.drawLine(9, 0, 5, 4);
+    };
+
+    p.setPen(whitePen); drawArrow(p);
+    p.setPen(blackPen); drawArrow(p);
+
+    return QCursor(pix, size/2, size/2);
+}
 
 // =============================================================================
 // SELECTION MENU
@@ -184,7 +252,7 @@ private:
 };
 
 // =============================================================================
-// TRANSFORM OVERLAY (CORRECT PIVOT & VISUALS)
+// TRANSFORM OVERLAY (FIXED WITH BAKING LOGIC)
 // =============================================================================
 class TransformOverlay : public QGraphicsObject {
 public:
@@ -193,81 +261,87 @@ public:
     TransformOverlay(QGraphicsItem* targetItem) : m_target(targetItem) {
         setFlags(ItemIsSelectable | ItemIsMovable);
         setAcceptHoverEvents(true);
-        // Overlay übernimmt exakt die Transform vom Target -> Gemeinsames Koordinatensystem
         sync();
     }
 
     QRectF boundingRect() const override {
-        return m_visualRect.adjusted(-30, -50, 30, 30);
+        return m_target->boundingRect().adjusted(-50, -50, 50, 50);
     }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) override {
-        // LOD für konstante Pixelgröße auf dem Bildschirm
-        qreal lod = option->levelOfDetailFromTransform(painter->worldTransform());
-        if (lod < 0.001) lod = 1.0;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override {
+        QTransform t = this->transform();
+        qreal sx = std::sqrt(t.m11()*t.m11() + t.m12()*t.m12());
+        qreal sy = std::sqrt(t.m21()*t.m21() + t.m22()*t.m22());
+        if (sx < 0.001) sx = 1.0; if (sy < 0.001) sy = 1.0;
 
-        qreal handleR = 5.0 / lod;
-        qreal lineW = 2.0 / lod;
+        qreal viewScale = 1.0;
+        if (painter->deviceTransform().m11() != 0) {
+            viewScale = std::sqrt(std::pow(painter->deviceTransform().m11(), 2) +
+                                  std::pow(painter->deviceTransform().m12(), 2));
+        }
 
-        // 1. Rahmen (Cosmetic Pen für konstante Dicke)
-        QPen framePen(QColor(0x5E5CE6), lineW, Qt::SolidLine);
+        qreal invSx = 1.0 / sx;
+        qreal invSy = 1.0 / sy;
+        qreal r = 5.0 / viewScale;
+
+        QRectF rect = m_target->boundingRect();
+
+        QPen framePen(QColor(0x5E5CE6), 0, Qt::SolidLine);
         framePen.setCosmetic(true);
+        framePen.setWidthF(2.0);
         painter->setPen(framePen);
         painter->setBrush(Qt::NoBrush);
-        painter->drawRect(m_visualRect);
+        painter->drawRect(rect);
 
-        // 2. Griffe
-        painter->setPen(QPen(QColor(Qt::black), 1.0/lod));
+        painter->setPen(QPen(QColor(Qt::black), 0));
         painter->setBrush(QColor(Qt::white));
 
         auto drawHandle = [&](QPointF pos, bool isBar, bool verticalBar) {
             painter->save();
             painter->translate(pos);
+            painter->scale(invSx, invSy);
 
             if (isBar) {
-                // Balken: Drehen SICH MIT DEM RAHMEN (keine Gegenrotation!)
-                qreal w = 6.0 / lod; qreal h = 16.0 / lod;
+                qreal w = r * 2.5; qreal h = r * 6.0;
                 if (!verticalBar) std::swap(w, h);
-                painter->drawRoundedRect(QRectF(-w/2, -h/2, w, h), 2.0/lod, 2.0/lod);
+                painter->drawRoundedRect(QRectF(-w/2, -h/2, w, h), r, r);
             } else {
-                // Punkte: Drehen sich GEGEN, damit sie rund und unverzerrt bleiben
-                painter->rotate(-this->rotation());
-                painter->drawEllipse(QPointF(0,0), handleR, handleR);
+                painter->drawEllipse(QPointF(0,0), r, r);
             }
             painter->restore();
         };
 
-        // Ecken (Punkte)
-        drawHandle(m_visualRect.topLeft(), false, false);
-        drawHandle(m_visualRect.topRight(), false, false);
-        drawHandle(m_visualRect.bottomLeft(), false, false);
-        drawHandle(m_visualRect.bottomRight(), false, false);
+        drawHandle(rect.topLeft(), false, false);
+        drawHandle(rect.topRight(), false, false);
+        drawHandle(rect.bottomLeft(), false, false);
+        drawHandle(rect.bottomRight(), false, false);
 
-        // Seitenmitten (Balken)
-        drawHandle(QPointF(m_visualRect.center().x(), m_visualRect.top()), true, false);
-        drawHandle(QPointF(m_visualRect.center().x(), m_visualRect.bottom()), true, false);
-        drawHandle(QPointF(m_visualRect.left(), m_visualRect.center().y()), true, true);
-        drawHandle(QPointF(m_visualRect.right(), m_visualRect.center().y()), true, true);
+        drawHandle(QPointF(rect.center().x(), rect.top()), true, false);
+        drawHandle(QPointF(rect.center().x(), rect.bottom()), true, false);
+        drawHandle(QPointF(rect.left(), rect.center().y()), true, true);
+        drawHandle(QPointF(rect.right(), rect.center().y()), true, true);
 
-        // Rotation Handle
-        QPointF rotAnchor(m_visualRect.center().x(), m_visualRect.top());
-        QPointF rotPos(rotAnchor.x(), rotAnchor.y() - (30.0 / lod));
+        QPointF rotAnchor(rect.center().x(), rect.top());
+        qreal dist = (30.0 / viewScale) * invSy;
+        QPointF rotPos(rotAnchor.x(), rotAnchor.y() - dist);
 
-        painter->setPen(QPen(QColor(0x5E5CE6), 1.0/lod, Qt::DashLine));
+        QPen dashPen(QColor(0x5E5CE6), 0, Qt::DashLine);
+        dashPen.setCosmetic(true);
+        painter->setPen(dashPen);
         painter->drawLine(rotAnchor, rotPos);
 
         painter->save();
         painter->translate(rotPos);
-        painter->rotate(-this->rotation()); // Icon gerade halten
+        painter->scale(invSx, invSy);
 
         painter->setPen(Qt::NoPen);
         painter->setBrush(QColor(0x5E5CE6));
-        painter->drawEllipse(QPointF(0,0), handleR, handleR);
+        painter->drawEllipse(QPointF(0,0), r, r);
 
-        painter->setPen(QPen(QColor(Qt::white), 1.5/lod));
+        painter->setPen(QPen(QColor(Qt::white), 1.5/viewScale));
         painter->setBrush(Qt::NoBrush);
-        qreal iconSize = handleR * 0.6;
-        painter->drawArc(QRectF(-iconSize, -iconSize, iconSize*2, iconSize*2), 0, 270*16);
+        qreal iconR = r * 0.6;
+        painter->drawArc(QRectF(-iconR, -iconR, iconR*2, iconR*2), 0, 270*16);
         painter->restore();
     }
 
@@ -275,45 +349,49 @@ public:
         prepareGeometryChange();
         setPos(m_target->pos());
         setRotation(m_target->rotation());
-        setScale(1.0); // Overlay immer unskaliert lassen (visuell)
-
-        // BoundingRect des Targets (lokal)
-        QRectF b = m_target->boundingRect();
-        QTransform t = m_target->transform();
-
-        // Skalierung des Targets auslesen
-        qreal sx = std::sqrt(t.m11()*t.m11() + t.m12()*t.m12());
-        qreal sy = std::sqrt(t.m21()*t.m21() + t.m22()*t.m22());
-
-        // Visuelle Box aufspannen
-        m_visualRect = QRectF(b.x()*sx, b.y()*sy, b.width()*sx, b.height()*sy);
-
-        // Origin anpassen
-        QPointF origin = m_target->transformOriginPoint();
-        setTransformOriginPoint(origin.x()*sx, origin.y()*sy);
-
+        setScale(m_target->scale());
+        setTransform(m_target->transform());
+        setTransformOriginPoint(m_target->transformOriginPoint());
         update();
     }
 
 protected:
     void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override {
         Handle h = handleAt(event->pos());
+        qreal rot = m_target->rotation();
+
         if (h == Rotate) setCursor(Qt::PointingHandCursor);
-        else if (h != None && h != Center) setCursor(Qt::SizeAllCursor);
-        else setCursor(Qt::ArrowCursor);
+        else if (h == Center) setCursor(Qt::SizeAllCursor);
+        else if (h == None) setCursor(Qt::ArrowCursor);
+        else {
+            Qt::CursorShape shape = Qt::ArrowCursor;
+            if (h == Top || h == Bottom) shape = Qt::SizeVerCursor;
+            else if (h == Left || h == Right) shape = Qt::SizeHorCursor;
+            else if (h == TopLeft || h == BottomRight) shape = Qt::SizeFDiagCursor;
+            else if (h == TopRight || h == BottomLeft) shape = Qt::SizeBDiagCursor;
+            setCursor(getRotatedCursor(shape, rot));
+        }
         QGraphicsObject::hoverMoveEvent(event);
     }
 
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
         m_dragHandle = handleAt(event->pos());
 
-        // Werte beim Start speichern
-        m_startScenePos = event->scenePos();
-        m_startLocalPos = event->pos(); // Lokal im Overlay (= Rotation schon rausgerechnet)
+        // --- AUTO-BAKE FOR SCALING ---
+        // WICHTIG: Bevor wir skalieren, "backen" wir Rotation/Pos in die Matrix.
+        // Das garantiert, dass Scale *nach* Rotation angewendet wird (korrekte Reihenfolge),
+        // statt Rotation nach Scale (was Shearing verursacht).
+        if (m_dragHandle != None && m_dragHandle != Center && m_dragHandle != Rotate) {
+            bakeTransform(m_target);
+            sync(); // Overlay an neuen Zustand anpassen
+        }
 
+        m_startScenePos = event->scenePos();
+
+        // Initialen Zustand speichern (jetzt mit gebackener Rotation)
+        m_initialSceneTransform = m_target->sceneTransform();
         m_initialTransform = m_target->transform();
-        m_initialRotation = m_target->rotation();
-        m_initialRect = m_visualRect; // Visueller Rahmen beim Start
+        m_initialBoundingRect = m_target->boundingRect();
 
         if (m_dragHandle == None) m_dragHandle = Center;
     }
@@ -331,123 +409,114 @@ protected:
             QLineF startLine(center, m_startScenePos);
             QLineF currentLine(center, event->scenePos());
             qreal angleDiff = currentLine.angle() - startLine.angle();
-            qreal newRotation = m_initialRotation - angleDiff;
-
-            qreal snap = 45.0;
-            qreal mod = std::fmod(newRotation, snap);
-            if (mod < 0) mod += snap;
-            if (mod < 5.0) newRotation -= mod;
-            else if (mod > (snap - 5.0)) newRotation += (snap - mod);
-
-            m_target->setRotation(newRotation);
+            m_target->setRotation(m_target->rotation() - angleDiff);
             sync(); return;
         }
 
-        // --- SKALIEREN (Mit Pivot-Korrektur) ---
-        // event->pos() ist lokal im Overlay. Da Overlay rotiert ist, ist das
-        // Koordinatensystem automatisch an der Box ausgerichtet.
+        // --- KORRIGIERTE ORIENTED BOUNDING BOX TRANSFORM ---
 
-        QPointF currLocal = event->pos();
-        QRectF r = m_initialRect;
+        // 1. Inverse Transformation in lokalen Raum
+        QPointF localPos = m_initialSceneTransform.inverted().map(event->scenePos());
 
-        // 1. Neue Grenzen berechnen (in Overlay-Koordinaten)
-        qreal l = r.left(), right = r.right(), t = r.top(), b = r.bottom();
+        QRectF r = m_initialBoundingRect;
+        QPointF pivot;
+        qreal dsx = 1.0;
+        qreal dsy = 1.0;
 
-        if (m_dragHandle==TopLeft || m_dragHandle==Left || m_dragHandle==BottomLeft)   l = currLocal.x();
-        if (m_dragHandle==TopRight || m_dragHandle==Right || m_dragHandle==BottomRight) right = currLocal.x();
-        if (m_dragHandle==TopLeft || m_dragHandle==Top || m_dragHandle==TopRight)       t = currLocal.y();
-        if (m_dragHandle==BottomLeft || m_dragHandle==Bottom || m_dragHandle==BottomRight) b = currLocal.y();
-
-        // 2. Skalierungsfaktoren bestimmen
-        if (std::abs(right-l) < 10) { // Min Size
-            if(l != r.left()) l = right - 10; else right = l + 10;
+        // X-Achse
+        if (m_dragHandle == Left || m_dragHandle == TopLeft || m_dragHandle == BottomLeft) {
+            pivot.setX(r.right());
+            qreal oldWidth = r.width();
+            qreal newWidth = r.right() - localPos.x();
+            if (oldWidth > 0.1) dsx = newWidth / oldWidth;
         }
-        if (std::abs(b-t) < 10) {
-            if(t != r.top()) t = b - 10; else b = t + 10;
+        else if (m_dragHandle == Right || m_dragHandle == TopRight || m_dragHandle == BottomRight) {
+            pivot.setX(r.left());
+            qreal oldWidth = r.width();
+            qreal newWidth = localPos.x() - r.left();
+            if (oldWidth > 0.1) dsx = newWidth / oldWidth;
+        }
+        else {
+            pivot.setX(r.center().x());
         }
 
-        qreal sx = (right - l) / r.width();
-        qreal sy = (b - t) / r.height();
+        // Y-Achse
+        if (m_dragHandle == Top || m_dragHandle == TopLeft || m_dragHandle == TopRight) {
+            pivot.setY(r.bottom());
+            qreal oldHeight = r.height();
+            qreal newHeight = r.bottom() - localPos.y();
+            if (oldHeight > 0.1) dsy = newHeight / oldHeight;
+        }
+        else if (m_dragHandle == Bottom || m_dragHandle == BottomLeft || m_dragHandle == BottomRight) {
+            pivot.setY(r.top());
+            qreal oldHeight = r.height();
+            qreal newHeight = localPos.y() - r.top();
+            if (oldHeight > 0.1) dsy = newHeight / oldHeight;
+        }
+        else {
+            pivot.setY(r.center().y());
+        }
 
-        // 3. Pivot-Punkt bestimmen (Lokal im visuellen Rechteck)
-        // Das ist der Punkt, der sich NICHT bewegen soll.
-        QPointF visualPivot;
-        if (m_dragHandle == TopLeft) visualPivot = r.bottomRight();
-        else if (m_dragHandle == TopRight) visualPivot = r.bottomLeft();
-        else if (m_dragHandle == BottomRight) visualPivot = r.topLeft();
-        else if (m_dragHandle == BottomLeft) visualPivot = r.topRight();
-        else if (m_dragHandle == Top) visualPivot = QPointF(r.center().x(), r.bottom());
-        else if (m_dragHandle == Bottom) visualPivot = QPointF(r.center().x(), r.top());
-        else if (m_dragHandle == Left) visualPivot = QPointF(r.right(), r.center().y());
-        else if (m_dragHandle == Right) visualPivot = QPointF(r.left(), r.center().y());
-        else visualPivot = r.center();
+        if (dsx < 0.01) dsx = 0.01;
+        if (dsy < 0.01) dsy = 0.01;
 
-        // 4. Pivot in Target-Koordinaten (BoundingRect-Space) umrechnen
-        // Wir müssen die Start-Skalierung rausrechnen.
-        QRectF tr = m_target->boundingRect();
-        qreal ratioX = (tr.width() > 0) ? m_initialRect.width() / tr.width() : 1.0;
-        qreal ratioY = (tr.height() > 0) ? m_initialRect.height() / tr.height() : 1.0;
+        // 3. Matrix Rekonstruktion: Scale um Pivot
+        QTransform scaleMatrix;
+        scaleMatrix.translate(pivot.x(), pivot.y());
+        scaleMatrix.scale(dsx, dsy);
+        scaleMatrix.translate(-pivot.x(), -pivot.y());
 
-        QPointF targetPivot(visualPivot.x() / ratioX, visualPivot.y() / ratioY);
-
-        // 5. Transformation anwenden: Skalierung VOR der Rotation anwenden
-        // Die Matrix-Reihenfolge in Qt ist Row-Major, wir wollen:
-        // Translate(Pivot) -> Scale -> Translate(-Pivot) -> InitialTransform
-        // Da setTransform die Matrix ersetzt, nutzen wir Scale-Matrix * InitialMatrix.
-        // Das wendet den Scale im lokalen System (vor Rotation) an.
-
-        QTransform scaleTrans;
-        scaleTrans.translate(targetPivot.x(), targetPivot.y());
-        scaleTrans.scale(sx, sy);
-        scaleTrans.translate(-targetPivot.x(), -targetPivot.y());
-
-        // Multiplikation von links: scaleTrans wird zuerst angewendet (lokal), dann m_initialTransform (global placement)
-        m_target->setTransform(scaleTrans * m_initialTransform);
-
-        // 6. Pivot-Korrektur (Translation)
-        // Durch die Reihenfolge oben ist das Objekt um den Pivot skaliert, ABER
-        // da m_initialTransform Rotation/Translation enthält, könnte es sich verschieben,
-        // wenn der Pivot nicht (0,0) ist.
-        // Da wir aber den Pivot im lokalen System definiert haben und um diesen skalieren,
-        // sollte der Punkt im lokalen System fix bleiben.
-        // Die Rotation dreht dann diesen fixen Punkt an die richtige Stelle.
+        // Da Rotation jetzt gebacken ist, ist m_initialTransform "aligned"
+        m_target->setTransform(scaleMatrix * m_initialTransform);
 
         sync();
     }
 
 private:
     Handle handleAt(QPointF pos) {
-        qreal lod = 1.0;
-        if(scene() && !scene()->views().isEmpty()) lod = scene()->views().first()->transform().m11();
+        QTransform t = this->transform();
+        qreal sx = std::sqrt(t.m11()*t.m11() + t.m12()*t.m12());
+        qreal sy = std::sqrt(t.m21()*t.m21() + t.m22()*t.m22());
+        if (sx < 0.001) sx = 1.0; if (sy < 0.001) sy = 1.0;
 
-        double hitR = 15.0 / lod;
-        double rotDist = 30.0 / lod;
+        qreal viewScale = 1.0;
+        if (scene() && !scene()->views().isEmpty()) {
+            QTransform wt = scene()->views().first()->viewportTransform();
+            viewScale = std::sqrt(wt.m11()*wt.m11() + wt.m12()*wt.m12());
+        }
 
-        QPointF rotPos(m_visualRect.center().x(), m_visualRect.top() - rotDist);
+        double hitR = 15.0 / viewScale;
 
-        if (QVector2D(pos - rotPos).length() < hitR) return Rotate;
-        if (QVector2D(pos - m_visualRect.topLeft()).length() < hitR) return TopLeft;
-        if (QVector2D(pos - m_visualRect.topRight()).length() < hitR) return TopRight;
-        if (QVector2D(pos - m_visualRect.bottomLeft()).length() < hitR) return BottomLeft;
-        if (QVector2D(pos - m_visualRect.bottomRight()).length() < hitR) return BottomRight;
+        auto check = [&](QPointF p) {
+            double dx = (pos.x() - p.x()) * sx;
+            double dy = (pos.y() - p.y()) * sy;
+            return (dx*dx + dy*dy) < (hitR*hitR);
+        };
 
-        if (QVector2D(pos - QPointF(m_visualRect.center().x(), m_visualRect.top())).length() < hitR) return Top;
-        if (QVector2D(pos - QPointF(m_visualRect.center().x(), m_visualRect.bottom())).length() < hitR) return Bottom;
-        if (QVector2D(pos - QPointF(m_visualRect.left(), m_visualRect.center().y())).length() < hitR) return Left;
-        if (QVector2D(pos - QPointF(m_visualRect.right(), m_visualRect.center().y())).length() < hitR) return Right;
+        QRectF r = m_target->boundingRect();
+        if (check(r.topLeft())) return TopLeft;
+        if (check(r.topRight())) return TopRight;
+        if (check(r.bottomLeft())) return BottomLeft;
+        if (check(r.bottomRight())) return BottomRight;
+        if (check(QPointF(r.center().x(), r.top()))) return Top;
+        if (check(QPointF(r.center().x(), r.bottom()))) return Bottom;
+        if (check(QPointF(r.left(), r.center().y()))) return Left;
+        if (check(QPointF(r.right(), r.center().y()))) return Right;
+
+        QPointF rotPos(r.center().x(), r.top() - (30.0 / viewScale / sy));
+        double rdx = (pos.x() - rotPos.x()) * sx;
+        double rdy = (pos.y() - rotPos.y()) * sy;
+        if (rdx*rdx + rdy*rdy < hitR*hitR) return Rotate;
 
         return None;
     }
 
     QGraphicsItem* m_target;
-    QRectF m_visualRect;
-
-    QPointF m_startLocalPos;
     QPointF m_startScenePos;
     Handle m_dragHandle;
+    QTransform m_initialSceneTransform;
     QTransform m_initialTransform;
-    QRectF m_initialRect;
-    qreal m_initialRotation;
+    QRectF m_initialBoundingRect;
 };
 
 // =============================================================================
@@ -923,31 +992,54 @@ void CanvasView::cancelCrop() {
     m_interactionMode = InteractionMode::None;
 }
 
-// === TRANSFORM SYSTEM (FIXED) ===
+// === TRANSFORM SYSTEM (FIXED - NO GROUP IF SINGLE, CENTER PIVOT FIX) ===
 
 void CanvasView::startTransformSession() {
-    if (m_scene->selectedItems().isEmpty()) return;
+    QList<QGraphicsItem*> items = m_scene->selectedItems();
+    if (items.isEmpty()) return;
 
     m_selectionMenu->hide();
     m_interactionMode = InteractionMode::Transform;
 
-    // Erstelle Gruppe für gemeinsame Transformation
-    m_transformGroup = m_scene->createItemGroup(m_scene->selectedItems());
+    if (items.count() == 1) {
+        QGraphicsItem* singleItem = items.first();
+        m_transformGroup = nullptr;
 
-    // WICHTIG: Setze den Drehpunkt auf die Mitte der Gruppe!
-    // Das behebt das "komische Drehen".
-    QRectF grpRect = m_transformGroup->boundingRect();
-    m_transformGroup->setTransformOriginPoint(grpRect.center());
+        // Verschiebe TransformOriginPoint in die Mitte, ohne das Item visuell zu verschieben
+        QPointF oldCenter = singleItem->sceneBoundingRect().center();
+        singleItem->setTransformOriginPoint(singleItem->boundingRect().center());
+        QPointF newCenter = singleItem->sceneBoundingRect().center();
+        singleItem->moveBy(oldCenter.x() - newCenter.x(), oldCenter.y() - newCenter.y());
 
-    // Erstelle Overlay auf der Gruppe
-    m_transformOverlay = new TransformOverlay(m_transformGroup);
+        // BAKE: Damit wir sauber skalieren können
+        bakeTransform(singleItem);
+
+        m_transformOverlay = new TransformOverlay(singleItem);
+    }
+    else {
+        // MEHRERE ITEMS: Gruppe nutzen
+        m_transformGroup = m_scene->createItemGroup(items);
+        QRectF grpRect = m_transformGroup->boundingRect();
+        m_transformGroup->setTransformOriginPoint(grpRect.center());
+        m_transformOverlay = new TransformOverlay(m_transformGroup);
+    }
+
     m_transformOverlay->setZValue(99999);
     m_scene->addItem(m_transformOverlay);
 }
 
 void CanvasView::applyTransform() {
-    if (m_transformOverlay) { m_scene->removeItem(m_transformOverlay); delete m_transformOverlay; m_transformOverlay = nullptr; }
-    if (m_transformGroup) { m_scene->destroyItemGroup(m_transformGroup); m_transformGroup = nullptr; }
+    if (m_transformOverlay) {
+        m_scene->removeItem(m_transformOverlay);
+        delete m_transformOverlay;
+        m_transformOverlay = nullptr;
+    }
+
+    if (m_transformGroup) {
+        m_scene->destroyItemGroup(m_transformGroup);
+        m_transformGroup = nullptr;
+    }
+
     m_interactionMode = InteractionMode::None;
     emit contentModified();
 }
