@@ -32,23 +32,13 @@ static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
 // =============================================================================
 // HELPER: BAKING TRANSFORM
 // =============================================================================
-// Integriert Pos, Rotation und Scale in die Transform-Matrix und setzt Properties zurück.
-// Verhindert Shearing beim Skalieren rotierter Objekte.
 static void bakeTransform(QGraphicsItem* item) {
     if (!item) return;
-
-    // 1. Berechne die effektive Local-to-Parent Matrix
-    // Wir nutzen sceneTransform(), um alle Properties (Pos, Rot, Origin) einzufangen,
-    // und rechnen den Parent wieder raus.
     QTransform localToParent = item->sceneTransform();
     if (item->parentItem()) {
         localToParent = localToParent * item->parentItem()->sceneTransform().inverted();
     }
-
-    // 2. Setze alles als reine Matrix
     item->setTransform(localToParent);
-
-    // 3. Resette die Properties, da sie nun in der Matrix stecken
     item->setPos(0, 0);
     item->setRotation(0);
     item->setScale(1.0);
@@ -76,11 +66,9 @@ static QCursor getRotatedCursor(Qt::CursorShape shape, qreal angle) {
     QPainter p(&pix);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // Zentrieren und Rotieren
     p.translate(size/2, size/2);
     p.rotate(totalAngle);
 
-    // Pfeil zeichnen (Weiß mit schwarzer Umrandung)
     QPen whitePen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap);
     QPen blackPen(Qt::black, 1, Qt::SolidLine, Qt::RoundCap);
 
@@ -197,16 +185,18 @@ public:
         setFlags(ItemIsSelectable | ItemIsMovable);
         setAcceptHoverEvents(true);
     }
-    QRectF boundingRect() const override { return m_rect.adjusted(-10, -10, 10, 10); }
+    QRectF boundingRect() const override { return m_rect.adjusted(-20, -20, 20, 20); }
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override {
         painter->setPen(QPen(QColor(Qt::white), 2, Qt::DashLine));
         painter->setBrush(QColor(255, 255, 255, 30));
         painter->drawRect(m_rect);
         painter->setPen(QPen(QColor(Qt::black), 1)); painter->setBrush(Qt::white);
+
+        qreal r = 6.0;
         QList<QPointF> handles = {m_rect.topLeft(), m_rect.topRight(), m_rect.bottomLeft(), m_rect.bottomRight(),
                                   QPointF(m_rect.center().x(), m_rect.top()), QPointF(m_rect.center().x(), m_rect.bottom()),
                                   QPointF(m_rect.left(), m_rect.center().y()), QPointF(m_rect.right(), m_rect.center().y())};
-        for(auto p : handles) painter->drawEllipse(p, 5, 5);
+        for(auto p : handles) painter->drawEllipse(p, r, r);
     }
     QRectF currentRect() const { return mapRectToScene(m_rect); }
 protected:
@@ -237,7 +227,7 @@ protected:
     }
 private:
     Handle handleAt(QPointF pos) {
-        double r = 8.0;
+        double r = 20.0;
         if (QVector2D(pos - m_rect.topLeft()).length() < r) return TopLeft;
         if (QVector2D(pos - m_rect.topRight()).length() < r) return TopRight;
         if (QVector2D(pos - m_rect.bottomLeft()).length() < r) return BottomLeft;
@@ -252,7 +242,7 @@ private:
 };
 
 // =============================================================================
-// TRANSFORM OVERLAY (FIXED WITH BAKING LOGIC)
+// TRANSFORM OVERLAY (FINAL FIX: SCENE SPACE ROTATION)
 // =============================================================================
 class TransformOverlay : public QGraphicsObject {
 public:
@@ -264,83 +254,80 @@ public:
         sync();
     }
 
+    QGraphicsItem* target() const { return m_target; }
+
     QRectF boundingRect() const override {
-        return m_target->boundingRect().adjusted(-50, -50, 50, 50);
+        // Großzügiges Bounding Rect
+        return m_target->boundingRect().adjusted(-5000, -5000, 5000, 5000);
     }
 
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override {
-        QTransform t = this->transform();
-        qreal sx = std::sqrt(t.m11()*t.m11() + t.m12()*t.m12());
-        qreal sy = std::sqrt(t.m21()*t.m21() + t.m22()*t.m22());
+        QTransform devTx = painter->deviceTransform();
+        qreal sx = std::sqrt(devTx.m11()*devTx.m11() + devTx.m12()*devTx.m12());
+        qreal sy = std::sqrt(devTx.m21()*devTx.m21() + devTx.m22()*devTx.m22());
+        qreal angle = std::atan2(devTx.m12(), devTx.m11()) * 180.0 / M_PI;
+
         if (sx < 0.001) sx = 1.0; if (sy < 0.001) sy = 1.0;
-
-        qreal viewScale = 1.0;
-        if (painter->deviceTransform().m11() != 0) {
-            viewScale = std::sqrt(std::pow(painter->deviceTransform().m11(), 2) +
-                                  std::pow(painter->deviceTransform().m12(), 2));
-        }
-
-        qreal invSx = 1.0 / sx;
-        qreal invSy = 1.0 / sy;
-        qreal r = 5.0 / viewScale;
 
         QRectF rect = m_target->boundingRect();
 
+        // 1. Rahmen (Lokal)
+        painter->save();
         QPen framePen(QColor(0x5E5CE6), 0, Qt::SolidLine);
         framePen.setCosmetic(true);
         framePen.setWidthF(2.0);
         painter->setPen(framePen);
         painter->setBrush(Qt::NoBrush);
         painter->drawRect(rect);
+        painter->restore();
 
-        painter->setPen(QPen(QColor(Qt::black), 0));
-        painter->setBrush(QColor(Qt::white));
+        // 2. Griffe (Anti-Scale)
+        qreal r = 7.0;
 
-        auto drawHandle = [&](QPointF pos, bool isBar, bool verticalBar) {
+        auto drawHandle = [&](QPointF localPos, bool isBar) {
             painter->save();
-            painter->translate(pos);
-            painter->scale(invSx, invSy);
-
-            if (isBar) {
-                qreal w = r * 2.5; qreal h = r * 6.0;
-                if (!verticalBar) std::swap(w, h);
-                painter->drawRoundedRect(QRectF(-w/2, -h/2, w, h), r, r);
-            } else {
-                painter->drawEllipse(QPointF(0,0), r, r);
-            }
+            painter->translate(localPos);
+            painter->rotate(-angle);
+            painter->scale(1.0/sx, 1.0/sy);
+            painter->setPen(QPen(QColor(Qt::black), 1));
+            painter->setBrush(QColor(Qt::white));
+            if (isBar) painter->drawRoundedRect(QRectF(-r, -r, 2*r, 2*r), r, r);
+            else painter->drawEllipse(QPointF(0,0), r, r);
             painter->restore();
         };
 
-        drawHandle(rect.topLeft(), false, false);
-        drawHandle(rect.topRight(), false, false);
-        drawHandle(rect.bottomLeft(), false, false);
-        drawHandle(rect.bottomRight(), false, false);
+        drawHandle(rect.topLeft(), false);
+        drawHandle(rect.topRight(), false);
+        drawHandle(rect.bottomLeft(), false);
+        drawHandle(rect.bottomRight(), false);
+        drawHandle(QPointF(rect.center().x(), rect.top()), true);
+        drawHandle(QPointF(rect.center().x(), rect.bottom()), true);
+        drawHandle(QPointF(rect.left(), rect.center().y()), true);
+        drawHandle(QPointF(rect.right(), rect.center().y()), true);
 
-        drawHandle(QPointF(rect.center().x(), rect.top()), true, false);
-        drawHandle(QPointF(rect.center().x(), rect.bottom()), true, false);
-        drawHandle(QPointF(rect.left(), rect.center().y()), true, true);
-        drawHandle(QPointF(rect.right(), rect.center().y()), true, true);
-
-        QPointF rotAnchor(rect.center().x(), rect.top());
-        qreal dist = (30.0 / viewScale) * invSy;
-        QPointF rotPos(rotAnchor.x(), rotAnchor.y() - dist);
-
-        QPen dashPen(QColor(0x5E5CE6), 0, Qt::DashLine);
-        dashPen.setCosmetic(true);
-        painter->setPen(dashPen);
-        painter->drawLine(rotAnchor, rotPos);
+        // 3. Rotation Handle (Lokal berechnet für Rotation)
+        qreal localDist = 60.0 / sy;
+        QPointF topCenterLocal(rect.center().x(), rect.top());
+        QPointF rotHandleLocal(topCenterLocal.x(), topCenterLocal.y() - localDist);
 
         painter->save();
-        painter->translate(rotPos);
-        painter->scale(invSx, invSy);
+        QPen dashPen(QColor(0x5E5CE6), 1, Qt::DashLine);
+        dashPen.setCosmetic(true);
+        painter->setPen(dashPen);
+        painter->drawLine(topCenterLocal, rotHandleLocal);
+        painter->restore();
 
+        painter->save();
+        painter->translate(rotHandleLocal);
+        painter->scale(1.0/sx, 1.0/sy);
+
+        qreal rotR = 14.0;
         painter->setPen(Qt::NoPen);
         painter->setBrush(QColor(0x5E5CE6));
-        painter->drawEllipse(QPointF(0,0), r, r);
-
-        painter->setPen(QPen(QColor(Qt::white), 1.5/viewScale));
+        painter->drawEllipse(QPointF(0,0), rotR, rotR);
+        painter->setPen(QPen(QColor(Qt::white), 2.0));
         painter->setBrush(Qt::NoBrush);
-        qreal iconR = r * 0.6;
+        qreal iconR = rotR * 0.6;
         painter->drawArc(QRectF(-iconR, -iconR, iconR*2, iconR*2), 0, 270*16);
         painter->restore();
     }
@@ -355,10 +342,58 @@ public:
         update();
     }
 
+    Handle handleAt(QPointF scenePos) {
+        if (!scene() || scene()->views().isEmpty()) return None;
+        QGraphicsView* view = scene()->views().first();
+
+        QTransform viewTx = view->viewportTransform();
+        QTransform itemToView = sceneTransform() * viewTx;
+
+        qreal sx = std::sqrt(itemToView.m11()*itemToView.m11() + itemToView.m12()*itemToView.m12());
+        qreal sy = std::sqrt(itemToView.m21()*itemToView.m21() + itemToView.m22()*itemToView.m22());
+        if (sy < 0.001) sy = 1.0;
+
+        QPointF mouseP(view->mapFromScene(scenePos)); // Screen Space Mouse
+        QRectF r = m_target->boundingRect();
+
+        double scaleThreshold = 25.0;
+        double rotateThreshold = 40.0;
+
+        // 1. Rotation Handle (Exakte Übereinstimmung mit Paint)
+        qreal localDist = 60.0 / sy;
+        QPointF topCenterLocal(r.center().x(), r.top());
+        QPointF rotHandleLocal(topCenterLocal.x(), topCenterLocal.y() - localDist);
+        QPointF rotHandleView = itemToView.map(rotHandleLocal); // Nach Screen Space mappen
+
+        if (QVector2D(mouseP - rotHandleView).length() < rotateThreshold) return Rotate;
+
+        // 2. Scale Handles
+        auto check = [&](QPointF localP) {
+            QPointF handleView = itemToView.map(localP);
+            return QVector2D(mouseP - handleView).length() < scaleThreshold;
+        };
+
+        if (check(r.topLeft())) return TopLeft;
+        if (check(r.topRight())) return TopRight;
+        if (check(r.bottomLeft())) return BottomLeft;
+        if (check(r.bottomRight())) return BottomRight;
+        if (check(QPointF(r.center().x(), r.top()))) return Top;
+        if (check(QPointF(r.center().x(), r.bottom()))) return Bottom;
+        if (check(QPointF(r.left(), r.center().y()))) return Left;
+        if (check(QPointF(r.right(), r.center().y()))) return Right;
+
+        // 3. Center
+        QPointF localMouse = sceneTransform().inverted().map(scenePos);
+        if (r.contains(localMouse)) return Center;
+
+        return None;
+    }
+
 protected:
     void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override {
-        Handle h = handleAt(event->pos());
-        qreal rot = m_target->rotation();
+        Handle h = handleAt(event->scenePos());
+        QTransform t = m_target->transform();
+        qreal rot = std::atan2(t.m12(), t.m11()) * 180.0 / M_PI;
 
         if (h == Rotate) setCursor(Qt::PointingHandCursor);
         else if (h == Center) setCursor(Qt::SizeAllCursor);
@@ -375,24 +410,15 @@ protected:
     }
 
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
-        m_dragHandle = handleAt(event->pos());
-
-        // --- AUTO-BAKE FOR SCALING ---
-        // WICHTIG: Bevor wir skalieren, "backen" wir Rotation/Pos in die Matrix.
-        // Das garantiert, dass Scale *nach* Rotation angewendet wird (korrekte Reihenfolge),
-        // statt Rotation nach Scale (was Shearing verursacht).
-        if (m_dragHandle != None && m_dragHandle != Center && m_dragHandle != Rotate) {
+        m_dragHandle = handleAt(event->scenePos());
+        if (m_dragHandle != None && m_dragHandle != Center) {
             bakeTransform(m_target);
-            sync(); // Overlay an neuen Zustand anpassen
+            sync();
         }
-
         m_startScenePos = event->scenePos();
-
-        // Initialen Zustand speichern (jetzt mit gebackener Rotation)
         m_initialSceneTransform = m_target->sceneTransform();
         m_initialTransform = m_target->transform();
         m_initialBoundingRect = m_target->boundingRect();
-
         if (m_dragHandle == None) m_dragHandle = Center;
     }
 
@@ -405,112 +431,84 @@ protected:
         }
 
         if (m_dragHandle == Rotate) {
-            QPointF center = m_target->sceneBoundingRect().center();
-            QLineF startLine(center, m_startScenePos);
-            QLineF currentLine(center, event->scenePos());
-            qreal angleDiff = currentLine.angle() - startLine.angle();
-            m_target->setRotation(m_target->rotation() - angleDiff);
+            QPointF sceneCenter = m_initialSceneTransform.map(m_initialBoundingRect.center());
+            QLineF startLine(sceneCenter, m_startScenePos);
+            QLineF currentLine(sceneCenter, event->scenePos());
+            qreal angleDiff = startLine.angleTo(currentLine);
+
+            // --- 90° SNAPPING (NEU) ---
+            // 1. Initial Rotation aus der Matrix extrahieren
+            qreal initialRot = std::atan2(m_initialSceneTransform.m12(), m_initialSceneTransform.m11()) * 180.0 / M_PI;
+
+            // 2. Ziel-Rotation berechnen
+            qreal targetRot = initialRot - angleDiff;
+
+            // 3. Auf 90° runden
+            qreal quotient = targetRot / 90.0;
+            qreal nearest90 = std::round(quotient) * 90.0;
+
+            // 4. Wenn nah genug (5° Toleranz), einrasten
+            if (std::abs(targetRot - nearest90) < 5.0) {
+                targetRot = nearest90;
+                // angleDiff anpassen, damit wir exakt auf targetRot landen
+                angleDiff = initialRot - targetRot;
+            }
+            // --- ENDE SNAPPING ---
+
+            QTransform rotMatrix;
+            rotMatrix.translate(sceneCenter.x(), sceneCenter.y());
+            rotMatrix.rotate(-angleDiff);
+            rotMatrix.translate(-sceneCenter.x(), -sceneCenter.y());
+
+            QTransform newSceneTransform = m_initialSceneTransform * rotMatrix;
+            if (m_target->parentItem()) {
+                newSceneTransform = newSceneTransform * m_target->parentItem()->sceneTransform().inverted();
+            }
+            m_target->setTransform(newSceneTransform);
+
             sync(); return;
         }
 
-        // --- KORRIGIERTE ORIENTED BOUNDING BOX TRANSFORM ---
-
-        // 1. Inverse Transformation in lokalen Raum
         QPointF localPos = m_initialSceneTransform.inverted().map(event->scenePos());
-
         QRectF r = m_initialBoundingRect;
-        QPointF pivot;
-        qreal dsx = 1.0;
-        qreal dsy = 1.0;
+        QPointF pivot; qreal dsx = 1.0; qreal dsy = 1.0;
 
-        // X-Achse
         if (m_dragHandle == Left || m_dragHandle == TopLeft || m_dragHandle == BottomLeft) {
             pivot.setX(r.right());
-            qreal oldWidth = r.width();
-            qreal newWidth = r.right() - localPos.x();
+            qreal oldWidth = r.width(); qreal newWidth = r.right() - localPos.x();
             if (oldWidth > 0.1) dsx = newWidth / oldWidth;
         }
         else if (m_dragHandle == Right || m_dragHandle == TopRight || m_dragHandle == BottomRight) {
             pivot.setX(r.left());
-            qreal oldWidth = r.width();
-            qreal newWidth = localPos.x() - r.left();
+            qreal oldWidth = r.width(); qreal newWidth = localPos.x() - r.left();
             if (oldWidth > 0.1) dsx = newWidth / oldWidth;
         }
-        else {
-            pivot.setX(r.center().x());
-        }
+        else { pivot.setX(r.center().x()); }
 
-        // Y-Achse
         if (m_dragHandle == Top || m_dragHandle == TopLeft || m_dragHandle == TopRight) {
             pivot.setY(r.bottom());
-            qreal oldHeight = r.height();
-            qreal newHeight = r.bottom() - localPos.y();
+            qreal oldHeight = r.height(); qreal newHeight = r.bottom() - localPos.y();
             if (oldHeight > 0.1) dsy = newHeight / oldHeight;
         }
         else if (m_dragHandle == Bottom || m_dragHandle == BottomLeft || m_dragHandle == BottomRight) {
             pivot.setY(r.top());
-            qreal oldHeight = r.height();
-            qreal newHeight = localPos.y() - r.top();
+            qreal oldHeight = r.height(); qreal newHeight = localPos.y() - r.top();
             if (oldHeight > 0.1) dsy = newHeight / oldHeight;
         }
-        else {
-            pivot.setY(r.center().y());
-        }
+        else { pivot.setY(r.center().y()); }
 
-        if (dsx < 0.01) dsx = 0.01;
-        if (dsy < 0.01) dsy = 0.01;
+        if (dsx < 0.01) dsx = 0.01; if (dsy < 0.01) dsy = 0.01;
 
-        // 3. Matrix Rekonstruktion: Scale um Pivot
         QTransform scaleMatrix;
         scaleMatrix.translate(pivot.x(), pivot.y());
         scaleMatrix.scale(dsx, dsy);
         scaleMatrix.translate(-pivot.x(), -pivot.y());
 
-        // Da Rotation jetzt gebacken ist, ist m_initialTransform "aligned"
         m_target->setTransform(scaleMatrix * m_initialTransform);
-
         sync();
     }
 
 private:
-    Handle handleAt(QPointF pos) {
-        QTransform t = this->transform();
-        qreal sx = std::sqrt(t.m11()*t.m11() + t.m12()*t.m12());
-        qreal sy = std::sqrt(t.m21()*t.m21() + t.m22()*t.m22());
-        if (sx < 0.001) sx = 1.0; if (sy < 0.001) sy = 1.0;
-
-        qreal viewScale = 1.0;
-        if (scene() && !scene()->views().isEmpty()) {
-            QTransform wt = scene()->views().first()->viewportTransform();
-            viewScale = std::sqrt(wt.m11()*wt.m11() + wt.m12()*wt.m12());
-        }
-
-        double hitR = 15.0 / viewScale;
-
-        auto check = [&](QPointF p) {
-            double dx = (pos.x() - p.x()) * sx;
-            double dy = (pos.y() - p.y()) * sy;
-            return (dx*dx + dy*dy) < (hitR*hitR);
-        };
-
-        QRectF r = m_target->boundingRect();
-        if (check(r.topLeft())) return TopLeft;
-        if (check(r.topRight())) return TopRight;
-        if (check(r.bottomLeft())) return BottomLeft;
-        if (check(r.bottomRight())) return BottomRight;
-        if (check(QPointF(r.center().x(), r.top()))) return Top;
-        if (check(QPointF(r.center().x(), r.bottom()))) return Bottom;
-        if (check(QPointF(r.left(), r.center().y()))) return Left;
-        if (check(QPointF(r.right(), r.center().y()))) return Right;
-
-        QPointF rotPos(r.center().x(), r.top() - (30.0 / viewScale / sy));
-        double rdx = (pos.x() - rotPos.x()) * sx;
-        double rdy = (pos.y() - rotPos.y()) * sy;
-        if (rdx*rdx + rdy*rdy < hitR*hitR) return Rotate;
-
-        return None;
-    }
-
     QGraphicsItem* m_target;
     QPointF m_startScenePos;
     Handle m_dragHandle;
@@ -1107,7 +1105,14 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
     if (!isTouch && event->source() == Qt::MouseEventSynthesizedBySystem) isTouch = true;
 
-    if (m_penOnlyMode && isTouch) {
+    // --- CHECK FOR HANDLE OR CENTER FIRST ---
+    bool hitHandle = false;
+    if (m_interactionMode == InteractionMode::Transform && m_transformOverlay) {
+        TransformOverlay::Handle h = m_transformOverlay->handleAt(mapToScene(event->pos()));
+        if (h != TransformOverlay::None) hitHandle = true;
+    }
+
+    if (m_penOnlyMode && isTouch && !hitHandle) { // Nur Pannen, wenn KEIN Handle getroffen wurde
         m_isPanning = true; m_lastPanPos = event->pos(); setCursor(Qt::ClosedHandCursor); event->accept(); return;
     }
     if (event->button() == Qt::MiddleButton) {
@@ -1234,6 +1239,37 @@ void CanvasView::gestureEvent(QGestureEvent *event) {
 }
 
 void CanvasView::pinchTriggered(QPinchGesture *gesture) {
+    // --- PINCH TO TRANSFORM ITEM ---
+    if (m_interactionMode == InteractionMode::Transform && m_transformOverlay) {
+        if (gesture->state() == Qt::GestureStarted) {
+            bakeTransform(m_transformOverlay->target());
+            m_transformOverlay->sync();
+        }
+
+        QGraphicsItem* item = m_transformOverlay->target();
+        qreal scaleFactor = gesture->scaleFactor();
+        qreal rotationAngle = gesture->rotationAngle() - gesture->lastRotationAngle();
+
+        // 1. Translation: Move item by finger delta
+        QPointF diff = mapToScene(gesture->centerPoint().toPoint()) - mapToScene(gesture->lastCenterPoint().toPoint());
+        item->moveBy(diff.x(), diff.y());
+
+        // 2. Rotate/Scale around the new finger center
+        QPointF scenePivot = mapToScene(gesture->centerPoint().toPoint());
+        QPointF localPivot = item->transform().inverted().map(scenePivot);
+
+        QTransform delta;
+        delta.translate(localPivot.x(), localPivot.y());
+        delta.rotate(-rotationAngle);
+        delta.scale(scaleFactor, scaleFactor);
+        delta.translate(-localPivot.x(), -localPivot.y());
+
+        item->setTransform(delta * item->transform());
+
+        m_transformOverlay->sync();
+        return;
+    }
+
     if (m_isDrawing) { m_isDrawing = false; if (m_currentItem) { m_scene->removeItem(m_currentItem); delete m_currentItem; m_currentItem = nullptr; } if (m_lassoItem) { m_scene->removeItem(m_lassoItem); delete m_lassoItem; m_lassoItem = nullptr; } }
     if (m_isPanning) m_isPanning = false;
     QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
