@@ -1,262 +1,199 @@
-import QtQuick
-import QtQuick.Controls
-import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
-import Blop 1.0
+import QtQuick 2.15
+import QtQuick.Layouts 1.15
+import QtQuick.Controls 2.15
 
-Popup {
+Rectangle {
     id: root
-    width: 320
-    height: Math.min(contentLayout.implicitHeight + 40, 680)
+    width: 280
+    height: parent.height - 20
+    color: "#1E1E1E"
+    radius: 12
+    border.color: "#333"
+    border.width: 1
+    visible: false
 
-    x: Bridge.overlayPosition.x
-    y: Bridge.overlayPosition.y
-    visible: Bridge.settingsVisible
+    function toggle() { visible = !visible }
 
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    onClosed: Bridge.settingsVisible = false
-
-    background: Item {
-        Rectangle {
-            anchors.fill: parent
-            radius: 16
-            // Glassmorphism: Dunkel, leicht transparent
-            color: Qt.rgba(0.12, 0.12, 0.14, 0.95)
-            border.color: Qt.rgba(1, 1, 1, 0.15)
-            border.width: 1
+    // --- Helper Components ---
+    component SliderRow: ColumnLayout {
+        property string text
+        property alias value: slider.value
+        property alias from: slider.from
+        property alias to: slider.to
+        spacing: 2
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: parent.text; color: "#DDD"; font.pixelSize: 12 }
+            Item { Layout.fillWidth: true }
+            Text { text: slider.value.toFixed(0); color: "#888"; font.pixelSize: 12 }
         }
-        layer.enabled: true
-        layer.effect: DropShadow {
-            transparentBorder: true
-            horizontalOffset: 0; verticalOffset: 8
-            radius: 24; samples: 17
-            color: "#80000000"
+        Slider {
+            id: slider
+            Layout.fillWidth: true
+            handle: Rectangle {
+                x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
+                y: slider.topPadding + slider.availableHeight / 2 - height / 2
+                width: 16; height: 16; radius: 8; color: "white"
+            }
+            background: Rectangle {
+                x: slider.leftPadding; y: slider.topPadding + slider.availableHeight / 2 - height / 2
+                width: slider.availableWidth; height: 4; radius: 2; color: "#444"
+                Rectangle { width: slider.visualPosition * parent.width; height: 4; radius: 2; color: "#5E5CE6" }
+            }
         }
     }
 
-    contentItem: ColumnLayout {
-        id: contentLayout
-        spacing: 0
-        anchors.fill: parent
-        anchors.margins: 16
-
-        Label {
-            text: "Füller Einstellungen"
-            color: "white"
-            font.pixelSize: 16; font.bold: true
-            Layout.alignment: Qt.AlignHCenter
-            Layout.bottomMargin: 16
-        }
-
-        Loader {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            sourceComponent: {
-                switch(Bridge.activeToolMode) {
-                    case 0: return penComponent
-                    // Andere Tools folgen in den nächsten Schritten
-                    default: return placeholderComponent
+    component CustomSwitch: RowLayout {
+        property alias text: lbl.text
+        property alias checked: sw.checked
+        Layout.fillWidth: true
+        Text { id: lbl; color: "#DDD"; font.pixelSize: 14; Layout.fillWidth: true }
+        Switch {
+            id: sw
+            indicator: Rectangle {
+                width: 40; height: 20; radius: 10
+                color: sw.checked ? "#5E5CE6" : "#444"
+                border.color: "#333"
+                Rectangle {
+                    x: sw.checked ? parent.width - width - 2 : 2
+                    y: 2; width: 16; height: 16; radius: 8; color: "white"
+                    Behavior on x { NumberAnimation { duration: 150 } }
                 }
             }
         }
     }
 
-    // --- Styles ---
-    component SectionLabel: Label {
-        color: "#B0B0B0"
-        font.pixelSize: 12
-        font.weight: Font.Medium
-        Layout.topMargin: 8
+    component SectionLabel: Text {
+        color: "#888"; font.bold: true; font.pixelSize: 11; font.capitalization: Font.AllUppercase
+        Layout.topMargin: 10
     }
 
-    component CustomSlider: Slider {
-        Layout.fillWidth: true
-        background: Rectangle {
-            x: parent.leftPadding
-            y: parent.topPadding + parent.availableHeight / 2 - height / 2
-            implicitWidth: 200
-            implicitHeight: 4
-            width: parent.availableWidth
-            height: implicitHeight
-            radius: 2
-            color: "#3A3A3E"
-            Rectangle {
-                width: parent.visualPosition * parent.width
-                height: parent.height
-                color: "#5E5CE6"
-                radius: 2
+    ScrollView {
+        anchors.fill: parent
+        anchors.margins: 15
+        contentWidth: parent.width - 30
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 20
+
+            Text {
+                text: "Werkzeug Optionen"
+                color: "white"
+                font.pixelSize: 18
+                font.bold: true
+            }
+
+            Loader {
+                Layout.fillWidth: true
+                sourceComponent: {
+                    switch(Bridge.activeToolMode) {
+                        case 0: return penComponent
+                        case 1: return pencilComponent
+                        case 2: return highlighterComponent
+                        case 3: return eraserComponent
+                        case 4: return lassoComponent
+                        case 5: return imageComponent
+                        case 6: return rulerComponent
+                        default: return null
+                    }
+                }
             }
         }
-        handle: Rectangle {
-            x: parent.leftPadding + parent.visualPosition * (parent.availableWidth - width)
-            y: parent.topPadding + parent.availableHeight / 2 - height / 2
-            implicitWidth: 20
-            implicitHeight: 20
-            radius: 10
-            color: "#FFFFFF"
-            border.color: "#5E5CE6"
-            border.width: 2
-        }
     }
 
-    component CustomSwitch: Switch {
-        Layout.fillWidth: true
-        indicator: Rectangle {
-            implicitWidth: 44
-            implicitHeight: 24
-            x: parent.leftPadding
-            y: parent.height / 2 - height / 2
-            radius: 12
-            color: parent.checked ? "#5E5CE6" : "#3A3A3E"
-            border.color: "#555"
-            Rectangle {
-                x: parent.checked ? parent.width - width - 2 : 2
-                y: 2
-                width: 20
-                height: 20
-                radius: 10
-                color: "#ffffff"
-                Behavior on x { NumberAnimation { duration: 150 } }
-            }
-        }
-        contentItem: Text {
-            text: parent.text
-            color: "#E0E0E0"
-            verticalAlignment: Text.AlignVCenter
-            leftPadding: parent.indicator.width + parent.spacing
-        }
-    }
-
-    // --- 1. PEN TOOL UI ---
+    // --- Components ---
     Component {
         id: penComponent
-        ColumnLayout {
-            spacing: 12
+        ColumnLayout { spacing: 12
+            SliderRow { text: "Stiftgröße"; from: 1; to: 50; value: Bridge.penWidth; onValueChanged: Bridge.penWidth = value }
+            SliderRow { text: "Deckkraft"; from: 1; to: 100; value: Bridge.opacity * 100; onValueChanged: Bridge.opacity = value/100 }
+            SliderRow { text: "Glättung"; from: 0; to: 100; value: Bridge.smoothing; onValueChanged: Bridge.smoothing = value }
+            CustomSwitch { text: "Druckempfindlichkeit"; checked: Bridge.pressure; onToggled: Bridge.pressure = checked }
+        }
+    }
 
-            // 1. Vorschau (Dynamische Linie)
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 70
-                color: "#252526"
-                radius: 8
-                border.color: "#333"
+    Component {
+        id: pencilComponent
+        ColumnLayout { spacing: 12
+            SliderRow { text: "Größe"; from: 1; to: 30; value: Bridge.penWidth; onValueChanged: Bridge.penWidth = value }
+            SliderRow { text: "Härte"; from: 0; to: 100; value: Bridge.hardness; onValueChanged: Bridge.hardness = value }
+            CustomSwitch { text: "Neigungsschattierung"; checked: Bridge.tiltShading; onToggled: Bridge.tiltShading = checked }
+        }
+    }
 
-                Canvas {
-                    anchors.centerIn: parent
-                    width: parent.width - 20
-                    height: parent.height - 20
-                    onPaint: {
-                        var ctx = getContext("2d");
-                        ctx.reset();
-
-                        // Zeichnet eine Sinus-ähnliche Kurve
-                        ctx.beginPath();
-                        ctx.moveTo(0, height/2);
-                        ctx.bezierCurveTo(width/3, 0, width/3*2, height, width, height/2);
-
-                        ctx.lineWidth = Bridge.penWidth;
-                        ctx.lineCap = "round";
-                        ctx.lineJoin = "round";
-                        ctx.strokeStyle = Bridge.penColor;
-                        ctx.globalAlpha = Bridge.opacity;
-
-                        // Simulation von Smoothing visuell (nur Symbolik hier)
-                        if (Bridge.smoothing > 50) {
-                            ctx.shadowColor = Bridge.penColor;
-                            ctx.shadowBlur = 2;
-                        }
-
-                        ctx.stroke();
-                    }
-                    // Repaint wenn sich Config ändert
-                    Connections {
-                        target: Bridge
-                        function onConfigChanged() { parent.requestPaint() }
-                    }
-                }
-            }
-
-            // 2. Sliders
-            SectionLabel { text: "Dicke (" + Bridge.penWidth + " px)" }
-            CustomSlider {
-                from: 1; to: 50
-                value: Bridge.penWidth
-                onMoved: Bridge.penWidth = value
-            }
-
-            SectionLabel { text: "Deckkraft (" + Math.round(Bridge.opacity * 100) + "%)" }
-            CustomSlider {
-                from: 0.1; to: 1.0
-                value: Bridge.opacity
-                onMoved: Bridge.opacity = value
-            }
-
-            SectionLabel { text: "Glättung (Streamline)" }
-            CustomSlider {
-                from: 0; to: 100
-                value: Bridge.smoothing
-                onMoved: Bridge.smoothing = value
-            }
-
-            // 3. Toggles
-            CustomSwitch {
-                text: "Drucksensitivität"
-                checked: Bridge.pressureSensitivity
-                onToggled: Bridge.pressureSensitivity = checked
-            }
-
-            // 4. Farben (Quick Colors + Wheel)
-            SectionLabel { text: "Farbe" }
-            Flow {
-                Layout.fillWidth: true
-                spacing: 12
-
-                // Farbrad Button
-                Rectangle {
-                    width: 36; height: 36
-                    radius: 18
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: "red" }
-                        GradientStop { position: 0.33; color: "green" }
-                        GradientStop { position: 0.66; color: "blue" }
-                        GradientStop { position: 1.0; color: "red" }
-                    }
-                    border.width: 1
-                    border.color: "#888"
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "+"
-                        color: "white"
-                        font.bold: true
-                        style: Text.Outline; styleColor: "black"
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: console.log("Open Color Dialog needed") // Hier würde man ColorDialog öffnen
-                    }
-                }
-
-                // Quick Colors
-                Repeater {
-                    model: ["#000000", "#FFFFFF", "#FF3B30", "#007AFF", "#34C759"]
-                    delegate: Rectangle {
-                        width: 36; height: 36
-                        radius: 18
-                        color: modelData
-                        border.width: (Bridge.penColor == modelData) ? 3 : 1
-                        border.color: (Bridge.penColor == modelData) ? "#5E5CE6" : "#444"
-
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: Bridge.penColor = modelData
-                        }
+    Component {
+        id: highlighterComponent
+        ColumnLayout { spacing: 12
+            SliderRow { text: "Größe"; from: 5; to: 80; value: Bridge.penWidth; onValueChanged: Bridge.penWidth = value }
+            CustomSwitch { text: "Gerade Linien"; checked: Bridge.smartLine; onToggled: Bridge.smartLine = checked }
+            CustomSwitch { text: "Hinter Zeichnung malen"; checked: Bridge.drawBehind; onToggled: Bridge.drawBehind = checked }
+            SectionLabel { text: "Spitze" }
+            RowLayout { spacing: 10
+                Repeater { model: ["Rund", "Keil"]
+                    delegate: Rectangle { width: 80; height: 30; radius: 6; color: (Bridge.highlighterTip === index) ? "#5E5CE6" : "#333"
+                        Text { anchors.centerIn: parent; text: modelData; color: "white" }
+                        MouseArea { anchors.fill: parent; onClicked: Bridge.highlighterTip = index }
                     }
                 }
             }
         }
     }
 
-    Component { id: placeholderComponent; Item{} }
+    Component {
+        id: eraserComponent
+        ColumnLayout { spacing: 12
+            SectionLabel { text: "Modus" }
+            RowLayout { spacing: 10
+                Repeater { model: ["Pixel", "Objekt"]
+                    delegate: Rectangle { width: 80; height: 30; radius: 6; color: (Bridge.eraserMode === index) ? "#5E5CE6" : "#333"
+                        Text { anchors.centerIn: parent; text: modelData; color: "white" }
+                        MouseArea { anchors.fill: parent; onClicked: Bridge.eraserMode = index }
+                    }
+                }
+            }
+            SliderRow { text: "Größe"; from: 5; to: 100; value: Bridge.penWidth; visible: Bridge.eraserMode === 0; onValueChanged: Bridge.penWidth = value }
+            CustomSwitch { text: "Nur Tinte löschen"; checked: Bridge.eraserKeepInk; onToggled: Bridge.eraserKeepInk = checked }
+        }
+    }
+
+    Component {
+        id: lassoComponent
+        ColumnLayout { spacing: 12
+            SectionLabel { text: "Auswahl-Modus" }
+            RowLayout { spacing: 10
+                Repeater { model: ["Freihand", "Rechteck"]
+                    delegate: Rectangle { width: 80; height: 30; radius: 6; color: (Bridge.lassoMode === index) ? "#5E5CE6" : "#333"
+                        Text { anchors.centerIn: parent; text: modelData; color: "white" }
+                        MouseArea { anchors.fill: parent; onClicked: Bridge.lassoMode = index }
+                    }
+                }
+            }
+            CustomSwitch { text: "Seitenverhältnis sperren"; checked: Bridge.aspectLock; onToggled: Bridge.aspectLock = checked }
+        }
+    }
+
+    Component { id: imageComponent; Item {} }
+
+    Component {
+        id: rulerComponent
+        ColumnLayout { spacing: 12
+            SectionLabel { text: "Lineal Modi" }
+            CustomSwitch { text: "Am Lineal einrasten"; checked: Bridge.rulerSnap; onToggled: Bridge.rulerSnap = checked }
+            CustomSwitch { text: "Kompass-Modus (Zirkel)"; checked: Bridge.compassMode; onToggled: Bridge.compassMode = checked }
+            SectionLabel { text: "Einheiten" }
+            RowLayout { spacing: 10
+                Repeater { model: ["px", "cm", "in"]
+                    delegate: Rectangle { width: 60; height: 35; radius: 6; color: (Bridge.rulerUnit === index) ? "#5E5CE6" : "#333"
+                        Text { anchors.centerIn: parent; text: modelData; color: "white"; font.bold: true }
+                        MouseArea { anchors.fill: parent; onClicked: Bridge.rulerUnit = index }
+                    }
+                }
+            }
+            Label {
+                text: "Info: Wähle das Lineal-Werkzeug, um es zu bewegen. Wähle einen Stift, um daran zu zeichnen."
+                color: "#888"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: 10
+            }
+        }
+    }
 }

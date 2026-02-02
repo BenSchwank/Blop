@@ -46,26 +46,32 @@ qt_add_executable(Blop
     uiprofilemanager.cpp
     moderntoolbar.cpp
     moderntoolbar.h
+    modetoolbar.cpp
+    modetoolbar.h
 
-    # NEU: PageManager
+    # PageManager
     pagemanager.h
     pagemanager.cpp
 
-    # NEU: Tool Architecture Basis
+    # Tool Architecture Basis
     tools/AbstractTool.h
     tools/ToolManager.h
-    tools/ToolManager.cpp  # <--- HIER HINZUGEFÜGT
+    tools/ToolManager.cpp
     tools/ToolUIBridge.h
     tools/ToolFactory.h
     tools/StrokeItem.h
 
-    # NEU: Die Werkzeuge selbst
+    # Die Werkzeuge selbst
     tools/AbstractStrokeTool.h
     tools/WritingTools.h
     tools/EraserTool.h
     tools/LassoTool.h
     tools/ShapeTool.h
     tools/ImageTool.h
+
+    # NEU: Lineal (Ruler)
+    tools/RulerItem.h
+    tools/RulerTool.h
 
     # Hilfs-Dateien
     Note.h
@@ -75,21 +81,22 @@ qt_add_executable(Blop
     UIStyles.h
     uiprofile.h
 
+    # Bild-Provider
     BlopAsyncImageProvider.h
     BlopAsyncImageProvider.cpp
     BlopImageResponse.h
     BlopImageResponse.cpp
 )
 
-if(ANDROID)
-    qt_add_qml_module(Blop
-        URI Blop
-        VERSION 1.0
-        QML_FILES
-            Main.qml
-            ui/ToolSettingsOverlay.qml
-    )
-endif()
+# QML Modul Definition
+# Registriert die QML-Dateien und macht C++-Typen verfügbar (falls per qmlRegister... registriert)
+qt_add_qml_module(Blop
+    URI Blop
+    VERSION 1.0
+    QML_FILES
+        Main.qml
+        ui/ToolSettingsOverlay.qml
+)
 
 target_link_libraries(Blop PRIVATE
     Qt6::Widgets

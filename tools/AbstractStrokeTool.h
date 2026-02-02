@@ -1,5 +1,6 @@
 #pragma once
 #include "AbstractTool.h"
+#include "RulerItem.h"
 #include <QGraphicsPathItem>
 #include <QPen>
 #include <QList>
@@ -13,20 +14,27 @@ public:
 
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene) return false;
-
         m_currentPath = QPainterPath();
-        m_currentPath.moveTo(event->scenePos());
+        QPointF startPos = event->scenePos();
+        m_isSnapping = false;
+        m_rulerRef = nullptr;
 
-        // Puffer für Glättung zurücksetzen
+        if (m_config.rulerSnap) {
+            m_rulerRef = findRuler(scene);
+            if (m_rulerRef && m_rulerRef->isVisible()) {
+                startPos = m_rulerRef->snapPoint(startPos);
+                m_isSnapping = true;
+            }
+        }
+
+        m_currentPath.moveTo(startPos);
         m_pointsBuffer.clear();
-        m_pointsBuffer.append(event->scenePos());
+        m_pointsBuffer.append(startPos);
 
         m_currentItem = new QGraphicsPathItem();
         m_currentItem->setPath(m_currentPath);
         m_currentItem->setPen(createPen());
         m_currentItem->setZValue(getZValue());
-
-        // Performance Optimierung
         m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
 
         scene->addItem(m_currentItem);
@@ -36,21 +44,22 @@ public:
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentItem) {
             QPointF newPos = event->scenePos();
+            if (m_isSnapping && m_rulerRef) {
+                newPos = m_rulerRef->snapPoint(newPos);
+                QPointF start = m_pointsBuffer.first();
+                QPainterPath snapPath = m_rulerRef->getSnapPath(start, newPos);
+                m_currentItem->setPath(snapPath);
+                m_currentPath = snapPath;
+                return true;
+            }
 
-            // --- GLAETTUNG (Streamline) ---
             if (m_config.smoothing > 0) {
-                // Einfacher Algorithmus: Wir bewegen uns nur einen Teil der Strecke zum neuen Punkt
-                // Factor 0 = kein Smoothing, Factor 0.9 = sehr starkes Smoothing (Lag)
-                double factor = m_config.smoothing / 120.0; // Skalierung auf sinnvolle Werte
+                double factor = m_config.smoothing / 120.0;
                 if (factor > 0.95) factor = 0.95;
-
                 QPointF lastPos = m_pointsBuffer.last();
-
-                // Berechne geglättete Position (Weighted Moving Average)
                 newPos = lastPos * factor + newPos * (1.0 - factor);
             }
 
-            // Nur hinzufügen, wenn wir uns genug bewegt haben (reduziert Punkte)
             if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last()).length() > 1.0) {
                 m_pointsBuffer.append(newPos);
                 m_currentPath.lineTo(newPos);
@@ -63,11 +72,9 @@ public:
 
     bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentItem) {
-            // Optional: Pfad vereinfachen am Ende für schönere Kurven
-            // m_currentItem->setPath(m_currentPath.simplified());
-
             m_currentItem = nullptr;
             m_pointsBuffer.clear();
+            m_isSnapping = false; m_rulerRef = nullptr;
             emit contentModified();
             return true;
         }
@@ -80,5 +87,14 @@ protected:
 
     QGraphicsPathItem* m_currentItem{nullptr};
     QPainterPath m_currentPath;
-    QList<QPointF> m_pointsBuffer; // Für Smoothing
+    QList<QPointF> m_pointsBuffer;
+    bool m_isSnapping{false};
+    RulerItem* m_rulerRef{nullptr};
+
+    RulerItem* findRuler(QGraphicsScene* scene) {
+        for (QGraphicsItem* item : scene->items()) {
+            if (item->type() == RulerItem::Type) return static_cast<RulerItem*>(item);
+        }
+        return nullptr;
+    }
 };

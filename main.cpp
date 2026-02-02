@@ -30,7 +30,9 @@ int main(int argc, char *argv[])
     ToolFactory::registerAllTools();
 
     // --- QML BRIDGE REGISTRIEREN ---
-    // Das macht die C++ Klasse "ToolUIBridge" in QML unter dem Namen "Bridge" verfügbar
+    // Das macht die C++ Klasse "ToolUIBridge" in QML unter dem Namen "Bridge" verfügbar.
+    // Wir nutzen hier qmlRegisterSingletonInstance, damit alle QML-Teile (auch im MainWindow)
+    // auf dieselbe Instanz zugreifen können.
     qmlRegisterSingletonInstance("Blop", 1, 0, "Bridge", &ToolUIBridge::instance());
 
     // --- HAUPTFENSTER STARTEN ---
@@ -39,7 +41,7 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_ANDROID
     w.showFullScreen();
 #else
-    w.showMaximized(); // Oder showFullScreen() je nach Wunsch
+    w.showMaximized();
 #endif
 
     return a.exec();
