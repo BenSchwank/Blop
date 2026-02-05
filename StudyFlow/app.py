@@ -21,6 +21,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from fpdf import FPDF
 import markdown
+from data_manager import DataManager
 
 # Configure Logging
 logging.basicConfig(level=logging.ERROR)
@@ -172,6 +173,17 @@ load_dotenv()
 # Page Config
 st.set_page_config(page_title="Blop Study", layout="wide")
 st.title("Blop Study - Smart AI Learning Companion")
+
+# --- Navigation State ---
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "dashboard"
+if "current_folder" not in st.session_state:
+    st.session_state.current_folder = None
+
+def navigate_to(page, folder=None):
+    st.session_state.current_page = page
+    st.session_state.current_folder = folder
+    st.rerun()
 
 # --- Helper Functions ---
 
@@ -844,384 +856,468 @@ if process_button and uploaded_files:
             else:
                 st.error("Fehler beim Erstellen des Index.")
 
-# --- Layout Logic ---
-# --- Layout Logic ---
-main_container = st.container()
-if show_pdf_split and uploaded_files:
-    # Sticky CSS for Right Column
-    st.markdown("""
-        <style>
-        div[data-testid="column"]:nth-of-type(2) {
-            position: sticky;
-            top: 1rem;
-            height: 98vh;
-            overflow: hidden; 
-        }
-        </style>
-        """, unsafe_allow_html=True)
+# --- DASHBOARD & WORKSPACE LOGIC ---
 
-    c1, c2 = st.columns([1, 1])
-    main_container = c1
+def render_dashboard():
+    # Load Data
+    data = DataManager.load()
     
-    with c2:
-        st.subheader("📄 PDF Ansicht")
-        if file_map:
-            # Sync selection with sidebar? use distinct key
-            sel_pdf = st.selectbox("Dokument:", list(file_map.keys()), key="pdf_sel_split")
-            st.markdown(display_pdf(file_map[sel_pdf]), unsafe_allow_html=True)
-
-with main_container:
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
-
-import datetime
-
-with tab1:
-    st.header("Smarter Lernplan")
+    st.subheader("📁 Meine Ordner")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input("Start-Datum", min_value=datetime.date.today(), value=datetime.date.today())
-    with col2:
-        exam_date = st.date_input("Prüfungs-Datum", min_value=datetime.date.today() + datetime.timedelta(days=1), value=datetime.date.today() + datetime.timedelta(days=7))
-        
-    focus_topic = st.text_input("Fokus-Thema (optional)", placeholder="z.B. Differentialgleichungen")
+    # Grid Layout for Folders
+    cols = st.columns(4)
     
-    # Frequency Selector
-    st.subheader("Lern-Intervall")
-    available_days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-    selected_days = st.multiselect("An welchen Tagen möchtest du lernen?", available_days, default=["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"])
-    
-    # Calculate study dates
-    study_dates = []
-    current = start_date
-    while current <= exam_date:
-        # python weekday: 0=Mon, 6=Sun
-        day_name = available_days[current.weekday()]
-        if day_name in selected_days:
-            study_dates.append(current)
-        current += datetime.timedelta(days=1)
-    
-    days_count = len(study_dates)
-    
-    if st.button("Lernplan erstellen (AI)"):
-        if "text_chunks" not in st.session_state:
-            st.warning("Bitte erst Dokumente hochladen!")
-        elif days_count == 0:
-            st.error("Bitte mindestens einen Wochentag auswählen!")
-        else:
-            st.info(f"Erstelle Plan für {days_count} Lern-Sessions zwischen {start_date} und {exam_date}...")
-            
-            chunks = st.session_state.text_chunks
-            sample_chunks = chunks[:2] + random.sample(chunks[2:], min(3, len(chunks)-2)) if len(chunks) > 2 else chunks
-            
-            # Format context with page numbers for the plan
-            context_text = ""
-            for c in sample_chunks:
-                context_text += f"\n[Seite {c.get('page', '?')}] {c.get('text', '')[:1500]}\n"
-            
-            date_list_str = ", ".join([d.strftime('%d.%m.%Y') for d in study_dates])
-            
-            prompt = f"""
-            Erstelle einen Lernplan für genau {days_count} Lern-Einheiten an diesen Daten: {date_list_str}.
-            Fokus: {focus_topic if focus_topic else "Allgemein"}.
-            Inhalt: {context_text}
-            
-            WICHTIG: Nutze Markdown für die Details!
-            - Verwende **Fett** für wichtige Begriffe und Überschriften.
-            - Nutze Listen (Bullet points) für bessere Lesbarkeit.
-            - Markiere Definitionen oder Schlüsselsätze.
-            
-            Output MUSS valides JSON sein:
-            [
-                {{ "date": "DD.MM.YYYY", "topic": "Titel", "details": "**Ziele**:\\n- Punkt 1\\n- Punkt 2..." }},
-                ...
-            ]
-            """
-            
-            try:
-                # Determine model
-                if model_option == "Automatisch":
-                    model_name = get_generative_model_name()
-                else:
-                    model_name = model_option
-                
-                st.toast(f"Verwende Modell: {model_name}")
-                model = genai.GenerativeModel(model_name)
-                with st.spinner(f"AI ({model_name}) generiert deinen persönlichen Plan..."):
-                    response = model.generate_content(prompt)
-                    
-                    content = response.text
-                    if "```json" in content:
-                        content = content.split("```json")[1].split("```")[0]
-                    elif "```" in content:
-                        content = content.split("```")[1].split("```")[0]
-                    
-                    data = json.loads(content)
-                    st.session_state.plan_data = data
-                    st.rerun()
-                
-            except Exception as e:
-                st.error(f"Fehler bei der Plan-Erstellung: {e}")
-
-    # --- Render Interactive Plan ---
-    if "plan_data" in st.session_state:
-        st.subheader(f"Dein Fahrplan ({len(st.session_state.plan_data)} Einheiten)")
-        
-        # Actions Row
-        ac1, ac2 = st.columns([1, 4])
-        with ac1:
-            if st.button("➕ Tag hinzufügen"):
-                # Add next day? Or just generic
-                next_date = datetime.date.today().strftime('%d.%m.%Y')
-                st.session_state.plan_data.append({"date": next_date, "topic": "Neues Thema", "details": "..."})
+    # "New Folder" Button as first item
+    with cols[0]:
+        with st.popover("➕ Neu"):
+            new_folder_name = st.text_input("Name")
+            if st.button("Erstellen"):
+                DataManager.create_folder(new_folder_name)
                 st.rerun()
-        
-        # Export
-        if len(st.session_state.plan_data) > 0:
-            ics_data = generate_ics(st.session_state.plan_data, start_date)
-            with ac2:
-                st.download_button(
-                    label="📅 Export für Google Kalender (.ics)",
-                    data=ics_data,
-                    file_name="lernplan.ics",
-                    mime="text/calendar"
-                )
-        
-        # Plan Items
-        for i, item in enumerate(st.session_state.plan_data):
-            date_label = item.get('date', f'Tag {i+1}')
-            topic_label = item.get('topic', 'Thema')
-            
-            with st.expander(f"📅 {date_label}: {topic_label}", expanded=False):
-                # Edit Mode vs Preview
-                tab_edit, tab_view = st.tabs(["Bearbeiten", "Vorschau"])
                 
-                with tab_edit:
-                    col_a, col_b = st.columns([5, 1])
-                    with col_a:
-                        new_date = st.text_input("Datum", item.get('date', ''), key=f"date_{i}")
-                        new_topic = st.text_input("Thema", item.get('topic', ''), key=f"topic_{i}")
-                        # Taller text area for better editing experience
-                        new_details = st.text_area("Details (Markdown)", item.get('details', ''), height=450, key=f"desc_{i}")
-                        
-                        st.session_state.plan_data[i]['date'] = new_date
-                        st.session_state.plan_data[i]['topic'] = new_topic
-                        st.session_state.plan_data[i]['details'] = new_details
-                    with col_b:
-                        st.write("")
-                        if st.button("🗑️", key=f"del_{i}"):
-                            st.session_state.plan_data.pop(i)
-                            st.rerun()
-                
-                with tab_view:
-                    st.markdown(f"### {item.get('topic', '')}")
-                    st.markdown(item.get('details', ''))
-                    
-                    st.markdown("---")
-                    render_page_buttons(item.get('details', ''))
+    # Render folders
+    for i, folder in enumerate(data.get("folders", [])):
+        col_idx = (i + 1) % 4
+        with cols[col_idx]:
+            if st.button(f"📁 {folder['name']}", key=folder['id'], use_container_width=True):
+                navigate_to("workspace", folder=folder['id'])
 
-with tab2:
-    st.header("Dozenten-Modus")
+    st.markdown("---")
+    st.subheader("🕒 Zuletzt bearbeitet")
     
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    # Recent Files List
+    files = data.get("files", [])
+    if not files:
+        st.info("Noch keine Zusammenfassungen gespeichert.")
+    
+    for f in files[-5:]: # Show last 5
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown(f"**📄 {f['title']}** ({f['created_at']})")
+        with col2:
+            if st.button("Öffnen", key=f"open_{f['id']}"):
+                # Load content into session state
+                st.session_state.summary_text = f['content']
+                navigate_to("workspace", folder=f.get('folder_id'))
+
+    st.markdown("---")
+    if st.button("🚀 Neues Projekt starten (Leerer Workspace)", type="primary"):
+        navigate_to("workspace")
+
+def render_workspace():
+    # Back Button
+    if st.sidebar.button("⬅️ Zurück zum Dashboard"):
+        navigate_to("dashboard")
         
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    folder_id = st.session_state.current_folder
+    if folder_id:
+        data = DataManager.load()
+        folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
+        if folder:
+            st.sidebar.markdown(f"**📂 Ordner: {folder['name']}**")
+
+    # --- Existing Workspace Logic ---
+    main_container = st.container()
+    if show_pdf_split and uploaded_files:
+        # Sticky CSS for Right Column
+        st.markdown("""
+            <style>
+            div[data-testid="column"]:nth-of-type(2) {
+                position: sticky;
+                top: 1rem;
+                height: 98vh;
+                overflow: hidden; 
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
+        c1, c2 = st.columns([1, 1])
+        main_container = c1
+        
+        with c2:
+            st.subheader("📄 PDF Ansicht")
+            if file_map:
+                # Sync selection with sidebar? use distinct key
+                sel_pdf = st.selectbox("Dokument:", list(file_map.keys()), key="pdf_sel_split")
+                st.markdown(display_pdf(file_map[sel_pdf]), unsafe_allow_html=True)
+
+    with main_container:
+        tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
+
+    import datetime
+
+    with tab1:
+        st.header("Smarter Lernplan")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start-Datum", min_value=datetime.date.today(), value=datetime.date.today())
+        with col2:
+            exam_date = st.date_input("Prüfungs-Datum", min_value=datetime.date.today() + datetime.timedelta(days=1), value=datetime.date.today() + datetime.timedelta(days=7))
             
-    if prompt := st.chat_input("Frage stellen..."):
-        if "vector_index" not in st.session_state:
-            st.error("Bitte Dokumente hochladen.")
-        else:
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-            
-            with st.spinner("Suche Antwort..."):
-                answer, context = answer_question(prompt, st.session_state.vector_index, st.session_state.text_chunks)
+        focus_topic = st.text_input("Fokus-Thema (optional)", placeholder="z.B. Differentialgleichungen")
+        
+        # Frequency Selector
+        st.subheader("Lern-Intervall")
+        available_days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+        selected_days = st.multiselect("An welchen Tagen möchtest du lernen?", available_days, default=["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"])
+        
+        # Calculate study dates
+        study_dates = []
+        current = start_date
+        while current <= exam_date:
+            # python weekday: 0=Mon, 6=Sun
+            day_name = available_days[current.weekday()]
+            if day_name in selected_days:
+                study_dates.append(current)
+            current += datetime.timedelta(days=1)
+        
+        days_count = len(study_dates)
+        
+        if st.button("Lernplan erstellen (AI)"):
+            if "text_chunks" not in st.session_state:
+                st.warning("Bitte erst Dokumente hochladen!")
+            elif days_count == 0:
+                st.error("Bitte mindestens einen Wochentag auswählen!")
+            else:
+                st.info(f"Erstelle Plan für {days_count} Lern-Sessions zwischen {start_date} und {exam_date}...")
                 
-                full_resp = f"{answer}" # Context is optional to show
-                st.session_state.messages.append({"role": "assistant", "content": full_resp})
-                with st.chat_message("assistant"):
-                    st.markdown(full_resp)
-
-with tab3:
-    st.header("Quiz-Modus")
-    if st.button("Quiz erstellen"):
-        if "text_chunks" not in st.session_state:
-             st.warning("Dokumente fehlen.")
-        else:
-            with st.spinner("Generiere Quiz..."):
-                quiz = generate_quiz(st.session_state.text_chunks)
-                if quiz:
-                    st.session_state.quiz_data = quiz
-                    st.session_state.user_answers = {}
-                    st.rerun()
-                else:
-                    st.error("Fehler bei Quiz-Generierung.")
-                    
-    if "quiz_data" in st.session_state:
-        for i, q in enumerate(st.session_state.quiz_data):
-            st.subheader(f"Frage {i+1}: {q['question']}")
-            choice = st.radio("Antwort:", q['options'], key=f"q_{i}")
-            if st.button(f"Prüfen {i+1}", key=f"btn_{i}"):
-                if choice == q['answer']:
-                    st.success("Korrekt!")
-                else:
-                    st.error(f"Falsch. Richtig: {q['answer']}")
-
-with tab4:
-    st.header("Zusammenfassung & Notizen")
-    
-    st.info("Erstelle eine interaktive Web-Zusammenfassung mit KI-Bildern. Das offizielle PDF (Skript-Stil) kannst du anschließend herunterladen.")
-    
-    # Language Selection
-    summary_lang = st.selectbox("Sprache der Zusammenfassung:", ["Deutsch", "English", "Français", "Español"], index=0)
-    
-    if st.button("Zusammenfassung erstellen (AI)"):
-        if "text_chunks" not in st.session_state:
-            st.warning("Bitte erst Dokumente hochladen!")
-        else:
-            with st.spinner("Analysiere Dokumente und generiere Web-Ansicht..."):
+                chunks = st.session_state.text_chunks
+                sample_chunks = chunks[:2] + random.sample(chunks[2:], min(3, len(chunks)-2)) if len(chunks) > 2 else chunks
+                
+                # Format context with page numbers for the plan
+                context_text = ""
+                for c in sample_chunks:
+                    context_text += f"\n[Seite {c.get('page', '?')}] {c.get('text', '')[:1500]}\n"
+                
+                date_list_str = ", ".join([d.strftime('%d.%m.%Y') for d in study_dates])
+                
+                prompt = f"""
+                Erstelle einen Lernplan für genau {days_count} Lern-Einheiten an diesen Daten: {date_list_str}.
+                Fokus: {focus_topic if focus_topic else "Allgemein"}.
+                Inhalt: {context_text}
+                
+                WICHTIG: Nutze Markdown für die Details!
+                - Verwende **Fett** für wichtige Begriffe und Überschriften.
+                - Nutze Listen (Bullet points) für bessere Lesbarkeit.
+                - Markiere Definitionen oder Schlüsselsätze.
+                
+                Output MUSS valides JSON sein:
+                [
+                    {{ "date": "DD.MM.YYYY", "topic": "Titel", "details": "**Ziele**:\\n- Punkt 1\\n- Punkt 2..." }},
+                    ...
+                ]
+                """
+                
                 try:
-                    # Reconstruct full text
-                    all_text = "\n".join([c['text'] for c in st.session_state.text_chunks])
-                    
-                    # Use selected model or dynamic fallback
-                    if 'model_option' in locals() and model_option != "Automatisch":
-                         model_name = model_option
+                    # Determine model
+                    if model_option == "Automatisch":
+                        model_name = get_generative_model_name()
                     else:
-                         model_name = get_generative_model_name()
+                        model_name = model_option
                     
                     st.toast(f"Verwende Modell: {model_name}")
                     model = genai.GenerativeModel(model_name)
-                    
-                    # Get Prompt (Always Markdown for Web View)
-                    # Pass selected language
-                    prompt = get_summary_prompt("Markdown", all_text[:50000], language=summary_lang)
-                    
-                    # Safety Settings (Allow academic content)
-                    safety = [
-                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                    ]
-                    
-                    retries = 0
-                    while retries < 3:
-                        try:
-                            response = model.generate_content(prompt, safety_settings=safety)
-                            
-                            st.session_state.summary_text = response.text
-                            # Mark as Web Mode implicitly
-                            st.session_state.last_summary_mode = "Markdown" 
-                            break # Success
-                        except Exception as e:
-                            if "429" in str(e):
-                                wait_time = 30 * (retries + 1)
-                                st.warning(f"⚠️ Zu viele Anfragen (Rate Limit). Warte {wait_time} Sekunden...")
-                                time.sleep(wait_time)
-                                retries += 1
-                                if retries == 3:
-                                    st.error("API Limit erreicht. Bitte später versuchen.")
-                            else:
-                                raise e
+                    with st.spinner(f"AI ({model_name}) generiert deinen persönlichen Plan..."):
+                        response = model.generate_content(prompt)
+                        
+                        content = response.text
+                        if "```json" in content:
+                            content = content.split("```json")[1].split("```")[0]
+                        elif "```" in content:
+                            content = content.split("```")[1].split("```")[0]
+                        
+                        data = json.loads(content)
+                        st.session_state.plan_data = data
+                        st.rerun()
                     
                 except Exception as e:
-                    st.error(f"Fehler bei Zusammenfassung: {e}")
-    
-    
-    # Initialize State
-    if "summary_text" not in st.session_state:
-        st.session_state.summary_text = ""
+                    st.error(f"Fehler bei der Plan-Erstellung: {e}")
 
-    # Display Logic
-    if st.session_state.summary_text:
-        st.markdown("---")
-        
-        # 1. Render Web View (Markdown + Images)
-        visual_text = st.session_state.summary_text
-        if "render_visual_summary" in globals():
-            visual_text = render_visual_summary(st.session_state.summary_text)
+        # --- Render Interactive Plan ---
+        if "plan_data" in st.session_state:
+            st.subheader(f"Dein Fahrplan ({len(st.session_state.plan_data)} Einheiten)")
             
-        st.markdown(visual_text, unsafe_allow_html=True)
-        st.markdown("---")
-        render_page_buttons(st.session_state.summary_text)
-        
-        # 2. Export Section (Bottom)
-        st.subheader("📥 Export & PDF")
-        col_export1, col_export2 = st.columns(2)
-        
-        # Option A: Official Script (LaTeX Backend)
-        with col_export1:
-            st.markdown("### 🎓 Offizielles Skript")
-            st.caption("Professionelles Layout (wie im Bild) via LaTeX.")
+            # Actions Row
+            ac1, ac2 = st.columns([1, 4])
+            with ac1:
+                if st.button("➕ Tag hinzufügen"):
+                    # Add next day? Or just generic
+                    next_date = datetime.date.today().strftime('%d.%m.%Y')
+                    st.session_state.plan_data.append({"date": next_date, "topic": "Neues Thema", "details": "..."})
+                    st.rerun()
             
-            if st.button("Skript-PDF generieren (High-Quality)", type="primary"):
-                with st.spinner("Generiere Layout & Diagramme..."):
-                     try:
-                         # 1. Generate LaTeX Source (Convert Web Content)
-                         # Use existing Markdown summary to ensure PDF matches Web View exactly
-                         source_text = st.session_state.get('summary_text', '')
-                         if not source_text:
-                             source_text = "\n".join([c['text'] for c in st.session_state.text_chunks])
+            # Export
+            if len(st.session_state.plan_data) > 0:
+                ics_data = generate_ics(st.session_state.plan_data, start_date)
+                with ac2:
+                    st.download_button(
+                        label="📅 Export für Google Kalender (.ics)",
+                        data=ics_data,
+                        file_name="lernplan.ics",
+                        mime="text/calendar"
+                    )
+            
+            # Plan Items
+            for i, item in enumerate(st.session_state.plan_data):
+                date_label = item.get('date', f'Tag {i+1}')
+                topic_label = item.get('topic', 'Thema')
+                
+                with st.expander(f"📅 {date_label}: {topic_label}", expanded=False):
+                    # Edit Mode vs Preview
+                    tab_edit, tab_view = st.tabs(["Bearbeiten", "Vorschau"])
+                    
+                    with tab_edit:
+                        col_a, col_b = st.columns([5, 1])
+                        with col_a:
+                            new_date = st.text_input("Datum", item.get('date', ''), key=f"date_{i}")
+                            new_topic = st.text_input("Thema", item.get('topic', ''), key=f"topic_{i}")
+                            # Taller text area for better editing experience
+                            new_details = st.text_area("Details (Markdown)", item.get('details', ''), height=450, key=f"desc_{i}")
+                            
+                            st.session_state.plan_data[i]['date'] = new_date
+                            st.session_state.plan_data[i]['topic'] = new_topic
+                            st.session_state.plan_data[i]['details'] = new_details
+                        with col_b:
+                            st.write("")
+                            if st.button("🗑️", key=f"del_{i}"):
+                                st.session_state.plan_data.pop(i)
+                                st.rerun()
+                    
+                    with tab_view:
+                        st.markdown(f"### {item.get('topic', '')}")
+                        st.markdown(item.get('details', ''))
+                        
+                        st.markdown("---")
+                        render_page_buttons(item.get('details', ''))
 
-                         model_name = get_generative_model_name()
-                         model = genai.GenerativeModel(model_name)
-                         
-                         latex_prompt = get_summary_prompt("LaTeX", source_text[:50000])
-                         
-                         # Safety Settings
-                         safety = [
+    with tab2:
+        st.header("Dozenten-Modus")
+        
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+            
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                
+        if prompt := st.chat_input("Frage stellen..."):
+            if "vector_index" not in st.session_state:
+                st.error("Bitte Dokumente hochladen.")
+            else:
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+                
+                with st.spinner("Suche Antwort..."):
+                    answer, context = answer_question(prompt, st.session_state.vector_index, st.session_state.text_chunks)
+                    
+                    full_resp = f"{answer}" # Context is optional to show
+                    st.session_state.messages.append({"role": "assistant", "content": full_resp})
+                    with st.chat_message("assistant"):
+                        st.markdown(full_resp)
+
+    with tab3:
+        st.header("Quiz-Modus")
+        if st.button("Quiz erstellen"):
+            if "text_chunks" not in st.session_state:
+                 st.warning("Dokumente fehlen.")
+            else:
+                with st.spinner("Generiere Quiz..."):
+                    quiz = generate_quiz(st.session_state.text_chunks)
+                    if quiz:
+                        st.session_state.quiz_data = quiz
+                        st.session_state.user_answers = {}
+                        st.rerun()
+                    else:
+                        st.error("Fehler bei Quiz-Generierung.")
+                        
+        if "quiz_data" in st.session_state:
+            for i, q in enumerate(st.session_state.quiz_data):
+                st.subheader(f"Frage {i+1}: {q['question']}")
+                choice = st.radio("Antwort:", q['options'], key=f"q_{i}")
+                if st.button(f"Prüfen {i+1}", key=f"btn_{i}"):
+                    if choice == q['answer']:
+                        st.success("Korrekt!")
+                    else:
+                        st.error(f"Falsch. Richtig: {q['answer']}")
+
+    with tab4:
+        st.header("Zusammenfassung & Notizen")
+        
+        st.info("Erstelle eine interaktive Web-Zusammenfassung mit KI-Bildern. Das offizielle PDF (Skript-Stil) kannst du anschließend herunterladen.")
+        
+        # Language Selection
+        summary_lang = st.selectbox("Sprache der Zusammenfassung:", ["Deutsch", "English", "Français", "Español"], index=0)
+        
+        if st.button("Zusammenfassung erstellen (AI)"):
+            if "text_chunks" not in st.session_state:
+                st.warning("Bitte erst Dokumente hochladen!")
+            else:
+                with st.spinner("Analysiere Dokumente und generiere Web-Ansicht..."):
+                    try:
+                        # Reconstruct full text
+                        all_text = "\n".join([c['text'] for c in st.session_state.text_chunks])
+                        
+                        # Use selected model or dynamic fallback
+                        if 'model_option' in locals() and model_option != "Automatisch":
+                             model_name = model_option
+                        else:
+                             model_name = get_generative_model_name()
+                        
+                        st.toast(f"Verwende Modell: {model_name}")
+                        model = genai.GenerativeModel(model_name)
+                        
+                        # Get Prompt (Always Markdown for Web View)
+                        # Pass selected language
+                        prompt = get_summary_prompt("Markdown", all_text[:50000], language=summary_lang)
+                        
+                        # Safety Settings (Allow academic content)
+                        safety = [
                             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
                             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
                             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
                         ]
-                         
-                         resp = model.generate_content(latex_prompt, safety_settings=safety)
-                         latex_code = resp.text.replace("```latex", "").replace("```", "")
-                         
-                         # 2. Compile
-                         pdf_bytes = compile_latex_to_pdf(latex_code, fallback_markdown=source_text)
-                         if pdf_bytes:
-                             st.session_state.ihk_pdf = pdf_bytes
-                         else:
-                             st.error("Kompilierung fehlgeschlagen.")
-                     except Exception as e:
-                         st.error(f"Fehler: {e}")
-
-            if "ihk_pdf" in st.session_state:
-                 st.download_button("💾 PDF Herunterladen", st.session_state.ihk_pdf, "Zusammenfassung_Skript.pdf", "application/pdf")
-
-        # Option B: Web View PDF
-        with col_export2:
-            st.markdown("### 📄 Web-Ansicht")
-            st.caption("Schneller PDF-Druck dieser Seite.")
-            if st.button("Schnell-PDF generieren"):
-                with st.spinner("Drucke Web-Ansicht..."):
-                    src = None
-                    if "uploaded_file" in st.session_state and st.session_state.uploaded_file:
-                         try: src = st.session_state.uploaded_file
-                         except: pass
-                         
-                    pdf_data = create_markdown_pdf(visual_text, src)
-                    if pdf_data:
-                        st.session_state.web_pdf = pdf_data
                         
-            if "web_pdf" in st.session_state:
-                st.download_button("💾 Web-PDF Herunterladen", st.session_state.web_pdf, "Web_Summary.pdf", "application/pdf")
-                
-        # 3. Editor (Bottom, Hidden)
-        st.markdown("---")
-        with st.expander("✏️ Inhalt bearbeiten (Markdown)", expanded=False):
-            st.caption("Änderungen hier werden sofort oben in der Vorschau angezeigt.")
-            st.text_area(
-                "Inhalt", 
-                key="summary_text", 
-                height=600,
-                placeholder="Inhalt generieren..."
-            )
+                        retries = 0
+                        while retries < 3:
+                            try:
+                                response = model.generate_content(prompt, safety_settings=safety)
+                                
+                                st.session_state.summary_text = response.text
+                                # Mark as Web Mode implicitly
+                                st.session_state.last_summary_mode = "Markdown" 
+                                break # Success
+                            except Exception as e:
+                                if "429" in str(e):
+                                    wait_time = 30 * (retries + 1)
+                                    st.warning(f"⚠️ Zu viele Anfragen (Rate Limit). Warte {wait_time} Sekunden...")
+                                    time.sleep(wait_time)
+                                    retries += 1
+                                    if retries == 3:
+                                        st.error("API Limit erreicht. Bitte später versuchen.")
+                                else:
+                                    raise e
+                        
+                    except Exception as e:
+                        st.error(f"Fehler bei Zusammenfassung: {e}")
+        
+        
+        # Initialize State
+        if "summary_text" not in st.session_state:
+            st.session_state.summary_text = ""
 
+        # Display Logic
+        if st.session_state.summary_text:
+            st.markdown("---")
+            
+            # 1. Render Web View (Markdown + Images)
+            visual_text = st.session_state.summary_text
+            if "render_visual_summary" in globals():
+                visual_text = render_visual_summary(st.session_state.summary_text)
+                
+            st.markdown(visual_text, unsafe_allow_html=True)
+            st.markdown("---")
+            render_page_buttons(st.session_state.summary_text)
+
+            # SAVE BUTTON
+            col_s1, col_s2 = st.columns([1, 4])
+            with col_s1:
+                if st.button("💾 In Blop Speichern"):
+                    # Default Title
+                    def_title = f"Summary {datetime.datetime.now().strftime('%H:%M')}"
+                    if uploaded_files:
+                        def_title = uploaded_files[0].name.replace(".pdf", "")
+                    
+                    # Save
+                    DataManager.save_summary(def_title, st.session_state.summary_text, st.session_state.current_folder)
+                    st.toast("Gespeichert!")
+                    time.sleep(1) # Feedback
+                    navigate_to("dashboard")
+            
+            # 2. Export Section (Bottom)
+            st.subheader("📥 Export & PDF")
+            col_export1, col_export2 = st.columns(2)
+            
+            # Option A: Official Script (LaTeX Backend)
+            with col_export1:
+                st.markdown("### 🎓 Offizielles Skript")
+                st.caption("Professionelles Layout (wie im Bild) via LaTeX.")
+                
+                if st.button("Skript-PDF generieren (High-Quality)", type="primary"):
+                    with st.spinner("Generiere Layout & Diagramme..."):
+                         try:
+                             # 1. Generate LaTeX Source (Convert Web Content)
+                             # Use existing Markdown summary to ensure PDF matches Web View exactly
+                             source_text = st.session_state.get('summary_text', '')
+                             if not source_text:
+                                 source_text = "\n".join([c['text'] for c in st.session_state.text_chunks])
+
+                             model_name = get_generative_model_name()
+                             model = genai.GenerativeModel(model_name)
+                             
+                             latex_prompt = get_summary_prompt("LaTeX", source_text[:50000])
+                             
+                             # Safety Settings
+                             safety = [
+                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                            ]
+                             
+                             resp = model.generate_content(latex_prompt, safety_settings=safety)
+                             latex_code = resp.text.replace("```latex", "").replace("```", "")
+                             
+                             # 2. Compile
+                             pdf_bytes = compile_latex_to_pdf(latex_code, fallback_markdown=source_text)
+                             if pdf_bytes:
+                                 st.session_state.ihk_pdf = pdf_bytes
+                             else:
+                                 st.error("Kompilierung fehlgeschlagen.")
+                         except Exception as e:
+                             st.error(f"Fehler: {e}")
+
+                if "ihk_pdf" in st.session_state:
+                     st.download_button("💾 PDF Herunterladen", st.session_state.ihk_pdf, "Zusammenfassung_Skript.pdf", "application/pdf")
+
+            # Option B: Web View PDF
+            with col_export2:
+                st.markdown("### 📄 Web-Ansicht")
+                st.caption("Schneller PDF-Druck dieser Seite.")
+                if st.button("Schnell-PDF generieren"):
+                    with st.spinner("Drucke Web-Ansicht..."):
+                        src = None
+                        if "uploaded_file" in st.session_state and st.session_state.uploaded_file:
+                             try: src = st.session_state.uploaded_file
+                             except: pass
+                             
+                        pdf_data = create_markdown_pdf(visual_text, src)
+                        if pdf_data:
+                            st.session_state.web_pdf = pdf_data
+                            
+                if "web_pdf" in st.session_state:
+                    st.download_button("💾 Web-PDF Herunterladen", st.session_state.web_pdf, "Web_Summary.pdf", "application/pdf")
+                    
+            # 3. Editor (Bottom, Hidden)
+            st.markdown("---")
+            with st.expander("✏️ Inhalt bearbeiten (Markdown)", expanded=False):
+                st.caption("Änderungen hier werden sofort oben in der Vorschau angezeigt.")
+                st.text_area(
+                    "Inhalt", 
+                    key="summary_text", 
+                    height=600,
+                    placeholder="Inhalt generieren..."
+                )
+
+# Execute Layout
+
+def main():
+    if st.session_state.current_page == "dashboard":
+        render_dashboard()
+    elif st.session_state.current_page == "workspace":
+        render_workspace()
+
+if __name__ == "__main__":
+    main()
