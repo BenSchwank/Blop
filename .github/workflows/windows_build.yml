@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "master" ]
     tags:
-      - 'v*'  # WICHTIG: Reagiert jetzt auch auf Tags wie v0.1, v1.0 etc.
+      - 'v*'
 
 jobs:
   build:
@@ -22,6 +22,8 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2019_64'
+          # WICHTIG: WebEngine muss explizit installiert werden!
+          modules: 'qtwebengine'
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -31,6 +33,7 @@ jobs:
 
       - name: Configure CMake
         working-directory: build
+        # Release Build konfigurieren
         run: cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
@@ -43,8 +46,9 @@ jobs:
       - name: Copy Executable
         run: copy build\Blop.exe deployment\Blop.exe
 
+      # Windeployqt muss auch die WebEngine DLLs kopieren
       - name: Run windeployqt
-        run: windeployqt --dir deployment deployment\Blop.exe
+        run: windeployqt --dir deployment deployment\Blop.exe --compiler-runtime
 
       - name: Zip Release
         uses: TheDoctor0/zip-release@0.7.1
@@ -53,21 +57,18 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
-      # FALL 1: ECHTES RELEASE (Wenn ein Tag gepusht wurde, z.B. v0.1)
-      # Lädt die Datei in das Release hoch, das durch den Tag erstellt wurde.
-      # Da Android und Windows denselben Tag haben, landen beide Dateien im selben Release.
+      # Upload Versioned Release (bei Tags wie v1.0)
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
-          # Kein tag_name angegeben -> nutzt automatisch den aktuellen Tag (v0.1)
           files: deployment/Blop_Windows.zip
           draft: false
           prerelease: false
           repository: BenSchwank/Blop-releases
 
-      # FALL 2: NIGHTLY BUILD (Nur wenn auf 'master' gepusht wurde, ohne Tag)
+      # Upload Nightly Release (bei jedem Push auf master)
       - name: Upload Nightly Release
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v1
