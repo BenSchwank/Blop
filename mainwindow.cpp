@@ -54,7 +54,9 @@
 
 // --- CROSS-PLATFORM WEB INCLUDES ---
 #ifdef Q_OS_ANDROID
-#include <QQuickWidget>
+// FIX: QQuickView statt QQuickWidget für Android (Robuster auf GitHub Actions)
+#include <QQuickView>
+#include <QWidget>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QTemporaryFile>
@@ -601,7 +603,13 @@ void MainWindow::setupUi() {
     m_mainContentStack = new QStackedWidget(this);
 
     // Page 0: Notizen (Splitter mit Sidebar & Editor)
-    m_mainSplitter = new QSplitter(Qt::Horizontal, m_mainContentStack);
+    QWidget* notesPage = new QWidget(m_mainContentStack);
+    QHBoxLayout* notesLayout = new QHBoxLayout(notesPage);
+    notesLayout->setContentsMargins(0, 0, 0, 0);
+    notesLayout->setSpacing(0);
+
+    m_mainSplitter = new QSplitter(Qt::Horizontal, notesPage);
+    notesLayout->addWidget(m_mainSplitter);
 
     // Splitter konfigurieren
     m_fileModel = new QFileSystemModel(this); m_fileModel->setRootPath(m_rootPath); m_fileModel->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot); m_fileModel->setReadOnly(false);
@@ -686,7 +694,7 @@ void MainWindow::setupUi() {
     setupWebBrowser(); // Initialisiert m_studyContainer
 
     // Stack füllen
-    m_mainContentStack->addWidget(m_mainSplitter);   // Index 0: Notes
+    m_mainContentStack->addWidget(notesPage);   // Index 0: Notes
     m_mainContentStack->addWidget(m_studyContainer); // Index 1: Study
 
     mainLayout->addWidget(m_mainContentStack);
@@ -700,12 +708,11 @@ void MainWindow::setupWebBrowser() {
     layout->setContentsMargins(0,0,0,0);
 
 #ifdef Q_OS_ANDROID
-    // MOBILE: QQuickWidget + QtWebView
-    QQuickWidget* view = new QQuickWidget(m_studyContainer);
-    view->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    // MOBILE: QQuickView (Sicherer als QQuickWidget)
+    QQuickView* view = new QQuickView();
+    view->setResizeMode(QQuickView::SizeRootObjectToView);
 
-    // QML-Code für die WebView
-    // Hinweis: Schreibt temporäre Datei, da wir QRC nicht ändern können
+    // QML-Code für die WebView (Temporärdatei schreiben)
     QString tempPath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/blop_webview.qml";
     QFile f(tempPath);
     if(f.open(QIODevice::WriteOnly)) {
@@ -722,23 +729,25 @@ void MainWindow::setupWebBrowser() {
         f.close();
         view->setSource(QUrl::fromLocalFile(tempPath));
     } else {
+        // Fallback falls Schreiben fehlschlägt
         QLabel* err = new QLabel("Fehler: Konnte Web-Modul nicht laden.", m_studyContainer);
-        err->setStyleSheet("color: red; alignment: center;");
         layout->addWidget(err);
         return;
     }
-    layout->addWidget(view);
+
+    // Container erstellen, um QWindow (QuickView) in QWidget zu packen
+    QWidget* container = QWidget::createWindowContainer(view, m_studyContainer);
+    layout->addWidget(container);
 
 #else
 // DESKTOP: QWebEngineView
-// Benötigt QT += webenginewidgets in CMake
 #ifdef BLOP_HAS_WEBENGINE
     QWebEngineView* view = new QWebEngineView(m_studyContainer);
     view->load(QUrl("https://blop-study.streamlit.app/"));
     view->setStyleSheet("background: white;");
     layout->addWidget(view);
 #else
-    QLabel* lblInfo = new QLabel("Web-Modul fehlt.\nBitte 'Qt WebEngine' über das Maintenance Tool nachinstallieren.", m_studyContainer);
+    QLabel* lblInfo = new QLabel("Web-Modul fehlt.\nBitte 'Qt WebEngine' installieren.", m_studyContainer);
     lblInfo->setAlignment(Qt::AlignCenter);
     lblInfo->setStyleSheet("color: #AAA; font-size: 16px; font-weight: bold; background: #1E1E1E;");
     layout->addWidget(lblInfo);
