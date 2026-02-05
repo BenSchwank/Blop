@@ -27,13 +27,10 @@
 #include "freegridview.h"
 #include "canvasview.h"
 #include "uiprofilemanager.h"
-#include "pagemanager.h"
 
-// Forward Declarations für Web-Komponenten, um Header-Dependencies gering zu halten
-class QWebEngineView;
-class QQuickWidget;
-
+// Forward Declarations
 class MainWindow;
+class PageManager;
 
 // --- SidebarNavDelegate ---
 class SidebarNavDelegate : public QStyledItemDelegate
@@ -143,7 +140,7 @@ private slots:
     void onTabChanged(int index);
 
     void onToggleRightSidebar();
-    void onTogglePageManager();
+    void onTogglePageManager(); // NEU
 
     void setPageColor(bool dark);
 
@@ -192,7 +189,7 @@ private:
     void setActiveTool(CanvasView::ToolType tool);
 
     // --- NEU: Web Integration ---
-    void setupWebBrowser(); // Initialisiert Study View
+    void setupWebBrowser();
     QWidget* m_studyContainer; // Container für Web View
     QStackedWidget* m_mainContentStack; // Wechselt zwischen Notizen und Study
     QComboBox* m_modeSelector; // Dropdown "Notizen" vs "Study"
@@ -259,10 +256,10 @@ private:
     QSlider *m_sliderToolbarScale;
 
     QWidget *m_floatingTools;
-    PageManager *m_pageManager;
+    PageManager *m_pageManager; // NEU: Member für den PageManager
 
     ModernButton *btnEditorSettings;
-    ModernButton *m_btnPages;
+    ModernButton *m_btnPages; // NEU: Button für PageManager
     ModernButton *btnBackOverview;
 
     QString m_rootPath;

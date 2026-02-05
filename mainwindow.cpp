@@ -5,10 +5,14 @@
 #include "moderntoolbar.h"
 #include "profileeditordialog.h"
 #include "newnotedialog.h"
+
+// --- WICHTIGE ZUSÄTZLICHE INCLUDES ---
 #include "multipagenoteview.h"
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "pagemanager.h"
+#include "Note.h"
+// -------------------------------------
 
 #include <QApplication>
 #include <QStyle>
@@ -47,7 +51,6 @@
 #include <QLocale>
 #include <QScreen>
 #include <QScroller>
-#include <QScrollArea>
 
 // --- CROSS-PLATFORM WEB INCLUDES ---
 #ifdef Q_OS_ANDROID
@@ -56,7 +59,6 @@
 #include <QQmlEngine>
 #include <QTemporaryFile>
 #else
-// Desktop: Nur einbinden, wenn CMake das Modul gefunden hat
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
 #endif
@@ -728,14 +730,14 @@ void MainWindow::setupWebBrowser() {
     layout->addWidget(view);
 
 #else
-// DESKTOP: QWebEngineView (Wenn verfügbar)
+// DESKTOP: QWebEngineView
+// Benötigt QT += webenginewidgets in CMake
 #ifdef BLOP_HAS_WEBENGINE
     QWebEngineView* view = new QWebEngineView(m_studyContainer);
     view->load(QUrl("https://blop-study.streamlit.app/"));
     view->setStyleSheet("background: white;");
     layout->addWidget(view);
 #else
-    // FALLBACK, wenn Modul fehlt:
     QLabel* lblInfo = new QLabel("Web-Modul fehlt.\nBitte 'Qt WebEngine' über das Maintenance Tool nachinstallieren.", m_studyContainer);
     lblInfo->setAlignment(Qt::AlignCenter);
     lblInfo->setStyleSheet("color: #AAA; font-size: 16px; font-weight: bold; background: #1E1E1E;");

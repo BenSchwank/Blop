@@ -18,15 +18,17 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Basis-Pakete (Müssen vorhanden sein)
+# Basis-Module
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
-# --- WEB-KOMPONENTEN (OPTIONAL/PLATTFORMABHÄNGIG) ---
+# --- WEB-MODUL WEICHE ---
 if(ANDROID)
-    # Android: Qt WebView
+    # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
-    # Desktop: Qt WebEngine (Versuchen zu finden, aber nicht erzwingen)
+    # Desktop: WebEngine (Chromium)
+    # Wir machen es OPTIONAL, damit es nicht crasht, falls es doch fehlt,
+    # aber wir setzen ein Define, wenn es da ist.
     find_package(Qt6 COMPONENTS WebEngineWidgets)
 endif()
 
@@ -99,13 +101,15 @@ qt_add_executable(Blop
 )
 
 # QML Modul Definition
-qt_add_qml_module(Blop
-    URI Blop
-    VERSION 1.0
-    QML_FILES
-        Main.qml
-        ui/ToolSettingsOverlay.qml
-)
+if(ANDROID)
+    qt_add_qml_module(Blop
+        URI Blop
+        VERSION 1.0
+        QML_FILES
+            Main.qml
+            ui/ToolSettingsOverlay.qml
+    )
+endif()
 
 # Core Libraries verlinken
 target_link_libraries(Blop PRIVATE
@@ -116,7 +120,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::Qml
 )
 
-# --- PLATTFORM-LOGIK FÜR WEB ---
+# --- PLATTFORM-SPEZIFISCHES LINKING ---
 if(ANDROID)
     target_link_libraries(Blop PRIVATE Qt6::WebView)
     set_target_properties(Blop PROPERTIES
@@ -125,12 +129,8 @@ if(ANDROID)
         QT_ANDROID_MIN_SDK_VERSION "23"
     )
 else()
-    # Desktop: Prüfen ob WebEngine gefunden wurde
     if(Qt6WebEngineWidgets_FOUND)
         target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
-        # Wir definieren ein Makro für den C++ Code
         target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
-    else()
-        message(WARNING "Qt WebEngineWidgets nicht gefunden! Web-Features werden deaktiviert.")
     endif()
 endif()
