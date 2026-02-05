@@ -905,16 +905,32 @@ def render_dashboard():
         navigate_to("workspace")
 
 def render_workspace():
-    # Back Button
-    if st.sidebar.button("⬅️ Zurück zum Dashboard"):
-        navigate_to("dashboard")
-        
-    folder_id = st.session_state.current_folder
-    if folder_id:
-        data = DataManager.load()
-        folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
-        if folder:
-            st.sidebar.markdown(f"**📂 Ordner: {folder['name']}**")
+    # Top Navigation Bar
+    # "oben links": Back Button + Folder Name
+    # "rechts": Buttons (Placeholder / Future)
+    # "hervorgehoben": Using Markdown styling
+    
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
+    
+    with nav_col1:
+        if st.button("⬅️ Dashboard", type="secondary", use_container_width=True):
+            navigate_to("dashboard")
+            
+    with nav_col2:
+        folder_id = st.session_state.current_folder
+        folder_name = "Workspace"
+        if folder_id:
+            data = DataManager.load()
+            folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
+            if folder: folder_name = folder['name']
+            
+        # Display Folder Name prominent
+        st.markdown(f"### 📂 {folder_name}")
+
+    with nav_col3:
+        pass # Right side placeholder (User requested buttons here, maybe move Save here later)
+
+    st.markdown("---")
 
     # --- Existing Workspace Logic ---
     main_container = st.container()
