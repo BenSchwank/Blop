@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QTabWidget>
+#include <QTreeView>
 #include <QListView>
 #include <QListWidget>
 #include <QFileSystemModel>
@@ -26,7 +27,11 @@
 #include "freegridview.h"
 #include "canvasview.h"
 #include "uiprofilemanager.h"
-#include "pagemanager.h" // Wichtig: PageManager Header
+#include "pagemanager.h"
+
+// Forward Declarations für Web-Komponenten, um Header-Dependencies gering zu halten
+class QWebEngineView;
+class QQuickWidget;
 
 class MainWindow;
 
@@ -138,7 +143,7 @@ private slots:
     void onTabChanged(int index);
 
     void onToggleRightSidebar();
-    void onTogglePageManager(); // NEU: Slot für Button
+    void onTogglePageManager();
 
     void setPageColor(bool dark);
 
@@ -156,6 +161,9 @@ private slots:
     void onWinMinimize();
     void onWinMaximize();
     void onWinClose();
+
+    // Neuer Slot für Web/Notiz Umschaltung
+    void onModeChanged(int index);
 
 private:
     void setupUi();
@@ -182,6 +190,13 @@ private:
 
     CanvasView* getCurrentCanvas();
     void setActiveTool(CanvasView::ToolType tool);
+
+    // --- NEU: Web Integration ---
+    void setupWebBrowser(); // Initialisiert Study View
+    QWidget* m_studyContainer; // Container für Web View
+    QStackedWidget* m_mainContentStack; // Wechselt zwischen Notizen und Study
+    QComboBox* m_modeSelector; // Dropdown "Notizen" vs "Study"
+    // ----------------------------
 
     UiProfileManager *m_profileManager;
     UiProfile m_currentProfile;
@@ -244,10 +259,10 @@ private:
     QSlider *m_sliderToolbarScale;
 
     QWidget *m_floatingTools;
-    PageManager *m_pageManager; // NEU: Member für Overlay
+    PageManager *m_pageManager;
 
     ModernButton *btnEditorSettings;
-    ModernButton *m_btnPages; // NEU: Der Button
+    ModernButton *m_btnPages;
     ModernButton *btnBackOverview;
 
     QString m_rootPath;
