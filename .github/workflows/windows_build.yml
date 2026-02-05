@@ -18,12 +18,12 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.6.0'
+          version: '6.7.2'
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2019_64'
-          # WICHTIG: WebEngine muss explizit installiert werden!
           modules: 'qtwebengine'
+          cache: 'true'
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -46,9 +46,9 @@ jobs:
       - name: Copy Executable
         run: copy build\Blop.exe deployment\Blop.exe
 
-      # Windeployqt muss auch die WebEngine DLLs kopieren
+      # Windeployqt muss laufen, um die riesigen WebEngine DLLs zu kopieren
       - name: Run windeployqt
-        run: windeployqt --dir deployment deployment\Blop.exe --compiler-runtime
+        run: windeployqt --dir deployment deployment\Blop.exe --compiler-runtime --no-translations
 
       - name: Zip Release
         uses: TheDoctor0/zip-release@0.7.1
@@ -76,7 +76,7 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: nightly
           name: Nightly Build (Latest)
-          body: "Neuester automatischer Build."
+          body: "Neuester automatischer Build mit WebEngine (Qt 6.7.2)."
           files: deployment/Blop_Windows.zip
           draft: false
           prerelease: true

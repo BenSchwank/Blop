@@ -19,8 +19,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- BASIS-PAKETE ---
-# WICHTIG: "QuickWidgets" wurde entfernt, da es auf dem Android-Build-Server Probleme machte.
-# Wir nutzen jetzt QQuickView, das im Modul "Quick" enthalten ist.
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 # --- WEB-MODUL WEICHE ---
@@ -28,8 +26,9 @@ if(ANDROID)
     # Android: Native WebView (leichtgewichtig)
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
-    # Desktop: WebEngine (Chromium) - Optional, damit es lokal baut, auch wenn das Modul fehlt
-    find_package(Qt6 COMPONENTS WebEngineWidgets)
+    # Desktop: WebEngine (Chromium)
+    # WICHTIG: JETZT 'REQUIRED', DAMIT DER BUILD NICHT OHNE BROWSER ERFOLGT!
+    find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
 endif()
 
 qt_add_executable(Blop
@@ -118,7 +117,6 @@ target_link_libraries(Blop PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Qml
-    # Qt6::QuickWidgets  <-- Entfernt! Wir nutzen jetzt QQuickView statt QQuickWidget.
 )
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
@@ -130,9 +128,7 @@ if(ANDROID)
         QT_ANDROID_MIN_SDK_VERSION "23"
     )
 else()
-    # Wenn WebEngine gefunden wurde, verlinken und Macro setzen
-    if(Qt6WebEngineWidgets_FOUND)
-        target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
-        target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
-    endif()
+    # Desktop: WebEngine ist jetzt Pflicht
+    target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
+    target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
 endif()
