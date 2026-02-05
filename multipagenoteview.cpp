@@ -1,7 +1,8 @@
 #include "multipagenoteview.h"
 #include "UIStyles.h"
-#include "tools/ToolManager.h"   // <--- NEU: Wichtig für die neuen Tools
-#include "tools/AbstractTool.h"  // <--- NEU
+#include "tools/ToolManager.h"
+#include "tools/AbstractTool.h"
+#include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
 #include <QGraphicsRectItem>
 #include <QPainterPath>
 #include <QPen>
@@ -12,7 +13,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QPdfWriter>
-#include <QGraphicsSceneMouseEvent> // <--- NEU: Für Event-Weiterleitung
+#include <QGraphicsSceneMouseEvent>
 
 static constexpr int A4W = 793;
 static constexpr int A4H = 1122;
@@ -35,9 +36,20 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
 
     viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
 
-    // NEU: Wenn sich das Tool ändert (z.B. Lasso gewählt), View aktualisieren (für Overlay/Cursor)
-    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool*){
+    // NEU: Tool-Handling inkl. Lineal
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool* tool){
+        // Wenn Lineal gewählt ist, sicherstellen, dass es existiert
+        if(tool && tool->mode() == ToolMode::Ruler) {
+            RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+        }
         viewport()->update();
+    });
+
+    // NEU: Config-Änderungen (z.B. Lineal-Einheiten)
+    connect(&ToolManager::instance(), &ToolManager::configChanged, this, [this](const ToolConfig& config){
+        if(ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+            RulerTool::ensureRulerExists(&scene_, config);
+        }
     });
 }
 
@@ -47,6 +59,12 @@ void MultiPageNoteView::setNote(Note *note) {
     pageItems_.clear();
 
     layoutPages();
+
+    // Wenn wir beim Laden im Lineal-Modus sind, muss das Lineal wiederhergestellt werden
+    // (da scene_.clear() es gelöscht hat)
+    if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+        RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+    }
 
     if (!note_) return;
 
@@ -78,7 +96,10 @@ void MultiPageNoteView::setNote(Note *note) {
 }
 
 void MultiPageNoteView::layoutPages() {
+    // Vorhandene Seiten-Items entfernen
     for (auto* item : pageItems_) {
+        // Sicherstellen, dass wir nicht versehentlich das Lineal oder andere Tools löschen,
+        // falls diese in der scene_ liegen (RulerItem hat eigenen Type, sollte sicher sein)
         scene_.removeItem(item);
         delete item;
     }
@@ -90,6 +111,8 @@ void MultiPageNoteView::layoutPages() {
 
     for (int i = 0; i < n; ++i) {
         auto pageItem = new PageItem(0, 0, A4W, A4H);
+        // Seiten ganz unten (Z=0 oder negativ), damit Lineal drüber ist
+        pageItem->setZValue(0);
         scene_.addItem(pageItem);
         pageItem->setPos(0, y);
         pageItems_.push_back(pageItem);
@@ -115,6 +138,12 @@ void MultiPageNoteView::addNewPage() {
     if (!note_) return;
     note_->ensurePage(note_->pages.size());
     layoutPages();
+
+    // Auch hier: Sicherstellen, dass Lineal oben bleibt, falls layoutPages() Z-Order ändert
+    if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+        RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+    }
+
     if (onSaveRequested) onSaveRequested(note_);
 }
 
@@ -216,8 +245,7 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
         }
     }
 
-    // --- NEU: Zuerst den ToolManager prüfen ---
-    // Damit funktionieren Lasso, Eraser etc. aus der Toolbar
+    // --- ToolManager & Ruler Logic ---
     AbstractTool* tool = ToolManager::instance().activeTool();
     if (tool && e->button() == Qt::LeftButton) {
         QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMousePress);
@@ -226,16 +254,15 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
         scEvent.setButtons(e->buttons());
         scEvent.setModifiers(e->modifiers());
 
-        // Wir übergeben unsere lokale 'scene_'
+        // An scene_ weiterleiten, damit Lineal-Tool Events bekommt
         if (tool->handleMousePress(&scEvent, &scene_)) {
             e->accept();
-            return; // Tool hat Event verarbeitet -> fertig
+            return;
         }
     }
     // ------------------------------------------
 
     if (e->button() == Qt::LeftButton) {
-        // Fallback zur alten Logik (interner Pen)
         QTabletEvent fake(QEvent::TabletPress, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
     } else {
@@ -275,7 +302,7 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 
     if (m_penOnlyMode && isTouch && !m_isPanning) { e->accept(); return; }
 
-    // --- NEU: ToolManager Move Event ---
+    // --- ToolManager Logic ---
     AbstractTool* tool = ToolManager::instance().activeTool();
     if (tool) {
         QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseMove);
@@ -290,7 +317,6 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     }
     // -----------------------------------
 
-    // Fallback: Alte Logik
     if (e->buttons() & Qt::LeftButton && drawing_) {
         QTabletEvent fake(QEvent::TabletMove, QPointingDevice::primaryPointingDevice(), e->position(), e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(), e->button(), e->buttons());
         tabletEvent(&fake);
@@ -314,7 +340,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 
     if (m_isZooming) { e->accept(); return; }
 
-    // --- NEU: ToolManager Release Event ---
+    // --- ToolManager Logic ---
     AbstractTool* tool = ToolManager::instance().activeTool();
     if (tool && e->button() == Qt::LeftButton) {
         QGraphicsSceneMouseEvent scEvent(QEvent::GraphicsSceneMouseRelease);
@@ -322,7 +348,6 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
         scEvent.setButton(e->button());
 
         if (tool->handleMouseRelease(&scEvent, &scene_)) {
-            // Optional: Speichern triggern, wenn Tool fertig ist
             if (onSaveRequested) onSaveRequested(note_);
             e->accept();
             return;
@@ -339,15 +364,13 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
-    // --- NEU: Wenn ein Tool (z.B. Lasso) aktiv ist, Tablet-Event ignorieren ---
-    // Dadurch generiert Qt ein MouseEvent, das wir oben im mousePressEvent abfangen
-    // und an das Lasso-Tool weiterleiten.
+    // Wenn Ruler oder ein anderes Tool aktiv ist, Tablet-Event ignorieren und
+    // auf MouseEvent-Verarbeitung (oben) verlassen.
     if (ToolManager::instance().activeTool()) {
         e->ignore();
         return;
     }
 
-    // --- Alte Logik (nur aktiv, wenn KEIN ToolManager-Tool aktiv ist) ---
     if (!note_ || mode_ == ToolMode::Lasso) { e->ignore(); return; }
 
     QPointF scenePos = mapToScene(e->position().toPoint());
@@ -473,7 +496,6 @@ void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
         drawPullIndicator(painter);
     }
 
-    // --- NEU: Tool Overlay (z.B. Selektionsrahmen) zeichnen ---
     AbstractTool* tool = ToolManager::instance().activeTool();
     if (tool) {
         painter->save();
@@ -525,3 +547,4 @@ void MultiPageNoteView::drawPullIndicator(QPainter* painter) {
     }
     painter->restore();
 }
+

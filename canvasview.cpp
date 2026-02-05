@@ -3,6 +3,7 @@
 #include "UIStyles.h"
 #include "tools/ToolManager.h"
 #include "tools/AbstractTool.h"
+#include "tools/RulerTool.h" // NEU: RulerTool Header
 #include <QScrollBar>
 #include <QGraphicsItem>
 #include <QPainterPath>
@@ -560,7 +561,14 @@ CanvasView::CanvasView(QWidget *parent)
     updateBackgroundTile();
 
     connect(this, &CanvasView::contentModified, this, &CanvasView::updateSceneRect);
-    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool*){ viewport()->update(); });
+
+    // VERBESSERTE TOOL LOGIK
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this, [this](AbstractTool* tool){
+        if(tool && tool->mode() == ToolMode::Ruler) {
+            RulerTool::ensureRulerExists(m_scene, ToolManager::instance().config());
+        }
+        viewport()->update();
+    });
 
     // --- MENUS ---
     m_selectionMenu = new SelectionMenu(this);
@@ -827,6 +835,12 @@ void CanvasView::setTool(ToolType tool) {
         else if (tool == ToolType::Highlighter) setCursor(Qt::CrossCursor);
         else if (tool == ToolType::Eraser) setCursor(Qt::ForbiddenCursor);
         else if (tool == ToolType::Lasso) setCursor(Qt::CrossCursor);
+    }
+
+    // LINEAL INTEGRATION (FALLS ToolType::Ruler EXISTIERT ODER VIA TOOLMANAGER GESTEUERT WIRD)
+    // Wenn ToolManager bereits auf Ruler ist, sicherstellen, dass es existiert.
+    if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+        RulerTool::ensureRulerExists(m_scene, ToolManager::instance().config());
     }
 }
 
