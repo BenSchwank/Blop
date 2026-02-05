@@ -18,16 +18,16 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# --- BASIS-PAKETE ---
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
+# --- BASIS-PAKETE (Inklusive QuickWidgets für Android) ---
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml QuickWidgets)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
-    # Android: Native WebView (leichtgewichtig)
+    # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
     # Desktop: WebEngine (Chromium)
-    # WICHTIG: JETZT 'REQUIRED', DAMIT DER BUILD NICHT OHNE BROWSER ERFOLGT!
+    # ÄNDERUNG: Jetzt REQUIRED! Damit bricht der Build ab, wenn es fehlt.
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
 endif()
 
@@ -117,6 +117,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Qml
+    Qt6::QuickWidgets # Bleibt drin, da es bei dir für Android funktioniert
 )
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
@@ -128,7 +129,7 @@ if(ANDROID)
         QT_ANDROID_MIN_SDK_VERSION "23"
     )
 else()
-    # Desktop: WebEngine ist jetzt Pflicht
+    # Desktop: WebEngine wird verlinkt (Da REQUIRED oben, ist es sicher da)
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
 endif()
