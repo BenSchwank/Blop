@@ -18,17 +18,15 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Basis-Module
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
+# --- FIX: QuickWidgets hinzugefügt (Wichtig für QQuickWidget auf Android) ---
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml QuickWidgets)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
     # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
-    # Desktop: WebEngine (Chromium)
-    # Wir machen es OPTIONAL, damit es nicht crasht, falls es doch fehlt,
-    # aber wir setzen ein Define, wenn es da ist.
+    # Desktop: WebEngine (Chromium) - Optional, falls nicht installiert
     find_package(Qt6 COMPONENTS WebEngineWidgets)
 endif()
 
@@ -100,7 +98,7 @@ qt_add_executable(Blop
     BlopImageResponse.cpp
 )
 
-# QML Modul Definition
+# QML Modul Definition (Nur für Android relevant)
 if(ANDROID)
     qt_add_qml_module(Blop
         URI Blop
@@ -118,6 +116,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Qml
+    Qt6::QuickWidgets  # <--- HIER: Das hat gefehlt!
 )
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
