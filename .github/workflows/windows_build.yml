@@ -23,7 +23,7 @@ jobs:
           target: 'desktop'
           arch: 'win64_msvc2019_64'
           modules: 'qtwebengine'
-          cache: 'true'
+          cache: 'false'  # <--- FIX: Cache deaktiviert wegen 400 Error!
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -46,7 +46,7 @@ jobs:
       - name: Copy Executable
         run: copy build\Blop.exe deployment\Blop.exe
 
-      # Windeployqt muss laufen, um die riesigen WebEngine DLLs zu kopieren
+      # Windeployqt: Kopiert WebEngine DLLs (ca. 100MB+)
       - name: Run windeployqt
         run: windeployqt --dir deployment deployment\Blop.exe --compiler-runtime --no-translations
 
@@ -57,7 +57,7 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
-      # Upload Versioned Release (bei Tags wie v1.0)
+      # Upload Versioned Release
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
@@ -68,7 +68,7 @@ jobs:
           prerelease: false
           repository: BenSchwank/Blop-releases
 
-      # Upload Nightly Release (bei jedem Push auf master)
+      # Upload Nightly Release
       - name: Upload Nightly Release
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v1
@@ -76,7 +76,7 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: nightly
           name: Nightly Build (Latest)
-          body: "Neuester automatischer Build mit WebEngine (Qt 6.7.2)."
+          body: "Neuester automatischer Build mit WebEngine."
           files: deployment/Blop_Windows.zip
           draft: false
           prerelease: true
