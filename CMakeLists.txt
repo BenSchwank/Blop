@@ -19,15 +19,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- BASIS-PAKETE ---
-# WICHTIG: "QuickWidgets" wurde entfernt, da wir auf Android nun QQuickView nutzen
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
-    # Android: Native WebView (leichtgewichtig)
+    # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
-    # Desktop: WebEngine (Chromium) - REQUIRED, damit der Build abbricht, falls es fehlt!
+    # Desktop: WebEngine (Chromium) - REQUIRED
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
 endif()
 
@@ -64,27 +63,23 @@ qt_add_executable(Blop
     pagemanager.h
     pagemanager.cpp
 
-    # Tool Architecture Basis
+    # Tools
     tools/AbstractTool.h
     tools/ToolManager.h
     tools/ToolManager.cpp
     tools/ToolUIBridge.h
     tools/ToolFactory.h
     tools/StrokeItem.h
-
-    # Die Werkzeuge selbst
     tools/AbstractStrokeTool.h
     tools/WritingTools.h
     tools/EraserTool.h
     tools/LassoTool.h
     tools/ShapeTool.h
     tools/ImageTool.h
-
-    # NEU: Lineal (Ruler)
     tools/RulerItem.h
     tools/RulerTool.h
 
-    # Hilfs-Dateien
+    # Helper
     Note.h
     PageItem.h
     ToolMode.h
@@ -92,7 +87,7 @@ qt_add_executable(Blop
     UIStyles.h
     uiprofile.h
 
-    # Bild-Provider
+    # Image-Provider
     BlopAsyncImageProvider.h
     BlopAsyncImageProvider.cpp
     BlopImageResponse.h
@@ -128,7 +123,7 @@ if(ANDROID)
         QT_ANDROID_MIN_SDK_VERSION "23"
     )
 else()
-    # Desktop: WebEngine ist jetzt Pflicht
+    # Desktop: WebEngine linken und Define setzen
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
 endif()

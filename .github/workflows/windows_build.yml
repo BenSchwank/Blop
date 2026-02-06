@@ -15,15 +15,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          version: '6.7.2'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2019_64'
-          modules: 'qtwebengine'
-          cache: 'false'  # <--- FIX: Cache deaktiviert wegen 400 Error!
+          python-version: '3.x'
+
+      # FIX: Nutze aqtinstall statt install-qt-action für zuverlässige WebEngine-Installation
+      - name: Install Qt via aqtinstall
+        shell: pwsh
+        run: |
+          pip install aqtinstall
+          # Installiere Qt 6.7.2 mit WebEngine und WebChannel
+          aqt install-qt windows desktop 6.7.2 win64_msvc2019_64 -m qtwebengine qtwebchannel qtpositioning
+
+          # Pfad für spätere Steps setzen
+          $qtBase = "${{ runner.workspace }}\Qt\6.7.2\msvc2019_64"
+          echo "QT_ROOT=$qtBase" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          # Bin-Verzeichnis zum PATH hinzufügen
+          echo "$qtBase\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -33,22 +43,31 @@ jobs:
 
       - name: Configure CMake
         working-directory: build
-        # Release Build konfigurieren
-        run: cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+        # WICHTIG: CMAKE_PREFIX_PATH auf das via aqt installierte Qt setzen
+        run: cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ env.QT_ROOT }}"
 
       - name: Build
         working-directory: build
         run: nmake
 
       - name: Prepare Deployment
-        run: mkdir deployment
+        run: |
+          mkdir deployment
+          copy build\Blop.exe deployment\Blop.exe
 
-      - name: Copy Executable
-        run: copy build\Blop.exe deployment\Blop.exe
-
-      # Windeployqt: Kopiert WebEngine DLLs (ca. 100MB+)
+      # Windeployqt: Explizit --release und --compiler-runtime nutzen
       - name: Run windeployqt
-        run: windeployqt --dir deployment deployment\Blop.exe --compiler-runtime --no-translations
+        shell: cmd
+        run: |
+          windeployqt --dir deployment deployment\Blop.exe --release --compiler-runtime --no-translations --no-opengl-sw
+
+      # Sicherheitscheck: Prüfen ob WebEngine wirklich da ist (verhindert 'leere' Releases)
+      - name: Check WebEngine Deployment
+        shell: pwsh
+        run: |
+          if (!(Test-Path "deployment\Qt6WebEngineCore.dll")) { Write-Error "CRITICAL: Qt6WebEngineCore.dll missing!" }
+          if (!(Test-Path "deployment\QtWebEngineProcess.exe")) { Write-Error "CRITICAL: QtWebEngineProcess.exe missing!" }
+          if (!(Test-Path "deployment\resources")) { Write-Error "CRITICAL: Resources folder missing!" }
 
       - name: Zip Release
         uses: TheDoctor0/zip-release@0.7.1
