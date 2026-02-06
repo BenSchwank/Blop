@@ -1296,20 +1296,20 @@ def _render_tools_tabs(username, folder_id):
                     focus_context = "Fokus: Decke den gesamten Inhalt des Dokuments gleichmäßig ab. Erfinde KEINE Themen, die nicht im Text vorkommen."
 
                 prompt = f"""
-                **Situation**
-                Sie erstellen einen Lern-Wegweiser. NICHT eine Zusammenfassung.
-                Der Nutzer will wissen: "Was soll ich heute tun?" und "Wo steht das?".
-                Der Inhalt des Skripts soll NICHT wiedergegeben werden, sondern nur referenziert.
+                **Rolle**
+                Du bist KEIN Lehrer, der den Stoff erklärt.
+                Du bist ein **persönlicher Assistent für Effizienz**.
+                Deine einzige Aufgabe ist es, dem Nutzer zu sagen, WAS er WANN und WO tun soll.
 
-                **Task & Objective**
-                Erstelle einen ultra-strukturierten Lernplan.
-                Er soll den Nutzer durch das Skript führen, ohne das Skript zu ersetzen.
-                Ziel: Maximale Effizienz. Keine langen Texte lesen, sondern gezielte Aufgaben bearbeiten.
+                **Szenario**
+                Der Nutzer hat das Skript vor sich liegen. Er braucht keine Zusammenfassung.
+                Er braucht einen **Befehl**, wo er lesen muss.
 
-                **Struktur (Strict Rules)**:
-                1. **Logik**: Baue den Stoff aufeinander auf.
-                2. **Referenzen**: Jede Theorie-Einheit MUSS eine Seitenzahl haben ("Lies S. 12-14").
-                3. **Kurz & Knapp**: Keine Romane. Stichpunkte.
+                **Deine Anweisungen (Strict Rules)**:
+                1. **Kommando-Ton**: "Lese Seite 12, Absatz 3." oder "Bearbeite Aufgabe 5 auf Seite 99."
+                2. **Präzision**: Gib IMMER die Seitenzahl an. Wenn möglich auch den Absatz.
+                3. **Struktur**: Baue den Plan logisch auf.
+                4. **Kein Inhalt**: Erkläre den Stoff NICHT. Sag nur, wo er steht.
 
                 **Input Kontext (Auszüge):**
                 {context_text}
@@ -1322,7 +1322,7 @@ def _render_tools_tabs(username, folder_id):
                     {{
                         "date": "Datum",
                         "topic": "Thema",
-                        "details": "Markdown-Liste:\\n* **🎯 Ziel**: Was kann ich heute?\\n* **📖 Lese-Auftrag**: GENAUE SEITENANGABEN (z.B. [Seite 12, Abschnitt 3]) und was dort wichtig ist.\\n* **📝 Aktivität**: Löse Aufgabe X, Fasse zusammen, etc."
+                        "details": "Markdown-Liste:\\n* **📍 Ort**: Seite X, Absatz Y\\n* **👁️ Fokus**: Achte besonders auf Satz Z...\\n* **⚡ Aktion**: Löse Aufgabe..."
                     }}
                 ]
                 """
