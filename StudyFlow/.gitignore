@@ -1,0 +1,14 @@
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Data / Persistence
+user_data/
+faiss_index/
+
+# Python / Environment
+__pycache__/
+*.pyc
+.env
+.venv/
+env/
