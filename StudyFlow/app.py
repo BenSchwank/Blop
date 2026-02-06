@@ -1199,13 +1199,22 @@ def _render_tools_tabs(username, folder_id):
                 elif "Übung" in doc_type:
                     goal_instruction = "Dies sind Übungsblätter. Der Lernplan soll sich auf das aktive Lösen dieser Aufgaben konzentrieren."
                 
+                # Check for empty focus
+                focus_context = ""
+                if focus_topic:
+                    focus_context = f"Fokus-Thema des Nutzers: {focus_topic}. (Richte den Plan stark danach aus)"
+                else:
+                    focus_context = "Fokus: Decke den gesamten Inhalt des Dokuments gleichmäßig ab. Erfinde KEINE Themen, die nicht im Text vorkommen."
+
                 prompt = f"""Rolle: Lern-Coach. Erstelle Lernplan ({days_count} Einheiten) für: {date_list_str}.
                 Dokument-Typ: {doc_context}.
-                Fokus-Thema des Nutzers: {focus_topic}.
+                {focus_context}
                 
                 ZIEL: {goal_instruction}
                 
                 Inhalt (Auszug): {context_text}.
+                
+                WICHTIG: Nutze NUR die Themen aus dem 'Inhalt'. Falls der Inhalt 'Analyse' oder 'Differentialrechnung' NICHT enthält, darfst du diese Themen NICHT verwenden!
                 
                 Output nur JSON: [{{ "date": "DD.MM.YYYY", "topic": "...", "details": "Markdown..." }}]"""
                 
