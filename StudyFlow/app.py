@@ -529,6 +529,11 @@ def get_summary_prompt(mode, text, language="Deutsch", focus=""):
     focus_instruction = ""
     if focus:
         focus_instruction = f"**FOKUS**: Der Nutzer möchte besonders folgendes beachtet haben: '{focus}'. Richte die Zusammenfassung stark danach aus!"
+    else:
+        focus_instruction = "**FOKUS**: Erstelle eine umfassende, neutrale Zusammenfassung, die alle Hauptthemen des Textes abdeckt. Identifiziere Schlüsselkonzepte und erkläre sie verständlich."
+
+    # Anti-Hallucination Guard
+    focus_instruction += "\n\n**WICHTIG**: Nutze NUR den untenstehenden 'Input Text'. Erfinde keine Fakten. Wenn der Text unvollständig ist, fasse nur das Vorhandene zusammen."
 
     if "LaTeX" in mode:
         return f"""
