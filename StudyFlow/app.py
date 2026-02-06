@@ -843,10 +843,15 @@ def render_file_manager(username, folder_id):
     # 2. Upload Area
     uploaded = st.file_uploader("PDFs hinzufügen", type=["pdf"], accept_multiple_files=True, key=f"up_{folder_id}", label_visibility="collapsed")
     if uploaded:
+        changes = False
         for f in uploaded:
-            DataManager.save_pdf(f, username, folder_id)
-        st.toast("Gespeichert!")
-        st.rerun()
+            if f.name not in pdfs:
+                DataManager.save_pdf(f, username, folder_id)
+                changes = True
+        
+        if changes:
+            st.toast("Gespeichert!")
+            st.rerun()
 
     st.divider()
     
@@ -855,7 +860,18 @@ def render_file_manager(username, folder_id):
         for p in pdfs:
             c1, c2 = st.columns([4, 1])
             c1.caption(f"📄 {p}")
-            # Optional: Delete button logic here later
+            # Delete Button
+            if c2.button("🗑️", key=f"del_pdf_{p}"):
+                try:
+                    full_path = DataManager.get_pdf_path(p, username, folder_id)
+                    os.remove(full_path)
+                    st.toast(f"Gelöscht: {p}")
+                    # Clear cache if needed or just rerun
+                    if "text_chunks" in st.session_state: del st.session_state.text_chunks
+                    if "vector_index" in st.session_state: del st.session_state.vector_index
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler: {e}")
             
         st.divider()
         
