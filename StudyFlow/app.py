@@ -4,6 +4,7 @@ import google.generativeai as genai
 import faiss
 import numpy as np
 import json
+import ast
 import random
 import time
 import base64
@@ -1224,9 +1225,25 @@ def _render_tools_tabs(username, folder_id):
                     
                     with st.spinner("AI arbeitet..."):
                         resp = genai.GenerativeModel(model_name).generate_content(prompt)
-                        content = resp.text.replace("```json", "").replace("```", "").strip()
-                        if content.startswith("json"): content = content[4:]
-                        st.session_state.plan_data = json.loads(content)
+                        # Robust JSON/List Parsing
+                        content = resp.text.strip()
+                        # Remove Markdown wrappers
+                        if "```" in content:
+                           content = re.sub(r"```(json)?", "", content).replace("```", "").strip()
+                        
+                        try:
+                            st.session_state.plan_data = json.loads(content)
+                        except Exception:
+                            # Fallback: AST for single quotes (Python list)
+                            try:
+                                # Find the actual list part if there's surrounding text
+                                match = re.search(r"\[.*\]", content, re.DOTALL)
+                                if match: content = match.group(0)
+                                st.session_state.plan_data = ast.literal_eval(content)
+                            except Exception as e:
+                                st.error(f"Fehler bei Daten-Verarbeitung: {e}")
+                                st.write("Raw Output:", resp.text)
+                                st.stop()
                         st.rerun()
                 except Exception as e:
                     st.error(f"Fehler: {e}")
