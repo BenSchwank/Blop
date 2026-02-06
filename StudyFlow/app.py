@@ -109,6 +109,32 @@ def latex_to_html(text):
     return text
 
 def create_fallback_pdf(text, source_pdf_stream=None):
+    """Generates a rich PDF locally using HTML conversion."""
+    try:
+        pdf = FPDF()
+        # ... logic as before ...
+
+def clean_json_output(text):
+    """Sanitizes LLM output to extractvalid JSON/List."""
+    # 1. Remove Markdown
+    text = re.sub(r"```(json)?", "", text, flags=re.IGNORECASE).replace("```", "").strip()
+    
+    # 2. Extract outer list [...]
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if match:
+        text = match.group(0)
+    else:
+        # Fallback: Maybe it's just the content?
+        pass
+        
+    # 3. Fix common syntax errors (Missing comma between objects)
+    # Replace "} {" or "}\n{" with "}, {"
+    text = re.sub(r"\}\s*\{", "}, {", text)
+    
+    # 4. Remove comments (// ...)
+    text = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
+    
+    return text
     """Generates a rich PDF locally using HTML conversion and extracting source images."""
     try:
         pdf = FPDF()
@@ -1260,22 +1286,17 @@ def _render_tools_tabs(username, folder_id):
                     model_name = st.session_state.get("model_option", "Automatisch")
                     if model_name == "Automatisch": model_name = get_generative_model_name()
                     
-                    with st.spinner("AI arbeitet..."):
+                    with st.spinner("AI arbeitet (Kann 30s dauern)..."):
                         resp = genai.GenerativeModel(model_name).generate_content(prompt)
-                        # Robust JSON/List Parsing
-                        content = resp.text.strip()
-                        # Remove Markdown wrappers
-                        if "```" in content:
-                           content = re.sub(r"```(json)?", "", content).replace("```", "").strip()
+                        
+                        # Robust Parsing
+                        content = clean_json_output(resp.text)
                         
                         try:
                             st.session_state.plan_data = json.loads(content)
                         except Exception:
                             # Fallback: AST for single quotes (Python list)
                             try:
-                                # Find the actual list part if there's surrounding text
-                                match = re.search(r"\[.*\]", content, re.DOTALL)
-                                if match: content = match.group(0)
                                 st.session_state.plan_data = ast.literal_eval(content)
                             except Exception as e:
                                 st.error(f"Fehler bei Daten-Verarbeitung: {e}")
