@@ -5,6 +5,9 @@
 #include "../ToolSettings.h"
 #include "../ToolMode.h"
 
+// Forward declaration
+class CanvasView;
+
 class ToolManager : public QObject {
     Q_OBJECT
 public:

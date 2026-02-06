@@ -27,6 +27,7 @@
 #include "freegridview.h"
 #include "canvasview.h"
 #include "uiprofilemanager.h"
+#include "tools/ToolManager.h" // WICHTIG: Include für ToolManager
 
 // Forward Declarations
 class MainWindow;
@@ -91,6 +92,7 @@ public:
 
     QIcon createModernIcon(const QString &name, const QColor &color);
     QColor currentAccentColor() const { return m_currentAccentColor; }
+    ToolManager* toolManager() const { return m_toolManager; }
 
     bool isTouchMode() const { return m_currentProfile.isTouchOptimized(); }
 
@@ -140,7 +142,7 @@ private slots:
     void onTabChanged(int index);
 
     void onToggleRightSidebar();
-    void onTogglePageManager(); // NEU
+    void onTogglePageManager();
 
     void setPageColor(bool dark);
 
@@ -159,11 +161,11 @@ private slots:
     void onWinMaximize();
     void onWinClose();
 
-    // Neuer Slot für Web/Notiz Umschaltung
     void onModeChanged(int index);
 
 private:
     void setupUi();
+    void setupTools(); // Initialisiert und registriert Tools
     void setupTitleBar();
     void setupSidebar();
     void setupRightSidebar();
@@ -188,15 +190,16 @@ private:
     CanvasView* getCurrentCanvas();
     void setActiveTool(CanvasView::ToolType tool);
 
-    // --- NEU: Web Integration ---
+    // --- Web Integration ---
     void setupWebBrowser();
-    QWidget* m_studyContainer; // Container für Web View
-    QStackedWidget* m_mainContentStack; // Wechselt zwischen Notizen und Study
-    QComboBox* m_modeSelector; // Dropdown "Notizen" vs "Study"
+    QWidget* m_studyContainer;
+    QStackedWidget* m_mainContentStack;
+    QComboBox* m_modeSelector;
     // ----------------------------
 
     UiProfileManager *m_profileManager;
     UiProfile m_currentProfile;
+    ToolManager *m_toolManager; // Pointer auf Singleton
 
     QWidget *m_centralContainer;
 
@@ -256,10 +259,10 @@ private:
     QSlider *m_sliderToolbarScale;
 
     QWidget *m_floatingTools;
-    PageManager *m_pageManager; // NEU: Member für den PageManager
+    PageManager *m_pageManager;
 
     ModernButton *btnEditorSettings;
-    ModernButton *m_btnPages; // NEU: Button für PageManager
+    ModernButton *m_btnPages;
     ModernButton *btnBackOverview;
 
     QString m_rootPath;

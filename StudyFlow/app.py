@@ -22,6 +22,8 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from fpdf import FPDF
 import markdown
 from data_manager import DataManager
+from auth_manager import AuthManager
+
 
 # Configure Logging
 logging.basicConfig(level=logging.ERROR)
@@ -828,14 +830,29 @@ with st.sidebar:
             pdf_html = display_pdf(file_map[selected_pdf_name])
             st.markdown(pdf_html, unsafe_allow_html=True)
 
-    if st.button("Debug: Modelle prüfen"):
-        try:
-            st.write("Verfügbare Modelle:")
-            for m in genai.list_models():
-                if "generateContent" in m.supported_generation_methods:
-                    st.code(m.name)
-        except Exception as e:
-            st.error(f"Fehler: {e}")
+    # Admin only Debug Tools & Styling
+    username = st.session_state.get("username", "default")
+    if username == "admin_":
+        st.markdown("---")
+        st.caption("🔧 Admin Tools")
+        if st.button("Debug: Modelle prüfen"):
+            try:
+                st.write("Verfügbare Modelle:")
+                for m in genai.list_models():
+                    if "generateContent" in m.supported_generation_methods:
+                        st.code(m.name)
+            except Exception as e:
+                st.error(f"Fehler: {e}")
+    else:
+        # Hide Streamlit UI elements for normal users (Footer, Deploy Button)
+        hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            .stDeployButton {display:none;}
+            </style>
+            """
+        st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 if process_button and uploaded_files:
     if not os.environ.get("GOOGLE_API_KEY"):
@@ -857,12 +874,67 @@ if process_button and uploaded_files:
                 st.error("Fehler beim Erstellen des Index.")
 
 # --- DASHBOARD & WORKSPACE LOGIC ---
+def render_login_screen():
+    st.title("🔐 Blop Study Anmeldung")
+    
+    col1, col2 = st.columns([1,1])
+    
+    with col1:
+        st.subheader("Einloggen")
+        l_user = st.text_input("Benutzername", key="login_user")
+        l_pass = st.text_input("Passwort", type="password", key="login_pass")
+        if st.button("Login", type="primary"):
+            if AuthManager.login(l_user, l_pass):
+                st.session_state.authenticated = True
+                st.session_state.username = l_user
+                st.success(f"Willkommen {l_user}!")
+                st.rerun()
+            else:
+                st.error("Falscher Benutzername oder Passwort.")
+
+    with col2:
+        st.subheader("Registrieren")
+        r_user = st.text_input("Neuer Benutzername", key="reg_user")
+        r_pass = st.text_input("Neues Passwort", type="password", key="reg_pass")
+        if st.button("Konto erstellen"):
+            if r_user and r_pass:
+                if AuthManager.register(r_user, r_pass):
+                    st.success("Konto erstellt! Bitte einloggen.")
+                else:
+                    st.error("Benutzername vergeben.")
+            else:
+                st.warning("Bitte alles ausfüllen.")
 
 def render_dashboard():
     # Load Data
-    data = DataManager.load()
+    username = st.session_state.get("username", "default")
+    data = DataManager.load(username)
     
-    st.subheader("📁 Meine Ordner")
+    st.subheader(f"📁 Meine Ordner ({username})")
+    if st.button("Abmelden", type="tertiary"):
+        AuthManager.logout()
+    
+    # Admin Panel (Only for admin_)
+    if username == "admin_":
+        with st.expander("👮 Admin Panel", expanded=True):
+            st.warning("⚠️ Admin-Bereich - Nutzerverwaltung")
+            users = AuthManager.get_all_users()
+            st.metric("Registrierte Nutzer", len(users))
+            
+            st.markdown("### Nutzerliste")
+            # User List
+            for u, info in users.items():
+                col_a, col_b, col_c = st.columns([2, 2, 1])
+                with col_a:
+                    st.write(f"👤 **{u}**")
+                with col_b:
+                    st.caption(f"Registriert: {info.get('created_at', '?')}")
+                with col_c:
+                    if u != "admin_":
+                        if st.button("🗑️", key=f"del_user_{u}", help="Nutzer löschen"):
+                            AuthManager.delete_user(u)
+                            st.rerun()
+            st.markdown("---")
     
     # Grid Layout for Folders
     cols = st.columns(4)
@@ -872,7 +944,7 @@ def render_dashboard():
         with st.popover("➕ Neu"):
             new_folder_name = st.text_input("Name")
             if st.button("Erstellen"):
-                DataManager.create_folder(new_folder_name)
+                DataManager.create_folder(new_folder_name, username)
                 st.rerun()
                 
     # Render folders
@@ -919,8 +991,10 @@ def render_workspace():
     with nav_col2:
         folder_id = st.session_state.current_folder
         folder_name = "Workspace"
+        username = st.session_state.get("username", "default")
+        
         if folder_id:
-            data = DataManager.load()
+            data = DataManager.load(username)
             folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
             if folder: folder_name = folder['name']
             
@@ -1247,7 +1321,7 @@ def render_workspace():
                         def_title = uploaded_files[0].name.replace(".pdf", "")
                     
                     # Save
-                    DataManager.save_summary(def_title, st.session_state.summary_text, st.session_state.current_folder)
+                    DataManager.save_summary(def_title, st.session_state.summary_text, st.session_state.get("username"), st.session_state.current_folder)
                     st.toast("Gespeichert!")
                     time.sleep(1) # Feedback
                     navigate_to("dashboard")
@@ -1330,6 +1404,10 @@ def render_workspace():
 # Execute Layout
 
 def main():
+    if not AuthManager.check_login():
+        render_login_screen()
+        return
+
     if st.session_state.current_page == "dashboard":
         render_dashboard()
     elif st.session_state.current_page == "workspace":

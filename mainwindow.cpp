@@ -12,6 +12,16 @@
 #include "notemanager.h"
 #include "pagemanager.h"
 #include "Note.h"
+#include "tools/ToolManager.h"
+#include "ToolMode.h"
+
+// Tools Includes
+#include "tools/WritingTools.h" // Enthält PenTool, PencilTool, HighlighterTool
+#include "tools/EraserTool.h"
+#include "tools/LassoTool.h"
+#include "tools/RulerTool.h"
+#include "tools/ImageTool.h"
+#include "tools/ShapeTool.h"
 // -------------------------------------
 
 #include <QApplication>
@@ -52,9 +62,7 @@
 #include <QScreen>
 #include <QScroller>
 
-// --- CROSS-PLATFORM WEB INCLUDES ---
 #ifdef Q_OS_ANDROID
-// FIX: QQuickView statt QQuickWidget für Android (Robuster auf GitHub Actions)
 #include <QQuickView>
 #include <QWidget>
 #include <QQmlContext>
@@ -75,10 +83,8 @@ static const int ROW_HEIGHT_HEADER = 50;
 static const int ROW_HEIGHT_ITEM = 64;
 static const int FONT_SIZE_BASE = 16;
 static const int FONT_SIZE_HEADER = 22;
-
 static const int MARGIN_ANDROID_TOP = 50;
 static const int MARGIN_ANDROID_SIDE = 16;
-
 static const int FAB_SIZE_ANDROID = 56;
 static const int FAB_DISTANCE_FROM_BOTTOM = 30;
 #else
@@ -94,7 +100,6 @@ static const int MARGIN_OVERVIEW = 30;
 // 1. DELEGATES & BUTTONS
 // ============================================================================
 
-// --- SidebarNavDelegate ---
 SidebarNavDelegate::SidebarNavDelegate(MainWindow *parent)
     : QStyledItemDelegate(parent), m_window(parent) {}
 
@@ -183,7 +188,6 @@ void SidebarNavDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
     painter->restore();
 }
 
-// --- ModernItemDelegate ---
 ModernItemDelegate::ModernItemDelegate(MainWindow *parent) : QStyledItemDelegate(parent), m_window(parent) {}
 QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const { return QStyledItemDelegate::sizeHint(option, index); }
 void ModernItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
@@ -289,6 +293,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     m_profileManager = new UiProfileManager(this);
     connect(m_profileManager, &UiProfileManager::profileChanged, this, &MainWindow::applyProfile);
 
+    // FIX: Singleton verwenden statt new
+    m_toolManager = &ToolManager::instance();
+
     m_currentAccentColor = QColor(0x5E5CE6);
     m_penColor = Qt::black;
     m_penWidth = 3;
@@ -308,6 +315,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
     connect(m_gridSpacingTimer, &QTimer::timeout, this, &MainWindow::applyDelayedGridSpacing);
 
     createDefaultFolder();
+
+    setupTools();
+
     setupUi();
 
     applyProfile(m_profileManager->currentProfile());
@@ -330,6 +340,26 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_renameOverlay(n
 }
 MainWindow::~MainWindow() {}
 
+void MainWindow::setupTools() {
+    // FIX: Konkrete Tool-Instanzen erstellen und ToolMode enum nutzen
+    if(m_toolManager) {
+        // Register Tools
+        m_toolManager->registerTool(new PenTool());
+        m_toolManager->registerTool(new PencilTool()); // NEU: Bleistift auch registrieren
+        m_toolManager->registerTool(new EraserTool());
+
+        // FIX: HighlighterTool statt MarkerTool
+        m_toolManager->registerTool(new HighlighterTool());
+
+        m_toolManager->registerTool(new LassoTool());
+        m_toolManager->registerTool(new RulerTool());
+        m_toolManager->registerTool(new ImageTool());
+        m_toolManager->registerTool(new ShapeTool());
+
+        m_toolManager->selectTool(ToolMode::Pen);
+    }
+}
+
 void MainWindow::checkForUpdates() {
     if (!m_netManager) {
         m_netManager = new QNetworkAccessManager(this);
@@ -348,16 +378,14 @@ void MainWindow::checkForUpdates() {
 
 void MainWindow::setupTitleBar() {
     m_titleBarWidget = new QWidget(this);
-    m_titleBarWidget->setFixedHeight(40); // Etwas höher für Combobox
+    m_titleBarWidget->setFixedHeight(40);
     m_titleBarWidget->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
     QHBoxLayout* layout = new QHBoxLayout(m_titleBarWidget); layout->setContentsMargins(10, 0, 0, 0); layout->setSpacing(10);
 
-    // Label entfernt, wird durch ComboBox ersetzt oder ergänzt
     QLabel* lblTitle = new QLabel("Blop", m_titleBarWidget);
     lblTitle->setStyleSheet("color: #888; font-weight: bold;");
     layout->addWidget(lblTitle);
 
-    // --- NEU: Mode Selector in Titlebar für Desktop ---
     m_modeSelector = new QComboBox(m_titleBarWidget);
     m_modeSelector->addItem("Notizen");
     m_modeSelector->addItem("Study");
@@ -365,13 +393,12 @@ void MainWindow::setupTitleBar() {
     m_modeSelector->setStyleSheet(
         "QComboBox { background-color: #252526; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px 10px; }"
         "QComboBox::drop-down { border: none; }"
-        "QComboBox::down-arrow { image: none; }" // Optional custom arrow
+        "QComboBox::down-arrow { image: none; }"
         "QComboBox QAbstractItemView { background-color: #252526; color: white; selection-background-color: #5E5CE6; }"
         );
     m_modeSelector->setCursor(Qt::PointingHandCursor);
     connect(m_modeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onModeChanged);
     layout->addWidget(m_modeSelector);
-    // --------------------------------------------------
 
     layout->addStretch();
     QString btnStyle = "QPushButton { background: transparent; border: none; color: #BBB; font-family: 'Segoe MDL2 Assets'; font-size: 12px; } QPushButton:hover { background: #252526; color: white; }";
@@ -568,7 +595,6 @@ void MainWindow::setupUi() {
     QVBoxLayout* mainLayout = new QVBoxLayout(m_centralContainer); mainLayout->setContentsMargins(0, 0, 0, 0); mainLayout->setSpacing(0);
 
 #ifdef Q_OS_ANDROID
-    // Auf Android erstellen wir eine eigene Top-Bar für den Mode-Selector
     QWidget* androidHeader = new QWidget(this);
     androidHeader->setFixedHeight(60);
     androidHeader->setStyleSheet("background-color: #0F111A; border-bottom: 1px solid #1F2335;");
@@ -593,16 +619,13 @@ void MainWindow::setupUi() {
 
     mainLayout->addWidget(androidHeader);
 #else
-    // Auf Desktop ist der Selector in der TitleBar (siehe setupTitleBar)
     if (m_titleBarWidget) {
         mainLayout->addWidget(m_titleBarWidget);
     }
 #endif
 
-    // --- MAIN STACK (Notizen vs Web) ---
     m_mainContentStack = new QStackedWidget(this);
 
-    // Page 0: Notizen (Splitter mit Sidebar & Editor)
     QWidget* notesPage = new QWidget(m_mainContentStack);
     QHBoxLayout* notesLayout = new QHBoxLayout(notesPage);
     notesLayout->setContentsMargins(0, 0, 0, 0);
@@ -611,17 +634,14 @@ void MainWindow::setupUi() {
     m_mainSplitter = new QSplitter(Qt::Horizontal, notesPage);
     notesLayout->addWidget(m_mainSplitter);
 
-    // Splitter konfigurieren
     m_fileModel = new QFileSystemModel(this); m_fileModel->setRootPath(m_rootPath); m_fileModel->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot); m_fileModel->setReadOnly(false);
     connect(m_fileModel, &QFileSystemModel::rowsInserted, this, &MainWindow::updateSidebarBadges);
     connect(m_fileModel, &QFileSystemModel::rowsRemoved, this, &MainWindow::updateSidebarBadges);
 
-    setupSidebar(); // Fügt sich selbst in m_mainSplitter ein (siehe setupSidebar Code)
+    setupSidebar();
 
-    // Right Stack setup
     m_rightStack = new QStackedWidget(this);
     m_overviewContainer = new QWidget(this); m_overviewContainer->installEventFilter(this);
-    // ... (Overview Layout setup wie gehabt) ...
     QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 #ifdef Q_OS_ANDROID
     overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, 20, MARGIN_ANDROID_SIDE, 120);
@@ -662,7 +682,10 @@ void MainWindow::setupUi() {
 #endif
     centerLayout->addLayout(editorHeader);
     m_editorTabs = new QTabWidget(this); m_editorTabs->setDocumentMode(true); m_editorTabs->setTabsClosable(true); connect(m_editorTabs, &QTabWidget::tabCloseRequested, [this](int index){ m_editorTabs->removeTab(index); if (m_editorTabs->count() == 0) onBackToOverview(); }); connect(m_editorTabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged); centerLayout->addWidget(m_editorTabs);
+
+    // TOOLBAR LOGIK
     ModernToolbar* overlayToolbar = new ModernToolbar(m_editorCenterWidget); overlayToolbar->move(20, 80); overlayToolbar->hide(); m_floatingTools = overlayToolbar;
+
     connect(overlayToolbar, &ModernToolbar::toolChanged, [this](ToolMode m){ setActiveTool((CanvasView::ToolType)m); });
     connect(overlayToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo); connect(overlayToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
     connect(overlayToolbar, &ModernToolbar::penConfigChanged, [this](QColor c, int w){ m_penColor = c; m_penWidth = w; CanvasView* cv = getCurrentCanvas(); if(cv) { cv->setPenColor(c); cv->setPenWidth(w); } });
@@ -690,12 +713,10 @@ void MainWindow::setupUi() {
     m_mainSplitter->setHandleWidth(0);
 #endif
 
-    // Page 1: Study Container (Web)
-    setupWebBrowser(); // Initialisiert m_studyContainer
+    setupWebBrowser();
 
-    // Stack füllen
-    m_mainContentStack->addWidget(notesPage);   // Index 0: Notes
-    m_mainContentStack->addWidget(m_studyContainer); // Index 1: Study
+    m_mainContentStack->addWidget(notesPage);
+    m_mainContentStack->addWidget(m_studyContainer);
 
     mainLayout->addWidget(m_mainContentStack);
 
@@ -708,11 +729,9 @@ void MainWindow::setupWebBrowser() {
     layout->setContentsMargins(0,0,0,0);
 
 #ifdef Q_OS_ANDROID
-    // MOBILE: QQuickView (Sicherer als QQuickWidget)
     QQuickView* view = new QQuickView();
     view->setResizeMode(QQuickView::SizeRootObjectToView);
 
-    // QML-Code für die WebView (Temporärdatei schreiben)
     QString tempPath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/blop_webview.qml";
     QFile f(tempPath);
     if(f.open(QIODevice::WriteOnly)) {
@@ -729,18 +748,15 @@ void MainWindow::setupWebBrowser() {
         f.close();
         view->setSource(QUrl::fromLocalFile(tempPath));
     } else {
-        // Fallback falls Schreiben fehlschlägt
         QLabel* err = new QLabel("Fehler: Konnte Web-Modul nicht laden.", m_studyContainer);
         layout->addWidget(err);
         return;
     }
 
-    // Container erstellen, um QWindow (QuickView) in QWidget zu packen
     QWidget* container = QWidget::createWindowContainer(view, m_studyContainer);
     layout->addWidget(container);
 
 #else
-// DESKTOP: QWebEngineView
 #ifdef BLOP_HAS_WEBENGINE
     QWebEngineView* view = new QWebEngineView(m_studyContainer);
     view->load(QUrl("https://blop-study.streamlit.app/"));
@@ -760,9 +776,6 @@ void MainWindow::onModeChanged(int index) {
         m_mainContentStack->setCurrentIndex(index);
     }
 }
-
-// ... Rest der Implementierung (setupSidebar, etc.) bleibt weitgehend gleich ...
-// HIER NUR DIE RESTLICHEN WICHTIGEN METHODEN EINFÜGEN
 
 void MainWindow::setupSidebar() {
     m_sidebarStrip = new QWidget(this);
@@ -1177,8 +1190,13 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         QString fileName = index.data().toString();
         bool isBinary = false;
         { QFile f(path); if (f.open(QIODevice::ReadOnly)) { QDataStream in(&f); quint32 magic; in >> magic; if (magic == 0xB10B0001 || magic == 0xB10B0002) isBinary = true; f.close(); } }
+
         if (isBinary) {
             CanvasView *canvas = new CanvasView(this);
+
+            // WICHTIG: Manager verbinden
+            if(m_toolManager) canvas->setToolManager(m_toolManager);
+
             canvas->setPenColor(m_penColor); canvas->setPenWidth(m_penWidth); canvas->setPenMode(m_penOnlyMode);
             canvas->setFilePath(path); canvas->loadFromFile();
             connect(canvas, &CanvasView::contentModified, this, &MainWindow::onContentModified);
@@ -1250,20 +1268,32 @@ void MainWindow::setPageColor(bool dark) {
 
 void MainWindow::setActiveTool(CanvasView::ToolType tool) {
     m_activeToolType = tool;
+
+    // FIX: Mapping von CanvasView::ToolType zu ToolMode
+    ToolMode tm = ToolMode::Pen;
+
+    switch(tool) {
+    case CanvasView::ToolType::Eraser: tm = ToolMode::Eraser; break;
+    case CanvasView::ToolType::Lasso: tm = ToolMode::Lasso; break;
+    case CanvasView::ToolType::Highlighter: tm = ToolMode::Highlighter; break;
+    case CanvasView::ToolType::Select: tm = ToolMode::Lasso; break; // Select -> Lasso/Hand fallback
+    case CanvasView::ToolType::Ruler: tm = ToolMode::Ruler; break;
+    case CanvasView::ToolType::Image: tm = ToolMode::Image; break;
+    case CanvasView::ToolType::Shape: tm = ToolMode::Shape; break;
+    case CanvasView::ToolType::Pen:
+    default: tm = ToolMode::Pen; break;
+    }
+
+    if(m_toolManager) {
+        m_toolManager->selectTool(tm);
+    }
+
     if (auto* tb = qobject_cast<ModernToolbar*>(m_floatingTools)) {
-        ToolMode tm = ToolMode::Pen;
-        if (tool == CanvasView::ToolType::Eraser) tm = ToolMode::Eraser;
-        else if (tool == CanvasView::ToolType::Lasso) tm = ToolMode::Lasso;
-        else if (tool == CanvasView::ToolType::Highlighter) tm = ToolMode::Highlighter;
         tb->setToolMode(tm);
     }
     QWidget* current = m_editorTabs->currentWidget();
     if (auto* cv = qobject_cast<CanvasView*>(current)) { cv->setTool(tool); }
     else if (auto* editor = qobject_cast<NoteEditor*>(current)) {
-        ToolMode tm = ToolMode::Pen;
-        if (tool == CanvasView::ToolType::Eraser) tm = ToolMode::Eraser;
-        else if (tool == CanvasView::ToolType::Lasso) tm = ToolMode::Lasso;
-        else if (tool == CanvasView::ToolType::Highlighter) tm = ToolMode::Highlighter;
         if (editor->view()) editor->view()->setToolMode(tm);
     }
 }
@@ -1279,6 +1309,16 @@ void MainWindow::onRedo() { CanvasView *cv = getCurrentCanvas(); if (cv) cv->red
 void MainWindow::onTabChanged(int index) {
     QWidget* current = m_editorTabs->currentWidget();
     NoteEditor *editor = qobject_cast<NoteEditor*>(current);
+
+    // WICHTIG: ToolManager auf neuen View aktualisieren
+    CanvasView *cv = qobject_cast<CanvasView*>(current);
+    if(cv && m_toolManager) {
+        // Hinweis: ToolManager hat kein setView() mehr, da CanvasView selbst die Events delegiert
+        // und Tools bei Bedarf die Szene über das Event erhalten.
+        // Falls wir Tool-Status aktualisieren müssen, passiert das hier:
+        cv->setToolManager(m_toolManager);
+    }
+
     setActiveTool(m_activeToolType);
     if (m_lblActiveNote) { QString text = "No Note"; if (index >= 0) text = m_editorTabs->tabText(index); m_lblActiveNote->setText(text); }
     if (m_rightSidebar && m_rightSidebar->isVisible()) { onToggleRightSidebar(); }
