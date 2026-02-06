@@ -1184,9 +1184,23 @@ def _render_tools_tabs(username, folder_id):
                 st.info(f"Erstelle Plan für {days_count} Sessions...")
                 chunks = st.session_state.text_chunks
                 # Sampling logic inline
-                sample = chunks[:2] + random.sample(chunks[2:], min(3, len(chunks)-2)) if len(chunks) > 2 else chunks
+                # Smart Context Sampling (Uniform Distribution instead of Random)
+                # We want to cover the WHOLE document to create a complete plan.
+                # Flash model has huge context, so we can be generous.
+                
+                total_chunks = len(chunks)
+                if total_chunks <= 30:
+                    # Small doc? Take everything.
+                    sample = chunks
+                else:
+                    # Large doc? Take 30 evenly distributed chunks to cover start-to-end
+                    step = max(1, total_chunks // 30)
+                    sample = chunks[::step]
+
                 context_text = ""
-                for c in sample: context_text += f"\n[Seite {c.get('page', '?')}] {c.get('text', '')[:1000]}\n"
+                for c in sample:
+                    # Include Page Number clearly for the AI
+                    context_text += f"\n=== SOURCE_START [Seite {c.get('page', '?')}] ===\n{c.get('text', '')[:2000]}\n=== SOURCE_END ===\n"
                 
                 date_list_str = ", ".join([d.strftime('%d.%m.%Y') for d in study_dates])
                 
@@ -1207,17 +1221,33 @@ def _render_tools_tabs(username, folder_id):
                 else:
                     focus_context = "Fokus: Decke den gesamten Inhalt des Dokuments gleichmäßig ab. Erfinde KEINE Themen, die nicht im Text vorkommen."
 
-                prompt = f"""Rolle: Lern-Coach. Erstelle Lernplan ({days_count} Einheiten) für: {date_list_str}.
-                Dokument-Typ: {doc_context}.
+                prompt = f"""Du bist ein exzellenter Uni-Tutor.
+                
+                AUFGABE: Erstelle einen detaillierten Lernplan für {days_count} Tage ({date_list_str}).
+                DOKUMENT-TYP: {doc_context}.
                 {focus_context}
                 
-                ZIEL: {goal_instruction}
+                INSTRUKTIONEN FÜR DEN INHALT:
+                1. **Struktur**: Der Plan muss logisch aufeinander aufbauen (Start bei Grundlagen -> Ende bei Komplexem).
+                2. **Referenzen**: Du MUSST zu jedem Thema die exakte Seitenzahl aus dem Kontext angeben! (z.B. "Siehe S. 12").
+                3. **Details**: Der 'details'-Text soll Markdown nutzen und folgende Abschnitte haben:
+                   - 🎯 **Ziel**: Was verstehe ich heute?
+                   - 📖 **Theorie**: Was muss ich lesen? (MIT SEITENZAHLEN!)
+                   - 📝 **Praxis**: Welche Übungsaufgaben oder Konzepte soll ich anwenden?
                 
-                Inhalt (Auszug): {context_text}.
+                INPUT KONTEXT (Auszüge aus dem Skript):
+                {context_text}
                 
-                WICHTIG: Nutze NUR die Themen aus dem 'Inhalt'. Falls der Inhalt 'Analyse' oder 'Differentialrechnung' NICHT enthält, darfst du diese Themen NICHT verwenden!
+                OUTPUT FORMAT (JSON):
+                [
+                    {{
+                        "date": "Datum",
+                        "topic": "Kurze Überschrift",
+                        "details": "Markdown Text hier..." 
+                    }}
+                ]
                 
-                Output nur JSON: [{{ "date": "DD.MM.YYYY", "topic": "...", "details": "Markdown..." }}]"""
+                WICHTIG: Erfinde nichts. Nutze nur den Kontext. Gib IMMER Seitenzahlen an!"""
                 
                 try:
                     model_name = st.session_state.get("model_option", "Automatisch")
