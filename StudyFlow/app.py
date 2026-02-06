@@ -932,41 +932,15 @@ def render_login_screen():
         # Google Button
         auth_url = get_google_auth_url()
         if auth_url:
-            st.markdown(f'''
-            <a href="{auth_url}" target="_top" style="
-                text-decoration: none;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 100%;
-                background-color: white;
-                color: #3c4043;
-                border: 1px solid #dadce0;
-                border-radius: 4px;
-                padding: 10px;
-                font-family: 'Google Sans', arial, sans-serif;
-                font-weight: 500;
-                font-size: 14px;
-                cursor: pointer;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-                transition: background-color 0.2s, box-shadow 0.2s;
-                position: relative;
-                z-index: 1;
-            " onmouseover="this.style.backgroundColor='#f8f9fa'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.2)';" 
-              onmouseout="this.style.backgroundColor='white'; this.style.boxShadow='0 1px 2px rgba(0,0,0,0.1)';">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" style="width:18px; height:18px; margin-right: 10px;">
-                Mit Google anmelden
-            </a>
+            st.link_button("Mit Google anmelden", auth_url, type="primary", use_container_width=True)
+            
+            st.markdown("""
             <div style="display: flex; align_items: center; margin: 20px 0; color: #666;">
                 <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
                 <span style="padding: 0 10px; font-size: 12px; text-transform: uppercase;">oder</span>
                 <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
             </div>
-            ''', unsafe_allow_html=True)
-            
-            # Fallback Button (Native)
-            if auth_url:
-                 st.link_button("Backup: Google Login (Klick mich wenn der obere klemmt)", auth_url, type="primary", use_container_width=True)
+            """, unsafe_allow_html=True)
 
         l_user = st.text_input("Benutzername", key="login_user")
         l_pass = st.text_input("Passwort", type="password", key="login_pass")
