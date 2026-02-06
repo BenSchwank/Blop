@@ -20,19 +20,31 @@ jobs:
         with:
           python-version: '3.x'
 
-      # FIX: Nutze aqtinstall statt install-qt-action für zuverlässige WebEngine-Installation
       - name: Install Qt via aqtinstall
         shell: pwsh
         run: |
           pip install aqtinstall
-          # Installiere Qt 6.7.2 mit WebEngine und WebChannel
-          aqt install-qt windows desktop 6.7.2 win64_msvc2019_64 -m qtwebengine qtwebchannel qtpositioning
 
-          # Pfad für spätere Steps setzen
-          $qtBase = "${{ runner.workspace }}\Qt\6.7.2\msvc2019_64"
+          # Definiere das Zielverzeichnis explizit
+          $qtDir = "${{ runner.workspace }}\Qt"
+
+          # Installiere Qt 6.7.2 direkt in dieses Verzeichnis
+          # WICHTIG: --outputdir $qtDir sorgt dafür, dass die Pfade stimmen
+          aqt install-qt windows desktop 6.7.2 win64_msvc2019_64 -m qtwebengine qtwebchannel qtpositioning --outputdir $qtDir
+
+          # Setze den Pfad zur Installation
+          $qtBase = "$qtDir\6.7.2\msvc2019_64"
+
+          # Überprüfung: Existiert qmake?
+          if (-not (Test-Path "$qtBase\bin\qmake.exe")) {
+            Write-Error "Qt Installation fehlgeschlagen! Pfad nicht gefunden: $qtBase"
+            exit 1
+          }
+
+          echo "Qt erfolgreich installiert in: $qtBase"
+
+          # Environment Variables für CMake setzen
           echo "QT_ROOT=$qtBase" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-          # Bin-Verzeichnis zum PATH hinzufügen
           echo "$qtBase\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup MSVC
@@ -43,7 +55,7 @@ jobs:
 
       - name: Configure CMake
         working-directory: build
-        # WICHTIG: CMAKE_PREFIX_PATH auf das via aqt installierte Qt setzen
+        # CMAKE_PREFIX_PATH zeigt jetzt auf den validierten Qt-Ordner
         run: cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ env.QT_ROOT }}"
 
       - name: Build
@@ -55,13 +67,12 @@ jobs:
           mkdir deployment
           copy build\Blop.exe deployment\Blop.exe
 
-      # Windeployqt: Explizit --release und --compiler-runtime nutzen
+      # windeployqt muss ebenfalls den korrekten Pfad nutzen (ist aber durch PATH bereits verfügbar)
       - name: Run windeployqt
         shell: cmd
         run: |
           windeployqt --dir deployment deployment\Blop.exe --release --compiler-runtime --no-translations --no-opengl-sw
 
-      # Sicherheitscheck: Prüfen ob WebEngine wirklich da ist (verhindert 'leere' Releases)
       - name: Check WebEngine Deployment
         shell: pwsh
         run: |
@@ -76,7 +87,6 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
-      # Upload Versioned Release
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
@@ -87,7 +97,6 @@ jobs:
           prerelease: false
           repository: BenSchwank/Blop-releases
 
-      # Upload Nightly Release
       - name: Upload Nightly Release
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v1

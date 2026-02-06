@@ -19,6 +19,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- BASIS-PAKETE ---
+# Hier wird nach Qt6Config.cmake gesucht.
+# Durch den Fix im YAML wird dieser Pfad nun korrekt via CMAKE_PREFIX_PATH gefunden.
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
 
 # --- WEB-MODUL WEICHE ---
@@ -27,6 +29,7 @@ if(ANDROID)
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
     # Desktop: WebEngine (Chromium) - REQUIRED
+    # Dies stellt sicher, dass WebEngineWidgets gelinkt wird.
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
 endif()
 
