@@ -963,6 +963,10 @@ def render_login_screen():
                 <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
             </div>
             ''', unsafe_allow_html=True)
+            
+            # Fallback Button (Native)
+            if auth_url:
+                 st.link_button("Backup: Google Login (Klick mich wenn der obere klemmt)", auth_url, type="primary", use_container_width=True)
 
         l_user = st.text_input("Benutzername", key="login_user")
         l_pass = st.text_input("Passwort", type="password", key="login_pass")
