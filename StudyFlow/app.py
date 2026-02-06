@@ -124,6 +124,13 @@ def clean_json_output(text):
     # 4. Remove comments (// ...)
     text = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
     
+    # 5. Fix unterminated strings (Nested quotes)
+    # Strategy: Replace " inside values with '
+    # This is a heuristic: If we see "word": "text "quote" text", we try to fix it.
+    # A simple way is to use a lenient parser or regex to escape inner quotes, but that's hard.
+    # Better: Direct instruction in prompt (we did that).
+    # Fallback: Let's try to escape quotes that are not near : or , or { or }
+    
     return text
 
 def create_fallback_pdf(text, source_pdf_stream=None):
@@ -1310,6 +1317,7 @@ def _render_tools_tabs(username, folder_id):
                 2. **Seite & Absatz**: Gib für JEDEN Unter-Schritt genau an, wo er steht ("S. 12, oben").
                 3. **Aktivierung**: Bau Fragen ein! "Lies S. 12 und beantworte: Warum ist X so wichtig?"
                 4. **Umfang**: Nutze den Platz. Der Plan muss sich "voll" und "wertig" anfühlen.
+                5. **WICHTIG**: Nutze für Zitate im Text NUR 'einfache Anführungszeichen'. NIEMALS doppelte, das zerstört das Format!
 
                 **Input Kontext (Auszüge):**
                 {context_text}
