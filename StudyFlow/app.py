@@ -1297,19 +1297,19 @@ def _render_tools_tabs(username, folder_id):
 
                 prompt = f"""
                 **Rolle**
-                Du bist KEIN Lehrer, der den Stoff erklärt.
-                Du bist ein **persönlicher Assistent für Effizienz**.
-                Deine einzige Aufgabe ist es, dem Nutzer zu sagen, WAS er WANN und WO tun soll.
+                Du bist ein **gnadenloser Lern-Coach**.
+                Dein Ziel: Der Nutzer muss das Skript **perfekt** beherrschen.
+                Dazu reicht "Lies Seite 10" nicht. Du musst ihn **mikroskopisch** führen.
 
-                **Szenario**
-                Der Nutzer hat das Skript vor sich liegen. Er braucht keine Zusammenfassung.
-                Er braucht einen **Befehl**, wo er lesen muss.
+                **Problem**
+                Der Nutzer beschwert sich, dass der Plan zu ohberflächlich ist.
+                Er will **TIEFE**. Er will **STRUKTUR**. Er will **INTERAKTION**.
 
-                **Deine Anweisungen (Strict Rules)**:
-                1. **Kommando-Ton**: "Lese Seite 12, Absatz 3." oder "Bearbeite Aufgabe 5 auf Seite 99."
-                2. **Präzision**: Gib IMMER die Seitenzahl an. Wenn möglich auch den Absatz.
-                3. **Struktur**: Baue den Plan logisch auf.
-                4. **Kein Inhalt**: Erkläre den Stoff NICHT. Sag nur, wo er steht.
+                **Deine Aufgabe (Strict Rules)**:
+                1. **Micro-Steps**: Ein Tag darf nicht nur aus einem Punkt bestehen. Zerlege das Thema in 3-5 Unter-Schritte.
+                2. **Seite & Absatz**: Gib für JEDEN Unter-Schritt genau an, wo er steht ("S. 12, oben").
+                3. **Aktivierung**: Bau Fragen ein! "Lies S. 12 und beantworte: Warum ist X so wichtig?"
+                4. **Umfang**: Nutze den Platz. Der Plan muss sich "voll" und "wertig" anfühlen.
 
                 **Input Kontext (Auszüge):**
                 {context_text}
@@ -1322,7 +1322,7 @@ def _render_tools_tabs(username, folder_id):
                     {{
                         "date": "Datum",
                         "topic": "Thema",
-                        "details": "Markdown-Liste:\\n* **📍 Ort**: Seite X, Absatz Y\\n* **👁️ Fokus**: Achte besonders auf Satz Z...\\n* **⚡ Aktion**: Löse Aufgabe..."
+                        "details": "Markdown-Checkliste:\\n- [ ] **1. Einstieg**: Lies S. X, Abs. Y um T hema Z zu verstehen.\\n- [ ] **2. Vertiefung**: Analysiere die Grafik auf S. A.\\n- [ ] **3. Check**: Kannst du Begriff B (S. C) definieren?\\n- [ ] **4. Praxis**: Rechne/Bearbeite Aufgabe D auf S. E."
                     }}
                 ]
                 """
