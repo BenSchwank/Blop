@@ -1221,33 +1221,40 @@ def _render_tools_tabs(username, folder_id):
                 else:
                     focus_context = "Fokus: Decke den gesamten Inhalt des Dokuments gleichmäßig ab. Erfinde KEINE Themen, die nicht im Text vorkommen."
 
-                prompt = f"""Du bist ein exzellenter Uni-Tutor.
-                
-                AUFGABE: Erstelle einen detaillierten Lernplan für {days_count} Tage ({date_list_str}).
-                DOKUMENT-TYP: {doc_context}.
-                {focus_context}
-                
-                INSTRUKTIONEN FÜR DEN INHALT:
-                1. **Struktur**: Der Plan muss logisch aufeinander aufbauen (Start bei Grundlagen -> Ende bei Komplexem).
-                2. **Referenzen**: Du MUSST zu jedem Thema die exakte Seitenzahl aus dem Kontext angeben! (z.B. "Siehe S. 12").
-                3. **Details**: Der 'details'-Text soll Markdown nutzen und folgende Abschnitte haben:
-                   - 🎯 **Ziel**: Was verstehe ich heute?
-                   - 📖 **Theorie**: Was muss ich lesen? (MIT SEITENZAHLEN!)
-                   - 📝 **Praxis**: Welche Übungsaufgaben oder Konzepte soll ich anwenden?
-                
-                INPUT KONTEXT (Auszüge aus dem Skript):
+                prompt = f"""
+                **Situation**
+                Sie entwickeln einen Lehrplan für einen Bildungskontext, der eine klare, logische und pädagogisch fundierte Struktur benötigt.
+                Der Nutzer möchte den Stoff aus dem untenstehenden SKRIPT in {days_count} Tagen ({date_list_str}) effektiv lernen.
+
+                **Task**
+                Erstellen Sie einen detaillierten Lernplan (JSON), der alle wesentlichen Komponenten und deren Funktion darstellt.
+                Nutzen Sie die bereitgestellten Text-Auszüge, um die Inhalte konkret zu füllen.
+
+                **Objective**
+                Dem Nutzer ein umfassendes Verständnis der Architektur eines qualitativ hochwertigen Lehrplans zu vermitteln. Der Plan dient als konkrete Lern-Anleitung.
+
+                **Knowledge (Strukturelle Elemente)**
+                Berücksichtigen Sie:
+                - Pädagogische Grundprinzipien: Konstruktivismus, kompetenzorientiertes Lernen.
+                - Curriculare Kohärenz: Vertikale und horizontale Abstimmung (Grundlagen vor Vertiefung).
+                - Assessment: Schlagen Sie formative Checks vor.
+                - **Quellenarbeit: Geben Sie ZWINGEND die Seitenzahl aus dem Kontext an (z.B. [Seite X])!**
+
+                **Input Kontext (Auszüge):**
                 {context_text}
                 
-                OUTPUT FORMAT (JSON):
+                **Dokument-Typ**: {doc_context}.
+                {focus_context}
+
+                **Output Format (Strict JSON)**:
                 [
                     {{
                         "date": "Datum",
-                        "topic": "Kurze Überschrift",
-                        "details": "Markdown Text hier..." 
+                        "topic": "Thema (Kompetenzorientiert)",
+                        "details": "Markdown-Inhalt:\\n**Funktion**: Warum dieses Thema heute?\\n**Inhalt**: 📖 Theorie mit SEITENZAHLEN [Seite X]\\n**Aktivität**: 📝 Übung/Reflexion"
                     }}
                 ]
-                
-                WICHTIG: Erfinde nichts. Nutze nur den Kontext. Gib IMMER Seitenzahlen an!"""
+                """
                 
                 try:
                     model_name = st.session_state.get("model_option", "Automatisch")
