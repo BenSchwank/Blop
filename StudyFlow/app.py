@@ -134,19 +134,8 @@ def create_fallback_pdf(text, source_pdf_stream=None):
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_font("Helvetica", size=11)
         
-        # HTML Title
-        title_html = \"\"\"
-        <h1 align="center" style="color:#003366; font-size:24pt;">Zusammenfassung</h1>
-        <h4 align="center" style="color:#666666;">(Rich Text & Originalgrafiken)</h4>
-        <br><hr><br>
-        \"\"\"
-        pdf.write_html(title_html)
-        
-        # Convert Body
-        html_body = latex_to_html(text)
-        pdf.add_page()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.set_font("Helvetica", size=11)
+
+
         
         # HTML Title
         title_html = """
