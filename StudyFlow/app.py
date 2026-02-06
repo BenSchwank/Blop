@@ -294,9 +294,9 @@ def get_embedding_model_name():
     return "models/embedding-001"
 
 @st.cache_data(show_spinner=False)
-def get_pdf_text(pdf_docs):
+def get_pdf_text(_pdf_docs):
     pages_data = []
-    for pdf in pdf_docs:
+    for pdf in _pdf_docs:
         pdf_reader = PdfReader(pdf)
         for i, page in enumerate(pdf_reader.pages):
             t = page.extract_text()
