@@ -813,7 +813,7 @@ def _run_analysis(username, folder_id):
                     self.path = path
                     self.name = os.path.basename(path)
                     self._f = open(path, "rb")
-                def read(self): return self._f.read()
+                def read(self, n=-1): return self._f.read(n)
                 def seek(self, offset, whence=0): return self._f.seek(offset, whence)
                 def tell(self): return self._f.tell()
                 def close(self): self._f.close()
