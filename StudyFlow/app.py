@@ -14,7 +14,9 @@ import shutil
 import urllib.parse
 import requests
 import datetime
+import uuid
 from PyPDF2 import PdfReader
+
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
@@ -777,110 +779,169 @@ def display_pdf_bytes(pdf_bytes):
                 # model = genai.GenerativeModel(get_generative_model_name()) 
 
 
-# --- Sidebar ---
-with st.sidebar:
-    st.header("Einstellungen")
-    api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
-    if api_key_input:
-        os.environ["GOOGLE_API_KEY"] = api_key_input
-        genai.configure(api_key=api_key_input)
-        st.success("API Key gespeichert.")
-    elif os.getenv("GOOGLE_API_KEY"):
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        st.success("API Key aus Umgebung.")
-    
-    # Model Selector
-    available_models = ["Automatisch"]
-    try:
-        if os.environ.get("GOOGLE_API_KEY"):
-            for m in genai.list_models():
-                if "generateContent" in m.supported_generation_methods:
-                     # Clean name 'models/gemini-pro' -> 'gemini-pro'
-                     name = m.name.replace("models/", "")
-                     if name not in available_models:
-                        available_models.append(name)
-    except Exception as e:
-        # Fallback and show error if list fails (e.g. invalid key)
-        available_models.extend(["gemini-1.5-flash", "gemini-1.5-pro"])
-        
-    model_option = st.selectbox("AI-Modell", available_models)
-        
-    st.header("Dokumente")
-    uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True)
-    show_pdf_split = st.checkbox("PDF Split-View (Groß)", value=False)
-    
-    # Offset setting for correct page sync
-    page_offset = st.number_input("Seitenzahl-Offset", value=0, step=1, help="Korrektur, falls PDF-Seiten nicht mit Buch-Seiten übereinstimmen.")
-    if "page_offset" not in st.session_state:
-        st.session_state.page_offset = 0
-    st.session_state.page_offset = page_offset
-    
-    process_button = st.button("Dokumente analysieren")
-    
-    file_map = {}
-    if uploaded_files:
-        file_map = {f.name: f for f in uploaded_files}
-        
-    if uploaded_files and not show_pdf_split:
-        st.markdown("---")
-        st.subheader("📄 PDF Vorschau")
-        selected_pdf_name = st.selectbox("Anzeigen:", list(file_map.keys()))
-        
-        if selected_pdf_name:
-            pdf_html = display_pdf(file_map[selected_pdf_name])
-            st.markdown(pdf_html, unsafe_allow_html=True)
+# --- UI COMPONENTS ---
 
-    # Admin only Debug Tools & Styling
-    username = st.session_state.get("username", "default")
-    if username == "admin_":
-        st.markdown("---")
-        st.caption("🔧 Admin Tools")
-        if st.button("Debug: Modelle prüfen"):
-            try:
-                st.write("Verfügbare Modelle:")
-                for m in genai.list_models():
-                    if "generateContent" in m.supported_generation_methods:
-                        st.code(m.name)
-            except Exception as e:
-                st.error(f"Fehler: {e}")
-    else:
-        # Hide Streamlit UI elements for normal users (Footer, Deploy Button)
-        hide_streamlit_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            .stDeployButton {display:none;}
-            </style>
-            """
-        st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-if process_button and uploaded_files:
-    if not os.environ.get("GOOGLE_API_KEY"):
-         st.error("API Key fehlt!")
-    else:
-        with st.spinner("Extrahiere Text..."):
-            raw_text = get_pdf_text(uploaded_files)
+def render_settings_overlay():
+    with st.popover("⚙️"):
+        st.write("### Einstellungen")
+        api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
+        if api_key_input:
+            os.environ["GOOGLE_API_KEY"] = api_key_input
+            genai.configure(api_key=api_key_input)
+            st.success("Gespeichert!")
         
-        with st.spinner("Erstelle Embeddings (Das kann dauern)..."):
+        # Model Selector
+        models = ["Automatisch", "gemini-1.5-flash", "gemini-1.5-pro"]
+        sel = st.selectbox("AI-Modell", models, key="model_selector")
+        st.session_state.model_option = sel
+        
+        if st.button("Logout", type="primary"):
+            AuthManager.logout()
+
+def _run_analysis(username, folder_id):
+    """Helper to analyze all PDFs in the folder."""
+    pdfs = DataManager.list_pdfs(username, folder_id)
+    if not pdfs: return
+    
+    full_paths = [DataManager.get_pdf_path(p, username, folder_id) for p in pdfs]
+    
+    with st.spinner(f"{len(pdfs)} Dokumente werden analysiert..."):
+        try:
+            # Create file-like objects with 'name' attribute for get_pdf_text compatibility
+            class FileObj:
+                def __init__(self, path):
+                    self.path = path
+                    self.name = os.path.basename(path)
+                    self._f = open(path, "rb")
+                def read(self): return self._f.read()
+                def seek(self, n): return self._f.seek(n)
+                def close(self): self._f.close()
+            
+            file_objs = [FileObj(p) for p in full_paths]
+            
+            # Re-use existing analysis logic
+            raw_text = get_pdf_text(file_objs) 
             chunks = get_text_chunks(raw_text)
             index, valid_chunks = build_vector_store(chunks)
             
-            if index:
-                st.session_state.vector_index = index
-                st.session_state.text_chunks = valid_chunks
-                st.session_state.total_pages = sum([len(PdfReader(f).pages) for f in uploaded_files])
-                st.success(f"Fertig! {len(valid_chunks)} Textblöcke indexiert.")
-            else:
-                st.error("Fehler beim Erstellen des Index.")
+            st.session_state.vector_index = index
+            st.session_state.text_chunks = valid_chunks
+            # Cleanup
+            for f in file_objs: f.close()
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Fehler bei Analyse: {e}")
+
+def render_file_manager(username, folder_id):
+    st.subheader("📂 Datei-Manager")
+    
+    # 1. List Files
+    pdfs = DataManager.list_pdfs(username, folder_id)
+    
+    # 2. Upload Area
+    uploaded = st.file_uploader("PDFs hinzufügen", type=["pdf"], accept_multiple_files=True, key=f"up_{folder_id}", label_visibility="collapsed")
+    if uploaded:
+        for f in uploaded:
+            DataManager.save_pdf(f, username, folder_id)
+        st.toast("Gespeichert!")
+        st.rerun()
+
+    st.divider()
+    
+    # 3. List & Delete (Mini list)
+    if pdfs:
+        for p in pdfs:
+            c1, c2 = st.columns([4, 1])
+            c1.caption(f"📄 {p}")
+            # Optional: Delete button logic here later
+            
+        st.divider()
+        
+        # 4. Analysis Trigger
+        has_analysis = "text_chunks" in st.session_state
+        if has_analysis:
+            st.success(f"✅ {len(pdfs)} aktiv")
+            if st.button("🔄 Neu analysieren", use_container_width=True):
+                _run_analysis(username, folder_id)
+        else:
+            if st.button("🚀 Analysieren", type="primary", use_container_width=True):
+                _run_analysis(username, folder_id)
+    else:
+        st.info("Ordner ist leer. Lade PDFs hoch!")
+
+# --- GOOGLE AUTH HELPERS ---
+def get_google_auth_url():
+    try:
+        client_id = st.secrets["google"]["client_id"]
+        redirect_uri = st.secrets["google"]["redirect_uri"]
+        return f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope=openid%20email%20profile"
+    except: return None
+
+def get_google_user(code):
+    try:
+        # Exchange Code
+        token_url = "https://oauth2.googleapis.com/token"
+        data = {
+            "code": code,
+            "client_id": st.secrets["google"]["client_id"],
+            "client_secret": st.secrets["google"]["client_secret"],
+            "redirect_uri": st.secrets["google"]["redirect_uri"],
+            "grant_type": "authorization_code"
+        }
+        r = requests.post(token_url, data=data)
+        token = r.json().get("access_token")
+        
+        # Get User Info
+        user_info = requests.get("https://www.googleapis.com/oauth2/v1/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
+        return user_info
+    except Exception as e:
+        st.error(f"Auth Error: {e}")
+        return None
 
 # --- DASHBOARD & WORKSPACE LOGIC ---
 def render_login_screen():
     st.title("🔐 Blop Study Anmeldung")
     
+    # Check for Google Callback
+    if "code" in st.query_params:
+        code = st.query_params["code"]
+        with st.spinner("Verbinde mit Google..."):
+            user_info = get_google_user(code)
+            if user_info:
+                email = user_info.get("email")
+                name = user_info.get("name", email)
+                
+                # Auto-Register Google User in AuthManager if new
+                # We use email as username so data is consistent
+                # Generate random secure password since they use Google to login
+                AuthManager.register(email, str(uuid.uuid4()))
+                
+                st.session_state.authenticated = True
+                st.session_state.username = email
+                
+                st.success(f"Willkommen, {name}!")
+                st.query_params.clear()
+                st.rerun()
+
     col1, col2 = st.columns([1,1])
     
     with col1:
         st.subheader("Einloggen")
+        
+        # Google Button
+        auth_url = get_google_auth_url()
+        if auth_url:
+            st.markdown(f'''
+            <a href="{auth_url}" target="_self" style="text-decoration:none;">
+                <button style="width:100%; border-radius:8px; border:1px solid #ccc; padding:10px; background-color:white; color:#333; cursor:pointer; font-weight:bold; display:flex; align_items:center; justify-content:center; gap:10px;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" style="width:20px; height:20px;">
+                Mit Google anmelden
+                </button>
+            </a>
+            <div style="text-align:center; margin-top:15px; margin-bottom:15px; color:#666;">- oder -</div>
+            ''', unsafe_allow_html=True)
+
         l_user = st.text_input("Benutzername", key="login_user")
         l_pass = st.text_input("Passwort", type="password", key="login_pass")
         if st.button("Login", type="primary"):
@@ -910,40 +971,22 @@ def render_dashboard():
     username = st.session_state.get("username", "default")
     data = DataManager.load(username)
     
-    st.subheader(f"📁 Meine Ordner ({username})")
-    if st.button("Abmelden", type="tertiary"):
-        AuthManager.logout()
+    # Top Header
+    c1, c2 = st.columns([6, 1])
+    c1.title(f"👋 Hallo, {username}")
+    with c2:
+        render_settings_overlay()
     
-    # Admin Panel (Only for admin_)
-    if username == "admin_":
-        with st.expander("👮 Admin Panel", expanded=True):
-            st.warning("⚠️ Admin-Bereich - Nutzerverwaltung")
-            users = AuthManager.get_all_users()
-            st.metric("Registrierte Nutzer", len(users))
-            
-            st.markdown("### Nutzerliste")
-            # User List
-            for u, info in users.items():
-                col_a, col_b, col_c = st.columns([2, 2, 1])
-                with col_a:
-                    st.write(f"👤 **{u}**")
-                with col_b:
-                    st.caption(f"Registriert: {info.get('created_at', '?')}")
-                with col_c:
-                    if u != "admin_":
-                        if st.button("🗑️", key=f"del_user_{u}", help="Nutzer löschen"):
-                            AuthManager.delete_user(u)
-                            st.rerun()
-            st.markdown("---")
+    st.markdown("### 📁 Meine Projekte")
     
     # Grid Layout for Folders
     cols = st.columns(4)
     
-    # "New Folder" Button as first item
+    # "New Folder" Button
     with cols[0]:
-        with st.popover("➕ Neu"):
+        with st.popover("➕ Neues Projekt", use_container_width=True):
             new_folder_name = st.text_input("Name")
-            if st.button("Erstellen"):
+            if st.button("Erstellen", type="primary"):
                 DataManager.create_folder(new_folder_name, username)
                 st.rerun()
                 
@@ -952,36 +995,29 @@ def render_dashboard():
         col_idx = (i + 1) % 4
         with cols[col_idx]:
             if st.button(f"📁 {folder['name']}", key=folder['id'], use_container_width=True):
+                # Clean state
+                if "text_chunks" in st.session_state: del st.session_state.text_chunks
+                if "vector_index" in st.session_state: del st.session_state.vector_index
                 navigate_to("workspace", folder=folder['id'])
 
-    st.markdown("---")
-    st.subheader("🕒 Zuletzt bearbeitet")
-    
-    # Recent Files List
-    files = data.get("files", [])
-    if not files:
-        st.info("Noch keine Zusammenfassungen gespeichert.")
-    
-    for f in files[-5:]: # Show last 5
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown(f"**📄 {f['title']}** ({f['created_at']})")
-        with col2:
-            if st.button("Öffnen", key=f"open_{f['id']}"):
-                # Load content into session state
-                st.session_state.summary_text = f['content']
-                navigate_to("workspace", folder=f.get('folder_id'))
-
-    st.markdown("---")
-    if st.button("🚀 Neues Projekt starten (Leerer Workspace)", type="primary"):
-        navigate_to("workspace")
+    # Admin Panel (Only for admin_)
+    if username == "admin_":
+        st.divider()
+        with st.expander("👮 Admin Panel", expanded=False):
+            st.warning("⚠️ Nutzerverwaltung")
+            users = AuthManager.get_all_users()
+            st.metric("Registrierte Nutzer", len(users))
+            # User List
+            for u in users:
+                if u != "admin_":
+                    c_a, c_b = st.columns([5, 1])
+                    c_a.write(f"👤 {u}")
+                    if c_b.button("🗑️", key=f"del_{u}"):
+                        AuthManager.delete_user(u)
+                        st.rerun()
 
 def render_workspace():
     # Top Navigation Bar
-    # "oben links": Back Button + Folder Name
-    # "rechts": Buttons (Placeholder / Future)
-    # "hervorgehoben": Using Markdown styling
-    
     nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
     
     with nav_col1:
@@ -998,47 +1034,34 @@ def render_workspace():
             folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
             if folder: folder_name = folder['name']
             
-        # Display Folder Name prominent
         st.markdown(f"### 📂 {folder_name}")
 
     with nav_col3:
-        pass # Right side placeholder (User requested buttons here, maybe move Save here later)
+        render_settings_overlay()
 
-    st.markdown("---")
+    st.divider()
 
-    # --- Existing Workspace Logic ---
-    main_container = st.container()
-    if show_pdf_split and uploaded_files:
-        # Sticky CSS for Right Column
-        st.markdown("""
-            <style>
-            div[data-testid="column"]:nth-of-type(2) {
-                position: sticky;
-                top: 1rem;
-                height: 98vh;
-                overflow: hidden; 
-            }
-            </style>
-            """, unsafe_allow_html=True)
+    # Main Split Layout
+    left_col, right_col = st.columns([1, 2])
+    
+    with left_col:
+        render_file_manager(username, folder_id)
 
-        c1, c2 = st.columns([1, 1])
-        main_container = c1
-        
-        with c2:
-            st.subheader("📄 PDF Ansicht")
-            if file_map:
-                # Sync selection with sidebar? use distinct key
-                sel_pdf = st.selectbox("Dokument:", list(file_map.keys()), key="pdf_sel_split")
-                st.markdown(display_pdf(file_map[sel_pdf]), unsafe_allow_html=True)
+    with right_col:
+        # Show tools ONLY if analyzed
+        if "text_chunks" in st.session_state:
+            _render_tools_tabs(username, folder_id)
+        else:
+            st.info("👈 Bitte lade PDFs hoch und klicke auf 'Analysieren', um zu starten.")
+            st.image("https://placehold.co/600x400?text=Warte+auf+Analyse", use_container_width=True)
 
-    with main_container:
-        tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
-
+def _render_tools_tabs(username, folder_id):
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
     import datetime
-
+    
+    # --- TAB 1: Lernplan ---
     with tab1:
         st.header("Smarter Lernplan")
-        
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input("Start-Datum", min_value=datetime.date.today(), value=datetime.date.today())
@@ -1047,16 +1070,14 @@ def render_workspace():
             
         focus_topic = st.text_input("Fokus-Thema (optional)", placeholder="z.B. Differentialgleichungen")
         
-        # Frequency Selector
         st.subheader("Lern-Intervall")
         available_days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-        selected_days = st.multiselect("An welchen Tagen möchtest du lernen?", available_days, default=["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"])
+        selected_days = st.multiselect("Lern-Tage", available_days, default=["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"])
         
-        # Calculate study dates
+        # Calculate dates
         study_dates = []
         current = start_date
         while current <= exam_date:
-            # python weekday: 0=Mon, 6=Sun
             day_name = available_days[current.weekday()]
             if day_name in selected_days:
                 study_dates.append(current)
@@ -1065,341 +1086,105 @@ def render_workspace():
         days_count = len(study_dates)
         
         if st.button("Lernplan erstellen (AI)"):
-            if "text_chunks" not in st.session_state:
-                st.warning("Bitte erst Dokumente hochladen!")
-            elif days_count == 0:
-                st.error("Bitte mindestens einen Wochentag auswählen!")
+            if days_count == 0:
+                st.error("Bitte Wochentage wählen!")
             else:
-                st.info(f"Erstelle Plan für {days_count} Lern-Sessions zwischen {start_date} und {exam_date}...")
-                
+                st.info(f"Erstelle Plan für {days_count} Sessions...")
                 chunks = st.session_state.text_chunks
-                sample_chunks = chunks[:2] + random.sample(chunks[2:], min(3, len(chunks)-2)) if len(chunks) > 2 else chunks
-                
-                # Format context with page numbers for the plan
+                # Sampling logic inline
+                sample = chunks[:2] + random.sample(chunks[2:], min(3, len(chunks)-2)) if len(chunks) > 2 else chunks
                 context_text = ""
-                for c in sample_chunks:
-                    context_text += f"\n[Seite {c.get('page', '?')}] {c.get('text', '')[:1500]}\n"
+                for c in sample: context_text += f"\n[Seite {c.get('page', '?')}] {c.get('text', '')[:1000]}\n"
                 
                 date_list_str = ", ".join([d.strftime('%d.%m.%Y') for d in study_dates])
-                
-                prompt = f"""
-                Erstelle einen Lernplan für genau {days_count} Lern-Einheiten an diesen Daten: {date_list_str}.
-                Fokus: {focus_topic if focus_topic else "Allgemein"}.
-                Inhalt: {context_text}
-                
-                WICHTIG: Nutze Markdown für die Details!
-                - Verwende **Fett** für wichtige Begriffe und Überschriften.
-                - Nutze Listen (Bullet points) für bessere Lesbarkeit.
-                - Markiere Definitionen oder Schlüsselsätze.
-                
-                Output MUSS valides JSON sein:
-                [
-                    {{ "date": "DD.MM.YYYY", "topic": "Titel", "details": "**Ziele**:\\n- Punkt 1\\n- Punkt 2..." }},
-                    ...
-                ]
-                """
+                prompt = f"""Erstelle Lernplan ({days_count} Einheiten) für: {date_list_str}. Fokus: {focus_topic}. Inhalt: {context_text}.
+                Output nur JSON: [{{ "date": "DD.MM.YYYY", "topic": "...", "details": "Markdown..." }}]"""
                 
                 try:
-                    # Determine model
-                    if model_option == "Automatisch":
-                        model_name = get_generative_model_name()
-                    else:
-                        model_name = model_option
+                    model_name = st.session_state.get("model_option", "Automatisch")
+                    if model_name == "Automatisch": model_name = get_generative_model_name()
                     
-                    st.toast(f"Verwende Modell: {model_name}")
-                    model = genai.GenerativeModel(model_name)
-                    with st.spinner(f"AI ({model_name}) generiert deinen persönlichen Plan..."):
-                        response = model.generate_content(prompt)
-                        
-                        content = response.text
-                        if "```json" in content:
-                            content = content.split("```json")[1].split("```")[0]
-                        elif "```" in content:
-                            content = content.split("```")[1].split("```")[0]
-                        
-                        data = json.loads(content)
-                        st.session_state.plan_data = data
+                    with st.spinner("AI arbeitet..."):
+                        resp = genai.GenerativeModel(model_name).generate_content(prompt)
+                        content = resp.text.replace("```json", "").replace("```", "").strip()
+                        if content.startswith("json"): content = content[4:]
+                        st.session_state.plan_data = json.loads(content)
                         st.rerun()
-                    
                 except Exception as e:
-                    st.error(f"Fehler bei der Plan-Erstellung: {e}")
+                    st.error(f"Fehler: {e}")
 
-        # --- Render Interactive Plan ---
+        # Render Plan
         if "plan_data" in st.session_state:
-            st.subheader(f"Dein Fahrplan ({len(st.session_state.plan_data)} Einheiten)")
-            
-            # Actions Row
-            ac1, ac2 = st.columns([1, 4])
-            with ac1:
-                if st.button("➕ Tag hinzufügen"):
-                    # Add next day? Or just generic
-                    next_date = datetime.date.today().strftime('%d.%m.%Y')
-                    st.session_state.plan_data.append({"date": next_date, "topic": "Neues Thema", "details": "..."})
-                    st.rerun()
-            
-            # Export
-            if len(st.session_state.plan_data) > 0:
-                ics_data = generate_ics(st.session_state.plan_data, start_date)
-                with ac2:
-                    st.download_button(
-                        label="📅 Export für Google Kalender (.ics)",
-                        data=ics_data,
-                        file_name="lernplan.ics",
-                        mime="text/calendar"
-                    )
-            
-            # Plan Items
+            st.subheader(f"Dein Fahrplan")
+            if st.button("➕ Tag hinzufügen"):
+                st.session_state.plan_data.append({"date": "Neu", "topic": "Neu", "details": "..."})
+                st.rerun()
+                
             for i, item in enumerate(st.session_state.plan_data):
-                date_label = item.get('date', f'Tag {i+1}')
-                topic_label = item.get('topic', 'Thema')
-                
-                with st.expander(f"📅 {date_label}: {topic_label}", expanded=False):
-                    # Edit Mode vs Preview
-                    tab_edit, tab_view = st.tabs(["Bearbeiten", "Vorschau"])
-                    
-                    with tab_edit:
-                        col_a, col_b = st.columns([5, 1])
-                        with col_a:
-                            new_date = st.text_input("Datum", item.get('date', ''), key=f"date_{i}")
-                            new_topic = st.text_input("Thema", item.get('topic', ''), key=f"topic_{i}")
-                            # Taller text area for better editing experience
-                            new_details = st.text_area("Details (Markdown)", item.get('details', ''), height=450, key=f"desc_{i}")
-                            
-                            st.session_state.plan_data[i]['date'] = new_date
-                            st.session_state.plan_data[i]['topic'] = new_topic
-                            st.session_state.plan_data[i]['details'] = new_details
-                        with col_b:
-                            st.write("")
-                            if st.button("🗑️", key=f"del_{i}"):
-                                st.session_state.plan_data.pop(i)
-                                st.rerun()
-                    
-                    with tab_view:
-                        st.markdown(f"### {item.get('topic', '')}")
-                        st.markdown(item.get('details', ''))
-                        
-                        st.markdown("---")
-                        render_page_buttons(item.get('details', ''))
-
-    with tab2:
-        st.header("Dozenten-Modus")
-        
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-            
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                
-        if prompt := st.chat_input("Frage stellen..."):
-            if "vector_index" not in st.session_state:
-                st.error("Bitte Dokumente hochladen.")
-            else:
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"):
-                    st.markdown(prompt)
-                
-                with st.spinner("Suche Antwort..."):
-                    answer, context = answer_question(prompt, st.session_state.vector_index, st.session_state.text_chunks)
-                    
-                    full_resp = f"{answer}" # Context is optional to show
-                    st.session_state.messages.append({"role": "assistant", "content": full_resp})
-                    with st.chat_message("assistant"):
-                        st.markdown(full_resp)
-
-    with tab3:
-        st.header("Quiz-Modus")
-        if st.button("Quiz erstellen"):
-            if "text_chunks" not in st.session_state:
-                 st.warning("Dokumente fehlen.")
-            else:
-                with st.spinner("Generiere Quiz..."):
-                    quiz = generate_quiz(st.session_state.text_chunks)
-                    if quiz:
-                        st.session_state.quiz_data = quiz
-                        st.session_state.user_answers = {}
+                with st.expander(f"📅 {item.get('date')} - {item.get('topic')}"):
+                    st.markdown(item.get('details', ''))
+                    if st.button("Löschen", key=f"pland_{i}"):
+                        st.session_state.plan_data.pop(i)
                         st.rerun()
-                    else:
-                        st.error("Fehler bei Quiz-Generierung.")
-                        
+
+    # --- TAB 2: Chat ---
+    with tab2:
+        st.header("Dozenten-Chat")
+        if "messages" not in st.session_state: st.session_state.messages = []
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).markdown(msg["content"])
+            
+        if prompt := st.chat_input("Frage stellen..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.chat_message("user").markdown(prompt)
+            with st.spinner("..."):
+                ans, ctx = answer_question(prompt, st.session_state.vector_index, st.session_state.text_chunks)
+                st.session_state.messages.append({"role": "assistant", "content": ans})
+                st.chat_message("assistant").markdown(ans)
+
+    # --- TAB 3: Quiz ---
+    with tab3:
+        st.header("Quiz")
+        if st.button("Neues Quiz generieren"):
+            with st.spinner("..."):
+                q = generate_quiz(st.session_state.text_chunks)
+                if q: 
+                    st.session_state.quiz_data = q
+                    st.rerun()
+        
         if "quiz_data" in st.session_state:
             for i, q in enumerate(st.session_state.quiz_data):
-                st.subheader(f"Frage {i+1}: {q['question']}")
-                choice = st.radio("Antwort:", q['options'], key=f"q_{i}")
-                if st.button(f"Prüfen {i+1}", key=f"btn_{i}"):
-                    if choice == q['answer']:
-                        st.success("Korrekt!")
-                    else:
-                        st.error(f"Falsch. Richtig: {q['answer']}")
+                st.markdown(f"**{i+1}. {q['question']}**")
+                c = st.radio(f"Antwort {i+1}", q['options'], key=f"q_{i}", label_visibility="collapsed")
+                if st.button(f"Prüfen", key=f"qk_{i}"):
+                    if c == q['answer']: st.success("Richtig!")
+                    else: st.error(f"Falsch. {q['answer']}")
+                st.divider()
 
+    # --- TAB 4: Summary ---
     with tab4:
-        st.header("Zusammenfassung & Notizen")
+        st.header("Zusammenfassung")
+        lang = st.selectbox("Sprache", ["Deutsch", "English"], key="sum_lang")
         
-        st.info("Erstelle eine interaktive Web-Zusammenfassung mit KI-Bildern. Das offizielle PDF (Skript-Stil) kannst du anschließend herunterladen.")
+        if st.button("Erstellen (AI)"):
+             with st.spinner("Analysiere..."):
+                 all_text = "\n".join([c['text'] for c in st.session_state.text_chunks])[:50000]
+                 prompt = get_summary_prompt("Markdown", all_text, language=lang)
+                 try:
+                     model = genai.GenerativeModel(get_generative_model_name())
+                     resp = model.generate_content(prompt)
+                     st.session_state.summary_text = resp.text
+                 except Exception as e:
+                     st.error(f"Fehler: {e}")
         
-        # Language Selection
-        summary_lang = st.selectbox("Sprache der Zusammenfassung:", ["Deutsch", "English", "Français", "Español"], index=0)
-        
-        if st.button("Zusammenfassung erstellen (AI)"):
-            if "text_chunks" not in st.session_state:
-                st.warning("Bitte erst Dokumente hochladen!")
-            else:
-                with st.spinner("Analysiere Dokumente und generiere Web-Ansicht..."):
-                    try:
-                        # Reconstruct full text
-                        all_text = "\n".join([c['text'] for c in st.session_state.text_chunks])
-                        
-                        # Use selected model or dynamic fallback
-                        if 'model_option' in locals() and model_option != "Automatisch":
-                             model_name = model_option
-                        else:
-                             model_name = get_generative_model_name()
-                        
-                        st.toast(f"Verwende Modell: {model_name}")
-                        model = genai.GenerativeModel(model_name)
-                        
-                        # Get Prompt (Always Markdown for Web View)
-                        # Pass selected language
-                        prompt = get_summary_prompt("Markdown", all_text[:50000], language=summary_lang)
-                        
-                        # Safety Settings (Allow academic content)
-                        safety = [
-                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                        ]
-                        
-                        retries = 0
-                        while retries < 3:
-                            try:
-                                response = model.generate_content(prompt, safety_settings=safety)
-                                
-                                st.session_state.summary_text = response.text
-                                # Mark as Web Mode implicitly
-                                st.session_state.last_summary_mode = "Markdown" 
-                                break # Success
-                            except Exception as e:
-                                if "429" in str(e):
-                                    wait_time = 30 * (retries + 1)
-                                    st.warning(f"⚠️ Zu viele Anfragen (Rate Limit). Warte {wait_time} Sekunden...")
-                                    time.sleep(wait_time)
-                                    retries += 1
-                                    if retries == 3:
-                                        st.error("API Limit erreicht. Bitte später versuchen.")
-                                else:
-                                    raise e
-                        
-                    except Exception as e:
-                        st.error(f"Fehler bei Zusammenfassung: {e}")
-        
-        
-        # Initialize State
-        if "summary_text" not in st.session_state:
-            st.session_state.summary_text = ""
-
-        # Display Logic
-        if st.session_state.summary_text:
-            st.markdown("---")
-            
-            # 1. Render Web View (Markdown + Images)
-            visual_text = st.session_state.summary_text
-            if "render_visual_summary" in globals():
-                visual_text = render_visual_summary(st.session_state.summary_text)
-                
-            st.markdown(visual_text, unsafe_allow_html=True)
-            st.markdown("---")
-            render_page_buttons(st.session_state.summary_text)
-
-            # SAVE BUTTON
-            col_s1, col_s2 = st.columns([1, 4])
-            with col_s1:
-                if st.button("💾 In Blop Speichern"):
-                    # Default Title
-                    def_title = f"Summary {datetime.datetime.now().strftime('%H:%M')}"
-                    if uploaded_files:
-                        def_title = uploaded_files[0].name.replace(".pdf", "")
-                    
-                    # Save
-                    DataManager.save_summary(def_title, st.session_state.summary_text, st.session_state.get("username"), st.session_state.current_folder)
-                    st.toast("Gespeichert!")
-                    time.sleep(1) # Feedback
-                    navigate_to("dashboard")
-            
-            # 2. Export Section (Bottom)
-            st.subheader("📥 Export & PDF")
-            col_export1, col_export2 = st.columns(2)
-            
-            # Option A: Official Script (LaTeX Backend)
-            with col_export1:
-                st.markdown("### 🎓 Offizielles Skript")
-                st.caption("Professionelles Layout (wie im Bild) via LaTeX.")
-                
-                if st.button("Skript-PDF generieren (High-Quality)", type="primary"):
-                    with st.spinner("Generiere Layout & Diagramme..."):
-                         try:
-                             # 1. Generate LaTeX Source (Convert Web Content)
-                             # Use existing Markdown summary to ensure PDF matches Web View exactly
-                             source_text = st.session_state.get('summary_text', '')
-                             if not source_text:
-                                 source_text = "\n".join([c['text'] for c in st.session_state.text_chunks])
-
-                             model_name = get_generative_model_name()
-                             model = genai.GenerativeModel(model_name)
-                             
-                             latex_prompt = get_summary_prompt("LaTeX", source_text[:50000])
-                             
-                             # Safety Settings
-                             safety = [
-                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                            ]
-                             
-                             resp = model.generate_content(latex_prompt, safety_settings=safety)
-                             latex_code = resp.text.replace("```latex", "").replace("```", "")
-                             
-                             # 2. Compile
-                             pdf_bytes = compile_latex_to_pdf(latex_code, fallback_markdown=source_text)
-                             if pdf_bytes:
-                                 st.session_state.ihk_pdf = pdf_bytes
-                             else:
-                                 st.error("Kompilierung fehlgeschlagen.")
-                         except Exception as e:
-                             st.error(f"Fehler: {e}")
-
-                if "ihk_pdf" in st.session_state:
-                     st.download_button("💾 PDF Herunterladen", st.session_state.ihk_pdf, "Zusammenfassung_Skript.pdf", "application/pdf")
-
-            # Option B: Web View PDF
-            with col_export2:
-                st.markdown("### 📄 Web-Ansicht")
-                st.caption("Schneller PDF-Druck dieser Seite.")
-                if st.button("Schnell-PDF generieren"):
-                    with st.spinner("Drucke Web-Ansicht..."):
-                        src = None
-                        if "uploaded_file" in st.session_state and st.session_state.uploaded_file:
-                             try: src = st.session_state.uploaded_file
-                             except: pass
-                             
-                        pdf_data = create_markdown_pdf(visual_text, src)
-                        if pdf_data:
-                            st.session_state.web_pdf = pdf_data
-                            
-                if "web_pdf" in st.session_state:
-                    st.download_button("💾 Web-PDF Herunterladen", st.session_state.web_pdf, "Web_Summary.pdf", "application/pdf")
-                    
-            # 3. Editor (Bottom, Hidden)
-            st.markdown("---")
-            with st.expander("✏️ Inhalt bearbeiten (Markdown)", expanded=False):
-                st.caption("Änderungen hier werden sofort oben in der Vorschau angezeigt.")
-                st.text_area(
-                    "Inhalt", 
-                    key="summary_text", 
-                    height=600,
-                    placeholder="Inhalt generieren..."
-                )
+        if st.session_state.get("summary_text"):
+            st.markdown(st.session_state.summary_text)
+            if st.button("💾 Speichern"):
+                # Determine title
+                pdfs = DataManager.list_pdfs(username, folder_id)
+                title = pdfs[0] if pdfs else "Summary"
+                DataManager.save_summary(title, st.session_state.summary_text, username, folder_id)
+                st.toast("Gespeichert")
 
 # Execute Layout
 

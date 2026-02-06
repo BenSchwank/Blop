@@ -3,7 +3,7 @@
 #include "UIStyles.h"
 #include "tools/ToolManager.h"
 #include "tools/AbstractTool.h"
-#include "tools/RulerTool.h"
+#include "tools/RulerTool.h" // Wichtig: RulerTool Header
 
 #include <QScrollBar>
 #include <QGraphicsItem>
@@ -393,9 +393,12 @@ CanvasView::~CanvasView() {}
 
 void CanvasView::setToolManager(ToolManager *manager) {
     m_toolManager = manager;
-    // Wenn wir einen Manager bekommen, verbinden wir Signale
     if (m_toolManager) {
         connect(m_toolManager, &ToolManager::toolChanged, this, [this](AbstractTool* tool){
+            // FIX: Hier prüfen wir, ob das Lineal aktiviert wurde, und zeigen es an.
+            if (tool && tool->mode() == ToolMode::Ruler) {
+                RulerTool::ensureRulerExists(m_scene, m_toolManager->config());
+            }
             viewport()->update();
         });
     }
@@ -635,7 +638,14 @@ bool CanvasView::loadFromFile() {
 
 void CanvasView::setTool(ToolType tool) {
     m_currentTool = tool;
-    if (tool == ToolType::Select) {
+
+    // FIX: Wenn das Ruler-Tool über die UI ausgewählt wurde, sicherstellen, dass es existiert
+    if (tool == ToolType::Ruler) {
+        if(m_toolManager) {
+            RulerTool::ensureRulerExists(m_scene, m_toolManager->config());
+        }
+        // Keine Cursor-Änderung hier, RulerTool steuert das nicht direkt
+    } else if (tool == ToolType::Select) {
         setCursor(Qt::ArrowCursor); setDragMode(QGraphicsView::RubberBandDrag);
     } else if (tool == ToolType::Text) {
         setCursor(Qt::IBeamCursor); setDragMode(QGraphicsView::NoDrag);

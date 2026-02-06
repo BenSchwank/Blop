@@ -55,3 +55,31 @@ class DataManager:
         }
         data["files"].append(file_entry)
         DataManager.save(data, username)
+
+    # --- PDF File Management ---
+    @staticmethod
+    def _get_folder_path(username, folder_id):
+        safe_user = "".join([c for c in username if c.isalnum() or c in "-_"])
+        path = os.path.join(DATA_DIR, safe_user, str(folder_id))
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
+
+    @staticmethod
+    def save_pdf(uploaded_file, username, folder_id):
+        folder_path = DataManager._get_folder_path(username, folder_id)
+        file_path = os.path.join(folder_path, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        return file_path
+
+    @staticmethod
+    def list_pdfs(username, folder_id):
+        folder_path = DataManager._get_folder_path(username, folder_id)
+        if not os.path.exists(folder_path):
+            return []
+        return [f for f in os.listdir(folder_path) if f.lower().endswith('.pdf')]
+
+    @staticmethod
+    def get_pdf_path(filename, username, folder_id):
+        return os.path.join(DataManager._get_folder_path(username, folder_id), filename)
