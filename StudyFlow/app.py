@@ -815,6 +815,7 @@ def _run_analysis(username, folder_id):
                     self._f = open(path, "rb")
                 def read(self): return self._f.read()
                 def seek(self, offset, whence=0): return self._f.seek(offset, whence)
+                def tell(self): return self._f.tell()
                 def close(self): self._f.close()
             
             file_objs = [FileObj(p) for p in full_paths]
