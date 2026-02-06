@@ -934,12 +934,35 @@ def render_login_screen():
         if auth_url:
             st.markdown(f'''
             <a href="{auth_url}" target="_top" style="text-decoration:none;">
-                <button style="width:100%; border-radius:8px; border:1px solid #ccc; padding:10px; background-color:white; color:#333; cursor:pointer; font-weight:bold; display:flex; align_items:center; justify-content:center; gap:10px;">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" style="width:20px; height:20px;">
-                Mit Google anmelden
-                </button>
+                <div style="
+                    width: 100%;
+                    background-color: white;
+                    color: #3c4043;
+                    border: 1px solid #dadce0;
+                    border-radius: 4px;
+                    padding: 10px;
+                    text-align: center;
+                    font-family: 'Google Sans', arial, sans-serif;
+                    font-weight: 500;
+                    font-size: 14px;
+                    cursor: pointer;
+                    display: flex;
+                    align_items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                    transition: all 0.2s ease;
+                " onmouseover="this.style.backgroundColor='#f8f9fa'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.2)';" 
+                  onmouseout="this.style.backgroundColor='white'; this.style.boxShadow='0 1px 2px rgba(0,0,0,0.1)';">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" style="width:18px; height:18px;">
+                    Mit Google anmelden
+                </div>
             </a>
-            <div style="text-align:center; margin-top:15px; margin-bottom:15px; color:#666;">- oder -</div>
+            <div style="display: flex; align_items: center; margin: 20px 0; color: #666;">
+                <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
+                <span style="padding: 0 10px; font-size: 12px; text-transform: uppercase;">oder</span>
+                <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
+            </div>
             ''', unsafe_allow_html=True)
 
         l_user = st.text_input("Benutzername", key="login_user")
