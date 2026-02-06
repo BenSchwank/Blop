@@ -933,7 +933,7 @@ def render_login_screen():
         auth_url = get_google_auth_url()
         if auth_url:
             st.markdown(f'''
-            <a href="{auth_url}" target="_self" style="text-decoration:none;">
+            <a href="{auth_url}" target="_top" style="text-decoration:none;">
                 <button style="width:100%; border-radius:8px; border:1px solid #ccc; padding:10px; background-color:white; color:#333; cursor:pointer; font-weight:bold; display:flex; align_items:center; justify-content:center; gap:10px;">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" style="width:20px; height:20px;">
                 Mit Google anmelden
