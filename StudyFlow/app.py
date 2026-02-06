@@ -194,6 +194,59 @@ def create_fallback_pdf(text, source_pdf_stream=None):
     except Exception as e:
         print(f"Fallback PDF Error: {e}")
         return None
+
+def create_study_plan_pdf(plan_data):
+    """Generates a structured PDF from the study plan JSON."""
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_font("Helvetica", size=11)
+        
+        # Title
+        pdf.set_font("Helvetica", 'B', 18)
+        pdf.set_text_color(0, 51, 102)
+        pdf.cell(0, 10, "Mein Lernplan", ln=True, align='C')
+        pdf.ln(5)
+        
+        pdf.set_font("Helvetica", 'I', 10)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 5, f"Erstellt am {datetime.datetime.now().strftime('%d.%m.%Y')}", ln=True, align='C')
+        pdf.ln(10)
+        
+        for item in plan_data:
+            date = item.get('date', 'Datum abstehend')
+            topic = item.get('topic', 'Thema')
+            details = item.get('details', '')
+            
+            # Date & Topic Header
+            pdf.set_fill_color(240, 248, 255) # Light Blue
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Helvetica", 'B', 12)
+            pdf.cell(0, 8, f"{date}: {topic}", ln=True, fill=True)
+            
+            # Content (Markdown -> HTML)
+            if details:
+                html = markdown.markdown(details)
+                
+                # Unicode Safety
+                unicode_map = {
+                    'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue', 'ß': 'ss',
+                    '“': '"', '”': '"', '–': '-', '…': '...'
+                }
+                for k, v in unicode_map.items():
+                    html = html.replace(k, v)
+                
+                # Render HTML
+                pdf.set_font("Helvetica", size=11)
+                pdf.write_html(html)
+            
+            pdf.ln(8)
+            
+        return bytes(pdf.output())
+    except Exception as e:
+        print(f"Plan PDF Error: {e}")
+        return None
 load_dotenv()
 
 # Page Config
@@ -1244,22 +1297,19 @@ def _render_tools_tabs(username, folder_id):
 
                 prompt = f"""
                 **Situation**
-                Sie entwickeln einen Lehrplan für einen Bildungskontext, der eine klare, logische und pädagogisch fundierte Struktur benötigt.
-                Der Nutzer möchte den Stoff aus dem untenstehenden SKRIPT in {days_count} Tagen ({date_list_str}) effektiv lernen.
+                Sie erstellen einen Lern-Wegweiser. NICHT eine Zusammenfassung.
+                Der Nutzer will wissen: "Was soll ich heute tun?" und "Wo steht das?".
+                Der Inhalt des Skripts soll NICHT wiedergegeben werden, sondern nur referenziert.
 
-                **Task**
-                Erstellen Sie einen detaillierten Lernplan (JSON), der alle wesentlichen Komponenten und deren Funktion darstellt.
-                Nutzen Sie die bereitgestellten Text-Auszüge, um die Inhalte konkret zu füllen.
+                **Task & Objective**
+                Erstelle einen ultra-strukturierten Lernplan.
+                Er soll den Nutzer durch das Skript führen, ohne das Skript zu ersetzen.
+                Ziel: Maximale Effizienz. Keine langen Texte lesen, sondern gezielte Aufgaben bearbeiten.
 
-                **Objective**
-                Dem Nutzer ein umfassendes Verständnis der Architektur eines qualitativ hochwertigen Lehrplans zu vermitteln. Der Plan dient als konkrete Lern-Anleitung.
-
-                **Knowledge (Strukturelle Elemente)**
-                Berücksichtigen Sie:
-                - Pädagogische Grundprinzipien: Konstruktivismus, kompetenzorientiertes Lernen.
-                - Curriculare Kohärenz: Vertikale und horizontale Abstimmung (Grundlagen vor Vertiefung).
-                - Assessment: Schlagen Sie formative Checks vor.
-                - **Quellenarbeit: Geben Sie ZWINGEND die Seitenzahl aus dem Kontext an (z.B. [Seite X])!**
+                **Struktur (Strict Rules)**:
+                1. **Logik**: Baue den Stoff aufeinander auf.
+                2. **Referenzen**: Jede Theorie-Einheit MUSS eine Seitenzahl haben ("Lies S. 12-14").
+                3. **Kurz & Knapp**: Keine Romane. Stichpunkte.
 
                 **Input Kontext (Auszüge):**
                 {context_text}
@@ -1271,8 +1321,8 @@ def _render_tools_tabs(username, folder_id):
                 [
                     {{
                         "date": "Datum",
-                        "topic": "Thema (Kompetenzorientiert)",
-                        "details": "Markdown-Inhalt:\\n**Funktion**: Warum dieses Thema heute?\\n**Inhalt**: 📖 Theorie mit SEITENZAHLEN [Seite X]\\n**Aktivität**: 📝 Übung/Reflexion"
+                        "topic": "Thema",
+                        "details": "Markdown-Liste:\\n* **🎯 Ziel**: Was kann ich heute?\\n* **📖 Lese-Auftrag**: GENAUE SEITENANGABEN (z.B. [Seite 12, Abschnitt 3]) und was dort wichtig ist.\\n* **📝 Aktivität**: Löse Aufgabe X, Fasse zusammen, etc."
                     }}
                 ]
                 """
@@ -1304,10 +1354,24 @@ def _render_tools_tabs(username, folder_id):
         # Render Plan
         if "plan_data" in st.session_state:
             st.subheader(f"Dein Fahrplan")
-            if st.button("➕ Tag hinzufügen"):
-                st.session_state.plan_data.append({"date": "Neu", "topic": "Neu", "details": "..."})
-                st.rerun()
-                
+            
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                 if st.button("➕ Tag hinzufügen"):
+                    st.session_state.plan_data.append({"date": "Neu", "topic": "Neu", "details": "..."})
+                    st.rerun()
+            with c2:
+                # PDF Download Button
+                pdf_data = create_study_plan_pdf(st.session_state.plan_data)
+                if pdf_data:
+                    st.download_button(
+                        label="📄 Als PDF speichern",
+                        data=pdf_data,
+                        file_name="Mein_Lernplan.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+            
             for i, item in enumerate(st.session_state.plan_data):
                 with st.expander(f"📅 {item.get('date')} - {item.get('topic')}"):
                     st.markdown(item.get('details', ''))
