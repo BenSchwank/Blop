@@ -108,12 +108,6 @@ def latex_to_html(text):
     
     return text
 
-def create_fallback_pdf(text, source_pdf_stream=None):
-    """Generates a rich PDF locally using HTML conversion."""
-    try:
-        pdf = FPDF()
-        # ... logic as before ...
-
 def clean_json_output(text):
     """Sanitizes LLM output to extractvalid JSON/List."""
     # 1. Remove Markdown
@@ -123,21 +117,33 @@ def clean_json_output(text):
     match = re.search(r"\[.*\]", text, re.DOTALL)
     if match:
         text = match.group(0)
-    else:
-        # Fallback: Maybe it's just the content?
-        pass
-        
+    
     # 3. Fix common syntax errors (Missing comma between objects)
-    # Replace "} {" or "}\n{" with "}, {"
     text = re.sub(r"\}\s*\{", "}, {", text)
     
     # 4. Remove comments (// ...)
     text = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
     
     return text
+
+def create_fallback_pdf(text, source_pdf_stream=None):
     """Generates a rich PDF locally using HTML conversion and extracting source images."""
     try:
         pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_font("Helvetica", size=11)
+        
+        # HTML Title
+        title_html = \"\"\"
+        <h1 align="center" style="color:#003366; font-size:24pt;">Zusammenfassung</h1>
+        <h4 align="center" style="color:#666666;">(Rich Text & Originalgrafiken)</h4>
+        <br><hr><br>
+        \"\"\"
+        pdf.write_html(title_html)
+        
+        # Convert Body
+        html_body = latex_to_html(text)
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_font("Helvetica", size=11)
