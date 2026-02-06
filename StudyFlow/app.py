@@ -525,11 +525,16 @@ def generate_ics(plan_data, start_date):
     cal_content.append("END:VCALENDAR")
     return "\n".join(cal_content)
 
-def get_summary_prompt(mode, text, language="Deutsch"):
+def get_summary_prompt(mode, text, language="Deutsch", focus=""):
+    focus_instruction = ""
+    if focus:
+        focus_instruction = f"**FOKUS**: Der Nutzer möchte besonders folgendes beachtet haben: '{focus}'. Richte die Zusammenfassung stark danach aus!"
+
     if "LaTeX" in mode:
         return f"""
 **Rolle & Ziel**
 Du bist ein professioneller Typesetter (Setzer).
+{focus_instruction}
 **AUFGABE**: Konvertiere den folgenden **Markdown-Inhalt** (Input) exakt in das bereitgestellte **LaTeX-Template**.
 
 **WICHTIG:**
@@ -630,6 +635,8 @@ Du bist ein professioneller Typesetter (Setzer).
 **Aufgabe**:
 Erstelle eine ausführliche, gut strukturierte Zusammenfassung des Textes.
 Das Ziel ist eine **Web-Optimierte Ansicht** mit einfacher Navigation.
+
+{focus_instruction}
 
 **Struktur (Markdown)**:
 1. **Inhaltsverzeichnis (WICHTIG)**:
@@ -781,21 +788,34 @@ def display_pdf_bytes(pdf_bytes):
 
 # --- UI COMPONENTS ---
 
-def render_settings_overlay():
-    with st.popover("⚙️"):
-        st.write("### Einstellungen")
-        api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
-        if api_key_input:
-            os.environ["GOOGLE_API_KEY"] = api_key_input
-            genai.configure(api_key=api_key_input)
-            st.success("Gespeichert!")
+def render_sidebar():
+    with st.sidebar:
+        st.title("⚡ Blop AI")
         
-        # Model Selector
-        models = ["Automatisch", "gemini-1.5-flash", "gemini-1.5-pro"]
-        sel = st.selectbox("AI-Modell", models, key="model_selector")
-        st.session_state.model_option = sel
+        # Navigation
+        if st.button("🏠 Dashboard", use_container_width=True, type="secondary"):
+            navigate_to("dashboard")
         
-        if st.button("Logout", type="primary"):
+        st.divider()
+        
+        # Settings
+        with st.expander("⚙️ Einstellungen"):
+            api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
+            if api_key_input:
+                os.environ["GOOGLE_API_KEY"] = api_key_input
+                genai.configure(api_key=api_key_input)
+                st.success("Gespeichert!")
+            
+            models = ["Automatisch", "gemini-1.5-flash", "gemini-1.5-pro"]
+            sel = st.selectbox("Modell", models, key="model_selector")
+            st.session_state.model_option = sel
+            
+        st.divider()
+        
+        # Profile
+        username = st.session_state.get("username", "Gast")
+        st.caption(f"Angemeldet als: {username}")
+        if st.button("Logout", type="primary", use_container_width=True):
             AuthManager.logout()
 
 def _run_analysis(username, folder_id):
@@ -941,90 +961,132 @@ def render_login_screen():
                 st.query_params.clear()
                 st.rerun()
 
-    col1, col2 = st.columns([1,1])
+    if "auth_mode" not in st.session_state:
+        st.session_state.auth_mode = "login"
+
+    # Toggle Functions
+    def show_register(): st.session_state.auth_mode = "register"
+    def show_login(): st.session_state.auth_mode = "login"
+
+    container = st.container()
     
-    with col1:
-        st.subheader("Einloggen")
-        
-        # Google Button
-        auth_url = get_google_auth_url()
-        if auth_url:
-            st.link_button("Mit Google anmelden", auth_url, type="primary", use_container_width=True)
+    with container:
+        # --- LOGIN VIEW ---
+        if st.session_state.auth_mode == "login":
+            st.subheader("Einloggen")
             
-            st.markdown("""
-            <div style="display: flex; align_items: center; margin: 20px 0; color: #666;">
-                <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
-                <span style="padding: 0 10px; font-size: 12px; text-transform: uppercase;">oder</span>
-                <div style="flex-grow: 1; height: 1px; background-color: #eee;"></div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Google Button
+            auth_url = get_google_auth_url()
+            if auth_url:
+                st.link_button("Mit Google anmelden", auth_url, type="primary", use_container_width=True)
+                st.markdown("""<div style="text-align: center; margin: 10px 0; color: #666;">- oder -</div>""", unsafe_allow_html=True)
 
-        l_user = st.text_input("Benutzername", key="login_user")
-        l_pass = st.text_input("Passwort", type="password", key="login_pass")
-        if st.button("Login", type="primary"):
-            if AuthManager.login(l_user, l_pass):
-                st.session_state.authenticated = True
-                st.session_state.username = l_user
-                st.success(f"Willkommen {l_user}!")
-                st.rerun()
-            else:
-                st.error("Falscher Benutzername oder Passwort.")
-
-    with col2:
-        st.subheader("Registrieren")
-        r_user = st.text_input("Neuer Benutzername", key="reg_user")
-        r_pass = st.text_input("Neues Passwort", type="password", key="reg_pass")
-        if st.button("Konto erstellen"):
-            if r_user and r_pass:
-                if AuthManager.register(r_user, r_pass):
-                    st.success("Konto erstellt! Bitte einloggen.")
+            l_user = st.text_input("Benutzername", key="login_user")
+            l_pass = st.text_input("Passwort", type="password", key="login_pass")
+            
+            if st.button("Login", type="primary", use_container_width=True):
+                if AuthManager.login(l_user, l_pass):
+                    st.session_state.authenticated = True
+                    st.session_state.username = l_user
+                    st.success(f"Willkommen {l_user}!")
+                    st.rerun()
                 else:
-                    st.error("Benutzername vergeben.")
-            else:
-                st.warning("Bitte alles ausfüllen.")
+                    st.error("Falscher Benutzername oder Passwort.")
+
+            st.divider()
+            st.button("Noch nicht angemeldet? Hier registrieren", on_click=show_register, type="secondary", use_container_width=True)
+
+        # --- REGISTER VIEW ---
+        else:
+            st.subheader("Registrieren")
+            r_user = st.text_input("Neuer Benutzername", key="reg_user")
+            r_pass = st.text_input("Neues Passwort", type="password", key="reg_pass")
+            
+            if st.button("Konto erstellen", type="primary", use_container_width=True):
+                if r_user and r_pass:
+                    if AuthManager.register(r_user, r_pass):
+                        st.success("Konto erstellt! Bitte einloggen.")
+                        st.session_state.auth_mode = "login"
+                        st.rerun()
+                    else:
+                        st.error("Benutzername vergeben.")
+                else:
+                    st.warning("Bitte alles ausfüllen.")
+            
+            st.divider()
+            st.button("Bereits ein Konto? Hier einloggen", on_click=show_login, type="secondary", use_container_width=True)
 
 def render_dashboard():
     # Load Data
+    render_sidebar()
     username = st.session_state.get("username", "default")
     data = DataManager.load(username)
     
-    # Top Header
-    c1, c2 = st.columns([6, 1])
-    c1.title(f"👋 Hallo, {username}")
+    # CSS for Cards
+    st.markdown("""
+    <style>
+    div[data-testid="stContainer"] {
+        background-color: #0E1117;
+        border-radius: 10px;
+        padding: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.title(f"Dashboard")
+    st.caption("Verwalte deine Lernprojekte")
+    
+    st.divider()
+
+    # --- Quick Actions ---
+    st.subheader("🚀 Neu Starten")
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        with st.container(border=True):
+            st.markdown("#### 📁 Neues Projekt")
+            st.caption("Beginne ein neues Fach oder Thema.")
+            new_name = st.text_input("Projektname", placeholder="z.B. Mathe")
+            if st.button("Erstellen ➝", key="create_new_proj", type="primary", use_container_width=True):
+                if new_name:
+                    DataManager.create_folder(new_name, username)
+                    st.rerun()
+    
     with c2:
-        render_settings_overlay()
+        with st.container(border=True):
+            st.markdown("#### 🎤 Audio-Aufnahme")
+            st.caption("Lade Vorlesungen hoch oder nimm sie auf.")
+            st.button("Starten (Demo)", disabled=True, key="btn_audio", use_container_width=True)
+
+    st.divider()
     
-    st.markdown("### 📁 Meine Projekte")
+    # --- Projects List ---
+    st.subheader("📂 Deine Projekte")
     
-    # Grid Layout for Folders
-    cols = st.columns(4)
-    
-    # "New Folder" Button
-    with cols[0]:
-        with st.popover("➕ Neues Projekt", use_container_width=True):
-            new_folder_name = st.text_input("Name")
-            if st.button("Erstellen", type="primary"):
-                DataManager.create_folder(new_folder_name, username)
-                st.rerun()
-                
-    # Render folders
-    for i, folder in enumerate(data.get("folders", [])):
-        col_idx = (i + 1) % 4
+    folders = data.get("folders", [])
+    if not folders:
+        st.info("Noch keine Projekte. Erstelle eins!")
+        
+    # Grid Layout for Projects
+    cols = st.columns(3)
+    for i, folder in enumerate(folders):
+        col_idx = i % 3
         with cols[col_idx]:
-            if st.button(f"📁 {folder['name']}", key=folder['id'], use_container_width=True):
-                # Clean state
-                if "text_chunks" in st.session_state: del st.session_state.text_chunks
-                if "vector_index" in st.session_state: del st.session_state.vector_index
-                navigate_to("workspace", folder=folder['id'])
+            with st.container(border=True):
+                st.markdown(f"**📁 {folder['name']}**")
+                st.caption(f"Erstellt: {folder.get('created_at', '?')}")
+                if st.button("Öffnen", key=folder['id'], use_container_width=True):
+                    # Clean state & Navigate
+                    if "text_chunks" in st.session_state: del st.session_state.text_chunks
+                    if "vector_index" in st.session_state: del st.session_state.vector_index
+                    navigate_to("workspace", folder=folder['id'])
 
     # Admin Panel (Only for admin_)
     if username == "admin_":
         st.divider()
         with st.expander("👮 Admin Panel", expanded=False):
-            st.warning("⚠️ Nutzerverwaltung")
             users = AuthManager.get_all_users()
             st.metric("Registrierte Nutzer", len(users))
-            # User List
             for u in users:
                 if u != "admin_":
                     c_a, c_b = st.columns([5, 1])
@@ -1034,6 +1096,8 @@ def render_dashboard():
                         st.rerun()
 
 def render_workspace():
+    render_sidebar() # Global Sidebar
+    
     # Top Navigation Bar
     nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
     
@@ -1054,7 +1118,7 @@ def render_workspace():
         st.markdown(f"### 📂 {folder_name}")
 
     with nav_col3:
-        render_settings_overlay()
+        pass # Empty now as settings are in sidebar
 
     st.divider()
 
@@ -1085,6 +1149,11 @@ def _render_tools_tabs(username, folder_id):
         with col2:
             exam_date = st.date_input("Prüfungs-Datum", min_value=datetime.date.today() + datetime.timedelta(days=1), value=datetime.date.today() + datetime.timedelta(days=7))
             
+        doc_type = st.selectbox("Dokument-Typ", ["Skript / Buch", "Prüfung / Klausur", "Übungsblätter", "Sonstiges"])
+        custom_doc_type = ""
+        if doc_type == "Sonstiges":
+            custom_doc_type = st.text_input("Bitte spezifizieren", placeholder="z.B. Mitschrift")
+        
         focus_topic = st.text_input("Fokus-Thema (optional)", placeholder="z.B. Differentialgleichungen")
         
         st.subheader("Lern-Intervall")
@@ -1114,7 +1183,25 @@ def _render_tools_tabs(username, folder_id):
                 for c in sample: context_text += f"\n[Seite {c.get('page', '?')}] {c.get('text', '')[:1000]}\n"
                 
                 date_list_str = ", ".join([d.strftime('%d.%m.%Y') for d in study_dates])
-                prompt = f"""Erstelle Lernplan ({days_count} Einheiten) für: {date_list_str}. Fokus: {focus_topic}. Inhalt: {context_text}.
+                
+                # Dynamic Prompt based on Doc Type
+                doc_context = doc_type
+                if doc_type == "Sonstiges": doc_context = custom_doc_type
+                
+                goal_instruction = "Erstelle einen Lernplan, der den Stoff logisch aufteilt."
+                if "Prüfung" in doc_type or "Klausur" in doc_type:
+                    goal_instruction = "Dies ist eine PRÜFUNG/KLAUSUR. Analysiere die Aufgabenstellungen und Themen der Prüfung. Der Lernplan soll eine Strategie sein, um genau diese Art von Aufgaben zu lösen. Plane Übungseinheiten für ähnliche Aufgaben ein!"
+                elif "Übung" in doc_type:
+                    goal_instruction = "Dies sind Übungsblätter. Der Lernplan soll sich auf das aktive Lösen dieser Aufgaben konzentrieren."
+                
+                prompt = f"""Rolle: Lern-Coach. Erstelle Lernplan ({days_count} Einheiten) für: {date_list_str}.
+                Dokument-Typ: {doc_context}.
+                Fokus-Thema des Nutzers: {focus_topic}.
+                
+                ZIEL: {goal_instruction}
+                
+                Inhalt (Auszug): {context_text}.
+                
                 Output nur JSON: [{{ "date": "DD.MM.YYYY", "topic": "...", "details": "Markdown..." }}]"""
                 
                 try:
@@ -1183,10 +1270,12 @@ def _render_tools_tabs(username, folder_id):
         st.header("Zusammenfassung")
         lang = st.selectbox("Sprache", ["Deutsch", "English"], key="sum_lang")
         
+        summary_focus = st.text_area("Fokus / Anweisung (optional)", placeholder="z.B. 'Fasse nur Kapitel 3 zusammen' oder 'Fokus auf Definitionen'")
+        
         if st.button("Erstellen (AI)"):
              with st.spinner("Analysiere..."):
                  all_text = "\n".join([c['text'] for c in st.session_state.text_chunks])[:50000]
-                 prompt = get_summary_prompt("Markdown", all_text, language=lang)
+                 prompt = get_summary_prompt("Markdown", all_text, language=lang, focus=summary_focus)
                  try:
                      model = genai.GenerativeModel(get_generative_model_name())
                      resp = model.generate_content(prompt)
