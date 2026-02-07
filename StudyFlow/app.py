@@ -1308,6 +1308,13 @@ def _render_tools_tabs(username, folder_id):
                 Dein Ziel: Der Nutzer muss das Skript **perfekt** beherrschen.
                 Dazu reicht "Lies Seite 10" nicht. Du musst ihn **mikroskopisch** führen.
 
+                **Vorgabe der Zeit (CRITICAL)**:
+                Du erstellst einen Plan für EXAKT {days_count} Tage/Sessions.
+                Die Termine sind: {date_list_str}.
+                Verteile den GESAMTEN Stoff auf diese {days_count} Termine.
+                Nutze KEINE anderen Daten!
+                Wenn es nur 1 Tag ist, packe alles Wichtige in diesen einen Tag (Intensiv-Kurs).
+
                 **Problem**
                 Der Nutzer beschwert sich, dass der Plan zu ohberflächlich ist.
                 Er will **TIEFE**. Er will **STRUKTUR**. Er will **INTERAKTION**.
