@@ -855,6 +855,7 @@ Der Nutzer will effizient lernen.
 
 import urllib.parse
 
+@st.cache_data(show_spinner=False)
 def render_visual_summary(text):
     """Replaces [IMAGE: query] with Pollinations.ai image URLs."""
     if not text: return ""
@@ -864,9 +865,10 @@ def render_visual_summary(text):
         # Allowing alphanumeric, commas, spaces
         clean_query = re.sub(r'[^a-zA-Z0-9,\s]', '', query)
         encoded = urllib.parse.quote(clean_query)
-        # Random seed to prevent caching issues
+        # Random seed to prevent caching issues (on API side), but we cache the result function
         seed = int(datetime.datetime.now().timestamp()) + random.randint(0, 1000)
-        return f"![Bild: {clean_query}](https://image.pollinations.ai/prompt/{encoded}?width=1024&height=512&nologo=true&seed={seed})"
+        # REMOVED nologo=true to avoid rate limit
+        return f"![Bild: {clean_query}](https://image.pollinations.ai/prompt/{encoded}?width=1024&height=512&seed={seed})"
     
     return re.sub(r'\[IMAGE: (.*?)\]', replacer, text)
 
