@@ -616,15 +616,6 @@ def generate_topic_summary(topic_title, context_chunks):
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
-        **Aufgabe**: Erstelle eine ultrakurze, knackige Zusammenfassung (Flashcard-Style) für das Thema: '{topic_title}'.
-        
-        **Format**:
-        - **Definition**: 1 Satz.
-        - **Wichtig**: 3 Bulletpoints.
-        - **Beispiel**: 1 kurzes Beispiel.
-        
-        **Kontext**:
-        {relevant_text}
         """
         
         resp = model.generate_content(prompt)
@@ -1365,6 +1356,71 @@ def show_pdf_overlay_dialog(page_num, username, folder_id):
     else:
         st.error("Kein PDF gefunden.")
 
+def get_coach_prompt(current_day_json, user_instruction):
+    """Prompt for the AI Coach to update a specific day."""
+    return f"""
+    **Rolle**: Du bist ein erfahrener Lern-Coach.
+    **Aufgabe**: Bearbeite den folgenden Tagesplan (JSON) basierend auf der Anweisung des Nutzers.
+    
+    **Aktueller Plan (JSON)**:
+    ```json
+    {json.dumps(current_day_json, ensure_ascii=False)}
+    ```
+    
+    **Anweisung**: "{user_instruction}"
+    
+    **Regeln**:
+    1. Antworte NUR mit dem aktualisierten JSON. Kein Markdown, kein Text davor/danach.
+    2. Behalte die Struktur exakt bei (date, title, objectives, topics, review_focus).
+    3. Sei kreativ bei "topics" und "objectives", wenn der Nutzer neue Inhalte will.
+    4. Wenn der Nutzer "pausen" oder "weniger" will, passe die Zeiten an.
+    """
+
+@st.dialog("🤖 AI Lern-Coach", width="large")
+def show_coach_dialog(day_index, day_data):
+    st.markdown(f"**Bearbeite Tag {day_index + 1}: {day_data.get('date', 'Datum')}**")
+    
+    tab_ai, tab_manual = st.tabs(["✨ AI-Assistent", "🛠️ Manuell"])
+    
+    with tab_ai:
+        st.info("Beschreibe, was geändert werden soll. Der AI-Coach passt den Plan an.")
+        instruction = st.text_area("Anweisung an den Coach", placeholder="z.B. 'Füge 15 Min Pause ein', 'Mehr Fokus auf Mathe', 'Erkläre das Thema X genauer'")
+        
+        if st.button("Plan aktualisieren (AI)", key=f"btn_coach_go_{day_index}"):
+            if not instruction:
+                st.warning("Bitte gib eine Anweisung ein.")
+            else:
+                with st.spinner("Der Coach arbeitet..."):
+                    try:
+                        prompt = get_coach_prompt(day_data, instruction)
+                        model = genai.GenerativeModel(get_generative_model_name())
+                        resp = model.generate_content(prompt)
+                        
+                        # Parse JSON
+                        cleaned = resp.text.replace("```json", "").replace("```", "").strip()
+                        new_data = json.loads(cleaned)
+                        
+                        # Update Session State
+                        st.session_state.plan_data[day_index] = new_data
+                        st.success("Plan aktualisiert!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Fehler: {e}")
+    
+    with tab_manual:
+        st.warning("Achtung: Bearbeite das JSON-Format vorsichtig!")
+        current_json_str = json.dumps(day_data, indent=2, ensure_ascii=False)
+        new_json_str = st.text_area("JSON Editor", value=current_json_str, height=400, key=f"json_edit_{day_index}")
+        
+        if st.button("Speichern (Manuell)", key=f"btn_coach_save_{day_index}"):
+            try:
+                new_data = json.loads(new_json_str)
+                st.session_state.plan_data[day_index] = new_data
+                st.success("Gespeichert!")
+                st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(f"Ungültiges JSON: {e}")
+
 def _render_tools_tabs(username, folder_id):
     tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
     import datetime
@@ -1633,10 +1689,17 @@ def _render_tools_tabs(username, folder_id):
                     else:
                         # Old Structure Fallback
                         st.markdown(item.get('details', ''))
-                        
-                    if st.button("Löschen", key=f"pland_{i}"):
-                        st.session_state.plan_data.pop(i)
-                        st.rerun()
+                    
+                    # Action Buttons Row
+                    col_del, col_coach = st.columns([1, 4])
+                    with col_del:
+                        if st.button("🗑️ Löschen", key=f"pland_{i}"):
+                            st.session_state.plan_data.pop(i)
+                            st.rerun()
+                    with col_coach:
+                         if st.button("🤖 Coach / Bearbeiten", key=f"btn_coach_open_{i}"):
+                             show_coach_dialog(i, item)
+
 
     # --- TAB 2: Chat ---
     with tab2:
