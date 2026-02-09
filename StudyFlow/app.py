@@ -823,29 +823,25 @@ Der Nutzer will effizient lernen.
 
 **Output Struktur (WICHTIG)**:
 1. **Thematische Blöcke**: Teile den Inhalt in logische Abschnitte.
-2. **IDs**: Gib JEDEM Abschnitt einen HTML-Anker: `<a id="thema-X"></a>` (nicht div, nicht nur Markdown).
-3. **Formatierung**:
-   - Nutze `<mark>markierter Text</mark>` für Definitionen und Schlüsselbegriffe (damit sie gelb hinterlegt sind).
-   - Nutze **Fett** für Wichtiges.
-   - Nutze Emojis für visuelle Struktur.
+    2. **IDs**: Nutze KEINE manuellen HTML-Anker. Nutze stattdessen Standard-Markdown-Überschriften.
+    3. **Formatierung**:
+       - Nutze `<mark>markierter Text</mark>` für Definitionen und Schlüsselbegriffe.
+       - Nutze **Fett** für Wichtiges.
+       - Nutze Emojis.
 
-**Inhaltliches Format**:
-# Zusammenfassung
+    **Inhaltliches Format**:
+    # Zusammenfassung
 
-## Inhaltsverzeichnis
-- [Thema 1](#thema-1)
-- [Thema 2](#thema-2)
+    ## Inhaltsverzeichnis
+    - [1. Titel Thema](#1-titel-thema) (Achte auf Kleinschreibung und Bindestriche!)
+    - [2. Titel Thema](#2-titel-thema)
 
-<a id="thema-1"></a>
+    ## 1. Titel Thema
+    ... Inhalt ...
+    Definition: <mark>Begriff</mark> ist ...
 
-## 1. [Titel Thema 1]
-... Inhalt ...
-Definition: <mark>Begriff</mark> ist ...
-
-<a id="thema-2"></a>
-
-## 2. [Titel Thema 2]
-...
+    ## 2. Titel Thema
+    ...
 
 **Input Text**:
 {text}
