@@ -622,13 +622,14 @@ def generate_topic_summary(topic_title, context_chunks):
         - **Definition**: <mark>1 Satz Definition</mark>.
         - **Wichtig**: 3 Bulletpoints.
         - **Beispiel**: 1 kurzes Beispiel.
+        - **Bild**: Wenn passend, füge `[IMAGE: kurze englische bildbeschreibung]` ein.
         
         **Kontext**:
         {relevant_text}
         """
         
         resp = model.generate_content(prompt)
-        return resp.text
+        return render_visual_summary(resp.text)
     except Exception as e:
         return f"Konnte Zusammenfassung nicht erstellen: {e}"
 
@@ -639,7 +640,10 @@ def generate_full_summary(text_chunks, language="Deutsch", focus=""):
         prompt = get_summary_prompt("Markdown", all_text, language=language, focus=focus)
         model = genai.GenerativeModel(get_generative_model_name())
         resp = model.generate_content(prompt)
-        return resp.text
+        
+        # Post-process to inject images
+        final_text = render_visual_summary(resp.text)
+        return final_text
     except Exception as e:
         return f"Fehler bei Generierung: {e}"
 
@@ -828,6 +832,8 @@ Der Nutzer will effizient lernen.
        - Nutze `<mark>markierter Text</mark>` für Definitionen und Schlüsselbegriffe.
        - Nutze **Fett** für Wichtiges.
        - Nutze Emojis.
+    4. **Bilder**: Füge nach jedem Hauptabschnitt ein passendes Bild ein mit: `[IMAGE: visual description in english]`.
+       Bsp: `[IMAGE: schematic diagram of cell division]`
 
     **Inhaltliches Format**:
     # Zusammenfassung
