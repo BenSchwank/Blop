@@ -632,6 +632,18 @@ def generate_topic_summary(topic_title, context_chunks):
     except Exception as e:
         return f"Konnte Zusammenfassung nicht erstellen: {e}"
 
+def generate_full_summary(text_chunks, language="Deutsch", focus=""):
+    """Generates a full summary of the provided text chunks."""
+    try:
+        all_text = "\n".join([c['text'] for c in text_chunks])[:50000]
+        prompt = get_summary_prompt("Markdown", all_text, language=language, focus=focus)
+        model = genai.GenerativeModel(get_generative_model_name())
+        resp = model.generate_content(prompt)
+        return resp.text
+    except Exception as e:
+        return f"Fehler bei Generierung: {e}"
+
+
 
 def generate_ics(plan_data, start_date):
     """Generates a basic iCalendar string from plan data."""
@@ -1322,11 +1334,21 @@ def show_summary_dialog(title, content):
 
 @st.dialog("Vollständige Zusammenfassung", width="large")
 def show_full_summary_dialog(anchor, summary_text):
+    if not summary_text:
+        # Check if we have chunks to generate from
+        if "text_chunks" in st.session_state and st.session_state.text_chunks:
+             with st.spinner("Erstelle vollständige Zusammenfassung (dies kann einen Moment dauern)..."):
+                 summary_text = generate_full_summary(st.session_state.text_chunks)
+                 st.session_state.summary_text = summary_text
+        else:
+            st.error("Keine Dokumente analysiert. Bitte zuerst PDF hochladen und analysieren.")
+            return
+
     if summary_text:
         st.info(f"Gehe zu Abschnitt: {anchor}")
         st.markdown(summary_text)
     else:
-        st.warning("Noch keine vollständige Zusammenfassung erstellt. Bitte im Tab 'Zusammenfassung' generieren!")
+        st.error("Konnte Zusammenfassung nicht erstellen.")
 
 @st.dialog("Original Dokument", width="large")
 def show_pdf_overlay_dialog(page_num, username, folder_id):
@@ -1573,7 +1595,7 @@ def _render_tools_tabs(username, folder_id):
                                 if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
                                     show_summary_dialog(t_title, st.session_state.generated_summaries.get(t_title, "Keine Zusammenfassung verfügbar."))
 
-                                    show_topic_summary(t_title)
+
 
                                 # Render Links as Buttons/Markdown (Original Links)
                                 # We parse the links from the description/rationale or just add generic buttons if links exist
@@ -1659,14 +1681,10 @@ def _render_tools_tabs(username, folder_id):
         
         if st.button("Erstellen (AI)"):
              with st.spinner("Analysiere..."):
-                 all_text = "\n".join([c['text'] for c in st.session_state.text_chunks])[:50000]
-                 prompt = get_summary_prompt("Markdown", all_text, language=lang, focus=summary_focus)
-                 try:
-                     model = genai.GenerativeModel(get_generative_model_name())
-                     resp = model.generate_content(prompt)
-                     st.session_state.summary_text = resp.text
-                 except Exception as e:
-                     st.error(f"Fehler: {e}")
+                 if "text_chunks" in st.session_state and st.session_state.text_chunks:
+                     st.session_state.summary_text = generate_full_summary(st.session_state.text_chunks, language=lang, focus=summary_focus)
+                 else:
+                     st.error("Bitte zuerst Dokumente analysieren!")
         
         if st.session_state.get("summary_text"):
             st.markdown(st.session_state.summary_text)
