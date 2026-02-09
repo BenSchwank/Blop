@@ -616,6 +616,15 @@ def generate_topic_summary(topic_title, context_chunks):
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
+        **Aufgabe**: Erstelle eine ultrakurze, knackige Zusammenfassung (Flashcard-Style) für das Thema: '{topic_title}'.
+        
+        **Format**:
+        - **Definition**: <mark>1 Satz Definition</mark>.
+        - **Wichtig**: 3 Bulletpoints.
+        - **Beispiel**: 1 kurzes Beispiel.
+        
+        **Kontext**:
+        {relevant_text}
         """
         
         resp = model.generate_content(prompt)
@@ -814,9 +823,9 @@ Der Nutzer will effizient lernen.
 
 **Output Struktur (WICHTIG)**:
 1. **Thematische Blöcke**: Teile den Inhalt in logische Abschnitte.
-2. **IDs**: Gib JEDEM Abschnitt eine ID im Format `<div id="thema-X"></div>`, wobei X eine Nummer oder ein Stichwort ist.
+2. **IDs**: Gib JEDEM Abschnitt einen HTML-Anker: `<a id="thema-X"></a>` (nicht div, nicht nur Markdown).
 3. **Formatierung**:
-   - Nutze `==markierter Text==` für Definitionen und Schlüsselbegriffe (Streamlit Highlight).
+   - Nutze `<mark>markierter Text</mark>` für Definitionen und Schlüsselbegriffe (damit sie gelb hinterlegt sind).
    - Nutze **Fett** für Wichtiges.
    - Nutze Emojis für visuelle Struktur.
 
@@ -827,13 +836,13 @@ Der Nutzer will effizient lernen.
 - [Thema 1](#thema-1)
 - [Thema 2](#thema-2)
 
-<div id="thema-1"></div>
+<a id="thema-1"></a>
 
 ## 1. [Titel Thema 1]
 ... Inhalt ...
-Definition: ==Begriff== ist ...
+Definition: <mark>Begriff</mark> ist ...
 
-<div id="thema-2"></div>
+<a id="thema-2"></a>
 
 ## 2. [Titel Thema 2]
 ...
@@ -1326,7 +1335,7 @@ def render_workspace():
 @st.dialog("Zusammenfassung")
 def show_summary_dialog(title, content):
     st.subheader(title)
-    st.markdown(content)
+    st.markdown(content, unsafe_allow_html=True)
 
 @st.dialog("Vollständige Zusammenfassung", width="large")
 def show_full_summary_dialog(anchor, summary_text):
@@ -1342,7 +1351,7 @@ def show_full_summary_dialog(anchor, summary_text):
 
     if summary_text:
         st.info(f"Gehe zu Abschnitt: {anchor}")
-        st.markdown(summary_text)
+        st.markdown(summary_text, unsafe_allow_html=True)
     else:
         st.error("Konnte Zusammenfassung nicht erstellen.")
 
