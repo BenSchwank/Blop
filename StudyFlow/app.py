@@ -1320,6 +1320,29 @@ def show_summary_dialog(title, content):
     st.subheader(title)
     st.markdown(content)
 
+@st.dialog("Vollständige Zusammenfassung", width="large")
+def show_full_summary_dialog(anchor, summary_text):
+    if summary_text:
+        st.info(f"Gehe zu Abschnitt: {anchor}")
+        st.markdown(summary_text)
+    else:
+        st.warning("Noch keine vollständige Zusammenfassung erstellt. Bitte im Tab 'Zusammenfassung' generieren!")
+
+@st.dialog("Original Dokument", width="large")
+def show_pdf_overlay_dialog(page_num, username, folder_id):
+    # naive approach: take first pdf in folder or assume context
+    pdfs = DataManager.list_pdfs(username, folder_id)
+    if pdfs:
+        path = DataManager.get_pdf_path(pdfs[0], username, folder_id)
+        with open(path, "rb") as f:
+            b64_pdf = base64.b64encode(f.read()).decode('utf-8')
+            t = time.time()
+            # PDF Iframe with specific page
+            pdf_html = f'<iframe src="data:application/pdf;base64,{b64_pdf}#page={page_num}" width="100%" height="800px" type="application/pdf"></iframe>'
+            st.markdown(pdf_html, unsafe_allow_html=True)
+    else:
+        st.error("Kein PDF gefunden.")
+
 def _render_tools_tabs(username, folder_id):
     tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
     import datetime
@@ -1547,13 +1570,37 @@ def _render_tools_tabs(username, folder_id):
                             with c2:
                                 # Interactive Summary Button
                                 t_title = topic['title']
-                                if st.button(f"📖 Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
+                                if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
                                     show_summary_dialog(t_title, st.session_state.generated_summaries.get(t_title, "Keine Zusammenfassung verfügbar."))
 
+                                    show_topic_summary(t_title)
+
                                 # Render Links as Buttons/Markdown (Original Links)
+                                # We parse the links from the description/rationale or just add generic buttons if links exist
+                                # Actually the 'links' list from the plan contains strings like "[...](#...)"
+                                # We need to parse them to make them functional buttons
+                                
                                 links = topic.get('links', [])
                                 for link in links:
-                                    st.markdown(link, unsafe_allow_html=True)
+                                    # Parse: [Label](#target)
+                                    match = re.search(r"\[(.*?)\]\(#(.*?)\)", link)
+                                    if match:
+                                        label = match.group(1)
+                                        target = match.group(2)
+                                        
+                                        # Case 1: PDF Page Link (target starts with "page=")
+                                        if "page=" in target:
+                                            page_num = target.split("=")[1]
+                                            if st.button(f"📄 Original S. {page_num}", key=f"btn_pdf_{i}_{t_title}_{page_num}"):
+                                                show_pdf_overlay_dialog(page_num, username, folder_id)
+                                        
+                                        # Case 2: Summary Link (target starts with "thema-")
+                                        elif "thema-" in target:
+                                             if st.button(f"📑 Voll-Zusammenfassung ({label})", key=f"btn_full_sum_{i}_{t_title}"):
+                                                 show_full_summary_dialog(target, st.session_state.get('summary_text'))
+                                    else:
+                                        # Fallback for raw text
+                                        st.markdown(link, unsafe_allow_html=True)
 
                             
                             st.divider()
