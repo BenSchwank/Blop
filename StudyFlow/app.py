@@ -222,31 +222,60 @@ def create_study_plan_pdf(plan_data):
         pdf.ln(10)
         
         for item in plan_data:
-            date = item.get('date', 'Datum abstehend')
-            topic = item.get('topic', 'Thema')
-            details = item.get('details', '')
+            # Wrapper for new vs old structure
+            date = item.get('date', 'Datum')
+            title = item.get('title', item.get('topic', 'Thema'))
             
             # Date & Topic Header
             pdf.set_fill_color(240, 248, 255) # Light Blue
             pdf.set_text_color(0, 0, 0)
             pdf.set_font("Helvetica", 'B', 12)
-            pdf.cell(0, 8, f"{date}: {topic}", ln=True, fill=True)
+            pdf.cell(0, 8, f"{date}: {title}", ln=True, fill=True)
             
-            # Content (Markdown -> HTML)
-            if details:
-                html = markdown.markdown(details)
+            # Construct Content
+            html_content = ""
+            
+            # New Structure?
+            if 'objectives' in item:
+                # Objectives
+                html_content += "<b>Ziele:</b><ul>"
+                for obj in item['objectives']:
+                    html_content += f"<li>{obj}</li>"
+                html_content += "</ul><br>"
                 
+                # Topics
+                for t in item.get('topics', []):
+                    t_title = t.get('title', '')
+                    t_desc = t.get('description', '')
+                    t_time = t.get('time_minutes', 0)
+                    t_rat = t.get('rationale', '')
+                    
+                    html_content += f"<b>{t_title}</b> ({t_time} min)<br>"
+                    html_content += f"<i>{t_desc}</i><br>"
+                    if t_rat:
+                        html_content += f"<small style='color:#666'>Warum? {t_rat}</small><br>"
+                    html_content += "<br>"
+                    
+                if item.get('review_focus'):
+                     html_content += f"<b>Wiederholung:</b> {item['review_focus']}<br>"
+            else:
+                # Old Structure
+                details = item.get('details', '')
+                if details:
+                    html_content = markdown.markdown(details)
+
+            # Render HTML
+            if html_content:
                 # Unicode Safety
                 unicode_map = {
                     'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue', 'ß': 'ss',
                     '“': '"', '”': '"', '–': '-', '…': '...'
                 }
                 for k, v in unicode_map.items():
-                    html = html.replace(k, v)
+                    html_content = html_content.replace(k, v)
                 
-                # Render HTML
                 pdf.set_font("Helvetica", size=11)
-                pdf.write_html(html)
+                pdf.write_html(html_content)
             
             pdf.ln(8)
             
@@ -586,8 +615,17 @@ def generate_ics(plan_data, start_date):
         date_str = event_date.strftime("%Y%m%d")
         
         # Clean text
-        summary = f"Lernen: {day_item.get('topic', 'Thema')}"
-        desc = day_item.get('details', '').replace('\n', '\\n')
+        summary = f"Lernen: {day_item.get('title', day_item.get('topic', 'Lerneinheit'))}"
+        
+        # New Structure vs Old
+        if 'objectives' in day_item:
+            desc_lines = ["Ziele:"] + [f"- {o}" for o in day_item['objectives']] + ["", "Inhalte:"]
+            for t in day_item.get('topics', []):
+                 desc_lines.append(f"* {t.get('title')} ({t.get('time_minutes')} min)")
+                 desc_lines.append(f"  {t.get('description')}")
+            desc = "\\n".join(desc_lines)
+        else:
+            desc = day_item.get('details', '').replace('\n', '\\n')
         
         # Unique ID
         uid = f"{date_str}-{i}@blop-study.app"
@@ -716,31 +754,40 @@ Du bist ein professioneller Typesetter (Setzer).
 """
     else:
         return f"""
-**Rolle**: Du bist ein Lern-Assistent für Studenten.
+**Rolle**: Du bist ein Lern-Assistent für Studenten ("Study Buddy").
 **Sprache**: {language} (Antworte zwingend in dieser Sprache!).
 
 **Aufgabe**:
-Erstelle eine ausführliche, gut strukturierte Zusammenfassung des Textes.
-Das Ziel ist eine **Web-Optimierte Ansicht** mit einfacher Navigation.
+Erstelle eine extrem strukturierte Zusammenfassung für eine Lern-App.
+Der Nutzer will effizient lernen.
 
 {focus_instruction}
 
-**Struktur (Markdown)**:
-1. **Inhaltsverzeichnis (WICHTIG)**:
-   - Erstelle eine Liste aller Kapitel.
-   - Nutze Markdown-Anker für Interaktivität, die genau den Überschriften entsprechen.
-   - Beispiel: `- [1. Einleitung](#1-einleitung)` für `## 1. Einleitung`.
-   - Achte darauf, dass die Links funktionieren (Kleinschreibung, Bindestriche statt Leerzeichen).
+**Output Struktur (WICHTIG)**:
+1. **Thematische Blöcke**: Teile den Inhalt in logische Abschnitte.
+2. **IDs**: Gib JEDEM Abschnitt eine ID im Format `<div id="thema-X"></div>`, wobei X eine Nummer oder ein Stichwort ist.
+3. **Formatierung**:
+   - Nutze `==markierter Text==` für Definitionen und Schlüsselbegriffe (Streamlit Highlight).
+   - Nutze **Fett** für Wichtiges.
+   - Nutze Emojis für visuelle Struktur.
 
-2. **Hauptinhalt**:
-   - Nutze Überschriften (## 1. ..., ### 1.1 ...).
-   - Nutze **Fett** für Definitionen.
-   - Nutze Tabellen wo sinnvoll.
+**Inhaltliches Format**:
+# Zusammenfassung
 
-3. **Visualisierung**:
-   - Füge nach jedem Hauptkapitel ein Bild ein.
-   - Format: `[IMAGE: visual description in english]`
-   - Halte die Beschreibung kurz und prägnant (keine Sonderzeichen).
+## Inhaltsverzeichnis
+- [Thema 1](#thema-1)
+- [Thema 2](#thema-2)
+
+<div id="thema-1"></div>
+
+## 1. [Titel Thema 1]
+... Inhalt ...
+Definition: ==Begriff== ist ...
+
+<div id="thema-2"></div>
+
+## 2. [Titel Thema 2]
+...
 
 **Input Text**:
 {text}
@@ -1302,42 +1349,61 @@ def _render_tools_tabs(username, folder_id):
                 else:
                     focus_context = "Fokus: Decke den gesamten Inhalt des Dokuments gleichmäßig ab. Erfinde KEINE Themen, die nicht im Text vorkommen."
 
+                # Include Summary Context if available
+                summary_context = ""
+                if "summary_text" in st.session_state and st.session_state.summary_text:
+                    summary_context = f"\n**Referenz-Zusammenfassung (Nutze die IDs hieraus für Links):**\n{st.session_state.summary_text[:10000]}...\n(Gekürzt)"
+
                 prompt = f"""
-                **Rolle**
-                Du bist ein **gnadenloser Lern-Coach**.
-                Dein Ziel: Der Nutzer muss das Skript **perfekt** beherrschen.
-                Dazu reicht "Lies Seite 10" nicht. Du musst ihn **mikroskopisch** führen.
+                **Rolle**: Du bist ein strategischer Lern-Coach.
+                Erstelle einen ultimativen Lernplan ("Roadmap to Success").
 
-                **Vorgabe der Zeit (CRITICAL)**:
-                Du erstellst einen Plan für EXAKT {days_count} Tage/Sessions.
-                Die Termine sind: {date_list_str}.
-                Verteile den GESAMTEN Stoff auf diese {days_count} Termine.
-                Nutze KEINE anderen Daten!
-                Wenn es nur 1 Tag ist, packe alles Wichtige in diesen einen Tag (Intensiv-Kurs).
+                **Parameter**:
+                - Zeitraum: {days_count} Tage (Exakt!).
+                - Termine: {date_list_str}.
+                - Ziel: Perfekte Prüfungsvorbereitung.
 
-                **Problem**
-                Der Nutzer beschwert sich, dass der Plan zu ohberflächlich ist.
-                Er will **TIEFE**. Er will **STRUKTUR**. Er will **INTERAKTION**.
+                **Konzept**:
+                1. **Tagessatz**: Jeder Tag hat ein klares Motto (z.B. "Grundlagen", "Deep Dive", "Wiederholung").
+                2. **Lernziele**: 3-5 konkrete Ziele pro Tag (Was kann ich am Ende?).
+                3. **Inhalte**: Detaillierte Schritte.
+                4. **Didaktik**:
+                   - Start: Grundlagen.
+                   - Mitte: Komplexes & Transfer.
+                   - Ende (letzte 20%): Wiederholung & Simulation.
+                   - Baue "Spaced Repetition" ein (Wiederhole Thema von Tag 1 an Tag 4).
 
-                **Deine Aufgabe (Strict Rules)**:
-                1. **Micro-Steps**: Ein Tag darf nicht nur aus einem Punkt bestehen. Zerlege das Thema in 3-5 Unter-Schritte.
-                2. **Seite & Absatz**: Gib für JEDEN Unter-Schritt genau an, wo er steht ("S. 12, oben").
-                3. **Aktivierung**: Bau Fragen ein! "Lies S. 12 und beantworte: Warum ist X so wichtig?"
-                4. **Umfang**: Nutze den Platz. Der Plan muss sich "voll" und "wertig" anfühlen.
-                5. **WICHTIG**: Nutze für Zitate im Text NUR 'einfache Anführungszeichen'. NIEMALS doppelte, das zerstört das Format!
+                **Formatierung & Links**:
+                - Verlinke auf die Zusammenfassung mittels `[Siehe Zusammenfassung](#thema-ID)`.
+                - Verlinke auf das Original-Dokument: `[📄 S. 12](#page=12)`.
+                - Nutze Emojis: 📖 (Lesen), ✍️ (Üben), 🔄 (Wiederholen).
 
-                **Input Kontext (Auszüge):**
+                **Input Text (Auszüge)**:
                 {context_text}
                 
-                **Dokument-Typ**: {doc_context}.
-                {focus_context}
+                {summary_context}
+
+                **Input Metadaten**:
+                - Typ: {doc_context}
+                - {focus_context}
 
                 **Output Format (Strict JSON)**:
                 [
                     {{
-                        "date": "Datum",
-                        "topic": "Thema",
-                        "details": "Markdown-Checkliste:\\n- [ ] **1. Einstieg**: Lies S. X, Abs. Y um T hema Z zu verstehen.\\n- [ ] **2. Vertiefung**: Analysiere die Grafik auf S. A.\\n- [ ] **3. Check**: Kannst du Begriff B (S. C) definieren?\\n- [ ] **4. Praxis**: Rechne/Bearbeite Aufgabe D auf S. E."
+                        "date": "DD.MM.YYYY",
+                        "day_number": 1,
+                        "title": "Motto des Tages",
+                        "objectives": ["Ziel 1", "Ziel 2", "Ziel 3"],
+                        "topics": [
+                            {{
+                                "title": "Thema A",
+                                "time_minutes": 45,
+                                "description": "Lies Abschnitt X. Verstehe Y.",
+                                "links": ["[Siehe Zusammenfassung](#thema-1)", "[📄 S. 12](#page=12)"],
+                                "rationale": "Wichtig für das Verständnis von Z."
+                            }}
+                        ],
+                        "review_focus": "Was soll wiederholt werden?"
                     }}
                 ]
                 """
@@ -1388,8 +1454,40 @@ def _render_tools_tabs(username, folder_id):
                     )
             
             for i, item in enumerate(st.session_state.plan_data):
-                with st.expander(f"📅 {item.get('date')} - {item.get('topic')}"):
-                    st.markdown(item.get('details', ''))
+                # Fallback for old plan structure vs new structure
+                date_str = item.get('date', 'Tag X')
+                title = item.get('title', item.get('topic', 'Lerneinheit'))
+                
+                with st.expander(f"📅 {date_str}: {title}", expanded=(i==0)):
+                    # New Structure Rendering
+                    if 'objectives' in item:
+                        st.markdown("**🎯 Lernziele Heute:**")
+                        for obj in item['objectives']:
+                            st.caption(f"- {obj}")
+                        st.divider()
+                        
+                        for topic in item.get('topics', []):
+                            c1, c2 = st.columns([4, 1])
+                            with c1:
+                                st.markdown(f"**📖 {topic['title']}** ({topic['time_minutes']} min)")
+                                st.markdown(topic['description'])
+                                if topic.get('rationale'):
+                                    st.info(f"💡 *Warum?* {topic['rationale']}")
+                            with c2:
+                                # Render Links as Buttons/Markdown
+                                links = topic.get('links', [])
+                                for link in links:
+                                    st.markdown(link, unsafe_allow_html=True)
+                            
+                            st.divider()
+                            
+                        if item.get('review_focus'):
+                            st.markdown(f"**🔄 Wiederholung:** {item['review_focus']}")
+                            
+                    else:
+                        # Old Structure Fallback
+                        st.markdown(item.get('details', ''))
+                        
                     if st.button("Löschen", key=f"pland_{i}"):
                         st.session_state.plan_data.pop(i)
                         st.rerun()
