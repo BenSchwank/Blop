@@ -294,6 +294,9 @@ if "current_page" not in st.session_state:
     st.session_state.current_page = "dashboard"
 if "current_folder" not in st.session_state:
     st.session_state.current_folder = None
+if "generated_summaries" not in st.session_state:
+    st.session_state.generated_summaries = {} # {topic_title: summary_text}
+
 
 def navigate_to(page, folder=None):
     st.session_state.current_page = page
@@ -587,6 +590,48 @@ def generate_quiz(chunks):
     except Exception as e:
         st.error(f"Fehler bei Quiz-Generierung: {e}")
         return None
+
+def generate_topic_summary(topic_title, context_chunks):
+    """Generates a specific summary for a study topic."""
+    try:
+        # Simple RAG for the specific topic
+        # We search the index if available, or just use the chunks provided
+        # For simplicity/speed in this demo, we use the provided chunks (which might be the whole doc or a sample)
+        
+        # improved: filter chunks by simple keyword match to reduce noise if possible, else take all
+        relevant_text = ""
+        keywords = topic_title.split()
+        count = 0
+        for c in context_chunks:
+            if any(k.lower() in c['text'].lower() for k in keywords):
+                relevant_text += c['text'][:2000] + "\n"
+                count += 1
+            if count > 5: break
+            
+        if not relevant_text:
+             # Fallback: take random chunks if no keyword match
+             relevant_text = "\n".join([c['text'][:1000] for c in context_chunks[:3]])
+
+        model_name = get_generative_model_name()
+        model = genai.GenerativeModel(model_name)
+        
+        prompt = f"""
+        **Aufgabe**: Erstelle eine ultrakurze, knackige Zusammenfassung (Flashcard-Style) für das Thema: '{topic_title}'.
+        
+        **Format**:
+        - **Definition**: 1 Satz.
+        - **Wichtig**: 3 Bulletpoints.
+        - **Beispiel**: 1 kurzes Beispiel.
+        
+        **Kontext**:
+        {relevant_text}
+        """
+        
+        resp = model.generate_content(prompt)
+        return resp.text
+    except Exception as e:
+        return f"Konnte Zusammenfassung nicht erstellen: {e}"
+
 
 def generate_ics(plan_data, start_date):
     """Generates a basic iCalendar string from plan data."""
@@ -1270,6 +1315,11 @@ def render_workspace():
             st.info("👈 Bitte lade PDFs hoch und klicke auf 'Analysieren', um zu starten.")
             st.image("https://placehold.co/600x400?text=Warte+auf+Analyse", use_container_width=True)
 
+@st.dialog("Zusammenfassung")
+def show_summary_dialog(title, content):
+    st.subheader(title)
+    st.markdown(content)
+
 def _render_tools_tabs(username, folder_id):
     tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
     import datetime
@@ -1428,6 +1478,27 @@ def _render_tools_tabs(username, folder_id):
                                 st.error(f"Fehler bei Daten-Verarbeitung: {e}")
                                 st.write("Raw Output:", resp.text)
                                 st.stop()
+                        
+                        # --- NEW: Generate Summaries for Topics ---
+                        st.info("Generiere Detail-Zusammenfassungen für die Themen...")
+                        progress_text = "Thema {} von {}"
+                        my_bar = st.progress(0, text=progress_text.format(0, 0))
+                        
+                        all_topics = []
+                        for day in st.session_state.plan_data:
+                            if 'topics' in day:
+                                for t in day['topics']:
+                                    all_topics.append(t['title'])
+                        
+                        total_tops = len(all_topics)
+                        for idx, t_title in enumerate(all_topics):
+                            my_bar.progress((idx + 1) / total_tops, text=progress_text.format(idx + 1, total_tops))
+                            # Generate
+                            if t_title not in st.session_state.generated_summaries:
+                                summ = generate_topic_summary(t_title, chunks) # Use all chunks for lookup
+                                st.session_state.generated_summaries[t_title] = summ
+                        
+                        my_bar.empty()
                         st.rerun()
                 except Exception as e:
                     st.error(f"Fehler: {e}")
@@ -1474,10 +1545,16 @@ def _render_tools_tabs(username, folder_id):
                                 if topic.get('rationale'):
                                     st.info(f"💡 *Warum?* {topic['rationale']}")
                             with c2:
-                                # Render Links as Buttons/Markdown
+                                # Interactive Summary Button
+                                t_title = topic['title']
+                                if st.button(f"📖 Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
+                                    show_summary_dialog(t_title, st.session_state.generated_summaries.get(t_title, "Keine Zusammenfassung verfügbar."))
+
+                                # Render Links as Buttons/Markdown (Original Links)
                                 links = topic.get('links', [])
                                 for link in links:
                                     st.markdown(link, unsafe_allow_html=True)
+
                             
                             st.divider()
                             
@@ -1552,6 +1629,14 @@ def _render_tools_tabs(username, folder_id):
                 title = pdfs[0] if pdfs else "Summary"
                 DataManager.save_summary(title, st.session_state.summary_text, username, folder_id)
                 st.toast("Gespeichert")
+        
+        st.divider()
+        if "generated_summaries" in st.session_state and st.session_state.generated_summaries:
+            st.subheader("📌 Themen-Zusammenfassungen (aus Lernplan)")
+            for title, content in st.session_state.generated_summaries.items():
+                with st.expander(f"📄 {title}"):
+                    st.markdown(content)
+
 
 # Execute Layout
 
