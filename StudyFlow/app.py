@@ -407,7 +407,7 @@ def get_embedding_model_name():
         pass
     return "models/embedding-001"
 
-@st.cache_data(show_spinner=False)
+# Removed cache to prevent stale data persistence
 def get_pdf_text(_pdf_docs):
     pages_data = []
     for pdf in _pdf_docs:
@@ -701,7 +701,8 @@ def get_summary_prompt(mode, text, language="Deutsch", focus=""):
         focus_instruction = "**FOKUS**: Erstelle eine umfassende, neutrale Zusammenfassung, die alle Hauptthemen des Textes abdeckt. Identifiziere Schlüsselkonzepte und erkläre sie verständlich."
 
     # Anti-Hallucination Guard
-    focus_instruction += "\n\n**WICHTIG**: Nutze NUR den untenstehenden 'Input Text'. Erfinde keine Fakten. Wenn der Text unvollständig ist, fasse nur das Vorhandene zusammen."
+    # Updated prompt with strict source rules
+    focus_instruction += "\n\n**STRIKTE REGELN (QUELLE):**\n1. Nutze **AUSSCHLIESSLICH** den untenstehenden 'Input Text'.\n2. Ignoriere alles Wissen aus vorherigen Dokumenten oder Sitzungen.\n3. Nenne zu Beginn die **Quelle** (Dateiname) und das **Hauptthema**.\n4. Falls der Text Informationen enthält, die nicht zur aktuellen Datei gehören, ignoriere sie.\n5. Starte die Zusammenfassung mit: 'Diese Zusammenfassung basiert exakt auf der Datei [Dateiname]...'"
 
     if "LaTeX" in mode:
         return f"""
@@ -1021,6 +1022,10 @@ def _run_analysis(username, folder_id):
                 def close(self): self._f.close()
             
             file_objs = [FileObj(p) for p in full_paths]
+            
+            # CLEAR OLD STATE explicitly
+            if "text_chunks" in st.session_state: del st.session_state.text_chunks
+            if "vector_index" in st.session_state: del st.session_state.vector_index
             
             # Re-use existing analysis logic
             raw_text = get_pdf_text(file_objs) 
