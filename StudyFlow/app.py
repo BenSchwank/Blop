@@ -685,8 +685,9 @@ def get_pdf_text(_pdf_docs):
                 })
     return pages_data
 
-def get_text_chunks(pages_data, chunk_size=1000, chunk_overlap=200):
     chunks = []
+    from langchain.docstore.document import Document
+    
     for p in pages_data:
         text = p['text']
         page_num = p['page']
@@ -696,18 +697,42 @@ def get_text_chunks(pages_data, chunk_size=1000, chunk_overlap=200):
         while start < len(text):
             end = start + chunk_size
             chunk_text = text[start:end]
-            # Chunk is now a Dict
-            chunks.append({
-                "text": chunk_text,
-                "page": page_num,
-                "source": source
-            })
+            # Return Document object
+            chunks.append(Document(
+                page_content=chunk_text,
+                metadata={"page": page_num, "source": source}
+            ))
             start = end - chunk_overlap
     return chunks
 
 def build_vector_store(text_chunks):
     # ... (Keep existing implementation)
     embeddings = []
+    valid_chunks = []
+    
+    model_name = get_embedding_model_name()
+    # If using Google PaLM Embeddings
+    # ...
+    
+    # We need to make sure text_chunks are Documents
+    # If they are, just pass them to FAISS or process manually?
+    # Let's assume text_chunks are now Documents.
+    
+    try:
+        # Check if we have valid content
+        if not text_chunks: return None, []
+        
+        # Use LangChain Google GenAI Embeddings
+        embeddings_model = GoogleGenerativeAIEmbeddings(model=model_name)
+        
+        # Create FAISS index directly from documents
+        vector_store = FAISS.from_documents(text_chunks, embedding=embeddings_model)
+        
+        return vector_store, text_chunks
+
+    except Exception as e:
+        print(f"Vector Store Error: {e}")
+        return None, []
     valid_chunks = []
     
     model = get_embedding_model_name()
