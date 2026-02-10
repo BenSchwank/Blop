@@ -1491,9 +1491,26 @@ def show_pdf_overlay_dialog(page_num, username, folder_id, filename=None):
     if path:
         with open(path, "rb") as f:
             b64_pdf = base64.b64encode(f.read()).decode('utf-8')
-            t = time.time()
-            # PDF Iframe with specific page
-            pdf_html = f'<iframe src="data:application/pdf;base64,{b64_pdf}#page={page_num}" width="100%" height="800px" type="application/pdf"></iframe>'
+            
+            # 1. Download Button (Fallback)
+            st.download_button(
+                label="📥 PDF Herunterladen",
+                data=base64.b64decode(b64_pdf),
+                file_name=filename or "document.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
+            # 2. PDF Preview (Try <embed> which is often better than iframe for large data URIs)
+            # Make sure we have a valid height
+            pdf_html = f'''
+                <embed
+                    src="data:application/pdf;base64,{b64_pdf}#page={page_num}"
+                    type="application/pdf"
+                    width="100%"
+                    height="800px"
+                />
+            '''
             st.markdown(pdf_html, unsafe_allow_html=True)
     else:
         st.error("Kein PDF gefunden.")
