@@ -437,7 +437,13 @@ class DataManager:
                     with open(tmp_path, "wb") as f:
                         for chunk in chunks:
                             c_data = chunk.to_dict()
-                            f.write(base64.b64decode(c_data["data"]))
+                            try:
+                                f.write(base64.b64decode(c_data["data"]))
+                            except:
+                                pass # Skip bad chunks
+                    
+                    if os.path.getsize(tmp_path) == 0:
+                        return None
                     return tmp_path
                     
                 else:
@@ -448,9 +454,15 @@ class DataManager:
                         tmp_dir = os.path.join(DATA_DIR, "temp")
                         if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
                         tmp_path = os.path.join(tmp_dir, filename)
-                        with open(tmp_path, "wb") as f:
-                            f.write(base64.b64decode(meta["content_b64"]))
-                        return tmp_path
+                        
+                        try:
+                            with open(tmp_path, "wb") as f:
+                                f.write(base64.b64decode(meta["content_b64"]))
+                                
+                            if os.path.getsize(tmp_path) == 0: return None
+                            return tmp_path
+                        except:
+                            return None
                 return None
             return None
         else:

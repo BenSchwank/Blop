@@ -679,19 +679,39 @@ def get_embedding_model_name():
     return "models/embedding-001"
 
 # Removed cache to prevent stale data persistence
-def get_pdf_text(_pdf_docs):
+def get_pdf_text(pdf_files):
     pages_data = []
     for pdf in _pdf_docs:
         pdf_reader = PdfReader(pdf)
         for i, page in enumerate(pdf_reader.pages):
             t = page.extract_text()
             if t:
-                # Store metadata
-                pages_data.append({
-                    "page": i + 1,
-                    "text": t,
-                    "source": pdf.name
-                })
+    pages_data = []
+    for pdf in pdf_files:
+        try:
+            # Check for empty file
+            pdf.seek(0, 2)
+            size = pdf.tell()
+            pdf.seek(0)
+            
+            if size == 0:
+                st.toast(f"Überspringe leere Datei: {pdf.name}")
+                continue
+                
+            reader = PdfReader(pdf)
+            for i, page in enumerate(reader.pages):
+                t = page.extract_text()
+                if t:
+                    # Store metadata
+                    pages_data.append({
+                        "page": i + 1,
+                        "text": t,
+                        "source": pdf.name
+                    })
+        except Exception as e:
+            st.error(f"Fehler beim Lesen von {pdf.name}: {e}")
+            continue
+            
     return pages_data
     
 def get_text_chunks(pages_data, chunk_size=1000, chunk_overlap=200):
