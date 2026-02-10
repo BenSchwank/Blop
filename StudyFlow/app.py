@@ -463,16 +463,15 @@ def render_sidebar():
         # GLOBAL HEADER / STATUS
         st.title("⚡ Blop AI")
         
-        # DB Status logic (restored from old version)
-        import os # Ensure os is imported if used here, though properly at top usually
-        
-        # We can't easily init firestore here without potentially triggering re-init, 
-        # but let's assume DataManager handles the singleton logic or we just check a flag?
-        # The old code called DataManager._init_firestore() directly.
-        # Let's use a simplified status check or just copy the old logic if safe.
-        # Ideally, we put this status check in a helper or just display what we know.
-        
-        # Restore Settings Expander (Dashboard Only)
+        # DB Status
+        # Simple check without re-initializing if possible, or just call init (it's a singleton pattern usually)
+        if "firestore_client" in st.session_state and st.session_state.firestore_client:
+             st.caption("🟢 Speicher: Cloud (Firestore)")
+        else:
+             # Try quick check or fallback
+             st.caption("🔴 Speicher: Lokal")
+             
+        st.divider()
         
         # CONTEXT-AWARE CONTENT
         
