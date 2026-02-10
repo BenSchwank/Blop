@@ -2148,22 +2148,22 @@ def render_workspace_content(username, folder_id):
                                 if topic.get('rationale'):
                                     st.info(f"💡 *Warum?* {topic['rationale']}")
                             with c2:
-                                    # Interactive Summary Button
-                                    t_title = topic['title']
-                                    if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
-                                        # Check if summary exists
-                                        if "generated_summaries" not in st.session_state:
-                                            st.session_state.generated_summaries = {}
-                                            
-                                        summary_content = st.session_state.generated_summaries.get(t_title)
+                                # Interactive Summary Button
+                                t_title = topic['title']
+                                if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
+                                    # Check if summary exists
+                                    if "generated_summaries" not in st.session_state:
+                                        st.session_state.generated_summaries = {}
                                         
-                                        if not summary_content:
-                                            with st.spinner("Erstelle Zusammenfassung..."):
-                                                # Generate on the fly
-                                                summary_content = generate_topic_summary(t_title, topic.get('description', ''), st.session_state.text_chunks)
-                                                st.session_state.generated_summaries[t_title] = summary_content
-                                        
-                                        show_summary_dialog(t_title, summary_content)
+                                    summary_content = st.session_state.generated_summaries.get(t_title)
+                                    
+                                    if not summary_content:
+                                        with st.spinner("Erstelle Zusammenfassung..."):
+                                            # Generate on the fly
+                                            summary_content = generate_topic_summary(t_title, topic.get('description', ''), st.session_state.text_chunks)
+                                            st.session_state.generated_summaries[t_title] = summary_content
+                                    
+                                    show_summary_dialog(t_title, summary_content)
 
                                 # Render Links as Buttons/Markdown (Original Links)
                                 links = topic.get('links', [])
