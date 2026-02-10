@@ -1424,17 +1424,28 @@ def _run_analysis(username, folder_id):
             
             # Re-use existing analysis logic
             raw_text = get_pdf_text(file_objs) 
+            
             if not raw_text:
-                st.error("Konnte keinen Text aus den PDFs extrahieren.")
+                st.warning("Kein Text aus den PDFs extrahieren können. Sind die Dateien gescannt (Bilder)?")
+                st.session_state.text_chunks = []
+                st.session_state.vector_index = None
+                st.rerun()
                 return
 
             chunks = get_text_chunks(raw_text)
             if not chunks:
-                st.error("Konnte keine Text-Chunks erstellen.")
+                st.warning("Keine Text-Chunks erstellt (Text zu kurz?).")
+                st.session_state.text_chunks = []
+                st.session_state.vector_index = None
+                st.rerun()
                 return
 
             index, valid_chunks = build_vector_store(chunks)
-            
+            if index is None:
+                 st.error("Fehler beim Erstellen des Such-Index (Vector Store).")
+                 st.session_state.text_chunks = []
+                 return
+
             st.session_state.vector_index = index
             st.session_state.text_chunks = valid_chunks
             
@@ -1446,7 +1457,8 @@ def _run_analysis(username, folder_id):
             st.rerun()
             
         except Exception as e:
-            st.error(f"Fehler bei Analyse: {e}")
+            st.error(f"Kritischer Fehler bei Analyse: {e}")
+            st.session_state.text_chunks = []
 
 def render_file_manager(username, folder_id):
     st.subheader("📂 Datei-Manager")
