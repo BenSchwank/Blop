@@ -83,3 +83,26 @@ class DataManager:
     @staticmethod
     def get_pdf_path(filename, username, folder_id):
         return os.path.join(DataManager._get_folder_path(username, folder_id), filename)
+
+    @staticmethod
+    def delete_user_data(username):
+        """Deletes all data associated with a user."""
+        # 1. Delete Main Data JSON
+        json_path = DataManager._get_file(username)
+        if os.path.exists(json_path):
+            os.remove(json_path)
+            
+        # 2. Delete User Directory (PDFs etc.)
+        safe_user = "".join([c for c in username if c.isalnum() or c in "-_"])
+        user_dir = os.path.join(DATA_DIR, safe_user)
+        if os.path.exists(user_dir):
+            import shutil
+            shutil.rmtree(user_dir)
+
+    @staticmethod
+    def clear_user_data(username):
+        """Deletes all data but keeps the user account."""
+        # Same as delete_user_data, but we don't delete the user from AuthManager
+        DataManager.delete_user_data(username)
+        # Re-create empty JSON so user can still log in without errors
+        DataManager.save({"folders": [], "files": []}, username)

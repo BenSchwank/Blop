@@ -984,6 +984,25 @@ def display_pdf_bytes(pdf_bytes):
 
 # --- UI COMPONENTS ---
 
+@st.dialog("⚠️ Konto löschen")
+def show_delete_account_dialog(username):
+    st.error("Bist du sicher? Alle deine Daten (Projekte, PDFs, Pläne) werden unwiderruflich gelöscht.")
+    
+    st.warning("Diese Aktion kann nicht rückgängig gemacht werden.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Abbrechen", use_container_width=True):
+            st.rerun()
+    with col2:
+        if st.button("Endgültig löschen", type="primary", use_container_width=True):
+            if AuthManager.delete_user(username):
+                st.success("Konto gelöscht.")
+                time.sleep(1)
+                AuthManager.logout()
+            else:
+                st.error("Fehler beim Löschen.")
+
 def render_sidebar():
     with st.sidebar:
         st.title("⚡ Blop AI")
@@ -1013,6 +1032,10 @@ def render_sidebar():
         st.caption(f"Angemeldet als: {username}")
         if st.button("Logout", type="primary", use_container_width=True):
             AuthManager.logout()
+            
+        st.divider()
+        if st.button("Konto löschen", type="secondary", use_container_width=True):
+            show_delete_account_dialog(username)
 
 def _run_analysis(username, folder_id):
     """Helper to analyze all PDFs in the folder."""
@@ -1289,9 +1312,16 @@ def render_dashboard():
             st.metric("Registrierte Nutzer", len(users))
             for u in users:
                 if u != "admin_":
-                    c_a, c_b = st.columns([5, 1])
+                    c_a, c_b, c_c = st.columns([4, 1, 1])
                     c_a.write(f"👤 {u}")
-                    if c_b.button("🗑️", key=f"del_{u}"):
+                    # Clear Data Button
+                    if c_b.button("🧹", key=f"clear_{u}", help="Nur Daten löschen (Account behalten)"):
+                        DataManager.clear_user_data(u)
+                        st.toast(f"Daten von {u} gelöscht.")
+                        time.sleep(1)
+                        st.rerun()
+                    # Delete User Button
+                    if c_c.button("🗑️", key=f"del_{u}", help="Nutzer komplett löschen"):
                         AuthManager.delete_user(u)
                         st.rerun()
 

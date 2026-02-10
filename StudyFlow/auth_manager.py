@@ -63,6 +63,9 @@ class AuthManager:
         if username in users:
             del users[username]
             AuthManager._save_users(users)
+            # Cleanup Data
+            from data_manager import DataManager
+            DataManager.delete_user_data(username)
             return True
         return False
 
