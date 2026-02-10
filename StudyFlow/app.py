@@ -464,12 +464,14 @@ def render_sidebar():
         st.title("⚡ Blop AI")
         
         # DB Status
-        # Simple check without re-initializing if possible, or just call init (it's a singleton pattern usually)
-        if "firestore_client" in st.session_state and st.session_state.firestore_client:
+        # DB Status
+        # Call explicit init to check status (it returns None if failed/local)
+        db_status = DataManager._init_firestore()
+        if db_status:
              st.caption("🟢 Speicher: Cloud (Firestore)")
         else:
-             # Try quick check or fallback
-             st.caption("🔴 Speicher: Lokal")
+             err = st.session_state.get("db_error", "")
+             st.caption(f"🔴 Speicher: Lokal ({err})" if err else "🔴 Speicher: Lokal")
              
         st.divider()
         
