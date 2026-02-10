@@ -1401,13 +1401,25 @@ def _run_analysis(username, folder_id):
             
             # Re-use existing analysis logic
             raw_text = get_pdf_text(file_objs) 
+            if not raw_text:
+                st.error("Konnte keinen Text aus den PDFs extrahieren.")
+                return
+
             chunks = get_text_chunks(raw_text)
+            if not chunks:
+                st.error("Konnte keine Text-Chunks erstellen.")
+                return
+
             index, valid_chunks = build_vector_store(chunks)
             
             st.session_state.vector_index = index
             st.session_state.text_chunks = valid_chunks
+            
             # Cleanup
             for f in file_objs: f.close()
+            
+            st.success(f"Analyse erfolgreich! {len(valid_chunks)} Text-Abschnitte gefunden.")
+            time.sleep(1)
             st.rerun()
             
         except Exception as e:
