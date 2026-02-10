@@ -457,9 +457,58 @@ if "generated_summaries" not in st.session_state:
     st.session_state.generated_summaries = {} # {topic_title: summary_text}
 
 
+# --- Central Sidebar Logic ---
+def render_sidebar():
+    with st.sidebar:
+        # User Info
+        if st.session_state.get("authenticated"):
+            st.markdown(f"👤 **{st.session_state.get('username')}**")
+            if st.button("🚪 Logout", key="logout_btn", type="secondary"):
+                AuthManager.logout()
+                st.rerun()
+            st.divider()
+
+        # Context-Aware Navigation
+        if st.session_state.current_page == "dashboard":
+            st.subheader("Einstellungen")
+            # Settings only visible in Dashboard
+            if st.button("🗑️ Konto löschen", type="secondary"):
+                show_delete_account_dialog()
+            # Admin Panel Check (if applicable)
+        
+        elif st.session_state.current_page == "workspace":
+            # WORKSPACE MODE
+            if st.button("← Dashboard", type="secondary", use_container_width=True):
+                navigate_to("dashboard")
+            
+            st.divider()
+            
+            # 1. Navigation (Vertical)
+            st.subheader("Navigation")
+            nav_options = ["Lernplan", "Chat", "Quiz", "Zusammenfassung"]
+            
+            # Map icons if desired
+            nav_icons = {"Lernplan": "📅", "Chat": "💬", "Quiz": "❓", "Zusammenfassung": "📝"}
+            fmt_options = [f"{nav_icons[o]} {o}" for o in nav_options]
+            
+            selected_nav = st.radio("Gehe zu:", fmt_options, label_visibility="collapsed", key="workspace_nav_radio")
+            
+            # Store simple key in session state for workspace content to read
+             # Extract key from string (remove emoji)
+            st.session_state.workspace_view = selected_nav.split(" ", 1)[1]
+
+            st.divider()
+
+            # 2. File Manager (Expandable)
+            with st.expander("📁 Datei-Manager", expanded=False):
+                render_file_manager(st.session_state.get("username"), st.session_state.current_folder)
+
 def navigate_to(page, folder=None):
     st.session_state.current_page = page
     st.session_state.current_folder = folder
+    # Reset view to default when entering workspace
+    if page == "workspace":
+        st.session_state.workspace_view = "Lernplan"
     st.rerun()
 
 # --- Helper Functions ---
@@ -1543,56 +1592,29 @@ def render_dashboard():
                         st.rerun()
 
 def render_workspace():
-    render_sidebar() # Global Sidebar
+    # render_sidebar() is called globally in main()
     
-    # Top Navigation Bar
-    nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
+    folder_id = st.session_state.current_folder
+    username = st.session_state.get("username", "default")
     
-    with nav_col1:
-        if st.button("⬅️ Dashboard", type="secondary", use_container_width=True):
-            navigate_to("dashboard")
-            
-    with nav_col2:
-        folder_id = st.session_state.current_folder
-        folder_name = "Workspace"
-        username = st.session_state.get("username", "default")
+    # Load Data Logic (Simplified/Ensured)
+    if folder_id:
+        # Ensure data is loaded or title is fetched
+        data = DataManager.load(username)
+        # We can rely on _render_tools_tabs or content renderer to handle data needs
         
-        if folder_id:
-            data = DataManager.load(username)
-            folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
-            if folder: folder_name = folder['name']
-            
-            # --- Auto-Load Persistent Data ---
-            if "plan_data" not in st.session_state:
-                saved_plan = DataManager.load_plan(username, folder_id)
-                if saved_plan:
-                    st.session_state.plan_data = saved_plan
-                    
-            if "summary_text" not in st.session_state:
-                saved_summary = DataManager.load_generated_summary(username, folder_id)
-                if saved_summary:
-                    st.session_state.summary_text = saved_summary
-            
-        st.markdown(f"### 📂 {folder_name}")
-
-    with nav_col3:
-        pass # Empty now as settings are in sidebar
-
+    st.markdown(f"## 📂 Projekt: {folder_id}")
     st.divider()
 
-    # Main Split Layout
-    left_col, right_col = st.columns([1, 2])
-    
-    with left_col:
-        render_file_manager(username, folder_id)
-
-    with right_col:
-        # Show tools ONLY if analyzed
-        if "text_chunks" in st.session_state:
-            _render_tools_tabs(username, folder_id)
-        else:
-            st.info("👈 Bitte lade PDFs hoch und klicke auf 'Analysieren', um zu starten.")
-            st.image("https://placehold.co/600x400?text=Warte+auf+Analyse", use_container_width=True)
+    # Show content based on sidebar selection
+    # We reuse the existing function but will refactor it to respect the view mode
+    if "text_chunks" in st.session_state:
+        render_workspace_content(username, folder_id)
+    else:
+        st.info("👈 Bitte lade PDFs hoch (im Menü links) und klicke auf 'Analysieren', um zu starten.")
+        # Optional: Show File Manager here if empty? No, it's in sidebar.
+        if st.button("Beispiel-Daten laden (Demo)"):
+            st.error("Noch nicht implementiert")
 
 @st.dialog("Zusammenfassung")
 def show_summary_dialog(title, content):
@@ -1820,15 +1842,19 @@ def show_coach_dialog(day_index, day_data):
             except json.JSONDecodeError as e:
                 st.error(f"Ungültiges JSON: {e}")
 
-def _render_tools_tabs(username, folder_id):
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Dozenten-Chat", "📝 Quiz", "📑 Zusammenfassung"])
+def render_workspace_content(username, folder_id):
+    # Implements vertical switching logic based on sidebar selection
+    
     import datetime
     
-    # --- TAB 1: Lernplan ---
-    with tab1:
+    active_view = st.session_state.get("workspace_view", "Lernplan")
+    
+    # --- VIEW: Lernplan ---
+    if active_view == "Lernplan":
         st.header("Smarter Lernplan")
         col1, col2 = st.columns(2)
         with col1:
+           # (Keep original logic...)
             start_date = st.date_input("Start-Datum", min_value=datetime.date.today(), value=datetime.date.today())
         with col2:
             exam_date = st.date_input("Prüfungs-Datum", min_value=datetime.date.today() + datetime.timedelta(days=1), value=datetime.date.today() + datetime.timedelta(days=7))
@@ -1855,159 +1881,33 @@ def _render_tools_tabs(username, folder_id):
         
         days_count = len(study_dates)
         
-        if st.button("Lernplan erstellen (AI)"):
-            if days_count == 0:
-                st.error("Bitte Wochentage wählen!")
-            else:
-                st.info(f"Erstelle Plan für {days_count} Sessions...")
-                chunks = st.session_state.text_chunks
-                # Sampling logic inline
-                # Smart Context Sampling (Uniform Distribution instead of Random)
-                # We want to cover the WHOLE document to create a complete plan.
-                # Flash model has huge context, so we can be generous.
+    # --- EXISTING TAB LOGIC REPLACED BY SIDEBAR VERTICAL NAV ---
+    # tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Chat", "❓ Quiz", "📝 Zusammenfassung"])
+    # Navigation state is now set in render_sidebar() -> st.session_state.workspace_view
+    
+    active_view = st.session_state.get("workspace_view", "Lernplan")
+
+    if active_view == "Lernplan":
+        # --- VIEW: Lernplan ---
+        st.header("📅 Lernplan")
+        
+        # Generator UI
+        with st.expander("⚙️ Lernplan-Generator", expanded=not st.session_state.get("plan_data")):
+            c1, c2 = st.columns(2)
+            with c1:
+                days = st.number_input("Dauer (Tage)", min_value=1, max_value=30, value=7)
+                hours = st.slider("Stunden pro Tag", 1, 10, 4)
+            with c2:
+                start_date = st.date_input("Startdatum", datetime.date.today())
                 
-                total_chunks = len(chunks)
-                if total_chunks <= 30:
-                    # Small doc? Take everything.
-                    sample = chunks
-                else:
-                    # Large doc? Take 30 evenly distributed chunks to cover start-to-end
-                    step = max(1, total_chunks // 30)
-                    sample = chunks[::step]
-
-                context_text = ""
-                for c in sample:
-                    # Include Page Number clearly for the AI
-                    context_text += f"\n=== SOURCE_START [Seite {c.get('page', '?')}] ===\n{c.get('text', '')[:2000]}\n=== SOURCE_END ===\n"
-                
-                date_list_str = ", ".join([d.strftime('%d.%m.%Y') for d in study_dates])
-                
-                # Dynamic Prompt based on Doc Type
-                doc_context = doc_type
-                if doc_type == "Sonstiges": doc_context = custom_doc_type
-                
-                goal_instruction = "Erstelle einen Lernplan, der den Stoff logisch aufteilt."
-                if "Prüfung" in doc_type or "Klausur" in doc_type:
-                    goal_instruction = "Dies ist eine PRÜFUNG/KLAUSUR. Analysiere die Aufgabenstellungen und Themen der Prüfung. Der Lernplan soll eine Strategie sein, um genau diese Art von Aufgaben zu lösen. Plane Übungseinheiten für ähnliche Aufgaben ein!"
-                elif "Übung" in doc_type:
-                    goal_instruction = "Dies sind Übungsblätter. Der Lernplan soll sich auf das aktive Lösen dieser Aufgaben konzentrieren."
-                
-                # Check for empty focus
-                focus_context = ""
-                if focus_topic:
-                    focus_context = f"Fokus-Thema des Nutzers: {focus_topic}. (Richte den Plan stark danach aus)"
-                else:
-                    focus_context = "Fokus: Decke den gesamten Inhalt des Dokuments gleichmäßig ab. Erfinde KEINE Themen, die nicht im Text vorkommen."
-
-                # Include Summary Context if available
-                summary_context = ""
-                if "summary_text" in st.session_state and st.session_state.summary_text:
-                    summary_context = f"\n**Referenz-Zusammenfassung (Nutze die IDs hieraus für Links):**\n{st.session_state.summary_text[:10000]}...\n(Gekürzt)"
-
-                prompt = f"""
-                **Rolle**: Du bist ein strategischer Lern-Coach.
-                Erstelle einen ultimativen Lernplan ("Roadmap to Success").
-
-                **Parameter**:
-                - Zeitraum: {days_count} Tage (Exakt!).
-                - Termine: {date_list_str}.
-                - Ziel: Perfekte Prüfungsvorbereitung.
-
-                **Konzept**:
-                1. **Tagessatz**: Jeder Tag hat ein klares Motto (z.B. "Grundlagen", "Deep Dive", "Wiederholung").
-                2. **Lernziele**: 3-5 konkrete Ziele pro Tag (Was kann ich am Ende?).
-                3. **Inhalte**: Detaillierte Schritte.
-                4. **Didaktik**:
-                   - Start: Grundlagen.
-                   - Mitte: Komplexes & Transfer.
-                   - Ende (letzte 20%): Wiederholung & Simulation.
-                   - Baue "Spaced Repetition" ein (Wiederhole Thema von Tag 1 an Tag 4).
-
-                **Formatierung & Links**:
-                - Verlinke auf die Zusammenfassung mittels `[Siehe Zusammenfassung](#thema-ID)`.
-                - Verlinke auf das Original-Dokument: `[📄 S. 12](#page=12)`.
-                - Nutze Emojis: 📖 (Lesen), ✍️ (Üben), 🔄 (Wiederholen).
-
-                **Input Text (Auszüge)**:
-                {context_text}
-                
-                {summary_context}
-
-                **Input Metadaten**:
-                - Typ: {doc_context}
-                - {focus_context}
-
-                **Output Format (Strict JSON)**:
-                [
-                    {{
-                        "date": "DD.MM.YYYY",
-                        "day_number": 1,
-                        "title": "Motto des Tages",
-                        "objectives": ["Ziel 1", "Ziel 2", "Ziel 3"],
-                        "topics": [
-                            {{
-                                "title": "Thema A",
-                                "time_minutes": 45,
-                                "description": "Lies Abschnitt X. Verstehe Y.",
-                                "links": ["[Siehe Zusammenfassung](#thema-1)", "[📄 S. 12](#page=12)"],
-                                "rationale": "Wichtig für das Verständnis von Z."
-                            }}
-                        ],
-                        "review_focus": "Was soll wiederholt werden?"
-                    }}
-                ]
-                """
-                
-                try:
-                    model_name = st.session_state.get("model_option", "Automatisch")
-                    if model_name == "Automatisch": model_name = get_generative_model_name()
-                    
-                    with st.spinner("AI arbeitet (Kann 30s dauern)..."):
-                        resp = genai.GenerativeModel(model_name).generate_content(prompt)
-                        
-                        # Robust Parsing
-                        content = clean_json_output(resp.text)
-                        
-                        try:
-                            st.session_state.plan_data = json.loads(content)
-                        except Exception:
-                            # Fallback: AST for single quotes (Python list)
-                            try:
-                                st.session_state.plan_data = ast.literal_eval(content)
-                            except Exception as e:
-                                st.error(f"Fehler bei Daten-Verarbeitung: {e}")
-                                st.write("Raw Output:", resp.text)
-                                st.stop()
-                        
-                        # --- NEW: Generate Summaries for Topics ---
-                        st.info("Generiere Detail-Zusammenfassungen für die Themen...")
-                        progress_text = "Thema {} von {}"
-                        my_bar = st.progress(0, text=progress_text.format(0, 0))
-                        
-                        all_topics = []
-                        for day in st.session_state.plan_data:
-                            if 'topics' in day:
-                                for t in day['topics']:
-                                    all_topics.append(t['title'])
-                        
-                        total_tops = len(all_topics)
-                        for idx, t_title in enumerate(all_topics):
-                            my_bar.progress((idx + 1) / total_tops, text=progress_text.format(idx + 1, total_tops))
-                            # Generate
-                            if t_title not in st.session_state.generated_summaries:
-                                summ = generate_topic_summary(t_title, chunks) # Use all chunks for lookup
-                                st.session_state.generated_summaries[t_title] = summ
-                        
-                        my_bar.empty()
-                        
+            if st.button("🚀 Lernplan erstellen", type="primary"):
+                with st.spinner("Analysiere Dokumente & erstelle Plan... (das dauert einen Moment)"):
+                    plan = generate_study_plan(st.session_state.text_chunks, days, hours, start_date)
+                    if plan:
+                        st.session_state.plan_data = plan
                         # Auto-Save
-                        username = st.session_state.get("username", "default")
-                        folder_id = st.session_state.current_folder
-                        DataManager.save_plan(st.session_state.plan_data, username, folder_id)
-                        
+                        DataManager.save_plan(plan, username, folder_id)
                         st.rerun()
-                except Exception as e:
-                    st.error(f"Fehler: {e}")
 
         # Render Plan
         if "plan_data" in st.session_state:
@@ -2056,13 +1956,7 @@ def _render_tools_tabs(username, folder_id):
                                 if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
                                     show_summary_dialog(t_title, st.session_state.generated_summaries.get(t_title, "Keine Zusammenfassung verfügbar."))
 
-
-
                                 # Render Links as Buttons/Markdown (Original Links)
-                                # We parse the links from the description/rationale or just add generic buttons if links exist
-                                # Actually the 'links' list from the plan contains strings like "[...](#...)"
-                                # We need to parse them to make them functional buttons
-                                
                                 links = topic.get('links', [])
                                 for link in links:
                                     # Parse: [Label](#target)
@@ -2084,7 +1978,6 @@ def _render_tools_tabs(username, folder_id):
                                     else:
                                         # Fallback for raw text
                                         st.markdown(link, unsafe_allow_html=True)
-
                             
                             st.divider()
                             
@@ -2106,9 +1999,9 @@ def _render_tools_tabs(username, folder_id):
                              show_coach_dialog(i, item)
 
 
-    # --- TAB 2: Chat ---
-    with tab2:
-        st.header("Dozenten-Chat")
+    # --- VIEW: Chat ---
+    elif active_view == "Chat":
+        st.header("💬 Dozenten-Chat")
         if "messages" not in st.session_state: st.session_state.messages = []
         for msg in st.session_state.messages:
             st.chat_message(msg["role"]).markdown(msg["content"])
@@ -2121,9 +2014,9 @@ def _render_tools_tabs(username, folder_id):
                 st.session_state.messages.append({"role": "assistant", "content": ans})
                 st.chat_message("assistant").markdown(ans)
 
-    # --- TAB 3: Quiz ---
-    with tab3:
-        st.header("Quiz")
+    # --- VIEW: Quiz ---
+    elif active_view == "Quiz":
+        st.header("❓ Quiz")
         if st.button("Neues Quiz generieren"):
             with st.spinner("..."):
                 q = generate_quiz(st.session_state.text_chunks)
@@ -2140,9 +2033,9 @@ def _render_tools_tabs(username, folder_id):
                     else: st.error(f"Falsch. {q['answer']}")
                 st.divider()
 
-    # --- TAB 4: Summary ---
-    with tab4:
-        st.header("Zusammenfassung")
+    # --- VIEW: Zusammenfassung ---
+    elif active_view == "Zusammenfassung":
+        st.header("📝 Zusammenfassung")
         lang = st.selectbox("Sprache", ["Deutsch", "English"], key="sum_lang")
         
         summary_focus = st.text_area("Fokus / Anweisung (optional)", placeholder="z.B. 'Fasse nur Kapitel 3 zusammen' oder 'Fokus auf Definitionen'")
@@ -2154,7 +2047,6 @@ def _render_tools_tabs(username, folder_id):
                      
                      # Auto-Save
                      username = st.session_state.get("username", "default")
-                     folder_id = st.session_state.current_folder
                      DataManager.save_generated_summary(st.session_state.summary_text, username, folder_id)
                      
                  else:
@@ -2183,6 +2075,9 @@ def main():
     if not AuthManager.check_login():
         render_login_screen()
         return
+
+    # Render Sidebar globally (context-aware)
+    render_sidebar()
 
     if st.session_state.current_page == "dashboard":
         render_dashboard()
