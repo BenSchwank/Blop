@@ -1480,11 +1480,15 @@ def show_full_summary_dialog(anchor, summary_text):
         st.error("Konnte Zusammenfassung nicht erstellen.")
 
 @st.dialog("Original Dokument", width="large")
-def show_pdf_overlay_dialog(page_num, username, folder_id):
-    # naive approach: take first pdf in folder or assume context
-    pdfs = DataManager.list_pdfs(username, folder_id)
-    if pdfs:
-        path = DataManager.get_pdf_path(pdfs[0], username, folder_id)
+def show_pdf_overlay_dialog(page_num, username, folder_id, filename=None):
+    # If filename given, use it. Else naive approach (first pdf).
+    if filename:
+        path = DataManager.get_pdf_path(filename, username, folder_id)
+    else:
+        pdfs = DataManager.list_pdfs(username, folder_id)
+        path = DataManager.get_pdf_path(pdfs[0], username, folder_id) if pdfs else None
+    
+    if path:
         with open(path, "rb") as f:
             b64_pdf = base64.b64encode(f.read()).decode('utf-8')
             t = time.time()
