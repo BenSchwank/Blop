@@ -1135,18 +1135,26 @@ def render_file_manager(username, folder_id):
     pdfs = DataManager.list_pdfs(username, folder_id)
     
     # 2. Upload Area
-    uploaded = st.file_uploader("PDFs hinzufügen", type=["pdf"], accept_multiple_files=True, key=f"up_{folder_id}", label_visibility="collapsed")
-    if uploaded:
-        changes = False
-        for f in uploaded:
-            if f.name not in pdfs:
-                DataManager.save_pdf(f, username, folder_id)
-                changes = True
+    # Use a form to ensure explicit submission and clearing
+    with st.form(f"upload_form_{folder_id}", clear_on_submit=True):
+        uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="visible")
+        submitted = st.form_submit_button("Hochladen")
         
-        if changes:
-            st.toast("Gespeichert!")
-            st.rerun()
-
+        if submitted and uploaded_files:
+            changes = False
+            for f in uploaded_files:
+                # Naive check might fail with latency, but form clears inputs!
+                # So we won't re-process in the next run.
+                if f.name not in pdfs:
+                    DataManager.save_pdf(f, username, folder_id)
+                    changes = True
+                else:
+                    st.warning(f"Datei '{f.name}' existiert bereits.")
+            
+            if changes:
+                st.success("Dateien hochgeladen!")
+                time.sleep(1) # Give Firestore a moment
+                st.rerun()
     st.divider()
     
     # 3. List & Delete (Mini list)
