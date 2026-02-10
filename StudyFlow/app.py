@@ -1050,6 +1050,13 @@ def render_sidebar():
     with st.sidebar:
         st.title("⚡ Blop AI")
         
+        # DB Status
+        db = DataManager._init_firestore()
+        if db:
+            st.caption("🟢 Speicher: Cloud (Firestore)")
+        else:
+            st.caption("🔴 Speicher: Lokal (Nur Temporär!)")
+        
         # Navigation
         if st.button("🏠 Dashboard", use_container_width=True, type="secondary"):
             navigate_to("dashboard")
