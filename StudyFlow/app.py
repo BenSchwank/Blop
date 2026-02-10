@@ -853,6 +853,73 @@ def generate_quiz(chunks):
         st.error(f"Fehler bei Quiz-Generierung: {e}")
         return None
 
+def generate_study_plan(text_chunks, days, hours_per_day, start_date):
+    """Generates a study plan using Gemini."""
+    if not text_chunks:
+        return None
+        
+    model_name = get_generative_model_name()
+    model = genai.GenerativeModel(model_name)
+    
+    # Limit context to fit token limit (simple heuristic or use summary if available)
+    # For better results, we might want to use the full summary if it exists, or a sampled set of chunks.
+    # Let's use a mix: First 5 chunks + random 5 chunks + last 2 chunks to cover ground.
+    context_parts = []
+    if len(text_chunks) > 20:
+        context_parts.extend([c.page_content for c in text_chunks[:5]])
+        context_parts.extend([c.page_content for c in text_chunks[10:15]])
+        context_parts.extend([c.page_content for c in text_chunks[-5:]])
+    else:
+        context_parts = [c.page_content for c in text_chunks]
+        
+    context = "\n\n".join(context_parts)
+    
+    prompt = f"""
+    Du bist ein professioneller Lern-Coach. Erstelle einen detaillierten Lernplan für einen Studenten.
+    
+    PARAMETER:
+    - Dauer: {days} Tage
+    - Lernzeit pro Tag: {hours_per_day} Stunden
+    - Startdatum: {start_date}
+    
+    BASIS-MATERIAL (Auswahl aus den Dokumenten):
+    {context[:15000]} 
+    
+    AUFGABE:
+    Erstelle einen strukturierten Plan, der den Stoff logisch aufteilt. 
+    Berücksichtige Wiederholungen (Spaced Repetition) wenn möglich.
+    
+    FORMAT:
+    Gib NUR valides JSON zurück (kein Markdown ```json ... ```), das folgende Struktur hat:
+    [
+      {{
+        "date": "YYYY-MM-DD", (Startend mit {start_date})
+        "day_index": 1,
+        "topic": "Tages-Überschrift",
+        "objectives": ["Lernziel 1", "Lernziel 2"],
+        "topics": [
+           {{
+             "title": "Modul/Kapitel Titel", 
+             "time_minutes": 60, 
+             "description": "Detaillierte Anweisung, was zu lernen ist (Seitenzahlen erwähnen wenn im Text sichtbar).", 
+             "rationale": "Kurze Erklärung warum das heute wichtig ist.",
+             "links": ["optional: [Seite X](#page=X)"]
+           }}
+        ]
+      }}
+    ]
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        text = response.text
+        # Clean markdown
+        text = clean_json_output(text)
+        return json.loads(text)
+    except Exception as e:
+        st.error(f"Fehler bei Plan-Erstellung (API): {e}")
+        return None
+
 def generate_topic_summary(topic_title, context_chunks):
     """Generates a specific summary for a study topic."""
     try:
