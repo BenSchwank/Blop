@@ -681,12 +681,6 @@ def get_embedding_model_name():
 # Removed cache to prevent stale data persistence
 def get_pdf_text(pdf_files):
     pages_data = []
-    for pdf in _pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for i, page in enumerate(pdf_reader.pages):
-            t = page.extract_text()
-            if t:
-    pages_data = []
     for pdf in pdf_files:
         try:
             # Check for empty file
