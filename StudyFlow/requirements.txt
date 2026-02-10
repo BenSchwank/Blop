@@ -10,3 +10,4 @@ langchain-google-genai
 fpdf2
 markdown
 requests
+google-genai
