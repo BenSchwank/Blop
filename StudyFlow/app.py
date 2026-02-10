@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import google.generativeai as genai
+from google import genai as google_genai
+from google.genai import types
 import faiss
 import numpy as np
 import json
@@ -29,7 +31,42 @@ from auth_manager import AuthManager
 
 
 # Configure Logging
+# Configure Logging
 logging.basicConfig(level=logging.ERROR)
+
+def generate_imagen_image(prompt):
+    """Generates an image using Google GenAI (Imagen 3) and returns formatted HTML."""
+    if "google_api_key" not in st.session_state and "GOOGLE_API_KEY" not in os.environ:
+        return None
+        
+    try:
+        # Pydantic/New SDK style
+        client = google_genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+        
+        # Determine model - Imagen 3 is 'imagen-3.0-generate-001'
+        # Or let's try to list or just use a known one.
+        # User requested "Gemini Neo" / Imagen.
+        
+        response = client.models.generate_image(
+            model='imagen-3.0-generate-001',
+            prompt=prompt,
+            config=types.GenerateImageConfig(
+                number_of_images=1,
+            )
+        )
+        
+        if response.generated_images:
+            img = response.generated_images[0]
+            # It usually returns bytes or b64
+            # SDK v0.2: image.image_bytes
+            b64_data = base64.b64encode(img.image.image_bytes).decode('utf-8')
+            return f'<img src="data:image/png;base64,{b64_data}" width="500" style="border-radius: 10px; margin: 10px 0;">'
+            
+    except Exception as e:
+        print(f"Imagen Error: {e}")
+        return None 
+        # Will fallback to Pollinations if this returns None
+
 
 def latex_to_html(text):
     """Converts LaTeX code to basic HTML for FPDF."""
@@ -48,8 +85,14 @@ def latex_to_html(text):
         # Extract query or use default
         try: query = match.group(1) 
         except: query = "scientific diagram schematic"
+        
+        # 1. Try Google Imagen
+        img_html = generate_imagen_image(query)
+        if img_html:
+            return f"<br>{img_html}<br>"
+            
+        # 2. Fallback to Pollinations
         encoded = urllib.parse.quote(query)
-        # Generate HTML Image Tag
         return f'<br><img src="https://image.pollinations.ai/prompt/{encoded}?width=600&height=300&nologo=true&seed={int(datetime.datetime.now().timestamp())}" width="500"><br>'
 
     # Handle [IMAGE: ...] prompt markers
@@ -1345,6 +1388,17 @@ def render_workspace():
             folder = next((f for f in data["folders"] if f["id"] == folder_id), None)
             if folder: folder_name = folder['name']
             
+            # --- Auto-Load Persistent Data ---
+            if "plan_data" not in st.session_state:
+                saved_plan = DataManager.load_plan(username, folder_id)
+                if saved_plan:
+                    st.session_state.plan_data = saved_plan
+                    
+            if "summary_text" not in st.session_state:
+                saved_summary = DataManager.load_generated_summary(username, folder_id)
+                if saved_summary:
+                    st.session_state.summary_text = saved_summary
+            
         st.markdown(f"### 📂 {folder_name}")
 
     with nav_col3:
@@ -1450,6 +1504,12 @@ def show_coach_dialog(day_index, day_data):
                         
                         # Update Session State
                         st.session_state.plan_data[day_index] = new_data
+                        
+                        # Auto-Save
+                        username = st.session_state.get("username", "default")
+                        folder_id = st.session_state.current_folder
+                        DataManager.save_plan(st.session_state.plan_data, username, folder_id)
+                        
                         st.success("Plan aktualisiert!")
                         st.rerun()
                     except Exception as e:
@@ -1464,6 +1524,12 @@ def show_coach_dialog(day_index, day_data):
             try:
                 new_data = json.loads(new_json_str)
                 st.session_state.plan_data[day_index] = new_data
+                
+                # Auto-Save
+                username = st.session_state.get("username", "default")
+                folder_id = st.session_state.current_folder
+                DataManager.save_plan(st.session_state.plan_data, username, folder_id)
+                
                 st.success("Gespeichert!")
                 st.rerun()
             except json.JSONDecodeError as e:
@@ -1648,6 +1714,12 @@ def _render_tools_tabs(username, folder_id):
                                 st.session_state.generated_summaries[t_title] = summ
                         
                         my_bar.empty()
+                        
+                        # Auto-Save
+                        username = st.session_state.get("username", "default")
+                        folder_id = st.session_state.current_folder
+                        DataManager.save_plan(st.session_state.plan_data, username, folder_id)
+                        
                         st.rerun()
                 except Exception as e:
                     st.error(f"Fehler: {e}")
@@ -1794,6 +1866,12 @@ def _render_tools_tabs(username, folder_id):
              with st.spinner("Analysiere..."):
                  if "text_chunks" in st.session_state and st.session_state.text_chunks:
                      st.session_state.summary_text = generate_full_summary(st.session_state.text_chunks, language=lang, focus=summary_focus)
+                     
+                     # Auto-Save
+                     username = st.session_state.get("username", "default")
+                     folder_id = st.session_state.current_folder
+                     DataManager.save_generated_summary(st.session_state.summary_text, username, folder_id)
+                     
                  else:
                      st.error("Bitte zuerst Dokumente analysieren!")
         

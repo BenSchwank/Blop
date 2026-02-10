@@ -11,3 +11,4 @@ fpdf2
 markdown
 requests
 google-genai
+firebase-admin
