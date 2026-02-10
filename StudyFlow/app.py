@@ -1038,7 +1038,7 @@ def generate_topic_summary(topic, description, text_chunks):
 def generate_full_summary(text_chunks, language="Deutsch", focus=""):
     """Generates a full summary of the provided text chunks."""
     try:
-        all_text = "\n".join([c['text'] for c in text_chunks])[:50000]
+        all_text = "\n".join([c.page_content for c in text_chunks])[:50000]
         prompt = get_summary_prompt("Markdown", all_text, language=language, focus=focus)
         model = genai.GenerativeModel(get_generative_model_name())
         resp = model.generate_content(prompt)
