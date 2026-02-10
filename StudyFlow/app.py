@@ -1463,9 +1463,10 @@ def render_file_manager(username, folder_id):
         st.info("Dieser Ordner ist noch leer.")
     else:
         # Display as Grid of "Cards" (using columns)
-        cols = st.columns(4) # 4 items per row
+        # Sidebar is narrow, so 4 cols is too much. Use 1 or 2.
+        cols = st.columns(2) # 2 items per row max
         for i, file_obj in enumerate(all_files):
-            col = cols[i % 4]
+            col = cols[i % 2]
             with col:
                 with st.container(border=True):
                     # ICON based on type
