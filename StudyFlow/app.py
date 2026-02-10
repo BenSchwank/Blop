@@ -1013,6 +1013,42 @@ def generate_topic_summary(topic_title, context_chunks):
     except Exception as e:
         return f"Konnte Zusammenfassung nicht erstellen: {e}"
 
+def generate_topic_summary(topic, description, text_chunks):
+    """Generates a short summary for a specific topic using relevant chunks."""
+    if not text_chunks:
+        return "Keine Dokumente für Zusammenfassung verfügbar."
+        
+    # Simple RAG: Find relevant chunks
+    # For now, we justtake a broad context because vector search is in another function
+    # In a real app we would use vector_store.similarity_search(topic)
+    # Here we just take the first ~20k chars as context to be safe and fast
+    
+    context = ""
+    for c in text_chunks[:20]: 
+        context += c.page_content + "\n"
+        
+    model = genai.GenerativeModel(get_generative_model_name())
+    
+    prompt = f"""
+    Du bist ein Experte für Lern-Zusammenfassungen.
+    
+    THEMA: {topic}
+    BESCHREIBUNG: {description}
+    
+    BASIS-TEXT (Auszug):
+    {context[:25000]}
+    
+    AUFGABE:
+    Schreibe eine sehr kompakte, verständliche Zusammenfassung (Max 150 Wörter) zu diesem Thema basierend auf dem Text.
+    Erkläre die Kernkonzepte. Nutze Markdown (Fettgedruckt, Listen).
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Fehler bei AI-Generierung: {e}"
+
 def generate_full_summary(text_chunks, language="Deutsch", focus=""):
     """Generates a full summary of the provided text chunks."""
     try:
@@ -1523,22 +1559,7 @@ def render_file_manager(username, folder_id):
 
     st.divider()
 
-    # 3. ANALYSIS TRIGGER (Restored)
-    # We check if there are any PDFs to analyze
-    has_pdfs = any(f.get("type", "pdf") == "pdf" for f in all_files)
-    
-    if has_pdfs:
-        has_analysis = "text_chunks" in st.session_state
-        if has_analysis:
-            st.success(f"✅ Analyse aktiv")
-            if st.button("🔄 Neu analysieren", use_container_width=True):
-                _run_analysis(username, folder_id)
-        else:
-            if st.button("🚀 PDFs Analysieren & Starten", type="primary", use_container_width=True):
-                _run_analysis(username, folder_id)
-    else:
-        if not all_files:
-            st.info("Bitte lade zuerst PDFs hoch.")
+    # Analysis trigger is now in the main sidebar actions.
 
     # 4. Handle Overlay/Dialog for Selected File
     if st.session_state.get("show_file_overlay") and st.session_state.get("selected_file"):
@@ -2127,10 +2148,22 @@ def render_workspace_content(username, folder_id):
                                 if topic.get('rationale'):
                                     st.info(f"💡 *Warum?* {topic['rationale']}")
                             with c2:
-                                # Interactive Summary Button
-                                t_title = topic['title']
-                                if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
-                                    show_summary_dialog(t_title, st.session_state.generated_summaries.get(t_title, "Keine Zusammenfassung verfügbar."))
+                                    # Interactive Summary Button
+                                    t_title = topic['title']
+                                    if st.button(f"⚡ Kurze Zusammenfassung", key=f"btn_sum_{i}_{t_title}"):
+                                        # Check if summary exists
+                                        if "generated_summaries" not in st.session_state:
+                                            st.session_state.generated_summaries = {}
+                                            
+                                        summary_content = st.session_state.generated_summaries.get(t_title)
+                                        
+                                        if not summary_content:
+                                            with st.spinner("Erstelle Zusammenfassung..."):
+                                                # Generate on the fly
+                                                summary_content = generate_topic_summary(t_title, topic.get('description', ''), st.session_state.text_chunks)
+                                                st.session_state.generated_summaries[t_title] = summary_content
+                                        
+                                        show_summary_dialog(t_title, summary_content)
 
                                 # Render Links as Buttons/Markdown (Original Links)
                                 links = topic.get('links', [])
