@@ -530,13 +530,19 @@ def render_sidebar():
             st.divider()
             
             # Navigation (Vertical)
+            # Navigation (Vertical Buttons)
             st.subheader("Navigation")
             nav_options = ["Lernplan", "Chat", "Quiz", "Zusammenfassung"]
             nav_icons = {"Lernplan": "📅", "Chat": "💬", "Quiz": "❓", "Zusammenfassung": "📝"}
-            fmt_options = [f"{nav_icons[o]} {o}" for o in nav_options]
             
-            selected_nav = st.radio("Gehe zu:", fmt_options, label_visibility="collapsed", key="workspace_nav_radio")
-            st.session_state.workspace_view = selected_nav.split(" ", 1)[1]
+            current_view = st.session_state.get("workspace_view", "Lernplan")
+            
+            for option in nav_options:
+                # Highlight active button
+                btn_type = "primary" if current_view == option else "secondary"
+                if st.button(f"{nav_icons[option]} {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
+                    st.session_state.workspace_view = option
+                    st.rerun()
 
             st.divider()
 
