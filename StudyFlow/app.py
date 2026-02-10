@@ -684,7 +684,8 @@ def get_pdf_text(_pdf_docs):
                     "source": pdf.name
                 })
     return pages_data
-
+    
+def get_text_chunks(pages_data, chunk_size=1000, chunk_overlap=200):
     chunks = []
     from langchain.docstore.document import Document
     
@@ -733,11 +734,6 @@ def build_vector_store(text_chunks):
     except Exception as e:
         print(f"Vector Store Error: {e}")
         return None, []
-    valid_chunks = []
-    
-    model = get_embedding_model_name()
-    
-    # Safe Mode: Process one chunk at a time to minimize complexity
     batch_size = 1 
     progress_bar = st.progress(0)
     total_chunks = len(text_chunks)
