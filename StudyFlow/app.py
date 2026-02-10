@@ -1178,7 +1178,29 @@ def render_file_manager(username, folder_id):
                         st.session_state.show_file_overlay = True
                         st.rerun()
 
-    # 3. Handle Overlay/Dialog for Selected File
+                        st.session_state.show_file_overlay = True
+                        st.rerun()
+
+    st.divider()
+
+    # 3. ANALYSIS TRIGGER (Restored)
+    # We check if there are any PDFs to analyze
+    has_pdfs = any(f.get("type", "pdf") == "pdf" for f in all_files)
+    
+    if has_pdfs:
+        has_analysis = "text_chunks" in st.session_state
+        if has_analysis:
+            st.success(f"✅ Analyse aktiv")
+            if st.button("🔄 Neu analysieren", use_container_width=True):
+                _run_analysis(username, folder_id)
+        else:
+            if st.button("🚀 PDFs Analysieren & Starten", type="primary", use_container_width=True):
+                _run_analysis(username, folder_id)
+    else:
+        if not all_files:
+            st.info("Bitte lade zuerst PDFs hoch.")
+
+    # 4. Handle Overlay/Dialog for Selected File
     if st.session_state.get("show_file_overlay") and st.session_state.get("selected_file"):
         sel_file = st.session_state.selected_file
         ftype = sel_file.get("type", "pdf")
