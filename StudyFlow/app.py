@@ -463,6 +463,15 @@ def render_sidebar():
         # GLOBAL HEADER / STATUS
         st.title("⚡ Blop AI")
         
+        # DEBUG: Session State
+        with st.expander("🐞 Debug State", expanded=False):
+             st.write(f"Chunks: {len(st.session_state.get('text_chunks', []))}")
+             if "text_chunks" in st.session_state:
+                 st.caption(f"Type: {type(st.session_state.text_chunks)}")
+                 if st.session_state.text_chunks:
+                     st.caption(f"Sample: {str(st.session_state.text_chunks[0])[:50]}")
+             st.write(f"Trigger: {st.session_state.get('trigger_analysis')}")
+             
         # DB Status
         # DB Status
         # Call explicit init to check status (it returns None if failed/local)
