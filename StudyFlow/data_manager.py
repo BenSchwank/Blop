@@ -30,7 +30,13 @@ class DataManager:
                     
                     # Fix formatting of private_key (often broken in TOML/Streamlit Secrets)
                     if "private_key" in cred_dict:
-                        cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+                        pk = cred_dict["private_key"]
+                        # 1. Replace literal \n with actual newline
+                        pk = pk.replace("\\n", "\n")
+                        # 2. Handle case where it might be space-separated entries if copy-paste went wrong? (Unlikely but safe)
+                        # pk = pk.replace("-----BEGIN PRIVATE KEY----- ", "-----BEGIN PRIVATE KEY-----\n")
+                        # pk = pk.replace(" -----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
+                        cred_dict["private_key"] = pk
                     
                     cred = credentials.Certificate(cred_dict)
                     firebase_admin.initialize_app(cred)
