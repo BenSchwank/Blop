@@ -3,6 +3,7 @@ import os
 import streamlit as st
 import shutil
 from datetime import datetime
+import uuid
 
 # Optional Firebase Imports
 try:
@@ -107,17 +108,118 @@ class DataManager:
 
     @staticmethod
     def save_summary(title, content, username, folder_id=None):
-        data = DataManager.load(username)
-        file_entry = {
-            "id": f"file_{int(datetime.now().timestamp())}",
-            "title": title,
-            "content": content,
-            "folder_id": folder_id,
-            "created_at": datetime.now().strftime("%d.%m.%Y")
+        """LEGACY: Saves a manual summary note."""
+        DataManager.save_summary_as_file(title, content, username, folder_id, "summary")
+
+    # --- NEW: File-Based Management ---
+    
+    @staticmethod
+    def save_file_metadata(file_data, username, folder_id):
+        """
+        Generic method to save file metadata (Plan, Summary, PDF) 
+        to a 'files' list in the folder or subcollection.
+        file_data: {id, name, type, created_at, ...}
+        """
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD MODE: Subcollection 'files'
+            doc_ref = db.collection("users").document(username).collection("folders").document(str(folder_id)).collection("files").document(file_data["id"])
+            doc_ref.set(file_data)
+        else:
+            # LOCAL MODE: Update folder's 'files' list
+            data = DataManager.load(username)
+            found_folder = None
+            for f in data.get("folders", []):
+                if f["id"] == folder_id:
+                    found_folder = f
+                    break
+            
+            if found_folder:
+                if "files" not in found_folder: found_folder["files"] = []
+                # Update or Append
+                existing_idx = next((i for i, x in enumerate(found_folder["files"]) if x["id"] == file_data["id"]), -1)
+                if existing_idx >= 0:
+                    found_folder["files"][existing_idx] = file_data
+                else:
+                    found_folder["files"].append(file_data)
+                DataManager.save(data, username)
+
+    @staticmethod
+    def list_files(username, folder_id):
+        """Returns all files (PDFs, Plans, Summaries) for a workspace."""
+        files = []
+        
+        # 1. Get PDFs -> Convert to generic file format
+        pdfs = DataManager.list_pdfs(username, folder_id) # Returns [] of names
+        # We need more metadata for PDFs if possible, but list_pdfs only returns names in local mode.
+        # Let's standardize this.
+        
+        # 2. Get Plans/Summaries from Storage
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD
+            # a) PDFs (from pdfs collection - distinct from files collection for now to avoid breaking existing pdf logic)
+            # Actually, let's just query the 'files' subcollection we created for new types
+            docs = db.collection("users").document(username).collection("folders").document(str(folder_id)).collection("files").stream()
+            files.extend([d.to_dict() for d in docs])
+            
+            # b) PDFs are stored in 'pdfs' collection. We should manually list them too or migrate them?
+            # For now, let's fetch them and wrap as File objects
+            pdf_docs = db.collection("users").document(username).collection("pdfs").where("folder_id", "==", folder_id).stream()
+            for p in pdf_docs:
+                p_data = p.to_dict()
+                files.append({
+                    "id": p.id,
+                    "name": p_data.get("name"),
+                    "type": "pdf",
+                    "created_at": p_data.get("created_at")
+                })
+        else:
+            # LOCAL
+            data = DataManager.load(username)
+            folder = next((f for f in data.get("folders", []) if f["id"] == folder_id), None)
+            if folder:
+                # a) New generic files
+                files.extend(folder.get("files", []))
+                
+                # b) Local PDFs are just files on disk
+                folder_path = DataManager._get_folder_path(username, folder_id)
+                if os.path.exists(folder_path):
+                    for f in os.listdir(folder_path):
+                        if f.lower().endswith(".pdf"):
+                            files.append({
+                                "id": f, # filename as id for local
+                                "name": f,
+                                "type": "pdf",
+                                "created_at": datetime.fromtimestamp(os.path.getctime(os.path.join(folder_path, f))).strftime("%Y-%m-%d")
+                            })
+                            
+        return files
+
+    @staticmethod
+    def save_plan_as_file(plan_data, username, folder_id, name="Lernplan"):
+        file_id = f"plan_{int(datetime.now().timestamp())}"
+        file_meta = {
+            "id": file_id,
+            "name": name,
+            "type": "plan",
+            "content": plan_data, # For Plans, content IS the JSON
+            "created_at": datetime.now().strftime("%Y-%m-%d")
         }
-        if "files" not in data: data["files"] = []
-        data["files"].append(file_entry)
-        DataManager.save(data, username)
+        DataManager.save_file_metadata(file_meta, username, folder_id)
+
+    @staticmethod
+    def save_summary_as_file(title, content, username, folder_id, type="summary"):
+        file_id = f"summary_{int(datetime.now().timestamp())}"
+        file_meta = {
+            "id": file_id,
+            "name": title,
+            "type": type,
+            "content": content, # For Summaries, content is HTML/Markdown string
+            "created_at": datetime.now().strftime("%Y-%m-%d")
+        }
+        DataManager.save_file_metadata(file_meta, username, folder_id)
+
 
     # --- NEW: Auto-Save Methods ---
 
@@ -137,6 +239,12 @@ class DataManager:
         
         if found:
             DataManager.save(data, username)
+        
+        # ALSO save as a distinct file for the new UI
+        # We overwrite proper "Auto-Save" file or create new?
+        # For simplicity: One "Main Plan" per folder for now?
+        # Let's save/overwrite a file named "Aktueller Lernplan"
+        DataManager.save_plan_as_file(plan_data, username, folder_id, name="Aktueller Lernplan")
             
     @staticmethod
     def load_plan(username, folder_id):
@@ -159,6 +267,9 @@ class DataManager:
                 break
         if found:
             DataManager.save(data, username)
+            
+        # ALSO save as a distinct file
+        DataManager.save_summary_as_file("Automatische Zusammenfassung", summary_text, username, folder_id, "summary")
 
     @staticmethod
     def load_generated_summary(username, folder_id):

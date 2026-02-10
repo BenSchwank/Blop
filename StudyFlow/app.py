@@ -1131,63 +1131,83 @@ def _run_analysis(username, folder_id):
 def render_file_manager(username, folder_id):
     st.subheader("📂 Datei-Manager")
     
-    # 1. List Files
-    pdfs = DataManager.list_pdfs(username, folder_id)
-    
-    # 2. Upload Area
-    # Use a form to ensure explicit submission and clearing
+    # 1. Upload Area (Form)
     with st.form(f"upload_form_{folder_id}", clear_on_submit=True):
-        uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="visible")
-        submitted = st.form_submit_button("Hochladen")
+        c_up1, c_up2 = st.columns([4, 1])
+        with c_up1:
+            uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
+        with c_up2:
+            submitted = st.form_submit_button("Hochladen", use_container_width=True)
         
         if submitted and uploaded_files:
-            changes = False
+            # We just save the PDFs here. Rerun triggers the list update.
+            # Latency note: Might need a brief sleep or manual "pending" state?
             for f in uploaded_files:
-                # Naive check might fail with latency, but form clears inputs!
-                # So we won't re-process in the next run.
-                if f.name not in pdfs:
-                    DataManager.save_pdf(f, username, folder_id)
-                    changes = True
-                else:
-                    st.warning(f"Datei '{f.name}' existiert bereits.")
-            
-            if changes:
-                st.success("Dateien hochgeladen!")
-                time.sleep(1) # Give Firestore a moment
-                st.rerun()
+                DataManager.save_pdf(f, username, folder_id)
+            st.success("Dateien hochgeladen!")
+            time.sleep(1) 
+            st.rerun()
+
     st.divider()
     
-    # 3. List & Delete (Mini list)
-    if pdfs:
-        for p in pdfs:
-            c1, c2 = st.columns([4, 1])
-            c1.caption(f"📄 {p}")
-            # Delete Button
-            if c2.button("🗑️", key=f"del_pdf_{p}"):
-                try:
-                    full_path = DataManager.get_pdf_path(p, username, folder_id)
-                    os.remove(full_path)
-                    st.toast(f"Gelöscht: {p}")
-                    # Clear cache if needed or just rerun
-                    if "text_chunks" in st.session_state: del st.session_state.text_chunks
-                    if "vector_index" in st.session_state: del st.session_state.vector_index
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Fehler: {e}")
-            
-        st.divider()
-        
-        # 4. Analysis Trigger
-        has_analysis = "text_chunks" in st.session_state
-        if has_analysis:
-            st.success(f"✅ {len(pdfs)} aktiv")
-            if st.button("🔄 Neu analysieren", use_container_width=True):
-                _run_analysis(username, folder_id)
-        else:
-            if st.button("🚀 Analysieren", type="primary", use_container_width=True):
-                _run_analysis(username, folder_id)
+    # 2. List ALL Files (PDF, Plan, Summary)
+    all_files = DataManager.list_files(username, folder_id)
+    
+    if not all_files:
+        st.info("Dieser Ordner ist noch leer.")
     else:
-        st.info("Ordner ist leer. Lade PDFs hoch!")
+        # Display as Grid of "Cards" (using columns)
+        cols = st.columns(4) # 4 items per row
+        for i, file_obj in enumerate(all_files):
+            col = cols[i % 4]
+            with col:
+                with st.container(border=True):
+                    # ICON based on type
+                    ftype = file_obj.get("type", "pdf")
+                    icon = "📄"
+                    if ftype == "plan": icon = "📅"
+                    if ftype == "summary": icon = "📝"
+                    
+                    st.markdown(f"### {icon}")
+                    st.caption(file_obj.get("name", "Unbenannt")[:20]) # Truncate name
+                    
+                    # Action: Open
+                    if st.button("Öffnen", key=f"open_{file_obj['id']}", use_container_width=True):
+                        # Set selection in session state to open dialog/overlay
+                        st.session_state.selected_file = file_obj
+                        st.session_state.show_file_overlay = True
+                        st.rerun()
+
+    # 3. Handle Overlay/Dialog for Selected File
+    if st.session_state.get("show_file_overlay") and st.session_state.get("selected_file"):
+        sel_file = st.session_state.selected_file
+        ftype = sel_file.get("type", "pdf")
+        
+        if ftype == "pdf":
+            show_pdf_overlay_dialog(0, username, folder_id, filename=sel_file["name"])
+        elif ftype == "plan":
+            # We need to render the Coach Dialog but for this specific plan content
+            # For now, let's re-use the coach logic IF it's the main plan
+            # Or render a read-only view? 
+            # Implementation Plan said "Open Plan Dialog". 
+            # Let's show the interactive coach for the plan data.
+            st.toast(f"Öffne Lernplan: {sel_file['name']}")
+            # We might need to load this plan into the main session state or show a dedicated dialog
+            # Since our coach logic relies on st.session_state.plan_data, we should load it there?
+            # Or separate "Viewing" from "Coaching"?
+            # Let's assume user wants to EDIT/VIEW this plan.
+            st.session_state.plan_data = sel_file.get("content", [])
+            st.session_state.show_file_overlay = False # Close overlay trigger, we successfully loaded it
+            st.rerun()
+            
+        elif ftype == "summary":
+            show_summary_dialog(sel_file["name"], sel_file.get("content", ""))
+            st.session_state.show_file_overlay = False # Close after rendering? Dialogs persist?
+            # st.dialog behaves like a modal. logic loop needs check.
+            pass
+
+    # Clean up overlay state if dialog closed? (Streamlit dialogs handle this themselves mostly)
+
 
 # --- GOOGLE AUTH HELPERS ---
 def get_google_auth_url():
