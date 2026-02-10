@@ -1526,7 +1526,7 @@ def render_login_screen():
 
 def render_dashboard():
     # Load Data
-    render_sidebar()
+    # render_sidebar() is called globally in main()
     username = st.session_state.get("username", "default")
     data = DataManager.load(username)
     
