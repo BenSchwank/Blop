@@ -460,47 +460,66 @@ if "generated_summaries" not in st.session_state:
 # --- Central Sidebar Logic ---
 def render_sidebar():
     with st.sidebar:
-        # User Info
-        if st.session_state.get("authenticated"):
-            st.markdown(f"👤 **{st.session_state.get('username')}**")
-            if st.button("🚪 Logout", key="logout_btn", type="secondary"):
-                AuthManager.logout()
-                st.rerun()
-            st.divider()
-
-        # Context-Aware Navigation
+        # CONTEXT-AWARE CONTENT
+        
+        # 1. DASHBOARD MODE
         if st.session_state.current_page == "dashboard":
+            # Show User Info & Logout only in Dashboard
+            if st.session_state.get("authenticated"):
+                st.markdown(f"👤 **{st.session_state.get('username')}**")
+                if st.button("🚪 Logout", key="logout_btn", type="secondary"):
+                    AuthManager.logout()
+                    st.rerun()
+                st.divider()
+                
             st.subheader("Einstellungen")
-            # Settings only visible in Dashboard
             if st.button("🗑️ Konto löschen", type="secondary"):
                 show_delete_account_dialog()
-            # Admin Panel Check (if applicable)
-        
+                
+        # 2. WORKSPACE MODE
         elif st.session_state.current_page == "workspace":
-            # WORKSPACE MODE
+            # Back Button
             if st.button("← Dashboard", type="secondary", use_container_width=True):
                 navigate_to("dashboard")
             
             st.divider()
             
-            # 1. Navigation (Vertical)
+            # ACTION BUTTONS (Replace User/Logout)
+            c1, c2 = st.columns(2)
+            with c1:
+                 # Upload Trigger - Opens the Expander
+                 if st.button("📤 Upload", help="Dateien hochladen", use_container_width=True):
+                     st.session_state.expand_file_manager = True
+            with c2:
+                 # Analyze Trigger
+                 if st.button("✨ Analyse", help="Dokumente analysieren", type="primary", use_container_width=True):
+                     if "text_chunks" not in st.session_state or not st.session_state.text_chunks:
+                         # Trigger analysis logic (needs to be accessible)
+                         # We set a flag or call a function. For now, we'll use a session state trigger
+                         st.session_state.trigger_analysis = True
+                     else:
+                         st.toast("Bereits analysiert!")
+            
+            st.divider()
+            
+            # Navigation (Vertical)
             st.subheader("Navigation")
             nav_options = ["Lernplan", "Chat", "Quiz", "Zusammenfassung"]
-            
-            # Map icons if desired
             nav_icons = {"Lernplan": "📅", "Chat": "💬", "Quiz": "❓", "Zusammenfassung": "📝"}
             fmt_options = [f"{nav_icons[o]} {o}" for o in nav_options]
             
             selected_nav = st.radio("Gehe zu:", fmt_options, label_visibility="collapsed", key="workspace_nav_radio")
-            
-            # Store simple key in session state for workspace content to read
-             # Extract key from string (remove emoji)
             st.session_state.workspace_view = selected_nav.split(" ", 1)[1]
 
             st.divider()
 
-            # 2. File Manager (Expandable)
-            with st.expander("📁 Datei-Manager", expanded=False):
+            # File Manager (Expandable)
+            # Check flag to expand
+            expand_files = st.session_state.get("expand_file_manager", False)
+            # Reset flag after reading (to allow manual closing)
+            if expand_files: st.session_state.expand_file_manager = False
+            
+            with st.expander("📁 Datei-Manager", expanded=expand_files):
                 render_file_manager(st.session_state.get("username"), st.session_state.current_folder)
 
 def navigate_to(page, folder=None):
@@ -1845,6 +1864,11 @@ def show_coach_dialog(day_index, day_data):
 def render_workspace_content(username, folder_id):
     # Implements vertical switching logic based on sidebar selection
     
+    # Check for Analysis Trigger from Sidebar
+    if st.session_state.get("trigger_analysis"):
+        st.session_state.trigger_analysis = False
+        _run_analysis(username, folder_id)
+        
     import datetime
     
     active_view = st.session_state.get("workspace_view", "Lernplan")
