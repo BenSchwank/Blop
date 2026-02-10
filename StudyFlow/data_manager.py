@@ -185,24 +185,41 @@ class DataManager:
         
         db = DataManager._init_firestore()
         if db:
-            # CLOUD MODE (Firestore Blobs - NOT RECOMMENDED for large files but requested)
-            # Limit check: 1MB
-            if uploaded_file.size > 900 * 1024:
-                print("Warning: File too large for Firestore Document!")
-                return None
+            # CLOUD MODE (Firestore Chunking)
+            # Firestore has 1MB limit. We chunk files > 900KB.
             
             import base64
             file_data = uploaded_file.getvalue()
-            b64 = base64.b64encode(file_data).decode('utf-8')
+            total_size = len(file_data)
+            chunk_size = 900 * 1024 # 900KB chunks
             
+            # Create a main document for metadata
             doc_ref = db.collection("users").document(username).collection("pdfs").document(f"{folder_id}_{uploaded_file.name}")
-            doc_ref.set({
+            
+            # Prepare metadata
+            metadata = {
                 "name": uploaded_file.name,
                 "folder_id": folder_id,
-                "content_b64": b64,
-                "created_at": datetime.now().strftime("%Y-%m-%d")
-            })
-            return uploaded_file.name # Return name as reference
+                "created_at": datetime.now().strftime("%Y-%m-%d"),
+                "total_size": total_size,
+                "is_chunked": True,
+                "chunk_count": (total_size + chunk_size - 1) // chunk_size
+            }
+            doc_ref.set(metadata)
+            
+            # Upload chunks
+            for i in range(0, total_size, chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                b64_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                
+                # Save chunk in sub-coll
+                chunk_ref = doc_ref.collection("chunks").document(f"chunk_{i // chunk_size}")
+                chunk_ref.set({
+                    "index": i // chunk_size,
+                    "data": b64_chunk
+                })
+            
+            return uploaded_file.name
         else:
             # LOCAL MODE
             folder_path = DataManager._get_folder_path(username, folder_id)
@@ -235,19 +252,41 @@ class DataManager:
             # CLOUD MODE: Download to temp
             doc_ref = db.collection("users").document(username).collection("pdfs").document(f"{folder_id}_{filename}")
             doc = doc_ref.get()
+            
             if doc.exists:
+                meta = doc.to_dict()
+                
                 import base64
-                import tempfile
-                data = doc.to_dict()
                 
-                # Create temp file
-                tmp_dir = os.path.join(DATA_DIR, "temp")
-                if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
-                
-                tmp_path = os.path.join(tmp_dir, filename)
-                with open(tmp_path, "wb") as f:
-                    f.write(base64.b64decode(data["content_b64"]))
-                return tmp_path
+                # Check if chunked
+                if meta.get("is_chunked"):
+                    # Reassemble
+                    full_b64 = ""
+                    chunks = doc_ref.collection("chunks").order_by("index").stream()
+                    # We might need to write binary chunks directly to file to save memory
+                    
+                    tmp_dir = os.path.join(DATA_DIR, "temp")
+                    if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
+                    tmp_path = os.path.join(tmp_dir, filename)
+                    
+                    with open(tmp_path, "wb") as f:
+                        for chunk in chunks:
+                            c_data = chunk.to_dict()
+                            f.write(base64.b64decode(c_data["data"]))
+                    return tmp_path
+                    
+                else:
+                    # Legacy or small file (if we had specific field)
+                    # But we are rewriting everything to be robust. 
+                    # If old format exists (content_b64 in main doc):
+                    if "content_b64" in meta:
+                        tmp_dir = os.path.join(DATA_DIR, "temp")
+                        if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
+                        tmp_path = os.path.join(tmp_dir, filename)
+                        with open(tmp_path, "wb") as f:
+                            f.write(base64.b64decode(meta["content_b64"]))
+                        return tmp_path
+                return None
             return None
         else:
             # LOCAL MODE
