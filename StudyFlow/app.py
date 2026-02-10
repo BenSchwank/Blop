@@ -1337,7 +1337,9 @@ def show_delete_account_dialog(username):
 def _run_analysis(username, folder_id):
     """Helper to analyze all PDFs in the folder."""
     pdfs = DataManager.list_pdfs(username, folder_id)
-    if not pdfs: return
+    if not pdfs: 
+        st.error("Keine PDF-Dateien im Ordner gefunden.")
+        return
     
     full_paths = []
     for p in pdfs:
@@ -1346,9 +1348,10 @@ def _run_analysis(username, folder_id):
              full_paths.append(path)
     
     if not full_paths:
-        st.error("Konnte PDF-Dateien nicht laden (Pfadfehler).")
+        st.error(f"Fehler: {len(pdfs)} PDFs gefunden, aber Pfade ungültig.")
         return
 
+    st.toast("Analyse gestartet...")
     with st.spinner(f"{len(full_paths)} Dokumente werden analysiert..."):
         try:
             # Create file-like objects with 'name' attribute for get_pdf_text compatibility
