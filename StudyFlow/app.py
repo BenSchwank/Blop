@@ -687,7 +687,14 @@ def get_pdf_text(_pdf_docs):
     
 def get_text_chunks(pages_data, chunk_size=1000, chunk_overlap=200):
     chunks = []
-    from langchain.docstore.document import Document
+    # Try different imports for compatibility
+    try:
+        from langchain_core.documents import Document
+    except ImportError:
+        try:
+            from langchain.schema import Document 
+        except ImportError:
+            from langchain.docstore.document import Document
     
     for p in pages_data:
         text = p['text']
