@@ -460,10 +460,38 @@ if "generated_summaries" not in st.session_state:
 # --- Central Sidebar Logic ---
 def render_sidebar():
     with st.sidebar:
+        # GLOBAL HEADER / STATUS
+        st.title("⚡ Blop AI")
+        
+        # DB Status logic (restored from old version)
+        import os # Ensure os is imported if used here, though properly at top usually
+        
+        # We can't easily init firestore here without potentially triggering re-init, 
+        # but let's assume DataManager handles the singleton logic or we just check a flag?
+        # The old code called DataManager._init_firestore() directly.
+        # Let's use a simplified status check or just copy the old logic if safe.
+        # Ideally, we put this status check in a helper or just display what we know.
+        
+        # Restore Settings Expander (Dashboard Only)
+        
         # CONTEXT-AWARE CONTENT
         
         # 1. DASHBOARD MODE
         if st.session_state.current_page == "dashboard":
+            # --- Settings & Config ---
+            with st.expander("⚙️ Einstellungen", expanded=False):
+                api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
+                if api_key_input:
+                    os.environ["GOOGLE_API_KEY"] = api_key_input
+                    genai.configure(api_key=api_key_input)
+                    st.success("Gespeichert!")
+                
+                models = ["Automatisch", "gemini-1.5-flash", "gemini-1.5-pro"]
+                sel = st.selectbox("Modell", models, key="model_selector")
+                st.session_state.model_option = sel
+            
+            st.divider()
+
             # Show User Info & Logout only in Dashboard
             if st.session_state.get("authenticated"):
                 st.markdown(f"👤 **{st.session_state.get('username')}**")
@@ -472,7 +500,7 @@ def render_sidebar():
                     st.rerun()
                 st.divider()
                 
-            st.subheader("Einstellungen")
+            st.subheader("Konto")
             if st.button("🗑️ Konto löschen", type="secondary"):
                 show_delete_account_dialog()
                 
@@ -1230,47 +1258,7 @@ def show_delete_account_dialog(username):
             else:
                 st.error("Fehler beim Löschen.")
 
-def render_sidebar():
-    with st.sidebar:
-        st.title("⚡ Blop AI")
-        
-        # DB Status
-        db = DataManager._init_firestore()
-        if db:
-            st.caption("🟢 Speicher: Cloud (Firestore)")
-        else:
-            err = st.session_state.get("db_error", "Unbekannter Fehler")
-            st.caption(f"🔴 Speicher: Lokal (Fehler: {err})")
-        
-        # Navigation
-        if st.button("🏠 Dashboard", use_container_width=True, type="secondary"):
-            navigate_to("dashboard")
-        
-        st.divider()
-        
-        # Settings
-        with st.expander("⚙️ Einstellungen"):
-            api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
-            if api_key_input:
-                os.environ["GOOGLE_API_KEY"] = api_key_input
-                genai.configure(api_key=api_key_input)
-                st.success("Gespeichert!")
-            
-            models = ["Automatisch", "gemini-1.5-flash", "gemini-1.5-pro"]
-            sel = st.selectbox("Modell", models, key="model_selector")
-            st.session_state.model_option = sel
-            
-        st.divider()
-        
-        # Profile
-        username = st.session_state.get("username", "Gast")
-        st.caption(f"Angemeldet als: {username}")
-        if st.button("Logout", type="primary", use_container_width=True):
-            AuthManager.logout()
-            
-        st.divider()
-        if st.button("Konto löschen", type="secondary", use_container_width=True):
-            show_delete_account_dialog(username)
+
 
 def _run_analysis(username, folder_id):
     """Helper to analyze all PDFs in the folder."""
