@@ -522,21 +522,7 @@ def render_sidebar():
             
             st.divider()
             
-            # ACTION BUTTONS (Replace User/Logout)
-            c1, c2 = st.columns(2)
-            with c1:
-                 # Upload Trigger - Opens the Expander
-                 if st.button("📤 Upload", help="Dateien hochladen", use_container_width=True):
-                     st.session_state.expand_file_manager = True
-            with c2:
-                 # Analyze Trigger
-                 if st.button("✨ Analyse", help="Dokumente analysieren", type="primary", use_container_width=True):
-                     if "text_chunks" not in st.session_state or not st.session_state.text_chunks:
-                         # Trigger analysis logic (needs to be accessible)
-                         # We set a flag or call a function. For now, we'll use a session state trigger
-                         st.session_state.trigger_analysis = True
-                     else:
-                         st.toast("Bereits analysiert!")
+            # ACTION BUTTONS REMOVED (Moved to File Manager)
             
             st.divider()
             
@@ -1559,8 +1545,27 @@ def render_file_manager(username, folder_id):
 
     st.divider()
 
-    # Analysis trigger is now in the main sidebar actions.
+    st.divider()
 
+    # 3. ANALYSIS TRIGGER (Moved Here)
+    # We check if there are any PDFs to analyze
+    has_pdfs = any(f.get("type", "pdf") == "pdf" for f in all_files)
+    
+    if has_pdfs:
+        has_analysis = "text_chunks" in st.session_state and st.session_state.text_chunks
+        
+        if has_analysis:
+            st.success(f"✅ Analyse aktiv ({len(st.session_state.text_chunks)} Chunks)")
+            if st.button("🔄 Neu analysieren", use_container_width=True):
+                 _run_analysis(username, folder_id)
+        else:
+            if st.button("🚀 PDFs Analysieren & Starten", type="primary", use_container_width=True):
+                # DIRECT CALL to ensure execution
+                _run_analysis(username, folder_id)
+    else:
+        if not all_files:
+            st.info("Bitte lade zuerst PDFs hoch.")
+            
     # 4. Handle Overlay/Dialog for Selected File
     if st.session_state.get("show_file_overlay") and st.session_state.get("selected_file"):
         sel_file = st.session_state.selected_file
