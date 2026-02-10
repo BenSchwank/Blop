@@ -2,14 +2,14 @@
 #include <QColor>
 
 namespace UIStyles {
-// Dark palette
-static const QColor Background = QColor("#1A1A1A");
-static const QColor Sidebar = QColor("#252526");
+// Turbo AI Palette
+static const QColor Background = QColor("#121212");
+static const QColor Sidebar = QColor("#1e1e1e");
 static const QColor PageBackground = QColor("#FFFFFF");
-static const QColor SceneBackground = QColor("#2A2A2A");
-static const QColor ToolbarBg = QColor(37,37,38,220);
-static const QColor ToolbarBorder = QColor(80,80,80);
-static const QColor Accent = QColor("#4FC3F7");
-static const QColor Text = QColor("#EEEEEE");
+static const QColor SceneBackground = QColor("#121212");
+static const QColor ToolbarBg = QColor(30,30,30,220);
+static const QColor ToolbarBorder = QColor(60,60,60);
+static const QColor Accent = QColor("#6c5ce7");
+static const QColor Text = QColor("#e0e0e0");
 }
 //

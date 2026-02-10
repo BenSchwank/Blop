@@ -328,8 +328,124 @@ def create_study_plan_pdf(plan_data):
         return None
 load_dotenv()
 
-# Page Config
-st.set_page_config(page_title="Blop Study", layout="wide")
+# --- SETUP & CONFIG ---
+st.set_page_config(page_title="Blop AI", page_icon="⚡", layout="wide")
+
+# --- TURBO AI STYLE INJECTION ---
+st.markdown("""
+    <style>
+        /* IMPORT INTER FONT */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* MAIN BACKGROUND */
+        .stApp {
+            background-color: #121212 !important;
+        }
+
+        /* SIDEBAR BACKGROUND */
+        [data-testid="stSidebar"] {
+            background-color: #1e1e1e !important;
+            border-right: 1px solid #333;
+        }
+
+        /* SIDEBAR TEXT */
+        [data-testid="stSidebar"] * {
+            color: #e0e0e0 !important;
+        }
+
+        /* HEADERS */
+        h1, h2, h3, h4, h5, h6 {
+            color: #ffffff !important;
+        }
+        
+        /* TEXT */
+        p, div, label, span {
+            color: #e0e0e0;
+        }
+
+        /* PRIMARY BUTTONS (Purple Accent) */
+        div.stButton > button:first-child {
+            background-color: #6c5ce7 !important;
+            color: white !important;
+            border-radius: 8px;
+            border: none;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        div.stButton > button:first-child:hover {
+            background-color: #5b4cc4 !important;
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+            border: none;
+        }
+
+        /* SECONDARY BUTTONS */
+        button[kind="secondary"] {
+            background-color: transparent !important;
+            border: 1px solid #444 !important;
+            color: #e0e0e0 !important;
+        }
+        button[kind="secondary"]:hover {
+            border-color: #6c5ce7 !important;
+            color: #6c5ce7 !important;
+        }
+        
+        /* INPUT FIELDS */
+        .stTextInput > div > div > input, .stTextArea > div > div > textarea {
+            background-color: #2d2d2d !important;
+            color: white !important;
+            border: 1px solid #444 !important;
+            border-radius: 8px;
+        }
+        .stTextInput > div > div > input:focus, .stTextArea > div > div > textarea:focus {
+            border-color: #6c5ce7 !important;
+            box-shadow: 0 0 0 1px #6c5ce7 !important;
+        }
+
+        /* CARDS / CONTAINERS */
+        [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+            /* This is tricky to target specific containers in Streamlit, 
+               but we can try to style the ones with borders */
+        }
+        
+        div[data-testid="stContainer"] {
+             /* general container styling if needed */
+        }
+        
+        /* FILE UPLOADER */
+        [data-testid="stFileUploader"] {
+            background-color: #1e1e1e;
+            border-radius: 10px;
+            padding: 1rem;
+        }
+
+        /* PROGRESS BARS */
+        .stProgress > div > div > div > div {
+            background-color: #6c5ce7 !important;
+        }
+        
+        /* TABS */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 24px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background-color: transparent;
+            border-radius: 4px;
+            color: #888;
+            font-weight: 600;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: transparent !important;
+            color: #6c5ce7 !important;
+            border-bottom: 2px solid #6c5ce7;
+        }
+
+    </style>
+""", unsafe_allow_html=True)
 st.title("Blop Study - Smart AI Learning Companion")
 
 # --- Navigation State ---

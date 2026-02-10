@@ -15,7 +15,7 @@
   </property>
   <property name="styleSheet">
    <string notr="true">
-    QDialog { background-color: #1A1A1A; color: #E0E0E0; border-radius: 15px; border: 1px solid #333; }
+    QDialog { background-color: #121212; color: #E0E0E0; border-radius: 15px; border: 1px solid #333; }
     QLabel { color: #E0E0E0; font-family: 'Segoe UI', sans-serif; }
     QPushButton { background-color: #333; color: white; border: 1px solid #444; border-radius: 8px; padding: 8px 15px; font-weight: bold; }
     QPushButton:hover { background-color: #444; border-color: #555; }
@@ -23,13 +23,13 @@
     QTabWidget::pane { border: 0; border-top: 1px solid #333; }
     QTabWidget::tab-bar { left: 15px; }
     QTabBar::tab { background: transparent; color: #888; padding: 10px 15px; font-weight: bold; border-bottom: 2px solid transparent; }
-    QTabBar::tab:selected { color: #5E5CE6; border-bottom: 2px solid #5E5CE6; }
+    QTabBar::tab:selected { color: #6c5ce7; border-bottom: 2px solid #6c5ce7; }
     QTabBar::tab:hover { color: #BBB; }
     QGroupBox { border: 1px solid #333; border-radius: 8px; margin-top: 20px; font-weight: bold; color: #888; padding-top: 15px; }
     QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
     QRadioButton { color: #E0E0E0; spacing: 10px; }
     QRadioButton::indicator { width: 18px; height: 18px; border-radius: 9px; border: 2px solid #555; }
-    QRadioButton::indicator:checked { background-color: #5E5CE6; border-color: #5E5CE6; }
+    QRadioButton::indicator:checked { background-color: #6c5ce7; border-color: #6c5ce7; }
    </string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -200,7 +200,7 @@
             <cursorShape>PointingHandCursor</cursorShape>
            </property>
            <property name="styleSheet">
-            <string notr="true">background-color: #5E5CE6; border-radius: 25px; border: 2px solid #1A1A1A;</string>
+            <string notr="true">background-color: #6c5ce7; border-radius: 25px; border: 2px solid #1A1A1A;</string>
            </property>
           </widget>
          </item>
