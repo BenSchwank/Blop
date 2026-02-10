@@ -1351,14 +1351,21 @@ def render_file_manager(username, folder_id):
                     st.caption(file_obj.get("name", "Unbenannt")[:20]) # Truncate name
                     
                     # Action: Open
-                    if st.button("Öffnen", key=f"open_{file_obj['id']}", use_container_width=True):
-                        # Set selection in session state to open dialog/overlay
-                        st.session_state.selected_file = file_obj
-                        st.session_state.show_file_overlay = True
-                        st.rerun()
-
-                        st.session_state.show_file_overlay = True
-                        st.rerun()
+                    # Actions: Open | Delete
+                    c_open, c_del = st.columns([3, 1])
+                    with c_open:
+                        if st.button("Öffnen", key=f"open_{file_obj['id']}", use_container_width=True):
+                            st.session_state.selected_file = file_obj
+                            st.session_state.show_file_overlay = True
+                            st.rerun()
+                    with c_del:
+                        if st.button("🗑️", key=f"del_{file_obj['id']}", help="Löschen", use_container_width=True):
+                            if DataManager.delete_file(username, folder_id, file_obj['id']):
+                                st.toast("Datei gelöscht.")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error("Fehler.")
 
     st.divider()
 
@@ -1869,64 +1876,60 @@ def render_workspace_content(username, folder_id):
     active_view = st.session_state.get("workspace_view", "Lernplan")
     
     # --- VIEW: Lernplan ---
+    # --- VIEW: Lernplan ---
     if active_view == "Lernplan":
         st.header("Smarter Lernplan")
-        col1, col2 = st.columns(2)
-        with col1:
-           # (Keep original logic...)
-            start_date = st.date_input("Start-Datum", min_value=datetime.date.today(), value=datetime.date.today())
-        with col2:
-            exam_date = st.date_input("Prüfungs-Datum", min_value=datetime.date.today() + datetime.timedelta(days=1), value=datetime.date.today() + datetime.timedelta(days=7))
+        
+        # 1. Inputs: Dates & Focus
+        with st.container(border=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("Start-Datum", min_value=datetime.date.today(), value=datetime.date.today())
+            with col2:
+                # Default exam in 7 days
+                default_exam = datetime.date.today() + datetime.timedelta(days=7)
+                exam_date = st.date_input("Prüfungs-Datum", min_value=datetime.date.today(), value=default_exam)
             
-        doc_type = st.selectbox("Dokument-Typ", ["Skript / Buch", "Prüfung / Klausur", "Übungsblätter", "Sonstiges"])
-        custom_doc_type = ""
-        if doc_type == "Sonstiges":
-            custom_doc_type = st.text_input("Bitte spezifizieren", placeholder="z.B. Mitschrift")
-        
-        focus_topic = st.text_input("Fokus-Thema (optional)", placeholder="z.B. Differentialgleichungen")
-        
-        st.subheader("Lern-Intervall")
-        available_days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-        selected_days = st.multiselect("Lern-Tage", available_days, default=["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"])
-        
-        # Calculate dates
-        study_dates = []
-        current = start_date
-        while current <= exam_date:
-            day_name = available_days[current.weekday()]
-            if day_name in selected_days:
-                study_dates.append(current)
-            current += datetime.timedelta(days=1)
-        
-        days_count = len(study_dates)
-        
-    # --- EXISTING TAB LOGIC REPLACED BY SIDEBAR VERTICAL NAV ---
-    # tab1, tab2, tab3, tab4 = st.tabs(["📅 Lernplan", "💬 Chat", "❓ Quiz", "📝 Zusammenfassung"])
-    # Navigation state is now set in render_sidebar() -> st.session_state.workspace_view
-    
-    active_view = st.session_state.get("workspace_view", "Lernplan")
+            # Calculate Days
+            days_delta = (exam_date - start_date).days
+            if days_delta < 1: 
+                days_delta = 1
+                st.warning("Prüfung muss nach Startdatum liegen.")
+            
+            st.info(f"📅 Lernzeitraum: **{days_delta} Tage**")
 
-    if active_view == "Lernplan":
-        # --- VIEW: Lernplan ---
-        st.header("📅 Lernplan")
+            doc_type = st.selectbox("Dokument-Typ", ["Skript / Buch", "Prüfung / Klausur", "Übungsblätter", "Sonstiges"])
+            if doc_type == "Sonstiges":
+                st.text_input("Bitte spezifizieren", placeholder="z.B. Mitschrift")
+            
+            hours = st.slider("Stunden pro Tag", 1, 10, 4)
+
+        # 2. Generator Action
+        # Only show generate if no plan exists OR user wants to regenerate
+        plan_exists = "plan_data" in st.session_state and st.session_state.plan_data
         
-        # Generator UI
-        with st.expander("⚙️ Lernplan-Generator", expanded=not st.session_state.get("plan_data")):
-            c1, c2 = st.columns(2)
-            with c1:
-                days = st.number_input("Dauer (Tage)", min_value=1, max_value=30, value=7)
-                hours = st.slider("Stunden pro Tag", 1, 10, 4)
-            with c2:
-                start_date = st.date_input("Startdatum", datetime.date.today())
-                
-            if st.button("🚀 Lernplan erstellen", type="primary"):
-                with st.spinner("Analysiere Dokumente & erstelle Plan... (das dauert einen Moment)"):
-                    plan = generate_study_plan(st.session_state.text_chunks, days, hours, start_date)
-                    if plan:
-                        st.session_state.plan_data = plan
-                        # Auto-Save
-                        DataManager.save_plan(plan, username, folder_id)
-                        st.rerun()
+        if not plan_exists:
+            if st.button("🚀 Lernplan erstellen", type="primary", use_container_width=True):
+                if not st.session_state.get("text_chunks"):
+                     st.error("Bitte erst PDFs hochladen und analysieren!")
+                else:
+                    with st.spinner(f"Erstelle Plan für {days_delta} Tage..."):
+                        # Use calculated days from Exam Date
+                        plan = generate_study_plan(st.session_state.text_chunks, days_delta, hours, start_date)
+                        if plan:
+                            st.session_state.plan_data = plan
+                            DataManager.save_plan(plan, username, folder_id)
+                            st.rerun()
+        else:
+             if st.button("🔄 Plan neu generieren (überschreiben)", type="secondary"):
+                 del st.session_state.plan_data
+                 st.rerun()
+
+    # --- EXISTING TAB LOGIC REMOVED (Consolidated above) ---
+    
+    # Render Plan (Common for all views if needed, but specific to Lernplan view here)
+    if active_view == "Lernplan" and "plan_data" in st.session_state:
+        # (Render Logic continues below...)
 
         # Render Plan
         if "plan_data" in st.session_state:
