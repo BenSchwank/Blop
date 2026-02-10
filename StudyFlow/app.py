@@ -1339,9 +1339,17 @@ def _run_analysis(username, folder_id):
     pdfs = DataManager.list_pdfs(username, folder_id)
     if not pdfs: return
     
-    full_paths = [DataManager.get_pdf_path(p, username, folder_id) for p in pdfs]
+    full_paths = []
+    for p in pdfs:
+        path = DataManager.get_pdf_path(p, username, folder_id)
+        if path:
+             full_paths.append(path)
     
-    with st.spinner(f"{len(pdfs)} Dokumente werden analysiert..."):
+    if not full_paths:
+        st.error("Konnte PDF-Dateien nicht laden (Pfadfehler).")
+        return
+
+    with st.spinner(f"{len(full_paths)} Dokumente werden analysiert..."):
         try:
             # Create file-like objects with 'name' attribute for get_pdf_text compatibility
             class FileObj:

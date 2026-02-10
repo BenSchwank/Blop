@@ -143,6 +143,60 @@ class DataManager:
                 else:
                     found_folder["files"].append(file_data)
                 DataManager.save(data, username)
+                DataManager.save(data, username)
+                
+    @staticmethod
+    def delete_file(username, folder_id, file_id):
+        """Deletes a file (PDF, Plan, Summary) from the workspace."""
+        db = DataManager._init_firestore()
+        
+        # Helper to identify type
+        is_pdf = not (file_id.startswith("plan_") or file_id.startswith("summary_"))
+        
+        if db:
+             # CLOUD MODE
+             try:
+                 if is_pdf:
+                     # Delete from 'pdfs' collection
+                     db.collection("users").document(username).collection("pdfs").document(file_id).delete()
+                     # Note: Chunks remain orphaned in Firestore (Client SDK requires recursive delete). 
+                     # For MVP we leave them, or we'd need to list and delete 'chunks' subcollection.
+                 else:
+                     # Delete from 'files' subcollection
+                     db.collection("users").document(username).collection("folders").document(str(folder_id)).collection("files").document(file_id).delete()
+                 return True
+             except Exception as e:
+                 print(f"Delete Error: {e}")
+                 return False
+        else:
+             # LOCAL MODE
+             if is_pdf:
+                 # Delete generic PDF from disk
+                 folder_path = DataManager._get_folder_path(username, folder_id)
+                 file_path = os.path.join(folder_path, file_id) # file_id is filename for local PDFs
+                 if os.path.exists(file_path):
+                     try:
+                         os.remove(file_path)
+                         return True
+                     except:
+                         return False
+                 return False
+             else:
+                 # Delete Plan/Summary from JSON metadata
+                 data = DataManager.load(username)
+                 found_folder = None
+                 for f in data.get("folders", []):
+                     if f["id"] == folder_id:
+                         found_folder = f
+                         break
+                 
+                 if found_folder and "files" in found_folder:
+                     original_len = len(found_folder["files"])
+                     found_folder["files"] = [f for f in found_folder["files"] if f["id"] != file_id]
+                     if len(found_folder["files"]) < original_len:
+                         DataManager.save(data, username)
+                         return True
+        return False
 
     @staticmethod
     def list_files(username, folder_id):
