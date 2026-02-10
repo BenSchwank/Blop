@@ -302,7 +302,7 @@ class DataManager:
             import base64
             file_data = uploaded_file.getvalue()
             total_size = len(file_data)
-            chunk_size = 900 * 1024 # 900KB chunks
+            chunk_size = 500 * 1024 # 500KB chunks (Base64 grows to ~666KB, safe for 1MB limit)
             
             # Create a main document for metadata
             doc_ref = db.collection("users").document(username).collection("pdfs").document(f"{folder_id}_{uploaded_file.name}")
