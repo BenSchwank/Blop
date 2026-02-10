@@ -1501,17 +1501,107 @@ def show_pdf_overlay_dialog(page_num, username, folder_id, filename=None):
                 use_container_width=True
             )
             
-            # 2. PDF Preview (Try <embed> which is often better than iframe for large data URIs)
-            # Make sure we have a valid height
-            pdf_html = f'''
-                <embed
-                    src="data:application/pdf;base64,{b64_pdf}#page={page_num}"
-                    type="application/pdf"
-                    width="100%"
-                    height="800px"
-                />
-            '''
-            st.markdown(pdf_html, unsafe_allow_html=True)
+            # 2. PDF Preview via PDF.js (Most robust cross-browser solution)
+            # We inject a small HTML invoking PDF.js from CDN
+            pdf_js_html = f"""
+            <html>
+            <head>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+                <style>
+                    body {{ margin: 0; padding: 0; background-color: #333; }}
+                    #the-canvas {{ width: 100%; height: auto; display: block; margin: 0 auto; }}
+                    #controls {{ position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 10px; border-radius: 20px; display: flex; gap: 10px; }}
+                    button {{ background: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; }}
+                </style>
+            </head>
+            <body>
+                <div id="controls">
+                    <button id="prev">Vorherige</button>
+                    <span>Seite: <span id="page_num"></span> / <span id="page_count"></span></span>
+                    <button id="next">Nächste</button>
+                </div>
+                <canvas id="the-canvas"></canvas>
+
+                <script>
+                    var pdfData = atob('{b64_pdf}');
+                    var pdfjsLib = window['pdfjs-dist/build/pdf'];
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+                    var pdfDoc = null,
+                        pageNum = {page_num or 1},
+                        pageRendering = false,
+                        pageNumPending = null,
+                        scale = 1.5,
+                        canvas = document.getElementById('the-canvas'),
+                        ctx = canvas.getContext('2d');
+
+                    function renderPage(num) {{
+                        pageRendering = true;
+                        pdfDoc.getPage(num).then(function(page) {{
+                            var viewport = page.getViewport({{scale: scale}});
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+
+                            var renderContext = {{
+                                canvasContext: ctx,
+                                viewport: viewport
+                            }};
+                            var renderTask = page.render(renderContext);
+
+                            renderTask.promise.then(function() {{
+                                pageRendering = false;
+                                if (pageNumPending !== null) {{
+                                    renderPage(pageNumPending);
+                                    pageNumPending = null;
+                                }}
+                            }});
+                        }});
+                        document.getElementById('page_num').textContent = num;
+                    }}
+
+                    function queueRenderPage(num) {{
+                        if (pageRendering) {{
+                            pageNumPending = num;
+                        }} else {{
+                            renderPage(num);
+                        }}
+                    }}
+
+                    function onPrevPage() {{
+                        if (pageNum <= 1) {{
+                            return;
+                        }}
+                        pageNum--;
+                        queueRenderPage(pageNum);
+                    }}
+                    document.getElementById('prev').addEventListener('click', onPrevPage);
+
+                    function onNextPage() {{
+                        if (pageNum >= pdfDoc.numPages) {{
+                            return;
+                        }}
+                        pageNum++;
+                        queueRenderPage(pageNum);
+                    }}
+                    document.getElementById('next').addEventListener('click', onNextPage);
+
+                    var loadingTask = pdfjsLib.getDocument({{data: pdfData}});
+                    loadingTask.promise.then(function(pdf) {{
+                        pdfDoc = pdf;
+                        document.getElementById('page_count').textContent = pdf.numPages;
+                        renderPage(pageNum);
+                    }}, function (reason) {{
+                        console.error(reason);
+                    }});
+                </script>
+            </body>
+            </html>
+            """
+            
+            # Render HTML inside IFrame
+            import streamlit.components.v1 as components
+            components.html(pdf_js_html, height=800, scrolling=True)
+            
     else:
         st.error("Kein PDF gefunden.")
 
