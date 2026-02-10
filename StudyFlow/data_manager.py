@@ -34,7 +34,10 @@ class DataManager:
                 return DataManager._db
             except Exception as e:
                 print(f"Firestore Init Error: {e}")
+                st.session_state.db_error = str(e)
                 return None
+        else:
+            st.session_state.db_error = "Secret '[firebase]' not found in secrets.toml"
         return None
 
     @staticmethod

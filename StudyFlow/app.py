@@ -1055,7 +1055,8 @@ def render_sidebar():
         if db:
             st.caption("🟢 Speicher: Cloud (Firestore)")
         else:
-            st.caption("🔴 Speicher: Lokal (Nur Temporär!)")
+            err = st.session_state.get("db_error", "Unbekannter Fehler")
+            st.caption(f"🔴 Speicher: Lokal (Fehler: {err})")
         
         # Navigation
         if st.button("🏠 Dashboard", use_container_width=True, type="secondary"):
