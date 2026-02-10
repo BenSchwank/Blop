@@ -27,6 +27,11 @@ class DataManager:
                 if not firebase_admin._apps:
                     # Parse secrets to dict
                     cred_dict = dict(st.secrets["firebase"])
+                    
+                    # Fix formatting of private_key (often broken in TOML/Streamlit Secrets)
+                    if "private_key" in cred_dict:
+                        cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+                    
                     cred = credentials.Certificate(cred_dict)
                     firebase_admin.initialize_app(cred)
                 
