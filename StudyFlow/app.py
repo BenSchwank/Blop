@@ -1478,7 +1478,7 @@ def render_file_manager(username, folder_id):
     st.subheader("📂 Datei-Manager")
     
     # 1. Upload Area (Form)
-    with st.form(f"upload_form_{folder_id}", clear_on_submit=True):
+    with st.form(f"upload_form_{folder_id}"):
         c_up1, c_up2 = st.columns([4, 1])
         with c_up1:
             uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed", key=f"uploader_{folder_id}")
