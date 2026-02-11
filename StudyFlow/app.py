@@ -768,10 +768,18 @@ def build_vector_store(text_chunks):
         if not text_chunks: return None, []
         
         # Use LangChain Google GenAI Embeddings
-        api_key = os.environ.get("GOOGLE_API_KEY")
+        api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
         if not api_key:
             return None, []
             
+        # Verify Key with simple call
+        try:
+            genai.configure(api_key=api_key)
+            list(genai.list_models()) # Test connectivity
+        except Exception as e:
+            st.error(f"API Key Invalid (Connection Test Failed): {e}")
+            return None, []
+
         embeddings_model = GoogleGenerativeAIEmbeddings(model=model_name, google_api_key=api_key)
         
         # Create FAISS index directly from documents
