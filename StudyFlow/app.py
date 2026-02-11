@@ -778,8 +778,8 @@ def build_vector_store(text_chunks):
     
     for i in range(0, total_chunks, batch_size):
         batch = text_chunks[i:i + batch_size]
-        # Extract plain text for embedding
-        batch_text = [c['text'] for c in batch]
+        # Extract plain text for embedding (Corrected for Document usage)
+        batch_text = [c.page_content for c in batch]
         
         retries = 0
         while retries < 5:
@@ -844,9 +844,11 @@ def answer_question(query, index, chunks):
         context_chunks = [chunks[i] for i in I[0] if i < len(chunks)]
         context_text = ""
         for c in context_chunks:
-            source_file = os.path.basename(c.get('source', 'Doc'))
-            page_num = c.get('page', '?')
-            context_text += f"\nSOURCE: {source_file} (Seite {page_num}):\n{c['text']}\n---"
+            # c is Document object
+            meta = c.metadata
+            source_file = os.path.basename(meta.get('source', 'Doc'))
+            page_num = meta.get('page', '?')
+            context_text += f"\nSOURCE: {source_file} (Seite {page_num}):\n{c.page_content}\n---"
         
         # Generate Answer
         model_name = get_generative_model_name()
@@ -879,7 +881,10 @@ def generate_quiz(chunks):
         selected = random.sample(chunks, min(3, len(chunks)))
         context = ""
         for c in selected:
-            context += f"\n[Seite {c.get('page','?')}]: {c['text']}\n"
+            # c is Document object
+            meta = c.metadata
+            page = meta.get('page', '?')
+            context += f"\n[Seite {page}]: {c.page_content}\n"
         
         model_name = get_generative_model_name()
         model = genai.GenerativeModel(model_name)
@@ -978,48 +983,6 @@ def generate_study_plan(text_chunks, days, hours_per_day, start_date):
     except Exception as e:
         st.error(f"Fehler bei Plan-Erstellung (API): {e}")
         return None
-
-def generate_topic_summary(topic_title, context_chunks):
-    """Generates a specific summary for a study topic."""
-    try:
-        # Simple RAG for the specific topic
-        # We search the index if available, or just use the chunks provided
-        # For simplicity/speed in this demo, we use the provided chunks (which might be the whole doc or a sample)
-        
-        # improved: filter chunks by simple keyword match to reduce noise if possible, else take all
-        relevant_text = ""
-        keywords = topic_title.split()
-        count = 0
-        for c in context_chunks:
-            if any(k.lower() in c['text'].lower() for k in keywords):
-                relevant_text += c['text'][:2000] + "\n"
-                count += 1
-            if count > 5: break
-            
-        if not relevant_text:
-             # Fallback: take random chunks if no keyword match
-             relevant_text = "\n".join([c['text'][:1000] for c in context_chunks[:3]])
-
-        model_name = get_generative_model_name()
-        model = genai.GenerativeModel(model_name)
-        
-        prompt = f"""
-        **Aufgabe**: Erstelle eine ultrakurze, knackige Zusammenfassung (Flashcard-Style) für das Thema: '{topic_title}'.
-        
-        **Format**:
-        - **Definition**: <mark>1 Satz Definition</mark>.
-        - **Wichtig**: 3 Bulletpoints.
-        - **Beispiel**: 1 kurzes Beispiel.
-        - **Bild**: Wenn passend, füge `[IMAGE: kurze englische bildbeschreibung]` ein.
-        
-        **Kontext**:
-        {relevant_text}
-        """
-        
-        resp = model.generate_content(prompt)
-        return render_visual_summary(resp.text)
-    except Exception as e:
-        return f"Konnte Zusammenfassung nicht erstellen: {e}"
 
 def generate_topic_summary(topic, description, text_chunks):
     """Generates a short summary for a specific topic using relevant chunks."""
