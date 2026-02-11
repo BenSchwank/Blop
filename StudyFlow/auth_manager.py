@@ -44,7 +44,12 @@ class AuthManager:
     def register(username, password):
         users = AuthManager._load_users()
         if username in users:
-            return False # User exists
+            return False # User exists locally
+            
+        # Check Cloud (Firestore) to prevent claiming existing cloud user
+        from data_manager import DataManager
+        if DataManager.user_exists(username):
+            return False # User exists in cloud
         
         users[username] = {
             "password": AuthManager._hash_password(password),

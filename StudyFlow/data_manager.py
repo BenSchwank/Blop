@@ -59,6 +59,18 @@ class DataManager:
         safe_name = "".join([c for c in username if c.isalnum() or c in "-_"])
         return os.path.join(DATA_DIR, f"{safe_name}.json")
 
+
+
+    @staticmethod
+    def user_exists(username):
+        """Checks if a user exists in Firestore (to prevent duplicate registration)."""
+        db = DataManager._init_firestore()
+        if db:
+            doc_ref = db.collection("users").document(username)
+            doc = doc_ref.get()
+            return doc.exists
+        return False
+        
     @staticmethod
     def load(username):
         db = DataManager._init_firestore()
