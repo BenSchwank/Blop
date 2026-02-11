@@ -72,6 +72,18 @@ class DataManager:
         return False
         
     @staticmethod
+    def get_all_cloud_users():
+        """Fetches all user documents from Firestore."""
+        db = DataManager._init_firestore()
+        if db:
+            try:
+                users_ref = db.collection("users").stream()
+                return [u.id for u in users_ref]
+            except:
+                return []
+        return []
+
+    @staticmethod
     def load(username):
         db = DataManager._init_firestore()
         if db:
