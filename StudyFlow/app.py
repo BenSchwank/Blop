@@ -679,12 +679,14 @@ def get_generative_model_name():
 def get_embedding_model_name():
     """Dynamically finds a working embedding model name."""
     try:
-        for m in genai.list_models():
-            if 'embedContent' in m.supported_generation_methods:
-                return m.name
+        # Prioritize newer models
+        models = [m.name for m in genai.list_models() if 'embedContent' in m.supported_generation_methods]
+        if "models/text-embedding-004" in models: return "models/text-embedding-004"
+        if "models/embedding-001" in models: return "models/embedding-001"
+        return models[0]
     except:
         pass
-    return "models/embedding-001"
+    return "models/text-embedding-004" # Default to new standard
 
 # Removed cache to prevent stale data persistence
 def get_pdf_text(pdf_files):
@@ -770,7 +772,7 @@ def build_vector_store(text_chunks):
         return vector_store, text_chunks
 
     except Exception as e:
-        print(f"Vector Store Error: {e}")
+        st.error(f"Vector Store Error (FAISS): {e}")
         return None, []
     batch_size = 1 
     progress_bar = st.progress(0)
