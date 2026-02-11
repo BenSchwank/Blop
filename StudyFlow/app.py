@@ -768,7 +768,11 @@ def build_vector_store(text_chunks):
         if not text_chunks: return None, []
         
         # Use LangChain Google GenAI Embeddings
-        embeddings_model = GoogleGenerativeAIEmbeddings(model=model_name)
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return None, []
+            
+        embeddings_model = GoogleGenerativeAIEmbeddings(model=model_name, google_api_key=api_key)
         
         # Create FAISS index directly from documents
         vector_store = FAISS.from_documents(text_chunks, embedding=embeddings_model)
@@ -776,7 +780,8 @@ def build_vector_store(text_chunks):
         return vector_store, text_chunks
 
     except Exception as e:
-        st.error(f"Vector Store Error (FAISS): {e}")
+        key_status = "Found" if "GOOGLE_API_KEY" in os.environ else "Missing"
+        st.error(f"Vector Store Error (FAISS): {e} | Key: {key_status}")
         return None, []
     batch_size = 1 
     progress_bar = st.progress(0)
