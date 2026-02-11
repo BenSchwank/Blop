@@ -777,7 +777,9 @@ def build_vector_store(text_chunks):
             genai.configure(api_key=api_key)
             list(genai.list_models()) # Test connectivity
         except Exception as e:
-            st.error(f"API Key Invalid (Connection Test Failed): {e}")
+            src = "Secrets" if "GOOGLE_API_KEY" in st.secrets else "Env"
+            masked = f"{api_key[:5]}...{api_key[-3:]}" if api_key else "None"
+            st.error(f"API Key Invalid (Connection Test Failed): {e} | Source: {src} | Key: '{masked}'")
             return None, []
 
         embeddings_model = GoogleGenerativeAIEmbeddings(model=model_name, google_api_key=api_key)
