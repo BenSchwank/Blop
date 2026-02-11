@@ -31,8 +31,12 @@ from auth_manager import AuthManager
 
 
 # Configure Logging
-# Configure Logging
 logging.basicConfig(level=logging.ERROR)
+
+# --- API KEY SETUP ---
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 def generate_imagen_image(prompt):
     """Generates an image using Google GenAI (Imagen 3) and returns formatted HTML."""
