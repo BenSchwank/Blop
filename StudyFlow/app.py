@@ -1747,7 +1747,7 @@ def render_dashboard():
             new_name = st.text_input("Projektname", placeholder="z.B. Mathe")
             if st.button("Erstellen ➝", key="create_new_proj", type="primary", use_container_width=True):
                 if new_name:
-                    DataManager.create_folder(new_name, username)
+                    DataManager.create_folder(new_name, dashboard_user)
                     st.rerun()
     
     with c2:
@@ -1780,7 +1780,7 @@ def render_dashboard():
                     navigate_to("workspace", folder=folder['id'])
 
     # Admin Panel (Only for admin_)
-    if username == "admin_":
+    if dashboard_user == "admin_":
         st.divider()
         with st.expander("👮 Admin Panel", expanded=False):
             users = AuthManager.get_all_users()
