@@ -33,10 +33,31 @@ from auth_manager import AuthManager
 # Configure Logging
 logging.basicConfig(level=logging.ERROR)
 
-# --- API KEY SETUP ---
-if "GOOGLE_API_KEY" in st.secrets:
-    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+# --- API KEY MANAGEMENT ---
+def init_api_key():
+    """Initializes API Key from Session State, Env, or Secrets (in that order)."""
+    # 1. Session State (User Input) - Highest Priority
+    if st.session_state.get("google_api_key"):
+        return st.session_state.google_api_key
+    
+    # 2. Environment Variable
+    if os.environ.get("GOOGLE_API_KEY"):
+        return os.environ["GOOGLE_API_KEY"]
+        
+    # 3. Secrets (if valid and NOT placeholder)
+    if "GOOGLE_API_KEY" in st.secrets:
+        secret_key = st.secrets["GOOGLE_API_KEY"]
+        if secret_key and "DEIN_" not in secret_key and "YOUR_" not in secret_key:
+            return secret_key
+            
+    return None
+
+# Initialize on startup
+active_key = init_api_key()
+if active_key:
+    os.environ["GOOGLE_API_KEY"] = active_key
+    genai.configure(api_key=active_key)
+    st.session_state.google_api_key = active_key # Persist found key
 
 def generate_imagen_image(prompt):
     """Generates an image using Google GenAI (Imagen 3) and returns formatted HTML."""
@@ -495,12 +516,28 @@ def render_sidebar():
         if st.session_state.current_page == "dashboard":
             # --- Settings & Config ---
             with st.expander("⚙️ Einstellungen", expanded=False):
-                api_key_input = st.text_input("Gemini API Key", type="password", key="api_key_input")
-                if api_key_input:
-                    os.environ["GOOGLE_API_KEY"] = api_key_input
-                    genai.configure(api_key=api_key_input)
-                    st.success("Gespeichert!")
+                # Only show if not configured in secrets (or if overwriting)
+                current_key = st.session_state.get("google_api_key", "")
                 
+                # Show status
+                if current_key:
+                    st.caption("✅ API Key ist gesetzt")
+                else:
+                    st.caption("⚠️ Kein API Key aktiv")
+
+                api_key_input = st.text_input("Google API Key", value=current_key, type="password", help="Benötigt für KI-Features")
+                
+                if st.button("Speichern", key="save_api_key"):
+                    if api_key_input:
+                        st.session_state.google_api_key = api_key_input
+                        os.environ["GOOGLE_API_KEY"] = api_key_input
+                        genai.configure(api_key=api_key_input)
+                        st.success("Gespeichert!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.warning("Bitte Key eingeben.")
+                    
                 models = ["Automatisch", "gemini-1.5-flash", "gemini-1.5-pro"]
                 sel = st.selectbox("Modell", models, key="model_selector")
                 st.session_state.model_option = sel
@@ -768,8 +805,9 @@ def build_vector_store(text_chunks):
         if not text_chunks: return None, []
         
         # Use LangChain Google GenAI Embeddings
-        api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+        api_key = init_api_key()
         if not api_key:
+            st.error("Kein gültiger API Key gefunden (Bitte in den Einstellungen eintragen).")
             return None, []
             
         # Verify Key with simple call
@@ -777,9 +815,7 @@ def build_vector_store(text_chunks):
             genai.configure(api_key=api_key)
             list(genai.list_models()) # Test connectivity
         except Exception as e:
-            src = "Secrets" if "GOOGLE_API_KEY" in st.secrets else "Env"
-            masked = f"{api_key[:5]}...{api_key[-3:]}" if api_key else "None"
-            st.error(f"API Key Invalid (Connection Test Failed): {e} | Source: {src} | Key: '{masked}'")
+            st.error(f"API Key Invalid (Connection Test Failed): {e}")
             return None, []
 
         embeddings_model = GoogleGenerativeAIEmbeddings(model=model_name, google_api_key=api_key)
