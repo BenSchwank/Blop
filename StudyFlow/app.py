@@ -1807,7 +1807,6 @@ def render_dashboard():
                             
                     # Clear Data Button
                     if c_c.button("🧹", key=f"clear_{u}", help="Nur Daten löschen (Account behalten)"):
-                        from data_manager import DataManager
                         DataManager.clear_user_data(u)
                         st.toast(f"Daten von {u} gelöscht.")
                         time.sleep(1)
