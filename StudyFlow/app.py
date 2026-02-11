@@ -1708,15 +1708,14 @@ def render_login_screen():
 
 def render_dashboard():
     # Load Data
-    username = None # Init variable
-    if "username" in st.session_state and st.session_state.username:
-        username = st.session_state.username
-    else:
+    current_user = st.session_state.get("username")
+    
+    if not current_user:
         st.error("Nicht eingeloggt!")
         st.stop()
-        
-    data = DataManager.load(username)
-    data = DataManager.load(username)
+        return
+
+    data = DataManager.load(current_user)
     
     # CSS for Cards
     st.markdown("""
