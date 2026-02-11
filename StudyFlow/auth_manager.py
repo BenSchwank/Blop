@@ -97,7 +97,22 @@ class AuthManager:
 
     @staticmethod
     def get_all_users():
-        return AuthManager._load_users()
+        # Get Local/Synced Users
+        users = AuthManager._load_users()
+        
+        # Get Orphaned Cloud Users (Have Data but no Auth)
+        from data_manager import DataManager
+        cloud_user_ids = DataManager.get_all_cloud_users()
+        
+        for uid in cloud_user_ids:
+            if uid not in users and uid != "config": # Exclude config collection
+                # Add placeholder for Admin Panel visibility
+                users[uid] = {
+                    "password": "CLOUD_ONLY_NO_PASSWORD",
+                    "created_at": "Unknown (Cloud Data)",
+                    "is_cloud_only": True
+                }
+        return users
 
     @staticmethod
     def delete_user(username):
@@ -116,11 +131,18 @@ class AuthManager:
         """Resets a user's password to a specific value immediately."""
         try:
             users = AuthManager._load_users()
-            if username in users:
-                users[username]["password"] = AuthManager._hash_password(new_password)
-                AuthManager._save_users(users)
-                return True
-            return False
+            
+            # If user is not in local/auth store, we CREATE them (Adopting cloud user)
+            if username not in users:
+                users[username] = {
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+            users[username]["password"] = AuthManager._hash_password(new_password)
+            users[username]["is_cloud_only"] = False # Remove flag if present
+            
+            AuthManager._save_users(users)
+            return True
         except Exception as e:
             print(f"Password Reset Error: {e}")
             return False

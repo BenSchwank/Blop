@@ -1777,19 +1777,29 @@ def render_dashboard():
         with st.expander("👮 Admin Panel", expanded=False):
             users = AuthManager.get_all_users()
             st.metric("Registrierte Nutzer", len(users))
-            for u in users:
+            for u, u_data in users.items():
                 if u != "admin_":
                     c_a, c_b, c_c, c_d = st.columns([4, 1, 1, 1])
-                    c_a.write(f"👤 {u}")
+                    
+                    # Display Name with Cloud Indicator
+                    is_cloud = u_data.get("is_cloud_only", False)
+                    display_name = f"☁️ {u} (No Auth)" if is_cloud else f"👤 {u}"
+                    c_a.write(f"**{display_name}**")
+                    if is_cloud:
+                        c_a.caption("User hat Daten in Cloud aber kein Login.")
+
                     # Change PW Button
                     if c_b.button("🔒", key=f"pw_{u}", help="Passwort auf '123456' setzen"):
                         if AuthManager.reset_password_force(u, "123456"):
                             st.toast(f"Passwort für {u} auf '123456' gesetzt!")
+                            time.sleep(1)
+                            st.rerun()
                         else:
                             st.error("Fehler beim Zurücksetzen.")
                             
                     # Clear Data Button
                     if c_c.button("🧹", key=f"clear_{u}", help="Nur Daten löschen (Account behalten)"):
+                        from data_manager import DataManager
                         DataManager.clear_user_data(u)
                         st.toast(f"Daten von {u} gelöscht.")
                         time.sleep(1)
