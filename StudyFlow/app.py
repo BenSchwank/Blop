@@ -463,14 +463,15 @@ def render_sidebar():
         # GLOBAL HEADER / STATUS
         st.title("⚡ Blop AI")
         
-        # DEBUG: Session State
-        with st.expander("🐞 Debug State", expanded=False):
-             st.write(f"Chunks: {len(st.session_state.get('text_chunks', []))}")
-             if "text_chunks" in st.session_state:
-                 st.caption(f"Type: {type(st.session_state.text_chunks)}")
-                 if st.session_state.text_chunks:
-                     st.caption(f"Sample: {str(st.session_state.text_chunks[0])[:50]}")
-             st.write(f"Trigger: {st.session_state.get('trigger_analysis')}")
+        # DEBUG: Session State (Only for Admin)
+        if st.session_state.get("username") == "admin_":
+            with st.expander("🐞 Debug State", expanded=False):
+                 st.write(f"Chunks: {len(st.session_state.get('text_chunks', []))}")
+                 if "text_chunks" in st.session_state:
+                     st.caption(f"Type: {type(st.session_state.text_chunks)}")
+                     if st.session_state.text_chunks:
+                         st.caption(f"Sample: {str(st.session_state.text_chunks[0])[:50]}")
+                 st.write(f"Trigger: {st.session_state.get('trigger_analysis')}")
              
         # DB Status
         # DB Status
@@ -505,6 +506,27 @@ def render_sidebar():
             # Show User Info & Logout only in Dashboard
             if st.session_state.get("authenticated"):
                 st.markdown(f"👤 **{st.session_state.get('username')}**")
+                
+                # --- User Settings (Password Change) ---
+                with st.expander("🔑 Passwort ändern", expanded=False):
+                    old_pw = st.text_input("altes Passwort", type="password", key="chg_old")
+                    new_pw = st.text_input("neues Passwort", type="password", key="chg_new")
+                    conf_pw = st.text_input("Bestätigen", type="password", key="chg_conf")
+                    
+                    if st.button("Speichern", key="save_pw_btn"):
+                        if new_pw != conf_pw:
+                            st.error("Passwörter stimmen nicht überein!")
+                        elif not new_pw:
+                            st.error("Passwort leer!")
+                        else:
+                            success, msg = AuthManager.change_password(st.session_state.username, old_pw, new_pw)
+                            if success:
+                                st.success(msg)
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                
                 if st.button("🚪 Logout", key="logout_btn", type="secondary"):
                     AuthManager.logout()
                     st.rerun()

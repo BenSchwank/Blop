@@ -148,6 +148,36 @@ class AuthManager:
             return False
 
     @staticmethod
+    def change_password(username, old_password, new_password):
+        """Allows a user to change their own password verify old password first."""
+        try:
+            users = AuthManager._load_users()
+            if username not in users:
+                return False, "Benutzer nicht gefunden."
+            
+            # Verify Old Password
+            user_data = users[username]
+            hashed_old = AuthManager._hash_password(old_password)
+            
+            # Handle cases where password might be missing (cloud-only adopted users)
+            current_stored_pw = user_data.get("password")
+            
+            if current_stored_pw and current_stored_pw != hashed_old:
+                return False, "Altes Passwort ist falsch."
+            
+            # Update Password
+            users[username]["password"] = AuthManager._hash_password(new_password)
+            # Ensure "is_cloud_only" is removed if present
+            if "is_cloud_only" in users[username]:
+                del users[username]["is_cloud_only"]
+                
+            AuthManager._save_users(users)
+            return True, "Passwort erfolgreich geändert!"
+            
+        except Exception as e:
+            return False, f"Fehler: {str(e)}"
+
+    @staticmethod
     def ensure_admin():
         users = AuthManager._load_users()
         admin_user = "admin_"
