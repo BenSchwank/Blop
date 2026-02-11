@@ -1432,6 +1432,7 @@ def _run_analysis(username, folder_id):
             file_objs = [FileObj(p) for p in full_paths]
             
             # CLEAR OLD STATE explicitly
+            # st.write("DEBUG: Clearing text_chunks...")
             if "text_chunks" in st.session_state: del st.session_state.text_chunks
             if "vector_index" in st.session_state: del st.session_state.vector_index
             
@@ -2104,7 +2105,8 @@ def render_workspace_content(username, folder_id):
         plan_exists = "plan_data" in st.session_state and st.session_state.plan_data
         
         if not plan_exists:
-            if st.button("🚀 Lernplan erstellen", type="primary", use_container_width=True):
+            if st.button("🚀 Lernplan erstellen", type="primary", use_container_width=True, key="gen_plan_btn"):
+                st.write("DEBUG: Button clicked!")
                 if not st.session_state.get("text_chunks"):
                      st.error("Bitte erst PDFs hochladen und analysieren!")
                 else:
@@ -2116,7 +2118,8 @@ def render_workspace_content(username, folder_id):
                             DataManager.save_plan(plan, username, folder_id)
                             st.rerun()
         else:
-             if st.button("🔄 Plan neu generieren (überschreiben)", type="secondary"):
+             if st.button("🔄 Plan neu generieren (überschreiben)", type="secondary", key="regen_plan_btn"):
+                 st.write("DEBUG: Regen button clicked!")
                  del st.session_state.plan_data
                  st.rerun()
 
