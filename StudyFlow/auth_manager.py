@@ -70,6 +70,20 @@ class AuthManager:
         return False
 
     @staticmethod
+    def reset_password_force(username, new_password):
+        """Resets a user's password to a specific value immediately."""
+        try:
+            users = AuthManager._load_users()
+            if username in users:
+                users[username]["password"] = AuthManager._hash_password(new_password)
+                AuthManager._save_users(users)
+                return True
+            return False
+        except Exception as e:
+            print(f"Password Reset Error: {e}")
+            return False
+
+    @staticmethod
     def ensure_admin():
         users = AuthManager._load_users()
         admin_user = "admin_"

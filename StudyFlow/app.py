@@ -1779,16 +1779,23 @@ def render_dashboard():
             st.metric("Registrierte Nutzer", len(users))
             for u in users:
                 if u != "admin_":
-                    c_a, c_b, c_c = st.columns([4, 1, 1])
+                    c_a, c_b, c_c, c_d = st.columns([4, 1, 1, 1])
                     c_a.write(f"👤 {u}")
+                    # Change PW Button
+                    if c_b.button("🔒", key=f"pw_{u}", help="Passwort auf '123456' setzen"):
+                        if AuthManager.reset_password_force(u, "123456"):
+                            st.toast(f"Passwort für {u} auf '123456' gesetzt!")
+                        else:
+                            st.error("Fehler beim Zurücksetzen.")
+                            
                     # Clear Data Button
-                    if c_b.button("🧹", key=f"clear_{u}", help="Nur Daten löschen (Account behalten)"):
+                    if c_c.button("🧹", key=f"clear_{u}", help="Nur Daten löschen (Account behalten)"):
                         DataManager.clear_user_data(u)
                         st.toast(f"Daten von {u} gelöscht.")
                         time.sleep(1)
                         st.rerun()
                     # Delete User Button
-                    if c_c.button("🗑️", key=f"del_{u}", help="Nutzer komplett löschen"):
+                    if c_d.button("🗑️", key=f"del_{u}", help="Nutzer komplett löschen"):
                         AuthManager.delete_user(u)
                         st.rerun()
 
