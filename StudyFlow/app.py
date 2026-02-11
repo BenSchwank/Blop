@@ -1708,8 +1708,11 @@ def render_login_screen():
 
 def render_dashboard():
     # Load Data
-    # render_sidebar() is called globally in main()
-    username = st.session_state.get("username", "default")
+    if "username" not in st.session_state or not st.session_state.username:
+        st.error("Nicht eingeloggt!")
+        st.stop()
+        
+    username = st.session_state.username
     data = DataManager.load(username)
     
     # CSS for Cards
