@@ -1481,7 +1481,7 @@ def render_file_manager(username, folder_id):
     with st.form(f"upload_form_{folder_id}", clear_on_submit=True):
         c_up1, c_up2 = st.columns([4, 1])
         with c_up1:
-            uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
+            uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed", key=f"uploader_{folder_id}")
         with c_up2:
             submitted = st.form_submit_button("Hochladen", use_container_width=True)
         
@@ -1548,10 +1548,10 @@ def render_file_manager(username, folder_id):
         
         if has_analysis:
             st.success(f"✅ Analyse aktiv ({len(st.session_state.text_chunks)} Chunks)")
-            if st.button("🔄 Neu analysieren", use_container_width=True):
+            if st.button("🔄 Neu analysieren", use_container_width=True, key=f"reanalyze_btn_{folder_id}"):
                  _run_analysis(username, folder_id)
         else:
-            if st.button("🚀 PDFs Analysieren & Starten", type="primary", use_container_width=True):
+            if st.button("🚀 PDFs Analysieren & Starten", type="primary", use_container_width=True, key=f"start_analysis_btn_{folder_id}"):
                 # DIRECT CALL to ensure execution
                 _run_analysis(username, folder_id)
     else:
