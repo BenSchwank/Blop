@@ -623,8 +623,21 @@ def render_sidebar():
 
             # Show User Info & Logout only in Dashboard
             if st.session_state.get("authenticated"):
-                st.markdown(f"👤 **{st.session_state.get('username')}**")
+                u_name = st.session_state.get('username')
+                st.markdown(f"👤 **{u_name}**")
                 
+                # Gamification Stats
+                if u_name != "admin_":
+                    users = AuthManager.get_all_users()
+                    if u_name in users:
+                        u_data = users[u_name]
+                        streak = u_data.get("streak_days", 1)
+                        xp = u_data.get("xp", 0)
+                        
+                        sz, sx = st.columns(2)
+                        sz.markdown(f"🔥 **{streak}** Tage")
+                        sx.markdown(f"✨ **{xp}** XP")
+                        
                 if st.button("🚪 Logout", key="logout_btn", type="secondary"):
                     AuthManager.logout()
                     st.rerun()
@@ -2529,6 +2542,7 @@ def render_workspace_content(username, folder_id):
                                 if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
                                     # Reset to Box 1
                                     DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
+                                    AuthManager.add_xp(username, 1) # Small XP for effort
                                     st.session_state.flashcard_idx += 1
                                     st.session_state.flashcard_flipped = False
                                     st.rerun()
@@ -2541,6 +2555,7 @@ def render_workspace_content(username, folder_id):
                                     next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
                                     
                                     DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
+                                    AuthManager.add_xp(username, 5) # XP for success
                                     st.session_state.flashcard_idx += 1
                                     st.session_state.flashcard_flipped = False
                                     st.rerun()
@@ -2552,8 +2567,18 @@ def render_workspace_content(username, folder_id):
                             st.rerun()
                 else:
                     st.info("Alles erledigt! Keine Karten mehr fällig.")
-                    if st.button("Alle Karten trotzdem üben", key="cram_mode"):
-                        st.warning("Feature 'Cram Mode' kommt bald.")
+                    if st.button("🔥 Cram Mode (Alle üben)", key="cram_mode"):
+                        # Enable Cram Mode via session state
+                        st.session_state.cram_mode = True
+                        st.rerun()
+            
+            # CRAM MODE OVERRIDE
+            if st.session_state.get("cram_mode"):
+                 due_cards = cards # Override: All cards are due
+                 st.info("🔥 CRAM MODE AKTIV: Zeige alle Karten.")
+                 if st.button("Beenden"):
+                     del st.session_state.cram_mode
+                     st.rerun()
 
         # --- TAB: QUIZ ---
         with tab_quiz:
@@ -2570,7 +2595,9 @@ def render_workspace_content(username, folder_id):
                     st.markdown(f"**{i+1}. {q['question']}**")
                     c = st.radio(f"Antwort {i+1}", q['options'], key=f"q_{i}", label_visibility="collapsed")
                     if st.button(f"Prüfen", key=f"qk_{i}"):
-                        if c == q['answer']: st.success("Richtig!")
+                        if c == q['answer']: 
+                            st.success("Richtig! (+10 XP)")
+                            AuthManager.add_xp(username, 10)
                         else: st.error(f"Falsch. {q['answer']}")
                     st.divider()
 
@@ -2593,6 +2620,11 @@ def main():
     # Render Sidebar globally (context-aware)
     render_sidebar()
     inject_custom_css()
+
+    # Track Activity/Streak (Once per session startup)
+    if st.session_state.get("authenticated") and "streak_checked" not in st.session_state:
+        AuthManager.update_activity(st.session_state.username)
+        st.session_state.streak_checked = True
 
     if st.session_state.current_page == "dashboard":
         render_dashboard()

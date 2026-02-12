@@ -169,6 +169,47 @@ class AuthManager:
         AuthManager._save_users(users)
         return True
 
+        return True
+
+    @staticmethod
+    def add_xp(username, amount):
+        """Adds XP to the user."""
+        users = AuthManager._load_users()
+        if username in users:
+            current_xp = users[username].get("xp", 0)
+            users[username]["xp"] = current_xp + amount
+            AuthManager._save_users(users)
+            return users[username]["xp"]
+        return 0
+
+    @staticmethod
+    def update_activity(username):
+        """Tracks daily streak."""
+        users = AuthManager._load_users()
+        if username not in users: return
+        
+        user = users[username]
+        today = datetime.now().date()
+        last_active_str = user.get("last_active_date")
+        
+        if last_active_str:
+            last_active = datetime.fromisoformat(last_active_str).date()
+            if last_active == today:
+                return # Already active today
+            elif (today - last_active).days == 1:
+                # Streak continues!
+                user["streak_days"] = user.get("streak_days", 0) + 1
+            else:
+                # Streak broken :(
+                user["streak_days"] = 1
+        else:
+            # First time
+            user["streak_days"] = 1
+            
+        user["last_active_date"] = today.isoformat()
+        AuthManager._save_users(users)
+        return user["streak_days"]
+
     @staticmethod
     def get_all_users():
         # Get Local/Synced Users
