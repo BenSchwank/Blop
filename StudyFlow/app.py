@@ -565,7 +565,9 @@ def render_sidebar():
             # --- Settings & Config ---
             with st.expander("⚙️ Einstellungen", expanded=False):
                 # Only show if not configured in secrets (or if overwriting)
-                current_key = st.session_state.get("google_api_key", "")
+                current_key = AuthManager.get_user_api_key(st.session_state.username)
+                if not current_key:
+                    current_key = st.session_state.get("google_api_key", "")
                 
                 # Show status
                 if current_key:
@@ -573,14 +575,21 @@ def render_sidebar():
                 else:
                     st.caption("⚠️ Kein API Key aktiv")
 
-                api_key_input = st.text_input("Google API Key", value=current_key, type="password", help="Benötigt für KI-Features")
+                api_key_input = st.text_input("Google API Key", value=current_key if current_key else "", type="password", help="Benötigt für KI-Features")
                 
                 if st.button("Speichern", key="save_api_key"):
                     if api_key_input:
+                        # 1. Update Session and Environment
                         st.session_state.google_api_key = api_key_input
                         os.environ["GOOGLE_API_KEY"] = api_key_input
                         genai.configure(api_key=api_key_input)
-                        st.success("Gespeichert!")
+                        
+                        # 2. Persist to User Profile
+                        if AuthManager.set_user_api_key(st.session_state.username, api_key_input):
+                            st.success("Gespeichert und verknüpft!")
+                        else:
+                            st.warning("Gespeichert (Lokal), aber konnte nicht verknüpft werden.")
+                            
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -1938,7 +1947,7 @@ def render_dashboard():
             st.metric("Registrierte Nutzer", len(users))
             for u, u_data in users.items():
                 if u != "admin_":
-                    c_a, c_b, c_c, c_d = st.columns([4, 1, 1, 1])
+                    c_a, c_b, c_e, c_c, c_d = st.columns([3, 1, 1, 1, 1])
                     
                     # Display Name with Cloud Indicator
                     is_cloud = u_data.get("is_cloud_only", False)
@@ -1967,6 +1976,10 @@ def render_dashboard():
                         AuthManager.delete_user(u)
                         st.rerun()
 
+                    # API Key Button
+                    if c_e.button("🔑", key=f"key_{u}", help="API Key verwalten"):
+                        show_apikey_dialog(u)
+
 def render_workspace():
     # render_sidebar() is called globally in main()
     
@@ -1991,6 +2004,19 @@ def render_workspace():
         # Optional: Show File Manager here if empty? No, it's in sidebar.
         if st.button("Beispiel-Daten laden (Demo)"):
             st.error("Noch nicht implementiert")
+
+@st.dialog("🔑 API Key Verwaltung")
+def show_apikey_dialog(target_username):
+    st.write(f"API Key für **{target_username}**")
+    
+    current_key = AuthManager.get_user_api_key(target_username)
+    new_key = st.text_input("Neuer API Key", value=current_key if current_key else "", type="password", key=f"apikey_{target_username}")
+    
+    if st.button("Speichern", key=f"save_apikey_dlg_{target_username}"):
+        AuthManager.set_user_api_key(target_username, new_key)
+        st.success(f"Key für {target_username} gespeichert.")
+        time.sleep(1)
+        st.rerun()
 
 @st.dialog("Zusammenfassung")
 def show_summary_dialog(title, content):
@@ -2555,6 +2581,14 @@ def main():
     if not AuthManager.check_login():
         render_login_screen()
         return
+
+    # Auto-load API Key if not set
+    if "google_api_key" not in st.session_state or not st.session_state.google_api_key:
+         key = AuthManager.get_user_api_key(st.session_state.username)
+         if key:
+             st.session_state.google_api_key = key
+             os.environ["GOOGLE_API_KEY"] = key
+             genai.configure(api_key=key)
 
     # Render Sidebar globally (context-aware)
     render_sidebar()
