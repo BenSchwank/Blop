@@ -618,6 +618,25 @@ def render_sidebar():
                             st.rerun()
                         else:
                             st.error(msg)
+                            
+            # --- LEADERBOARD WIDGET ---
+            with st.expander("🏆 Rangliste", expanded=True):
+                top_users = AuthManager.get_leaderboard_data(limit=5)
+                # Display simply
+                for rank, u_data in enumerate(top_users):
+                    medals = ["🥇", "🥈", "🥉", "4.", "5."]
+                    u = u_data['username']
+                    xp = u_data['xp']
+                    streak = u_data.get('streak', 0)
+                    
+                    # Highlight current user
+                    prefix = "**" if u == st.session_state.username else ""
+                    suffix = "**" if u == st.session_state.username else ""
+                    
+                    c1, c2, c3 = st.columns([1, 2, 2])
+                    c1.write(f"{medals[rank]}")
+                    c2.write(f"{prefix}{u}{suffix}")
+                    c3.write(f"✨ {xp} | 🔥 {streak}")
             
             st.divider()
 
@@ -633,10 +652,14 @@ def render_sidebar():
                         u_data = users[u_name]
                         streak = u_data.get("streak_days", 1)
                         xp = u_data.get("xp", 0)
+                        level = int(xp ** 0.5 // 2) + 1 # Simple Level formula
                         
                         sz, sx = st.columns(2)
-                        sz.markdown(f"🔥 **{streak}** Tage")
-                        sx.markdown(f"✨ **{xp}** XP")
+                        sz.markdown(f"🔥 **{streak}** Tag(e)")
+                        sx.markdown(f"✨ **{xp}** XP (Lvl {level})")
+                        
+                        # Progress bar to next level?
+                        # user_xp - current_level_base / next_level_base - current_level_base
                         
                 if st.button("🚪 Logout", key="logout_btn", type="secondary"):
                     AuthManager.logout()

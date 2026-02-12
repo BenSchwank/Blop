@@ -208,7 +208,27 @@ class AuthManager:
             
         user["last_active_date"] = today.isoformat()
         AuthManager._save_users(users)
+        user["last_active_date"] = today.isoformat()
+        AuthManager._save_users(users)
         return user["streak_days"]
+
+    @staticmethod
+    def get_leaderboard_data(limit=5):
+        """Returns sorted list of users by XP."""
+        users = AuthManager._load_users()
+        # Filter out admin and config
+        valid_users = []
+        for u, data in users.items():
+            if u not in ["admin_", "config"]:
+                valid_users.append({
+                    "username": u,
+                    "xp": data.get("xp", 0),
+                    "streak": data.get("streak_days", 0)
+                })
+        
+        # Sort by XP desc
+        valid_users.sort(key=lambda x: x["xp"], reverse=True)
+        return valid_users[:limit]
 
     @staticmethod
     def get_all_users():
