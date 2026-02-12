@@ -189,6 +189,22 @@ class AuthManager:
         return users
 
     @staticmethod
+    def set_user_api_key(username, api_key):
+        users = AuthManager._load_users()
+        if username in users:
+            users[username]["api_key"] = api_key
+            AuthManager._save_users(users)
+            return True
+        return False
+
+    @staticmethod
+    def get_user_api_key(username):
+        users = AuthManager._load_users()
+        if username in users:
+            return users[username].get("api_key")
+        return None
+
+    @staticmethod
     def delete_user(username):
         users = AuthManager._load_users()
         if username in users:
