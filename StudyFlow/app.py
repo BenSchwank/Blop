@@ -2474,41 +2474,6 @@ def render_workspace_content(username, folder_id):
                     if st.session_state.flashcard_idx < len(due_cards):
                         current_card = due_cards[st.session_state.flashcard_idx]
                         
-                        # CARD UI
-                        card_container = st.container(border=True)
-                        with card_container:
-                            st.markdown(f"#### ❓ {current_card['front']}")
-                            st.caption(f"Box: {current_card['box']}")
-                            
-                            if st.session_state.flashcard_flipped:
-                                st.markdown("---")
-                                st.markdown(f"#### 💡 {current_card['back']}")
-                            
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            
-                            # CONTROLS
-                            c_flip, c_hard, c_good, c_easy = st.columns([2, 1, 1, 1])
-                            
-                            with c_flip:
-                                if not st.session_state.flashcard_flipped:
-                                    if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
-                                        st.session_state.flashcard_flipped = True
-                                        st.rerun()
-                                
-                            # Rating Buttons (Only if flipped)
-                            if st.session_state.flashcard_flipped:
-                                with c_hard:
-                                    if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
-                                        # Reset to Box 1
-                                        DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
-                                        st.session_state.flashcard_idx += 1
-                                        st.session_state.flashcard_flipped = False
-                                        st.rerun()
-                                with c_good:
-                                    if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
-                    if st.session_state.flashcard_idx < len(due_cards):
-                        current_card = due_cards[st.session_state.flashcard_idx]
-                        
                         # Determine Class based on State
                         card_class = "flashcard-back" if st.session_state.flashcard_flipped else "flashcard-front"
                         content = current_card['back'] if st.session_state.flashcard_flipped else current_card['front']
