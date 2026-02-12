@@ -594,9 +594,10 @@ def render_sidebar():
             
             # Navigation (Vertical)
             # Navigation (Vertical Buttons)
+            # Navigation (Vertical Buttons)
             st.subheader("Navigation")
-            nav_options = ["Lernplan", "Chat", "Quiz", "Zusammenfassung"]
-            nav_icons = {"Lernplan": "📅", "Chat": "💬", "Quiz": "❓", "Zusammenfassung": "📝"}
+            nav_options = ["Lernplan", "Chat", "Interaktives Lernen", "Zusammenfassung"]
+            nav_icons = {"Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝"}
             
             current_view = st.session_state.get("workspace_view", "Lernplan")
             
@@ -2359,195 +2360,146 @@ def render_workspace_content(username, folder_id):
                 st.session_state.messages.append({"role": "assistant", "content": ans})
                 st.chat_message("assistant").markdown(ans)
 
-    # --- VIEW: Quiz ---
-    elif active_view == "Quiz":
-        st.header("❓ Quiz")
-        if st.button("Neues Quiz generieren"):
-            with st.spinner("..."):
-                q = generate_quiz(st.session_state.text_chunks)
-                if q: 
-                    st.session_state.quiz_data = q
-                    st.rerun()
+    # --- VIEW: Interaktives Lernen ---
+    elif active_view == "Interaktives Lernen":
+        st.header("🧠 Interaktives Lernen")
         
-        if "quiz_data" in st.session_state:
-            for i, q in enumerate(st.session_state.quiz_data):
-                st.markdown(f"**{i+1}. {q['question']}**")
-                c = st.radio(f"Antwort {i+1}", q['options'], key=f"q_{i}", label_visibility="collapsed")
-                if st.button(f"Prüfen", key=f"qk_{i}"):
-                    if c == q['answer']: st.success("Richtig!")
-                    else: st.error(f"Falsch. {q['answer']}")
-                st.divider()
-
-    # --- VIEW: Zusammenfassung ---
-    elif active_view == "Zusammenfassung":
-        st.header("📝 Zusammenfassung")
-        lang = st.selectbox("Sprache", ["Deutsch", "English"], key="sum_lang")
+        tab_cards, tab_quiz = st.tabs(["🗂️ Karteikarten", "❓ Quiz"])
         
-        summary_focus = st.text_area("Fokus / Anweisung (optional)", placeholder="z.B. 'Fasse nur Kapitel 3 zusammen' oder 'Fokus auf Definitionen'")
-        
-        if st.button("Erstellen (AI)"):
-             with st.spinner("Analysiere..."):
-                 if "text_chunks" in st.session_state and st.session_state.text_chunks:
-                     st.session_state.summary_text = generate_full_summary(st.session_state.text_chunks, language=lang, focus=summary_focus)
-                     
-                     # Auto-Save
-                     username = st.session_state.get("username", "default")
-                     DataManager.save_generated_summary(st.session_state.summary_text, username, folder_id)
-                     
-                 else:
-                     st.error("Bitte zuerst Dokumente analysieren!")
-        
-        if st.session_state.get("summary_text"):
+        # --- TAB: KARTEIKARTEN ---
+        with tab_cards:
+            st.subheader("Spaced Repetition Flashcards")
             
-            # --- AUDIO PLAYER ---
-            c_audio, c_save = st.columns([1, 4])
-            with c_audio:
-                if st.button("🔊 Anhören", key="tts_summary"):
-                    st.toast("Generiere Audio...")
+            # Load Cards
+            cards = DataManager.load_flashcards(username, folder_id)
+            
+            # 1. GENERATOR (if empty or on demand)
+            with st.expander("✨ Neue Karten generieren", expanded=not cards):
+                if st.button("Karten aus Dokumenten erstellen (AI)", key="btn_gen_cards"):
+                    if "text_chunks" in st.session_state and st.session_state.text_chunks:
+                        with st.spinner("AI generiert Fragen & Antworten..."):
+                            new_cards = generate_flashcards(st.session_state.text_chunks)
+                            if new_cards:
+                                # Merge with existing
+                                cards.extend(new_cards)
+                                DataManager.save_flashcards(username, folder_id, cards)
+                                st.success(f"{len(new_cards)} Karten erstellt!")
+                                st.rerun()
+                    else:
+                        st.error("Bitte zuerst Dokumente analysieren!")
+
+            st.divider()
+
+            # 2. LEARNING DASHBOARD
+            if not cards:
+                st.info("Noch keine Karten vorhanden.")
+            else:
+                # Calculate Stats
+                now = datetime.datetime.now()
+                due_cards = []
+                for c in cards:
+                    # Check if due
+                    # Parse ISO format
                     try:
-                        audio_path = AudioManager.generate_audio(st.session_state.summary_text, lang="de" if lang=="Deutsch" else "en")
-                        if audio_path:
-                            st.session_state.audio_path = audio_path
-                    except Exception as e:
-                        st.error(f"Audio Fehler: {e}")
-
-            if st.session_state.get("audio_path"):
-                st.audio(st.session_state.audio_path, format="audio/mp3")
-            # --------------------
-
-            st.markdown(st.session_state.summary_text)
-            
-            if st.button("💾 Speichern"):
-                # Determine title
-                pdfs = DataManager.list_pdfs(username, folder_id)
-                title = pdfs[0] if pdfs else "Summary"
-                DataManager.save_summary(title, st.session_state.summary_text, username, folder_id)
-                st.toast("Gespeichert")
-        
-        st.divider()
-        if "generated_summaries" in st.session_state and st.session_state.generated_summaries:
-            st.subheader("📌 Themen-Zusammenfassungen (aus Lernplan)")
-            for title, content in st.session_state.generated_summaries.items():
-                with st.expander(f"📄 {title}"):
-                    st.markdown(content)
-        
-    # --- VIEW: Karteikarten (Flashcards) ---
-    elif active_view == "Karteikarten":
-        st.header("🗂️ Karteikarten (Spaced Repetition)")
-        
-        # Load Cards
-        cards = DataManager.load_flashcards(username, folder_id)
-        
-        # 1. GENERATOR (if empty or on demand)
-        with st.expander("✨ Neue Karten generieren", expanded=not cards):
-            if st.button("Karten aus Dokumenten erstellen (AI)"):
-                if "text_chunks" in st.session_state and st.session_state.text_chunks:
-                    with st.spinner("AI generiert Fragen & Antworten..."):
-                        new_cards = generate_flashcards(st.session_state.text_chunks)
-                        if new_cards:
-                            # Merge with existing
-                            cards.extend(new_cards)
-                            DataManager.save_flashcards(username, folder_id, cards)
-                            st.success(f"{len(new_cards)} Karten erstellt!")
+                        next_rev = datetime.datetime.fromisoformat(c["next_review"])
+                        if next_rev <= now:
+                            due_cards.append(c)
+                    except:
+                        due_cards.append(c) # Fallback: treat as due
+                
+                # Metrics
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Gesamt", len(cards))
+                c2.metric("Fällig", len(due_cards))
+                c3.metric("Gelernt (Box > 1)", len([c for c in cards if c["box"] > 1]))
+                
+                st.divider()
+                
+                # 3. LEARN SESSION
+                if due_cards:
+                    st.subheader(f"Lernen ({len(due_cards)} fällig)")
+                    
+                    # Session State for Current Card
+                    if "flashcard_idx" not in st.session_state:
+                        st.session_state.flashcard_idx = 0
+                        st.session_state.flashcard_flipped = False
+                    
+                    # Get current card
+                    # We iterate through due_cards
+                    if st.session_state.flashcard_idx < len(due_cards):
+                        current_card = due_cards[st.session_state.flashcard_idx]
+                        
+                        # CARD UI
+                        card_container = st.container(border=True)
+                        with card_container:
+                            st.markdown(f"#### ❓ {current_card['front']}")
+                            st.caption(f"Box: {current_card['box']}")
+                            
+                            if st.session_state.flashcard_flipped:
+                                st.markdown("---")
+                                st.markdown(f"#### 💡 {current_card['back']}")
+                            
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            
+                            # CONTROLS
+                            c_flip, c_hard, c_good, c_easy = st.columns([2, 1, 1, 1])
+                            
+                            with c_flip:
+                                if not st.session_state.flashcard_flipped:
+                                    if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
+                                        st.session_state.flashcard_flipped = True
+                                        st.rerun()
+                                
+                            # Rating Buttons (Only if flipped)
+                            if st.session_state.flashcard_flipped:
+                                with c_hard:
+                                    if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
+                                        # Reset to Box 1
+                                        DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
+                                        st.session_state.flashcard_idx += 1
+                                        st.session_state.flashcard_flipped = False
+                                        st.rerun()
+                                with c_good:
+                                    if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
+                                        # Move to Next Box
+                                        next_box = current_card["box"] + 1
+                                        # Calc delay: Box 2=1d, 3=3d, 4=7d, 5=14d
+                                        days = {2: 1, 3: 3, 4: 7, 5: 14}.get(next_box, 30)
+                                        next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
+                                        
+                                        DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
+                                        st.session_state.flashcard_idx += 1
+                                        st.session_state.flashcard_flipped = False
+                                        st.rerun()
+                                        
+                    else:
+                        st.success("🎉 Alles für heute gelernt! Komm morgen wieder.")
+                        if st.button("Session neu starten"):
+                            st.session_state.flashcard_idx = 0
                             st.rerun()
                 else:
-                    st.error("Bitte zuerst Dokumente analysieren!")
+                    st.info("Alles erledigt! Keine Karten mehr fällig.")
+                    if st.button("Alle Karten trotzdem üben"):
+                        st.warning("Feature 'Cram Mode' kommt bald.")
 
-        st.divider()
-
-        # 2. LEARNING DASHBOARD
-        if not cards:
-            st.info("Noch keine Karten vorhanden.")
-        else:
-            # Calculate Stats
-            now = datetime.datetime.now()
-            due_cards = []
-            for c in cards:
-                # Check if due
-                # Parse ISO format
-                try:
-                    next_rev = datetime.datetime.fromisoformat(c["next_review"])
-                    if next_rev <= now:
-                        due_cards.append(c)
-                except:
-                    due_cards.append(c) # Fallback: treat as due
-            
-            # Metrics
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Gesamt", len(cards))
-            c2.metric("Fällig", len(due_cards))
-            c3.metric("Gelernt (Box > 1)", len([c for c in cards if c["box"] > 1]))
-            
-            st.divider()
-            
-            # 3. LEARN SESSION
-            if due_cards:
-                st.subheader(f"Lernen ({len(due_cards)} fällig)")
-                
-                # Session State for Current Card
-                if "flashcard_idx" not in st.session_state:
-                    st.session_state.flashcard_idx = 0
-                    st.session_state.flashcard_flipped = False
-                
-                # Get current card
-                # We iterate through due_cards
-                if st.session_state.flashcard_idx < len(due_cards):
-                    current_card = due_cards[st.session_state.flashcard_idx]
-                    
-                    # CARD UI
-                    card_container = st.container(border=True)
-                    with card_container:
-                        st.markdown(f"#### ❓ {current_card['front']}")
-                        st.caption(f"Box: {current_card['box']}")
-                        
-                        if st.session_state.flashcard_flipped:
-                            st.markdown("---")
-                            st.markdown(f"#### 💡 {current_card['back']}")
-                        
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        # CONTROLS
-                        c_flip, c_hard, c_good, c_easy = st.columns([2, 1, 1, 1])
-                        
-                        with c_flip:
-                            if not st.session_state.flashcard_flipped:
-                                if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
-                                    st.session_state.flashcard_flipped = True
-                                    st.rerun()
-                            
-                        # Rating Buttons (Only if flipped)
-                        if st.session_state.flashcard_flipped:
-                            with c_hard:
-                                if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
-                                    # Reset to Box 1
-                                    DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
-                                    st.session_state.flashcard_idx += 1
-                                    st.session_state.flashcard_flipped = False
-                                    st.rerun()
-                            with c_good:
-                                if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
-                                    # Move to Next Box
-                                    next_box = current_card["box"] + 1
-                                    # Calc delay: Box 2=1d, 3=3d, 4=7d, 5=14d
-                                    days = {2: 1, 3: 3, 4: 7, 5: 14}.get(next_box, 30)
-                                    next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
-                                    
-                                    DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
-                                    st.session_state.flashcard_idx += 1
-                                    st.session_state.flashcard_flipped = False
-                                    st.rerun()
-                                    
-                else:
-                    st.success("🎉 Alles für heute gelernt! Komm morgen wieder.")
-                    if st.button("Session neu starten"):
-                        st.session_state.flashcard_idx = 0
+        # --- TAB: QUIZ ---
+        with tab_quiz:
+            st.subheader("Wissens-Check")
+            if st.button("Neues Quiz generieren", key="btn_gen_quiz"):
+                with st.spinner("..."):
+                    q = generate_quiz(st.session_state.text_chunks)
+                    if q: 
+                        st.session_state.quiz_data = q
                         st.rerun()
-            else:
-                st.info("Alles erledigt! Keine Karten mehr fällig.")
-                if st.button("Alle Karten trotzdem üben"):
-                    # Hack: Reset all dates to now
-                    # Or just show all? Let's keep it strict SRS for now.
-                    st.warning("Feature 'Cram Mode' kommt bald.")
+            
+            if "quiz_data" in st.session_state:
+                for i, q in enumerate(st.session_state.quiz_data):
+                    st.markdown(f"**{i+1}. {q['question']}**")
+                    c = st.radio(f"Antwort {i+1}", q['options'], key=f"q_{i}", label_visibility="collapsed")
+                    if st.button(f"Prüfen", key=f"qk_{i}"):
+                        if c == q['answer']: st.success("Richtig!")
+                        else: st.error(f"Falsch. {q['answer']}")
+                    st.divider()
 
 
 # Execute Layout
