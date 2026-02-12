@@ -11,6 +11,8 @@ import random
 import time
 import base64
 import re
+import uuid
+import requests
 import logging
 import threading
 import shutil
@@ -1690,6 +1692,10 @@ def render_login_screen():
                 st.session_state.authenticated = True
                 st.session_state.username = email
                 
+                # Create Persistent Session (4 mins idle)
+                token = AuthManager.create_session(email)
+                st.query_params["session"] = token
+                
                 st.success(f"Willkommen, {name}!")
                 st.query_params.clear()
                 st.rerun()
@@ -1721,6 +1727,14 @@ def render_login_screen():
                 if AuthManager.login(l_user, l_pass):
                     st.session_state.authenticated = True
                     st.session_state.username = l_user
+                    
+                    # Create Persistent Session (4 mins idle)
+                    try:
+                        token = AuthManager.create_session(l_user)
+                        st.query_params["session"] = token
+                    except Exception as e:
+                        print(f"Session Error: {e}")
+                        
                     st.success(f"Willkommen {l_user}!")
                     st.rerun()
                 else:

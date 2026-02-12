@@ -3,11 +3,77 @@ import json
 import os
 import streamlit as st
 from datetime import datetime
+import uuid
 
 USER_DB_FILE = "user_data/users.json"
+SESSION_DB_FILE = "user_data/sessions.json"
 
 class AuthManager:
     @staticmethod
+    @staticmethod
+    def _load_sessions():
+        sessions = {}
+        if os.path.exists(SESSION_DB_FILE):
+             try:
+                 with open(SESSION_DB_FILE, "r", encoding="utf-8") as f:
+                     sessions = json.load(f)
+             except: pass
+        return sessions
+
+    @staticmethod
+    def _save_sessions(sessions):
+        if not os.path.exists("user_data"):
+            os.makedirs("user_data")
+        with open(SESSION_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, indent=4)
+
+    @staticmethod
+    def create_session(username):
+        session_id = str(uuid.uuid4())
+        sessions = AuthManager._load_sessions()
+        
+        # Clean up old sessions first (simple housekeeping)
+        # AuthManager._cleanup_sessions(sessions) 
+        
+        sessions[session_id] = {
+            "username": username,
+            "created_at": datetime.now().isoformat(),
+            "last_active": datetime.now().isoformat()
+        }
+        AuthManager._save_sessions(sessions)
+        return session_id
+
+    @staticmethod
+    def validate_session(session_id):
+        sessions = AuthManager._load_sessions()
+        if session_id not in sessions:
+            return None
+            
+        session = sessions[session_id]
+        
+        # Check Timestamp (4 mins = 240 seconds)
+        try:
+            last_active = datetime.fromisoformat(session["last_active"])
+            if (datetime.now() - last_active).total_seconds() > 240:
+                # Expired
+                del sessions[session_id]
+                AuthManager._save_sessions(sessions)
+                return None
+        except:
+             return None # Invalid format
+            
+        # Update activity
+        session["last_active"] = datetime.now().isoformat()
+        AuthManager._save_sessions(sessions)
+        return session["username"]
+
+    @staticmethod
+    def logout_session(session_id):
+        sessions = AuthManager._load_sessions()
+        if session_id in sessions:
+            del sessions[session_id]
+            AuthManager._save_sessions(sessions)
+
     @staticmethod
     def _load_users():
         # 1. Load Local
@@ -195,12 +261,49 @@ class AuthManager:
 
     @staticmethod
     def check_login():
+        # 1. Already Authenticated in Session State?
+        if st.session_state.get("authenticated"):
+            # Update session activity if token exists
+            try:
+                params = st.query_params
+                if "session" in params:
+                    AuthManager.validate_session(params["session"]) # Just touch timestamp
+            except: pass
+            return True
+            
+        # 2. Check for Session Token in URL (Persistence)
+        try:
+            params = st.query_params
+            if "session" in params:
+                 token = params["session"]
+                 username = AuthManager.validate_session(token)
+                 
+                 if username:
+                     st.session_state.authenticated = True
+                     st.session_state.username = username
+                     st.success(f"Willkommen zurück, {username}!")
+                     return True
+                 else:
+                     # Invalid Token (Expired or Bad)
+                     # We can't clear params easily without rerun, but UI will show login
+                     pass
+        except: pass
+                 
         if "authenticated" not in st.session_state:
             st.session_state.authenticated = False
-        return st.session_state.authenticated
+        return False
 
     @staticmethod
     def logout():
+        # Clear Session Token from URL/DB
+        params = st.query_params
+        if "session" in params:
+            AuthManager.logout_session(params["session"])
+            try:
+                # Clear all params
+                st.query_params.clear()
+            except: pass
+            
         st.session_state.authenticated = False
         st.session_state.username = None
         st.rerun()
