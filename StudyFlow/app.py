@@ -2429,6 +2429,7 @@ def render_workspace_content(username, folder_id):
             st.subheader("📌 Themen-Zusammenfassungen (aus Lernplan)")
             for title, content in st.session_state.generated_summaries.items():
                 with st.expander(f"📄 {title}"):
+                    st.markdown(content)
         
     # --- VIEW: Karteikarten (Flashcards) ---
     elif active_view == "Karteikarten":
