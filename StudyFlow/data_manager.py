@@ -527,3 +527,51 @@ class DataManager:
         """Deletes all data but keeps the user account."""
         DataManager.delete_user_data(username)
         DataManager.save({"folders": [], "files": []}, username)
+    @staticmethod
+    def save_flashcards(username, folder_id, cards_data):
+        """
+        Saves a list of flashcards.
+        cards_data: List of dicts {id, front, back, box, next_review, last_reviewed}
+        """
+        # Save as a special file type "flashcards.json" in the folder
+        file_id = f"cards_{folder_id}.json"
+        
+        # We wrap it in a file metadata structure compatible with list_files
+        file_meta = {
+            "id": file_id,
+            "name": "Flashcards",
+            "type": "flashcards",
+            "created_at": datetime.now().isoformat(),
+            "content": cards_data
+        }
+        
+        DataManager.save_file_metadata(file_meta, username, folder_id)
+
+    @staticmethod
+    def load_flashcards(username, folder_id):
+        """Loads flashcards for the given folder."""
+        # We iterate over files to find type="flashcards"
+        files = DataManager.list_files(username, folder_id)
+        for f in files:
+            if f.get("type") == "flashcards":
+                return f.get("content", [])
+        return []
+
+    @staticmethod
+    def update_card_progress(username, folder_id, card_id, new_box, next_review_date):
+        """Updates a single card's progress (Leitner System)."""
+        cards = DataManager.load_flashcards(username, folder_id)
+        updated = False
+        
+        for card in cards:
+            if card["id"] == card_id:
+                card["box"] = new_box
+                card["next_review"] = next_review_date
+                card["last_reviewed"] = datetime.now().isoformat()
+                updated = True
+                break
+        
+        if updated:
+            DataManager.save_flashcards(username, folder_id, cards)
+            return True
+        return False

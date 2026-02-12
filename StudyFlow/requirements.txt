@@ -12,3 +12,4 @@ markdown
 requests
 google-genai
 firebase-admin
+gTTS
