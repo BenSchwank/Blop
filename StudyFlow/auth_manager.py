@@ -9,16 +9,24 @@ USER_DB_FILE = "user_data/users.json"
 SESSION_DB_FILE = "user_data/sessions.json"
 
 class AuthManager:
-    @staticmethod
+    _db_cache = None
+    _sessions_cache = None
+    _sessions_mtime = 0
     @staticmethod
     def _load_sessions():
-        sessions = {}
+        # Check mtime
         if os.path.exists(SESSION_DB_FILE):
+             mtime = os.path.getmtime(SESSION_DB_FILE)
+             if AuthManager._sessions_cache is not None and mtime == AuthManager._sessions_mtime:
+                 return AuthManager._sessions_cache
+             
              try:
                  with open(SESSION_DB_FILE, "r", encoding="utf-8") as f:
-                     sessions = json.load(f)
+                     AuthManager._sessions_cache = json.load(f)
+                     AuthManager._sessions_mtime = mtime
+                     return AuthManager._sessions_cache
              except: pass
-        return sessions
+        return {}
 
     @staticmethod
     def _save_sessions(sessions):

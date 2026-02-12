@@ -16,6 +16,7 @@ DATA_DIR = "user_data"
 
 class DataManager:
     _db = None
+    _user_cache = {} # Map username -> {data, mtime}
 
     @staticmethod
     def _init_firestore():
@@ -87,7 +88,7 @@ class DataManager:
     def load(username):
         db = DataManager._init_firestore()
         if db:
-            # CLOUD MODE
+            # CLOUD MODE (No Caching for now, or use Firestore listeners)
             doc_ref = db.collection("users").document(username)
             doc = doc_ref.get()
             if doc.exists:
@@ -99,9 +100,22 @@ class DataManager:
             filepath = DataManager._get_file(username)
             if not os.path.exists(filepath):
                 return {"folders": [], "files": []}
+            
+            # Cache Check
+            try:
+                mtime = os.path.getmtime(filepath)
+                if username in DataManager._user_cache:
+                    uc = DataManager._user_cache[username]
+                    if uc["mtime"] == mtime:
+                        return uc["data"]
+            except: pass
+
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Update Cache
+                    DataManager._user_cache[username] = {"data": data, "mtime": mtime}
+                    return data
             except:
                 return {"folders": [], "files": []}
 
