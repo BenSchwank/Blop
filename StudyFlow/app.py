@@ -17,6 +17,51 @@ import logging
 import threading
 import shutil
 from audio_manager import AudioManager
+
+# --- CUSTOM CSS ---
+def inject_custom_css():
+    st.markdown("""
+    <style>
+    .flashcard {
+        background-color: #ffffff;
+        color: #333333;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        text-align: center;
+        min-height: 300px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 20px;
+        transition: transform 0.6s;
+        transform-style: preserve-3d;
+        animation: fadeIn 0.5s;
+    }
+    .flashcard h4 {
+        margin: 0;
+        font-size: 1.5rem;
+    }
+    .flashcard-back {
+        background-color: #f0f2f6;
+        border: 2px solid #4CAF50;
+        animation: flipIn 0.6s;
+    }
+    .flashcard-front {
+        border: 2px solid #e0e0e0;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes flipIn {
+        from { transform: rotateY(90deg); opacity: 0; }
+        to { transform: rotateY(0deg); opacity: 1; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 import urllib.parse
 import requests
 import datetime
@@ -2461,25 +2506,62 @@ def render_workspace_content(username, folder_id):
                                         st.rerun()
                                 with c_good:
                                     if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
-                                        # Move to Next Box
-                                        next_box = current_card["box"] + 1
-                                        # Calc delay: Box 2=1d, 3=3d, 4=7d, 5=14d
-                                        days = {2: 1, 3: 3, 4: 7, 5: 14}.get(next_box, 30)
-                                        next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
-                                        
-                                        DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
-                                        st.session_state.flashcard_idx += 1
-                                        st.session_state.flashcard_flipped = False
-                                        st.rerun()
-                                        
+                    if st.session_state.flashcard_idx < len(due_cards):
+                        current_card = due_cards[st.session_state.flashcard_idx]
+                        
+                        # Determine Class based on State
+                        card_class = "flashcard-back" if st.session_state.flashcard_flipped else "flashcard-front"
+                        content = current_card['back'] if st.session_state.flashcard_flipped else current_card['front']
+                        icon = "💡" if st.session_state.flashcard_flipped else "❓"
+                        
+                        # RENDER CARD
+                        st.markdown(f"""
+                        <div class="flashcard {card_class}">
+                            <div style="font-size: 3rem; margin-bottom: 10px;">{icon}</div>
+                            <h4>{content}</h4>
+                            <p style="color: #888; margin-top: 20px; font-size: 0.8rem;">Box {current_card['box']}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # CONTROLS
+                        c_flip, c_hard, c_good, c_easy = st.columns([2, 1, 1, 1])
+                        
+                        with c_flip:
+                            if not st.session_state.flashcard_flipped:
+                                if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
+                                    st.session_state.flashcard_flipped = True
+                                    st.rerun()
+                            
+                        # Rating Buttons (Only if flipped)
+                        if st.session_state.flashcard_flipped:
+                            with c_hard:
+                                if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
+                                    # Reset to Box 1
+                                    DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
+                                    st.session_state.flashcard_idx += 1
+                                    st.session_state.flashcard_flipped = False
+                                    st.rerun()
+                            with c_good:
+                                if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
+                                    # Move to Next Box
+                                    next_box = current_card["box"] + 1
+                                    # Calc delay: Box 2=1d, 3=3d, 4=7d, 5=14d
+                                    days = {2: 1, 3: 3, 4: 7, 5: 14}.get(next_box, 30)
+                                    next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
+                                    
+                                    DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
+                                    st.session_state.flashcard_idx += 1
+                                    st.session_state.flashcard_flipped = False
+                                    st.rerun()
+                                    
                     else:
                         st.success("🎉 Alles für heute gelernt! Komm morgen wieder.")
-                        if st.button("Session neu starten"):
+                        if st.button("Session neu starten", key="restart_session"):
                             st.session_state.flashcard_idx = 0
                             st.rerun()
                 else:
                     st.info("Alles erledigt! Keine Karten mehr fällig.")
-                    if st.button("Alle Karten trotzdem üben"):
+                    if st.button("Alle Karten trotzdem üben", key="cram_mode"):
                         st.warning("Feature 'Cram Mode' kommt bald.")
 
         # --- TAB: QUIZ ---
@@ -2511,6 +2593,7 @@ def main():
 
     # Render Sidebar globally (context-aware)
     render_sidebar()
+    inject_custom_css()
 
     if st.session_state.current_page == "dashboard":
         render_dashboard()
