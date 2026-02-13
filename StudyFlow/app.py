@@ -2723,18 +2723,7 @@ def render_workspace_content(username, folder_id):
 
     # --- VIEW: Chat ---
     elif active_view == "Chat":
-        st.header("💬 Dozenten-Chat")
-        if "messages" not in st.session_state: st.session_state.messages = []
-        for msg in st.session_state.messages:
-            st.chat_message(msg["role"]).markdown(msg["content"])
-            
-        if prompt := st.chat_input("Frage stellen..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            st.chat_message("user").markdown(prompt)
-            with st.spinner("..."):
-                ans, ctx = answer_question(prompt, st.session_state.vector_index, st.session_state.text_chunks)
-                st.session_state.messages.append({"role": "assistant", "content": ans})
-                st.chat_message("assistant").markdown(ans)
+        render_chat_fragment()
 
     # --- VIEW: Interaktives Lernen ---
     elif active_view == "Interaktives Lernen":
@@ -2791,78 +2780,10 @@ def render_workspace_content(username, folder_id):
                 
                 st.divider()
                 
-                # 3. LEARN SESSION
-                if due_cards:
-                    st.subheader(f"Lernen ({len(due_cards)} fällig)")
-                    
-                    # Session State for Current Card
-                    if "flashcard_idx" not in st.session_state:
-                        st.session_state.flashcard_idx = 0
-                        st.session_state.flashcard_flipped = False
-                    
-                    # Get current card
-                    # We iterate through due_cards
-                    if st.session_state.flashcard_idx < len(due_cards):
-                        current_card = due_cards[st.session_state.flashcard_idx]
-                        
-                        # Determine Class based on State
-                        card_class = "flashcard-back" if st.session_state.flashcard_flipped else "flashcard-front"
-                        content = current_card['back'] if st.session_state.flashcard_flipped else current_card['front']
-                        icon = "💡" if st.session_state.flashcard_flipped else "❓"
-                        
-                        # RENDER CARD
-                        st.markdown(f"""
-                        <div class="flashcard {card_class}">
-                            <div style="font-size: 3rem; margin-bottom: 10px;">{icon}</div>
-                            <h4>{content}</h4>
-                            <p style="color: #888; margin-top: 20px; font-size: 0.8rem;">Box {current_card['box']}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # CONTROLS
-                        c_flip, c_hard, c_good, c_easy = st.columns([2, 1, 1, 1])
-                        
-                        with c_flip:
-                            if not st.session_state.flashcard_flipped:
-                                if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
-                                    st.session_state.flashcard_flipped = True
-                                    st.rerun()
-                            
-                        # Rating Buttons (Only if flipped)
-                        if st.session_state.flashcard_flipped:
-                            with c_hard:
-                                if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
-                                    # Reset to Box 1
-                                    DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
-                                    AuthManager.add_xp(username, 1) # Small XP for effort
-                                    st.session_state.flashcard_idx += 1
-                                    st.session_state.flashcard_flipped = False
-                                    st.rerun()
-                            with c_good:
-                                if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
-                                    # Move to Next Box
-                                    next_box = current_card["box"] + 1
-                                    # Calc delay: Box 2=1d, 3=3d, 4=7d, 5=14d
-                                    days = {2: 1, 3: 3, 4: 7, 5: 14}.get(next_box, 30)
-                                    next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
-                                    
-                                    DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
-                                    AuthManager.add_xp(username, 5) # XP for success
-                                    st.session_state.flashcard_idx += 1
-                                    st.session_state.flashcard_flipped = False
-                                    st.rerun()
-                                    
-                    else:
-                        st.success("🎉 Alles für heute gelernt! Komm morgen wieder.")
-                        if st.button("Session neu starten", key="restart_session"):
-                            st.session_state.flashcard_idx = 0
-                            st.rerun()
-                else:
-                    st.info("Alles erledigt! Keine Karten mehr fällig.")
-                    if st.button("🔥 Cram Mode (Alle üben)", key="cram_mode"):
-                        # Enable Cram Mode via session state
-                        st.session_state.cram_mode = True
-                        st.rerun()
+                st.divider()
+                
+                # 3. LEARN SESSION (FRAGMENT)
+                render_flashcard_fragment(cards, due_cards, username, folder_id)
             
             # CRAM MODE OVERRIDE
             if st.session_state.get("cram_mode"):
@@ -2893,6 +2814,113 @@ def render_workspace_content(username, folder_id):
                         else: st.error(f"Falsch. {q['answer']}")
                     st.divider()
 
+# --- FRAGMENTS (Defined globally) ---
+
+@st.fragment
+def render_flashcard_fragment(cards, due_cards, username, folder_id):
+    if not due_cards:
+        st.info("Alles erledigt! Keine Karten mehr fällig.")
+        if st.button("🔥 Cram Mode (Alle üben)", key="cram_mode"):
+            # Enable Cram Mode via session state
+            st.session_state.cram_mode = True
+            st.rerun()
+        return
+
+    st.subheader(f"Lernen ({len(due_cards)} fällig)")
+    
+    # Session State for Current Card
+    if "flashcard_idx" not in st.session_state:
+        st.session_state.flashcard_idx = 0
+        st.session_state.flashcard_flipped = False
+    
+    # Get current card
+    # We iterate through due_cards
+    if st.session_state.flashcard_idx < len(due_cards):
+        current_card = due_cards[st.session_state.flashcard_idx]
+        
+        # Determine Class based on State
+        card_class = "flashcard-back" if st.session_state.flashcard_flipped else "flashcard-front"
+        content = current_card['back'] if st.session_state.flashcard_flipped else current_card['front']
+        icon = "💡" if st.session_state.flashcard_flipped else "❓"
+        
+        # RENDER CARD
+        st.markdown(f'''
+        <div class="flashcard {card_class}">
+            <div style="font-size: 3rem; margin-bottom: 10px;">{icon}</div>
+            <h4>{content}</h4>
+            <p style="color: #888; margin-top: 20px; font-size: 0.8rem;">Box {current_card['box']}</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+        # CONTROLS
+        c_flip, c_hard, c_good, c_easy = st.columns([2, 1, 1, 1])
+        
+        with c_flip:
+            if not st.session_state.flashcard_flipped:
+                if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
+                    st.session_state.flashcard_flipped = True
+                    st.rerun()
+            
+        # Rating Buttons (Only if flipped)
+        if st.session_state.flashcard_flipped:
+            with c_hard:
+                if st.button("❌ Schwer", help="Zurück in Box 1", use_container_width=True):
+                    # Reset to Box 1
+                    DataManager.update_card_progress(username, folder_id, current_card["id"], 1, datetime.datetime.now().isoformat())
+                    AuthManager.add_xp(username, 1) # Small XP for effort
+                    st.session_state.flashcard_idx += 1
+                    st.session_state.flashcard_flipped = False
+                    st.rerun()
+            with c_good:
+                if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
+                    # Move to Next Box
+                    next_box = current_card["box"] + 1
+                    # Calc delay: Box 2=1d, 3=3d, 4=7d, 5=14d
+                    days = {2: 1, 3: 3, 4: 7, 5: 14}.get(next_box, 30)
+                    next_date = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
+                    
+                    DataManager.update_card_progress(username, folder_id, current_card["id"], next_box, next_date)
+                    AuthManager.add_xp(username, 5) # XP for success
+                    st.session_state.flashcard_idx += 1
+                    st.session_state.flashcard_flipped = False
+                    st.rerun()
+                    
+    else:
+        st.success("🎉 Alles für heute gelernt! Komm morgen wieder.")
+        if st.button("Session neu starten", key="restart_session"):
+            st.session_state.flashcard_idx = 0
+            st.rerun()
+
+@st.fragment
+def render_chat_fragment():
+    st.header("💬 Dozenten-Chat (Schnell)")
+    
+    if "messages" not in st.session_state: 
+        st.session_state.messages = []
+        
+    # Render messages
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+    # Input
+    if prompt := st.chat_input("Frage stellen...", key="chat_frag_in"):
+        # Add User Msg
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+            
+        # Answer
+        with st.spinner("..."):
+            # Ensure index exists
+            if not st.session_state.get("vector_index"):
+                 ans = "Bitte erst Dokumente analysieren!"
+            else:
+                 ans, ctx = answer_question(prompt, st.session_state.vector_index, st.session_state.text_chunks)
+            
+            st.session_state.messages.append({"role": "assistant", "content": ans})
+            with st.chat_message("assistant"):
+                st.markdown(ans)
 
 # Execute Layout
 
