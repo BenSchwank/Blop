@@ -768,10 +768,8 @@ def render_file_manager(username, folder_id):
     uploaded_files = st.file_uploader("PDFs/Skripte", accept_multiple_files=True, key="sidebar_uploader", label_visibility="collapsed")
     if uploaded_files:
         if st.button(f"Speichern ({len(uploaded_files)})", key="sidebar_save_btn", type="primary"):
-            folder_path = DataManager._get_folder_path(username, folder_id)
             for f in uploaded_files:
-                with open(os.path.join(folder_path, f.name), "wb") as dest:
-                    dest.write(f.read())
+                DataManager.save_pdf(f, username, folder_id)
             st.success("Gespeichert!")
             time.sleep(0.5)
             st.rerun()
@@ -813,17 +811,16 @@ def render_file_manager(username, folder_id):
 
     st.divider()
     
-    # 3. Analyze Button (Global Trigger)
-    if files:
-        if "text_chunks" in st.session_state and st.session_state.text_chunks:
-            st.caption(f"✅ Analysiert ({len(st.session_state.text_chunks)} Chunks)")
-            if st.button("Neu Analysieren", key="reanalyze_side"):
-                st.session_state.trigger_analysis = True
-                st.rerun()
-        else:
-            if st.button("🚀 Analysieren", type="primary", key="analyze_side"):
-                st.session_state.trigger_analysis = True
-                st.rerun()
+    # 3. Analyze Button (Always visible)
+    if "text_chunks" in st.session_state and st.session_state.text_chunks:
+        st.caption(f"✅ Analysiert ({len(st.session_state.text_chunks)} Chunks)")
+        if st.button("Neu Analysieren", key="reanalyze_side"):
+            st.session_state.trigger_analysis = True
+            st.rerun()
+    else:
+        if st.button("🚀 Analysieren", type="primary", key="analyze_side"):
+            st.session_state.trigger_analysis = True
+            st.rerun()
 
 def navigate_to(page, folder=None):
     st.session_state.current_page = page
