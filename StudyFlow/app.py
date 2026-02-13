@@ -57,16 +57,13 @@ def inject_custom_css():
     h1 {{
         font-weight: 700 !important;
         letter-spacing: -0.02em !important;
-        background: linear-gradient(135deg, var(--accent), #a78bfa) !important;
-        -webkit-background-clip: text !important;
-        -webkit-text-fill-color: transparent !important;
-        background-clip: text !important;
+        color: var(--text-primary) !important;
     }}
     h2 {{
         font-weight: 600 !important;
         letter-spacing: -0.01em !important;
         color: var(--text-primary) !important;
-        border-bottom: 2px solid var(--accent-light) !important;
+        border-bottom: 1px solid var(--border-color) !important;
         padding-bottom: 8px !important;
     }}
     h3, h4 {{
@@ -76,11 +73,11 @@ def inject_custom_css():
 
     /* ===== SIDEBAR ===== */
     [data-testid="stSidebar"] {{
-        background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%) !important;
+        background: var(--bg-secondary) !important;
         border-right: 1px solid var(--border-color) !important;
     }}
     [data-testid="stSidebar"] .stButton > button {{
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 500 !important;
         font-size: 0.9rem !important;
         padding: 0.55rem 1rem !important;
@@ -88,34 +85,27 @@ def inject_custom_css():
         border: 1px solid transparent !important;
     }}
     [data-testid="stSidebar"] .stButton > button:hover {{
-        transform: translateX(4px) !important;
-        box-shadow: 0 0 15px var(--accent-glow) !important;
+        background: var(--bg-card) !important;
     }}
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-        background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, white)) !important;
-        box-shadow: 0 0 12px var(--accent-glow) !important;
+        background: var(--accent) !important;
     }}
 
     /* ===== BUTTONS ===== */
     .stButton > button {{
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 500 !important;
         transition: var(--transition) !important;
-        letter-spacing: 0.01em !important;
     }}
     .stButton > button:hover {{
         transform: translateY(-1px) !important;
-        box-shadow: var(--shadow-md) !important;
     }}
     .stButton > button:active {{
         transform: translateY(0) !important;
     }}
     .stButton > button[kind="primary"] {{
-        background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, white)) !important;
+        background: var(--accent) !important;
         border: none !important;
-    }}
-    .stButton > button[kind="primary"]:hover {{
-        box-shadow: 0 0 20px var(--accent-glow) !important;
     }}
 
     /* ===== CONTAINERS / CARDS ===== */
@@ -123,23 +113,18 @@ def inject_custom_css():
         border: 1px solid var(--border-color) !important;
         border-radius: var(--border-radius) !important;
         overflow: hidden !important;
-        transition: var(--transition) !important;
-    }}
-    [data-testid="stExpander"]:hover {{
-        border-color: var(--accent-light) !important;
     }}
     div[data-testid="stVerticalBlock"] > div[style*="border"] {{
         border-radius: var(--border-radius) !important;
         border-color: var(--border-color) !important;
         background: var(--bg-card) !important;
-        backdrop-filter: blur(10px) !important;
     }}
 
     /* ===== INPUTS ===== */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div {{
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         border: 1px solid var(--border-color) !important;
         transition: var(--transition) !important;
     }}
@@ -159,7 +144,6 @@ def inject_custom_css():
     .stTabs [data-baseweb="tab"] {{
         border-radius: 8px !important;
         font-weight: 500 !important;
-        transition: var(--transition) !important;
     }}
     .stTabs [aria-selected="true"] {{
         background: var(--accent) !important;
@@ -168,11 +152,11 @@ def inject_custom_css():
 
     /* ===== FLASHCARDS ===== */
     .flashcard {{
-        background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary)) !important;
+        background: var(--bg-card) !important;
         color: var(--text-primary) !important;
         padding: 40px 30px !important;
-        border-radius: 16px !important;
-        box-shadow: var(--shadow-md) !important;
+        border-radius: 14px !important;
+        box-shadow: var(--shadow-sm) !important;
         text-align: center !important;
         min-height: 280px !important;
         display: flex !important;
@@ -183,17 +167,13 @@ def inject_custom_css():
         border: 1px solid var(--border-color) !important;
         transition: var(--transition) !important;
     }}
-    .flashcard:hover {{
-        box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow) !important;
-        border-color: var(--accent-light) !important;
-    }}
     .flashcard h4 {{
         margin: 0 !important;
         font-size: 1.4rem !important;
         line-height: 1.6 !important;
     }}
     .flashcard-back {{
-        background: linear-gradient(145deg, var(--bg-card), color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))) !important;
+        background: var(--bg-card) !important;
         border: 2px solid var(--accent) !important;
         animation: flipIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }}
@@ -202,10 +182,9 @@ def inject_custom_css():
         animation: fadeIn 0.4s !important;
     }}
 
-    /* ===== METRICS / BADGES ===== */
+    /* ===== METRICS ===== */
     [data-testid="stMetricValue"] {{
         font-weight: 700 !important;
-        color: var(--accent) !important;
     }}
 
     /* ===== DIVIDERS ===== */
@@ -214,14 +193,14 @@ def inject_custom_css():
         opacity: 0.5 !important;
     }}
 
-    /* ===== TOAST / ALERTS ===== */
+    /* ===== ALERTS ===== */
     .stAlert {{
         border-radius: var(--border-radius) !important;
     }}
 
     /* ===== PROGRESS BAR ===== */
     .stProgress > div > div > div > div {{
-        background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, white)) !important;
+        background: var(--accent) !important;
     }}
 
     /* ===== FILE UPLOADER ===== */
@@ -245,36 +224,37 @@ def inject_custom_css():
         background: var(--accent);
     }}
 
+    /* ===== TOC STYLES ===== */
+    .toc-container {{
+        background: var(--bg-secondary) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--border-radius) !important;
+        padding: 16px 20px !important;
+        margin-bottom: 20px !important;
+    }}
+    .toc-container a {{
+        color: var(--accent) !important;
+        text-decoration: none !important;
+        cursor: pointer !important;
+    }}
+    .toc-container a:hover {{
+        text-decoration: underline !important;
+    }}
+
     /* ===== ANIMATIONS ===== */
     @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(15px); }}
+        from {{ opacity: 0; transform: translateY(10px); }}
         to {{ opacity: 1; transform: translateY(0); }}
     }}
     @keyframes flipIn {{
         from {{ transform: rotateY(90deg); opacity: 0; }}
         to {{ transform: rotateY(0deg); opacity: 1; }}
     }}
-    @keyframes slideIn {{
-        from {{ opacity: 0; transform: translateX(-20px); }}
-        to {{ opacity: 1; transform: translateX(0); }}
-    }}
 
     /* ===== LOGIN SCREEN ===== */
-    .login-card {{
-        background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary)) !important;
-        border: 1px solid var(--border-color) !important;
-        border-radius: 20px !important;
-        padding: 40px !important;
-        box-shadow: var(--shadow-lg) !important;
-        animation: fadeIn 0.6s !important;
-    }}
     .login-header {{
         text-align: center !important;
         margin-bottom: 30px !important;
-    }}
-    .login-header h1 {{
-        font-size: 2.2rem !important;
-        margin-bottom: 8px !important;
     }}
     .login-tagline {{
         color: var(--text-secondary) !important;
@@ -291,35 +271,19 @@ def inject_custom_css():
         .flashcard h4 {{
             font-size: 1.1rem !important;
         }}
-        h1 {{
-            font-size: 1.6rem !important;
-        }}
-        h2 {{
-            font-size: 1.3rem !important;
-        }}
-        .login-card {{
-            padding: 20px !important;
-            border-radius: 14px !important;
-        }}
+        h1 {{ font-size: 1.6rem !important; }}
+        h2 {{ font-size: 1.3rem !important; }}
         .stButton > button {{
             padding: 0.6rem 0.8rem !important;
             font-size: 0.85rem !important;
         }}
-        [data-testid="stSidebar"] .stButton > button {{
-            padding: 0.5rem 0.8rem !important;
-            font-size: 0.85rem !important;
-        }}
     }}
-
-    /* ===== RESPONSIVE: SMALL MOBILE ===== */
     @media (max-width: 480px) {{
         .flashcard {{
             min-height: 160px !important;
             padding: 20px 15px !important;
         }}
-        h1 {{
-            font-size: 1.3rem !important;
-        }}
+        h1 {{ font-size: 1.3rem !important; }}
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -3205,11 +3169,12 @@ def render_workspace_content(username, folder_id):
                             toc_instruction = ""
                             if include_toc:
                                 toc_instruction = """
-- WICHTIG: Beginne mit einem interaktiven Inhaltsverzeichnis am Anfang.
-- Das Inhaltsverzeichnis soll als nummerierte Markdown-Liste formatiert sein.
-- Verwende für jede Überschrift in der Zusammenfassung eine eindeutige HTML-Anker-ID.
-- Format für Überschriften: <h2 id="thema-name">Thema Name</h2>
-- Format für Inhaltsverzeichnis-Links: [1. Thema Name](#thema-name)
+- WICHTIG: Beginne mit einem Inhaltsverzeichnis am Anfang.
+- Das Inhaltsverzeichnis soll als nummerierte HTML-Liste formatiert sein.
+- Verwende für jeden Abschnitt eine Überschrift mit HTML-ID: <h2 id="abschnitt-name">Abschnitt Name</h2>
+- Verwende für die Inhaltsverzeichnis-Links JavaScript-basiertes Scrollen:
+  <a onclick="document.getElementById('abschnitt-name').scrollIntoView({behavior:'smooth'})">1. Abschnitt Name</a>
+- Umschließe das gesamte Inhaltsverzeichnis mit: <div class="toc-container"><h3>📑 Inhaltsverzeichnis</h3> ... </div>
 - Trenne das Inhaltsverzeichnis mit einer horizontalen Linie (---) vom Rest."""
                             
                             model_name = get_generative_model_name()
