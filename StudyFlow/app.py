@@ -766,6 +766,71 @@ def render_sidebar():
             with st.expander("📁 Datei-Manager", expanded=expand_files):
                 render_file_manager(st.session_state.get("username"), st.session_state.current_folder)
 
+def render_file_manager(username, folder_id):
+    """
+    Renders File Manager inside Sidebar Expander
+    """
+    # 1. Upload
+    uploaded_files = st.file_uploader("PDFs/Skripte", accept_multiple_files=True, key="sidebar_uploader", label_visibility="collapsed")
+    if uploaded_files:
+        if st.button(f"Speichern ({len(uploaded_files)})", key="sidebar_save_btn", type="primary"):
+            folder_path = DataManager._get_folder_path(username, folder_id)
+            for f in uploaded_files:
+                with open(os.path.join(folder_path, f.name), "wb") as dest:
+                    dest.write(f.read())
+            st.success("Gespeichert!")
+            time.sleep(0.5)
+            st.rerun()
+            
+    st.caption("Oder YouTube-Link:")
+    yt_url = st.text_input("YouTube URL", placeholder="https://youtu.be/...", label_visibility="collapsed", key="sidebar_yt_in")
+    if st.button("Video-Inhalt importieren", key="sidebar_yt_btn"):
+        if yt_url:
+            with st.spinner("Lade Transkript..."):
+                video_id = get_youtube_video_id(yt_url)
+                if video_id:
+                    transcript = get_youtube_transcript(video_id)
+                    if transcript:
+                        # Save as transcript file
+                        fname = f"YouTube_{video_id}.txt"
+                        DataManager.save_transcript(fname, transcript, username, folder_id)
+                        st.success("Video importiert!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else: st.error("Kein Transkript gefunden.")
+                else: st.error("Ungültige URL.")
+
+    st.divider()
+
+    # 2. List Files
+    files = DataManager.list_files(username, folder_id)
+    if not files:
+        st.caption("Keine Dateien.")
+    else:
+        for f in files:
+            c1, c2 = st.columns([4, 1])
+            name = f['name']
+            if len(name) > 20: name = name[:17] + "..."
+            
+            c1.caption(f"{'🎥' if f.get('type') == 'transcript' else '📄'} {name}")
+            if c2.button("🗑️", key=f"del_side_{f['id']}", help="Löschen"):
+                DataManager.delete_file(username, folder_id, f['id'])
+                st.rerun()
+
+    st.divider()
+    
+    # 3. Analyze Button (Global Trigger)
+    if files:
+        if "text_chunks" in st.session_state and st.session_state.text_chunks:
+            st.caption(f"✅ Analysiert ({len(st.session_state.text_chunks)} Chunks)")
+            if st.button("Neu Analysieren", key="reanalyze_side"):
+                st.session_state.trigger_analysis = True
+                st.rerun()
+        else:
+            if st.button("🚀 Analysieren", type="primary", key="analyze_side"):
+                st.session_state.trigger_analysis = True
+                st.rerun()
+
 def navigate_to(page, folder=None):
     st.session_state.current_page = page
     st.session_state.current_folder = folder
