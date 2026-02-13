@@ -689,12 +689,6 @@ def render_sidebar():
             if st.button("🗑️ Konto löschen", type="secondary"):
                 show_delete_account_dialog()
                 
-        # 2. WORKSPACE MODE
-        elif st.session_state.current_page == "workspace":
-            # Back Button
-            if st.button("← Dashboard", type="secondary", use_container_width=True):
-                navigate_to("dashboard")
-            
             st.divider()
             
             # --- YOUTUBE IMPORT ---
