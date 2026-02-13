@@ -2720,6 +2720,73 @@ def render_workspace_content(username, folder_id):
                              show_coach_dialog(i, item)
 
 
+
+    # --- VIEW: Dateien ---
+    elif active_view == "Dateien":
+        st.header("📂 Datei-Manager")
+        
+        c_up, c_list = st.columns([1, 2])
+        
+        with c_up:
+            with st.container(border=True):
+                st.subheader("📤 Upload")
+                uploaded_files = st.file_uploader("PDFs/Skripte hier ablegen", accept_multiple_files=True, key="work_uploader")
+                
+                if uploaded_files:
+                    if st.button(f"{len(uploaded_files)} Speichern", key="save_uploads", type="primary"):
+                        progress_text = "Speichere Dateien..."
+                        my_bar = st.progress(0, text=progress_text)
+                        
+                        folder_path = DataManager._get_folder_path(username, folder_id)
+                        
+                        for i, up_file in enumerate(uploaded_files):
+                            file_path = os.path.join(folder_path, up_file.name)
+                            with open(file_path, "wb") as f:
+                                f.write(up_file.read())
+                            my_bar.progress((i + 1) / len(uploaded_files), text=f"Gespeichert: {up_file.name}")
+                        
+                        time.sleep(0.5)
+                        st.success("Upload erfolgreich!")
+                        st.rerun()
+
+        with c_list:
+            st.subheader("Bestehende Dateien")
+            files = DataManager.list_files(username, folder_id)
+            
+            if not files:
+                st.info("Dieser Ordner ist noch leer.")
+            else:
+                # Check for generic PDF types
+                pdfs = [f for f in files if f.get('type') in ['pdf', 'transcript']]
+                
+                # Analysis Status
+                if pdfs:
+                    if "text_chunks" in st.session_state and st.session_state.text_chunks:
+                         st.success(f"✅ AI-Analyse aktiv ({len(st.session_state.text_chunks)} Segmente)")
+                         if st.button("🔄 Neu Analysieren", key="reanalyze_main"):
+                             _run_analysis(username, folder_id)
+                    else:
+                        st.warning("⚠️ Dateien noch nicht analysiert.")
+                        if st.button("🚀 Jetzt Analysieren", type="primary", key="analyze_main"):
+                            _run_analysis(username, folder_id)
+                
+                st.markdown("---")
+                
+                # Table-like Grid
+                for f in files:
+                    c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
+                    c1.write(f"📄 **{f['name']}**")
+                    c2.caption(f"Type: {f.get('type', '?')}")
+                    c3.caption(f.get('created_at', '-'))
+                    
+                    with c4:
+                        if st.button("🗑️", key=f"del_main_{f['id']}", help="Löschen"):
+                             if DataManager.delete_file(username, folder_id, f['id']):
+                                 st.toast("Gelöscht")
+                                 time.sleep(0.5)
+                                 st.rerun()
+                    st.divider()
+
     # --- VIEW: Chat ---
     elif active_view == "Chat":
         render_chat_fragment()
