@@ -20,45 +20,307 @@ from audio_manager import AudioManager
 
 # --- CUSTOM CSS ---
 def inject_custom_css():
-    st.markdown("""
+    # Get accent color from user preferences
+    accent = st.session_state.get("accent_color", "#7C3AED")
+    
+    st.markdown(f"""
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-    .flashcard {
-        background-color: #ffffff;
-        color: #333333;
-        padding: 40px;
-        border-radius: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        text-align: center;
-        min-height: 300px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 20px;
-        transition: transform 0.6s;
-        transform-style: preserve-3d;
-        animation: fadeIn 0.5s;
-    }
-    .flashcard h4 {
-        margin: 0;
-        font-size: 1.5rem;
-    }
-    .flashcard-back {
-        background-color: #f0f2f6;
-        border: 2px solid #4CAF50;
-        animation: flipIn 0.6s;
-    }
-    .flashcard-front {
-        border: 2px solid #e0e0e0;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes flipIn {
-        from { transform: rotateY(90deg); opacity: 0; }
-        to { transform: rotateY(0deg); opacity: 1; }
-    }
+    /* ===== CSS VARIABLES ===== */
+    :root {{
+        --accent: {accent};
+        --accent-light: {accent}33;
+        --accent-glow: {accent}55;
+        --bg-primary: #0f0f23;
+        --bg-secondary: #1a1a2e;
+        --bg-card: #16213e;
+        --bg-card-hover: #1a2744;
+        --text-primary: #e0e0e0;
+        --text-secondary: #a0a0b8;
+        --border-color: #2a2a4a;
+        --border-radius: 12px;
+        --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+        --shadow-md: 0 4px 20px rgba(0,0,0,0.3);
+        --shadow-lg: 0 8px 40px rgba(0,0,0,0.4);
+        --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+
+    /* ===== GLOBAL ===== */
+    html, body, [data-testid="stAppViewContainer"] {{
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }}
+    
+    /* Smooth scrolling */
+    html {{ scroll-behavior: smooth; }}
+
+    /* ===== HEADERS ===== */
+    h1 {{
+        font-weight: 700 !important;
+        letter-spacing: -0.02em !important;
+        background: linear-gradient(135deg, var(--accent), #a78bfa) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        background-clip: text !important;
+    }}
+    h2 {{
+        font-weight: 600 !important;
+        letter-spacing: -0.01em !important;
+        color: var(--text-primary) !important;
+        border-bottom: 2px solid var(--accent-light) !important;
+        padding-bottom: 8px !important;
+    }}
+    h3, h4 {{
+        font-weight: 500 !important;
+        color: var(--text-primary) !important;
+    }}
+
+    /* ===== SIDEBAR ===== */
+    [data-testid="stSidebar"] {{
+        background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%) !important;
+        border-right: 1px solid var(--border-color) !important;
+    }}
+    [data-testid="stSidebar"] .stButton > button {{
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+        font-size: 0.9rem !important;
+        padding: 0.55rem 1rem !important;
+        transition: var(--transition) !important;
+        border: 1px solid transparent !important;
+    }}
+    [data-testid="stSidebar"] .stButton > button:hover {{
+        transform: translateX(4px) !important;
+        box-shadow: 0 0 15px var(--accent-glow) !important;
+    }}
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, white)) !important;
+        box-shadow: 0 0 12px var(--accent-glow) !important;
+    }}
+
+    /* ===== BUTTONS ===== */
+    .stButton > button {{
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+        transition: var(--transition) !important;
+        letter-spacing: 0.01em !important;
+    }}
+    .stButton > button:hover {{
+        transform: translateY(-1px) !important;
+        box-shadow: var(--shadow-md) !important;
+    }}
+    .stButton > button:active {{
+        transform: translateY(0) !important;
+    }}
+    .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, white)) !important;
+        border: none !important;
+    }}
+    .stButton > button[kind="primary"]:hover {{
+        box-shadow: 0 0 20px var(--accent-glow) !important;
+    }}
+
+    /* ===== CONTAINERS / CARDS ===== */
+    [data-testid="stExpander"] {{
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--border-radius) !important;
+        overflow: hidden !important;
+        transition: var(--transition) !important;
+    }}
+    [data-testid="stExpander"]:hover {{
+        border-color: var(--accent-light) !important;
+    }}
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {{
+        border-radius: var(--border-radius) !important;
+        border-color: var(--border-color) !important;
+        background: var(--bg-card) !important;
+        backdrop-filter: blur(10px) !important;
+    }}
+
+    /* ===== INPUTS ===== */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div {{
+        border-radius: 10px !important;
+        border: 1px solid var(--border-color) !important;
+        transition: var(--transition) !important;
+    }}
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {{
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 2px var(--accent-light) !important;
+    }}
+
+    /* ===== TABS ===== */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 4px !important;
+        background: var(--bg-secondary) !important;
+        border-radius: var(--border-radius) !important;
+        padding: 4px !important;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        transition: var(--transition) !important;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background: var(--accent) !important;
+        color: white !important;
+    }}
+
+    /* ===== FLASHCARDS ===== */
+    .flashcard {{
+        background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary)) !important;
+        color: var(--text-primary) !important;
+        padding: 40px 30px !important;
+        border-radius: 16px !important;
+        box-shadow: var(--shadow-md) !important;
+        text-align: center !important;
+        min-height: 280px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin-bottom: 20px !important;
+        border: 1px solid var(--border-color) !important;
+        transition: var(--transition) !important;
+    }}
+    .flashcard:hover {{
+        box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow) !important;
+        border-color: var(--accent-light) !important;
+    }}
+    .flashcard h4 {{
+        margin: 0 !important;
+        font-size: 1.4rem !important;
+        line-height: 1.6 !important;
+    }}
+    .flashcard-back {{
+        background: linear-gradient(145deg, var(--bg-card), color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))) !important;
+        border: 2px solid var(--accent) !important;
+        animation: flipIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }}
+    .flashcard-front {{
+        border: 1px solid var(--border-color) !important;
+        animation: fadeIn 0.4s !important;
+    }}
+
+    /* ===== METRICS / BADGES ===== */
+    [data-testid="stMetricValue"] {{
+        font-weight: 700 !important;
+        color: var(--accent) !important;
+    }}
+
+    /* ===== DIVIDERS ===== */
+    hr {{
+        border-color: var(--border-color) !important;
+        opacity: 0.5 !important;
+    }}
+
+    /* ===== TOAST / ALERTS ===== */
+    .stAlert {{
+        border-radius: var(--border-radius) !important;
+    }}
+
+    /* ===== PROGRESS BAR ===== */
+    .stProgress > div > div > div > div {{
+        background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, white)) !important;
+    }}
+
+    /* ===== FILE UPLOADER ===== */
+    [data-testid="stFileUploader"] {{
+        border-radius: var(--border-radius) !important;
+    }}
+
+    /* ===== CUSTOM SCROLLBAR ===== */
+    ::-webkit-scrollbar {{
+        width: 6px;
+        height: 6px;
+    }}
+    ::-webkit-scrollbar-track {{
+        background: var(--bg-primary);
+    }}
+    ::-webkit-scrollbar-thumb {{
+        background: var(--border-color);
+        border-radius: 3px;
+    }}
+    ::-webkit-scrollbar-thumb:hover {{
+        background: var(--accent);
+    }}
+
+    /* ===== ANIMATIONS ===== */
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(15px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+    @keyframes flipIn {{
+        from {{ transform: rotateY(90deg); opacity: 0; }}
+        to {{ transform: rotateY(0deg); opacity: 1; }}
+    }}
+    @keyframes slideIn {{
+        from {{ opacity: 0; transform: translateX(-20px); }}
+        to {{ opacity: 1; transform: translateX(0); }}
+    }}
+
+    /* ===== LOGIN SCREEN ===== */
+    .login-card {{
+        background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary)) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 20px !important;
+        padding: 40px !important;
+        box-shadow: var(--shadow-lg) !important;
+        animation: fadeIn 0.6s !important;
+    }}
+    .login-header {{
+        text-align: center !important;
+        margin-bottom: 30px !important;
+    }}
+    .login-header h1 {{
+        font-size: 2.2rem !important;
+        margin-bottom: 8px !important;
+    }}
+    .login-tagline {{
+        color: var(--text-secondary) !important;
+        font-size: 1rem !important;
+        text-align: center !important;
+    }}
+
+    /* ===== RESPONSIVE: MOBILE ===== */
+    @media (max-width: 768px) {{
+        .flashcard {{
+            min-height: 200px !important;
+            padding: 25px 20px !important;
+        }}
+        .flashcard h4 {{
+            font-size: 1.1rem !important;
+        }}
+        h1 {{
+            font-size: 1.6rem !important;
+        }}
+        h2 {{
+            font-size: 1.3rem !important;
+        }}
+        .login-card {{
+            padding: 20px !important;
+            border-radius: 14px !important;
+        }}
+        .stButton > button {{
+            padding: 0.6rem 0.8rem !important;
+            font-size: 0.85rem !important;
+        }}
+        [data-testid="stSidebar"] .stButton > button {{
+            padding: 0.5rem 0.8rem !important;
+            font-size: 0.85rem !important;
+        }}
+    }}
+
+    /* ===== RESPONSIVE: SMALL MOBILE ===== */
+    @media (max-width: 480px) {{
+        .flashcard {{
+            min-height: 160px !important;
+            padding: 20px 15px !important;
+        }}
+        h1 {{
+            font-size: 1.3rem !important;
+        }}
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -601,6 +863,55 @@ def render_sidebar():
                 st.session_state.model_option = sel
 
                 st.divider()
+                
+                # --- Accent Color Picker ---
+                st.markdown("#### 🎨 Akzentfarbe")
+                
+                # Preset colors
+                color_presets = {
+                    "Lila": "#7C3AED",
+                    "Blau": "#3B82F6",
+                    "Grün": "#10B981",
+                    "Rosa": "#EC4899",
+                    "Orange": "#F59E0B",
+                    "Rot": "#EF4444",
+                    "Türkis": "#06B6D4",
+                }
+                
+                current_accent = st.session_state.get("accent_color", "#7C3AED")
+                
+                # Find current preset name
+                current_preset = "Eigene"
+                for name, color in color_presets.items():
+                    if color.upper() == current_accent.upper():
+                        current_preset = name
+                        break
+                
+                preset_names = list(color_presets.keys()) + ["Eigene"]
+                selected_preset = st.selectbox(
+                    "Farbe wählen", 
+                    preset_names, 
+                    index=preset_names.index(current_preset),
+                    key="accent_preset"
+                )
+                
+                if selected_preset == "Eigene":
+                    custom_color = st.color_picker("Eigene Farbe", value=current_accent, key="custom_accent_picker")
+                    new_accent = custom_color
+                else:
+                    new_accent = color_presets[selected_preset]
+                    # Show preview swatch
+                    st.markdown(f'<div style="width:100%;height:30px;border-radius:8px;background:{new_accent};margin:5px 0;"></div>', unsafe_allow_html=True)
+                
+                if new_accent.upper() != current_accent.upper():
+                    if st.button("🎨 Farbe anwenden", key="save_accent", type="primary"):
+                        st.session_state.accent_color = new_accent
+                        AuthManager.set_accent_color(st.session_state.username, new_accent)
+                        st.toast("Akzentfarbe gespeichert! ✨")
+                        time.sleep(0.3)
+                        st.rerun()
+
+                st.divider()
                 st.markdown("#### 🔑 Passwort ändern")
                 old_pw = st.text_input("altes Passwort", type="password", key="chg_old")
                 new_pw = st.text_input("neues Passwort", type="password", key="chg_new")
@@ -733,8 +1044,8 @@ def render_sidebar():
             # Navigation (Vertical Buttons)
             # Navigation (Vertical Buttons)
             st.subheader("Navigation")
-            nav_options = ["Lernplan", "Chat", "Interaktives Lernen", "Zusammenfassung"]
-            nav_icons = {"Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝"}
+            nav_options = ["Lernplan", "Zusammenfassung", "Chat", "Interaktives Lernen", "Dateien"]
+            nav_icons = {"Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝", "Dateien": "📂"}
             
             current_view = st.session_state.get("workspace_view", "Lernplan")
             
@@ -1899,7 +2210,7 @@ def get_google_user(code):
 
 # --- DASHBOARD & WORKSPACE LOGIC ---
 def render_login_screen():
-    st.title("🔐 Blop Study Anmeldung")
+    inject_custom_css()  # Apply CSS on login screen too
     
     # Check for Google Callback
     if "code" in st.query_params:
@@ -1909,19 +2220,11 @@ def render_login_screen():
             if user_info:
                 email = user_info.get("email")
                 name = user_info.get("name", email)
-                
-                # Auto-Register Google User in AuthManager if new
-                # We use email as username so data is consistent
-                # Generate random secure password since they use Google to login
                 AuthManager.register(email, str(uuid.uuid4()))
-                
                 st.session_state.authenticated = True
                 st.session_state.username = email
-                
-                # Create Persistent Session (4 mins idle)
                 token = AuthManager.create_session(email)
                 st.query_params["session"] = token
-                
                 st.success(f"Willkommen, {name}!")
                 st.query_params.clear()
                 st.rerun()
@@ -1929,13 +2232,23 @@ def render_login_screen():
     if "auth_mode" not in st.session_state:
         st.session_state.auth_mode = "login"
 
-    # Toggle Functions
     def show_register(): st.session_state.auth_mode = "register"
     def show_login(): st.session_state.auth_mode = "login"
 
-    container = st.container()
+    # Centered card layout
+    spacer_l, card_col, spacer_r = st.columns([1, 2, 1])
     
-    with container:
+    with card_col:
+        # Header
+        st.markdown('''
+        <div class="login-header">
+            <h1>⚡ Blop Study</h1>
+        </div>
+        <p class="login-tagline">Dein KI-Lernassistent — smarter lernen, schneller verstehen.</p>
+        ''', unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         # --- LOGIN VIEW ---
         if st.session_state.auth_mode == "login":
             st.subheader("Einloggen")
@@ -3033,6 +3346,10 @@ def main():
              st.session_state.google_api_key = key
              os.environ["GOOGLE_API_KEY"] = key
              genai.configure(api_key=key)
+
+    # Auto-load Accent Color
+    if "accent_color" not in st.session_state:
+        st.session_state.accent_color = AuthManager.get_accent_color(st.session_state.username)
 
     # Render Sidebar globally (context-aware)
     render_sidebar()

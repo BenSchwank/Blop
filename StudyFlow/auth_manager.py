@@ -290,6 +290,22 @@ class AuthManager:
         return None
 
     @staticmethod
+    def set_accent_color(username, color):
+        users = AuthManager._load_users()
+        if username in users:
+            users[username]["accent_color"] = color
+            AuthManager._save_users(users)
+            return True
+        return False
+
+    @staticmethod
+    def get_accent_color(username):
+        users = AuthManager._load_users()
+        if username in users:
+            return users[username].get("accent_color", "#7C3AED")
+        return "#7C3AED"
+
+    @staticmethod
     def delete_user(username):
         users = AuthManager._load_users()
         if username in users:
