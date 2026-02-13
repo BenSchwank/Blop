@@ -2134,7 +2134,6 @@ def render_dashboard():
             st.caption("Lade Vorlesungen hoch oder nimm sie auf.")
             st.button("Starten (Demo)", disabled=True, key="btn_audio", use_container_width=True)
 
-            st.button("Starten (Demo)", disabled=True, key="btn_audio", use_container_width=True)
             
     with c3:
         with st.container(border=True):
