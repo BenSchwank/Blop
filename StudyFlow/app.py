@@ -2801,9 +2801,29 @@ def render_workspace_content(username, folder_id):
             existing_summary = st.session_state.get("generated_summary", "")
             
             if not existing_summary:
-                st.info("Klicke auf den Button um eine KI-Zusammenfassung zu erstellen.")
+                st.info("Passe die Zusammenfassung an deine Bedürfnisse an und klicke auf 'Generieren'.")
                 
-                if st.button("📝 Zusammenfassung generieren", type="primary", key="gen_summary_btn"):
+                # --- Details/Instructions Input ---
+                with st.container(border=True):
+                    st.subheader("⚙️ Einstellungen")
+                    
+                    detail_level = st.select_slider(
+                        "Detailgrad",
+                        options=["Kurz & knapp", "Normal", "Ausführlich", "Sehr ausführlich"],
+                        value="Normal",
+                        key="summary_detail_level"
+                    )
+                    
+                    focus_input = st.text_area(
+                        "Besonderer Fokus / Anweisungen (optional)",
+                        placeholder="z.B. 'Fokussiere dich auf Kapitel 3', 'Erkläre die Formeln besonders gut', 'Ignoriere die Einleitung', ...",
+                        key="summary_focus",
+                        height=100
+                    )
+                    
+                    include_toc = st.checkbox("📑 Interaktives Inhaltsverzeichnis", value=True, key="summary_toc")
+
+                if st.button("📝 Zusammenfassung generieren", type="primary", key="gen_summary_btn", use_container_width=True):
                     with st.spinner("KI erstellt Zusammenfassung... (kann 30-60s dauern)"):
                         try:
                             # Combine text chunks
@@ -2815,18 +2835,43 @@ def render_workspace_content(username, folder_id):
                             if len(all_text) > 15000:
                                 all_text = all_text[:15000] + "\n...(gekürzt)"
                             
+                            # Build dynamic prompt
+                            detail_map = {
+                                "Kurz & knapp": "Fasse dich kurz, maximal 500 Wörter. Nur die wichtigsten Punkte.",
+                                "Normal": "Erstelle eine ausgewogene Zusammenfassung (ca. 800-1200 Wörter).",
+                                "Ausführlich": "Erstelle eine sehr detaillierte Zusammenfassung (ca. 1500-2000 Wörter) mit Beispielen.",
+                                "Sehr ausführlich": "Erstelle eine umfassende, lehrbuchähnliche Zusammenfassung (2000+ Wörter) mit allen Details, Beispielen und Erklärungen."
+                            }
+                            detail_instruction = detail_map.get(detail_level, detail_map["Normal"])
+                            
+                            focus_instruction = ""
+                            if focus_input and focus_input.strip():
+                                focus_instruction = f"\n\nBesondere Anweisungen des Nutzers:\n{focus_input.strip()}"
+                            
+                            toc_instruction = ""
+                            if include_toc:
+                                toc_instruction = """
+- WICHTIG: Beginne mit einem interaktiven Inhaltsverzeichnis am Anfang.
+- Das Inhaltsverzeichnis soll als nummerierte Markdown-Liste formatiert sein.
+- Verwende für jede Überschrift in der Zusammenfassung eine eindeutige HTML-Anker-ID.
+- Format für Überschriften: <h2 id="thema-name">Thema Name</h2>
+- Format für Inhaltsverzeichnis-Links: [1. Thema Name](#thema-name)
+- Trenne das Inhaltsverzeichnis mit einer horizontalen Linie (---) vom Rest."""
+                            
                             model_name = get_generative_model_name()
                             model = genai.GenerativeModel(model_name)
                             
                             prompt = f"""Du bist ein Experte für Lernmaterial-Zusammenfassungen.
-Erstelle eine ausführliche, strukturierte Zusammenfassung des folgenden Lernmaterials auf Deutsch.
+Erstelle eine strukturierte Zusammenfassung des folgenden Lernmaterials auf Deutsch.
+
+{detail_instruction}
 
 Regeln:
-- Verwende Markdown-Formatierung (Überschriften, Listen, Fett/Kursiv)
+- Verwende Markdown-Formatierung (Überschriften, Listen, Fett/Kursiv){toc_instruction}
 - Gliedere nach Themen/Kapiteln
 - Hebe wichtige Begriffe **fett** hervor
 - Füge am Ende eine kurze "Kernpunkte"-Liste hinzu
-- Sei präzise aber vollständig
+- Sei präzise aber vollständig{focus_instruction}
 
 Material:
 {all_text}"""
@@ -2841,7 +2886,9 @@ Material:
                         except Exception as e:
                             st.error(f"Fehler bei Zusammenfassung: {e}")
             else:
-                st.markdown(existing_summary)
+                # Display Summary with interactive TOC support
+                st.markdown(existing_summary, unsafe_allow_html=True)
+                
                 st.divider()
                 
                 c1, c2, c3 = st.columns(3)
