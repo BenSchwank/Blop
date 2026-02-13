@@ -24,8 +24,8 @@ def inject_custom_css():
     accent = st.session_state.get("accent_color", "#7C3AED")
     
     st.markdown(f"""
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     /* ===== CSS VARIABLES ===== */
     :root {{
         --accent: {accent};
