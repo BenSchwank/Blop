@@ -2866,6 +2866,89 @@ def render_flashcard_fragment(cards, due_cards, username, folder_id):
             st.session_state.flashcard_idx = 0
             st.rerun()
 
+    # --- VIEW: Zusammenfassung ---
+    elif active_view == "Zusammenfassung":
+        st.header("📝 Zusammenfassung")
+        
+        # Check if we have analyzed content
+        if not st.session_state.get("text_chunks"):
+            st.warning("Bitte zuerst Dokumente analysieren!")
+        else:
+            # Check for existing summary
+            existing_summary = st.session_state.get("generated_summary", "")
+            
+            if not existing_summary:
+                st.info("Klicke auf den Button um eine KI-Zusammenfassung zu erstellen.")
+                
+                if st.button("📝 Zusammenfassung generieren", type="primary", key="gen_summary_btn"):
+                    with st.spinner("KI erstellt Zusammenfassung... (kann 30-60s dauern)"):
+                        try:
+                            # Combine text chunks
+                            all_text = "\n".join([
+                                c.page_content if hasattr(c, 'page_content') else str(c) 
+                                for c in st.session_state.text_chunks[:30]  # Limit to avoid token overflow
+                            ])
+                            
+                            # Truncate if too long
+                            if len(all_text) > 15000:
+                                all_text = all_text[:15000] + "\n...(gekürzt)"
+                            
+                            model_name = get_generative_model_name()
+                            model = genai.GenerativeModel(model_name)
+                            
+                            prompt = f"""Du bist ein Experte für Lernmaterial-Zusammenfassungen.
+Erstelle eine ausführliche, strukturierte Zusammenfassung des folgenden Lernmaterials auf Deutsch.
+
+Regeln:
+- Verwende Markdown-Formatierung (Überschriften, Listen, Fett/Kursiv)
+- Gliedere nach Themen/Kapiteln
+- Hebe wichtige Begriffe **fett** hervor
+- Füge am Ende eine kurze "Kernpunkte"-Liste hinzu
+- Sei präzise aber vollständig
+
+Material:
+{all_text}"""
+
+                            response = model.generate_content(prompt)
+                            summary = response.text
+                            
+                            st.session_state.generated_summary = summary
+                            
+                            # Award XP
+                            AuthManager.add_xp(username, 10)
+                            
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"Fehler bei Zusammenfassung: {e}")
+            else:
+                # Display Summary
+                st.markdown(existing_summary)
+                
+                st.divider()
+                
+                # Actions
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    if st.button("🔄 Neu generieren", key="regen_summary"):
+                        st.session_state.generated_summary = ""
+                        st.rerun()
+                with c2:
+                    # Download as PDF
+                    pdf_bytes = create_markdown_pdf(existing_summary)
+                    if pdf_bytes:
+                        st.download_button(
+                            "📥 Als PDF",
+                            data=pdf_bytes,
+                            file_name="Zusammenfassung.pdf",
+                            mime="application/pdf",
+                            key="dl_summary_pdf"
+                        )
+                with c3:
+                    # Copy to clipboard (via text_area workaround)
+                    if st.button("📋 Kopieren", key="copy_summary"):
+                        st.code(existing_summary, language="markdown")
+
 @st.fragment
 def render_chat_fragment():
     st.header("💬 Dozenten-Chat (Schnell)")
