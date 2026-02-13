@@ -2953,9 +2953,9 @@ def render_flashcard_fragment(cards, due_cards, username, folder_id):
         
         with c_flip:
             if not st.session_state.flashcard_flipped:
-                if st.button("Umdeppen (Antwort zeigen)", use_container_width=True, type="primary"):
+                if st.button("Umdrehen (Antwort zeigen)", use_container_width=True, type="primary"):
                     st.session_state.flashcard_flipped = True
-                    st.rerun()
+                    st.rerun(scope="fragment")
             
         # Rating Buttons (Only if flipped)
         if st.session_state.flashcard_flipped:
@@ -2966,7 +2966,7 @@ def render_flashcard_fragment(cards, due_cards, username, folder_id):
                     AuthManager.add_xp(username, 1) # Small XP for effort
                     st.session_state.flashcard_idx += 1
                     st.session_state.flashcard_flipped = False
-                    st.rerun()
+                    st.rerun(scope="fragment")
             with c_good:
                 if st.button("✅ Gut", help="Normaler Fortschritt", use_container_width=True):
                     # Move to Next Box
@@ -2979,13 +2979,13 @@ def render_flashcard_fragment(cards, due_cards, username, folder_id):
                     AuthManager.add_xp(username, 5) # XP for success
                     st.session_state.flashcard_idx += 1
                     st.session_state.flashcard_flipped = False
-                    st.rerun()
+                    st.rerun(scope="fragment")
                     
     else:
         st.success("🎉 Alles für heute gelernt! Komm morgen wieder.")
         if st.button("Session neu starten", key="restart_session"):
             st.session_state.flashcard_idx = 0
-            st.rerun()
+            st.rerun(scope="fragment")
 
 
 @st.fragment
