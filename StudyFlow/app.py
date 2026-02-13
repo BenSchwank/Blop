@@ -2146,13 +2146,17 @@ def render_workspace():
     st.markdown(f"## 📂 Projekt: {folder_id}")
     st.divider()
 
+    # Handle Analysis Trigger from Sidebar (BEFORE content check)
+    if st.session_state.get("trigger_analysis"):
+        st.session_state.trigger_analysis = False
+        _run_analysis(username, folder_id)
+
     # Show content based on sidebar selection
     # We reuse the existing function but will refactor it to respect the view mode
     if "text_chunks" in st.session_state:
         render_workspace_content(username, folder_id)
     else:
         st.info("👈 Bitte lade PDFs hoch (im Menü links) und klicke auf 'Analysieren', um zu starten.")
-        # Optional: Show File Manager here if empty? No, it's in sidebar.
         if st.button("Beispiel-Daten laden (Demo)"):
             st.error("Noch nicht implementiert")
 
