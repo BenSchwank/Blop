@@ -63,6 +63,14 @@ class DataManager:
 
 
     @staticmethod
+    def _get_folder_path(username, folder_id):
+        safe_name = "".join([c for c in username if c.isalnum() or c in "-_"])
+        user_dir = os.path.join(DATA_DIR, f"{safe_name}_files")
+        if not os.path.exists(user_dir):
+            os.makedirs(user_dir)
+        return os.path.join(user_dir, str(folder_id))
+
+    @staticmethod
     def user_exists(username):
         """Checks if a user exists in Firestore (to prevent duplicate registration)."""
         db = DataManager._init_firestore()
