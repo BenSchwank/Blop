@@ -145,6 +145,51 @@ class DataManager:
         return folder
 
     @staticmethod
+    def delete_folder(folder_id, username):
+        """Deletes a folder (Project) and its contents."""
+        db = DataManager._init_firestore()
+        
+        if db:
+            # CLOUD MODE
+            # Note: Firestore requires recursive delete for subcollections. 
+            # For this MVP, we just delete the folder doc pointer in 'folders'
+            # But wait, folders are stored inside the 'users' doc in a list?
+            # Or as subcollections?
+            # looking at create_folder: it appends to 'folders' list in the USER doc (both locally and cloud if using save).
+            # Wait, `save` method:
+            # db.collection("users").document(username).set(data)
+            # So folders are just a list in the user document.
+            
+            data = DataManager.load(username)
+            if "folders" in data:
+                original_len = len(data["folders"])
+                data["folders"] = [f for f in data["folders"] if f["id"] != folder_id]
+                if len(data["folders"]) < original_len:
+                    DataManager.save(data, username)
+                    return True
+            return False
+        else:
+            # LOCAL MODE
+            data = DataManager.load(username)
+            if "folders" in data:
+                original_len = len(data["folders"])
+                data["folders"] = [f for f in data["folders"] if f["id"] != folder_id]
+                
+                if len(data["folders"]) < original_len:
+                    # Save metadata
+                    DataManager.save(data, username)
+                    
+                    # Delete physical folder
+                    folder_path = DataManager._get_folder_path(username, folder_id)
+                    if os.path.exists(folder_path):
+                        try:
+                            shutil.rmtree(folder_path)
+                        except Exception as e:
+                            print(f"Error deleting folder on disk: {e}")
+                    return True
+            return False
+
+    @staticmethod
     def save_summary(title, content, username, folder_id=None):
         """LEGACY: Saves a manual summary note."""
         DataManager.save_summary_as_file(title, content, username, folder_id, "summary")
