@@ -13,3 +13,4 @@ requests
 google-genai
 firebase-admin
 gTTS
+youtube-transcript-api

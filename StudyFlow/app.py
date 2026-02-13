@@ -67,6 +67,7 @@ import requests
 import datetime
 import uuid
 from PyPDF2 import PdfReader
+from youtube_transcript_api import YouTubeTranscriptApi
 
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -661,9 +662,15 @@ def render_sidebar():
                         # Progress bar to next level?
                         # user_xp - current_level_base / next_level_base - current_level_base
                         
-                if st.button("🚪 Logout", key="logout_btn", type="secondary"):
-                    AuthManager.logout()
-                    st.rerun()
+                c_prof, c_logout = st.columns([2, 1])
+                with c_prof:
+                    if st.button("👤 Mein Profil", key="go_profile_dash", use_container_width=True):
+                        st.session_state.current_page = "profile"
+                        st.rerun()
+                with c_logout:
+                    if st.button("🚪 Logout", key="logout_btn", type="secondary", use_container_width=True):
+                        AuthManager.logout()
+                        st.rerun()
                 st.divider()
                 
             st.subheader("Konto")
@@ -678,6 +685,52 @@ def render_sidebar():
             
             st.divider()
             
+            st.subheader("Konto")
+            if st.button("🗑️ Konto löschen", type="secondary"):
+                show_delete_account_dialog()
+                
+        # 2. WORKSPACE MODE
+        elif st.session_state.current_page == "workspace":
+            # Back Button
+            if st.button("← Dashboard", type="secondary", use_container_width=True):
+                navigate_to("dashboard")
+            
+            st.divider()
+            
+            # --- YOUTUBE IMPORT ---
+            with st.expander("📹 YouTube Import", expanded=False):
+                yt_url = st.text_input("YouTube Link einfügen", placeholder="https://www.youtube.com/watch?v=...")
+                if st.button("Importieren", key="yt_import"):
+                    if not yt_url:
+                        st.warning("Bitte Link eingeben.")
+                    else:
+                        with st.spinner("Lade Transkript..."):
+                            video_id = get_youtube_video_id(yt_url)
+                            if video_id:
+                                transcript = get_youtube_transcript(video_id)
+                                if transcript:
+                                    # Get Title (Simple Request)
+                                    try:
+                                        r = requests.get(f"https://www.youtube.com/watch?v={video_id}")
+                                        title_search = re.search(r'<title>(.*?)</title>', r.text)
+                                        title = title_search.group(1).replace(" - YouTube", "") if title_search else f"YouTube_{video_id}"
+                                        # Sanitize filename
+                                        safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+                                        filename = f"{safe_title}.txt"
+                                    except:
+                                        filename = f"YouTube_{video_id}.txt"
+                                    
+                                    # Save Transcript using DataManager (supports Local & Cloud)
+                                    DataManager.save_transcript(filename, transcript, st.session_state.username, st.session_state.current_folder)
+                                    
+                                    st.success(f"Video importiert: {filename}")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Konnte kein Transkript finden (Deutsch/Englisch).")
+                            else:
+                                st.error("Ungültiger YouTube Link.")
+
             # ACTION BUTTONS REMOVED (Moved to File Manager)
             
             st.divider()
@@ -697,6 +750,10 @@ def render_sidebar():
                 if st.button(f"{nav_icons[option]} {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
                     st.session_state.workspace_view = option
                     st.rerun()
+
+            if st.button("👤 Mein Profil", key="go_profile_work", use_container_width=True):
+                st.session_state.current_page = "profile"
+                st.rerun()
 
             st.divider()
 
@@ -718,6 +775,35 @@ def navigate_to(page, folder=None):
     st.rerun()
 
 # --- Helper Functions ---
+
+def get_youtube_video_id(url):
+    """Extracts video ID from URL."""
+    # Examples:
+    # https://www.youtube.com/watch?v=VIDEO_ID
+    # https://youtu.be/VIDEO_ID
+    regex = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
+    match = re.search(regex, url)
+    return match.group(1) if match else None
+
+def get_youtube_transcript(video_id):
+    """Fetches transcript in German or English."""
+    try:
+        # Try German first, then English
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
+        
+        # Format as text
+        full_text = ""
+        for line in transcript_list:
+            # Optional: Add timestamp [MM:SS]
+            # minutes = int(line['start'] // 60)
+            # seconds = int(line['start'] % 60)
+            # full_text += f"[{minutes:02d}:{seconds:02d}] {line['text']}\n"
+            full_text += line['text'] + " "
+            
+        return full_text
+    except Exception as e:
+        print(f"Transcript Error: {e}")
+        return None
 
 def create_markdown_pdf(md_text, source_pdf_stream=None):
     """Converts Markdown to PDF using FPDF."""
@@ -824,31 +910,45 @@ def get_embedding_model_name():
     return "models/text-embedding-004" # Default to new standard
 
 # Removed cache to prevent stale data persistence
-def get_pdf_text(pdf_files):
+def get_pdf_text(files):
+    """Reads text from PDF or TXT files."""
     pages_data = []
-    for pdf in pdf_files:
+    for f in files:
         try:
             # Check for empty file
-            pdf.seek(0, 2)
-            size = pdf.tell()
-            pdf.seek(0)
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(0)
             
             if size == 0:
-                st.toast(f"Überspringe leere Datei: {pdf.name}")
+                st.toast(f"Überspringe leere Datei: {f.name}")
                 continue
-                
-            reader = PdfReader(pdf)
-            for i, page in enumerate(reader.pages):
-                t = page.extract_text()
-                if t:
-                    # Store metadata
+            
+            # Identify Type
+            if f.name.lower().endswith(".pdf"):
+                reader = PdfReader(f)
+                for i, page in enumerate(reader.pages):
+                    t = page.extract_text()
+                    if t:
+                        pages_data.append({
+                            "page": i + 1,
+                            "text": t,
+                            "source": f.name
+                        })
+            elif f.name.lower().endswith(".txt"):
+                # Read text file
+                text = f.read().decode("utf-8")
+                # Treat as one big page (or chunk it manually?)
+                # For simplicity, just one 'page'
+                if text:
                     pages_data.append({
-                        "page": i + 1,
-                        "text": t,
-                        "source": pdf.name
+                        "page": 1,
+                        "text": text,
+                        "source": f.name
                     })
+                    
         except Exception as e:
-            st.error(f"Fehler beim Lesen von {pdf.name}: {e}")
+            st.error(f"Fehler beim Lesen von {f.name}: {e}")
             continue
             
     return pages_data
@@ -1591,44 +1691,87 @@ def show_delete_account_dialog(username):
 
 
 def _run_analysis(username, folder_id):
-    """Helper to analyze all PDFs in the folder."""
-    pdfs = DataManager.list_pdfs(username, folder_id)
-    if not pdfs: 
-        st.error("Keine PDF-Dateien im Ordner gefunden.")
+    """Helper to analyze all documents (PDFs, Transcripts) in the folder."""
+    all_files = DataManager.list_files(username, folder_id)
+    if not all_files:
+        st.error("Keine Dateien im Ordner gefunden.")
         return
     
-    full_paths = []
-    for p in pdfs:
-        path = DataManager.get_pdf_path(p, username, folder_id)
-        if path:
-             full_paths.append(path)
+    file_objs = []
     
-    if not full_paths:
-        st.error(f"Fehler: {len(pdfs)} PDFs gefunden, aber Pfade ungültig.")
+    # Process files
+    for f_meta in all_files:
+        ftype = f_meta.get("type", "pdf")
+        fname = f_meta.get("name")
+        
+        if ftype not in ["pdf", "transcript"]:
+            continue
+            
+        try:
+            # Create a file-like object
+            if ftype == "pdf":
+                # Regular PDF path retrieval (handles cloud download too)
+                path = DataManager.get_pdf_path(fname, username, folder_id)
+                if path and os.path.exists(path):
+                    f_obj = open(path, "rb")
+                    # Monkey-patch name attribute for get_pdf_text
+                    # We use a simple wrapper
+                    class FileWrapper:
+                        def __init__(self, f, name):
+                            self.f = f
+                            self.name = name
+                        def read(self, n=-1): return self.f.read(n)
+                        def seek(self, offset, whence=0): return self.f.seek(offset, whence)
+                        def tell(self): return self.f.tell()
+                        def close(self): self.f.close()
+                    
+                    file_objs.append(FileWrapper(f_obj, fname))
+                    
+            elif ftype == "transcript":
+                # Text Content
+                content = f_meta.get("content", "")
+                if not content:
+                    # Maybe local file?
+                    path = DataManager.get_pdf_path(fname, username, folder_id) # Should work for local files
+                    if path and os.path.exists(path):
+                        f_obj = open(path, "rb")
+                        # Wrapper for name
+                        class FileWrapper:
+                            def __init__(self, f, name):
+                                self.f = f
+                                self.name = name
+                            def read(self, n=-1): return self.f.read(n)
+                            def seek(self, offset, whence=0): return self.f.seek(offset, whence)
+                            def tell(self): return self.f.tell()
+                            def close(self): self.f.close()
+                        file_objs.append(FileWrapper(f_obj, fname))
+                    else:
+                        # Cloud content directly in metadata?
+                        # If DataManager.save_transcript saved content, list_files returns it in .to_dict()
+                        if content:
+                            import io
+                            # Encode to bytes for consistency with open("rb")
+                            b_content = content.encode("utf-8")
+                            f_obj = io.BytesIO(b_content)
+                            f_obj.name = fname
+                            file_objs.append(f_obj)
+                            
+        except Exception as e:
+            st.warning(f"Konnte {fname} nicht laden: {e}")
+
+    if not file_objs:
+        st.error("Keine analysierbaren Dateien (PDF/Text) gefunden.")
         return
 
     st.toast("Analyse gestartet...")
-    with st.spinner(f"{len(full_paths)} Dokumente werden analysiert..."):
+    with st.spinner(f"{len(file_objs)} Dokumente werden analysiert..."):
         try:
-            # Create file-like objects with 'name' attribute for get_pdf_text compatibility
-            class FileObj:
-                def __init__(self, path):
-                    self.path = path
-                    self.name = os.path.basename(path)
-                    self._f = open(path, "rb")
-                def read(self, n=-1): return self._f.read(n)
-                def seek(self, offset, whence=0): return self._f.seek(offset, whence)
-                def tell(self): return self._f.tell()
-                def close(self): self._f.close()
-            
-            file_objs = [FileObj(p) for p in full_paths]
             
             # CLEAR OLD STATE explicitly
-            # st.write("DEBUG: Clearing text_chunks...")
             if "text_chunks" in st.session_state: del st.session_state.text_chunks
             if "vector_index" in st.session_state: del st.session_state.vector_index
             
-            # Re-use existing analysis logic
+            # Re-use existing analysis logic (renamed logic inside function)
             raw_text = get_pdf_text(file_objs) 
             
             if not raw_text:
@@ -1675,7 +1818,41 @@ def render_file_manager(username, folder_id):
         with c_up1:
             uploaded_files = st.file_uploader("PDFs hochladen", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed", key=f"uploader_{folder_id}")
         with c_up2:
-            submitted = st.form_submit_button("Hochladen", use_container_width=True)
+             submitted = st.form_submit_button("Hochladen", use_container_width=True)
+             
+        # YOUTUBE IMPORT (MOVED HERE FOR VISIBILITY)
+        with st.expander("📹 YouTube Import", expanded=False):
+            yt_url = st.text_input("YouTube Link", placeholder="https://youtube.com/watch?v=...", label_visibility="collapsed")
+            if st.button("Video Importieren", use_container_width=True):
+                 if not yt_url:
+                     st.warning("Bitte Link eingeben.")
+                 else:
+                     with st.spinner("Lade Transkript..."):
+                         video_id = get_youtube_video_id(yt_url)
+                         if video_id:
+                             transcript = get_youtube_transcript(video_id)
+                             if transcript:
+                                 # Get Title (Simple Request)
+                                 try:
+                                     r = requests.get(f"https://www.youtube.com/watch?v={video_id}")
+                                     title_search = re.search(r'<title>(.*?)</title>', r.text)
+                                     title = title_search.group(1).replace(" - YouTube", "") if title_search else f"YouTube_{video_id}"
+                                     # Sanitize filename
+                                     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+                                     filename = f"{safe_title}.txt"
+                                 except:
+                                     filename = f"YouTube_{video_id}.txt"
+                                 
+                                 # Save Transcript using DataManager (supports Local & Cloud)
+                                 DataManager.save_transcript(filename, transcript, username, folder_id)
+                                 
+                                 st.success(f"Video importiert: {filename}")
+                                 time.sleep(1)
+                                 st.rerun()
+                             else:
+                                 st.error("Konnte kein Transkript finden (Deutsch/Englisch).")
+                         else:
+                             st.error("Ungültiger YouTube Link.")
         
         if submitted and uploaded_files:
             # We just save the PDFs here. Rerun triggers the list update.
@@ -1711,21 +1888,26 @@ def render_file_manager(username, folder_id):
                     st.caption(file_obj.get("name", "Unbenannt")[:20]) # Truncate name
                     
                     # Action: Open
-                    # Actions: Open | Delete
-                    c_open, c_del = st.columns([3, 1])
+                    # Actions: Open |  ⋮ (Menu)
+                    c_open, c_menu = st.columns([3, 1])
                     with c_open:
                         if st.button("Öffnen", key=f"open_{file_obj['id']}", use_container_width=True):
                             st.session_state.selected_file = file_obj
                             st.session_state.show_file_overlay = True
                             st.rerun()
-                    with c_del:
-                        if st.button("🗑️", key=f"del_{file_obj['id']}", help="Löschen", use_container_width=True):
-                            if DataManager.delete_file(username, folder_id, file_obj['id']):
-                                st.toast("Datei gelöscht.")
-                                time.sleep(0.5)
-                                st.rerun()
-                            else:
-                                st.error("Fehler.")
+                    with c_menu:
+                        # Use popover for 3-dot menu
+                        with st.popover("⋮", use_container_width=True):
+                            st.write(f"**{file_obj.get('name')}**")
+                            if st.button("🗑️ Löschen", key=f"del_{file_obj['id']}", use_container_width=True):
+                                if DataManager.delete_file(username, folder_id, file_obj['id']):
+                                    st.toast("Datei gelöscht.")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                else:
+                                    st.error("Fehler.")
+                                    
+                            # Add more options later (Rename?)
 
     st.divider()
 
@@ -1952,7 +2134,23 @@ def render_dashboard():
             st.caption("Lade Vorlesungen hoch oder nimm sie auf.")
             st.button("Starten (Demo)", disabled=True, key="btn_audio", use_container_width=True)
 
-    st.divider()
+            st.button("Starten (Demo)", disabled=True, key="btn_audio", use_container_width=True)
+            
+    with c3:
+        with st.container(border=True):
+            st.markdown("#### 🔗 Projekt importieren")
+            st.caption("Code eingeben")
+            share_code = st.text_input("Share-Code", placeholder="PLAN-XXXX", label_visibility="collapsed")
+            if st.button("Importieren", key="import_btn", use_container_width=True):
+                if share_code:
+                    with st.spinner("Importiere..."):
+                        folder, msg = DataManager.import_shared_plan(share_code.strip(), dashboard_user)
+                        if folder:
+                            st.success(f"Erfolg! {folder['name']}")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(msg)
     
     # --- Projects List ---
     st.subheader("📂 Deine Projekte")
@@ -1969,11 +2167,24 @@ def render_dashboard():
             with st.container(border=True):
                 st.markdown(f"**📁 {folder['name']}**")
                 st.caption(f"Erstellt: {folder.get('created_at', '?')}")
-                if st.button("Öffnen", key=folder['id'], use_container_width=True):
-                    # Clean state & Navigate
-                    if "text_chunks" in st.session_state: del st.session_state.text_chunks
-                    if "vector_index" in st.session_state: del st.session_state.vector_index
-                    navigate_to("workspace", folder=folder['id'])
+                
+                c_open, c_menu = st.columns([3, 1])
+                with c_open:
+                    if st.button("Öffnen", key=folder['id'], use_container_width=True):
+                        # Clean state & Navigate
+                        if "text_chunks" in st.session_state: del st.session_state.text_chunks
+                        if "vector_index" in st.session_state: del st.session_state.vector_index
+                        navigate_to("workspace", folder=folder['id'])
+                with c_menu:
+                     with st.popover("⋮", use_container_width=True):
+                         st.write(f"**{folder['name']}**")
+                         if st.button("🗑️ Projekt Löschen", key=f"del_proj_{folder['id']}", type="primary", use_container_width=True):
+                             if DataManager.delete_folder(folder['id'], dashboard_user):
+                                 st.toast("Projekt gelöscht.")
+                                 time.sleep(1)
+                                 st.rerun()
+                             else:
+                                 st.error("Fehler.")
 
     # Admin Panel (Only for admin_)
     if dashboard_user == "admin_":
@@ -2054,7 +2265,58 @@ def show_apikey_dialog(target_username):
         time.sleep(1)
         st.rerun()
 
-@st.dialog("Zusammenfassung")
+        AuthManager.set_user_api_key(target_username, new_key)
+        st.success(f"Key für {target_username} gespeichert.")
+        time.sleep(1)
+        st.rerun()
+
+def render_profile():
+    username = st.session_state.get("username", "Unknown")
+    data = AuthManager._load_users().get(username, {})
+    
+    st.title(f"👤 Profil: {username}")
+    
+    # 1. Stats Row
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Level", data.get("level", 1))
+    c2.metric("XP Total", data.get("xp", 0))
+    c3.metric("Streak", f"{data.get('streak_days', 0)} Tage")
+    c4.metric("Joined", data.get("join_date", "?"))
+    
+    st.divider()
+    
+    # 2. XP Chart
+    st.subheader("📈 Lern-Aktivität")
+    history = data.get("xp_history", [])
+    if history:
+        import pandas as pd
+        df = pd.DataFrame(history)
+        st.bar_chart(df, x="date", y="amount")
+    else:
+        st.info("Noch keine Aktivität aufgezeichnet.")
+        
+    st.divider()
+    
+    # 3. Account Settings
+    st.subheader("⚙️ Einstellungen")
+    
+    with st.expander("🔑 Passwort ändern"):
+        old_pw = st.text_input("Altes Passwort", type="password")
+        new_pw = st.text_input("Neues Passwort", type="password")
+        if st.button("Passwort aktualisieren"):
+            success, msg = AuthManager.change_password(username, old_pw, new_pw)
+            if success:
+                st.success(msg)
+            else:
+                st.error(msg)
+                
+    with st.expander("☁️ Datenverwaltung"):
+        if st.button("Alle meine Daten löschen (Danger Zone)", type="primary"):
+            show_delete_account_dialog(username)
+
+    if st.button("🔙 Zurück zum Dashboard"):
+        st.session_state.current_page = "dashboard"
+        st.rerun()
 def show_summary_dialog(title, content):
     st.subheader(title)
     st.markdown(content, unsafe_allow_html=True)
@@ -2354,7 +2616,7 @@ def render_workspace_content(username, folder_id):
         if "plan_data" in st.session_state:
             st.subheader(f"Dein Fahrplan")
             
-            c1, c2 = st.columns([1, 1])
+            c1, c2, c3 = st.columns([1, 1, 1])
             with c1:
                  if st.button("➕ Tag hinzufügen"):
                     st.session_state.plan_data.append({"date": "Neu", "topic": "Neu", "details": "..."})
@@ -2370,6 +2632,13 @@ def render_workspace_content(username, folder_id):
                         mime="application/pdf",
                         use_container_width=True
                     )
+            with c3:
+                # Share Button
+                if st.button("📤 Teilen", help="Generiere einen Code für Freunde"):
+                    # Share
+                    code = DataManager.share_item(st.session_state.plan_data, "plan", username, folder_id)
+                    st.toast(f"Code kopiert: {code}")
+                    st.info(f"Dein Code: **{code}**")
             
             for i, item in enumerate(st.session_state.plan_data):
                 # Fallback for old plan structure vs new structure
@@ -2653,6 +2922,8 @@ def main():
         render_dashboard()
     elif st.session_state.current_page == "workspace":
         render_workspace()
+    elif st.session_state.current_page == "profile":
+        render_profile()
 
 if __name__ == "__main__":
     main()

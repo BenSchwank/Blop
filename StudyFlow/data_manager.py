@@ -278,15 +278,41 @@ class DataManager:
                 folder_path = DataManager._get_folder_path(username, folder_id)
                 if os.path.exists(folder_path):
                     for f in os.listdir(folder_path):
-                        if f.lower().endswith(".pdf"):
+                        if f.lower().endswith(".pdf") or f.lower().endswith(".txt"):
                             files.append({
                                 "id": f, # filename as id for local
                                 "name": f,
-                                "type": "pdf",
+                                "type": "pdf" if f.lower().endswith(".pdf") else "transcript",
                                 "created_at": datetime.fromtimestamp(os.path.getctime(os.path.join(folder_path, f))).strftime("%Y-%m-%d")
                             })
                             
         return files
+
+    @staticmethod
+    def save_transcript(filename, content, username, folder_id):
+        """Saves a transcript as a file (Cloud: Metadata with content, Local: File)."""
+        db = DataManager._init_firestore()
+        
+        if db:
+            # CLOUD MODE: Save as file metadata with content
+            # file_id = f"transcript_{int(datetime.now().timestamp())}" (Use filename to dedupe?)
+            file_id = filename # Simple ID
+            
+            file_meta = {
+                "id": file_id,
+                "name": filename,
+                "type": "transcript",
+                "content": content,
+                "created_at": datetime.now().strftime("%Y-%m-%d")
+            }
+            # Save to subcollection
+            DataManager.save_file_metadata(file_meta, username, folder_id)
+        else:
+            # LOCAL MODE: Save to disk
+            folder_path = DataManager._get_folder_path(username, folder_id)
+            file_path = os.path.join(folder_path, filename)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
 
     @staticmethod
     def save_plan_as_file(plan_data, username, folder_id, name="Lernplan"):
@@ -589,3 +615,77 @@ class DataManager:
             DataManager.save_flashcards(username, folder_id, cards)
             return True
         return False
+
+    # --- NEW: Sharing Features (Community/Collab) ---
+    
+    @staticmethod
+    def share_item(content, type, username, folder_id):
+        """Creates a shareable link/code for a Plan or Summary."""
+        share_id = f"PLAN-{uuid.uuid4().hex[:6].upper()}"
+        
+        item_data = {
+            "id": share_id,
+            "type": type,
+            "content": content,
+            "author": username,
+            "created_at": datetime.now().isoformat(),
+            "folder_id": folder_id
+        }
+        
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD MODE
+            db.collection("shared_items").document(share_id).set(item_data)
+        else:
+            # LOCAL MODE (Simulated Central Store)
+            shared_file = os.path.join(DATA_DIR, "shared_items.json")
+            all_shared = {}
+            if os.path.exists(shared_file):
+                try:
+                    with open(shared_file, "r", encoding="utf-8") as f:
+                        all_shared = json.load(f)
+                except: pass
+            
+            all_shared[share_id] = item_data
+            
+            with open(shared_file, "w", encoding="utf-8") as f:
+                json.dump(all_shared, f, ensure_ascii=False, indent=4)
+                
+        return share_id
+
+    @staticmethod
+    def get_shared_item(share_id):
+        """Retrieves a shared item by ID."""
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD MODE
+            doc = db.collection("shared_items").document(share_id).get()
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        else:
+            # LOCAL MODE
+            shared_file = os.path.join(DATA_DIR, "shared_items.json")
+            if os.path.exists(shared_file):
+                try:
+                    with open(shared_file, "r", encoding="utf-8") as f:
+                        all_shared = json.load(f)
+                        return all_shared.get(share_id)
+                except: return None
+            return None
+
+    @staticmethod
+    def import_shared_plan(share_id, target_username):
+        """Imports a shared Plan as a new project/folder."""
+        item = DataManager.get_shared_item(share_id)
+        if not item or item.get("type") != "plan":
+            return None, "Ungültiger Code oder kein Lernplan."
+            
+        # Create Folder
+        folder_name = f"Import: {item.get('content', [{}])[0].get('topic', 'Lernplan')}"
+        folder = DataManager.create_folder(folder_name, target_username)
+        
+        # Save Plan
+        DataManager.save_plan(item["content"], target_username, folder["id"])
+        
+        return folder, "Erfolgreich importiert!"

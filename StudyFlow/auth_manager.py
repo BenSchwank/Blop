@@ -164,7 +164,11 @@ class AuthManager:
         
         users[username] = {
             "password": AuthManager._hash_password(password),
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "join_date": datetime.now().strftime("%Y-%m-%d"),
+            "xp": 0,
+            "streak_days": 0,
+            "xp_history": []
         }
         AuthManager._save_users(users)
         return True
@@ -178,6 +182,26 @@ class AuthManager:
         if username in users:
             current_xp = users[username].get("xp", 0)
             users[username]["xp"] = current_xp + amount
+            
+            # History
+            if "xp_history" not in users[username]:
+                users[username]["xp_history"] = []
+            
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            found = False
+            for entry in users[username]["xp_history"]:
+                if entry["date"] == today_str:
+                    entry["amount"] += amount
+                    found = True
+                    break
+            
+            if not found:
+                 users[username]["xp_history"].append({"date": today_str, "amount": amount})
+                 
+            # Limit history
+            if len(users[username]["xp_history"]) > 30:
+                users[username]["xp_history"] = users[username]["xp_history"][-30:]
+
             AuthManager._save_users(users)
             return users[username]["xp"]
         return 0
