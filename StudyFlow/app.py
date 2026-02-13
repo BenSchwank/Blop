@@ -1044,8 +1044,8 @@ def render_sidebar():
             # Navigation (Vertical Buttons)
             # Navigation (Vertical Buttons)
             st.subheader("Navigation")
-            nav_options = ["Lernplan", "Zusammenfassung", "Chat", "Interaktives Lernen", "Dateien"]
-            nav_icons = {"Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝", "Dateien": "📂"}
+            nav_options = ["Übersicht", "Lernplan", "Zusammenfassung", "Chat", "Interaktives Lernen", "Dateien"]
+            nav_icons = {"Übersicht": "🏠", "Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝", "Dateien": "📂"}
             
             current_view = st.session_state.get("workspace_view", "Lernplan")
             
@@ -2773,11 +2773,52 @@ def render_workspace_content(username, folder_id):
         
     import datetime
     
-    active_view = st.session_state.get("workspace_view", "Lernplan")
+    active_view = st.session_state.get("workspace_view", "Übersicht")
+    
+    # --- VIEW: Übersicht (Hub) ---
+    if active_view == "Übersicht":
+        st.header("🏠 Übersicht")
+        
+        num_chunks = len(st.session_state.get("text_chunks", []))
+        st.success(f"✅ Analyse abgeschlossen — **{num_chunks} Text-Abschnitte** bereit. Wähle eine Funktion:")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Feature cards in 2x2 grid
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            with st.container(border=True):
+                st.markdown("### 📅 Lernplan")
+                st.caption("Erstelle einen strukturierten Lernplan mit Tageszielen und Zeitplan bis zu deiner Prüfung.")
+                if st.button("→ Lernplan erstellen", key="hub_lernplan", use_container_width=True, type="primary"):
+                    st.session_state.workspace_view = "Lernplan"
+                    st.rerun()
+            
+            with st.container(border=True):
+                st.markdown("### 💬 Chat")
+                st.caption("Stelle Fragen zu deinem Lernmaterial — die KI antwortet basierend auf deinen Dokumenten.")
+                if st.button("→ Chat öffnen", key="hub_chat", use_container_width=True, type="primary"):
+                    st.session_state.workspace_view = "Chat"
+                    st.rerun()
+        
+        with col2:
+            with st.container(border=True):
+                st.markdown("### 📝 Zusammenfassung")
+                st.caption("Lass dir eine KI-Zusammenfassung erstellen — mit wählbarem Detailgrad und Fokus.")
+                if st.button("→ Zusammenfassung", key="hub_summary", use_container_width=True, type="primary"):
+                    st.session_state.workspace_view = "Zusammenfassung"
+                    st.rerun()
+            
+            with st.container(border=True):
+                st.markdown("### 🧠 Interaktives Lernen")
+                st.caption("Karteikarten und Quizfragen — teste dein Wissen aktiv mit Spaced Repetition.")
+                if st.button("→ Lernen starten", key="hub_learn", use_container_width=True, type="primary"):
+                    st.session_state.workspace_view = "Interaktives Lernen"
+                    st.rerun()
     
     # --- VIEW: Lernplan ---
-    # --- VIEW: Lernplan ---
-    if active_view == "Lernplan":
+    elif active_view == "Lernplan":
         st.header("Smarter Lernplan")
         
         # 1. Inputs: Dates & Focus
