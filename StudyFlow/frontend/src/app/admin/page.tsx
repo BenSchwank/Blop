@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Users, TrendingUp, Award, Shield, Trash2, RefreshCw } from 'lucide-react';
+import { Users, TrendingUp, Award, Shield, RefreshCw } from 'lucide-react';
 
 interface User {
     username: string;
