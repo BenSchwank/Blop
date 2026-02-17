@@ -81,6 +81,35 @@ def validate_session(session_id: str):
         return {"valid": True, "username": username}
     raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
 
+# --- ADMIN ENDPOINTS ---
+@app.get("/api/admin/users")
+def get_all_users(admin_username: str):
+    """Get all users (admin only)"""
+    if admin_username != "admin_":
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    
+    users = AuthManager.get_all_users()
+    user_list = []
+    
+    for username, data in users.items():
+        if username == "config":
+            continue
+            
+        user_list.append({
+            "username": username,
+            "xp": data.get("xp", 0),
+            "streak": data.get("streak_days", 0),
+            "created_at": data.get("created_at", "Unknown"),
+            "is_admin": data.get("is_admin", False)
+        })
+    
+    return user_list
+
+@app.get("/api/admin/leaderboard")
+def get_leaderboard(limit: int = 10):
+    """Get top users by XP"""
+    return AuthManager.get_leaderboard_data(limit)
+
 # --- FOLDER ENDPOINTS ---
 @app.get("/api/folders")
 def get_folders(username: str):
