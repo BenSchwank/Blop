@@ -109,7 +109,7 @@ export default function LoginPage() {
                             </label>
                             <input
                                 type="password"
-                                value={password}
+                                value={username}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
                                 className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all"
@@ -141,13 +141,6 @@ export default function LoginPage() {
                             )}
                         </button>
                     </form>
-
-                    {/* Admin Hint */}
-                    <div className="mt-6 pt-6 border-t border-[#333] text-center">
-                        <p className="text-xs text-[#666]">
-                            Admin-Login: <span className="text-[#5E5CE6] font-mono">admin_</span>
-                        </p>
-                    </div>
                 </div>
             </div>
         </div>
