@@ -16,8 +16,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "https://blop-6mzv70fvu-benschwanks-projects.vercel.app",  # Preview URL
         "https://*.vercel.app",  # All Vercel deployments
-        "https://blop-study.vercel.app"  # Production URL
+        "https://blop-d8jo8otb.benschwanks-projects.vercel.app"  # Production URL
     ],
     allow_credentials=True,
     allow_methods=["*"],
