@@ -17,7 +17,7 @@ export default function Dashboard() {
   return (
     <div className="bg-[#1e1e1e] min-h-screen">
       {/* Main Container */}
-      <div className="max-w-6xl mx-auto px-8 py-10">
+      <div className="max-w-6xl mx-auto px-6 py-8">
 
         {/* Header */}
         <div className="mb-10">
