@@ -729,8 +729,15 @@ def create_study_plan_pdf(plan_data):
 load_dotenv()
 
 # --- SETUP & CONFIG ---
-st.set_page_config(page_title="Blop AI", page_icon="⚡", layout="wide")
+st.set_page_config(
+    page_title="Turbo.ai Clone V2",
+    page_icon="🦄",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
+# DEBUG TOAST
+st.toast("DEBUG: App Version 3.0 Loaded", icon="🦄")
 # --- TURBO AI STYLE INJECTION ---
 st.markdown("""
     <style>
