@@ -128,6 +128,30 @@ def inject_custom_css():
         border-right: 1px solid #1c1c1e;
     }}
     
+    /* SIDEBAR GHOST BUTTONS */
+    /* Target all buttons/containers in sidebar */
+    [data-testid="stSidebar"] .stButton > button {{
+        background-color: transparent !important;
+        border: none !important;
+        color: #a1a1aa !important; /* Muted Gray */
+        text-align: left !important;
+        display: flex !important;
+        justify-content: flex-start !important;
+        padding-left: 10px !important;
+        font-weight: 400 !important;
+        transition: all 0.2s;
+    }}
+    
+    [data-testid="stSidebar"] .stButton > button:hover {{
+        background-color: #1f1f22 !important;
+        color: white !important;
+        transform: translateX(2px);
+    }}
+    
+    [data-testid="stSidebar"] .stButton > button:active {{
+        background-color: #27272a !important;
+    }}
+
     /* Top Bar - Floating/Borderless feel */
     .top-bar {{
         background: rgba(14, 14, 14, 0.8);
@@ -1102,22 +1126,32 @@ def render_sidebar():
             st.divider()
             
             with st.sidebar:
-                st.markdown("### ⚡ **Blop Turbo**")
+                # Minimalist Header
+                st.markdown("### ⚡ **Blop**")
+                st.caption("Turbo Edition")
+                st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Navigation
+                # Navigation (Ghost Style)
+                # Icons: Minimalist
                 nav_options = {
                     "Dashboard": "🏠", 
-                    "Lernpläne": "📖", 
+                    "Lernpläne": "📚", 
                     "Chat": "💬",
                     "Einstellungen": "⚙️"
                 }
                 
                 current_view = st.session_state.get("workspace_view", "Dashboard")
-                if current_view not in nav_options: current_view = "Dashboard" # Fallback
+                if current_view not in nav_options: current_view = "Dashboard"
                 
                 for option, icon in nav_options.items():
-                    btn_type = "primary" if current_view == option else "secondary"
-                    if st.button(f"{icon}  {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
+                    # Visual trick: If active, we render a marked button (via CSS logic or just emoji)
+                    # Since we stripped CSS backgrounds, "primary" type might look same as secondary if handled roughly.
+                    # We rely on text contrast.
+                    label = f"{icon}  {option}"
+                    if current_view == option:
+                        label = f"**{icon}  {option}**  ⚫" # Dot to indicate active
+
+                    if st.button(label, key=f"nav_{option}", use_container_width=True):
                         st.session_state.workspace_view = option
                         st.rerun()
                 
