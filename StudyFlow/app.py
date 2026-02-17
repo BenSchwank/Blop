@@ -115,69 +115,59 @@ def inject_custom_css():
         border-color: var(--text-secondary) !important;
         background-color: var(--bg-card-hover) !important;
     }}
-    /* ===== TURBO.AI SPECIFIC CSS ===== */
-    /* Dark Sidebar */
-    [data-testid="stSidebar"] {{
-        background-color: #0e0e0e; /* Extremely dark grey */
-        border-right: 1px solid #27272a;
-    }}
+    /* ===== TURBO.AI / NOTION REFINEMENTS ===== */
     
-    /* Top Bar (simulated via container) */
-    .top-bar {{
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 60px;
-        background: #09090b;
-        border-bottom: 1px solid #27272a;
-        z-index: 999;
-        display: flex;
-        align-items: center;
-        padding: 0 20px;
-        color: white;
+    /* Global Background & Font */
+    .stApp {{
+        background-color: #0e0e0e;
     }}
 
-    /* Action Cards (Turbo Style) */
+    /* Sidebar - Cleaner & Darker */
+    [data-testid="stSidebar"] {{
+        background-color: #0e0e0e; /* Matte Black */
+        border-right: 1px solid #1c1c1e;
+    }}
+    
+    /* Top Bar - Floating/Borderless feel */
+    .top-bar {{
+        background: rgba(14, 14, 14, 0.8);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }}
+
+    /* Cards - Notion Style (Borderless, slight bg contrast) */
     div[data-testid="stVerticalBlockBorderWrapper"] > div {{
-        background-color: #18181b; /* Card BG */
-        border: 1px solid #27272a;
+        background-color: #1c1c1e; /* Subtle contrast */
+        border: 1px solid rgba(255,255,255,0.05); /* Almost invisible border */
         border-radius: 12px;
-        transition: transform 0.2s, border-color 0.2s;
+        box-shadow: none;
+        transition: background-color 0.2s, transform 0.2s;
     }}
     
     div[data-testid="stVerticalBlockBorderWrapper"] > div:hover {{
-        border-color: #52525b;
+        background-color: #2c2c2e; /* Lighten on hover */
+        border-color: rgba(255,255,255,0.1);
         transform: translateY(-2px);
-        background-color: #27272a;
     }}
 
-    /* Button adjustments */
-    .stButton > button {{
-        border-radius: 8px;
-        font-weight: 500;
-        border: 1px solid #3f3f46;
-        background-color: #27272a;
-        color: #f4f4f5;
-    }}
-    .stButton > button:hover {{
-        background-color: #3f3f46;
-        border-color: #52525b;
-    }}
-    
-    /* Input Fields */
-    .stTextInput input {{
-        background-color: #18181b;
-        border: 1px solid #27272a;
+    /* Upgrade Button Style */
+    .upgrade-btn > button {{
+        background: linear-gradient(90deg, #8B5CF6 0%, #D946EF 100%);
+        border: none;
         color: white;
+        font-weight: bold;
         border-radius: 8px;
     }}
-    
-    /* Dialog / Modal Styling */
-    div[data-testid="stDialog"] {{
-        background-color: #09090b;
-        border: 1px solid #27272a;
+    .upgrade-btn > button:hover {{
+        filter: brightness(1.1);
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
     }}
+
+    /* Folder Icons Colors */
+    .folder-icon {{ font-size: 1.5rem; margin-right: 8px; }}
+    .folder-pink {{ color: #F472B6; }}
+    .folder-purple {{ color: #A78BFA; }}
+    .folder-blue {{ color: #60A5FA; }}
 
     .stButton > button:active {{
         transform: translateY(1px) !important;
@@ -1111,24 +1101,42 @@ def render_sidebar():
             
             st.divider()
             
-            # Navigation (Vertical)
-            # Navigation (Vertical Buttons)
-            # Navigation (Vertical Buttons)
-            st.subheader("Navigation")
-            nav_options = ["Dashboard", "Lernplan", "Zusammenfassung", "Chat", "Interaktives Lernen", "Dateien"]
-            nav_icons = {"Dashboard": "🏠", "Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝", "Dateien": "📂"}
+            with st.sidebar:
+            st.markdown("### ⚡ **Blop Turbo**")
+            
+            # Navigation
+            nav_options = {
+                "Dashboard": "🏠", 
+                "Lernpläne": "📖", 
+                "Chat": "💬",
+                "Einstellungen": "⚙️"
+            }
             
             current_view = st.session_state.get("workspace_view", "Dashboard")
+            if current_view not in nav_options: current_view = "Dashboard" # Fallback
             
-            for option in nav_options:
-                # Highlight active button
+            for option, icon in nav_options.items():
                 btn_type = "primary" if current_view == option else "secondary"
-                if st.button(f"{nav_icons[option]} {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
+                if st.button(f"{icon}  {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
                     st.session_state.workspace_view = option
                     st.rerun()
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # UPGRADE CTA
+            st.markdown('<div class="upgrade-btn">', unsafe_allow_html=True)
+            if st.button("✨ Upgrade auf Premium", use_container_width=True):
+                 st.toast("Premium Features kommen bald!", icon="💎")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button("👤 Mein Profil", key="go_profile_work", use_container_width=True):
-                st.session_state.current_page = "profile"
+            st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True) # Spacer
+            
+            # User Profile Bottom
+            st.divider()
+            c_av, c_user = st.columns([1, 4])
+            c_av.markdown("👤")
+            c_user.caption(st.session_state.get("username", "Gast"))
+
                 st.rerun()
 
             st.divider()
@@ -2853,91 +2861,103 @@ def render_workspace_content(username, folder_id):
         active_view = "Dashboard"
         st.rerun()
 
-    # --- VIEW: Dashboard (Action Center) ---
+    # --- VIEW: Dashboard (Action Center in GERMAN) ---
     if active_view == "Dashboard":
         # Version Toast
-        if "v_toast" not in st.session_state:
-             st.toast("Turbo.ai Clone v2.0 Loaded!", icon="🚀")
-             st.session_state.v_toast = True
+        if "v_toast_3" not in st.session_state:
+             st.toast("Turbo.ai Refining (German/Notion) Loaded!", icon="🎨")
+             st.session_state.v_toast_3 = True
+
         # Header / Top Bar (Mock)
         col_search, col_profile = st.columns([4, 1])
-        col_search.text_input("🔍 Suchen...", label_visibility="collapsed")
-        col_profile.markdown(f"<div style='text-align:right'>👤 <b>{username}</b></div>", unsafe_allow_html=True)
+        with col_search:
+             st.text_input("🔍 Suche (⌘K)", label_visibility="collapsed", placeholder="Suchen...")
+             
+        col_profile.markdown(f"<div style='text-align:right; opacity:0.7'>👤 <b>{username}</b></div>", unsafe_allow_html=True)
         
-        st.markdown(f"# Dashboard")
-        st.markdown("Create new notes")
+        st.markdown(f"## Dashboard")
+        st.caption("Neue Notizen erstellen")
         
-        # --- 1. ACTION CARDS (Turbo Style) ---
+        # --- 1. ACTION CARDS (Turbo/Notion Style) ---
         ac1, ac2, ac3, ac4 = st.columns(4)
         
         # Card 1: Blank Document
         with ac1:
-            with st.container(border=True):
+            with st.container(border=True): # Border handled by CSS now (subtle)
                 st.markdown("### 📄")
-                st.markdown("**Blank document**")
+                st.markdown("**Leeres Dokument**")
                 st.caption("Start from scratch")
-                if st.button("Create", key="btn_hero_new", use_container_width=True):
+                if st.button("Erstellen ›", key="btn_hero_new", use_container_width=True):
                     dialog_create_note()
 
         # Card 2: Audio
         with ac2:
             with st.container(border=True):
                 st.markdown("### 🎤")
-                st.markdown("**Record Audio**")
-                st.caption("Upload or record")
-                if st.button("Record", key="btn_hero_audio", use_container_width=True):
+                st.markdown("**Audio aufnehmen**")
+                st.caption("Upload oder Aufnahme")
+                if st.button("Aufnehmen ›", key="btn_hero_audio", use_container_width=True):
                     dialog_record_audio()
 
         # Card 3: Upload
         with ac3:
             with st.container(border=True):
                 st.markdown("### 📤")
-                st.markdown("**Upload**")
+                st.markdown("**Dokument Upload**")
                 st.caption("PDF, DOC, PPT")
-                if st.button("Upload", key="btn_hero_upload", use_container_width=True):
+                if st.button("Hochladen ›", key="btn_hero_upload", use_container_width=True):
                     dialog_upload_document(username, folder_id)
 
         # Card 4: Link
         with ac4:
             with st.container(border=True):
                 st.markdown("### 🔗")
-                st.markdown("**Website import**")
+                st.markdown("**Website Link**")
                 st.caption("YouTube / Web")
-                if st.button("Import", key="btn_hero_link", use_container_width=True):
+                if st.button("Import ›", key="btn_hero_link", use_container_width=True):
                     dialog_import_link(username, folder_id)
         
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- 2. RECENT FOLDERS / PROJECTS ---
-        st.markdown("### 📂 Zuletzt bearbeitet", unsafe_allow_html=True)
+        # --- 2. RECENT FOLDERS (With Colors) ---
+        st.markdown("### 📂 Zuletzt bearbeitet") # Removed divider-like look via CSS
         
         # Real Data
         try:
             user_data = DataManager.load(username)
-            # Filter out metadata keys if any (assuming keys are folder names)
-            # In current structure, root keys are folders
             folders = [k for k in user_data.keys() if k != "user_settings" and k != "metadata"]
-            
-            # Sort by some logic if possible, else just take top 6
-            recents = folders[:6]
+            recents = folders[:4] # Top 4
         except:
             recents = []
             
         if not recents:
-             st.info("Noch keine Projekte. Erstelle dein erstes Projekt im Menü!")
+             st.info("Noch keine Projekte. Erstelle dein erstes Projekt oben!")
         
-        rc1, rc2, rc3 = st.columns(3)
+        # List View (Notion Style) -> Clean horizontal items or grid
+        # Using Grid for consistency with Turbo.ai screenshot
         for i, folder in enumerate(recents):
-            col = [rc1, rc2, rc3][i % 3]
-            with col:
-                 with st.container(border=True):
-                    st.markdown(f"#### 📁 {folder}")
-                    # Try to get last modified if available, else just placeholder
-                    st.caption("Projekt")
-                    if st.button("Öffnen", key=f"open_recent_{i}", use_container_width=True):
+            # Assign color cyclically
+            icon_color = ["folder-pink", "folder-purple", "folder-blue"][i % 3]
+            icon_html = f'<span class="folder-icon {icon_color}">📁</span>'
+            
+            with st.container():
+                c_icon, c_info, c_act = st.columns([0.5, 6, 0.5])
+                c_icon.markdown(icon_html, unsafe_allow_html=True)
+                
+                with c_info:
+                     st.markdown(f"**{folder}**")
+                     st.caption("Zuletzt geöffnet: Heute")
+                
+                with c_act:
+                    # Three dots menu simulation 
+                    if st.button("⋮", key=f"opt_recent_{i}"):
+                         # Navigate on click (Simple behavior)
                         st.session_state.current_folder = folder
-                        st.session_state.workspace_view = "Dateien" # Switch to Folder View
+                        st.session_state.workspace_view = "Dateien" 
                         st.rerun()
+            
+            st.divider() # Thin separation line
+
 
     
     # --- VIEW: Lernplan ---
