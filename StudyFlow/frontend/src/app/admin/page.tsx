@@ -61,7 +61,7 @@ export default function AdminPanel() {
     const activeStreaks = users.filter(u => u.streak > 0).length;
 
     return (
-        <div className="bg-[#1e1e1e] text-white p-4 md:p-6">
+        <div className="bg-[#1e1e1e] text-white p-6 md:p-8">
             <div className="max-w-7xl mx-auto min-h-screen">
                 {/* Header */}
                 <div className="mb-8">
