@@ -11,6 +11,9 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
         // Skip auth check for login page
         if (pathname === '/login') return;
 
+        // Only run on client side
+        if (typeof window === 'undefined') return;
+
         // Check if user is authenticated
         const sessionId = localStorage.getItem('session_id');
         const username = localStorage.getItem('username');
@@ -21,5 +24,6 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
         }
     }, [pathname, router]);
 
+    // Always render children (including login page)
     return <>{children}</>;
 }
