@@ -1044,10 +1044,10 @@ def render_sidebar():
             # Navigation (Vertical Buttons)
             # Navigation (Vertical Buttons)
             st.subheader("Navigation")
-            nav_options = ["Übersicht", "Lernplan", "Zusammenfassung", "Chat", "Interaktives Lernen", "Dateien"]
-            nav_icons = {"Übersicht": "🏠", "Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝", "Dateien": "📂"}
+            nav_options = ["Dashboard", "Lernplan", "Zusammenfassung", "Chat", "Interaktives Lernen", "Dateien"]
+            nav_icons = {"Dashboard": "🏠", "Lernplan": "📅", "Chat": "💬", "Interaktives Lernen": "🧠", "Zusammenfassung": "📝", "Dateien": "📂"}
             
-            current_view = st.session_state.get("workspace_view", "Lernplan")
+            current_view = st.session_state.get("workspace_view", "Dashboard")
             
             for option in nav_options:
                 # Highlight active button
@@ -2773,49 +2773,80 @@ def render_workspace_content(username, folder_id):
         
     import datetime
     
-    active_view = st.session_state.get("workspace_view", "Übersicht")
+    active_view = st.session_state.get("workspace_view", "Dashboard")
     
-    # --- VIEW: Übersicht (Hub) ---
-    if active_view == "Übersicht":
-        st.header("🏠 Übersicht")
+    # --- VIEW: Dashboard (Action Center) ---
+    if active_view == "Dashboard":
+        st.markdown(f"# 👋 Guten Tag, {username}")
+        st.markdown("<p style='color:var(--text-secondary); margin-top:-16px; margin-bottom:32px'>Hier ist dein Lern-Cockpit.</p>", unsafe_allow_html=True)
         
-        num_chunks = len(st.session_state.get("text_chunks", []))
-        st.success(f"✅ Analyse abgeschlossen — **{num_chunks} Text-Abschnitte** bereit. Wähle eine Funktion:")
+        # --- 1. ACTION CARDS (Grid) ---
+        st.markdown("### 🚀 Schnellstart", unsafe_allow_html=True)
+        ac1, ac2, ac3, ac4 = st.columns(4)
+        
+        with ac1:
+            with st.container(border=True):
+                st.markdown("#### 📝 Neue Notiz")
+                st.caption("Leeres Dokument")
+                if st.button("Erstellen", key="btn_new_note", use_container_width=True, type="secondary"):
+                    st.toast("Feature kommt bald!", icon="🚧")
+
+        with ac2:
+            with st.container(border=True):
+                st.markdown("#### 🎤 Audio")
+                st.caption("Aufnahme starten")
+                if st.button("Aufnehmen", key="btn_rec_audio", use_container_width=True, type="secondary"):
+                    st.toast("Feature kommt bald!", icon="🚧")
+
+        with ac3:
+            with st.container(border=True):
+                st.markdown("#### 📄 Upload")
+                st.caption("PDF / Dokumente")
+                if st.button("Hochladen", key="btn_upload_doc", use_container_width=True, type="secondary"):
+                    st.session_state.workspace_view = "Dateien"
+                    st.rerun()
+
+        with ac4:
+            with st.container(border=True):
+                st.markdown("#### 🔗 Link")
+                st.caption("YouTube / Web")
+                if st.button("Importieren", key="btn_import_link", use_container_width=True, type="secondary"):
+                    st.session_state.workspace_view = "Dateien"
+                    st.rerun()
         
         st.markdown("<br>", unsafe_allow_html=True)
+
+        # --- 2. RECENT FOLDERS / PROJECTS ---
+        st.markdown("### 📂 Zuletzt bearbeitet", unsafe_allow_html=True)
         
-        # Feature cards in 2x2 grid
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            with st.container(border=True):
-                st.markdown("### 📅 Lernplan")
-                st.caption("Erstelle einen strukturierten Lernplan mit Tageszielen und Zeitplan bis zu deiner Prüfung.")
-                if st.button("→ Lernplan erstellen", key="hub_lernplan", use_container_width=True, type="primary"):
-                    st.session_state.workspace_view = "Lernplan"
-                    st.rerun()
+        # Real Data
+        try:
+            user_data = DataManager.load(username)
+            # Filter out metadata keys if any (assuming keys are folder names)
+            # In current structure, root keys are folders
+            folders = [k for k in user_data.keys() if k != "user_settings" and k != "metadata"]
             
-            with st.container(border=True):
-                st.markdown("### 💬 Chat")
-                st.caption("Stelle Fragen zu deinem Lernmaterial — die KI antwortet basierend auf deinen Dokumenten.")
-                if st.button("→ Chat öffnen", key="hub_chat", use_container_width=True, type="primary"):
-                    st.session_state.workspace_view = "Chat"
-                    st.rerun()
-        
-        with col2:
-            with st.container(border=True):
-                st.markdown("### 📝 Zusammenfassung")
-                st.caption("Lass dir eine KI-Zusammenfassung erstellen — mit wählbarem Detailgrad und Fokus.")
-                if st.button("→ Zusammenfassung", key="hub_summary", use_container_width=True, type="primary"):
-                    st.session_state.workspace_view = "Zusammenfassung"
-                    st.rerun()
+            # Sort by some logic if possible, else just take top 6
+            recents = folders[:6]
+        except:
+            recents = []
             
-            with st.container(border=True):
-                st.markdown("### 🧠 Interaktives Lernen")
-                st.caption("Karteikarten und Quizfragen — teste dein Wissen aktiv mit Spaced Repetition.")
-                if st.button("→ Lernen starten", key="hub_learn", use_container_width=True, type="primary"):
-                    st.session_state.workspace_view = "Interaktives Lernen"
-                    st.rerun()
+        if not recents:
+             st.info("Noch keine Projekte. Erstelle dein erstes Projekt im Menü!")
+        
+        rc1, rc2, rc3 = st.columns(3)
+        for i, folder in enumerate(recents):
+            col = [rc1, rc2, rc3][i % 3]
+            with col:
+                 with st.container(border=True):
+                    st.markdown(f"#### 📁 {folder}")
+                    # Try to get last modified if available, else just placeholder
+                    st.caption("Projekt")
+                    if st.button("Öffnen", key=f"open_recent_{i}", use_container_width=True):
+                        st.session_state.current_folder = folder
+                        st.session_state.workspace_view = "Dateien" # Switch to Folder View
+                        st.rerun()
+
     
     # --- VIEW: Lernplan ---
     elif active_view == "Lernplan":
@@ -2984,71 +3015,86 @@ def render_workspace_content(username, folder_id):
 
 
 
-    # --- VIEW: Dateien ---
+    # --- VIEW: Dateien (Folder Explorer) ---
     elif active_view == "Dateien":
-        st.header("📂 Datei-Manager")
+        # 1. BREADCRUMBS
+        st.caption(f"🏠 Dashboard  >  📂 **{folder_id}**")
         
-        c_up, c_list = st.columns([1, 2])
-        
-        with c_up:
-            with st.container(border=True):
-                st.subheader("📤 Upload")
-                uploaded_files = st.file_uploader("PDFs/Skripte hier ablegen", accept_multiple_files=True, key="work_uploader")
-                
-                if uploaded_files:
-                    if st.button(f"{len(uploaded_files)} Speichern", key="save_uploads", type="primary"):
-                        progress_text = "Speichere Dateien..."
-                        my_bar = st.progress(0, text=progress_text)
-                        
-                        folder_path = DataManager._get_folder_path(username, folder_id)
-                        
-                        for i, up_file in enumerate(uploaded_files):
-                            file_path = os.path.join(folder_path, up_file.name)
-                            with open(file_path, "wb") as f:
-                                f.write(up_file.read())
-                            my_bar.progress((i + 1) / len(uploaded_files), text=f"Gespeichert: {up_file.name}")
-                        
-                        time.sleep(0.5)
-                        st.success("Upload erfolgreich!")
-                        st.rerun()
+        # 2. ACTION BAR
+        col_actions, col_search = st.columns([3, 1])
+        with col_actions:
+            c1, c2, c3 = st.columns([1, 1, 1])
+            with c1:
+                with st.popover("📄 Neue Notiz"):
+                    new_note_name = st.text_input("Name der Notiz", placeholder="Neue Notiz")
+                    if st.button("Erstellen", key="create_note_action"):
+                         st.toast("Feature kommt bald!", icon="🚧")
+            with c2:
+                with st.popover("📤 Upload"):
+                     uploaded_files = st.file_uploader("Dateien wählen", accept_multiple_files=True, key="pop_uploader")
+                     if uploaded_files:
+                        if st.button(f"{len(uploaded_files)} Speichern", key="save_uploads_pop", type="primary"):
+                            progress_text = "Speichere Dateien..."
+                            my_bar = st.progress(0, text=progress_text)
+                            folder_path = DataManager._get_folder_path(username, folder_id)
+                            for i, up_file in enumerate(uploaded_files):
+                                file_path = os.path.join(folder_path, up_file.name)
+                                with open(file_path, "wb") as f:
+                                    f.write(up_file.read())
+                                my_bar.progress((i + 1) / len(uploaded_files), text=f"Gespeichert: {up_file.name}")
+                            time.sleep(0.5)
+                            st.rerun()
+                            
+            with c3:
+                # Analyze Button
+                if "text_chunks" not in st.session_state or not st.session_state.text_chunks:
+                     if st.button("⚡ Jetzt Analysieren", key="analyze_action_bar"):
+                         _run_analysis(username, folder_id)
+                else:
+                     st.button("✅ Analysiert", disabled=True, key="analyzed_indicator")
 
-        with c_list:
-            st.subheader("Bestehende Dateien")
-            files = DataManager.list_files(username, folder_id)
+        st.divider()
+
+        # 3. FILE LIST (Explorer Style)
+        files = DataManager.list_files(username, folder_id)
+        
+        if not files:
+            st.info("Dieser Ordner ist noch leer. Lade Dateien hoch oder erstelle eine Notiz.")
+        else:
+            # Header Row
+            h1, h2, h3, h4 = st.columns([3, 2, 2, 1])
+            h1.markdown("**Name**")
+            h2.markdown("**Typ**")
+            h3.markdown("**Geändert**")
+            h4.markdown("**Aktion**")
+            st.divider()
             
-            if not files:
-                st.info("Dieser Ordner ist noch leer.")
-            else:
-                # Check for generic PDF types
-                pdfs = [f for f in files if f.get('type') in ['pdf', 'transcript']]
+            for f in files:
+                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
                 
-                # Analysis Status
-                if pdfs:
-                    if "text_chunks" in st.session_state and st.session_state.text_chunks:
-                         st.success(f"✅ AI-Analyse aktiv ({len(st.session_state.text_chunks)} Segmente)")
-                         if st.button("🔄 Neu Analysieren", key="reanalyze_main"):
-                             _run_analysis(username, folder_id)
-                    else:
-                        st.warning("⚠️ Dateien noch nicht analysiert.")
-                        if st.button("🚀 Jetzt Analysieren", type="primary", key="analyze_main"):
-                            _run_analysis(username, folder_id)
+                # Icon based on type
+                ftype = f.get('type', '?')
+                icon = "📄"
+                if ftype == 'pdf': icon = "📕"
+                elif ftype == 'transcript': icon = "📹"
                 
-                st.markdown("---")
+                # Name (clickable?)
+                if c1.button(f"{icon}  {f['name']}", key=f"open_file_{f['id']}", help="Datei öffnen"):
+                    # Logic to open file preview/editor
+                    st.toast(f"Öffne {f['name']}...", icon="📂")
+                    # For now just toast, later implement file viewer
                 
-                # Table-like Grid
-                for f in files:
-                    c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
-                    c1.write(f"📄 **{f['name']}**")
-                    c2.caption(f"Type: {f.get('type', '?')}")
-                    c3.caption(f.get('created_at', '-'))
-                    
-                    with c4:
-                        if st.button("🗑️", key=f"del_main_{f['id']}", help="Löschen"):
+                c2.caption(ftype.upper())
+                c3.caption(f.get('created_at', '-').split('T')[0])
+                
+                with c4:
+                     with st.popover("⋮"):
+                        if st.button("Löschen", key=f"del_ctx_{f['id']}"):
                              if DataManager.delete_file(username, folder_id, f['id']):
-                                 st.toast("Gelöscht")
-                                 time.sleep(0.5)
                                  st.rerun()
-                    st.divider()
+                        st.button("Umbenennen", key=f"ren_ctx_{f['id']}", disabled=True)
+                
+                st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
     # --- VIEW: Chat ---
     elif active_view == "Chat":
