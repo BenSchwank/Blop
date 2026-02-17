@@ -18,9 +18,14 @@ export default function RootLayout({
   return (
     <html lang="de">
       <body className={`${inter.className} antialiased`}>
-        <div className="flex min-h-screen bg-[#0a0a0f]">
-          <Sidebar />
-          <main className="flex-1 ml-[280px]">
+        <div className="flex min-h-screen bg-[#1e1e1e]">
+          {/* Sidebar - Hidden on mobile, visible on desktop */}
+          <div className="hidden md:block">
+            <Sidebar />
+          </div>
+
+          {/* Main Content - Full width on mobile, with margin on desktop */}
+          <main className="flex-1 md:ml-[280px]">
             {children}
           </main>
         </div>
