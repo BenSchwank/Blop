@@ -115,6 +115,70 @@ def inject_custom_css():
         border-color: var(--text-secondary) !important;
         background-color: var(--bg-card-hover) !important;
     }}
+    /* ===== TURBO.AI SPECIFIC CSS ===== */
+    /* Dark Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #0e0e0e; /* Extremely dark grey */
+        border-right: 1px solid #27272a;
+    }
+    
+    /* Top Bar (simulated via container) */
+    .top-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        background: #09090b;
+        border-bottom: 1px solid #27272a;
+        z-index: 999;
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        color: white;
+    }
+
+    /* Action Cards (Turbo Style) */
+    div[data-testid="stVerticalBlockBorderWrapper"] > div {
+        background-color: #18181b; /* Card BG */
+        border: 1px solid #27272a;
+        border-radius: 12px;
+        transition: transform 0.2s, border-color 0.2s;
+    }
+    
+    div[data-testid="stVerticalBlockBorderWrapper"] > div:hover {
+        border-color: #52525b;
+        transform: translateY(-2px);
+        background-color: #27272a;
+    }
+
+    /* Button adjustments */
+    .stButton > button {
+        border-radius: 8px;
+        font-weight: 500;
+        border: 1px solid #3f3f46;
+        background-color: #27272a;
+        color: #f4f4f5;
+    }
+    .stButton > button:hover {
+        background-color: #3f3f46;
+        border-color: #52525b;
+    }
+    
+    /* Input Fields */
+    .stTextInput input {
+        background-color: #18181b;
+        border: 1px solid #27272a;
+        color: white;
+        border-radius: 8px;
+    }
+    
+    /* Dialog / Modal Styling */
+    div[data-testid="stDialog"] {
+        background-color: #09090b;
+        border: 1px solid #27272a;
+    }
+
     .stButton > button:active {{
         transform: translateY(1px) !important;
     }}
@@ -2763,6 +2827,95 @@ def show_coach_dialog(day_index, day_data):
             except json.JSONDecodeError as e:
                 st.error(f"Ungültiges JSON: {e}")
 
+@st.dialog("Neues Projekt erstellen")
+def dialog_create_note():
+    st.write("Erstelle einen neuen Lernraum (Ordner).")
+    name = st.text_input("Projekt-Name", placeholder="z.B. E-Technik 1")
+    if st.button("Erstellen", type="primary", key="create_proj_confirm"):
+        if name:
+            username = st.session_state.username
+            # Create Folder (Project)
+            # DataManager doesn't have explicit create_folder, but saving a file or listing it works if dir exists
+            # We can use _get_folder_path to ensure it exists
+            folder_path = DataManager._get_folder_path(username, name)
+            
+            # Create a dummy "Welcome" note to make it visible
+            with open(os.path.join(folder_path, "Notiz.txt"), "w") as f:
+                f.write(f"Willkommen im Projekt {name}!")
+            
+            st.toast(f"Projekt '{name}' erstellt!", icon="✅")
+            st.session_state.current_folder = name
+            st.session_state.workspace_view = "Dateien"
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Bitte einen Namen eingeben.")
+
+@st.dialog("Dokument hochladen")
+def dialog_upload_document(username, folder_id):
+    st.write("Lade Dateien hoch.")
+    
+    # If no folder selected (Dashboard access), ask for Project Name
+    target_folder = folder_id
+    if not target_folder:
+        target_folder = st.text_input("Ziel-Projekt (Neu oder Bestehend)", placeholder="Projekt Name")
+    else:
+        st.caption(f"Ziel: 📂 {target_folder}")
+
+    files = st.file_uploader("Dateien wählen", accept_multiple_files=True)
+    
+    if files and target_folder:
+        if st.button(f"{len(files)} Dateien hochladen", type="primary"):
+            folder_path = DataManager._get_folder_path(username, target_folder)
+            for f in files:
+                with open(os.path.join(folder_path, f.name), "wb") as dest:
+                    dest.write(f.read())
+            st.success("Upload erfolgreich!")
+            
+            # Switch to that folder
+            st.session_state.current_folder = target_folder
+            st.session_state.workspace_view = "Dateien"
+            time.sleep(1)
+            st.rerun()
+
+@st.dialog("Audio aufnehmen")
+def dialog_record_audio():
+    st.write("Nimm eine Vorlesung oder Notiz auf.")
+    audio = st.audio_input("Recorder")
+    if audio:
+        st.audio(audio)
+        if st.button("Speichern", type="primary"):
+            st.success("Audio gespeichert!")
+            time.sleep(1)
+            st.rerun()
+
+@st.dialog("Link importieren")
+@st.dialog("Link importieren")
+def dialog_import_link(username, folder_id):
+    st.write("Importiere Inhalte von YouTube oder Webseiten.")
+    
+    target_folder = folder_id
+    if not target_folder:
+        target_folder = st.text_input("Ziel-Projekt (Neu oder Bestehend)", placeholder="Projekt Name")
+    else:
+        st.caption(f"Ziel: 📂 {target_folder}")
+
+    url = st.text_input("URL einfügen")
+    
+    if st.button("Importieren", type="primary"):
+        if url and target_folder:
+            st.info(f"Verarbeite {url}...")
+            # Mock Import Logic -> Create dummy file
+            folder_path = DataManager._get_folder_path(username, target_folder)
+            with open(os.path.join(folder_path, "Link_Import.txt"), "w") as f:
+                f.write(f"Imported from: {url}")
+            
+            st.success("Import erfolgreich!")
+            st.session_state.current_folder = target_folder
+            st.session_state.workspace_view = "Dateien"
+            time.sleep(1)
+            st.rerun()
+
 def render_workspace_content(username, folder_id):
     # Implements vertical switching logic based on sidebar selection
     
@@ -2777,42 +2930,52 @@ def render_workspace_content(username, folder_id):
     
     # --- VIEW: Dashboard (Action Center) ---
     if active_view == "Dashboard":
-        st.markdown(f"# 👋 Guten Tag, {username}")
-        st.markdown("<p style='color:var(--text-secondary); margin-top:-16px; margin-bottom:32px'>Hier ist dein Lern-Cockpit.</p>", unsafe_allow_html=True)
+        # Header / Top Bar (Mock)
+        col_search, col_profile = st.columns([4, 1])
+        col_search.text_input("🔍 Suchen...", label_visibility="collapsed")
+        col_profile.markdown(f"<div style='text-align:right'>👤 <b>{username}</b></div>", unsafe_allow_html=True)
         
-        # --- 1. ACTION CARDS (Grid) ---
-        st.markdown("### 🚀 Schnellstart", unsafe_allow_html=True)
+        st.markdown(f"# Dashboard")
+        st.markdown("Create new notes")
+        
+        # --- 1. ACTION CARDS (Turbo Style) ---
         ac1, ac2, ac3, ac4 = st.columns(4)
         
+        # Card 1: Blank Document
         with ac1:
             with st.container(border=True):
-                st.markdown("#### 📝 Neue Notiz")
-                st.caption("Leeres Dokument")
-                if st.button("Erstellen", key="btn_new_note", use_container_width=True, type="secondary"):
-                    st.toast("Feature kommt bald!", icon="🚧")
+                st.markdown("### 📄")
+                st.markdown("**Blank document**")
+                st.caption("Start from scratch")
+                if st.button("Create", key="btn_hero_new", use_container_width=True):
+                    dialog_create_note()
 
+        # Card 2: Audio
         with ac2:
             with st.container(border=True):
-                st.markdown("#### 🎤 Audio")
-                st.caption("Aufnahme starten")
-                if st.button("Aufnehmen", key="btn_rec_audio", use_container_width=True, type="secondary"):
-                    st.toast("Feature kommt bald!", icon="🚧")
+                st.markdown("### 🎤")
+                st.markdown("**Record Audio**")
+                st.caption("Upload or record")
+                if st.button("Record", key="btn_hero_audio", use_container_width=True):
+                    dialog_record_audio()
 
+        # Card 3: Upload
         with ac3:
             with st.container(border=True):
-                st.markdown("#### 📄 Upload")
-                st.caption("PDF / Dokumente")
-                if st.button("Hochladen", key="btn_upload_doc", use_container_width=True, type="secondary"):
-                    st.session_state.workspace_view = "Dateien"
-                    st.rerun()
+                st.markdown("### 📤")
+                st.markdown("**Upload**")
+                st.caption("PDF, DOC, PPT")
+                if st.button("Upload", key="btn_hero_upload", use_container_width=True):
+                    dialog_upload_document(username, folder_id)
 
+        # Card 4: Link
         with ac4:
             with st.container(border=True):
-                st.markdown("#### 🔗 Link")
+                st.markdown("### 🔗")
+                st.markdown("**Website import**")
                 st.caption("YouTube / Web")
-                if st.button("Importieren", key="btn_import_link", use_container_width=True, type="secondary"):
-                    st.session_state.workspace_view = "Dateien"
-                    st.rerun()
+                if st.button("Import", key="btn_hero_link", use_container_width=True):
+                    dialog_import_link(username, folder_id)
         
         st.markdown("<br>", unsafe_allow_html=True)
 
