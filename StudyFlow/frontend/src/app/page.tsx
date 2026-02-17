@@ -33,51 +33,56 @@ export default function Dashboard() {
     }
   };
 
+  // Placeholder for new summary function
+  const handleNewSummary = () => {
+    alert("Neue AI-Zusammenfassung clicked!");
+  };
+
   return (
     <div className="bg-[#1e1e1e] text-white min-h-screen">
-      {/* Container with generous padding */}
-      <div className="px-8 sm:px-12 lg:px-16 xl:px-20 py-8 sm:py-10 lg:py-12">
+      {/* Centered container with max-width and generous padding */}
+      <div className="max-w-6xl mx-auto px-8 py-12">
         {/* Header */}
-        <header className="mb-8">
-          <div className="mb-6">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2 text-white">Willkommen zurück! 👋</h1>
-            <p className="text-[#888] text-sm sm:text-base">Bereit zum Lernen?</p>
-          </div>
-
-          {/* Search */}
-          <div className="mb-6">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#888]" size={20} />
-              <input
-                type="text"
-                placeholder="Suche nach Ordnern..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3.5 bg-[#252526] border border-[#444] rounded-xl text-[15px] text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all min-h-[48px]"
-              />
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button className="flex items-center justify-center gap-2 px-6 py-3.5 bg-[#5E5CE6] rounded-xl text-white font-semibold hover:bg-[#7D7AFF] active:bg-[#4D4BC4] transition-all min-h-[48px] text-[15px]">
-              <Sparkles size={20} strokeWidth={2} />
-              <span>Neue AI-Zusammenfassung</span>
-            </button>
-
-            <button
-              onClick={handleCreateFolder}
-              className="flex items-center justify-center gap-2 px-6 py-3.5 bg-[#333] border border-[#444] rounded-xl text-[#DDD] font-semibold hover:bg-[#3a3a3a] active:bg-[#444] transition-all min-h-[48px] text-[15px]"
-            >
-              <Folder size={20} strokeWidth={2} />
-              <span>Neuer Ordner</span>
-            </button>
-          </div>
+        <header className="mb-12">
+          <h1 className="text-4xl font-bold mb-3">Willkommen zurück! 👋</h1>
+          <p className="text-lg text-[#888]">Bereit zum Lernen?</p>
         </header>
 
-        {/* Folders Section */}
+        {/* Search Bar */}
+        <div className="mb-10">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#888]" size={20} />
+            <input
+              type="text"
+              placeholder="Suche nach Ordnern..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#252526] text-white px-6 py-4 rounded-xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-colors text-base pl-12"
+            />
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-12">
+          <button
+            onClick={handleNewSummary}
+            className="flex items-center justify-center gap-3 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-8 py-5 rounded-xl font-semibold text-base hover:shadow-lg hover:shadow-[#5E5CE6]/20 transition-all active:scale-95"
+          >
+            <Sparkles size={22} />
+            Neue AI-Zusammenfassung
+          </button>
+          <button
+            onClick={handleCreateFolder}
+            className="flex items-center justify-center gap-3 bg-[#252526] text-white px-8 py-5 rounded-xl font-semibold text-base border border-[#333] hover:bg-[#2d2d2d] transition-all active:scale-95"
+          >
+            <Folder size={22} /> {/* Changed FolderPlus to Folder as it's not imported */}
+            Neuer Ordner
+          </button>
+        </div>
+
+        {/* My Folders Section */}
         <section>
-          <h2 className="text-lg font-semibold mb-4 text-[#DDD]">Meine Ordner</h2>
+          <h2 className="text-2xl font-semibold mb-6">Meine Ordner</h2>
 
           {loading ? (
             <div className="flex items-center justify-center py-20">
