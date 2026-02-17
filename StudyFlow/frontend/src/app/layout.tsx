@@ -21,13 +21,11 @@ export default function RootLayout({
       <body className={`${inter.className} antialiased`}>
         <AuthCheck>
           <div className="flex min-h-screen bg-[#1e1e1e]">
-            {/* Sidebar - Hidden on mobile, visible on desktop */}
-            <div className="hidden md:block">
-              <Sidebar />
-            </div>
+            {/* Sidebar - Always visible on desktop, hidden on mobile */}
+            <Sidebar />
 
-            {/* Main Content - Full width on mobile, with margin on desktop */}
-            <main className="flex-1 md:ml-[280px]">
+            {/* Main Content - Pushed right by sidebar on desktop */}
+            <main className="flex-1 w-full ml-0 md:ml-[280px]">
               {children}
             </main>
           </div>
