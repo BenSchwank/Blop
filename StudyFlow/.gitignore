@@ -1,14 +1,34 @@
-# Streamlit
+# Firebase Credentials (NIEMALS committen!)
+backend/firebase_credentials.json
 .streamlit/secrets.toml
-.streamlit/config.toml
 
-# Data / Persistence
-user_data/
-faiss_index/
-
-# Python / Environment
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+user_data/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+
+# Environment
 .env
-.venv/
-env/
+.env.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

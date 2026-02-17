@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+google-generativeai
+langchain
+langchain-community
+firebase-admin
+PyPDF2
+fpdf
+markdown
+python-dotenv
+requests
+youtube-transcript-api
