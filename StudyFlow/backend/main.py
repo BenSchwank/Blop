@@ -14,12 +14,7 @@ app = FastAPI(title="Blop Study Backend")
 # CORS (Allow Frontend to connect)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://blop-6mzv70fvu-benschwanks-projects.vercel.app",  # Preview URL
-        "https://*.vercel.app",  # All Vercel deployments
-        "https://blop-d8jo8otb.benschwanks-projects.vercel.app"  # Production URL
-    ],
+    allow_origins=["*"],  # Allow all origins for now (fix CORS errors)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
