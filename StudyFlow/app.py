@@ -730,14 +730,14 @@ load_dotenv()
 
 # --- SETUP & CONFIG ---
 st.set_page_config(
-    page_title="Turbo.ai Clone V2",
-    page_icon="🦄",
+    page_title="Blop Study AI",
+    page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# DEBUG TOAST
-st.toast("DEBUG: App Version 3.0 Loaded", icon="🦄")
+# DEBUG TOAST (Temporary)
+st.toast("Updated: Blop Stylings v3.1", icon="✅")
 # --- TURBO AI STYLE INJECTION ---
 st.markdown("""
     <style>
