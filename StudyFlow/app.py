@@ -1102,53 +1102,53 @@ def render_sidebar():
             st.divider()
             
             with st.sidebar:
-            st.markdown("### ⚡ **Blop Turbo**")
-            
-            # Navigation
-            nav_options = {
-                "Dashboard": "🏠", 
-                "Lernpläne": "📖", 
-                "Chat": "💬",
-                "Einstellungen": "⚙️"
-            }
-            
-            current_view = st.session_state.get("workspace_view", "Dashboard")
-            if current_view not in nav_options: current_view = "Dashboard" # Fallback
-            
-            for option, icon in nav_options.items():
-                btn_type = "primary" if current_view == option else "secondary"
-                if st.button(f"{icon}  {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
-                    st.session_state.workspace_view = option
-                    st.rerun()
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # UPGRADE CTA
-            st.markdown('<div class="upgrade-btn">', unsafe_allow_html=True)
-            if st.button("✨ Upgrade auf Premium", use_container_width=True):
-                 st.toast("Premium Features kommen bald!", icon="💎")
-            st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("### ⚡ **Blop Turbo**")
+                
+                # Navigation
+                nav_options = {
+                    "Dashboard": "🏠", 
+                    "Lernpläne": "📖", 
+                    "Chat": "💬",
+                    "Einstellungen": "⚙️"
+                }
+                
+                current_view = st.session_state.get("workspace_view", "Dashboard")
+                if current_view not in nav_options: current_view = "Dashboard" # Fallback
+                
+                for option, icon in nav_options.items():
+                    btn_type = "primary" if current_view == option else "secondary"
+                    if st.button(f"{icon}  {option}", key=f"nav_{option}", type=btn_type, use_container_width=True):
+                        st.session_state.workspace_view = option
+                        st.rerun()
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # UPGRADE CTA
+                st.markdown('<div class="upgrade-btn">', unsafe_allow_html=True)
+                if st.button("✨ Upgrade auf Premium", use_container_width=True):
+                     st.toast("Premium Features kommen bald!", icon="💎")
+                st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True) # Spacer
-            
-            # User Profile Bottom
-            st.divider()
-            c_av, c_user = st.columns([1, 4])
-            c_av.markdown("👤")
-            c_user.caption(st.session_state.get("username", "Gast"))
+                st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True) # Spacer
+                
+                # User Profile Bottom
+                st.divider()
+                c_av, c_user = st.columns([1, 4])
+                c_av.markdown("👤")
+                c_user.caption(st.session_state.get("username", "Gast"))
 
-                st.rerun()
 
-            st.divider()
 
-            # File Manager (Expandable)
-            # Check flag to expand
-            expand_files = st.session_state.get("expand_file_manager", False)
-            # Reset flag after reading (to allow manual closing)
-            if expand_files: st.session_state.expand_file_manager = False
-            
-            with st.expander("📁 Datei-Manager", expanded=expand_files):
-                render_file_manager(st.session_state.get("username"), st.session_state.current_folder)
+                st.divider()
+    
+                # File Manager (Expandable)
+                # Check flag to expand
+                expand_files = st.session_state.get("expand_file_manager", False)
+                # Reset flag after reading (to allow manual closing)
+                if expand_files: st.session_state.expand_file_manager = False
+                
+                with st.expander("📁 Datei-Manager", expanded=expand_files):
+                    render_file_manager(st.session_state.get("username"), st.session_state.current_folder)
 
 def render_file_manager(username, folder_id):
     """
