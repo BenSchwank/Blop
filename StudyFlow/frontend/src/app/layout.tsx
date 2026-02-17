@@ -18,17 +18,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      <body className={`${inter.className} antialiased`}>
+      <body className={`${inter.className} antialiased bg-[#1e1e1e]`}>
         <AuthCheck>
-          <div className="flex min-h-screen bg-[#1e1e1e]">
-            {/* Sidebar - Always visible on desktop, hidden on mobile */}
-            <Sidebar />
+          {/* Sidebar - Fixed position, hidden on mobile */}
+          <Sidebar />
 
-            {/* Main Content - Pushed right by sidebar on desktop */}
-            <main className="flex-1 w-full ml-0 md:ml-[280px]">
-              {children}
-            </main>
-          </div>
+          {/* Main Content - Margin to account for sidebar */}
+          <main className="min-h-screen ml-0 md:ml-[280px]">
+            {children}
+          </main>
         </AuthCheck>
       </body>
     </html>
