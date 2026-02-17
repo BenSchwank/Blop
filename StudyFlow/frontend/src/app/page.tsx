@@ -34,7 +34,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="bg-[#1e1e1e] text-white">
+    <div className="bg-[#1e1e1e] text-white pl-0 md:pl-[280px]">
       {/* Container with max-width for better mobile/desktop experience */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen">
         {/* Header */}
