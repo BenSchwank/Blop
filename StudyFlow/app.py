@@ -2928,8 +2928,18 @@ def render_workspace_content(username, folder_id):
     
     active_view = st.session_state.get("workspace_view", "Dashboard")
     
+    # MIGRATION: Handle old "Übersicht" state
+    if active_view == "Übersicht":
+        st.session_state.workspace_view = "Dashboard"
+        active_view = "Dashboard"
+        st.rerun()
+
     # --- VIEW: Dashboard (Action Center) ---
     if active_view == "Dashboard":
+        # Version Toast
+        if "v_toast" not in st.session_state:
+             st.toast("Turbo.ai Clone v2.0 Loaded!", icon="🚀")
+             st.session_state.v_toast = True
         # Header / Top Bar (Mock)
         col_search, col_profile = st.columns([4, 1])
         col_search.text_input("🔍 Suchen...", label_visibility="collapsed")
