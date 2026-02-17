@@ -61,8 +61,8 @@ export default function AdminPanel() {
     const activeStreaks = users.filter(u => u.streak > 0).length;
 
     return (
-        <div className="min-h-screen bg-[#1e1e1e] text-white p-4 md:p-6">
-            <div className="max-w-7xl mx-auto">
+        <div className="bg-[#1e1e1e] text-white p-4 md:p-6">
+            <div className="max-w-7xl mx-auto min-h-screen">
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex items-center justify-between mb-4">
@@ -149,10 +149,10 @@ export default function AdminPanel() {
                                                 <td className="py-3 px-4 text-white">{user.xp.toLocaleString()}</td>
                                                 <td className="py-3 px-4">
                                                     <span className={`px-2 py-1 rounded-lg text-sm ${user.streak > 7
-                                                            ? 'bg-green-500/20 text-green-400'
-                                                            : user.streak > 0
-                                                                ? 'bg-yellow-500/20 text-yellow-400'
-                                                                : 'bg-[#333] text-[#888]'
+                                                        ? 'bg-green-500/20 text-green-400'
+                                                        : user.streak > 0
+                                                            ? 'bg-yellow-500/20 text-yellow-400'
+                                                            : 'bg-[#333] text-[#888]'
                                                         }`}>
                                                         {user.streak} Tage
                                                     </span>
@@ -179,9 +179,9 @@ export default function AdminPanel() {
                                 {leaderboard.map((user, index) => (
                                     <div key={user.username} className="flex items-center gap-3 p-3 bg-[#252526] rounded-lg hover:bg-[#333] transition-colors">
                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${index === 0 ? 'bg-yellow-500 text-black' :
-                                                index === 1 ? 'bg-gray-400 text-black' :
-                                                    index === 2 ? 'bg-orange-600 text-white' :
-                                                        'bg-[#444] text-white'
+                                            index === 1 ? 'bg-gray-400 text-black' :
+                                                index === 2 ? 'bg-orange-600 text-white' :
+                                                    'bg-[#444] text-white'
                                             }`}>
                                             {index + 1}
                                         </div>
