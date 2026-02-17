@@ -1,9 +1,9 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, BookOpen, MessageSquare, Brain, Settings, Sparkles } from 'lucide-react';
+import { Home, BookOpen, MessageSquare, Brain, Settings, Sparkles, Shield } from 'lucide-react';
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
@@ -15,6 +15,21 @@ const navItems = [
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const [username, setUsername] = useState('User');
+    const [isAdmin, setIsAdmin] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const user = localStorage.getItem('username') || 'User';
+            setUsername(user);
+            setIsAdmin(user === 'admin_');
+        }
+    }, []);
+
+    const handleLogout = () => {
+        localStorage.clear();
+        window.location.href = '/login';
+    };
 
     return (
         <aside className="fixed left-0 top-0 h-screen w-[280px] bg-[#1e1e1e] border-r border-[#333] flex flex-col">
@@ -54,17 +69,39 @@ export default function Sidebar() {
                         </Link>
                     );
                 })}
+
+                {/* Admin Panel (only for admin_) */}
+                {isAdmin && (
+                    <Link
+                        href="/admin"
+                        className={`
+              flex items-center gap-3 px-4 py-3.5 rounded-lg text-[15px] font-medium transition-all min-h-[44px]
+              ${pathname === '/admin'
+                                ? 'bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white'
+                                : 'text-[#DDD] hover:bg-[#333] active:bg-[#444] border border-[#5E5CE6]/30'
+                            }
+            `}
+                    >
+                        <Shield size={20} strokeWidth={2} />
+                        <span>Admin Panel</span>
+                    </Link>
+                )}
             </nav>
 
-            {/* User Profile (No Upgrade Card) */}
+            {/* User Profile with Logout */}
             <div className="p-4 border-t border-[#333]">
-                <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-[#252526] active:bg-[#333] cursor-pointer transition-all min-h-[56px]">
+                <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-[#252526] transition-all min-h-[56px]">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-semibold text-sm">
-                        U
+                        {username.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white truncate">User</p>
-                        <p className="text-xs text-[#888]">Blop Study</p>
+                        <p className="text-sm font-medium text-white truncate">{username}</p>
+                        <button
+                            onClick={handleLogout}
+                            className="text-xs text-[#888] hover:text-[#5E5CE6] transition-colors"
+                        >
+                            Abmelden
+                        </button>
                     </div>
                 </div>
             </div>
