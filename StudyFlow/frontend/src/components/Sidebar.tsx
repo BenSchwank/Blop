@@ -17,13 +17,13 @@ export default function Sidebar() {
     const pathname = usePathname();
     const [username, setUsername] = useState('User');
     const [isAdmin, setIsAdmin] = useState(false);
+    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const user = localStorage.getItem('username') || 'User';
-            setUsername(user);
-            setIsAdmin(user === 'admin_');
-        }
+        setMounted(true);
+        const user = localStorage.getItem('username') || 'User';
+        setUsername(user);
+        setIsAdmin(user === 'admin_');
     }, []);
 
     const handleLogout = () => {
@@ -31,8 +31,27 @@ export default function Sidebar() {
         window.location.href = '/login';
     };
 
+    // Don't render until mounted to avoid hydration mismatch
+    if (!mounted) {
+        return (
+            <aside className="fixed left-0 top-0 h-screen w-[280px] bg-[#1e1e1e] border-r border-[#333] flex flex-col">
+                <div className="p-6 border-b border-[#333]">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-[#5E5CE6] flex items-center justify-center">
+                            <Sparkles className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-xl font-semibold text-white">Blop Study</h1>
+                            <p className="text-xs text-[#888]">AI Lernassistent</p>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        );
+    }
+
     return (
-        <aside className="fixed left-0 top-0 h-screen w-[280px] bg-[#1e1e1e] border-r border-[#333] flex flex-col">
+        <aside className="fixed left-0 top-0 h-screen w-[280px] bg-[#1e1e1e] border-r border-[#333] flex flex-col z-50">
             {/* Logo */}
             <div className="p-6 border-b border-[#333]">
                 <div className="flex items-center gap-3">
@@ -47,7 +66,7 @@ export default function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 p-4 space-y-2">
+            <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = pathname === item.href;
