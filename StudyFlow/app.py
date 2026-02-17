@@ -2374,108 +2374,22 @@ def render_login_screen():
             st.button("Bereits ein Konto? Hier einloggen", on_click=show_login, type="secondary", use_container_width=True)
 
 def render_dashboard():
-    # Load Data
-    dashboard_user = st.session_state.get("username")
-    
-    if not dashboard_user:
+    # REDIRECT TO NEW TURBO.AI DASHBOARD
+    username = st.session_state.get("username")
+    if not username:
         st.error("Nicht eingeloggt!")
         st.stop()
-        return
-
-    # Debug (remove later if fixed)
-    # st.write(f"DEBUG: Loading data for {dashboard_user}")
-
-    data = DataManager.load(dashboard_user)
-    
-    # CSS for Cards
-    st.markdown("""
-    <style>
-    div[data-testid="stContainer"] {
-        background-color: #0E1117;
-        border-radius: 10px;
-        padding: 10px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.title(f"Dashboard")
-    st.caption("Verwalte deine Lernprojekte")
-    
-    st.divider()
-
-    # --- Quick Actions ---
-    st.subheader("🚀 Neu Starten")
-    c1, c2, c3 = st.columns(3)
-    
-    with c1:
-        with st.container(border=True):
-            st.markdown("#### 📁 Neues Projekt")
-            st.caption("Beginne ein neues Fach oder Thema.")
-            new_name = st.text_input("Projektname", placeholder="z.B. Mathe")
-            if st.button("Erstellen ➝", key="create_new_proj", type="primary", use_container_width=True):
-                if new_name:
-                    DataManager.create_folder(new_name, dashboard_user)
-                    st.rerun()
-    
-    with c2:
-        with st.container(border=True):
-            st.markdown("#### 🎤 Audio-Aufnahme")
-            st.caption("Lade Vorlesungen hoch oder nimm sie auf.")
-            st.button("Starten (Demo)", disabled=True, key="btn_audio", use_container_width=True)
-
-            
-    with c3:
-        with st.container(border=True):
-            st.markdown("#### 🔗 Projekt importieren")
-            st.caption("Code eingeben")
-            share_code = st.text_input("Share-Code", placeholder="PLAN-XXXX", label_visibility="collapsed")
-            if st.button("Importieren", key="import_btn", use_container_width=True):
-                if share_code:
-                    with st.spinner("Importiere..."):
-                        folder, msg = DataManager.import_shared_plan(share_code.strip(), dashboard_user)
-                        if folder:
-                            st.success(f"Erfolg! {folder['name']}")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error(msg)
-    
-    # --- Projects List ---
-    st.subheader("📂 Deine Projekte")
-    
-    folders = data.get("folders", [])
-    if not folders:
-        st.info("Noch keine Projekte. Erstelle eins!")
         
-    # Grid Layout for Projects
-    cols = st.columns(3)
-    for i, folder in enumerate(folders):
-        col_idx = i % 3
-        with cols[col_idx]:
-            with st.container(border=True):
-                st.markdown(f"**📁 {folder['name']}**")
-                st.caption(f"Erstellt: {folder.get('created_at', '?')}")
-                
-                c_open, c_menu = st.columns([3, 1])
-                with c_open:
-                    if st.button("Öffnen", key=folder['id'], use_container_width=True):
-                        # Clean state & Navigate
-                        if "text_chunks" in st.session_state: del st.session_state.text_chunks
-                        if "vector_index" in st.session_state: del st.session_state.vector_index
-                        navigate_to("workspace", folder=folder['id'])
-                with c_menu:
-                     with st.popover("⋮", use_container_width=True):
-                         st.write(f"**{folder['name']}**")
-                         if st.button("🗑️ Projekt Löschen", key=f"del_proj_{folder['id']}", type="primary", use_container_width=True):
-                             if DataManager.delete_folder(folder['id'], dashboard_user):
-                                 st.toast("Projekt gelöscht.")
-                                 time.sleep(1)
-                                 st.rerun()
-                             else:
-                                 st.error("Fehler.")
+    # Set view to Dashboard
+    st.session_state.workspace_view = "Dashboard"
+    
+    # Render correct content
+    render_workspace_content(username, None)
 
-    # Admin Panel (Only for admin_)
-    if dashboard_user == "admin_":
+    # Admin Panel (Only for admin_) in new layout?
+    # We can inject it at the bottom of the dashboard view if needed, 
+    # but for now let's stick to the user view.
+    if username == "admin_":
         st.divider()
         with st.expander("👮 Admin Panel", expanded=False):
             users = AuthManager.get_all_users()
@@ -2497,8 +2411,6 @@ def render_dashboard():
                             st.toast(f"Passwort für {u} auf '123456' gesetzt!")
                             time.sleep(1)
                             st.rerun()
-                        else:
-                            st.error("Fehler beim Zurücksetzen.")
                             
                     # Clear Data Button
                     if c_c.button("🧹", key=f"clear_{u}", help="Nur Daten löschen (Account behalten)"):
