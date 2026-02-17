@@ -117,13 +117,13 @@ def inject_custom_css():
     }}
     /* ===== TURBO.AI SPECIFIC CSS ===== */
     /* Dark Sidebar */
-    [data-testid="stSidebar"] {
+    [data-testid="stSidebar"] {{
         background-color: #0e0e0e; /* Extremely dark grey */
         border-right: 1px solid #27272a;
-    }
+    }}
     
     /* Top Bar (simulated via container) */
-    .top-bar {
+    .top-bar {{
         position: fixed;
         top: 0;
         left: 0;
@@ -136,48 +136,48 @@ def inject_custom_css():
         align-items: center;
         padding: 0 20px;
         color: white;
-    }
+    }}
 
     /* Action Cards (Turbo Style) */
-    div[data-testid="stVerticalBlockBorderWrapper"] > div {
+    div[data-testid="stVerticalBlockBorderWrapper"] > div {{
         background-color: #18181b; /* Card BG */
         border: 1px solid #27272a;
         border-radius: 12px;
         transition: transform 0.2s, border-color 0.2s;
-    }
+    }}
     
-    div[data-testid="stVerticalBlockBorderWrapper"] > div:hover {
+    div[data-testid="stVerticalBlockBorderWrapper"] > div:hover {{
         border-color: #52525b;
         transform: translateY(-2px);
         background-color: #27272a;
-    }
+    }}
 
     /* Button adjustments */
-    .stButton > button {
+    .stButton > button {{
         border-radius: 8px;
         font-weight: 500;
         border: 1px solid #3f3f46;
         background-color: #27272a;
         color: #f4f4f5;
-    }
-    .stButton > button:hover {
+    }}
+    .stButton > button:hover {{
         background-color: #3f3f46;
         border-color: #52525b;
-    }
+    }}
     
     /* Input Fields */
-    .stTextInput input {
+    .stTextInput input {{
         background-color: #18181b;
         border: 1px solid #27272a;
         color: white;
         border-radius: 8px;
-    }
+    }}
     
     /* Dialog / Modal Styling */
-    div[data-testid="stDialog"] {
+    div[data-testid="stDialog"] {{
         background-color: #09090b;
         border: 1px solid #27272a;
-    }
+    }}
 
     .stButton > button:active {{
         transform: translateY(1px) !important;
