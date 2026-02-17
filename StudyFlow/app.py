@@ -25,29 +25,27 @@ def inject_custom_css():
     
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    /* ===== CSS VARIABLES ===== */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    /* ===== CSS VARIABLES (Zinc Palette - Professional) ===== */
     :root {{
         --accent: {accent};
-        --accent-light: {accent}33;
-        --accent-glow: {accent}55;
-        --bg-primary: #111111;
-        --bg-secondary: #1a1a1a;
-        --bg-card: #1e1e1e;
-        --bg-card-hover: #252525;
-        --text-primary: #e0e0e0;
-        --text-secondary: #999999;
-        --border-color: #2e2e2e;
-        --border-radius: 12px;
-        --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
-        --shadow-md: 0 4px 20px rgba(0,0,0,0.3);
-        --shadow-lg: 0 8px 40px rgba(0,0,0,0.4);
-        --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        --bg-primary: #09090b;
+        --bg-secondary: #18181b;
+        --bg-card: #09090b;
+        --bg-card-hover: #27272a;
+        --text-primary: #f4f4f5;
+        --text-secondary: #a1a1aa;
+        --border-color: #27272a;
+        --border-radius: 8px; /* Sharper, more technical */
+        --transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); /* Snappy/Professional */
     }}
 
-    /* ===== GLOBAL ===== */
+    /* ===== GLOBAL RESETS ===== */
     html, body, [data-testid="stAppViewContainer"] {{
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        background-color: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
     }}
     
     /* Smooth scrolling */
@@ -56,194 +54,248 @@ def inject_custom_css():
     /* ===== HEADERS ===== */
     h1 {{
         font-weight: 700 !important;
-        letter-spacing: -0.02em !important;
+        letter-spacing: -0.025em !important;
         color: var(--text-primary) !important;
+        font-size: 2rem !important;
     }}
     h2 {{
         font-weight: 600 !important;
-        letter-spacing: -0.01em !important;
+        letter-spacing: -0.02em !important;
         color: var(--text-primary) !important;
         border-bottom: 1px solid var(--border-color) !important;
-        padding-bottom: 8px !important;
+        padding-bottom: 12px !important;
+        font-size: 1.5rem !important;
     }}
     h3, h4 {{
         font-weight: 500 !important;
+        letter-spacing: -0.01em !important;
         color: var(--text-primary) !important;
     }}
 
     /* ===== SIDEBAR ===== */
     [data-testid="stSidebar"] {{
-        background: var(--bg-secondary) !important;
+        background-color: var(--bg-secondary) !important;
         border-right: 1px solid var(--border-color) !important;
     }}
     [data-testid="stSidebar"] .stButton > button {{
-        border-radius: 8px !important;
-        font-weight: 500 !important;
-        font-size: 0.9rem !important;
-        padding: 0.55rem 1rem !important;
-        transition: var(--transition) !important;
+        background-color: transparent !important;
+        color: var(--text-secondary) !important;
         border: 1px solid transparent !important;
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+        font-size: 0.875rem !important;
+        padding: 0.5rem 0.75rem !important;
+        transition: var(--transition) !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
     }}
     [data-testid="stSidebar"] .stButton > button:hover {{
-        background: var(--bg-card) !important;
+        background-color: var(--bg-card-hover) !important;
+        color: var(--text-primary) !important;
     }}
-    [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-        background: var(--accent) !important;
+    /* Active State Simulation for Sidebar */
+    [data-testid="stSidebar"] .stButton > button:focus {{
+        background-color: var(--bg-card-hover) !important;
+        color: var(--text-primary) !important;
+        border-color: var(--border-color) !important;
     }}
 
-    /* ===== BUTTONS ===== */
+    /* ===== MAIN BUTTONS ===== */
     .stButton > button {{
-        border-radius: 8px !important;
+        border-radius: 6px !important;
         font-weight: 500 !important;
+        font-size: 0.9rem !important;
+        padding: 0.5rem 1rem !important;
         transition: var(--transition) !important;
+        border: 1px solid var(--border-color) !important;
+        background-color: transparent !important;
+        color: var(--text-primary) !important;
     }}
     .stButton > button:hover {{
-        transform: translateY(-1px) !important;
+        border-color: var(--text-secondary) !important;
+        background-color: var(--bg-card-hover) !important;
     }}
     .stButton > button:active {{
-        transform: translateY(0) !important;
+        transform: translateY(1px) !important;
     }}
+    
+    /* Primary Action Buttons */
     .stButton > button[kind="primary"] {{
-        background: var(--accent) !important;
-        border: none !important;
+        background-color: var(--accent) !important;
+        color: #ffffff !important; 
+        border: 1px solid var(--accent) !important;
+    }}
+    .stButton > button[kind="primary"]:hover {{
+        background-color: color-mix(in srgb, var(--accent) 90%, black) !important;
+        border-color: color-mix(in srgb, var(--accent) 90%, black) !important;
     }}
 
-    /* ===== CONTAINERS / CARDS ===== */
-    [data-testid="stExpander"] {{
+    /* ===== CARDS & CONTAINERS ===== */
+    [data-testid="stExpander"], 
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {{
+        background-color: var(--bg-card) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: var(--border-radius) !important;
-        overflow: hidden !important;
+        box-shadow: none !important; /* Flat design */
     }}
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {{
-        border-radius: var(--border-radius) !important;
-        border-color: var(--border-color) !important;
-        background: var(--bg-card) !important;
+    
+    /* Hover effect for cards */
+    div[data-testid="stVerticalBlock"] > div[style*="border"]:hover {{
+        border-color: var(--text-secondary) !important; /* Subtle highlight */
     }}
 
     /* ===== INPUTS ===== */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div {{
-        border-radius: 8px !important;
+        background-color: var(--bg-primary) !important;
         border: 1px solid var(--border-color) !important;
+        border-radius: 6px !important;
+        color: var(--text-primary) !important;
         transition: var(--transition) !important;
     }}
     .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus {{
+    .stTextArea > div > div > textarea:focus,
+    .stSelectbox > div > div:focus-within {{
         border-color: var(--accent) !important;
-        box-shadow: 0 0 0 2px var(--accent-light) !important;
+        box-shadow: 0 0 0 1px var(--accent) !important;
     }}
 
     /* ===== TABS ===== */
     .stTabs [data-baseweb="tab-list"] {{
-        gap: 4px !important;
-        background: var(--bg-secondary) !important;
-        border-radius: var(--border-radius) !important;
-        padding: 4px !important;
+        background-color: transparent !important;
+        border-bottom: 1px solid var(--border-color) !important;
+        gap: 24px !important;
+        padding: 0 !important;
     }}
     .stTabs [data-baseweb="tab"] {{
-        border-radius: 8px !important;
+        background-color: transparent !important;
+        border: none !important;
+        color: var(--text-secondary) !important;
+        padding-bottom: 12px !important;
         font-weight: 500 !important;
     }}
     .stTabs [aria-selected="true"] {{
-        background: var(--accent) !important;
-        color: white !important;
+        color: var(--text-primary) !important;
+        border-bottom: 2px solid var(--accent) !important;
     }}
 
-    /* ===== FLASHCARDS ===== */
+    /* ===== FLASHCARDS (Professional) ===== */
     .flashcard {{
-        background: var(--bg-card) !important;
-        color: var(--text-primary) !important;
-        padding: 40px 30px !important;
-        border-radius: 14px !important;
-        box-shadow: var(--shadow-sm) !important;
+        background-color: var(--bg-card) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--border-radius) !important;
+        padding: 48px 32px !important;
         text-align: center !important;
-        min-height: 280px !important;
+        min-height: 300px !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
         justify-content: center !important;
-        margin-bottom: 20px !important;
-        border: 1px solid var(--border-color) !important;
+        margin-bottom: 24px !important;
         transition: var(--transition) !important;
     }}
     .flashcard h4 {{
+        font-size: 1.5rem !important;
+        font-weight: 600 !important;
+        line-height: 1.5 !important;
         margin: 0 !important;
-        font-size: 1.4rem !important;
-        line-height: 1.6 !important;
     }}
+    
+    /* Flip Animation */
     .flashcard-back {{
-        background: var(--bg-card) !important;
-        border: 2px solid var(--accent) !important;
-        animation: flipIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        border-color: var(--accent) !important;
+        background-color: var(--bg-card) !important; /* Keep dark */
+        animation: flipIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
     }}
     .flashcard-front {{
-        border: 1px solid var(--border-color) !important;
-        animation: fadeIn 0.4s !important;
+        animation: fadeIn 0.3s !important;
     }}
 
     /* ===== METRICS ===== */
     [data-testid="stMetricValue"] {{
-        font-weight: 700 !important;
+        font-weight: 600 !important;
+        color: var(--text-primary) !important; 
+    }}
+    [data-testid="stMetricLabel"] {{
+        color: var(--text-secondary) !important;
     }}
 
     /* ===== DIVIDERS ===== */
     hr {{
         border-color: var(--border-color) !important;
-        opacity: 0.5 !important;
+        opacity: 1 !important;
     }}
 
-    /* ===== ALERTS ===== */
-    .stAlert {{
+    /* ===== NOTIFICATIONS / TOASTS ===== */
+    .stToast {{
+        background-color: var(--bg-secondary) !important;
+        border: 1px solid var(--border-color) !important;
+        color: var(--text-primary) !important;
         border-radius: var(--border-radius) !important;
     }}
 
     /* ===== PROGRESS BAR ===== */
     .stProgress > div > div > div > div {{
-        background: var(--accent) !important;
+        background-color: var(--accent) !important;
     }}
 
     /* ===== FILE UPLOADER ===== */
     [data-testid="stFileUploader"] {{
+        background-color: var(--bg-secondary) !important;
+        border: 1px dashed var(--border-color) !important;
         border-radius: var(--border-radius) !important;
     }}
+    [data-testid="stFileUploader"] section {{
+        background-color: transparent !important;
+    }}
 
-    /* ===== CUSTOM SCROLLBAR ===== */
+    /* ===== CUSTOM SCROLLBAR (Minimal) ===== */
     ::-webkit-scrollbar {{
-        width: 6px;
-        height: 6px;
+        width: 8px;
+        height: 8px;
     }}
     ::-webkit-scrollbar-track {{
-        background: var(--bg-primary);
+        background: transparent;
     }}
     ::-webkit-scrollbar-thumb {{
         background: var(--border-color);
-        border-radius: 3px;
+        border-radius: 4px;
     }}
     ::-webkit-scrollbar-thumb:hover {{
-        background: var(--accent);
+        background: var(--text-secondary);
     }}
 
-    /* ===== TOC STYLES ===== */
+    /* ===== TOC STYLES (Professional) ===== */
     .toc-container {{
-        background: var(--bg-secondary) !important;
+        background-color: var(--bg-secondary) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: var(--border-radius) !important;
-        padding: 16px 20px !important;
-        margin-bottom: 20px !important;
+        padding: 24px !important;
+        margin-bottom: 32px !important;
+    }}
+    .toc-container h3 {{
+        margin-top: 0 !important;
+        font-size: 1.1rem !important;
+        color: var(--text-primary) !important;
     }}
     .toc-container a {{
-        color: var(--accent) !important;
+        color: var(--text-secondary) !important;
         text-decoration: none !important;
         cursor: pointer !important;
+        display: block !important;
+        padding: 4px 0 !important;
+        transition: color 0.1s !important;
+        font-size: 0.95rem !important;
     }}
     .toc-container a:hover {{
-        text-decoration: underline !important;
+        color: var(--accent) !important;
+        text-decoration: none !important;
     }}
 
     /* ===== ANIMATIONS ===== */
     @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(10px); }}
+        from {{ opacity: 0; transform: translateY(4px); }}
         to {{ opacity: 1; transform: translateY(0); }}
     }}
     @keyframes flipIn {{
@@ -254,36 +306,20 @@ def inject_custom_css():
     /* ===== LOGIN SCREEN ===== */
     .login-header {{
         text-align: center !important;
-        margin-bottom: 30px !important;
+        margin-bottom: 40px !important;
     }}
     .login-tagline {{
         color: var(--text-secondary) !important;
         font-size: 1rem !important;
         text-align: center !important;
+        margin-top: 12px !important;
     }}
 
-    /* ===== RESPONSIVE: MOBILE ===== */
+    /* ===== RESPONSIVE ===== */
     @media (max-width: 768px) {{
-        .flashcard {{
-            min-height: 200px !important;
-            padding: 25px 20px !important;
-        }}
-        .flashcard h4 {{
-            font-size: 1.1rem !important;
-        }}
-        h1 {{ font-size: 1.6rem !important; }}
-        h2 {{ font-size: 1.3rem !important; }}
-        .stButton > button {{
-            padding: 0.6rem 0.8rem !important;
-            font-size: 0.85rem !important;
-        }}
-    }}
-    @media (max-width: 480px) {{
-        .flashcard {{
-            min-height: 160px !important;
-            padding: 20px 15px !important;
-        }}
-        h1 {{ font-size: 1.3rem !important; }}
+        h1 {{ font-size: 1.75rem !important; }}
+        h2 {{ font-size: 1.25rem !important; }}
+        .flashcard {{ min-height: 240px !important; padding: 24px !important; }}
     }}
     </style>
     """, unsafe_allow_html=True)
