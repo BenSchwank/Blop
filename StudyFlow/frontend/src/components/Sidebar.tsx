@@ -34,7 +34,7 @@ export default function Sidebar() {
     // Don't render until mounted to avoid hydration mismatch
     if (!mounted) {
         return (
-            <aside className="fixed left-0 top-0 h-screen w-[280px] bg-[#1e1e1e] border-r border-[#333] flex flex-col">
+            <aside className="h-screen w-full bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0">
                 <div className="p-6 border-b border-[#333]">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-[#5E5CE6] flex items-center justify-center">
@@ -51,7 +51,7 @@ export default function Sidebar() {
     }
 
     return (
-        <aside className="fixed left-0 top-0 h-screen w-[280px] bg-[#1e1e1e] border-r border-[#333] flex flex-col z-50">
+        <aside className="h-screen w-full bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0">
             {/* Logo */}
             <div className="p-6 border-b border-[#333]">
                 <div className="flex items-center gap-3">

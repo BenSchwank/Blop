@@ -20,13 +20,18 @@ export default function RootLayout({
     <html lang="de">
       <body className={`${inter.className} antialiased bg-[#1e1e1e]`}>
         <AuthCheck>
-          {/* Sidebar - Fixed position, hidden on mobile */}
-          <Sidebar />
+          {/* Grid Layout - Sidebar + Content */}
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] min-h-screen">
+            {/* Sidebar - Hidden on mobile */}
+            <div className="hidden md:block">
+              <Sidebar />
+            </div>
 
-          {/* Main Content - Margin to account for sidebar */}
-          <main className="min-h-screen ml-0 md:ml-[280px]">
-            {children}
-          </main>
+            {/* Main Content */}
+            <main className="min-h-screen overflow-x-hidden">
+              {children}
+            </main>
+          </div>
         </AuthCheck>
       </body>
     </html>
