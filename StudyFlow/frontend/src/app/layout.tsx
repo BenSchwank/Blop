@@ -20,8 +20,8 @@ export default function RootLayout({
     <html lang="de">
       <body className={`${inter.className} antialiased bg-[#1e1e1e]`}>
         <AuthCheck>
-          {/* Grid Layout - Sidebar + Content */}
-          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] min-h-screen">
+          {/* Grid Layout - Sidebar + Content with gap */}
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-0 md:gap-8 min-h-screen">
             {/* Sidebar - Hidden on mobile */}
             <div className="hidden md:block">
               <Sidebar />
