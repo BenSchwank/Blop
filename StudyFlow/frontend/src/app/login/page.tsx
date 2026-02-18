@@ -13,7 +13,6 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
 
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-    console.log("Login API Target:", API_BASE); // Debugging
 
 
     const handleSubmit = async (e: React.FormEvent) => {
