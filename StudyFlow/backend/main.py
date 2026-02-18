@@ -230,16 +230,17 @@ def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
     
-    context = _get_folder_context(request.username, request.folder_id)
+    context, debug_log = _get_folder_context(request.username, request.folder_id)
 
     if not context:
-        raise HTTPException(status_code=400, detail="Kein Material im Ordner gefunden (Lade PDFs oder YouTube-Videos hoch).")
+        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
+        print(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
 
     # 2. Generate Plan
     plan = AIService.generate_study_plan(context, request.duration_days)
     
-    # 2b. Cleanup Uploaded Files (Optional but good practice)
-    # For now, we rely on Gemini's auto-expiration (48h) or implement specific cleanup if needed.
+    # 2b. Cleanup (Optional)
     
     # 3. Save Plan (Auto-Save + File)
     DataManager.save_plan(plan, request.username, request.folder_id)
@@ -249,38 +250,62 @@ def create_study_plan(request: PlanRequest):
 def _get_folder_context(username: str, folder_id: str):
     """
     Aggregates material from the folder.
-    Returns a LIST of content parts: [str, file_handle, ...]
+    Returns (content_parts, debug_log)
     """
-    files = DataManager.list_files(username, folder_id)
+    debug_log = []
+    try:
+        files = DataManager.list_files(username, folder_id)
+        debug_log.append(f"Found {len(files)} files")
+    except Exception as e:
+        debug_log.append(f"ListFiles Error: {str(e)}")
+        return [], debug_log
+        
     content_parts = []
     has_content = False
     
     for f in files:
+        f_type = f.get("type", "unknown")
+        f_name = f.get("name", "unnamed")
+        debug_log.append(f"Processing {f_name} ({f_type})")
+        
         # 1. YouTube Transcripts (Text)
-        if f.get("type") == "transcript":
+        if f_type == "transcript":
              if "content" in f:
-                 content_parts.append(f"--- Transkript: {f.get('name')} ---\n{f['content']}\n\n")
+                 content_parts.append(f"--- Transkript: {f_name} ---\n{f['content']}\n\n")
                  has_content = True
+                 debug_log.append(f"Added transcript {f_name}")
+             else:
+                 debug_log.append(f"Transcript {f_name} has no content")
         
         # 2. PDFs (Upload to Gemini for OCR/Vision)
-        elif f.get("type") == "pdf":
+        elif f_type == "pdf":
             try:
                 # Get local path
-                pdf_path = DataManager.get_pdf_path(f["name"], username, folder_id)
+                debug_log.append(f"Fetching PDF path for {f_name}")
+                pdf_path = DataManager.get_pdf_path(f_name, username, folder_id)
                 
-                if pdf_path and os.path.exists(pdf_path):
-                    # Upload to Gemini
-                    print(f"Uploading PDF to Gemini: {f['name']}")
-                    uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
-                    content_parts.append(uploaded_file)
-                    has_content = True
+                if pdf_path:
+                    if os.path.exists(pdf_path):
+                        # Upload to Gemini
+                        debug_log.append(f"Uploading {f_name} to Gemini from {pdf_path}")
+                        try:
+                            uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
+                            content_parts.append(uploaded_file)
+                            has_content = True
+                            debug_log.append(f"Successfully uploaded {f_name}")
+                        except Exception as upload_err:
+                             debug_log.append(f"GenAI Upload Error: {str(upload_err)}")
+                    else:
+                        debug_log.append(f"Path returned but file missing: {pdf_path}")
+                else:
+                    debug_log.append(f"DataManager returned None path for {f_name}")
             except Exception as e:
-                print(f"Error uploading PDF {f.get('name')}: {e}")
+                debug_log.append(f"Error processing PDF {f_name}: {str(e)}")
                 
     if not has_content:
-        return []
+        return [], debug_log
         
-    return content_parts
+    return content_parts, debug_log
 
 @app.post("/api/ai/quiz")
 def create_quiz(request: GenRequest):
@@ -288,10 +313,11 @@ def create_quiz(request: GenRequest):
     import json
     from datetime import datetime
 
-    context = _get_folder_context(request.username, request.folder_id)
+    context, debug_log = _get_folder_context(request.username, request.folder_id)
     
     if not context:
-        raise HTTPException(status_code=400, detail="Kein Material gefunden.")
+        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
+        raise HTTPException(status_code=400, detail=error_msg)
         
     quiz = AIService.generate_quiz(context)
     
@@ -306,9 +332,11 @@ def create_quiz(request: GenRequest):
 @app.post("/api/ai/flashcards")
 def create_flashcards(request: GenRequest):
     from ai_service import AIService
-    context = _get_folder_context(request.username, request.folder_id)
+    context, debug_log = _get_folder_context(request.username, request.folder_id)
     
-    if not context: raise HTTPException(status_code=400, detail="Kein Material gefunden.")
+    if not context:
+        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
+        raise HTTPException(status_code=400, detail=error_msg)
         
     cards = AIService.generate_flashcards(context)
     
@@ -325,9 +353,11 @@ def create_flashcards(request: GenRequest):
 @app.post("/api/ai/summary")
 def create_summary(request: GenRequest):
     from ai_service import AIService
-    context = _get_folder_context(request.username, request.folder_id)
+    context, debug_log = _get_folder_context(request.username, request.folder_id)
     
-    if not context: raise HTTPException(status_code=400, detail="Kein Material gefunden.")
+    if not context:
+        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
+        raise HTTPException(status_code=400, detail=error_msg)
         
     summary = AIService.generate_summary(context)
     
