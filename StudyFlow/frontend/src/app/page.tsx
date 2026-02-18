@@ -111,37 +111,37 @@ export default function Dashboard() {
         </div>
 
         {/* Search Bar & Actions Row - GRID LAYOUT */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] items-center gap-6 mb-12">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] items-center gap-6 mb-12 h-16">
 
           {/* Search */}
-          <div className="relative w-full">
-            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-gray-400">
-              <Search size={22} />
+          <div className="relative w-full h-full">
+            <div className="absolute inset-y-0 left-0 pl-6 flex items-center pointer-events-none text-gray-400">
+              <Search size={24} />
             </div>
             <input
               type="text"
               placeholder="Suche nach Ordnern..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-14 pr-6 py-4 bg-[#252526] text-white text-base rounded-2xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
+              className="w-full h-full pl-16 pr-6 bg-[#252526] text-white text-lg rounded-2xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
 
           {/* Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 h-full">
             <button
               onClick={() => alert("Coming soon!")}
-              className="flex items-center justify-center gap-3 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-6 py-4 rounded-2xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[160px]"
+              className="h-full flex items-center justify-center gap-4 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-10 rounded-2xl text-base font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[180px]"
             >
-              <Sparkles size={20} />
+              <Sparkles size={22} />
               <span>AI-Summary</span>
             </button>
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl text-sm font-semibold border border-blue-500/30 transition-all shadow-md min-w-[160px]"
+              className="h-full flex items-center justify-center gap-4 bg-blue-600 hover:bg-blue-700 text-white px-10 rounded-2xl text-base font-semibold border border-blue-500/30 transition-all shadow-md min-w-[180px]"
             >
-              <Folder size={20} />
+              <Folder size={22} />
               <span>Neuer Ordner</span>
             </button>
           </div>
