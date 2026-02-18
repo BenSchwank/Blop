@@ -223,92 +223,80 @@ def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
     
-    # 1. Get all text content from folder
-    files = DataManager.list_files(request.username, request.folder_id)
-    full_text = ""
-    
-    for f in files:
-        # Load content depending on type
-        # For MVP we only load Transcripts directly. 
-        # PDFs need OCR/Extraction (not implemented in this step).
-        if f.get("type") == "transcript":
-             # We need to load the content. 
-             # DataManager.list_files returns metadata.
-             # We assume content is in metadata for cloud transcripts?
-             # Or we need a load_file method.
-             # For MVP: let's try to get it.
-             if "content" in f:
-                 full_text += f["content"] + "\n\n"
-    
-    if len(full_text) < 100:
-        # Fallback: Try to load local files if simple text
-        pass
+    full_text = _get_folder_context(request.username, request.folder_id)
 
     if not full_text:
-        raise HTTPException(status_code=400, detail="Kein Textmaterial im Ordner gefunden (nur YouTube Transkripte werden aktuell analysiert).")
+        raise HTTPException(status_code=400, detail="Kein Textmaterial im Ordner gefunden (Lade PDFs oder YouTube-Videos hoch).")
 
     # 2. Generate Plan
     plan = AIService.generate_study_plan(full_text, request.duration_days)
     
-    # 3. Save Plan
+    # 3. Save Plan (Auto-Save + File)
     DataManager.save_plan(plan, request.username, request.folder_id)
     
-    return plan
+    return {"status": "success", "plan": plan}
+
+def _get_folder_context(username: str, folder_id: str) -> str:
+    """Helper to aggregate text from all files in a folder."""
+    files = DataManager.list_files(username, folder_id)
+    full_text = ""
+    
+    for f in files:
+        # 1. YouTube Transcripts
+        if f.get("type") == "transcript":
+             if "content" in f:
+                 full_text += f"--- Transkript: {f.get('name')} ---\n{f['content']}\n\n"
+        
+        # 2. PDFs
+        elif f.get("type") == "pdf":
+            try:
+                from pypdf import PdfReader
+                import os
+                # Get file path (handles local/cloud diffs)
+                pdf_path = DataManager.get_pdf_path(f["name"], username, folder_id)
+                
+                if pdf_path and os.path.exists(pdf_path):
+                    reader = PdfReader(pdf_path)
+                    text = ""
+                    for page in reader.pages:
+                        text += page.extract_text() + "\n"
+                    full_text += f"--- PDF: {f.get('name')} ---\n{text}\n\n"
+            except Exception as e:
+                print(f"Error reading PDF {f.get('name')}: {e}")
+                
+    return full_text
 
 @app.post("/api/ai/quiz")
 def create_quiz(request: PlanRequest):
     """Generates a quiz from folder contents."""
     from ai_service import AIService
+    import json
+    from datetime import datetime
+
+    full_text = _get_folder_context(request.username, request.folder_id)
     
-    # 1. Get content
-    files = DataManager.list_files(request.username, request.folder_id)
-    full_text = ""
-    for f in files:
-        if f.get("type") == "transcript" and "content" in f:
-             full_text += f["content"] + "\n\n"
-             
     if not full_text:
         raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
-
-    # 2. Generate
+        
     quiz = AIService.generate_quiz(full_text)
     
-    # 3. Save
-    import json
+    # Save as file
+    file_id = f"quiz_{int(datetime.now().timestamp())}"
     DataManager.save_file_metadata({
-        "id": f"quiz_{int(datetime.now().timestamp())}",
-        "name": "Generiertes Quiz",
-        "type": "quiz",
-        "content": quiz,
-        "created_at": datetime.now().strftime("%Y-%m-%d")
+        "id": file_id, "name": "AI Quiz", "type": "quiz", "content": quiz, "created_at": datetime.now().strftime("%Y-%m-%d")
     }, request.username, request.folder_id)
-
-    return quiz
+    
+    return {"status": "success", "quiz": quiz}
 
 @app.post("/api/ai/flashcards")
-def create_flashcards(request: PlanRequest):
-    """Generates flashcards."""
+def create_flashcards(request: GenRequest):
     from ai_service import AIService
+    full_text = _get_folder_context(request.username, request.folder_id)
     
-    files = DataManager.list_files(request.username, request.folder_id)
-    full_text = ""
-    for f in files:
-        if f.get("type") == "transcript" and "content" in f:
-             full_text += f["content"] + "\n\n"
-             
-    if not full_text:
-        raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
-
+    if not full_text: raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+        
     cards = AIService.generate_flashcards(full_text)
     
-    # Save using DataManager's special method
-    # Convert simple dict to advanced card structure if needed, or just save generic
-    # DataManager.save_flashcards(request.username, request.folder_id, cards) 
-    # ^ We need to adapt the structure or update DataManager. 
-    # Let's save as generic JSON file for now.
-    
-    import json
-    content_str = json.dumps(cards)
     DataManager.save_file_metadata({
         "id": f"cards_{int(datetime.now().timestamp())}",
         "name": "Generierte Karteikarten",
@@ -320,24 +308,18 @@ def create_flashcards(request: PlanRequest):
     return cards
 
 @app.post("/api/ai/summary")
-def create_summary(request: PlanRequest):
-    """Generates a summary."""
+def create_summary(request: GenRequest):
     from ai_service import AIService
+    full_text = _get_folder_context(request.username, request.folder_id)
     
-    files = DataManager.list_files(request.username, request.folder_id)
-    full_text = ""
-    for f in files:
-        if f.get("type") == "transcript" and "content" in f:
-             full_text += f["content"] + "\n\n"
-             
-    if not full_text:
-        raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
-
+    if not full_text: raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+        
     summary = AIService.generate_summary(full_text)
     
-    DataManager.save_summary_as_file("AI Zusammenfassung", summary, request.username, request.folder_id)
+    # Save summary 
+    DataManager.save_generated_summary(summary, request.username, request.folder_id)
     
-    return {"summary": summary}
+    return {"status": "success", "summary": summary}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
