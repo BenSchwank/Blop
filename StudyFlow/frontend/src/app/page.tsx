@@ -123,7 +123,7 @@ export default function Dashboard() {
               placeholder="Suche nach Ordnern..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-full pl-12 pr-4 bg-[#252526] text-white text-sm rounded-xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
+              className="w-full h-full pl-16 pr-4 bg-[#252526] text-white text-sm rounded-xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
 
