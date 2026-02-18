@@ -27,7 +27,7 @@ export default function FolderPage({ params }: { params: { id: string } }) {
     // AI Plan State
     const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
 
-    const API_BASE = "http://localhost:8000/api";
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
     const fetchFiles = async () => {
         try {

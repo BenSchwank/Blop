@@ -234,6 +234,83 @@ def create_study_plan(request: PlanRequest):
     
     return plan
 
+@app.post("/api/ai/quiz")
+def create_quiz(request: PlanRequest):
+    """Generates a quiz from folder contents."""
+    from ai_service import AIService
+    
+    # 1. Get content
+    files = DataManager.list_files(request.username, request.folder_id)
+    full_text = ""
+    for f in files:
+        if f.get("type") == "transcript" and "content" in f:
+             full_text += f["content"] + "\n\n"
+             
+    if not full_text:
+        raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+
+    # 2. Generate
+    quiz = AIService.generate_quiz(full_text)
+    
+    # 3. Save (as file metadata)
+    # We might want to save it as a distinct file "Quiz.json"
+    # For now, we return it, frontend can start it.
+    return quiz
+
+@app.post("/api/ai/flashcards")
+def create_flashcards(request: PlanRequest):
+    """Generates flashcards."""
+    from ai_service import AIService
+    
+    files = DataManager.list_files(request.username, request.folder_id)
+    full_text = ""
+    for f in files:
+        if f.get("type") == "transcript" and "content" in f:
+             full_text += f["content"] + "\n\n"
+             
+    if not full_text:
+        raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+
+    cards = AIService.generate_flashcards(full_text)
+    
+    # Save using DataManager's special method
+    # Convert simple dict to advanced card structure if needed, or just save generic
+    # DataManager.save_flashcards(request.username, request.folder_id, cards) 
+    # ^ We need to adapt the structure or update DataManager. 
+    # Let's save as generic JSON file for now.
+    
+    import json
+    content_str = json.dumps(cards)
+    DataManager.save_file_metadata({
+        "id": f"cards_{int(datetime.now().timestamp())}",
+        "name": "Generierte Karteikarten",
+        "type": "flashcards",
+        "content": cards,
+        "created_at": datetime.now().strftime("%Y-%m-%d")
+    }, request.username, request.folder_id)
+
+    return cards
+
+@app.post("/api/ai/summary")
+def create_summary(request: PlanRequest):
+    """Generates a summary."""
+    from ai_service import AIService
+    
+    files = DataManager.list_files(request.username, request.folder_id)
+    full_text = ""
+    for f in files:
+        if f.get("type") == "transcript" and "content" in f:
+             full_text += f["content"] + "\n\n"
+             
+    if not full_text:
+        raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+
+    summary = AIService.generate_summary(full_text)
+    
+    DataManager.save_summary_as_file("AI Zusammenfassung", summary, request.username, request.folder_id)
+    
+    return {"summary": summary}
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
