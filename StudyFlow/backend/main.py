@@ -6,8 +6,15 @@ import uvicorn
 import os
 
 # Import local modules
+# Import local modules
 from data_manager import DataManager
 from auth_manager import AuthManager
+import google.generativeai as genai
+
+# Configure GenAI (Global for main.py usage like upload_file)
+api_key = os.environ.get("GOOGLE_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
 app = FastAPI(title="Blop Study Backend")
 
