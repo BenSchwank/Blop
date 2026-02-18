@@ -1,12 +1,18 @@
 fastapi
 uvicorn[standard]
 python-multipart
+# AI Dependencies
 google-generativeai
+google-genai
 langchain
 langchain-community
+langchain-google-genai
+# Firebase
 firebase-admin
+# PDF & Utils
 PyPDF2
 fpdf
+fpdf2
 markdown
 python-dotenv
 requests
