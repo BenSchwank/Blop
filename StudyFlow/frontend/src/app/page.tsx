@@ -115,7 +115,7 @@ export default function Dashboard() {
 
           {/* Search */}
           <div className="relative w-full h-full">
-            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-gray-400">
+            <div className="absolute inset-y-0 left-0 pl-6 flex items-center pointer-events-none text-gray-400">
               <Search size={22} className="text-gray-400" />
             </div>
             <input
@@ -123,7 +123,7 @@ export default function Dashboard() {
               placeholder="Suche nach Ordnern..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '60px' }} // Force padding to ensure icon doesn't overlap
+              style={{ paddingLeft: '68px' }} // Force padding to ensure icon doesn't overlap
               className="w-full h-full pr-4 bg-[#252526] text-white text-sm rounded-xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
