@@ -7,8 +7,12 @@ import { Home, Settings, Shield, Sparkles } from 'lucide-react';
 
 export default function MobileNav() {
     const pathname = usePathname();
-    const username = typeof window !== 'undefined' ? localStorage.getItem('username') : null;
-    const isAdmin = username === 'admin_';
+    const [isAdmin, setIsAdmin] = React.useState(false);
+
+    React.useEffect(() => {
+        const username = localStorage.getItem('username');
+        setIsAdmin(username === 'admin_');
+    }, []);
 
     const navItems = [
         { href: '/', label: 'Home', icon: Home },

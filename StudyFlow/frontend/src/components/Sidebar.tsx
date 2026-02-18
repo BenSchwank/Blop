@@ -23,7 +23,11 @@ export default function Sidebar() {
         setMounted(true);
         const user = localStorage.getItem('username') || 'User';
         setUsername(user);
-        setIsAdmin(user === 'admin_');
+    }, []);
+
+    React.useEffect(() => {
+        const username = localStorage.getItem('username');
+        setIsAdmin(username === 'admin_');
     }, []);
 
     const handleLogout = () => {
