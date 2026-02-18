@@ -252,9 +252,16 @@ def create_quiz(request: PlanRequest):
     # 2. Generate
     quiz = AIService.generate_quiz(full_text)
     
-    # 3. Save (as file metadata)
-    # We might want to save it as a distinct file "Quiz.json"
-    # For now, we return it, frontend can start it.
+    # 3. Save
+    import json
+    DataManager.save_file_metadata({
+        "id": f"quiz_{int(datetime.now().timestamp())}",
+        "name": "Generiertes Quiz",
+        "type": "quiz",
+        "content": quiz,
+        "created_at": datetime.now().strftime("%Y-%m-%d")
+    }, request.username, request.folder_id)
+
     return quiz
 
 @app.post("/api/ai/flashcards")
