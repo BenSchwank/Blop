@@ -96,7 +96,7 @@ export default function Dashboard() {
   return (
     <div className="bg-[#1e1e1e] min-h-screen relative">
       {/* Main Container - Professional Width */}
-      <div className="max-w-7xl mx-auto px-8 py-12">
+      <div className="max-w-7xl mr-auto px-8 py-12">
 
         {/* Header */}
         <div className="mb-10 flex items-center justify-between">
