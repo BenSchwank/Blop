@@ -110,9 +110,9 @@ export default function Dashboard() {
         </div>
 
         {/* Search Bar & Actions Row */}
-        <div className="flex flex-col md:flex-row gap-6 mb-10">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-10">
+          <div className="relative w-full md:max-w-2xl">
+            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-gray-400 pb-0.5">
               <Search size={22} />
             </div>
             <input
@@ -127,7 +127,7 @@ export default function Dashboard() {
           <div className="flex gap-4">
             <button
               onClick={() => alert("Coming soon!")}
-              className="flex items-center gap-3 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-8 py-3.5 rounded-2xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all whitespace-nowrap"
+              className="flex items-center gap-3 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-6 py-4 rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all whitespace-nowrap"
             >
               <Sparkles size={20} />
               <span>AI-Summary</span>
@@ -135,7 +135,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-3 bg-[#252526] text-white px-8 py-3.5 rounded-2xl text-sm font-semibold border border-[#333] hover:bg-[#2d2d2d] transition-all whitespace-nowrap shadow-sm"
+              className="flex items-center gap-3 bg-[#252526] text-white px-6 py-4 rounded-xl text-sm font-semibold border border-[#333] hover:bg-[#2d2d2d] transition-all whitespace-nowrap shadow-sm"
             >
               <Folder size={20} />
               <span>Neuer Ordner</span>
