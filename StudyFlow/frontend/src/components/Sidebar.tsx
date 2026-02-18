@@ -7,9 +7,9 @@ import { Home, BookOpen, MessageSquare, Brain, Settings, Sparkles, Shield } from
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
-    { href: '/plans', label: 'Lernpläne', icon: BookOpen },
-    { href: '/chat', label: 'AI Chat', icon: MessageSquare },
-    { href: '/flashcards', label: 'Karteikarten', icon: Brain },
+    // { href: '/plans', label: 'Lernpläne', icon: BookOpen },
+    // { href: '/chat', label: 'AI Chat', icon: MessageSquare },
+    // { href: '/flashcards', label: 'Karteikarten', icon: Brain },
     { href: '/settings', label: 'Einstellungen', icon: Settings },
 ];
 
