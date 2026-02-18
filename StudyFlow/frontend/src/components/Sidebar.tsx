@@ -76,7 +76,6 @@ export default function Sidebar() {
                     const isActive = pathname === item.href;
 
                     return (
-                    return (
                         <Link
                             key={item.href}
                             href={item.href}
