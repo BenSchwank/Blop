@@ -12,81 +12,94 @@ model_name = "gemini-2.0-flash-exp" # Or latest available
 
 class AIService:
     @staticmethod
-    def generate_summary(text: str, detail_level: str = "Normal") -> str:
-        """Generates a summary of the provided text."""
+    def generate_summary(content: List[Any], detail_level: str = "Normal") -> str:
+        """Generates a summary from text or multimodal content."""
         try:
             model = genai.GenerativeModel(model_name)
+            
+            # Prepare Prompt Part
             prompt = f"""
-            Erstelle eine Zusammenfassung des folgenden Textes auf Deutsch.
+            Erstelle eine Zusammenfassung des folgenden Materials auf Deutsch.
             Detailgrad: {detail_level}
             
             Formatierung: Markdown.
             Verwende Überschriften, Listen und hebe wichtige Begriffe fett hervor.
+            """
             
-            Text:
-            {text[:30000]} 
-            """ # Truncate to avoid context limit issues blindly
+            # Combine Prompt + Content
+            # content is expected to be a list that can contain strings or File objects
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
             
-            response = model.generate_content(prompt)
+            response = model.generate_content(input_parts)
             return response.text
         except Exception as e:
             return f"Fehler bei der Generierung: {str(e)}"
 
     @staticmethod
-    def generate_quiz(text: str) -> List[Dict[str, Any]]:
-        """Generates a quiz from the text."""
+    def generate_quiz(content: List[Any]) -> List[Dict[str, Any]]:
+        """Generates a quiz from multimodal content."""
         try:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-            prompt = f"""
-            Erstelle ein Quiz mit 5 Fragen basierend auf dem folgenden Text.
+            prompt = """
+            Erstelle ein Quiz mit 5 Fragen basierend auf dem folgenden Material.
             Ausgabe-Format: JSON Array.
             Beispiel:
             [
-                {{
+                {
                     "question": "Frage?",
                     "options": ["A", "B", "C", "D"],
                     "answer": "A"
-                }}
+                }
             ]
-            
-            Text:
-            {text[:20000]}
             """
             
-            response = model.generate_content(prompt)
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+            
+            response = model.generate_content(input_parts)
             return json.loads(response.text)
         except Exception as e:
             print(f"Quiz Error: {e}")
             return []
 
     @staticmethod
-    def generate_flashcards(text: str) -> List[Dict[str, str]]:
-        """Generates flashcards."""
+    def generate_flashcards(content: List[Any]) -> List[Dict[str, str]]:
+        """Generates flashcards from multimodal content."""
         try:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-            prompt = f"""
-            Erstelle 10 Karteikarten aus dem Text.
+            prompt = """
+            Erstelle 10 Karteikarten aus dem Material.
             Format: JSON Array
             [
-                {{"front": "Frage/Begriff", "back": "Antwort/Erklärung"}}
+                {"front": "Frage/Begriff", "back": "Antwort/Erklärung"}
             ]
-            
-            Text:
-            {text[:20000]}
             """
-            response = model.generate_content(prompt)
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+                
+            response = model.generate_content(input_parts)
             return json.loads(response.text)
         except Exception as e:
             print(f"Flashcard Error: {e}")
             return []
 
     @staticmethod
-    def generate_study_plan(text: str, duration_days: int) -> List[Dict[str, Any]]:
-        """Generates a structured study plan."""
+    def generate_study_plan(content: List[Any], duration_days: int) -> List[Dict[str, Any]]:
+        """Generates a structured study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             prompt = f"""
-            Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Text.
+            Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Material.
             Der Plan soll den Stoff sinnvoll aufteilen.
             
             Ausgabe-Format: JSON Array
@@ -98,12 +111,14 @@ class AIService:
                     "goal": "Ziel des Tages"
                 }}
             ]
-            
-            Text:
-            {text[:40000]}
             """
-            
-            response = model.generate_content(prompt)
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+
+            response = model.generate_content(input_parts)
             return json.loads(response.text)
         except Exception as e:
             print(f"Plan Error: {e}")

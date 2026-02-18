@@ -223,62 +223,70 @@ def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
     
-    full_text = _get_folder_context(request.username, request.folder_id)
+    context = _get_folder_context(request.username, request.folder_id)
 
-    if not full_text:
-        raise HTTPException(status_code=400, detail="Kein Textmaterial im Ordner gefunden (Lade PDFs oder YouTube-Videos hoch).")
+    if not context:
+        raise HTTPException(status_code=400, detail="Kein Material im Ordner gefunden (Lade PDFs oder YouTube-Videos hoch).")
 
     # 2. Generate Plan
-    plan = AIService.generate_study_plan(full_text, request.duration_days)
+    plan = AIService.generate_study_plan(context, request.duration_days)
+    
+    # 2b. Cleanup Uploaded Files (Optional but good practice)
+    # For now, we rely on Gemini's auto-expiration (48h) or implement specific cleanup if needed.
     
     # 3. Save Plan (Auto-Save + File)
     DataManager.save_plan(plan, request.username, request.folder_id)
     
     return {"status": "success", "plan": plan}
 
-def _get_folder_context(username: str, folder_id: str) -> str:
-    """Helper to aggregate text from all files in a folder."""
+def _get_folder_context(username: str, folder_id: str):
+    """
+    Aggregates material from the folder.
+    Returns a LIST of content parts: [str, file_handle, ...]
+    """
     files = DataManager.list_files(username, folder_id)
-    full_text = ""
+    content_parts = []
+    has_content = False
     
     for f in files:
-        # 1. YouTube Transcripts
+        # 1. YouTube Transcripts (Text)
         if f.get("type") == "transcript":
              if "content" in f:
-                 full_text += f"--- Transkript: {f.get('name')} ---\n{f['content']}\n\n"
+                 content_parts.append(f"--- Transkript: {f.get('name')} ---\n{f['content']}\n\n")
+                 has_content = True
         
-        # 2. PDFs
+        # 2. PDFs (Upload to Gemini for OCR/Vision)
         elif f.get("type") == "pdf":
             try:
-                from pypdf import PdfReader
-                import os
-                # Get file path (handles local/cloud diffs)
+                # Get local path
                 pdf_path = DataManager.get_pdf_path(f["name"], username, folder_id)
                 
                 if pdf_path and os.path.exists(pdf_path):
-                    reader = PdfReader(pdf_path)
-                    text = ""
-                    for page in reader.pages:
-                        text += page.extract_text() + "\n"
-                    full_text += f"--- PDF: {f.get('name')} ---\n{text}\n\n"
+                    # Upload to Gemini
+                    print(f"Uploading PDF to Gemini: {f['name']}")
+                    uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
+                    content_parts.append(uploaded_file)
+                    has_content = True
             except Exception as e:
-                print(f"Error reading PDF {f.get('name')}: {e}")
+                print(f"Error uploading PDF {f.get('name')}: {e}")
                 
-    return full_text
+    if not has_content:
+        return []
+        
+    return content_parts
 
 @app.post("/api/ai/quiz")
-def create_quiz(request: PlanRequest):
-    """Generates a quiz from folder contents."""
+def create_quiz(request: GenRequest):
     from ai_service import AIService
     import json
     from datetime import datetime
 
-    full_text = _get_folder_context(request.username, request.folder_id)
+    context = _get_folder_context(request.username, request.folder_id)
     
-    if not full_text:
-        raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+    if not context:
+        raise HTTPException(status_code=400, detail="Kein Material gefunden.")
         
-    quiz = AIService.generate_quiz(full_text)
+    quiz = AIService.generate_quiz(context)
     
     # Save as file
     file_id = f"quiz_{int(datetime.now().timestamp())}"
@@ -291,30 +299,30 @@ def create_quiz(request: PlanRequest):
 @app.post("/api/ai/flashcards")
 def create_flashcards(request: GenRequest):
     from ai_service import AIService
-    full_text = _get_folder_context(request.username, request.folder_id)
+    context = _get_folder_context(request.username, request.folder_id)
     
-    if not full_text: raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+    if not context: raise HTTPException(status_code=400, detail="Kein Material gefunden.")
         
-    cards = AIService.generate_flashcards(full_text)
+    cards = AIService.generate_flashcards(context)
     
     DataManager.save_file_metadata({
         "id": f"cards_{int(datetime.now().timestamp())}",
         "name": "Generierte Karteikarten",
-        "type": "flashcards",
+        "type": "flashcards", 
         "content": cards,
         "created_at": datetime.now().strftime("%Y-%m-%d")
     }, request.username, request.folder_id)
-
-    return cards
+    
+    return {"status": "success", "flashcards": cards}
 
 @app.post("/api/ai/summary")
 def create_summary(request: GenRequest):
     from ai_service import AIService
-    full_text = _get_folder_context(request.username, request.folder_id)
+    context = _get_folder_context(request.username, request.folder_id)
     
-    if not full_text: raise HTTPException(status_code=400, detail="Kein Textmaterial gefunden.")
+    if not context: raise HTTPException(status_code=400, detail="Kein Material gefunden.")
         
-    summary = AIService.generate_summary(full_text)
+    summary = AIService.generate_summary(context)
     
     # Save summary 
     DataManager.save_generated_summary(summary, request.username, request.folder_id)
