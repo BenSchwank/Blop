@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 interface FolderData {
   id: string;
   name: string;
+  files?: any[];
 }
 
 export default function Dashboard() {
