@@ -13,6 +13,8 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
 
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+    console.log("Login API Target:", API_BASE); // Debugging
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -71,8 +73,8 @@ export default function LoginPage() {
                         <button
                             onClick={() => setIsLogin(true)}
                             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${isLogin
-                                    ? 'bg-[#5E5CE6] text-white'
-                                    : 'bg-[#252526] text-[#888] hover:bg-[#333]'
+                                ? 'bg-[#5E5CE6] text-white'
+                                : 'bg-[#252526] text-[#888] hover:bg-[#333]'
                                 }`}
                         >
                             Anmelden
@@ -80,8 +82,8 @@ export default function LoginPage() {
                         <button
                             onClick={() => setIsLogin(false)}
                             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${!isLogin
-                                    ? 'bg-[#5E5CE6] text-white'
-                                    : 'bg-[#252526] text-[#888] hover:bg-[#333]'
+                                ? 'bg-[#5E5CE6] text-white'
+                                : 'bg-[#252526] text-[#888] hover:bg-[#333]'
                                 }`}
                         >
                             Registrieren
@@ -119,8 +121,8 @@ export default function LoginPage() {
 
                         {error && (
                             <div className={`p-3 rounded-lg text-sm ${error.includes('erfolgreich')
-                                    ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
                                 }`}>
                                 {error}
                             </div>
