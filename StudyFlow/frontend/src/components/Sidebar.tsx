@@ -80,15 +80,16 @@ export default function Sidebar() {
                             key={item.href}
                             href={item.href}
                             className={`
-                flex items-center gap-4 pl-8 pr-6 py-4 rounded-xl text-[15px] font-medium transition-all min-h-[52px]
+                flex items-center gap-5 px-8 py-4 rounded-xl text-[15px] font-medium transition-all min-h-[56px] relative overflow-hidden group
                 ${isActive
                                     ? 'bg-[#5E5CE6] text-white shadow-md shadow-[#5E5CE6]/20'
                                     : 'text-[#DDD] hover:bg-[#333] active:bg-[#444]'
                                 }
               `}
                         >
-                            <Icon size={22} strokeWidth={2} />
-                            <span>{item.label}</span>
+                            <Icon size={24} strokeWidth={2} className="relative z-10" />
+                            <span className="relative z-10">{item.label}</span>
+                            {isActive && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#8F8DFF] rounded-r-full" />}
                         </Link>
                     );
                 })}
@@ -98,7 +99,7 @@ export default function Sidebar() {
                     <Link
                         href="/admin"
                         className={`
-              flex items-center gap-4 pl-8 pr-6 py-4 rounded-xl text-[15px] font-medium transition-all min-h-[52px]
+              flex items-center gap-5 px-8 py-4 rounded-xl text-[15px] font-medium transition-all min-h-[56px]
               ${pathname === '/admin'
                                 ? 'bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white shadow-md'
                                 : 'text-[#DDD] hover:bg-[#333] active:bg-[#444] border border-[#5E5CE6]/30'
