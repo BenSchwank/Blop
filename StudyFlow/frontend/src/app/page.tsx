@@ -197,24 +197,25 @@ export default function Dashboard() {
                 <div
                   key={folder.id}
                   onClick={() => router.push(`/folder/${folder.id}`)}
-                  className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-2xl p-5 transition-all cursor-pointer shadow-sm hover:shadow-lg hover:shadow-[#5E5CE6]/10 flex flex-col justify-between min-h-[140px]"
+                  className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-2xl p-6 transition-all cursor-pointer shadow-sm hover:shadow-lg hover:shadow-[#5E5CE6]/10 flex flex-col items-center justify-center gap-4 min-h-[180px] text-center"
                 >
-                  <div className="flex justify-between items-start">
-                    {/* Clean Icon without Box */}
-                    <Folder size={32} className="text-[#5E5CE6] drop-shadow-lg" fill="currentColor" fillOpacity={0.2} />
+                  {/* Delete Button (Absolute Top Right) */}
+                  <button
+                    onClick={(e) => handleDeleteFolder(folder.id, e)}
+                    className="absolute top-3 right-3 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-[#333] rounded-lg z-10"
+                    title="Ordner löschen"
+                  >
+                    <Trash2 size={18} />
+                  </button>
 
-                    {/* Delete Button (visible on hover) */}
-                    <button
-                      onClick={(e) => handleDeleteFolder(folder.id, e)}
-                      className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1.5 hover:bg-[#333] rounded-lg -mt-1 -mr-1"
-                      title="Ordner löschen"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                  {/* Centered Large Icon */}
+                  <div className="p-4 bg-[#333] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
+                    <Folder size={48} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={0.1} />
                   </div>
 
-                  <div className="mt-3">
-                    <h3 className="text-base font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
+                  {/* Text Below */}
+                  <div className="w-full">
+                    <h3 className="text-base font-bold text-white mb-1 truncate px-2">{folder.name}</h3>
                     <p className="text-xs text-gray-500">{folder.files?.length || 0} Dateien</p>
                   </div>
                 </div>
