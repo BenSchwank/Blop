@@ -34,13 +34,15 @@ export default function Dashboard() {
         {/* Search Bar & Actions Row - Combine to save space */}
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none flex items-center justify-center">
+              <Search size={16} />
+            </div>
             <input
               type="text"
               placeholder="Suche nach Ordnern..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-[#252526] text-white text-sm rounded-lg border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-xs"
+              className="w-full pl-10 pr-4 py-2 bg-[#252526] text-white text-sm rounded-lg border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500"
             />
           </div>
 
