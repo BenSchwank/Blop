@@ -25,7 +25,7 @@ class FolderCreate(BaseModel):
     name: str
     username: str
 
-class File(BaseModel):
+class FileModel(BaseModel):
     id: str
     name: str
     type: str # pdf, video, plan
