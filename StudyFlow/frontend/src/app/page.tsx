@@ -111,34 +111,34 @@ export default function Dashboard() {
         </div>
 
         {/* Search Bar & Actions Row */}
-        <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-6 mb-12">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-6 flex items-center pointer-events-none text-gray-400">
-              <Search size={22} />
+        <div className="flex flex-col xl:flex-row items-center gap-4 mb-10">
+          <div className="relative flex-1 w-full">
+            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-gray-400">
+              <Search size={20} />
             </div>
             <input
               type="text"
               placeholder="Suche nach Ordnern..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-16 pr-6 py-4 bg-[#252526] text-white text-base rounded-2xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm h-full"
+              className="w-full pl-12 pr-6 py-3.5 bg-[#252526] text-white text-base rounded-xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
             <button
               onClick={() => alert("Coming soon!")}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-3 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-8 py-4 rounded-2xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all whitespace-nowrap"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-6 py-3.5 rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all whitespace-nowrap min-w-[140px]"
             >
-              <Sparkles size={20} />
+              <Sparkles size={18} />
               <span>AI-Summary</span>
             </button>
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-3 bg-[#252526] text-white px-8 py-4 rounded-2xl text-sm font-semibold border border-[#333] hover:bg-[#2d2d2d] transition-all whitespace-nowrap shadow-sm"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#252526] text-white px-6 py-3.5 rounded-xl text-sm font-semibold border border-[#333] hover:bg-[#2d2d2d] transition-all whitespace-nowrap shadow-sm min-w-[140px]"
             >
-              <Folder size={20} />
+              <Folder size={18} />
               <span>Neuer Ordner</span>
             </button>
           </div>
@@ -146,7 +146,7 @@ export default function Dashboard() {
 
         {/* Folders Section */}
         <div>
-          <h2 className="text-lg font-semibold text-gray-300 mb-6 uppercase tracking-wider pl-1">
+          <h2 className="text-sm font-bold text-gray-400 mb-5 uppercase tracking-wider pl-1">
             Meine Ordner
           </h2>
 
@@ -189,30 +189,30 @@ export default function Dashboard() {
             </div>
           ) : (
             /* Folder Grid */
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {folders.map((folder) => (
                 <div
                   key={folder.id}
                   onClick={() => router.push(`/folder/${folder.id}`)}
-                  className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-3xl p-6 transition-all cursor-pointer shadow-sm hover:shadow-xl hover:shadow-[#5E5CE6]/10 flex flex-col justify-between min-h-[160px]"
+                  className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-2xl p-5 transition-all cursor-pointer shadow-sm hover:shadow-xl hover:shadow-[#5E5CE6]/10 flex flex-col justify-between min-h-[150px]"
                 >
                   <div className="flex justify-between items-start">
-                    <div className="p-4 bg-[#333] group-hover:bg-[#5E5CE6]/20 rounded-2xl text-gray-400 group-hover:text-[#5E5CE6] transition-colors">
-                      <Folder size={28} />
+                    <div className="p-3.5 bg-[#333] group-hover:bg-[#5E5CE6]/20 rounded-xl text-gray-400 group-hover:text-[#5E5CE6] transition-colors">
+                      <Folder size={24} />
                     </div>
                     {/* Delete Button (visible on hover) */}
                     <button
                       onClick={(e) => handleDeleteFolder(folder.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-400 hover:bg-[#333] rounded-xl transition-all"
+                      className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-[#333] rounded-lg"
                       title="Ordner löschen"
                     >
                       <Trash2 size={18} />
                     </button>
                   </div>
 
-                  <div>
-                    <h3 className="text-lg font-bold text-white mb-1 line-clamp-1">{folder.name}</h3>
-                    <p className="text-sm text-gray-400">{folder.files?.length || 0} Dateien</p>
+                  <div className="mt-4">
+                    <h3 className="text-base font-semibold text-white mb-1 line-clamp-1">{folder.name}</h3>
+                    <p className="text-xs text-gray-500">{folder.files?.length || 0} Dateien</p>
                   </div>
                 </div>
               ))}
