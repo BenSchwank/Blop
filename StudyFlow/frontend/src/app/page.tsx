@@ -189,31 +189,29 @@ export default function Dashboard() {
           ) : (
             /* Folder Grid */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredFolders.map((folder) => (
+              {folders.map((folder) => (
                 <div
                   key={folder.id}
                   onClick={() => router.push(`/folder/${folder.id}`)}
-                  className="group relative bg-[#252526] border border-[#333] p-6 rounded-2xl hover:border-[#5E5CE6]/60 transition-all cursor-pointer flex flex-col gap-4 shadow-sm hover:shadow-md hover:shadow-black/20"
+                  className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-3xl p-6 transition-all cursor-pointer shadow-sm hover:shadow-xl hover:shadow-[#5E5CE6]/10 flex flex-col justify-between min-h-[160px]"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="p-3 bg-[#1e1e1e] rounded-xl border border-[#333] group-hover:border-[#5E5CE6]/30 transition-colors">
-                      <Folder size={24} className="text-[#5E5CE6]" fill="currentColor" fillOpacity={0.15} />
+                  <div className="flex justify-between items-start">
+                    <div className="p-4 bg-[#333] group-hover:bg-[#5E5CE6]/20 rounded-2xl text-gray-400 group-hover:text-[#5E5CE6] transition-colors">
+                      <Folder size={28} />
                     </div>
+                    {/* Delete Button (visible on hover) */}
                     <button
                       onClick={(e) => handleDeleteFolder(folder.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-red-400 hover:bg-[#333] rounded-lg transition-all"
+                      className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-400 hover:bg-[#333] rounded-xl transition-all"
+                      title="Ordner löschen"
                     >
-                      <Trash2 size={16} />
+                      <Trash2 size={18} />
                     </button>
                   </div>
 
                   <div>
-                    <h3 className="text-base font-semibold text-white group-hover:text-[#5E5CE6] transition-colors truncate">
-                      {folder.name}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      0 Dateien
-                    </p>
+                    <h3 className="text-lg font-bold text-white mb-1 line-clamp-1">{folder.name}</h3>
+                    <p className="text-sm text-gray-400">{folder.files?.length || 0} Dateien</p>
                   </div>
                 </div>
               ))}
