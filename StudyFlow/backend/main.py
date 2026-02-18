@@ -114,16 +114,15 @@ def get_leaderboard(limit: int = 10):
 @app.get("/api/folders")
 def get_folders(username: str):
     """Returns list of folders for a user."""
-    user_dir = f"user_data/{username}"
-    if not os.path.exists(user_dir):
-        return []
-        
-    folders = []
-    for item in os.listdir(user_dir):
-        if os.path.isdir(os.path.join(user_dir, item)):
-            folders.append({"id": item, "name": item}) # ID is name for FS
-            
-    return folders
+    data = DataManager.load(username)
+    return data.get("folders", [])
+
+@app.delete("/api/folders/{folder_id}")
+def delete_folder(folder_id: str, username: str):
+    """Deletes a folder."""
+    if DataManager.delete_folder(folder_id, username):
+        return {"status": "success", "message": "Ordner gelöscht"}
+    raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
 @app.post("/api/folders")
 def create_folder(folder: FolderCreate):
