@@ -76,14 +76,14 @@ export default function Sidebar() {
                             key={item.href}
                             href={item.href}
                             className={`
-                flex items-center gap-3 px-4 py-3.5 rounded-lg text-[15px] font-medium transition-all min-h-[44px]
+                flex items-center gap-4 px-6 py-3.5 rounded-lg text-[15px] font-medium transition-all min-h-[48px]
                 ${isActive
-                                    ? 'bg-[#5E5CE6] text-white'
+                                    ? 'bg-[#5E5CE6] text-white shadow-md shadow-[#5E5CE6]/20'
                                     : 'text-[#DDD] hover:bg-[#333] active:bg-[#444]'
                                 }
               `}
                         >
-                            <Icon size={20} strokeWidth={2} />
+                            <Icon size={22} strokeWidth={2} />
                             <span>{item.label}</span>
                         </Link>
                     );
@@ -94,9 +94,9 @@ export default function Sidebar() {
                     <Link
                         href="/admin"
                         className={`
-              flex items-center gap-3 px-4 py-3.5 rounded-lg text-[15px] font-medium transition-all min-h-[44px]
+              flex items-center gap-4 px-6 py-3.5 rounded-lg text-[15px] font-medium transition-all min-h-[48px]
               ${pathname === '/admin'
-                                ? 'bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white'
+                                ? 'bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white shadow-md'
                                 : 'text-[#DDD] hover:bg-[#333] active:bg-[#444] border border-[#5E5CE6]/30'
                             }
             `}
