@@ -85,6 +85,22 @@ def validate_session(session_id: str):
         return {"valid": True, "username": username}
     raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
 
+class DeleteAccountRequest(BaseModel):
+    username: str
+    password: str
+
+@app.delete("/api/auth/user")
+def delete_account(request: DeleteAccountRequest):
+    """Permanently deletes a user account."""
+    # 1. Verify Password first (Security)
+    if not AuthManager.login(request.username, request.password):
+        raise HTTPException(status_code=401, detail="Falsches Passwort.")
+        
+    # 2. Delete
+    if AuthManager.delete_user(request.username):
+        return {"success": True, "message": "Account gelöscht."}
+    raise HTTPException(status_code=500, detail="Fehler beim Löschen.")
+
 # --- ADMIN ENDPOINTS ---
 @app.get("/api/admin/users")
 def get_all_users(admin_username: str):
