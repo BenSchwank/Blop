@@ -20,15 +20,15 @@ export default function RootLayout({
     <html lang="de">
       <body className={`${inter.className} antialiased bg-[#1e1e1e]`}>
         <AuthCheck>
-          {/* Grid Layout - Sidebar + Content with gap */}
-          <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-0 md:gap-6 min-h-screen">
+          {/* Grid Layout - Sidebar + Content with larger gap for safety */}
+          <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-0 md:gap-12 min-h-screen">
             {/* Sidebar - Hidden on mobile */}
             <div className="hidden md:block">
               <Sidebar />
             </div>
 
-            {/* Main Content */}
-            <main className="min-h-screen overflow-x-hidden">
+            {/* Main Content with extra padding */}
+            <main className="min-h-screen overflow-x-hidden md:pl-4">
               {children}
             </main>
           </div>
