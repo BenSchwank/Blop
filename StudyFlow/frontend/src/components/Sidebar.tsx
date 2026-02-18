@@ -76,10 +76,11 @@ export default function Sidebar() {
                     const isActive = pathname === item.href;
 
                     return (
+                    return (
                         <Link
                             key={item.href}
                             href={item.href}
-                            style={{ paddingLeft: '50px' }} // Force padding via inline style
+                            style={{ paddingLeft: '32px' }} // Adjusted from 50px based on user feedback (too far right)
                             className={`
                 flex items-center gap-4 pr-6 py-3.5 rounded-xl text-[15px] font-medium transition-all min-h-[48px] relative overflow-hidden group
                 ${isActive
@@ -99,7 +100,7 @@ export default function Sidebar() {
                 {isAdmin && (
                     <Link
                         href="/admin"
-                        style={{ paddingLeft: '50px' }} // Force padding via inline style
+                        style={{ paddingLeft: '32px' }} // Adjusted from 50px
                         className={`
               flex items-center gap-4 pr-6 py-3.5 rounded-xl text-[15px] font-medium transition-all min-h-[48px]
               ${pathname === '/admin'
