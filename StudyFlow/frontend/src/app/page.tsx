@@ -140,7 +140,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="h-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl text-sm font-semibold border border-blue-500/30 transition-all shadow-md min-w-[140px]"
+              className="h-full flex items-center justify-center gap-2 bg-[#252526] hover:bg-[#2d2d2d] text-white px-6 rounded-xl text-sm font-semibold border border-[#333] transition-all shadow-md min-w-[140px]"
             >
               <Folder size={18} />
               <span>Neuer Ordner</span>
