@@ -79,3 +79,32 @@ class AIService:
         except Exception as e:
             print(f"Flashcard Error: {e}")
             return []
+
+    @staticmethod
+    def generate_study_plan(text: str, duration_days: int) -> List[Dict[str, Any]]:
+        """Generates a structured study plan."""
+        try:
+            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+            prompt = f"""
+            Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Text.
+            Der Plan soll den Stoff sinnvoll aufteilen.
+            
+            Ausgabe-Format: JSON Array
+            [
+                {{
+                    "day": 1,
+                    "topic": "Thema des Tages",
+                    "tasks": ["Lese Abschnitt X", "Mache Aufgabe Y"],
+                    "goal": "Ziel des Tages"
+                }}
+            ]
+            
+            Text:
+            {text[:40000]}
+            """
+            
+            response = model.generate_content(prompt)
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"Plan Error: {e}")
+            return []

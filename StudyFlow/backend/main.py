@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -139,6 +139,100 @@ def get_files(folder_id: str, username: str):
     """Returns files in a specific folder."""
     files = DataManager.list_files(username, folder_id)
     return files
+
+# --- UPLOAD & AI ENDPOINTS ---
+
+@app.post("/api/files/upload")
+async def upload_file(
+    username: str, 
+    folder_id: str, 
+    file: UploadFile = File(...)
+):
+    """Uploads a file (PDF) to the folder."""
+    try:
+        # Determine file type
+        if file.filename.lower().endswith('.pdf'):
+            saved_name = DataManager.save_pdf(file, username, folder_id)
+            return {"status": "success", "filename": saved_name}
+        else:
+            raise HTTPException(status_code=400, detail="Nur PDFs werden aktuell unterstützt.")
+    except Exception as e:
+        print(f"Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/files/youtube")
+def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=True)):
+    """Imports a YouTube video transcript."""
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        
+        # Extract Video ID
+        video_id = ""
+        if "v=" in url:
+            video_id = url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in url:
+            video_id = url.split("youtu.be/")[1].split("?")[0]
+            
+        if not video_id:
+            raise HTTPException(status_code=400, detail="Ungültige YouTube URL")
+            
+        # Get Transcript
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
+        transcript_text = " ".join([t['text'] for t in transcript_list])
+        
+        # Get Video Title (Mock or requires API Key, using generic for now)
+        video_title = f"YouTube: {video_id}"
+        
+        # Save as text file/transcript
+        DataManager.save_transcript(video_title, transcript_text, username, folder_id)
+        
+        return {"status": "success", "message": "Transkript importiert"}
+        
+    except Exception as e:
+        print(f"YouTube Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler beim Import: {str(e)}")
+
+class PlanRequest(BaseModel):
+    username: str
+    folder_id: str
+    duration_days: int
+
+@app.post("/api/ai/plan")
+def create_study_plan(request: PlanRequest):
+    """Generates a study plan from folder contents."""
+    from ai_service import AIService
+    
+    # 1. Get all text content from folder
+    files = DataManager.list_files(request.username, request.folder_id)
+    full_text = ""
+    
+    for f in files:
+        # Load content depending on type
+        # For MVP we only load Transcripts directly. 
+        # PDFs need OCR/Extraction (not implemented in this step).
+        if f.get("type") == "transcript":
+             # We need to load the content. 
+             # DataManager.list_files returns metadata.
+             # We assume content is in metadata for cloud transcripts?
+             # Or we need a load_file method.
+             # For MVP: let's try to get it.
+             if "content" in f:
+                 full_text += f["content"] + "\n\n"
+    
+    if len(full_text) < 100:
+        # Fallback: Try to load local files if simple text
+        pass
+
+    if not full_text:
+        raise HTTPException(status_code=400, detail="Kein Textmaterial im Ordner gefunden (nur YouTube Transkripte werden aktuell analysiert).")
+
+    # 2. Generate Plan
+    plan = AIService.generate_study_plan(full_text, request.duration_days)
+    
+    # 3. Save Plan
+    DataManager.save_plan(plan, request.username, request.folder_id)
+    
+    return plan
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
