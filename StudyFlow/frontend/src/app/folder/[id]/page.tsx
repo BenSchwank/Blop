@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput } from "lucide-react";
 
 interface FileData {
@@ -12,11 +12,12 @@ interface FileData {
     content?: any;
 }
 
-export default function FolderPage({ params }: { params: { id: string } }) {
+export default function FolderPage() {
     const router = useRouter();
+    const params = useParams();
+    const folderId = params?.id as string;
     const [files, setFiles] = useState<FileData[]>([]);
     const [loading, setLoading] = useState(true);
-    const folderId = params.id;
 
     // Upload / Action States
     const [isUploadOpen, setIsUploadOpen] = useState(false);
