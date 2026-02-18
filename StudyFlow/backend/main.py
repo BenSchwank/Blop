@@ -47,6 +47,10 @@ def read_root():
 def health_check():
     return {"status": "ok", "database": "firebase" if DataManager._init_firestore() else "local"}
 
+@app.get("/api/ping")
+def ping():
+    return {"status": "pong", "message": "Backend is online!"}
+
 # --- AUTH ENDPOINTS ---
 @app.post("/api/auth/login")
 def login(request: LoginRequest):

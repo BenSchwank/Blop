@@ -20,10 +20,26 @@ class DataManager:
 
     @staticmethod
     def _init_firestore():
-        """Initializes Firestore using backend/firebase_credentials.json."""
+        """Initializes Firestore using Env Variable OR backend/firebase_credentials.json."""
         if DataManager._db is not None:
             return DataManager._db
             
+        # 1. Try Environment Variable (Render/Cloud)
+        env_creds = os.environ.get("FIREBASE_CREDENTIALS")
+        if env_creds:
+            try:
+                if not firebase_admin._apps:
+                    cred_dict = json.loads(env_creds)
+                    cred = credentials.Certificate(cred_dict)
+                    firebase_admin.initialize_app(cred)
+                
+                DataManager._db = firestore.client()
+                return DataManager._db
+            except Exception as e:
+                print(f"Firestore Env Init Error: {e}")
+                # Fallthrough to local file check
+        
+        # 2. Try Local File (Dev)
         cred_path = os.path.join(os.path.dirname(__file__), "firebase_credentials.json")
         if os.path.exists(cred_path):
             try:
@@ -34,10 +50,12 @@ class DataManager:
                 DataManager._db = firestore.client()
                 return DataManager._db
             except Exception as e:
-                print(f"Firestore Init Error: {e}")
+                print(f"Firestore File Init Error: {e}")
                 return None
         else:
-            print(f"Firebase credentials not found at {cred_path}")
+            # Only print if also failed env var
+            if not env_creds:
+                 print(f"Firebase credentials not found (Env or File).")
         return None
 
     @staticmethod
