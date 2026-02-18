@@ -22,6 +22,9 @@ export default function Dashboard() {
   const [newFolderName, setNewFolderName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
+  // AI Summary Modal State
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
   const fetchFolders = async () => {
@@ -89,6 +92,10 @@ export default function Dashboard() {
     }
   };
 
+  const handleFolderSelect = (folderId: string) => {
+    router.push(`/folder/${folderId}`);
+  };
+
   const filteredFolders = folders.filter(f =>
     f.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -131,7 +138,7 @@ export default function Dashboard() {
           {/* Buttons */}
           <div className="flex flex-col sm:flex-row gap-3 h-full">
             <button
-              onClick={() => alert("Coming soon!")}
+              onClick={() => setIsSummaryOpen(true)}
               className="h-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-6 rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[140px]"
             >
               <Sparkles size={18} />
@@ -270,6 +277,38 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Selection Modal for AI-Summary */}
+      {isSummaryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl p-6 transform scale-100 transition-all">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white">Wähle einen Ordner</h2>
+              <button onClick={() => setIsSummaryOpen(false)} className="text-gray-400 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+              {folders.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">Keine Ordner verfügbar.</p>
+              ) : (
+                folders.map(folder => (
+                  <button
+                    key={folder.id}
+                    onClick={() => handleFolderSelect(folder.id)}
+                    className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#252526] border border-transparent hover:border-[#333] transition-all text-left group"
+                  >
+                    <div className="p-2 bg-[#252526] group-hover:bg-[#333] rounded-lg transition-colors">
+                      <FolderOpen size={20} className="text-[#5E5CE6]" />
+                    </div>
+                    <span className="text-gray-200 font-medium">{folder.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
