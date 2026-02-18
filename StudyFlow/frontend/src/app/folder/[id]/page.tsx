@@ -73,6 +73,8 @@ export default function FolderPage({ params }: { params: { id: string } }) {
                 setFileToUpload(null);
                 setIsUploadOpen(false);
                 fetchFiles();
+            } else {
+                alert("Fehler beim Upload (Server Error)");
             }
         } catch (error) {
             console.error(error);

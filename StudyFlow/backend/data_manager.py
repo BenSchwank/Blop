@@ -465,7 +465,7 @@ class DataManager:
         return path
 
     @staticmethod
-    def save_pdf(uploaded_file, username, folder_id):
+    def save_pdf(file_data, filename, username, folder_id):
         # Hybrid Approach:
         # If Cloud: Try to save to Firestore (Base64) if small, else fail/warn.
         # Ideally we use Google Cloud Storage, but sticking to Firestore for now (MVP).
@@ -476,16 +476,16 @@ class DataManager:
             # Firestore has 1MB limit. We chunk files > 900KB.
             
             import base64
-            file_data = uploaded_file.getvalue()
+            # file_data is already bytes
             total_size = len(file_data)
             chunk_size = 500 * 1024 # 500KB chunks (Base64 grows to ~666KB, safe for 1MB limit)
             
             # Create a main document for metadata
-            doc_ref = db.collection("users").document(username).collection("pdfs").document(f"{folder_id}_{uploaded_file.name}")
+            doc_ref = db.collection("users").document(username).collection("pdfs").document(f"{folder_id}_{filename}")
             
             # Prepare metadata
             metadata = {
-                "name": uploaded_file.name,
+                "name": filename,
                 "folder_id": folder_id,
                 "created_at": datetime.now().strftime("%Y-%m-%d"),
                 "total_size": total_size,
@@ -506,13 +506,13 @@ class DataManager:
                     "data": b64_chunk
                 })
             
-            return uploaded_file.name
+            return filename
         else:
             # LOCAL MODE
             folder_path = DataManager._get_folder_path(username, folder_id)
-            file_path = os.path.join(folder_path, uploaded_file.name)
+            file_path = os.path.join(folder_path, filename)
             with open(file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+                f.write(file_data)
             return file_path
 
     @staticmethod

@@ -172,7 +172,8 @@ async def upload_file(
     try:
         # Determine file type
         if file.filename.lower().endswith('.pdf'):
-            saved_name = DataManager.save_pdf(file, username, folder_id)
+            content = await file.read()
+            saved_name = DataManager.save_pdf(content, file.filename, username, folder_id)
             return {"status": "success", "filename": saved_name}
         else:
             raise HTTPException(status_code=400, detail="Nur PDFs werden aktuell unterstützt.")
