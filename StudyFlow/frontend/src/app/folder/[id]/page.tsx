@@ -150,9 +150,9 @@ export default function FolderPage({ params }: { params: { id: string } }) {
                     <div className="flex justify-between items-center p-4 border-b border-[#333]">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-lg ${selectedFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                    selectedFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                        selectedFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                            'bg-[#333] text-gray-400'
+                                selectedFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                                    selectedFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                        'bg-[#333] text-gray-400'
                                 }`}>
                                 {getFileIcon(selectedFile.type)}
                             </div>
@@ -173,6 +173,38 @@ export default function FolderPage({ params }: { params: { id: string } }) {
     };
 
     const renderFileContent = (file: FileData) => {
+        if (file.type === 'plan') {
+            const plan = file.content || [];
+            if (!Array.isArray(plan)) return <p>Fehlerhaftes Plan-Format.</p>;
+            return (
+                <div className="space-y-6">
+                    {plan.map((day: any, i: number) => (
+                        <div key={i} className="bg-[#252526] p-5 rounded-2xl border border-[#333] hover:border-[#5E5CE6]/30 transition-colors">
+                            <div className="flex items-center gap-3 mb-3">
+                                <div className="w-8 h-8 rounded-lg bg-[#5E5CE6]/20 flex items-center justify-center text-[#5E5CE6] font-bold text-sm">
+                                    {day.day}
+                                </div>
+                                <h3 className="text-lg font-semibold text-white">{day.topic}</h3>
+                            </div>
+
+                            <div className="ml-11 space-y-3">
+                                <div className="text-sm text-gray-400 bg-[#1e1e1e] p-3 rounded-xl border border-[#333]">
+                                    <span className="text-[#5E5CE6] font-medium uppercase text-xs tracking-wider">Ziel:</span> {day.goal}
+                                </div>
+                                <ul className="space-y-2">
+                                    {day.tasks?.map((task: string, idx: number) => (
+                                        <li key={idx} className="flex items-start gap-3 text-gray-300">
+                                            <div className="min-w-[6px] h-[6px] rounded-full bg-[#5E5CE6] mt-2" />
+                                            <span>{task}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
         if (file.type === 'quiz') {
             const questions = file.content || [];
             if (!Array.isArray(questions)) return <p>Fehlerhaftes Quiz-Format.</p>;
@@ -300,11 +332,11 @@ export default function FolderPage({ params }: { params: { id: string } }) {
                             >
                                 <div className="flex items-center gap-4">
                                     <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
-                                            file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                                file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                                    file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                                        file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                            'bg-[#333] text-[#5E5CE6]'
+                                        file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
+                                            file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                                                file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                                    file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
+                                                        'bg-[#333] text-[#5E5CE6]'
                                         }`}>
                                         {getFileIcon(file.type)}
                                     </div>
