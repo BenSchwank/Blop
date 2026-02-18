@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import MobileNav from "@/components/MobileNav";
 import AuthCheck from "@/components/AuthCheck";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -28,9 +29,12 @@ export default function RootLayout({
             </div>
 
             {/* Main Content with extra padding */}
-            <main className="min-h-screen overflow-x-hidden md:pl-4">
+            <main className="min-h-screen overflow-x-hidden md:pl-4 pb-20 md:pb-0">
               {children}
             </main>
+
+            {/* Mobile Navigation - Visible only on mobile */}
+            <MobileNav />
           </div>
         </AuthCheck>
       </body>
