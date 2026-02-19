@@ -1,9 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Home, BookOpen, MessageSquare, Brain, Settings, Sparkles, Shield } from 'lucide-react';
+import Image from 'next/image';
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
@@ -41,8 +38,8 @@ export default function Sidebar() {
             <aside className="h-screen w-full bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0">
                 <div className="p-6 border-b border-[#333]">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-[#5E5CE6] flex items-center justify-center">
-                            <Sparkles className="w-5 h-5 text-white" />
+                        <div className="w-10 h-10 rounded-xl bg-[#5E5CE6] flex items-center justify-center overflow-hidden">
+                            <Image src="/logo.jpg" alt="Blop Logo" width={40} height={40} className="object-cover" />
                         </div>
                         <div>
                             <h1 className="text-xl font-semibold text-white">Blop Study</h1>

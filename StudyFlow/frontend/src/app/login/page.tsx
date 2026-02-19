@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn, UserPlus, Sparkles } from 'lucide-react';
 
+import Image from 'next/image';
+
 export default function LoginPage() {
     const router = useRouter();
     const [isLogin, setIsLogin] = useState(true);
@@ -59,8 +61,8 @@ export default function LoginPage() {
             <div className="w-full max-w-md">
                 {/* Logo */}
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center mx-auto mb-4">
-                        <Sparkles className="w-8 h-8 text-white" strokeWidth={2} />
+                    <div className="w-20 h-20 rounded-2xl bg-[#5E5CE6] flex items-center justify-center mx-auto mb-4 overflow-hidden shadow-2xl shadow-[#5E5CE6]/20">
+                        <Image src="/logo.jpg" alt="Blop Logo" width={80} height={80} className="object-cover w-full h-full" />
                     </div>
                     <h1 className="text-3xl font-bold text-white mb-2">Blop Study</h1>
                     <p className="text-[#888]">Dein AI Lernassistent</p>
