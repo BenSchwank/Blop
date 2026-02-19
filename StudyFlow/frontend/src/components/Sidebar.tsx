@@ -1,6 +1,10 @@
 "use client";
 
 import Image from 'next/image';
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Home, BookOpen, MessageSquare, Brain, Settings, Sparkles, Shield } from 'lucide-react';
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
