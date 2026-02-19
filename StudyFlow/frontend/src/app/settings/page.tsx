@@ -14,12 +14,39 @@ export default function Settings() {
     const [deletePassword, setDeletePassword] = useState("");
     const [deleteError, setDeleteError] = useState("");
 
+    // API Key State
+    const [apiKey, setApiKey] = useState("");
+    const [savingKey, setSavingKey] = useState(false);
+    const [keyStatus, setKeyStatus] = useState("");
+
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
     useEffect(() => {
         const user = localStorage.getItem("username");
         if (user) setUsername(user);
     }, []);
+
+    const handleSaveApiKey = async () => {
+        setSavingKey(true);
+        setKeyStatus("");
+        try {
+            const res = await fetch(`${API_BASE}/auth/apikey`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, api_key: apiKey })
+            });
+            if (res.ok) {
+                setKeyStatus("API Key erfolgreich gespeichert! ✅");
+                setApiKey(""); // Clear for security or keep it? Checking reqs, clearing usually better
+            } else {
+                setKeyStatus("Fehler beim Speichern.");
+            }
+        } catch (error) {
+            setKeyStatus("Verbindungsfehler.");
+        } finally {
+            setSavingKey(false);
+        }
+    };
 
     const handleDeleteAccount = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -82,6 +109,44 @@ export default function Settings() {
                         >
                             <LogOut size={16} /> Abmelden
                         </button>
+                    </div>
+                </section>
+
+                {/* AI Configuration Section */}
+                <section>
+                    <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+                        🤖 AI Konfiguration
+                    </h2>
+                    <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
+                        <p className="text-gray-400 text-sm">
+                            Trage hier deinen eigenen <strong>Google Gemini API Key</strong> ein, um die AI-Features (Zusammenfassungen, Quiz, Uploads) zu nutzen.
+                            <br />
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                                Hier kostenlos Key erstellen &rarr;
+                            </a>
+                        </p>
+
+                        <div className="flex gap-2">
+                            <input
+                                type="password"
+                                placeholder="Dein API Key (AIza...)"
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                className="flex-1 bg-[#1e1e1e] border border-[#333] text-white rounded-xl px-4 py-2 focus:outline-none focus:border-[#5E5CE6] transition-colors"
+                            />
+                            <button
+                                onClick={handleSaveApiKey}
+                                disabled={savingKey}
+                                className="bg-[#5E5CE6] hover:bg-[#4c4ab5] text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {savingKey ? <Loader2 size={18} className="animate-spin" /> : "Speichern"}
+                            </button>
+                        </div>
+                        {keyStatus && (
+                            <p className={`text-sm ${keyStatus.includes("Erfolg") ? "text-green-400" : "text-red-400"}`}>
+                                {keyStatus}
+                            </p>
+                        )}
                     </div>
                 </section>
 
