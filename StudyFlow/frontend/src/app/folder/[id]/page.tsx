@@ -134,7 +134,8 @@ export default function FolderPage() {
                         router.push("/settings");
                     }
                 } else {
-                    alert(`Fehler: ${err.detail}`);
+                    const errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : err.detail;
+                    alert(`Fehler: ${errorMsg}`);
                 }
             }
         } catch (error) {
