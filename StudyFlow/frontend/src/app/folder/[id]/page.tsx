@@ -113,7 +113,6 @@ export default function FolderPage() {
     };
 
     const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string | null>>, successMessage: string) => {
-        setLoadingAI(true);
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
@@ -142,7 +141,6 @@ export default function FolderPage() {
             console.error(error);
             alert("Ein Fehler ist aufgetreten.");
         } finally {
-            setLoadingAI(false);
             stateSetter(null); // Reset the specific AI generation state
         }
     };
