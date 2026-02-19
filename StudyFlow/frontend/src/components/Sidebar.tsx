@@ -60,8 +60,8 @@ export default function Sidebar() {
             {/* Logo */}
             <div className="p-6 border-b border-[#333]">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#5E5CE6] flex items-center justify-center">
-                        <Sparkles className="w-5 h-5 text-white" />
+                    <div className="w-10 h-10 rounded-full bg-[#5E5CE6] flex items-center justify-center overflow-hidden">
+                        <Image src="/logo.jpg" alt="Blop Logo" width={40} height={40} className="object-cover" />
                     </div>
                     <div>
                         <h1 className="text-xl font-semibold text-white">Blop Study</h1>
