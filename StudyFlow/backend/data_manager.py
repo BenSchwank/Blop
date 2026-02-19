@@ -145,6 +145,17 @@ class DataManager:
                 json.dump(data, f, ensure_ascii=False, indent=4)
 
     @staticmethod
+    def get_api_key(username):
+        data = DataManager.load(username)
+        return data.get("api_key")
+
+    @staticmethod
+    def save_api_key(username, api_key):
+        data = DataManager.load(username)
+        data["api_key"] = api_key
+        DataManager.save(data, username)
+
+    @staticmethod
     def create_folder(name, username):
         data = DataManager.load(username)
         folder = {

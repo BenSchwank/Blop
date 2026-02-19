@@ -169,6 +169,29 @@ def get_files(folder_id: str, username: str):
 
 # --- UPLOAD & AI ENDPOINTS ---
 
+class APIKeyRequest(BaseModel):
+    username: str
+    api_key: str
+
+@app.post("/api/auth/apikey")
+def save_api_key(request: APIKeyRequest):
+    """Saves the user's Google API Key."""
+    DataManager.save_api_key(request.username, request.api_key)
+    return {"status": "success", "message": "API Key gespeichert"}
+
+def _configure_genai(username: str):
+    """Configures GenAI with User Key (priority) or Env Key."""
+    user_key = DataManager.get_api_key(username)
+    env_key = os.environ.get("GOOGLE_API_KEY")
+    
+    active_key = user_key if user_key else env_key
+    
+    if not active_key:
+        raise HTTPException(status_code=400, detail="NO_API_KEY_FOUND")
+        
+    genai.configure(api_key=active_key)
+    return active_key
+
 @app.post("/api/files/upload")
 async def upload_file(
     username: str, 
@@ -230,6 +253,9 @@ def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
     
+    # Configure API Key
+    _configure_genai(request.username)
+    
     context, debug_log = _get_folder_context(request.username, request.folder_id)
 
     if not context:
@@ -252,6 +278,9 @@ def _get_folder_context(username: str, folder_id: str):
     Aggregates material from the folder.
     Returns (content_parts, debug_log)
     """
+    # Ensure GenAI is configured (redundant but safe for helper usage)
+    _configure_genai(username)
+    
     debug_log = []
     try:
         files = DataManager.list_files(username, folder_id)
@@ -313,6 +342,8 @@ def create_quiz(request: GenRequest):
     import json
     from datetime import datetime
 
+    _configure_genai(request.username)
+
     context, debug_log = _get_folder_context(request.username, request.folder_id)
     
     if not context:
@@ -332,6 +363,7 @@ def create_quiz(request: GenRequest):
 @app.post("/api/ai/flashcards")
 def create_flashcards(request: GenRequest):
     from ai_service import AIService
+    _configure_genai(request.username)
     context, debug_log = _get_folder_context(request.username, request.folder_id)
     
     if not context:
@@ -353,6 +385,7 @@ def create_flashcards(request: GenRequest):
 @app.post("/api/ai/summary")
 def create_summary(request: GenRequest):
     from ai_service import AIService
+    _configure_genai(request.username)
     context, debug_log = _get_folder_context(request.username, request.folder_id)
     
     if not context:
