@@ -8,7 +8,45 @@ api_key = os.environ.get("GOOGLE_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
-model_name = "gemini-1.5-flash"  # Universally available stable model
+
+# Priority list of preferred models (newest/best first)
+_PREFERRED_MODELS = [
+    "gemini-2.5-pro",
+    "gemini-2.0-pro-exp",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-pro",
+]
+
+def get_best_model() -> str:
+    """Dynamically detect the best available Gemini model for this API key."""
+    try:
+        available = []
+        for m in genai.list_models():
+            name = m.name.replace("models/", "")
+            if hasattr(m, "supported_generation_methods") and "generateContent" in m.supported_generation_methods:
+                available.append(name)
+
+        print(f"Available models: {available}")
+
+        for preferred in _PREFERRED_MODELS:
+            if preferred in available:
+                print(f"Auto-selected model: {preferred}")
+                return preferred
+
+        # If none of our preferred ones are found, just use whatever is available
+        if available:
+            print(f"Fallback model: {available[0]}")
+            return available[0]
+    except Exception as e:
+        print(f"Could not list models: {e}")
+
+    return "gemini-1.5-flash"  # last resort fallback
+
+
 
 # Safety Settings - Allow all content to prevent blocking of valid study materials
 SAFETY_SETTINGS = [
@@ -23,7 +61,7 @@ class AIService:
     def generate_summary(content: List[Any], detail_level: str = "Normal") -> str:
         """Generates a summary from text or multimodal content."""
         try:
-            model = genai.GenerativeModel(model_name)
+            model = genai.GenerativeModel(get_best_model())
             
             prompt = f"""
             Erstelle eine Zusammenfassung des folgenden Materials auf Deutsch.
@@ -51,7 +89,7 @@ class AIService:
     def generate_quiz(content: List[Any]) -> List[Dict[str, Any]]:
         """Generates a quiz from multimodal content."""
         try:
-            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
             prompt = """
             Erstelle ein Quiz mit 5 Fragen basierend auf dem folgenden Material.
             Ausgabe-Format: JSON Array.
@@ -83,7 +121,7 @@ class AIService:
     def generate_flashcards(content: List[Any]) -> List[Dict[str, str]]:
         """Generates flashcards from multimodal content."""
         try:
-            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
             prompt = """
             Erstelle 10 Karteikarten aus dem Material.
             Format: JSON Array
@@ -109,7 +147,7 @@ class AIService:
     def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0) -> List[Dict[str, Any]]:
         """Generates a structured study plan from multimodal content."""
         try:
-            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
             prompt = f"""
             Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Material.
             Der Lernende hat täglich {hours_per_day} Stunden Zeit zum Lernen.
