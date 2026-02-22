@@ -8,7 +8,7 @@ api_key = os.environ.get("GOOGLE_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
-model_name = "gemini-2.0-flash"  # Stable production model
+model_name = "gemini-1.5-flash"  # Universally available stable model
 
 # Safety Settings - Allow all content to prevent blocking of valid study materials
 SAFETY_SETTINGS = [
