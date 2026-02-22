@@ -294,7 +294,7 @@ export default function FolderPage() {
                 <div className="space-y-6">
                     {plan.map((day: any, i: number) => (
                         <div key={i} className="bg-[#252526] p-5 rounded-2xl border border-[#333] hover:border-[#5E5CE6]/30 transition-colors">
-                            <div className="flex items-center gap-3 mb-3">
+                            <div className="flex items-center gap-3 mb-4">
                                 <div className="w-8 h-8 rounded-lg bg-[#5E5CE6]/20 flex items-center justify-center text-[#5E5CE6] font-bold text-sm">
                                     {day.day}
                                 </div>
@@ -302,17 +302,35 @@ export default function FolderPage() {
                             </div>
 
                             <div className="ml-11 space-y-3">
-                                <div className="text-sm text-gray-400 bg-[#1e1e1e] p-3 rounded-xl border border-[#333]">
-                                    <span className="text-[#5E5CE6] font-medium uppercase text-xs tracking-wider">Ziel:</span> {day.goal}
+                                {/* Goal */}
+                                <div className="text-sm text-gray-300 bg-[#1e1e1e] p-3 rounded-xl border border-[#333]">
+                                    <span className="text-[#5E5CE6] font-semibold text-xs uppercase tracking-wider">🎯 Ziel: </span>
+                                    {day.goal}
                                 </div>
+
+                                {/* Tasks */}
                                 <ul className="space-y-2">
                                     {day.tasks?.map((task: string, idx: number) => (
-                                        <li key={idx} className="flex items-start gap-3 text-gray-300">
-                                            <div className="min-w-[6px] h-[6px] rounded-full bg-[#5E5CE6] mt-2" />
+                                        <li key={idx} className="flex items-start gap-2 text-gray-300 text-sm">
+                                            <span className="text-[#5E5CE6] mt-0.5 shrink-0">•</span>
                                             <span>{task}</span>
                                         </li>
                                     ))}
                                 </ul>
+
+                                {/* Focus (if present) */}
+                                {day.focus && (
+                                    <div className="text-sm text-amber-300/90 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl">
+                                        {day.focus}
+                                    </div>
+                                )}
+
+                                {/* Tip (if present) */}
+                                {day.tip && (
+                                    <div className="text-sm text-green-300/90 bg-green-500/10 border border-green-500/20 p-3 rounded-xl">
+                                        {day.tip}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}

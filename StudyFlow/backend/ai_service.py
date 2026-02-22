@@ -37,7 +37,6 @@ def get_best_model() -> str:
                 print(f"Auto-selected model: {preferred}")
                 return preferred
 
-        # If none of our preferred ones are found, just use whatever is available
         if available:
             print(f"Fallback model: {available[0]}")
             return available[0]
@@ -45,7 +44,6 @@ def get_best_model() -> str:
         print(f"Could not list models: {e}")
 
     return "gemini-1.5-flash"  # last resort fallback
-
 
 
 # Safety Settings - Allow all content to prevent blocking of valid study materials
@@ -59,24 +57,70 @@ SAFETY_SETTINGS = [
 class AIService:
     @staticmethod
     def generate_summary(content: List[Any], detail_level: str = "Normal") -> str:
-        """Generates a summary from text or multimodal content."""
+        """Generates a comprehensive summary from text or multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model())
-            
+
             prompt = f"""
-            Erstelle eine Zusammenfassung des folgenden Materials auf Deutsch.
-            Detailgrad: {detail_level}
-            
-            Formatierung: Markdown.
-            Verwende Überschriften, Listen und hebe wichtige Begriffe fett hervor.
-            """
-            
+Du bist ein erfahrener Tutor und Lernassistent. Deine Aufgabe ist es, eine UMFASSENDE und DETAILLIERTE Zusammenfassung des gesamten Lernmaterials auf Deutsch zu erstellen.
+
+Detailgrad: {detail_level}
+
+WICHTIGE ANFORDERUNGEN:
+- Die Zusammenfassung muss VOLLSTÄNDIG sein – decke ALLE wichtigen Themen, Konzepte und Details ab
+- Sei so detailliert wie möglich – ein Schüler soll nur mit dieser Zusammenfassung lernen können
+- Erkläre Konzepte verständlich und präzise
+- Verwende konkrete Beispiele wo vorhanden
+- Hebe prüfungsrelevante Inhalte besonders hervor
+
+STRUKTUR (Markdown-Format):
+
+# 📚 Zusammenfassung: [Titel des Themas]
+
+## 🎯 Überblick
+[Kurze Einführung: Worum geht es? Was sind die Kernthemen?]
+
+## 📖 Hauptthemen
+
+### [Thema 1]
+**Definition/Erklärung:** [Ausführliche Erklärung]
+**Wichtige Punkte:**
+- [Punkt 1 mit Erklärung]
+- [Punkt 2 mit Erklärung]
+**Beispiel:** [Konkretes Beispiel wenn vorhanden]
+
+### [Thema 2]
+[Gleiche Struktur...]
+
+[Alle weiteren Themen...]
+
+## 🔑 Schlüsselbegriffe & Definitionen
+| Begriff | Definition |
+|---------|-----------|
+| [Begriff] | [Präzise Definition] |
+[Alle wichtigen Begriffe...]
+
+## ⚡ Formeln & Regeln
+[Falls vorhanden – alle Formeln, Regeln, Gesetze mit Erklärung]
+
+## 🔗 Zusammenhänge & Verbindungen
+[Wie hängen die Themen zusammen? Welche Beziehungen gibt es?]
+
+## ⭐ Prüfungsrelevante Kernpunkte
+[Die absolut wichtigsten Punkte die man kennen muss, nummeriert]
+
+## 💡 Tipps & Merkhilfen
+[Eselsbrücken, Merktechniken, häufige Fehler vermeiden]
+
+Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem folgenden Material:
+"""
+
             input_parts = [prompt]
             if isinstance(content, list):
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
-            
+
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
@@ -87,28 +131,38 @@ class AIService:
 
     @staticmethod
     def generate_quiz(content: List[Any]) -> List[Dict[str, Any]]:
-        """Generates a quiz from multimodal content."""
+        """Generates a comprehensive quiz from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
             prompt = """
-            Erstelle ein Quiz mit 5 Fragen basierend auf dem folgenden Material.
-            Ausgabe-Format: JSON Array.
-            Beispiel:
-            [
-                {
-                    "question": "Frage?",
-                    "options": ["A", "B", "C", "D"],
-                    "answer": "A"
-                }
-            ]
-            """
-            
+Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit 10 Fragen basierend auf dem Lernmaterial.
+
+Anforderungen:
+- Decke ALLE wichtigen Themen des Materials ab
+- Mische verschiedene Schwierigkeitsgrade (leicht, mittel, schwer)
+- Die Antwortoptionen sollen plausibel aber unterschiedlich sein
+- Achte auf klare, eindeutige Fragestellungen
+- Formuliere auf Deutsch
+
+Ausgabe-Format: JSON Array mit genau 10 Objekten:
+[
+    {
+        "question": "Präzise Frage auf Deutsch?",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "answer": "Option A",
+        "explanation": "Kurze Erklärung warum diese Antwort richtig ist"
+    }
+]
+
+Erstelle das Quiz für das folgende Material:
+"""
+
             input_parts = [prompt]
             if isinstance(content, list):
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
-            
+
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
@@ -119,22 +173,35 @@ class AIService:
 
     @staticmethod
     def generate_flashcards(content: List[Any]) -> List[Dict[str, str]]:
-        """Generates flashcards from multimodal content."""
+        """Generates comprehensive flashcards from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
             prompt = """
-            Erstelle 10 Karteikarten aus dem Material.
-            Format: JSON Array
-            [
-                {"front": "Frage/Begriff", "back": "Antwort/Erklärung"}
-            ]
-            """
+Du bist ein erfahrener Tutor. Erstelle 20 hochwertige Karteikarten aus dem Lernmaterial.
+
+Anforderungen:
+- Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab
+- Vorderseite: präzise Frage oder Begriff
+- Rückseite: ausführliche, vollständige Antwort/Erklärung
+- Variiere zwischen Definitionsfragen, Erklärungsfragen und Anwendungsfragen
+- Deutsch
+
+Format: JSON Array mit genau 20 Objekten:
+[
+    {
+        "front": "Präzise Frage oder Begriff?",
+        "back": "Vollständige Antwort mit allen relevanten Details und Erklärungen"
+    }
+]
+
+Erstelle die Karteikarten für das folgende Material:
+"""
             input_parts = [prompt]
             if isinstance(content, list):
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
-                
+
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
@@ -145,24 +212,50 @@ class AIService:
 
     @staticmethod
     def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0) -> List[Dict[str, Any]]:
-        """Generates a structured study plan from multimodal content."""
+        """Generates a detailed, actionable study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
+            total_hours = duration_days * hours_per_day
+
             prompt = f"""
-            Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Material.
-            Der Lernende hat täglich {hours_per_day} Stunden Zeit zum Lernen.
-            Verteile das Material gleichmäßig auf genau {duration_days} Tage und passe die Aufgaben entsprechend der verfügbaren Lernzeit an.
-            
-            Ausgabe-Format: JSON Array mit genau {duration_days} Einträgen:
-            [
-                {{
-                    "day": 1,
-                    "topic": "Thema des Tages",
-                    "tasks": ["Lese Abschnitt X (ca. 30 Min)", "Mache Aufgabe Y (ca. 20 Min)"],
-                    "goal": "Ziel des Tages"
-                }}
-            ]
-            """
+Du bist ein persönlicher Lerncoach und erstellst einen DETAILLIERTEN, UMSETZBAREN Lernplan.
+
+RAHMENDATEN:
+- Lernzeitraum: {duration_days} Tage
+- Lernzeit pro Tag: {hours_per_day} Stunden
+- Gesamtlernzeit: {total_hours} Stunden
+
+ANFORDERUNGEN AN DEN LERNPLAN:
+1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf
+2. Jede Aufgabe muss KONKRET und UMSETZBAR sein (keine vagen Anweisungen wie "lerne Kapitel X")
+3. Gib GENAUE Zeitangaben für jede Aufgabe (Summe = {hours_per_day}h pro Tag)
+4. Berücksichtige Lernpsychologie: Wiederholungen einbauen, Pausen vorschlagen
+5. Priorisiere schwierige Themen früh im Plan
+6. Die letzten 1-2 Tage für Wiederholung und Übungen reservieren
+
+FÜR JEDE AUFGABE ANGEBEN:
+- Was genau zu tun ist (spezifisch, nicht vage)
+- Wie lange es dauert
+- Welche Methode empfohlen wird (lesen, zusammenfassen, Karteikarten, Übungen lösen...)
+
+Ausgabe: JSON Array mit genau {duration_days} Einträgen:
+[
+    {{
+        "day": 1,
+        "topic": "Prägnanter Titel des Tagesthemas",
+        "goal": "Was soll der Lernende am Ende dieses Tages können/wissen?",
+        "tasks": [
+            "✅ [Aufgabe 1] – Methode: [Methode] (ca. XX Min)",
+            "✅ [Aufgabe 2] – Methode: [Methode] (ca. XX Min)",
+            "✅ [Aufgabe 3] – Methode: [Methode] (ca. XX Min)"
+        ],
+        "focus": "⭐ Besonders wichtig: [Was ist der Kern dieses Tages?]",
+        "tip": "💡 Lerntipp: [Spezifischer Tipp für diesen Tag]"
+    }}
+]
+
+Analysiere das folgende Material und erstelle den vollständigen, detaillierten Lernplan:
+"""
             input_parts = [prompt]
             if isinstance(content, list):
                 input_parts.extend(content)
@@ -172,10 +265,10 @@ class AIService:
             print(f"Generating study plan with {len(input_parts)} input parts...")
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             print(f"Plan response received: {response.text[:200] if response.text else 'EMPTY'}")
-            
+
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten. Prüfe ob die Sicherheitsfilter greifen.")
-            
+
             result = json.loads(response.text)
             print(f"Parsed plan: {len(result)} days")
             return result
