@@ -10,6 +10,14 @@ if api_key:
 
 model_name = "gemini-2.0-flash-exp" # Or latest available
 
+# Safety Settings - Allow all content to prevent blocking of valid study materials
+SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
+
 class AIService:
     @staticmethod
     def generate_summary(content: List[Any], detail_level: str = "Normal") -> str:
@@ -17,7 +25,6 @@ class AIService:
         try:
             model = genai.GenerativeModel(model_name)
             
-            # Prepare Prompt Part
             prompt = f"""
             Erstelle eine Zusammenfassung des folgenden Materials auf Deutsch.
             Detailgrad: {detail_level}
@@ -26,18 +33,19 @@ class AIService:
             Verwende Überschriften, Listen und hebe wichtige Begriffe fett hervor.
             """
             
-            # Combine Prompt + Content
-            # content is expected to be a list that can contain strings or File objects
             input_parts = [prompt]
             if isinstance(content, list):
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
             
-            response = model.generate_content(input_parts)
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
             return response.text
         except Exception as e:
-            return f"Fehler bei der Generierung: {str(e)}"
+            print(f"Summary Error: {e}")
+            raise Exception(f"Fehler bei der Zusammenfassung: {str(e)}")
 
     @staticmethod
     def generate_quiz(content: List[Any]) -> List[Dict[str, Any]]:
@@ -63,11 +71,13 @@ class AIService:
             else:
                 input_parts.append(content)
             
-            response = model.generate_content(input_parts)
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
             return json.loads(response.text)
         except Exception as e:
             print(f"Quiz Error: {e}")
-            return []
+            raise Exception(f"Fehler beim Quiz-Generieren: {str(e)}")
 
     @staticmethod
     def generate_flashcards(content: List[Any]) -> List[Dict[str, str]]:
@@ -87,11 +97,13 @@ class AIService:
             else:
                 input_parts.append(content)
                 
-            response = model.generate_content(input_parts)
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
             return json.loads(response.text)
         except Exception as e:
             print(f"Flashcard Error: {e}")
-            return []
+            raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
     def generate_study_plan(content: List[Any], duration_days: int) -> List[Dict[str, Any]]:
@@ -100,9 +112,9 @@ class AIService:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             prompt = f"""
             Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Material.
-            Der Plan soll den Stoff sinnvoll aufteilen.
+            Der Plan soll den Stoff sinnvoll aufteilen. Verteile das Material gleichmäßig auf genau {duration_days} Tage.
             
-            Ausgabe-Format: JSON Array
+            Ausgabe-Format: JSON Array mit genau {duration_days} Einträgen:
             [
                 {{
                     "day": 1,
@@ -118,8 +130,16 @@ class AIService:
             else:
                 input_parts.append(content)
 
-            response = model.generate_content(input_parts)
-            return json.loads(response.text)
+            print(f"Generating study plan with {len(input_parts)} input parts...")
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            print(f"Plan response received: {response.text[:200] if response.text else 'EMPTY'}")
+            
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten. Prüfe ob die Sicherheitsfilter greifen.")
+            
+            result = json.loads(response.text)
+            print(f"Parsed plan: {len(result)} days")
+            return result
         except Exception as e:
             print(f"Plan Error: {e}")
-            return []
+            raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")

@@ -207,7 +207,18 @@ export default function FolderPage() {
     const renderFileContent = (file: FileData) => {
         if (file.type === 'plan') {
             const plan = file.content || [];
-            if (!Array.isArray(plan)) return <p>Fehlerhaftes Plan-Format.</p>;
+            console.log("Plan content:", plan, "Type:", typeof plan, "IsArray:", Array.isArray(plan));
+            if (!Array.isArray(plan) || plan.length === 0) {
+                return (
+                    <div className="text-center py-12">
+                        <p className="text-gray-400 text-lg mb-2">⚠️ Lernplan ist leer</p>
+                        <p className="text-gray-500 text-sm">Der Plan konnte nicht geladen werden.</p>
+                        <pre className="mt-4 text-xs text-left bg-[#252526] p-3 rounded-xl text-gray-400 max-h-32 overflow-auto">
+                            {JSON.stringify(file.content, null, 2)}
+                        </pre>
+                    </div>
+                );
+            }
             return (
                 <div className="space-y-6">
                     {plan.map((day: any, i: number) => (
