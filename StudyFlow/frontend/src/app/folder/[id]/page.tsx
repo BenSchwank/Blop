@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen } from "lucide-react";
 
 interface FileData {
     id: string;
@@ -28,6 +28,13 @@ export default function FolderPage() {
 
     // AI Generation States
     const [isGenerating, setIsGenerating] = useState<string | null>(null); // 'plan', 'quiz', 'cards', 'summary'
+
+    // Plan Config Modal State
+    const [isPlanConfigOpen, setIsPlanConfigOpen] = useState(false);
+    const [planDays, setPlanDays] = useState(7);
+    const [planHoursPerDay, setPlanHoursPerDay] = useState(2);
+    const [planEndDate, setPlanEndDate] = useState('');
+    const [planUseDate, setPlanUseDate] = useState(false);
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
@@ -163,16 +170,76 @@ export default function FolderPage() {
     };
 
     const handleGenerate = async (type: 'plan' | 'quiz' | 'flashcards' | 'summary') => {
-        setIsGenerating(type);
+        if (type === 'plan') {
+            // Open plan config modal instead of directly generating
+            setIsPlanConfigOpen(true);
+            return;
+        }
 
-        // Map type to success message
+        setIsGenerating(type);
         let msg = "Erfolgreich generiert!";
-        if (type === 'plan') msg = "Lernplan erstellt!";
-        else if (type === 'quiz') msg = "Quiz erstellt!";
+        if (type === 'quiz') msg = "Quiz erstellt!";
         else if (type === 'flashcards') msg = "Karteikarten erstellt!";
         else if (type === 'summary') msg = "Zusammenfassung erstellt!";
 
         await handleAIAction(type, setIsGenerating, msg);
+    };
+
+    const handlePlanGenerate = async () => {
+        setIsPlanConfigOpen(false);
+        setIsGenerating('plan');
+
+        // Calculate duration from end date if selected
+        let days = planDays;
+        if (planUseDate && planEndDate) {
+            const end = new Date(planEndDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            days = Math.max(1, diff);
+        }
+
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/plan`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    duration_days: days,
+                    hours_per_day: planHoursPerDay
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data.plan && data.plan.length > 0) {
+                    setSelectedFile({
+                        id: 'plan_main',
+                        name: 'Aktueller Lernplan',
+                        type: 'plan',
+                        created_at: new Date().toISOString().split('T')[0],
+                        content: data.plan
+                    });
+                } else {
+                    alert("Lernplan wurde generiert, ist aber leer. Bitte prüfe ob Material im Ordner vorhanden ist.");
+                }
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                } catch (_) { }
+                alert(`Lernplan-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error("Plan error:", error);
+            alert(`Netzwerk-Fehler: ${String(error)}`);
+        } finally {
+            setIsGenerating(null);
+        }
     };
 
     // --- VIEWER COMPONENTS ---
@@ -433,6 +500,135 @@ export default function FolderPage() {
 
             {/* File Viewer Modal */}
             {renderViewer()}
+
+            {/* Plan Config Modal */}
+            {isPlanConfigOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+                                    <BrainCircuit size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Lernplan erstellen</h3>
+                                    <p className="text-xs text-gray-400">Konfiguriere deinen persönlichen Lernplan</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5 space-y-5">
+                            {/* Duration Mode Toggle */}
+                            <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                <button
+                                    onClick={() => setPlanUseDate(false)}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                >
+                                    <Clock size={14} /> Anzahl Tage
+                                </button>
+                                <button
+                                    onClick={() => setPlanUseDate(true)}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                >
+                                    <Calendar size={14} /> Enddatum
+                                </button>
+                            </div>
+
+                            {/* Days OR End Date */}
+                            {!planUseDate ? (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Anzahl Lerntage
+                                        <span className="ml-2 text-[#5E5CE6] font-bold">{planDays} Tage</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={1} max={60} step={1}
+                                        value={planDays}
+                                        onChange={e => setPlanDays(Number(e.target.value))}
+                                        className="w-full accent-[#5E5CE6]"
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                        <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum</label>
+                                    <input
+                                        type="date"
+                                        value={planEndDate}
+                                        min={new Date().toISOString().split('T')[0]}
+                                        onChange={e => setPlanEndDate(e.target.value)}
+                                        className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
+                                    />
+                                    {planEndDate && (
+                                        <p className="text-xs text-gray-400 mt-1.5">
+                                            ≈ {Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Lerntage bis zur Prüfung
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Hours per Day */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    Lernzeit pro Tag
+                                    <span className="ml-2 text-[#5E5CE6] font-bold">{planHoursPerDay} Std.</span>
+                                </label>
+                                <input
+                                    type="range"
+                                    min={0.5} max={8} step={0.5}
+                                    value={planHoursPerDay}
+                                    onChange={e => setPlanHoursPerDay(Number(e.target.value))}
+                                    className="w-full accent-[#5E5CE6]"
+                                />
+                                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>30 Min</span><span>4 Std</span><span>8 Std</span>
+                                </div>
+                            </div>
+
+                            {/* Summary */}
+                            <div className="bg-[#252526] rounded-xl p-4 border border-[#333]">
+                                <div className="flex items-center gap-2 text-sm text-gray-300">
+                                    <BookOpen size={14} className="text-purple-400" />
+                                    <span>
+                                        {planUseDate && planEndDate
+                                            ? `${Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Tage`
+                                            : `${planDays} Tage`
+                                        } × {planHoursPerDay} Std.
+                                        = <strong className="text-white">
+                                            {((planUseDate && planEndDate
+                                                ? Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))
+                                                : planDays) * planHoursPerDay).toFixed(1)} Std. gesamt
+                                        </strong>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex gap-3 p-5 border-t border-[#333]">
+                            <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={handlePlanGenerate}
+                                disabled={planUseDate && !planEndDate}
+                                className="flex-1 py-2.5 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                <BrainCircuit size={16} />
+                                Lernplan generieren
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

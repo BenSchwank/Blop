@@ -247,6 +247,7 @@ class PlanRequest(BaseModel):
     username: str
     folder_id: str
     duration_days: int
+    hours_per_day: float = 2.0  # Default 2 hours per day
 
 @app.post("/api/ai/plan")
 def create_study_plan(request: PlanRequest):
@@ -265,7 +266,7 @@ def create_study_plan(request: PlanRequest):
             raise HTTPException(status_code=400, detail=error_msg)
 
         # Generate Plan
-        plan = AIService.generate_study_plan(context, request.duration_days)
+        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day)
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)

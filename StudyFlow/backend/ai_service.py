@@ -106,20 +106,21 @@ class AIService:
             raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_study_plan(content: List[Any], duration_days: int) -> List[Dict[str, Any]]:
+    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0) -> List[Dict[str, Any]]:
         """Generates a structured study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             prompt = f"""
             Erstelle einen detaillierten Lernplan für {duration_days} Tage basierend auf dem Material.
-            Der Plan soll den Stoff sinnvoll aufteilen. Verteile das Material gleichmäßig auf genau {duration_days} Tage.
+            Der Lernende hat täglich {hours_per_day} Stunden Zeit zum Lernen.
+            Verteile das Material gleichmäßig auf genau {duration_days} Tage und passe die Aufgaben entsprechend der verfügbaren Lernzeit an.
             
             Ausgabe-Format: JSON Array mit genau {duration_days} Einträgen:
             [
                 {{
                     "day": 1,
                     "topic": "Thema des Tages",
-                    "tasks": ["Lese Abschnitt X", "Mache Aufgabe Y"],
+                    "tasks": ["Lese Abschnitt X (ca. 30 Min)", "Mache Aufgabe Y (ca. 20 Min)"],
                     "goal": "Ziel des Tages"
                 }}
             ]
