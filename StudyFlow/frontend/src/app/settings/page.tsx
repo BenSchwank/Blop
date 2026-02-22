@@ -19,7 +19,7 @@ export default function Settings() {
     const [savingKey, setSavingKey] = useState(false);
     const [keyStatus, setKeyStatus] = useState("");
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
     useEffect(() => {
         const user = localStorage.getItem("username");

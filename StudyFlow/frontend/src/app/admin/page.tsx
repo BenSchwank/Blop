@@ -17,7 +17,7 @@ export default function AdminPanel() {
     const [loading, setLoading] = useState(true);
     const [isAdmin, setIsAdmin] = useState(false);
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
     useEffect(() => {
         // Check if user is admin

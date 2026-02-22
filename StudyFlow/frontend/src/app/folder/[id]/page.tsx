@@ -39,7 +39,7 @@ export default function FolderPage() {
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
     const fetchFiles = async () => {
         try {
