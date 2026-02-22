@@ -138,17 +138,21 @@ export default function FolderPage() {
                 // Also refresh the file list in background
                 fetchFiles();
             } else {
-                const err = await res.json();
-                // Check for API Key Error
-                if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
-                    const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nDu musst erst deinen Google Gemini API Key in den Einstellungen hinterlegen, um AI-Features zu nutzen.\n\nJetzt zu den Einstellungen?");
-                    if (goToSettings) {
-                        router.push("/settings");
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nDu musst erst deinen Google Gemini API Key in den Einstellungen hinterlegen, um AI-Features zu nutzen.\n\nJetzt zu den Einstellungen?");
+                        if (goToSettings) {
+                            router.push("/settings");
+                        }
+                        return;
                     }
-                } else {
-                    const errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : err.detail;
-                    alert(`Fehler: ${errorMsg}`);
+                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                } catch (_) {
+                    // Response not JSON — use status code
                 }
+                alert(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);

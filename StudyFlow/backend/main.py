@@ -253,25 +253,31 @@ def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
     
-    # Configure API Key
-    _configure_genai(request.username)
-    
-    context, debug_log = _get_folder_context(request.username, request.folder_id)
+    try:
+        # Configure API Key
+        _configure_genai(request.username)
+        
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
 
-    if not context:
-        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
-        print(error_msg)
-        raise HTTPException(status_code=400, detail=error_msg)
+        if not context:
+            error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
+            print(error_msg)
+            raise HTTPException(status_code=400, detail=error_msg)
 
-    # 2. Generate Plan
-    plan = AIService.generate_study_plan(context, request.duration_days)
+        # Generate Plan
+        plan = AIService.generate_study_plan(context, request.duration_days)
+        
+        # Save Plan
+        DataManager.save_plan(plan, request.username, request.folder_id)
+        
+        return {"status": "success", "plan": plan}
     
-    # 2b. Cleanup (Optional)
-    
-    # 3. Save Plan (Auto-Save + File)
-    DataManager.save_plan(plan, request.username, request.folder_id)
-    
-    return {"status": "success", "plan": plan}
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        print(f"Plan generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Lernplan-Fehler: {str(e)}")
+
 
 def _get_folder_context(username: str, folder_id: str):
     """
@@ -339,65 +345,65 @@ def _get_folder_context(username: str, folder_id: str):
 @app.post("/api/ai/quiz")
 def create_quiz(request: GenRequest):
     from ai_service import AIService
-    import json
     from datetime import datetime
-
-    _configure_genai(request.username)
-
-    context, debug_log = _get_folder_context(request.username, request.folder_id)
-    
-    if not context:
-        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
-        raise HTTPException(status_code=400, detail=error_msg)
-        
-    quiz = AIService.generate_quiz(context)
-    
-    # Save as file
-    file_id = f"quiz_{int(datetime.now().timestamp())}"
-    DataManager.save_file_metadata({
-        "id": file_id, "name": "AI Quiz", "type": "quiz", "content": quiz, "created_at": datetime.now().strftime("%Y-%m-%d")
-    }, request.username, request.folder_id)
-    
-    return {"status": "success", "quiz": quiz}
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
+        quiz = AIService.generate_quiz(context)
+        file_id = f"quiz_main_{request.folder_id}"
+        DataManager.save_file_metadata({
+            "id": file_id, "name": "AI Quiz", "type": "quiz", "content": quiz, "created_at": datetime.now().strftime("%Y-%m-%d")
+        }, request.username, request.folder_id)
+        return {"status": "success", "quiz": quiz}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Quiz error: {e}")
+        raise HTTPException(status_code=500, detail=f"Quiz-Fehler: {str(e)}")
 
 @app.post("/api/ai/flashcards")
 def create_flashcards(request: GenRequest):
     from ai_service import AIService
-    _configure_genai(request.username)
-    context, debug_log = _get_folder_context(request.username, request.folder_id)
-    
-    if not context:
-        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
-        raise HTTPException(status_code=400, detail=error_msg)
-        
-    cards = AIService.generate_flashcards(context)
-    
-    DataManager.save_file_metadata({
-        "id": f"cards_{int(datetime.now().timestamp())}",
-        "name": "Generierte Karteikarten",
-        "type": "flashcards", 
-        "content": cards,
-        "created_at": datetime.now().strftime("%Y-%m-%d")
-    }, request.username, request.folder_id)
-    
-    return {"status": "success", "flashcards": cards}
+    from datetime import datetime
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
+        cards = AIService.generate_flashcards(context)
+        DataManager.save_file_metadata({
+            "id": f"cards_main_{request.folder_id}",
+            "name": "Generierte Karteikarten",
+            "type": "flashcards",
+            "content": cards,
+            "created_at": datetime.now().strftime("%Y-%m-%d")
+        }, request.username, request.folder_id)
+        return {"status": "success", "flashcards": cards}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Flashcards error: {e}")
+        raise HTTPException(status_code=500, detail=f"Karteikarten-Fehler: {str(e)}")
 
 @app.post("/api/ai/summary")
 def create_summary(request: GenRequest):
     from ai_service import AIService
-    _configure_genai(request.username)
-    context, debug_log = _get_folder_context(request.username, request.folder_id)
-    
-    if not context:
-        error_msg = f"Kein Material gefunden. Debug: {'; '.join(debug_log)}"
-        raise HTTPException(status_code=400, detail=error_msg)
-        
-    summary = AIService.generate_summary(context)
-    
-    # Save summary 
-    DataManager.save_generated_summary(summary, request.username, request.folder_id)
-    
-    return {"status": "success", "summary": summary}
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
+        summary = AIService.generate_summary(context)
+        DataManager.save_generated_summary(summary, request.username, request.folder_id)
+        return {"status": "success", "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Summary error: {e}")
+        raise HTTPException(status_code=500, detail=f"Zusammenfassung-Fehler: {str(e)}")
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
