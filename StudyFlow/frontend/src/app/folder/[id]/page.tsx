@@ -123,8 +123,20 @@ export default function FolderPage() {
 
             if (res.ok) {
                 const data = await res.json();
+
+                // Open the result immediately from the response (no race condition)
+                if (endpoint === 'plan' && data.plan) {
+                    setSelectedFile({ id: 'plan_main', name: 'Aktueller Lernplan', type: 'plan', created_at: new Date().toISOString().split('T')[0], content: data.plan });
+                } else if (endpoint === 'quiz' && data.quiz) {
+                    setSelectedFile({ id: 'quiz_main', name: 'Quiz', type: 'quiz', created_at: new Date().toISOString().split('T')[0], content: data.quiz });
+                } else if (endpoint === 'flashcards' && data.flashcards) {
+                    setSelectedFile({ id: 'cards_main', name: 'Karteikarten', type: 'flashcards', created_at: new Date().toISOString().split('T')[0], content: data.flashcards });
+                } else if (endpoint === 'summary' && data.summary) {
+                    setSelectedFile({ id: 'summary_main', name: 'Zusammenfassung', type: 'summary', created_at: new Date().toISOString().split('T')[0], content: data.summary });
+                }
+
+                // Also refresh the file list in background
                 fetchFiles();
-                alert(successMessage);
             } else {
                 const err = await res.json();
                 // Check for API Key Error

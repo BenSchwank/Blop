@@ -385,7 +385,8 @@ class DataManager:
 
     @staticmethod
     def save_plan_as_file(plan_data, username, folder_id, name="Lernplan"):
-        file_id = f"plan_{int(datetime.now().timestamp())}"
+        # Use a fixed ID so we always overwrite (upsert) the plan, not accumulate duplicates
+        file_id = f"plan_main_{folder_id}"
         file_meta = {
             "id": file_id,
             "name": name,
