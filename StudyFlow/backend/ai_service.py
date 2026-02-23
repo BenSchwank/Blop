@@ -278,9 +278,9 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
 
     @staticmethod
     def transcribe_audio(audio_file_path: str) -> str:
-        """Transcribes an audio file using Gemini 1.5 Pro's multimodal capabilities."""
+        """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
-            model = genai.GenerativeModel("gemini-1.5-pro") # Force 1.5 Pro for audio
+            model = genai.GenerativeModel(get_best_model()) # Use the dynamically selected best model
             
             # Upload the file to Gemini API temporarily
             print(f"Uploading audio to Gemini: {audio_file_path}")

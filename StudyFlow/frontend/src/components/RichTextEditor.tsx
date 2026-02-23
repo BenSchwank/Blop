@@ -106,9 +106,9 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
     const [isSaving, setIsSaving] = useState(false);
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
-    // If it already looks like HTML (from a previous edit), we can just use it directly, 
-    // otherwise we convert it with marked.
-    const isHtml = /<\/?[a-z][\s\S]*>/i.test(initialContent);
+    // If it already looks like HTML (from a previous edit), we can just use it directly. 
+    // Tiptap always wraps text in basic block elements like <p>, <h1>, <ul> etc.
+    const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>/.test(initialContent);
     const parsedHtml = isHtml ? initialContent : marked.parse(initialContent, { async: false }) as string;
 
     // Fallback to ensuring simple newlines aren't completely lost if marked isn't doing what we expect
