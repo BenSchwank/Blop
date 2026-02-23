@@ -156,6 +156,15 @@ class DataManager:
         DataManager.save(data, username)
 
     @staticmethod
+    def delete_api_key(username):
+        data = DataManager.load(username)
+        if "api_key" in data:
+            del data["api_key"]
+            DataManager.save(data, username)
+            return True
+        return False
+
+    @staticmethod
     def create_folder(name, username):
         data = DataManager.load(username)
         folder = {

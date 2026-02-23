@@ -37,9 +37,30 @@ export default function Settings() {
             });
             if (res.ok) {
                 setKeyStatus("API Key erfolgreich gespeichert! ✅");
-                setApiKey(""); // Clear for security or keep it? Checking reqs, clearing usually better
+                setApiKey(""); // Clear input
             } else {
                 setKeyStatus("Fehler beim Speichern.");
+            }
+        } catch (error) {
+            setKeyStatus("Verbindungsfehler.");
+        } finally {
+            setSavingKey(false);
+        }
+    };
+
+    const handleDeleteApiKey = async () => {
+        if (!username) return;
+        setSavingKey(true);
+        setKeyStatus("");
+        try {
+            const res = await fetch(`${API_BASE}/auth/apikey/${username}`, {
+                method: "DELETE",
+            });
+            if (res.ok) {
+                setKeyStatus("API Key erfolgreich gelöscht! 🗑️");
+                setApiKey("");
+            } else {
+                setKeyStatus("Fehler beim Löschen.");
             }
         } catch (error) {
             setKeyStatus("Verbindungsfehler.");
@@ -119,7 +140,7 @@ export default function Settings() {
                     </h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
                         <p className="text-gray-400 text-sm">
-                            Trage hier deinen eigenen <strong>Google Gemini API Key</strong> ein, um die AI-Features (Zusammenfassungen, Quiz, Uploads) zu nutzen.
+                            Trage hier deinen eigenen <strong>Google Gemini API Key</strong> ein, um die AI-Features (Zusammenfassungen, Quiz, Uploads) zu nutzen. Wenn du den Key löschst, verwendet das System keinen Key mehr für diesen Account.
                             <br />
                             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                                 Hier kostenlos Key erstellen &rarr;
@@ -140,6 +161,14 @@ export default function Settings() {
                                 className="bg-[#5E5CE6] hover:bg-[#4c4ab5] text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
                             >
                                 {savingKey ? <Loader2 size={18} className="animate-spin" /> : "Speichern"}
+                            </button>
+                            <button
+                                onClick={handleDeleteApiKey}
+                                disabled={savingKey}
+                                className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-500 px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                                title="API Key löschen"
+                            >
+                                <Trash2 size={18} />
                             </button>
                         </div>
                         {keyStatus && (

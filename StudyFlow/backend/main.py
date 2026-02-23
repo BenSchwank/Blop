@@ -192,6 +192,13 @@ def save_api_key(request: APIKeyRequest):
     DataManager.save_api_key(request.username, request.api_key)
     return {"status": "success", "message": "API Key gespeichert"}
 
+@app.delete("/api/auth/apikey/{username}")
+def remove_api_key(username: str):
+    """Removes the user's Google API Key."""
+    if DataManager.delete_api_key(username):
+        return {"status": "success", "message": "API Key entfernt"}
+    raise HTTPException(status_code=404, detail="API Key nicht gefunden")
+
 def _configure_genai(username: str):
     """Configures GenAI with User Key (priority) or Env Key."""
     user_key = DataManager.get_api_key(username)

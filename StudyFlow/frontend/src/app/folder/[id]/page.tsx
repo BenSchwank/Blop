@@ -106,7 +106,12 @@ export default function FolderPage() {
                 setIsUploadOpen(false);
                 fetchFiles();
             } else {
-                alert("Fehler beim Upload (Server Error)");
+                const err = await res.json();
+                if (err.detail && err.detail.includes("API_KEY")) {
+                    alert("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                } else {
+                    alert(`Fehler beim Upload: ${err.detail || "Server Error"}`);
+                }
             }
         } catch (error) {
             console.error(error);
@@ -134,10 +139,16 @@ export default function FolderPage() {
                 setIsUploadOpen(false);
                 fetchFiles();
             } else {
-                alert("Fehler: Ungültige URL oder kein Transkript verfügbar.");
+                const err = await res.json();
+                if (err.detail && err.detail.includes("API_KEY")) {
+                    alert("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                } else {
+                    alert(`Fehler: ${err.detail || "Ungültige URL oder kein Transkript verfügbar."}`);
+                }
             }
         } catch (error) {
             console.error(error);
+            alert("Konnte YouTube-Video nicht importieren.");
         } finally {
             setIsProcessing(false);
         }
@@ -213,7 +224,11 @@ export default function FolderPage() {
                 fetchFiles();
             } else {
                 const err = await res.json();
-                alert(`Fehler beim Audio-Upload: ${err.detail || "Unbekannter Fehler"}`);
+                if (err.detail && err.detail.includes("API_KEY")) {
+                    alert("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                } else {
+                    alert(`Fehler beim Audio-Upload: ${err.detail || "Unbekannter Fehler"}`);
+                }
             }
         } catch (error) {
             console.error(error);
