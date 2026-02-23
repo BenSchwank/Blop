@@ -395,13 +395,22 @@ def _get_folder_context(username: str, folder_id: str):
                 
                 if pdf_path:
                     if os.path.exists(pdf_path):
-                        # Upload to Gemini
-                        debug_log.append(f"Uploading {f_name} to Gemini from {pdf_path}")
                         try:
+                            import time
                             uploaded_file = genai.upload_file(pdf_path, mime_type="application/pdf")
+                            
+                            while uploaded_file.state.name == "PROCESSING":
+                                debug_log.append(f"Waiting for PDF {f_name} processing...")
+                                time.sleep(2)
+                                uploaded_file = genai.get_file(uploaded_file.name)
+                                
+                            if uploaded_file.state.name == "FAILED":
+                                debug_log.append(f"PDF {f_name} processing failed on Gemini.")
+                                continue
+
                             content_parts.append(uploaded_file)
                             has_content = True
-                            debug_log.append(f"Successfully uploaded {f_name}")
+                            debug_log.append(f"Successfully uploaded and processed {f_name}")
                         except Exception as upload_err:
                              debug_log.append(f"GenAI Upload Error: {str(upload_err)}")
                     else:

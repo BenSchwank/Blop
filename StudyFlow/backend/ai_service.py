@@ -284,7 +284,16 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             
             # Upload the file to Gemini API temporarily
             print(f"Uploading audio to Gemini: {audio_file_path}")
+            import time
             uploaded_file = genai.upload_file(path=audio_file_path)
+            
+            while uploaded_file.state.name == "PROCESSING":
+                print("Waiting for audio processing...")
+                time.sleep(2)
+                uploaded_file = genai.get_file(uploaded_file.name)
+                
+            if uploaded_file.state.name == "FAILED":
+                raise Exception("Audio file processing failed on Gemini's servers.")
             
             prompt = """
 Bitte erstelle ein präzises, zusammenhängendes und vollständiges Transkript dieser Audioaufnahme auf Deutsch. 
