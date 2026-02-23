@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface FileData {
     id: string;
@@ -373,10 +375,10 @@ export default function FolderPage() {
         }
         if (file.type === 'summary') {
             return (
-                <div className="prose prose-invert max-w-none">
-                    <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-300">
+                <div className="prose-blop max-w-none w-full">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {typeof file.content === 'string' ? file.content : JSON.stringify(file.content)}
-                    </pre>
+                    </ReactMarkdown>
                 </div>
             );
         }

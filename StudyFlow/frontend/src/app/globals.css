@@ -109,3 +109,166 @@ input:focus-visible {
   background: var(--color-blop-accent);
   color: white;
 }
+
+/* Custom Markdown Prose Styles (Notion/Turbo AI Inspired) */
+.prose-blop {
+  color: var(--color-blop-text);
+  line-height: 1.7;
+}
+
+.prose-blop h1 {
+  font-size: 1.875rem;
+  /* text-3xl */
+  font-weight: 700;
+  color: #ffffff;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prose-blop h2 {
+  font-size: 1.5rem;
+  /* text-2xl */
+  font-weight: 600;
+  color: #ffffff;
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-blop h3 {
+  font-size: 1.25rem;
+  /* text-xl */
+  font-weight: 600;
+  color: #eeeeee;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-blop p {
+  margin-bottom: 1rem;
+  color: #dddddd;
+}
+
+.prose-blop ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.prose-blop ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.prose-blop li {
+  margin-bottom: 0.25rem;
+  color: #dddddd;
+}
+
+.prose-blop li::marker {
+  color: #888888;
+}
+
+.prose-blop strong {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.prose-blop blockquote {
+  border-left: 4px solid #5E5CE6;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  font-style: italic;
+  color: #bbbbbb;
+  background: rgba(94, 92, 230, 0.05);
+  padding: 1rem 1rem 1rem 1rem;
+  border-radius: 0 8px 8px 0;
+}
+
+.prose-blop a {
+  color: #5E5CE6;
+  text-decoration: underline;
+  text-decoration-color: rgba(94, 92, 230, 0.4);
+  text-underline-offset: 4px;
+  transition: all 0.2s;
+}
+
+.prose-blop a:hover {
+  color: #7D7AFF;
+  text-decoration-color: #7D7AFF;
+}
+
+.prose-blop table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px #333333;
+}
+
+.prose-blop thead {
+  background: #252526;
+  border-bottom: 1px solid #333333;
+}
+
+.prose-blop th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.prose-blop td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #333333;
+  color: #dddddd;
+}
+
+.prose-blop tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.prose-blop tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.prose-blop code {
+  font-family: monospace;
+  background: #252526;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.875em;
+  color: #5E5CE6;
+  border: 1px solid #333333;
+}
+
+.prose-blop pre {
+  background: #1e1e1e;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  border: 1px solid #333333;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.prose-blop pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: #dddddd;
+  font-size: 0.875em;
+}
+
+.prose-blop hr {
+  border: 0;
+  border-top: 1px solid #333333;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
