@@ -332,6 +332,7 @@ class PlanRequest(BaseModel):
     folder_id: str
     duration_days: int
     hours_per_day: float = 2.0  # Default 2 hours per day
+    active_days: list[int] = None # List of active weekdays (0=Mo, 6=Su). If None, all days are active.
     model_preference: str = None
 
 @app.post("/api/ai/plan")
@@ -351,7 +352,7 @@ def create_study_plan(request: PlanRequest):
             raise HTTPException(status_code=400, detail=error_msg)
 
         # Generate Plan
-        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day, model_preference=request.model_preference)
+        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day, model_preference=request.model_preference, active_days=request.active_days)
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)

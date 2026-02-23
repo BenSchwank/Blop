@@ -15,6 +15,60 @@ interface FileData {
     content?: any;
 }
 
+// Sub-component for interactive Quiz viewing
+const QuizViewer = ({ questions }: { questions: any[] }) => {
+    const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
+
+    const handleSelect = (qIndex: number, option: string) => {
+        if (selectedAnswers[qIndex]) return; // prevent changing answer after selection
+        setSelectedAnswers(prev => ({ ...prev, [qIndex]: option }));
+    };
+
+    return (
+        <div className="space-y-6 pb-12">
+            {questions.map((q: any, i: number) => {
+                const userSelected = selectedAnswers[i];
+                return (
+                    <div key={i} className="bg-[#252526] p-5 rounded-xl border border-[#333] shadow-md">
+                        <p className="font-medium text-white mb-4 text-lg">{i + 1}. {q.question}</p>
+                        <div className="space-y-3">
+                            {q.options?.map((opt: string, idx: number) => {
+                                const isSelected = userSelected === opt;
+                                const isCorrect = opt === q.answer;
+                                const showCorrect = userSelected && isCorrect; // Highlight correct answer once user has voted
+                                const showWrong = isSelected && !isCorrect;
+
+                                let styles = "border-[#444] hover:bg-[#333] cursor-pointer text-gray-300";
+
+                                if (userSelected) {
+                                    styles = "border-[#333] opacity-60 cursor-default"; // General disabled state
+                                    if (showCorrect) styles = "border-green-500/50 bg-green-500/10 text-green-400 font-medium opacity-100";
+                                    if (showWrong) styles = "border-red-500/50 bg-red-500/10 text-red-400 font-medium opacity-100";
+                                }
+
+                                return (
+                                    <div
+                                        key={idx}
+                                        onClick={() => handleSelect(i, opt)}
+                                        className={`p-3 rounded-lg border transition-all ${styles}`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span>{opt}</span>
+                                            {showCorrect && <svg className="text-green-500" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                                            {showWrong && <svg className="text-red-500" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+
 export default function FolderPage() {
     const router = useRouter();
     const params = useParams();
@@ -45,6 +99,7 @@ export default function FolderPage() {
     const [planHoursPerDay, setPlanHoursPerDay] = useState(2);
     const [planEndDate, setPlanEndDate] = useState('');
     const [planUseDate, setPlanUseDate] = useState(false);
+    const [planActiveDays, setPlanActiveDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]); // 0=Mo, 6=Su
 
     // Summary Config Modal State
     const [isSummaryConfigOpen, setIsSummaryConfigOpen] = useState(false);
@@ -493,6 +548,7 @@ export default function FolderPage() {
                     folder_id: folderId,
                     duration_days: days,
                     hours_per_day: planHoursPerDay,
+                    active_days: planActiveDays.length < 7 ? planActiveDays : undefined,
                     model_preference: aiModelPreference || undefined
                 })
             });
@@ -753,34 +809,64 @@ export default function FolderPage() {
         if (file.type === 'quiz') {
             const questions = file.content || [];
             if (!Array.isArray(questions)) return <p>Fehlerhaftes Quiz-Format.</p>;
-            return (
-                <div className="space-y-6">
-                    {questions.map((q: any, i: number) => (
-                        <div key={i} className="bg-[#252526] p-4 rounded-xl border border-[#333]">
-                            <p className="font-medium text-white mb-3">{i + 1}. {q.question}</p>
-                            <div className="space-y-2">
-                                {q.options?.map((opt: string, idx: number) => (
-                                    <div key={idx} className={`p-3 rounded-lg border ${opt === q.answer ? 'border-green-500/50 bg-green-500/10' : 'border-[#333] hover:bg-[#333]'}`}>
-                                        {opt}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            );
+            return <QuizViewer questions={questions} />;
         }
         if (file.type === 'flashcards') {
             const cards = file.content || [];
             if (!Array.isArray(cards)) return <p>Fehlerhaftes Format.</p>;
             return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {cards.map((c: any, i: number) => (
-                        <div key={i} className="bg-[#252526] p-4 rounded-xl border border-[#333] flex flex-col gap-2">
-                            <div className="font-medium text-white border-b border-[#333] pb-2">{c.front}</div>
-                            <div className="text-gray-400 mt-2">{c.back}</div>
-                        </div>
-                    ))}
+                <div className="flex flex-col h-full">
+                    <div className="flex justify-end mb-4">
+                        <button
+                            onClick={() => {
+                                const csvContent = "data:text/csv;charset=utf-8,"
+                                    + cards.map(c => `"${c.front.replace(/"/g, '""')}","${c.back.replace(/"/g, '""')}"`).join("\n");
+                                const encodedUri = encodeURI(csvContent);
+                                const link = document.createElement("a");
+                                link.setAttribute("href", encodedUri);
+                                link.setAttribute("download", `${file.name || 'Flashcards'}.csv`);
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                            }}
+                            className="bg-[#252526] hover:bg-[#333] border border-[#444] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
+                            Export to Anki (CSV)
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
+                        {cards.map((c: any, i: number) => {
+                            // Using a data attribute or simple react state pattern isn't possible directly inside map without a hook.
+                            // We will use inline script-like behavior by toggling a class on click for the flip.
+                            return (
+                                <div
+                                    key={i}
+                                    className="group relative h-48 w-full [perspective:1000px] cursor-pointer"
+                                    onClick={(e) => {
+                                        const card = e.currentTarget;
+                                        const inner = card.querySelector('.flip-card-inner');
+                                        if (inner) {
+                                            inner.classList.toggle('[transform:rotateY(180deg)]');
+                                        }
+                                    }}
+                                >
+                                    <div className="flip-card-inner w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#333] bg-[#252526]">
+                                        {/* Front Face */}
+                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex items-center justify-center p-6 text-center text-white font-medium text-lg">
+                                            {c.front}
+                                            <div className="absolute bottom-3 right-3 text-xs text-gray-500 flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
+                                        </div>
+
+                                        {/* Back Face */}
+                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex items-center justify-center p-6 text-center text-gray-300 bg-[#1e1e1e] overflow-y-auto">
+                                            <div>{c.back}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             );
         }
@@ -1055,6 +1141,37 @@ export default function FolderPage() {
                                 <div className="flex justify-between text-xs text-gray-500 mt-1">
                                     <span>30 Min</span><span>4 Std</span><span>8 Std</span>
                                 </div>
+                            </div>
+
+                            {/* Active Study Days */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Aktive Lerntage</label>
+                                <div className="flex justify-between gap-1 sm:gap-2">
+                                    {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((day, idx) => {
+                                        const isActive = planActiveDays.includes(idx);
+                                        return (
+                                            <button
+                                                key={idx}
+                                                onClick={() => {
+                                                    setPlanActiveDays(prev =>
+                                                        isActive
+                                                            ? prev.filter(d => d !== idx)
+                                                            : [...prev, idx].sort()
+                                                    );
+                                                }}
+                                                className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${isActive
+                                                        ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
+                                                        : 'bg-[#252526] border border-[#444] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
+                                                    }`}
+                                            >
+                                                {day}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {planActiveDays.length === 0 && (
+                                    <p className="text-red-400 text-xs mt-2">Bitte mindestens einen Lerntag auswählen</p>
+                                )}
                             </div>
 
                             {/* Summary */}

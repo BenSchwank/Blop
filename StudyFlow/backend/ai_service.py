@@ -214,11 +214,17 @@ Erstelle die Karteikarten für das folgende Material:
             raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None) -> List[Dict[str, Any]]:
+    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None) -> List[Dict[str, Any]]:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
             total_hours = duration_days * hours_per_day
+
+            # Map the active_days array to a string of weekday names for the prompt
+            weekday_map = {0: "Montag", 1: "Dienstag", 2: "Mittwoch", 3: "Donnerstag", 4: "Freitag", 5: "Samstag", 6: "Sonntag"}
+            active_days_str = "Alle Tage"
+            if active_days is not None and len(active_days) > 0:
+                active_days_str = ", ".join([weekday_map.get(d, "") for d in active_days])
 
             prompt = f"""
 Du bist ein persönlicher Lerncoach und erstellst einen DETAILLIERTEN, UMSETZBAREN Lernplan.
@@ -227,13 +233,14 @@ RAHMENDATEN:
 - Lernzeitraum: {duration_days} Tage
 - Lernzeit pro Tag: {hours_per_day} Stunden
 - Gesamtlernzeit: {total_hours} Stunden
+- Aktive Lerntage: {active_days_str}
 
 ANCORDERUNGEN AN DEN LERNPLAN:
-1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf
+1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf. ACHTUNG: Plane NUR an den "Aktiven Lerntagen" Aufgaben ein. Wenn der Tag der Woche KEIN aktiver Lerntag ist, weise dem Tag KEINE Aufgaben zu und setze als Ziel/Summary "Ruhetag" oder "Pause".
 2. Jede Aufgabe muss KONKRET und UMSETZBAR sein (keine vagen Anweisungen wie "lerne Kapitel X")
 3. Gib GENAUE Zeitangaben für jede Aufgabe (Summe = {hours_per_day}h pro Tag)
 4. Berücksichtige Lernpsychologie: Wiederholungen einbauen, Pausen vorschlagen
-5. Erstelle für jeden Tag eine kurze INHALTLICHE ZUSAMMENFASSUNG (3-5 Sätze) des Tagesstoffs, sodass aus dem Lernplan direkt gelernt werden kann.
+5. Erstelle für jeden Tag eine kurze INHALTLICHE ZUSAMMENFASSUNG (3-5 Sätze) des Tagesstoffs, sodass aus dem Lernplan direkt gelernt werden kann. (Mache dies nicht für Ruhetage).
 6. Die Aufgaben sollen als ein JSON-Array von Objekten mit einem `description`-Feld und einem `completed`-Feld (immer auf false setzen) zurückgegeben werden.
 
 FÜR JEDE AUFGABE ANGEBEN:
