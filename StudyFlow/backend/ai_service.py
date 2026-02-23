@@ -21,8 +21,11 @@ _PREFERRED_MODELS = [
     "gemini-pro",
 ]
 
-def get_best_model() -> str:
+def get_best_model(model_preference: str = None) -> str:
     """Dynamically detect the best available Gemini model for this API key."""
+    if model_preference:
+        return model_preference
+        
     try:
         available = []
         for m in genai.list_models():
@@ -56,10 +59,10 @@ SAFETY_SETTINGS = [
 
 class AIService:
     @staticmethod
-    def generate_summary(content: List[Any], detail_level: str = "Normal") -> str:
+    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None) -> str:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model())
+            model = genai.GenerativeModel(get_best_model(model_preference))
 
             prompt = f"""
 Du bist ein erfahrener Tutor und Lernassistent. Deine Aufgabe ist es, eine UMFASSENDE und DETAILLIERTE Zusammenfassung des gesamten Lernmaterials auf Deutsch zu erstellen.
@@ -130,10 +133,10 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
             raise Exception(f"Fehler bei der Zusammenfassung: {str(e)}")
 
     @staticmethod
-    def generate_quiz(content: List[Any]) -> List[Dict[str, Any]]:
+    def generate_quiz(content: List[Any], model_preference: str = None) -> List[Dict[str, Any]]:
         """Generates a comprehensive quiz from multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
             prompt = """
 Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit 10 Fragen basierend auf dem Lernmaterial.
 
@@ -172,10 +175,10 @@ Erstelle das Quiz für das folgende Material:
             raise Exception(f"Fehler beim Quiz-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_flashcards(content: List[Any]) -> List[Dict[str, str]]:
+    def generate_flashcards(content: List[Any], model_preference: str = None) -> List[Dict[str, str]]:
         """Generates comprehensive flashcards from multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
             prompt = """
 Du bist ein erfahrener Tutor. Erstelle 20 hochwertige Karteikarten aus dem Lernmaterial.
 
@@ -211,10 +214,10 @@ Erstelle die Karteikarten für das folgende Material:
             raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0) -> List[Dict[str, Any]]:
+    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None) -> List[Dict[str, Any]]:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
-            model = genai.GenerativeModel(get_best_model(), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
             total_hours = duration_days * hours_per_day
 
             prompt = f"""
@@ -277,10 +280,10 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
     @staticmethod
-    def transcribe_audio(audio_file_path: str) -> str:
+    def transcribe_audio(audio_file_path: str, model_preference: str = None) -> str:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
-            model = genai.GenerativeModel(get_best_model()) # Use the dynamically selected best model
+            model = genai.GenerativeModel(get_best_model(model_preference)) # Use the dynamically selected best model
             
             # Upload the file to Gemini API temporarily
             print(f"Uploading audio to Gemini: {audio_file_path}")
@@ -326,10 +329,10 @@ Lasse Füllwörter (Ähm, öhm) weg, um den Text lesbar zu machen.
             raise Exception(f"Fehler bei der Audio-Transkription: {str(e)}")
 
     @staticmethod
-    def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "") -> str:
+    def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "", model_preference: str = None) -> str:
         """Generates a detailed elaboration/essay based on the material and user instructions."""
         try:
-            model = genai.GenerativeModel(get_best_model())
+            model = genai.GenerativeModel(get_best_model(model_preference))
 
             prompt = f"""
 Du bist ein akademischer Assistent. Erstelle eine fundierte Ausarbeitung (Essay, Textentwurf, Hausaufgabe) basierend auf dem folgenden Material.
@@ -364,10 +367,10 @@ Hier ist das Quellenmaterial:
             raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
 
     @staticmethod
-    def generate_repetition(content: List[Any], custom_rules: str = "") -> str:
+    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None) -> str:
         """Generates targeted spaced-repetition / review material."""
         try:
-            model = genai.GenerativeModel(get_best_model())
+            model = genai.GenerativeModel(get_best_model(model_preference))
 
             prompt = f"""
 Du bist ein Lernexperte (wie Anki oder Mochi). Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.

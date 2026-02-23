@@ -306,28 +306,33 @@ async def upload_audio(
 class GenRequest(BaseModel):
     username: str
     folder_id: str
+    model_preference: str = None
 
 class SummaryRequest(BaseModel):
     username: str
     folder_id: str
     detail_level: str = "Normal"
+    model_preference: str = None
 
 class ElaborationRequest(BaseModel):
     username: str
     folder_id: str
     detail_level: str = "Normal"
     custom_rules: str = ""
+    model_preference: str = None
 
 class RepetitionRequest(BaseModel):
     username: str
     folder_id: str
     custom_rules: str = ""
+    model_preference: str = None
 
 class PlanRequest(BaseModel):
     username: str
     folder_id: str
     duration_days: int
     hours_per_day: float = 2.0  # Default 2 hours per day
+    model_preference: str = None
 
 @app.post("/api/ai/plan")
 def create_study_plan(request: PlanRequest):
@@ -346,7 +351,7 @@ def create_study_plan(request: PlanRequest):
             raise HTTPException(status_code=400, detail=error_msg)
 
         # Generate Plan
-        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day)
+        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day, model_preference=request.model_preference)
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)
@@ -441,7 +446,7 @@ def create_quiz(request: GenRequest):
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        quiz = AIService.generate_quiz(context)
+        quiz = AIService.generate_quiz(context, model_preference=request.model_preference)
         file_id = f"quiz_main_{request.folder_id}"
         DataManager.save_file_metadata({
             "id": file_id, "name": "AI Quiz", "type": "quiz", "content": quiz, "created_at": datetime.now().strftime("%Y-%m-%d")
@@ -462,7 +467,7 @@ def create_flashcards(request: GenRequest):
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        cards = AIService.generate_flashcards(context)
+        cards = AIService.generate_flashcards(context, model_preference=request.model_preference)
         DataManager.save_file_metadata({
             "id": f"cards_main_{request.folder_id}",
             "name": "Generierte Karteikarten",
@@ -485,7 +490,7 @@ def create_summary(request: SummaryRequest):
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        summary = AIService.generate_summary(context, detail_level=request.detail_level)
+        summary = AIService.generate_summary(context, detail_level=request.detail_level, model_preference=request.model_preference)
         DataManager.save_generated_summary(summary, request.username, request.folder_id)
         return {"status": "success", "summary": summary}
     except HTTPException:
@@ -504,7 +509,7 @@ def create_elaboration(request: ElaborationRequest):
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
-        elaboration_text = AIService.generate_elaboration(context, detail_level=request.detail_level, custom_rules=request.custom_rules)
+        elaboration_text = AIService.generate_elaboration(context, detail_level=request.detail_level, custom_rules=request.custom_rules, model_preference=request.model_preference)
         
         DataManager.save_file_metadata({
             "id": f"elaboration_{int(datetime.now().timestamp())}",
@@ -531,7 +536,7 @@ def create_repetition(request: RepetitionRequest):
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
-        repetition_text = AIService.generate_repetition(context, custom_rules=request.custom_rules)
+        repetition_text = AIService.generate_repetition(context, custom_rules=request.custom_rules, model_preference=request.model_preference)
         
         DataManager.save_file_metadata({
             "id": f"repetition_{int(datetime.now().timestamp())}",

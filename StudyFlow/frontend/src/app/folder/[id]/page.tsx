@@ -59,6 +59,9 @@ export default function FolderPage() {
     const [isRepetitionConfigOpen, setIsRepetitionConfigOpen] = useState(false);
     const [repetitionRules, setRepetitionRules] = useState('');
 
+    // Global AI Model Override State (for all AI generation overlays)
+    const [aiModelPreference, setAiModelPreference] = useState<string>('');
+
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
@@ -245,7 +248,7 @@ export default function FolderPage() {
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7 })
+                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7, model_preference: aiModelPreference || undefined })
             });
 
             if (res.ok) {
@@ -333,7 +336,8 @@ export default function FolderPage() {
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
-                    detail_level: summaryDetailLevel
+                    detail_level: summaryDetailLevel,
+                    model_preference: aiModelPreference || undefined
                 })
             });
 
@@ -381,7 +385,8 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     detail_level: elaborationDetailLevel,
-                    custom_rules: elaborationRules
+                    custom_rules: elaborationRules,
+                    model_preference: aiModelPreference || undefined
                 })
             });
 
@@ -428,7 +433,8 @@ export default function FolderPage() {
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
-                    custom_rules: repetitionRules
+                    custom_rules: repetitionRules,
+                    model_preference: aiModelPreference || undefined
                 })
             });
 
@@ -486,7 +492,8 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     duration_days: days,
-                    hours_per_day: planHoursPerDay
+                    hours_per_day: planHoursPerDay,
+                    model_preference: aiModelPreference || undefined
                 })
             });
 
@@ -1011,6 +1018,22 @@ export default function FolderPage() {
                                     </span>
                                 </div>
                             </div>
+                            {/* Model Preference */}
+                            <div className="pt-4 border-t border-[#333]">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                <select
+                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                    value={aiModelPreference}
+                                    onChange={(e) => setAiModelPreference(e.target.value)}
+                                >
+                                    <option value="">🚀 Automatisch (Empfohlen)</option>
+                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                </select>
+                                <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen 'Quota Exceeded' bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
+                            </div>
                         </div>
 
                         {/* Footer */}
@@ -1074,6 +1097,21 @@ export default function FolderPage() {
                                     {summaryDetailLevel === 'Normal' && 'Ausgewogene Erklärung aller wesentlichen Konzepte.'}
                                     {summaryDetailLevel === 'Ausführlich' && 'Sehr tiefe Erklärung fast aller Details im Material.'}
                                 </p>
+                            </div>
+                            {/* Model Preference */}
+                            <div className="pt-4 border-t border-[#333]">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                <select
+                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                    value={aiModelPreference}
+                                    onChange={(e) => setAiModelPreference(e.target.value)}
+                                >
+                                    <option value="">🚀 Automatisch (Empfohlen)</option>
+                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                </select>
                             </div>
                         </div>
 
@@ -1143,6 +1181,21 @@ export default function FolderPage() {
                                     className="w-full h-24 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
                                 />
                             </div>
+                            {/* Model Preference */}
+                            <div className="pt-4 border-t border-[#333]">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                <select
+                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                    value={aiModelPreference}
+                                    onChange={(e) => setAiModelPreference(e.target.value)}
+                                >
+                                    <option value="">🚀 Automatisch (Empfohlen)</option>
+                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                </select>
+                            </div>
                         </div>
 
                         {/* Footer */}
@@ -1191,9 +1244,25 @@ export default function FolderPage() {
                                 placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
                                 className="w-full h-32 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
                             />
-                            <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5">
+                            <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">
                                 <HelpCircle size={14} /> Tipp: Nutze Active Recall, um dir Wissen nachhaltig einzuprägen.
                             </p>
+
+                            {/* Model Preference */}
+                            <div className="pt-4 border-t border-[#333]">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                <select
+                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                    value={aiModelPreference}
+                                    onChange={(e) => setAiModelPreference(e.target.value)}
+                                >
+                                    <option value="">🚀 Automatisch (Empfohlen)</option>
+                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                </select>
+                            </div>
                         </div>
 
                         {/* Footer */}
@@ -1210,8 +1279,9 @@ export default function FolderPage() {
                             </button>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                </div >
+            )
+            }
+        </div >
     );
 }
