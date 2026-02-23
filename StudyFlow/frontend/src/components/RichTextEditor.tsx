@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Heading from '@tiptap/extension-heading';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Quote, Save, X, Loader2 } from 'lucide-react';
+import { marked } from 'marked';
 
 interface RichTextEditorProps {
     initialContent: string;
@@ -104,16 +105,14 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, on
 export default function RichTextEditor({ initialContent, title, onSave, onClose }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
 
-    // Provide default HTML if initialContent is markdown
-    // We are trusting Tiptap's StarterKit to parse basic html/markdown 
-    // Usually Tiptap consumes HTML. Since our content might be Markdown string,
-    // we use a trick: If it's markdown, Tiptap might struggle without a parser.
-    // For now, assume we just pass it in. If it's raw markdown, it might just render as text.
-    // To support Markdown properly in Tiptap, a markdown extension is needed,
-    // but typically users will edit visually and save as HTML.
+    // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
+    // If it already looks like HTML (from a previous edit), we can just use it directly, 
+    // otherwise we convert it with marked.
+    const isHtml = /<\/?[a-z][\s\S]*>/i.test(initialContent);
+    const parsedHtml = isHtml ? initialContent : marked.parse(initialContent, { async: false }) as string;
 
-    // We'll convert newlines to <br> or <p> for basic layout if it lacks HTML tags
-    const formattedContent = initialContent.includes('<') ? initialContent : initialContent.split('\n\n').map(p => `<p>${p}</p>`).join('');
+    // Fallback to ensuring simple newlines aren't completely lost if marked isn't doing what we expect
+    const finalHtml = parsedHtml || '';
 
     const editor = useEditor({
         extensions: [
@@ -126,7 +125,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
                 emptyEditorClass: 'is-editor-empty',
             }),
         ],
-        content: formattedContent,
+        content: finalHtml,
         editorProps: {
             attributes: {
                 class: 'prose-blop focus:outline-none min-h-[500px] max-w-4xl mx-auto py-10 px-6',
