@@ -358,9 +358,10 @@ Struktur der Wiederholung:
 1. 🎯 **Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse in je einem Satz.
 2. ❓ **Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen (ohne die Antworten direkt dazuzuschreiben, schreibe die Antworten in einen Spoiler-Block oder ans Ende).
 3. 🧠 **Häufige Stolpersteine:** Welche Details verwechselt man leicht?
-4. 🔗 **Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
+4. 🧮 **Für Mathe/Naturwissenschaften (falls relevant):** Wenn es sich um Rechenaufgaben oder Beweise handelt, erkläre detailliert den Lösungsansatz ("Wie gehe ich an solche Aufgaben heran?") und liste alle zwingend benötigten Formeln übersichtlich auf.
+5. 🔗 **Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
 
-Nutze Markdown für ein übersichtliches und ansprechendes Layout auf Deutsch.
+WICHTIG: Nutze Markdown für ein übersichtliches und ansprechendes Layout auf Deutsch. Verwende klare Absätze, Fettgedrucktes und Aufzählungszeichen.
 
 Hier ist das Quellenmaterial:
 """
