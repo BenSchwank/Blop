@@ -25,7 +25,7 @@ export default function Sidebar() {
         const user = localStorage.getItem('username') || 'User';
         setUsername(user);
         setIsAdmin(user === 'admin_');
-    }, []);
+    }, [pathname]);
 
     const handleLogout = () => {
         localStorage.clear();

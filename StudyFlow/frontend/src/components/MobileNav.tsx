@@ -14,7 +14,7 @@ export default function MobileNav() {
         setMounted(true);
         const username = localStorage.getItem('username');
         setIsAdmin(username === 'admin_');
-    }, []);
+    }, [pathname]);
 
     const navItems = [
         { href: '/', label: 'Home', icon: Home },
