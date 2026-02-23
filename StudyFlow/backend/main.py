@@ -243,6 +243,10 @@ def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=Tru
         print(f"YouTube Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Import: {str(e)}")
 
+class GenRequest(BaseModel):
+    username: str
+    folder_id: str
+
 class PlanRequest(BaseModel):
     username: str
     folder_id: str
