@@ -8,21 +8,23 @@ import { Home, Settings, Shield, Sparkles } from 'lucide-react';
 export default function MobileNav() {
     const pathname = usePathname();
     const [isAdmin, setIsAdmin] = React.useState(false);
+    const [mounted, setMounted] = React.useState(false);
 
     React.useEffect(() => {
+        setMounted(true);
         const username = localStorage.getItem('username');
         setIsAdmin(username === 'admin_');
     }, []);
 
     const navItems = [
         { href: '/', label: 'Home', icon: Home },
-        // Add more items here if needed
         { href: '/settings', label: 'Settings', icon: Settings },
     ];
 
-    if (isAdmin) {
+    if (mounted && isAdmin) {
         navItems.splice(1, 0, { href: '/admin', label: 'Admin', icon: Shield });
     }
+
 
     return (
         <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pb-5 pt-1">
