@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RichTextEditor from "@/components/RichTextEditor";
@@ -24,10 +24,17 @@ export default function FolderPage() {
 
     // Upload / Action States
     const [isUploadOpen, setIsUploadOpen] = useState(false);
-    const [uploadType, setUploadType] = useState<'pdf' | 'youtube'>('pdf');
+    const [uploadType, setUploadType] = useState<'pdf' | 'youtube' | 'audio'>('pdf');
     const [fileToUpload, setFileToUpload] = useState<File | null>(null);
     const [youtubeUrl, setYoutubeUrl] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
+
+    // Audio Recording State
+    const [isRecording, setIsRecording] = useState(false);
+    const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+    const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
     // AI Generation States
     const [isGenerating, setIsGenerating] = useState<string | null>(null); // 'plan', 'quiz', 'cards', 'summary'
@@ -42,6 +49,15 @@ export default function FolderPage() {
     // Summary Config Modal State
     const [isSummaryConfigOpen, setIsSummaryConfigOpen] = useState(false);
     const [summaryDetailLevel, setSummaryDetailLevel] = useState('Normal');
+
+    // Elaboration (Ausarbeitung) Config Modal State
+    const [isElaborationConfigOpen, setIsElaborationConfigOpen] = useState(false);
+    const [elaborationDetailLevel, setElaborationDetailLevel] = useState('Normal');
+    const [elaborationRules, setElaborationRules] = useState('');
+
+    // Repetition (Wiederholung) Config Modal State
+    const [isRepetitionConfigOpen, setIsRepetitionConfigOpen] = useState(false);
+    const [repetitionRules, setRepetitionRules] = useState('');
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
@@ -127,6 +143,87 @@ export default function FolderPage() {
         }
     };
 
+    // --- Audio Recording Logic ---
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream);
+            const chunks: Blob[] = [];
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunks.push(e.data);
+            };
+
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'audio/webm' });
+                setAudioBlob(blob);
+                setAudioChunks([]);
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            recorder.start();
+            setMediaRecorder(recorder);
+            setIsRecording(true);
+            setRecordingTime(0);
+
+            // Timer interval
+            const interval = setInterval(() => {
+                setRecordingTime(prev => {
+                    if (!isRecording) {
+                        clearInterval(interval);
+                        return prev;
+                    }
+                    return prev + 1;
+                });
+            }, 1000);
+
+            // Cleanup interval when recording stops
+            recorder.addEventListener('stop', () => clearInterval(interval));
+
+        } catch (err) {
+            console.error("Error accessing microphone:", err);
+            alert("Fehler beim Zugriff auf das Mikrofon. Bitte Berechtigungen prüfen.");
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorder && isRecording) {
+            mediaRecorder.stop();
+            setIsRecording(false);
+        }
+    };
+
+    const handleAudioUpload = async () => {
+        if (!audioBlob) return;
+        setIsProcessing(true);
+        try {
+            const username = localStorage.getItem("username");
+            const formData = new FormData();
+            formData.append("file", audioBlob, `audio_${Date.now()}.webm`);
+
+            const res = await fetch(`${API_BASE}/files/audio?username=${username}&folder_id=${folderId}`, {
+                method: "POST",
+                body: formData
+            });
+
+            if (res.ok) {
+                setAudioBlob(null);
+                setRecordingTime(0);
+                setIsUploadOpen(false);
+                fetchFiles();
+            } else {
+                const err = await res.json();
+                alert(`Fehler beim Audio-Upload: ${err.detail || "Unbekannter Fehler"}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Konnte Sprachmemo nicht hochladen.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    // ----------------------------
+
     const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string | null>>, successMessage: string) => {
         try {
             const username = localStorage.getItem("username");
@@ -177,16 +274,24 @@ export default function FolderPage() {
         }
     };
 
-    const handleGenerate = async (type: 'plan' | 'quiz' | 'flashcards' | 'summary') => {
+    const handleGenerate = async (type: 'plan' | 'quiz' | 'flashcards' | 'summary' | 'elaboration' | 'repetition') => {
         if (type === 'plan') {
-            // Open plan config modal instead of directly generating
             setIsPlanConfigOpen(true);
             return;
         }
 
         if (type === 'summary') {
-            // Open summary config modal
             setIsSummaryConfigOpen(true);
+            return;
+        }
+
+        if (type === 'elaboration') {
+            setIsElaborationConfigOpen(true);
+            return;
+        }
+
+        if (type === 'repetition') {
+            setIsRepetitionConfigOpen(true);
             return;
         }
 
@@ -239,6 +344,101 @@ export default function FolderPage() {
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
                 } catch (_) { }
                 alert(`Zusammenfassungs-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Ein Fehler ist aufgetreten.");
+        } finally {
+            setIsGenerating(null);
+        }
+    };
+
+    const handleElaborationGenerate = async () => {
+        setIsElaborationConfigOpen(false);
+        setIsGenerating('elaboration');
+
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/elaboration`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    detail_level: elaborationDetailLevel,
+                    custom_rules: elaborationRules
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setSelectedFile({
+                    id: `elaboration_${Date.now()}`,
+                    name: 'Ausarbeitung',
+                    type: 'summary', // Using 'summary' to inherit Rich Text Editor styling
+                    created_at: new Date().toISOString().split('T')[0],
+                    content: data.elaboration
+                });
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nJetzt zu den Einstellungen?");
+                        if (goToSettings) router.push("/settings");
+                        return;
+                    }
+                    errorMsg = err.detail || errorMsg;
+                } catch (_) { }
+                alert(`Ausarbeitungs-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Ein Fehler ist aufgetreten.");
+        } finally {
+            setIsGenerating(null);
+        }
+    };
+
+    const handleRepetitionGenerate = async () => {
+        setIsRepetitionConfigOpen(false);
+        setIsGenerating('repetition');
+
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/repetition`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    custom_rules: repetitionRules
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setSelectedFile({
+                    id: `repetition_${Date.now()}`,
+                    name: 'Wiederholungsbogen',
+                    type: 'summary',
+                    created_at: new Date().toISOString().split('T')[0],
+                    content: data.repetition
+                });
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nJetzt zu den Einstellungen?");
+                        if (goToSettings) router.push("/settings");
+                        return;
+                    }
+                    errorMsg = err.detail || errorMsg;
+                } catch (_) { }
+                alert(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
@@ -430,12 +630,6 @@ export default function FolderPage() {
                                                             <div className="text-amber-200/90">{day.focus}</div>
                                                         </div>
                                                     )}
-                                                    {day.tip && (
-                                                        <div className="text-sm bg-green-500/10 border border-green-500/20 p-4 rounded-xl">
-                                                            <div className="text-green-500 font-semibold text-xs uppercase tracking-wider mb-2">💡 Tipp</div>
-                                                            <div className="text-green-200/90">{day.tip}</div>
-                                                        </div>
-                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -546,7 +740,7 @@ export default function FolderPage() {
                             <button onClick={() => handleGenerate('plan')} disabled={!!isGenerating} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
                                 {isGenerating === 'plan' ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('quiz')} disabled={!!isGenerating} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
+                            <button onClick={() => handleGenerate('quiz')} disabled={!!isGenerating} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
                                 {isGenerating === 'quiz' ? <Loader2 size={20} className="animate-spin" /> : <HelpCircle size={20} />}
                             </button>
                             <button onClick={() => handleGenerate('flashcards')} disabled={!!isGenerating} className="p-2.5 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50" title="Karteikarten erstellen">
@@ -554,6 +748,12 @@ export default function FolderPage() {
                             </button>
                             <button onClick={() => handleGenerate('summary')} disabled={!!isGenerating} className="p-2.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50" title="Zusammenfassung erstellen">
                                 {isGenerating === 'summary' ? <Loader2 size={20} className="animate-spin" /> : <FileOutput size={20} />}
+                            </button>
+                            <button onClick={() => handleGenerate('elaboration')} disabled={!!isGenerating} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Ausarbeitung erstellen">
+                                {isGenerating === 'elaboration' ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                            </button>
+                            <button onClick={() => handleGenerate('repetition')} disabled={!!isGenerating} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
+                                {isGenerating === 'repetition' ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
                             </button>
                         </div>
 
@@ -629,6 +829,9 @@ export default function FolderPage() {
                         <div className="flex gap-2 p-1 bg-[#252526] rounded-xl mb-6">
                             <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
                             <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#333] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
+                            <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#333] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
+                            </button>
                         </div>
                         {uploadType === 'pdf' ? (
                             <form onSubmit={handleFileUpload} className="space-y-4">
@@ -638,11 +841,44 @@ export default function FolderPage() {
                                 </div>
                                 <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
                             </form>
-                        ) : (
+                        ) : uploadType === 'youtube' ? (
                             <form onSubmit={handleYoutubeImport} className="space-y-4">
                                 <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
                                 <button type="submit" disabled={!youtubeUrl || isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Importieren</button>
                             </form>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="flex flex-col items-center justify-center p-8 bg-[#252526] border border-[#333] rounded-xl">
+                                    {!audioBlob ? (
+                                        <>
+                                            <button
+                                                onClick={isRecording ? stopRecording : startRecording}
+                                                className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#333] text-gray-400 hover:bg-[#444] hover:text-white'}`}
+                                            >
+                                                {isRecording ? <div className="w-6 h-6 bg-red-500 rounded-sm"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>}
+                                            </button>
+                                            <div className="text-xl font-mono text-white tracking-widest">
+                                                {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
+                                            </div>
+                                            <p className="text-sm text-gray-500 mt-2">{isRecording ? "Aufnahme läuft..." : "Klicke das Mikrofon, um zu starten"}</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="w-16 h-16 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center mb-4 border border-blue-500/30">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" /></svg>
+                                            </div>
+                                            <h4 className="text-white font-medium mb-1">Sprachmemo aufgezeichnet</h4>
+                                            <p className="text-sm text-gray-400 mb-6">Dauer: {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</p>
+                                            <div className="flex gap-3 w-full">
+                                                <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#333] hover:bg-[#333] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
+                                                <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2">
+                                                    {isProcessing ? <Loader2 size={16} className="animate-spin" /> : "Verarbeiten"}
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -837,6 +1073,125 @@ export default function FolderPage() {
                             >
                                 <FileOutput size={16} />
                                 Generieren
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Elaboration (Ausarbeitung) Config Modal */}
+            {isElaborationConfigOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
+                                    <FileText size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Ausarbeitung erstellen</h3>
+                                    <p className="text-xs text-gray-400">Konfiguriere deinen Text</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5 space-y-5">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-3">Länge / Detailgrad</label>
+                                <div className="grid grid-cols-1 gap-3">
+                                    {['Kurz', 'Normal', 'Ausführlich'].map((level) => (
+                                        <button
+                                            key={level}
+                                            onClick={() => setElaborationDetailLevel(level)}
+                                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${elaborationDetailLevel === level
+                                                ? 'bg-orange-500/10 border-orange-500/50 text-orange-400'
+                                                : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
+                                        >
+                                            <span className="font-medium">{level}</span>
+                                            {elaborationDetailLevel === level && <div className="w-2 h-2 rounded-full bg-orange-500"></div>}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Spezifische Anweisungen (Optional)</label>
+                                <textarea
+                                    value={elaborationRules}
+                                    onChange={(e) => setElaborationRules(e.target.value)}
+                                    placeholder="z.B. Fokussiere dich besonders auf Kapitel 3, schreibe im Stil eines Zeitungsartikels, formuliere Thesen..."
+                                    className="w-full h-24 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex gap-3 p-5 border-t border-[#333]">
+                            <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={handleElaborationGenerate}
+                                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                            >
+                                <FileText size={16} />
+                                Generieren
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Repetition (Wiederholung) Config Modal */}
+            {isRepetitionConfigOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Wiederholung erstellen</h3>
+                                    <p className="text-xs text-gray-400">Lass dich gezielt abfragen</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5">
+                            <label className="block text-sm font-medium text-gray-300 mb-2">Schwerpunkte setzen (Optional)</label>
+                            <textarea
+                                value={repetitionRules}
+                                onChange={(e) => setRepetitionRules(e.target.value)}
+                                placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
+                                className="w-full h-32 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
+                            />
+                            <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5">
+                                <HelpCircle size={14} /> Tipp: Nutze Active Recall, um dir Wissen nachhaltig einzuprägen.
+                            </p>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex gap-3 p-5 border-t border-[#333]">
+                            <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={handleRepetitionGenerate}
+                                className="flex-1 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
+                                Los geht's
                             </button>
                         </div>
                     </div>

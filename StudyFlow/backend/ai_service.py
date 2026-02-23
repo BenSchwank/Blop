@@ -275,3 +275,107 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
         except Exception as e:
             print(f"Plan Error: {e}")
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
+
+    @staticmethod
+    def transcribe_audio(audio_file_path: str) -> str:
+        """Transcribes an audio file using Gemini 1.5 Pro's multimodal capabilities."""
+        try:
+            model = genai.GenerativeModel("gemini-1.5-pro") # Force 1.5 Pro for audio
+            
+            # Upload the file to Gemini API temporarily
+            print(f"Uploading audio to Gemini: {audio_file_path}")
+            uploaded_file = genai.upload_file(path=audio_file_path)
+            
+            prompt = """
+Bitte erstelle ein präzises, zusammenhängendes und vollständiges Transkript dieser Audioaufnahme auf Deutsch. 
+Erfasse alle wichtigen Details, Fachbegriffe und Zusammenhänge.
+Lasse Füllwörter (Ähm, öhm) weg, um den Text lesbar zu machen.
+"""
+            response = model.generate_content([prompt, uploaded_file], safety_settings=SAFETY_SETTINGS)
+            
+            # Cleanup the file from Google's servers
+            genai.delete_file(uploaded_file.name)
+            
+            if not response.text:
+                raise Exception("Leeres Transkript vom Modell erhalten.")
+            return response.text
+        except Exception as e:
+            print(f"Audio Transcription Error: {e}")
+            raise Exception(f"Fehler bei der Audio-Transkription: {str(e)}")
+
+    @staticmethod
+    def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "") -> str:
+        """Generates a detailed elaboration/essay based on the material and user instructions."""
+        try:
+            model = genai.GenerativeModel(get_best_model())
+
+            prompt = f"""
+Du bist ein akademischer Assistent. Erstelle eine fundierte Ausarbeitung (Essay, Textentwurf, Hausaufgabe) basierend auf dem folgenden Material.
+
+Gewünschter Detailgrad / Länge: {detail_level}
+
+{"Spezifische Anweisungen des Nutzers:" if custom_rules else "Generelle Anweisung:"}
+{custom_rules if custom_rules else "Fasse die wichtigsten Aspekte des Materials in einem gut strukturierten Text zusammen."}
+
+Achte auf eine klare Struktur:
+1. Einleitung (Heranführung ans Thema)
+2. Hauptteil (Logische, detaillierte Abhandlung mit Argumenten/Konzepten aus dem Material)
+3. Fazit (Zusammenfassung und Schlussfolgerung)
+
+Schreibe im Fließtext auf Deutsch, verwende Absätze zur besseren Lesbarkeit und formatiere Zwischenüberschriften mit Markdown.
+
+Hier ist das Quellenmaterial:
+"""
+
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+            return response.text
+        except Exception as e:
+            print(f"Elaboration Error: {e}")
+            raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
+
+    @staticmethod
+    def generate_repetition(content: List[Any], custom_rules: str = "") -> str:
+        """Generates targeted spaced-repetition / review material."""
+        try:
+            model = genai.GenerativeModel(get_best_model())
+
+            prompt = f"""
+Du bist ein Lernexperte (wie Anki oder Mochi). Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.
+Der Fokus liegt auf aktivem Abruf (Active Recall) und dem Schließen von Wissenslücken.
+
+{"Spezifische Anweisungen/Schwerpunkte des Nutzers:" if custom_rules else "Genereller Fokus:"}
+{custom_rules if custom_rules else "Extrahiere die wichtigsten Konzepte, die ein Schüler typischerweise vor der Prüfung vergessen könnte."}
+
+Struktur der Wiederholung:
+1. 🎯 **Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse in je einem Satz.
+2. ❓ **Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen (ohne die Antworten direkt dazuzuschreiben, schreibe die Antworten in einen Spoiler-Block oder ans Ende).
+3. 🧠 **Häufige Stolpersteine:** Welche Details verwechselt man leicht?
+4. 🔗 **Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
+
+Nutze Markdown für ein übersichtliches und ansprechendes Layout auf Deutsch.
+
+Hier ist das Quellenmaterial:
+"""
+
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+            return response.text
+        except Exception as e:
+            print(f"Repetition Error: {e}")
+            raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
+

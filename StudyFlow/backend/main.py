@@ -256,6 +256,46 @@ def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=Tru
         print(f"YouTube Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Import: {str(e)}")
 
+@app.post("/api/files/audio")
+async def upload_audio(
+    username: str, 
+    folder_id: str, 
+    file: UploadFile = File(...)
+):
+    """Uploads an audio file, transcribes it via Gemini, and saves the text."""
+    from ai_service import AIService
+    import tempfile
+    try:
+        if not file.filename.lower().endswith(('.webm', '.wav', '.mp3', '.m4a')):
+             raise HTTPException(status_code=400, detail="Nur unterstützte Audioformate (.webm, .wav, .mp3, .m4a)")
+             
+        _configure_genai(username)
+        
+        # Save audio to temp file for Gemini upload
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+            content = await file.read()
+            temp_audio.write(content)
+            temp_audio_path = temp_audio.name
+            
+        try:
+            # Transcribe via Gemini
+            transcript_text = AIService.transcribe_audio(temp_audio_path)
+            
+            # Save the transcript as if it were a Youtube video
+            audio_title = f"Sprachmemo {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            DataManager.save_transcript(audio_title, transcript_text, username, folder_id)
+            
+            return {"status": "success", "message": "Audio transkribiert und gespeichert"}
+        finally:
+             if os.path.exists(temp_audio_path):
+                 os.remove(temp_audio_path)
+                 
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Audio Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Audio-Verarbeitung: {str(e)}")
+
 class GenRequest(BaseModel):
     username: str
     folder_id: str
@@ -264,6 +304,17 @@ class SummaryRequest(BaseModel):
     username: str
     folder_id: str
     detail_level: str = "Normal"
+
+class ElaborationRequest(BaseModel):
+    username: str
+    folder_id: str
+    detail_level: str = "Normal"
+    custom_rules: str = ""
+
+class RepetitionRequest(BaseModel):
+    username: str
+    folder_id: str
+    custom_rules: str = ""
 
 class PlanRequest(BaseModel):
     username: str
@@ -426,6 +477,60 @@ def create_summary(request: SummaryRequest):
     except Exception as e:
         print(f"Summary error: {e}")
         raise HTTPException(status_code=500, detail=f"Zusammenfassung-Fehler: {str(e)}")
+
+@app.post("/api/ai/elaboration")
+def create_elaboration(request: ElaborationRequest):
+    from ai_service import AIService
+    from datetime import datetime
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
+        
+        elaboration_text = AIService.generate_elaboration(context, detail_level=request.detail_level, custom_rules=request.custom_rules)
+        
+        DataManager.save_file_metadata({
+            "id": f"elaboration_{int(datetime.now().timestamp())}",
+            "name": "Ausarbeitung",
+            "type": "summary", # Reusing 'summary' rich text editor styling for now
+            "content": elaboration_text,
+            "created_at": datetime.now().strftime("%Y-%m-%d")
+        }, request.username, request.folder_id)
+        
+        return {"status": "success", "elaboration": elaboration_text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Elaboration error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ausarbeitungs-Fehler: {str(e)}")
+
+@app.post("/api/ai/repetition")
+def create_repetition(request: RepetitionRequest):
+    from ai_service import AIService
+    from datetime import datetime
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
+        
+        repetition_text = AIService.generate_repetition(context, custom_rules=request.custom_rules)
+        
+        DataManager.save_file_metadata({
+            "id": f"repetition_{int(datetime.now().timestamp())}",
+            "name": "Wiederholungsbogen",
+            "type": "summary", # Reusing 'summary' rich text editor styling
+            "content": repetition_text,
+            "created_at": datetime.now().strftime("%Y-%m-%d")
+        }, request.username, request.folder_id)
+        
+        return {"status": "success", "repetition": repetition_text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Repetition error: {e}")
+        raise HTTPException(status_code=500, detail=f"Wiederholungs-Fehler: {str(e)}")
 
 
 if __name__ == "__main__":
