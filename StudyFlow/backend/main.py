@@ -335,6 +335,12 @@ class PlanRequest(BaseModel):
     active_days: list[int] = None # List of active weekdays (0=Mo, 6=Su). If None, all days are active.
     model_preference: str = None
 
+class TaskHelpRequest(BaseModel):
+    username: str
+    folder_id: str
+    task_description: str
+    model_preference: str = None
+
 @app.post("/api/ai/plan")
 def create_study_plan(request: PlanRequest):
     """Generates a study plan from folder contents."""
@@ -553,6 +559,23 @@ def create_repetition(request: RepetitionRequest):
     except Exception as e:
         print(f"Repetition error: {e}")
         raise HTTPException(status_code=500, detail=f"Wiederholungs-Fehler: {str(e)}")
+
+@app.post("/api/ai/task-help")
+def get_task_help(request: TaskHelpRequest):
+    from ai_service import AIService
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
+        
+        help_text = AIService.generate_task_help(context, request.task_description, request.model_preference)
+        return {"status": "success", "help_text": help_text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Task Help error: {e}")
+        raise HTTPException(status_code=500, detail=f"Aufgabenhilfe-Fehler: {str(e)}")
 
 
 if __name__ == "__main__":

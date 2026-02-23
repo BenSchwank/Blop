@@ -287,6 +287,39 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
     @staticmethod
+    def generate_task_help(content: List[Any], task_description: str, model_preference: str = None) -> str:
+        """Generates a concise, context-aware explanation/help text for a specific study plan task."""
+        try:
+            model = genai.GenerativeModel(get_best_model(model_preference))
+            
+            prompt = f"""
+Du bist ein hilfreicher Lern-Kompagnon. 
+Der Student hat folgende Aufgabe in seinem Lernplan:
+"{task_description}"
+
+Erkläre KURZ, KONKRET und HILFREICH, was bei dieser Aufgabe zu tun ist und welche Inhalte aus dem beiliegenden Material relevant sind. 
+Die Erklärung soll maximal 3-5 Sätze lang sein und direkt dabei helfen, die Aufgabe zu starten oder zu verstehen. Antworte in Markdown.
+
+Analysiere dazu folgendes Material aus dem Ordner des Studenten:
+"""
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+
+            print(f"Generating task help for: {task_description[:50]}...")
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+                
+            return response.text
+        except Exception as e:
+            print(f"Task Help Error: {e}")
+            raise Exception(f"Fehler bei der Aufgaben-Hilfe: {str(e)}")
+
+    @staticmethod
     def transcribe_audio(audio_file_path: str, model_preference: str = None) -> str:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:

@@ -114,6 +114,12 @@ export default function FolderPage() {
     const [isRepetitionConfigOpen, setIsRepetitionConfigOpen] = useState(false);
     const [repetitionRules, setRepetitionRules] = useState('');
 
+    // Task Help Overlay State
+    const [isTaskHelpOpen, setIsTaskHelpOpen] = useState(false);
+    const [taskHelpContent, setTaskHelpContent] = useState('');
+    const [isTaskHelpLoading, setIsTaskHelpLoading] = useState(false);
+    const [activeTaskTitle, setActiveTaskTitle] = useState('');
+
     // Global AI Model Override State (for all AI generation overlays)
     const [aiModelPreference, setAiModelPreference] = useState<string>('');
 
@@ -583,6 +589,44 @@ export default function FolderPage() {
         }
     };
 
+    const handleTaskHelp = async (taskDescription: string) => {
+        setActiveTaskTitle(taskDescription.substring(0, 60) + (taskDescription.length > 60 ? '...' : ''));
+        setTaskHelpContent('');
+        setIsTaskHelpOpen(true);
+        setIsTaskHelpLoading(true);
+
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/task-help`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    task_description: taskDescription,
+                    model_preference: aiModelPreference || undefined
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setTaskHelpContent(data.help_text || "Keine Erklärung generiert.");
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    errorMsg = err.detail || errorMsg;
+                } catch (_) { }
+                setTaskHelpContent(`Fehler beim Laden der Hilfe: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error("Task Help Error:", error);
+            setTaskHelpContent("Netzwerkfehler beim Laden der Hilfe.");
+        } finally {
+            setIsTaskHelpLoading(false);
+        }
+    };
+
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
         if (!selectedFile) return null;
@@ -702,41 +746,53 @@ export default function FolderPage() {
                                                             const isCompleted = typeof task === 'object' ? task.completed : false;
                                                             const description = typeof task === 'object' ? task.description : task;
                                                             return (
-                                                                <li key={idx} className="flex items-start gap-3 group/task cursor-pointer" onClick={async () => {
-                                                                    // Only allow if it's the new object format
-                                                                    if (typeof task !== 'object') return;
+                                                                <li key={idx} className="flex items-start gap-3 group/task">
+                                                                    <button
+                                                                        onClick={async (e) => {
+                                                                            e.stopPropagation();
+                                                                            // Only allow if it's the new object format
+                                                                            if (typeof task !== 'object') return;
 
-                                                                    // Deep clone the plan to avoid mutating state directly in a bad way
-                                                                    const newPlan = JSON.parse(JSON.stringify(plan));
-                                                                    newPlan[i].tasks[idx].completed = !isCompleted;
+                                                                            // Deep clone the plan to avoid mutating state directly in a bad way
+                                                                            const newPlan = JSON.parse(JSON.stringify(plan));
+                                                                            newPlan[i].tasks[idx].completed = !isCompleted;
 
-                                                                    // Optimistically update UI
-                                                                    setSelectedFile({ ...selectedFile, content: newPlan });
+                                                                            // Optimistically update UI
+                                                                            setSelectedFile({ ...selectedFile, content: newPlan });
 
-                                                                    // Update Backend
-                                                                    try {
-                                                                        const username = localStorage.getItem("username");
-                                                                        await fetch(`${API_BASE}/files/update`, {
-                                                                            method: 'PUT',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({
-                                                                                username,
-                                                                                folder_id: folderId,
-                                                                                file_id: selectedFile.id,
-                                                                                content: newPlan
-                                                                            })
-                                                                        });
-                                                                        // Update main files state quietly
-                                                                        setFiles(files.map(f => f.id === selectedFile.id ? { ...f, content: newPlan } : f));
-                                                                    } catch (e) {
-                                                                        console.error("Failed to save checkbox state", e);
-                                                                    }
-                                                                }}>
-                                                                    <div className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-2 border-[#444] group-hover/task:border-purple-500 text-transparent'
-                                                                        }`}>
+                                                                            // Update Backend
+                                                                            try {
+                                                                                const username = localStorage.getItem("username");
+                                                                                await fetch(`${API_BASE}/files/update`, {
+                                                                                    method: 'PUT',
+                                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                                    body: JSON.stringify({
+                                                                                        username,
+                                                                                        folder_id: folderId,
+                                                                                        file_id: selectedFile.id,
+                                                                                        content: newPlan
+                                                                                    })
+                                                                                });
+                                                                                // Update main files state quietly
+                                                                                setFiles(files.map(f => f.id === selectedFile.id ? { ...f, content: newPlan } : f));
+                                                                            } catch (e) {
+                                                                                console.error("Failed to save checkbox state", e);
+                                                                            }
+                                                                        }}
+                                                                        className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-2 border-[#444] group-hover/task:border-purple-500 text-transparent hover:bg-white/5'
+                                                                            }`}
+                                                                    >
                                                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                                                    </div>
-                                                                    <span className={`text-sm transition-colors ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'}`}>{description}</span>
+                                                                    </button>
+
+                                                                    <button
+                                                                        onClick={() => handleTaskHelp(description)}
+                                                                        className={`flex-1 text-left text-sm transition-colors focus:outline-none focus:text-white rounded px-2 -ml-2 py-0.5 hover:bg-[#333] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'
+                                                                            }`}
+                                                                        title="Klicke für KI-Erklärung dieser Aufgabe"
+                                                                    >
+                                                                        {description}
+                                                                    </button>
                                                                 </li>
                                                             );
                                                         })}
@@ -1160,8 +1216,8 @@ export default function FolderPage() {
                                                     );
                                                 }}
                                                 className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${isActive
-                                                        ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
-                                                        : 'bg-[#252526] border border-[#444] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
+                                                    ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
+                                                    : 'bg-[#252526] border border-[#444] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
                                                     }`}
                                             >
                                                 {day}
@@ -1455,6 +1511,58 @@ export default function FolderPage() {
                 </div >
             )
             }
+
+            {/* Task Help Overlay */}
+            {isTaskHelpOpen && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-5 border-b border-[#333] shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+                                    <BrainCircuit size={20} />
+                                </div>
+                                <div className="max-w-[300px] overflow-hidden">
+                                    <h3 className="text-lg font-semibold text-white truncate" title={activeTaskTitle}>{activeTaskTitle}</h3>
+                                    <p className="text-xs text-purple-400 font-medium">KI-Lernassistenz</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-6 overflow-y-auto">
+                            {isTaskHelpLoading ? (
+                                <div className="flex flex-col items-center justify-center py-12 text-center">
+                                    <div className="w-12 h-12 border-4 border-[#333] border-t-purple-500 rounded-full animate-spin mb-4"></div>
+                                    <p className="text-gray-300 font-medium">Analysiere Ordner-Inhalte...</p>
+                                    <p className="text-sm text-gray-500 mt-2">Ich überlege, was du genau tun sollst.</p>
+                                </div>
+                            ) : (
+                                <div className="prose prose-invert prose-purple max-w-none prose-sm sm:prose-base">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {taskHelpContent}
+                                    </ReactMarkdown>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        {!isTaskHelpLoading && (
+                            <div className="p-5 border-t border-[#333] shrink-0 bg-[#252526] rounded-b-2xl">
+                                <button
+                                    onClick={() => setIsTaskHelpOpen(false)}
+                                    className="w-full py-2.5 bg-[#333] hover:bg-[#444] text-white rounded-xl font-medium transition-colors"
+                                >
+                                    Verstanden!
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div >
     );
 }
