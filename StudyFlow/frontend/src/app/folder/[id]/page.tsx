@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import RichTextEditor from "@/components/RichTextEditor";
 
 interface FileData {
     id: string;
@@ -247,6 +248,44 @@ export default function FolderPage() {
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
         if (!selectedFile) return null;
+
+        if (selectedFile.type === 'summary') {
+            return (
+                <RichTextEditor
+                    initialContent={typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '')}
+                    title={selectedFile.name}
+                    onClose={() => setSelectedFile(null)}
+                    onSave={async (newContent) => {
+                        try {
+                            const username = localStorage.getItem("username");
+                            const res = await fetch(`${API_BASE}/files/update`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    username,
+                                    folder_id: folderId,
+                                    file_id: selectedFile.id,
+                                    content: newContent
+                                })
+                            });
+
+                            if (res.ok) {
+                                // Update local state so it doesn't revert on close
+                                const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
+                                setFiles(updatedFiles);
+                                setSelectedFile({ ...selectedFile, content: newContent });
+                                // Optional: You could show a small toast here instead of alert for better UX
+                            } else {
+                                const err = await res.json();
+                                alert(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
+                            }
+                        } catch (e) {
+                            alert("Netzwerkfehler beim Speichern.");
+                        }
+                    }}
+                />
+            );
+        }
 
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">

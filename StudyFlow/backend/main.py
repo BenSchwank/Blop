@@ -167,6 +167,19 @@ def get_files(folder_id: str, username: str):
     files = DataManager.list_files(username, folder_id)
     return files
 
+class FileUpdateRequest(BaseModel):
+    username: str
+    folder_id: str
+    file_id: str
+    content: str
+
+@app.put("/api/files/update")
+def update_file(request: FileUpdateRequest):
+    """Updates the content of an existing file."""
+    if DataManager.update_file_content(request.username, request.folder_id, request.file_id, request.content):
+        return {"status": "success", "message": "Datei gespeichert"}
+    raise HTTPException(status_code=500, detail="Fehler beim Speichern der Datei")
+
 # --- UPLOAD & AI ENDPOINTS ---
 
 class APIKeyRequest(BaseModel):

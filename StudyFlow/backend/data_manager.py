@@ -253,6 +253,35 @@ class DataManager:
                 DataManager.save(data, username)
                 
     @staticmethod
+    def update_file_content(username, folder_id, file_id, new_content):
+        """Updates the content of an existing file in the folder."""
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD MODE
+            doc_ref = db.collection("users").document(username).collection("folders").document(str(folder_id)).collection("files").document(file_id)
+            doc_ref.set({"content": new_content}, merge=True)
+            return True
+        else:
+            # LOCAL MODE
+            data = DataManager.load(username)
+            found_file = False
+            for f in data.get("folders", []):
+                if f["id"] == folder_id:
+                    if "files" in f:
+                        for idx, file_item in enumerate(f["files"]):
+                            if file_item["id"] == file_id:
+                                f["files"][idx]["content"] = new_content
+                                f["files"][idx]["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                found_file = True
+                                break
+                    break
+            
+            if found_file:
+                DataManager.save(data, username)
+                return True
+            return False
+
+    @staticmethod
     def delete_file(username, folder_id, file_id):
         """Deletes a file (PDF, Plan, Summary) from the workspace."""
         db = DataManager._init_firestore()
