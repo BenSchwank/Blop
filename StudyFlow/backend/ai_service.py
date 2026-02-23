@@ -285,7 +285,20 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             # Upload the file to Gemini API temporarily
             print(f"Uploading audio to Gemini: {audio_file_path}")
             import time
-            uploaded_file = genai.upload_file(path=audio_file_path)
+            
+            # Manually set mime_type because .webm defaults to video/webm
+            # which fails Gemini's video frame processing for audio-only files!
+            mime_type = None
+            if audio_file_path.endswith('.webm'):
+                mime_type = "audio/webm"
+            elif audio_file_path.endswith('.mp3'):
+                mime_type = "audio/mp3"
+            elif audio_file_path.endswith('.wav'):
+                mime_type = "audio/wav"
+            elif audio_file_path.endswith('.m4a'):
+                mime_type = "audio/mp4"
+
+            uploaded_file = genai.upload_file(path=audio_file_path, mime_type=mime_type)
             
             while uploaded_file.state.name == "PROCESSING":
                 print("Waiting for audio processing...")
