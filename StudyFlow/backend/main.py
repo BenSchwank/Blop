@@ -260,6 +260,11 @@ class GenRequest(BaseModel):
     username: str
     folder_id: str
 
+class SummaryRequest(BaseModel):
+    username: str
+    folder_id: str
+    detail_level: str = "Normal"
+
 class PlanRequest(BaseModel):
     username: str
     folder_id: str
@@ -406,14 +411,14 @@ def create_flashcards(request: GenRequest):
         raise HTTPException(status_code=500, detail=f"Karteikarten-Fehler: {str(e)}")
 
 @app.post("/api/ai/summary")
-def create_summary(request: GenRequest):
+def create_summary(request: SummaryRequest):
     from ai_service import AIService
     try:
         _configure_genai(request.username)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        summary = AIService.generate_summary(context)
+        summary = AIService.generate_summary(context, detail_level=request.detail_level)
         DataManager.save_generated_summary(summary, request.username, request.folder_id)
         return {"status": "success", "summary": summary}
     except HTTPException:

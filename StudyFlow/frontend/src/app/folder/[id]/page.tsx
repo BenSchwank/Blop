@@ -39,8 +39,13 @@ export default function FolderPage() {
     const [planEndDate, setPlanEndDate] = useState('');
     const [planUseDate, setPlanUseDate] = useState(false);
 
+    // Summary Config Modal State
+    const [isSummaryConfigOpen, setIsSummaryConfigOpen] = useState(false);
+    const [summaryDetailLevel, setSummaryDetailLevel] = useState('Normal');
+
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+    const [expandedDay, setExpandedDay] = useState<number | null>(0);
 
     const API_BASE = '/api';
 
@@ -179,13 +184,68 @@ export default function FolderPage() {
             return;
         }
 
+        if (type === 'summary') {
+            // Open summary config modal
+            setIsSummaryConfigOpen(true);
+            return;
+        }
+
         setIsGenerating(type);
         let msg = "Erfolgreich generiert!";
         if (type === 'quiz') msg = "Quiz erstellt!";
         else if (type === 'flashcards') msg = "Karteikarten erstellt!";
-        else if (type === 'summary') msg = "Zusammenfassung erstellt!";
 
         await handleAIAction(type, setIsGenerating, msg);
+    };
+
+    const handleSummaryGenerate = async () => {
+        setIsSummaryConfigOpen(false);
+        setIsGenerating('summary');
+
+        // Pass detailLevel to backend (Need to update ai/summary endpoint to accept this optionally, 
+        // or just append it to a prompt. If backend doesn't accept it yet, we just generate standard for now.
+        // I will add `detail_level` to the POST body.)
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/summary`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    detail_level: summaryDetailLevel
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setSelectedFile({
+                    id: `summary_${Date.now()}`, // Temporary ID for immediate viewing
+                    name: 'Automatische Zusammenfassung',
+                    type: 'summary',
+                    created_at: new Date().toISOString().split('T')[0],
+                    content: data.summary
+                });
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nDu musst erst deinen Google Gemini API Key in den Einstellungen hinterlegen, um AI-Features zu nutzen.\n\nJetzt zu den Einstellungen?");
+                        if (goToSettings) router.push("/settings");
+                        return;
+                    }
+                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                } catch (_) { }
+                alert(`Zusammenfassungs-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Ein Fehler ist aufgetreten.");
+        } finally {
+            setIsGenerating(null);
+        }
     };
 
     const handlePlanGenerate = async () => {
@@ -287,6 +347,107 @@ export default function FolderPage() {
             );
         }
 
+        if (selectedFile.type === 'plan') {
+            const plan = selectedFile.content || [];
+            if (!Array.isArray(plan) || plan.length === 0) {
+                return (
+                    <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col items-center justify-center p-4">
+                        <div className="text-center">
+                            <p className="text-gray-400 text-lg mb-2">⚠️ Lernplan ist leer</p>
+                            <button onClick={() => setSelectedFile(null)} className="mt-4 px-4 py-2 bg-[#333] hover:bg-[#444] rounded-lg text-white">Zurück</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-10 w-full">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#333] rounded-xl transition-colors">
+                                <X size={20} />
+                            </button>
+                            <div className="h-6 w-px bg-[#333] mx-2"></div>
+                            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+                                <Calendar size={20} />
+                            </div>
+                            <h3 className="text-lg font-semibold text-white">{selectedFile.name || 'Persönlicher Lernplan'}</h3>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-6">
+                        <div className="max-w-4xl mx-auto space-y-4">
+                            {plan.map((day: any, i: number) => {
+                                const isExpanded = expandedDay === i;
+
+                                return (
+                                    <div key={i} className={`bg-[#252526] rounded-2xl border transition-all duration-200 overflow-hidden ${isExpanded ? 'border-purple-500/50 shadow-lg shadow-purple-500/5' : 'border-[#333] hover:border-[#444]'}`}>
+                                        <button
+                                            onClick={() => setExpandedDay(isExpanded ? null : i)}
+                                            className="w-full text-left p-5 flex items-center justify-between focus:outline-none group"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${isExpanded ? 'bg-purple-500 text-white' : 'bg-[#333] text-gray-400 group-hover:bg-[#444]'}`}>
+                                                    {day.day}
+                                                </div>
+                                                <div>
+                                                    <h3 className={`text-lg transition-colors font-semibold ${isExpanded ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{day.topic}</h3>
+                                                    {!isExpanded && <p className="text-sm text-gray-500 truncate max-w-md">{day.goal}</p>}
+                                                </div>
+                                            </div>
+                                            <div className={`p-2 rounded-full transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-purple-500/10 text-purple-400' : 'bg-[#1e1e1e] text-gray-500 group-hover:text-white'}`}>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                            </div>
+                                        </button>
+
+                                        <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                            <div className="p-5 pt-0 ml-14 space-y-4">
+                                                <div className="text-sm text-gray-300 bg-[#1e1e1e] p-4 rounded-xl border border-[#333] shadow-inner">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span className="text-purple-400 font-semibold text-xs uppercase tracking-wider">🎯 Tagesziel</span>
+                                                    </div>
+                                                    <p>{day.goal}</p>
+                                                </div>
+
+                                                <div className="bg-[#1e1e1e] p-4 rounded-xl border border-[#333]">
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">📝 Aufgaben</span>
+                                                    </div>
+                                                    <ul className="space-y-3">
+                                                        {day.tasks?.map((task: string, idx: number) => (
+                                                            <li key={idx} className="flex items-start gap-3 group/task">
+                                                                <div className="mt-0.5 w-5 h-5 rounded-md border-2 border-[#444] group-hover/task:border-purple-500 flex items-center justify-center shrink-0 transition-colors"></div>
+                                                                <span className="text-gray-300 text-sm group-hover/task:text-white transition-colors">{task}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                                    {day.focus && (
+                                                        <div className="text-sm bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
+                                                            <div className="text-amber-500 font-semibold text-xs uppercase tracking-wider mb-2">⚡ Fokus</div>
+                                                            <div className="text-amber-200/90">{day.focus}</div>
+                                                        </div>
+                                                    )}
+                                                    {day.tip && (
+                                                        <div className="text-sm bg-green-500/10 border border-green-500/20 p-4 rounded-xl">
+                                                            <div className="text-green-500 font-semibold text-xs uppercase tracking-wider mb-2">💡 Tipp</div>
+                                                            <div className="text-green-200/90">{day.tip}</div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                 <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-2xl h-[80vh] flex flex-col shadow-2xl animate-in fade-in zoom-in duration-200">
@@ -317,67 +478,6 @@ export default function FolderPage() {
     };
 
     const renderFileContent = (file: FileData) => {
-        if (file.type === 'plan') {
-            const plan = file.content || [];
-            console.log("Plan content:", plan, "Type:", typeof plan, "IsArray:", Array.isArray(plan));
-            if (!Array.isArray(plan) || plan.length === 0) {
-                return (
-                    <div className="text-center py-12">
-                        <p className="text-gray-400 text-lg mb-2">⚠️ Lernplan ist leer</p>
-                        <p className="text-gray-500 text-sm">Der Plan konnte nicht geladen werden.</p>
-                        <pre className="mt-4 text-xs text-left bg-[#252526] p-3 rounded-xl text-gray-400 max-h-32 overflow-auto">
-                            {JSON.stringify(file.content, null, 2)}
-                        </pre>
-                    </div>
-                );
-            }
-            return (
-                <div className="space-y-6">
-                    {plan.map((day: any, i: number) => (
-                        <div key={i} className="bg-[#252526] p-5 rounded-2xl border border-[#333] hover:border-[#5E5CE6]/30 transition-colors">
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className="w-8 h-8 rounded-lg bg-[#5E5CE6]/20 flex items-center justify-center text-[#5E5CE6] font-bold text-sm">
-                                    {day.day}
-                                </div>
-                                <h3 className="text-lg font-semibold text-white">{day.topic}</h3>
-                            </div>
-
-                            <div className="ml-11 space-y-3">
-                                {/* Goal */}
-                                <div className="text-sm text-gray-300 bg-[#1e1e1e] p-3 rounded-xl border border-[#333]">
-                                    <span className="text-[#5E5CE6] font-semibold text-xs uppercase tracking-wider">🎯 Ziel: </span>
-                                    {day.goal}
-                                </div>
-
-                                {/* Tasks */}
-                                <ul className="space-y-2">
-                                    {day.tasks?.map((task: string, idx: number) => (
-                                        <li key={idx} className="flex items-start gap-2 text-gray-300 text-sm">
-                                            <span className="text-[#5E5CE6] mt-0.5 shrink-0">•</span>
-                                            <span>{task}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-
-                                {/* Focus (if present) */}
-                                {day.focus && (
-                                    <div className="text-sm text-amber-300/90 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl">
-                                        {day.focus}
-                                    </div>
-                                )}
-
-                                {/* Tip (if present) */}
-                                {day.tip && (
-                                    <div className="text-sm text-green-300/90 bg-green-500/10 border border-green-500/20 p-3 rounded-xl">
-                                        {day.tip}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            );
-        }
         if (file.type === 'quiz') {
             const questions = file.content || [];
             if (!Array.isArray(questions)) return <p>Fehlerhaftes Quiz-Format.</p>;
@@ -409,15 +509,6 @@ export default function FolderPage() {
                             <div className="text-gray-400 mt-2">{c.back}</div>
                         </div>
                     ))}
-                </div>
-            );
-        }
-        if (file.type === 'summary') {
-            return (
-                <div className="prose-blop max-w-none w-full">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {typeof file.content === 'string' ? file.content : JSON.stringify(file.content)}
-                    </ReactMarkdown>
                 </div>
             );
         }
@@ -683,6 +774,69 @@ export default function FolderPage() {
                             >
                                 <BrainCircuit size={16} />
                                 Lernplan generieren
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Summary Config Modal */}
+            {isSummaryConfigOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+                                    <FileOutput size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Zusammenfassung erstellen</h3>
+                                    <p className="text-xs text-gray-400">Wie detailliert soll der Text sein?</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-5 space-y-5">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-3">Detailgrad wählen</label>
+                                <div className="grid grid-cols-1 gap-3">
+                                    {['Kurz', 'Normal', 'Ausführlich'].map((level) => (
+                                        <button
+                                            key={level}
+                                            onClick={() => setSummaryDetailLevel(level)}
+                                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${summaryDetailLevel === level
+                                                ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
+                                                : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
+                                        >
+                                            <span className="font-medium">{level}</span>
+                                            {summaryDetailLevel === level && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-4 text-center">
+                                    {summaryDetailLevel === 'Kurz' && 'Perfekt für einen schnellen Überblick vor der Prüfung.'}
+                                    {summaryDetailLevel === 'Normal' && 'Ausgewogene Erklärung aller wesentlichen Konzepte.'}
+                                    {summaryDetailLevel === 'Ausführlich' && 'Sehr tiefe Erklärung fast aller Details im Material.'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex gap-3 p-5 border-t border-[#333]">
+                            <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={handleSummaryGenerate}
+                                className="flex-1 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                            >
+                                <FileOutput size={16} />
+                                Generieren
                             </button>
                         </div>
                     </div>
