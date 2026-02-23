@@ -629,6 +629,12 @@ export default function FolderPage() {
                                                         <span className="text-purple-400 font-semibold text-xs uppercase tracking-wider">🎯 Tagesziel</span>
                                                     </div>
                                                     <p>{day.goal}</p>
+                                                    {day.summary && (
+                                                        <div className="mt-3 pt-3 border-t border-[#333]">
+                                                            <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider mb-2 block">📚 Zusammenfassung (Lernstoff)</span>
+                                                            <p className="text-gray-300 leading-relaxed">{day.summary}</p>
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 <div className="bg-[#1e1e1e] p-4 rounded-xl border border-[#333]">
@@ -636,12 +642,48 @@ export default function FolderPage() {
                                                         <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">📝 Aufgaben</span>
                                                     </div>
                                                     <ul className="space-y-3">
-                                                        {day.tasks?.map((task: string, idx: number) => (
-                                                            <li key={idx} className="flex items-start gap-3 group/task">
-                                                                <div className="mt-0.5 w-5 h-5 rounded-md border-2 border-[#444] group-hover/task:border-purple-500 flex items-center justify-center shrink-0 transition-colors"></div>
-                                                                <span className="text-gray-300 text-sm group-hover/task:text-white transition-colors">{task}</span>
-                                                            </li>
-                                                        ))}
+                                                        {day.tasks?.map((task: any, idx: number) => {
+                                                            const isCompleted = typeof task === 'object' ? task.completed : false;
+                                                            const description = typeof task === 'object' ? task.description : task;
+                                                            return (
+                                                                <li key={idx} className="flex items-start gap-3 group/task cursor-pointer" onClick={async () => {
+                                                                    // Only allow if it's the new object format
+                                                                    if (typeof task !== 'object') return;
+
+                                                                    // Deep clone the plan to avoid mutating state directly in a bad way
+                                                                    const newPlan = JSON.parse(JSON.stringify(plan));
+                                                                    newPlan[i].tasks[idx].completed = !isCompleted;
+
+                                                                    // Optimistically update UI
+                                                                    setSelectedFile({ ...selectedFile, content: newPlan });
+
+                                                                    // Update Backend
+                                                                    try {
+                                                                        const username = localStorage.getItem("username");
+                                                                        await fetch(`${API_BASE}/files/update`, {
+                                                                            method: 'PUT',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({
+                                                                                username,
+                                                                                folder_id: folderId,
+                                                                                file_id: selectedFile.id,
+                                                                                content: newPlan
+                                                                            })
+                                                                        });
+                                                                        // Update main files state quietly
+                                                                        setFiles(files.map(f => f.id === selectedFile.id ? { ...f, content: newPlan } : f));
+                                                                    } catch (e) {
+                                                                        console.error("Failed to save checkbox state", e);
+                                                                    }
+                                                                }}>
+                                                                    <div className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-2 border-[#444] group-hover/task:border-purple-500 text-transparent'
+                                                                        }`}>
+                                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                                                    </div>
+                                                                    <span className={`text-sm transition-colors ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'}`}>{description}</span>
+                                                                </li>
+                                                            );
+                                                        })}
                                                     </ul>
                                                 </div>
 
@@ -658,6 +700,20 @@ export default function FolderPage() {
                                     </div>
                                 );
                             })}
+                        </div>
+                        {/* Generate Quiz Shortcut */}
+                        <div className="max-w-4xl mx-auto mt-8 flex justify-center pb-12">
+                            <button
+                                onClick={() => {
+                                    // Make sure we close the selected file so they can see the generation
+                                    setSelectedFile(null);
+                                    handleGenerate('quiz');
+                                }}
+                                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group"
+                            >
+                                <BrainCircuit className="group-hover:rotate-12 transition-transform duration-300" size={18} />
+                                Quiz aus Lernplan generieren
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -228,13 +228,13 @@ RAHMENDATEN:
 - Lernzeit pro Tag: {hours_per_day} Stunden
 - Gesamtlernzeit: {total_hours} Stunden
 
-ANFORDERUNGEN AN DEN LERNPLAN:
+ANCORDERUNGEN AN DEN LERNPLAN:
 1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf
 2. Jede Aufgabe muss KONKRET und UMSETZBAR sein (keine vagen Anweisungen wie "lerne Kapitel X")
 3. Gib GENAUE Zeitangaben für jede Aufgabe (Summe = {hours_per_day}h pro Tag)
 4. Berücksichtige Lernpsychologie: Wiederholungen einbauen, Pausen vorschlagen
-5. Priorisiere schwierige Themen früh im Plan
-6. Die letzten 1-2 Tage für Wiederholung und Übungen reservieren
+5. Erstelle für jeden Tag eine kurze INHALTLICHE ZUSAMMENFASSUNG (3-5 Sätze) des Tagesstoffs, sodass aus dem Lernplan direkt gelernt werden kann.
+6. Die Aufgaben sollen als ein JSON-Array von Objekten mit einem `description`-Feld und einem `completed`-Feld (immer auf false setzen) zurückgegeben werden.
 
 FÜR JEDE AUFGABE ANGEBEN:
 - Was genau zu tun ist (spezifisch, nicht vage)
@@ -247,10 +247,10 @@ Ausgabe: JSON Array mit genau {duration_days} Einträgen:
         "day": 1,
         "topic": "Prägnanter Titel des Tagesthemas",
         "goal": "Was soll der Lernende am Ende dieses Tages können/wissen?",
+        "summary": "Die wichtigste Zusammenfassung / der zu lernende Inhalt für diesen Tag in 3-5 kompletten Sätzen (z.B. Definitionen, Kernkonzepte).",
         "tasks": [
-            "✅ [Aufgabe 1] – Methode: [Methode] (ca. XX Min)",
-            "✅ [Aufgabe 2] – Methode: [Methode] (ca. XX Min)",
-            "✅ [Aufgabe 3] – Methode: [Methode] (ca. XX Min)"
+            {{"description": "✅ [Aufgabe 1] – Methode: [Methode] (ca. XX Min)", "completed": false}},
+            {{"description": "✅ [Aufgabe 2] – Methode: [Methode] (ca. XX Min)", "completed": false}}
         ],
         "focus": "⭐ Besonders wichtig: [Was ist der Kern dieses Tages?]",
         "tip": "💡 Lerntipp: [Spezifischer Tipp für diesen Tag]"
