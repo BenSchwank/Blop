@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { LogIn, UserPlus, Sparkles } from 'lucide-react';
+import { LogIn, UserPlus, Shield } from 'lucide-react';
 
 import Image from 'next/image';
 
@@ -146,6 +147,14 @@ export default function LoginPage() {
                     </form>
                 </div>
             </div>
+            {/* Privacy footer */}
+            <p className="text-center mt-5 text-xs text-gray-600">
+                Mit der Nutzung stimmst du unserer{' '}
+                <Link href="/datenschutz" className="text-gray-500 hover:text-[#5E5CE6] underline underline-offset-2 transition-colors inline-flex items-center gap-1">
+                    <Shield size={10} /> Datenschutzerklärung
+                </Link>
+                {' '}zu.
+            </p>
         </div>
     );
 }

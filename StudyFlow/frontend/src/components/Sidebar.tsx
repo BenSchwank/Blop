@@ -128,6 +128,17 @@ export default function Sidebar() {
                     </div>
                 </div>
             </div>
+
+            {/* Datenschutz Link */}
+            <div className="px-4 pb-4">
+                <Link
+                    href="/datenschutz"
+                    className="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-[#252526]"
+                >
+                    <Shield size={12} />
+                    Datenschutzerklärung
+                </Link>
+            </div>
         </aside>
     );
 }
