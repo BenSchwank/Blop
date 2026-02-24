@@ -5,7 +5,6 @@
 #include <QPainterPath>
 #include <QScreen>
 
-
 IntroScreen::IntroScreen(QWidget *parent)
     : QWidget(parent), m_dropY(-200.0), m_dropStretch(1.0),
       m_splashProgress(0.0), m_logoOpacity(0.0), m_textOpacity(0.0),
@@ -17,8 +16,6 @@ IntroScreen::IntroScreen(QWidget *parent)
   QScreen *screen = QApplication::primaryScreen();
   QRect screenGeom = screen->geometry();
   setGeometry(screenGeom);
-
-  m_logoPix = QPixmap(":/assets/logo.jpg");
 
   // Start Y is way off screen top, end Y is center
   int cy = screenGeom.height() / 2;
@@ -154,8 +151,6 @@ void IntroScreen::paintEvent(QPaintEvent *event) {
       qreal p = m_splashProgress;
       qreal baseR = 15 + (130 * p);
 
-      // Blenden wir die Geometrien weich aus, während das echte Logo einblendet
-      painter.setOpacity(1.0 - m_logoOpacity);
       painter.setBrush(electricBlue);
 
       // Center blob
@@ -179,17 +174,51 @@ void IntroScreen::paintEvent(QPaintEvent *event) {
       painter.drawEllipse(QRectF(cx - baseR * 0.35 - r4 / 2.0,
                                  logoBaseY + baseR * 0.4 - r4 / 2.0, r4, r4));
 
-      painter.setOpacity(1.0);
-    }
-  }
+      // --- NIB CUTOUT & DECORATIONS ---
+      // Die Logo-Silhouette (Füllfederhalter + Punkt) wird als Cutout aus dem
+      // Blob generiert
+      if (m_logoOpacity > 0.0) {
+        painter.setOpacity(m_logoOpacity);
 
-  // Zeige das finale hochauflösende Rasterbild
-  if (!m_logoPix.isNull() && m_logoOpacity > 0.0) {
-    painter.setOpacity(m_logoOpacity);
-    int lw = 180;
-    int lh = 180;
-    painter.drawPixmap(cx - lw / 2, logoBaseY - lh / 2, lw, lh, m_logoPix);
-    painter.setOpacity(1.0);
+        painter.translate(cx, logoBaseY);
+        qreal s = baseR / 130.0;
+        painter.scale(s, s);
+
+        // Die Blop Feder zeigt nach unten-links
+        painter.rotate(45);
+
+        // 1. Der Cutout der Feder (zeichnet Background-Color auf das Blau)
+        painter.setBrush(QColor("#121212"));
+        painter.setPen(Qt::NoPen);
+
+        QPainterPath nib;
+        nib.moveTo(0, 35);           // Tip of pen
+        nib.lineTo(-14, 5);          // Left shoulder
+        nib.lineTo(-10, -25);        // Left base
+        nib.quadTo(0, -35, 10, -25); // Base curve
+        nib.lineTo(14, 5);           // Right shoulder
+        nib.closeSubpath();
+
+        painter.drawPath(nib);
+
+        // 2. Das Herz/Loch der Feder und der Schlitz (wieder Blau in den Cutout
+        // gemalt)
+        painter.setBrush(electricBlue);
+        painter.drawEllipse(QRectF(-4, -6, 8, 8)); // Breather hole
+
+        painter.setPen(QPen(electricBlue, 2.5, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(0, -2, 0, 32); // Slit
+
+        // 3. Dekorativer Cutout-Punkt ("Dot") neben der Feder
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor("#121212"));
+        painter.drawEllipse(QRectF(22, -10, 14, 14));
+
+        // Reset transformation state for the text rendering
+        painter.resetTransform();
+        painter.setOpacity(1.0);
+      }
+    }
   }
 
   // Zeige den Text "BLOP"

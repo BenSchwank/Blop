@@ -5,12 +5,10 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QParallelAnimationGroup>
-#include <QPixmap>
 #include <QPropertyAnimation>
 #include <QSequentialAnimationGroup>
 #include <QVariantAnimation>
 #include <QWidget>
-
 
 class IntroScreen : public QWidget {
   Q_OBJECT
@@ -72,7 +70,6 @@ private:
   qreal m_logoOpacity;
   qreal m_textOpacity;
 
-  QPixmap m_logoPix;
   QSequentialAnimationGroup *m_mainSequence;
   bool m_finished;
 };
