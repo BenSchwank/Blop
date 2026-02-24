@@ -32,6 +32,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
+#include <QFile>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsDropShadowEffect>
 #include <QGridLayout>
@@ -50,6 +51,8 @@
 #include <QNetworkRequest>
 #include <QPainter>
 #include <QPainterPath>
+#include <QProcess>
+#include <QProgressDialog>
 #include <QPropertyAnimation>
 #include <QScreen>
 #include <QScroller>
@@ -98,7 +101,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.7.0";
+static const char *BLOP_VERSION = "3.8.0";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -599,7 +602,72 @@ void MainWindow::checkForUpdates() {
         "QPushButton[text='Später'] { background: #333; }");
 
     if (box->exec() == QMessageBox::Yes) {
+#ifdef Q_OS_ANDROID
       QDesktopServices::openUrl(QUrl(downloadUrl));
+#else
+      // --- In-App Updater Download & Execute für Windows ---
+      if (downloadUrl == releasePageUrl) {
+          // Falls kein Installer gefunden wurde, öffne Fallback im Browser
+          QDesktopServices::openUrl(QUrl(downloadUrl));
+      } else {
+          QProgressDialog *progress = new QProgressDialog("Update wird heruntergeladen...", "Abbrechen", 0, 100, this);
+          progress->setWindowTitle("Blop Update");
+          progress->setWindowModality(Qt::WindowModal);
+          progress->setMinimumDuration(0);
+          progress->setValue(0);
+
+          QUrl dlUrl(downloadUrl);
+          QNetworkRequest dlReq(dlUrl);
+          dlReq.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+          
+          QNetworkReply *dlReply = m_netManager->get(dlReq);
+          
+          QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/Blop_Update.exe";
+          QFile *file = new QFile(tempPath);
+          if (!file->open(QIODevice::WriteOnly)) {
+              QMessageBox::warning(this, "Fehler", "Lokale Datei konnte nicht erstellt werden.");
+              delete progress;
+              dlReply->deleteLater();
+              return;
+          }
+
+          connect(dlReply, &QNetworkReply::readyRead, this, [dlReply, file]() {
+              file->write(dlReply->readAll());
+          });
+
+          connect(dlReply, &QNetworkReply::downloadProgress, this, [progress](qint64 bytesReceived, qint64 bytesTotal) {
+              if (bytesTotal > 0) {
+                  progress->setMaximum(bytesTotal);
+                  progress->setValue(bytesReceived);
+              }
+          });
+
+          connect(progress, &QProgressDialog::canceled, this, [dlReply, file, tempPath]() {
+              dlReply->abort();
+              file->close();
+              QFile::remove(tempPath);
+              file->deleteLater();
+              dlReply->deleteLater();
+          });
+
+          connect(dlReply, &QNetworkReply::finished, this, [this, dlReply, file, tempPath, progress]() {
+              progress->deleteLater();
+              file->close();
+              
+              if (dlReply->error() == QNetworkReply::NoError) {
+                  QProcess::startDetached(tempPath, QStringList());
+                  QApplication::quit();
+              } else {
+                  QFile::remove(tempPath);
+                  if (dlReply->error() != QNetworkReply::OperationCanceledError) {
+                      QMessageBox::warning(this, "Fehler", "Fehler beim Download des Updates:\n" + dlReply->errorString());
+                  }
+              }
+              file->deleteLater();
+              dlReply->deleteLater();
+          });
+      }
+#endif
     }
     box->deleteLater();
   });

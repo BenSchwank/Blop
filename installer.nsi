@@ -17,6 +17,10 @@ RequestExecutionLevel admin
 !insertmacro MUI_LANGUAGE "German"
 
 Section "Install"
+  ; Sicherstellen, dass die App geschlossen ist, bevor Dateien überschrieben werden
+  nsExec::ExecToStack 'taskkill /F /IM Blop.exe'
+  Sleep 1000
+
   SetOutPath "$INSTDIR"
   
   ; Kopiere alle Dateien aus deployment (inkl. Unterordner)
