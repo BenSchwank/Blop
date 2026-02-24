@@ -1158,6 +1158,30 @@ void MainWindow::setupWebBrowser() {
   view->load(QUrl("https://blop-six.vercel.app"));
   view->setStyleSheet("background: white;");
   layout->addWidget(view);
+
+  // --- SSO Bridge: Read localStorage after every page load ---
+  // When user logs into Blop Study in the webview, Qt reads the
+  // localStorage username and updates the sidebar user section live.
+  connect(view, &QWebEngineView::loadFinished, this, [this, view](bool ok) {
+    if (!ok)
+      return;
+    // Read username from Blop Study's localStorage
+    view->page()->runJavaScript(
+        R"js(
+          (function() {
+            var u = localStorage.getItem('username');
+            var s = localStorage.getItem('session_id');
+            return (u && s) ? u : '';
+          })();
+        )js",
+        [this](const QVariant &result) {
+          QString username = result.toString().trimmed();
+          if (!username.isEmpty()) {
+            updateSidebarUser(username);
+          }
+        });
+  });
+
 #else
   QLabel *lblInfo = new QLabel(
       "Web-Modul fehlt.\nBitte 'Qt WebEngine' installieren.", m_studyContainer);
@@ -1173,6 +1197,18 @@ void MainWindow::onModeChanged(int index) {
   if (m_mainContentStack) {
     m_mainContentStack->setCurrentIndex(index);
   }
+}
+
+void MainWindow::updateSidebarUser(const QString &username) {
+  // Update avatar initial letter
+  QString initial = username.isEmpty() ? "G" : username.left(1).toUpper();
+  if (m_lblSidebarAvatar)
+    m_lblSidebarAvatar->setText(initial);
+  // Update username text
+  if (m_lblSidebarUser)
+    m_lblSidebarUser->setText(username.isEmpty() ? "Gast" : username);
+  // Persist for next app launch
+  QSettings("Blop", "BlopApp").setValue("username", username);
 }
 
 void MainWindow::setupSidebar() {
@@ -1325,24 +1361,26 @@ void MainWindow::setupSidebar() {
   QString initial = username.isEmpty() ? "G" : username.left(1).toUpper();
 
   // Avatar circle
-  QLabel *lblAvatar = new QLabel(initial, bottomBar);
-  lblAvatar->setFixedSize(36, 36);
-  lblAvatar->setAlignment(Qt::AlignCenter);
-  lblAvatar->setStyleSheet(
+  m_lblSidebarAvatar = new QLabel(initial, bottomBar);
+  m_lblSidebarAvatar->setFixedSize(36, 36);
+  m_lblSidebarAvatar->setAlignment(Qt::AlignCenter);
+  m_lblSidebarAvatar->setStyleSheet(
       "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5E5CE6,stop:1 "
       "#7D7AFF); "
       "border-radius: 18px; color: white; font-weight: bold; font-size: 14px;");
-  bottomLay->addWidget(lblAvatar);
+  bottomLay->addWidget(m_lblSidebarAvatar);
 
   // Username + settings link
   QVBoxLayout *userCol = new QVBoxLayout();
   userCol->setSpacing(1);
-  QLabel *lblUser = new QLabel(username, bottomBar);
-  lblUser->setStyleSheet("font-size: 12px; font-weight: 600; color: white; "
-                         "background: transparent;");
-  lblUser->setMaximumWidth(130);
-  lblUser->setWordWrap(false);
-  userCol->addWidget(lblUser);
+  m_lblSidebarUser =
+      new QLabel(username.isEmpty() ? "Gast" : username, bottomBar);
+  m_lblSidebarUser->setStyleSheet(
+      "font-size: 12px; font-weight: 600; color: white; "
+      "background: transparent;");
+  m_lblSidebarUser->setMaximumWidth(130);
+  m_lblSidebarUser->setWordWrap(false);
+  userCol->addWidget(m_lblSidebarUser);
 
   m_btnSidebarSettings = new QPushButton("Einstellungen", bottomBar);
   m_btnSidebarSettings->setCursor(Qt::PointingHandCursor);
