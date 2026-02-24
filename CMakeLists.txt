@@ -130,3 +130,8 @@ else()
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
 endif()
+
+# Windows: Konsole bei Release-Builds ausblenden
+if(WIN32)
+    set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()

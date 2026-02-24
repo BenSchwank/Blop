@@ -98,7 +98,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.6.0";
+static const char *BLOP_VERSION = "3.7.0";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -454,6 +454,20 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
 
   updateOverviewBackButton();
+
+  // --- Auth Check (Require Login) ---
+  QString username = QSettings("Blop", "BlopApp").value("username").toString();
+  if (username.isEmpty()) {
+    // Lock UI to Study Mode
+    if (m_modeSelector) {
+      m_modeSelector->setCurrentIndex(1); // Force Study Mode
+      m_modeSelector->hide();
+    }
+    if (btnStripMenu)
+      btnStripMenu->hide();
+    if (m_isSidebarOpen)
+      onToggleSidebar();
+  }
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
   QTimer::singleShot(2000, this, &MainWindow::checkForUpdates);
@@ -1305,6 +1319,25 @@ void MainWindow::updateSidebarUser(const QString &username) {
     m_lblSidebarUser->setText(username.isEmpty() ? "Gast" : username);
   // Persist for next app launch
   QSettings("Blop", "BlopApp").setValue("username", username);
+
+  // --- Auth Check Unlock ---
+  if (!username.isEmpty()) {
+    // Unlock UI
+    if (m_modeSelector)
+      m_modeSelector->show();
+    if (btnStripMenu)
+      btnStripMenu->show();
+  } else {
+    // Lock UI
+    if (m_modeSelector) {
+      m_modeSelector->setCurrentIndex(1); // Force Study Mode
+      m_modeSelector->hide();
+    }
+    if (btnStripMenu)
+      btnStripMenu->hide();
+    if (m_isSidebarOpen)
+      onToggleSidebar();
+  }
 }
 
 void MainWindow::setupSidebar() {
