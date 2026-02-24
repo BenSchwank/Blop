@@ -101,7 +101,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.9.1";
+static const char *BLOP_VERSION = "3.9.2";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -1185,6 +1185,19 @@ void MainWindow::setupUi() {
   m_fabNote = new QPushButton("+", m_overviewContainer);
   m_fabNote->setCursor(Qt::PointingHandCursor);
   m_fabNote->setFixedSize(56, 56);
+  m_fabNote->setStyleSheet(
+      "QPushButton {"
+      "  background-color: #5E5CE6;"
+      "  color: white;"
+      "  border-radius: 28px;"
+      "  font-size: 32px;"
+      "  font-weight: bold;"
+      "  padding: 0;"
+      "  padding-bottom: 4px;" // Fix für vertikale Zentrierung in macOS/Windows
+      "  margin: 0;"
+      "  border: none;"
+      "}"
+      "QPushButton:hover { background-color: #7D7AFF; }");
   QGraphicsDropShadowEffect *shadow1 = new QGraphicsDropShadowEffect(this);
   shadow1->setBlurRadius(30);
   shadow1->setOffset(0, 8);
@@ -1617,6 +1630,19 @@ void MainWindow::setupSidebar() {
   m_fabFolder = new QPushButton("+", m_sidebarContainer);
   m_fabFolder->setCursor(Qt::PointingHandCursor);
   m_fabFolder->setFixedSize(40, 40);
+  m_fabFolder->setStyleSheet(
+      "QPushButton {"
+      "  background-color: #5E5CE6;"
+      "  color: white;"
+      "  border-radius: 20px;"
+      "  font-size: 24px;"
+      "  font-weight: bold;"
+      "  padding: 0;"
+      "  padding-bottom: 2px;"
+      "  margin: 0;"
+      "  border: none;"
+      "}"
+      "QPushButton:hover { background-color: #7D7AFF; }");
   QGraphicsDropShadowEffect *shadowFolder = new QGraphicsDropShadowEffect(this);
   shadowFolder->setBlurRadius(20);
   shadowFolder->setOffset(0, 4);
