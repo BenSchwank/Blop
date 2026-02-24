@@ -58,7 +58,7 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#1e1e1e] flex items-center justify-center p-4">
+        <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-md">
                 {/* Logo */}
                 <div className="text-center mb-8">
@@ -146,15 +146,16 @@ export default function LoginPage() {
                         </button>
                     </form>
                 </div>
+
+                {/* Privacy footer */}
+                <p className="text-center mt-5 text-xs text-gray-600">
+                    Mit der Nutzung stimmst du unserer{' '}
+                    <Link href="/datenschutz" className="text-gray-500 hover:text-[#5E5CE6] underline underline-offset-2 transition-colors inline-flex items-center gap-1">
+                        <Shield size={10} /> Datenschutzerklärung
+                    </Link>
+                    {' '}zu.
+                </p>
             </div>
-            {/* Privacy footer */}
-            <p className="text-center mt-5 text-xs text-gray-600">
-                Mit der Nutzung stimmst du unserer{' '}
-                <Link href="/datenschutz" className="text-gray-500 hover:text-[#5E5CE6] underline underline-offset-2 transition-colors inline-flex items-center gap-1">
-                    <Shield size={10} /> Datenschutzerklärung
-                </Link>
-                {' '}zu.
-            </p>
         </div>
     );
 }
