@@ -26,17 +26,17 @@ IntroScreen::IntroScreen(QWidget *parent)
   // 1. Drop falling
   QParallelAnimationGroup *fallGroup = new QParallelAnimationGroup(this);
   QPropertyAnimation *dropYAnim = new QPropertyAnimation(this, "dropY", this);
-  dropYAnim->setDuration(600);
-  dropYAnim->setStartValue(logoBaseY - 600.0);
+  dropYAnim->setDuration(500);
+  dropYAnim->setStartValue(logoBaseY - 800.0);
   dropYAnim->setEndValue(qreal(logoBaseY));
   dropYAnim->setEasingCurve(QEasingCurve::InCubic);
 
   QPropertyAnimation *dropStretchAnim =
       new QPropertyAnimation(this, "dropStretch", this);
-  dropStretchAnim->setDuration(600);
-  dropStretchAnim->setStartValue(1.8);
-  dropStretchAnim->setEndValue(1.0);
-  dropStretchAnim->setEasingCurve(QEasingCurve::OutQuad);
+  dropStretchAnim->setDuration(500);
+  dropStretchAnim->setStartValue(2.0); // More dramatic stretch
+  dropStretchAnim->setEndValue(0.5);   // Squash heavily on impact
+  dropStretchAnim->setEasingCurve(QEasingCurve::InExpo);
 
   fallGroup->addAnimation(dropYAnim);
   fallGroup->addAnimation(dropStretchAnim);
@@ -44,10 +44,11 @@ IntroScreen::IntroScreen(QWidget *parent)
   // 2. Splash / Morph
   QPropertyAnimation *splashAnim =
       new QPropertyAnimation(this, "splashProgress", this);
-  splashAnim->setDuration(500);
+  splashAnim->setDuration(1000); // Longer for the elastic settle
   splashAnim->setStartValue(0.0);
   splashAnim->setEndValue(1.0);
-  splashAnim->setEasingCurve(QEasingCurve::OutBack); // Bouncy splash
+  splashAnim->setEasingCurve(
+      QEasingCurve::OutElastic); // Extremely bouncy, exciting splash
 
   // 3. Logo & Text Reveal
   QParallelAnimationGroup *revealGroup = new QParallelAnimationGroup(this);
@@ -147,43 +148,35 @@ void IntroScreen::paintEvent(QPaintEvent *event) {
 
     } else if (m_splashProgress > 0.0) {
       // Splash Interpolation
-      // Zentraler Kreis wächst und "morpht" zu der breiteren Blop-Form
       qreal p = m_splashProgress;
-      qreal baseR = 15 + (130 * p);
-
       painter.setBrush(electricBlue);
 
-      // Center blob
-      painter.drawEllipse(
-          QRectF(cx - baseR / 2.0, logoBaseY - baseR / 2.0, baseR, baseR));
+      painter.translate(cx, logoBaseY);
 
-      // Satelliten-Kleckse, die eine Wolke formen
-      qreal r1 = baseR * 0.75 * p;
-      painter.drawEllipse(QRectF(cx - baseR * 0.65 - r1 / 2.0,
-                                 logoBaseY - baseR * 0.2 - r1 / 2.0, r1, r1));
+      // Blob scales up elastically
+      qreal blobScale = p * 1.5;
+      painter.scale(blobScale, blobScale);
 
-      qreal r2 = baseR * 0.6 * p;
-      painter.drawEllipse(QRectF(cx + baseR * 0.6 - r2 / 2.0,
-                                 logoBaseY - baseR * 0.1 - r2 / 2.0, r2, r2));
+      // Zeichne exakte, weiche Bezier-Hüllkurve des originalen Logos
+      QPainterPath blob;
+      blob.moveTo(-14.0, -38.1);
+      blob.quadTo(-20.6, -36.5, -32.7, -23.4);
+      blob.quadTo(-44.8, -10.2, -45.3, 1.0);
+      blob.quadTo(-45.8, 12.1, -40.3, 17.1);
+      blob.quadTo(-34.9, 22.2, -26.1, 22.7);
+      blob.quadTo(-17.3, 23.2, -13.7, 29.0);
+      blob.quadTo(-10.1, 34.8, 10.8, 38.4);
+      blob.quadTo(31.6, 42.0, 31.2, 32.6);
+      blob.quadTo(30.9, 23.2, 37.4, 12.4);
+      blob.quadTo(43.9, 1.7, 36.9, -13.6);
+      blob.quadTo(29.9, -28.9, 11.3, -34.3);
+      blob.quadTo(-7.3, -39.7, -14.0, -38.1);
 
-      qreal r3 = baseR * 0.5 * p;
-      painter.drawEllipse(QRectF(cx + baseR * 0.25 - r3 / 2.0,
-                                 logoBaseY + baseR * 0.45 - r3 / 2.0, r3, r3));
-
-      qreal r4 = baseR * 0.45 * p;
-      painter.drawEllipse(QRectF(cx - baseR * 0.35 - r4 / 2.0,
-                                 logoBaseY + baseR * 0.4 - r4 / 2.0, r4, r4));
+      painter.drawPath(blob);
 
       // --- NIB CUTOUT & DECORATIONS ---
-      // Die Logo-Silhouette (Füllfederhalter + Punkt) wird als Cutout aus dem
-      // Blob generiert
+      // Die Logo-Silhouette wird ausgestanzt
       if (m_logoOpacity > 0.0) {
-        painter.setOpacity(m_logoOpacity);
-
-        painter.translate(cx, logoBaseY);
-        qreal s = baseR / 130.0;
-        painter.scale(s, s);
-
         // Die Blop Feder zeigt nach unten-links
         painter.rotate(45);
 
@@ -192,32 +185,29 @@ void IntroScreen::paintEvent(QPaintEvent *event) {
         painter.setPen(Qt::NoPen);
 
         QPainterPath nib;
-        nib.moveTo(0, 35);           // Tip of pen
-        nib.lineTo(-14, 5);          // Left shoulder
-        nib.lineTo(-10, -25);        // Left base
-        nib.quadTo(0, -35, 10, -25); // Base curve
-        nib.lineTo(14, 5);           // Right shoulder
+        nib.moveTo(0, 32);
+        nib.lineTo(-12, 5);
+        nib.lineTo(-9, -20);
+        nib.quadTo(0, -30, 9, -20);
+        nib.lineTo(12, 5);
         nib.closeSubpath();
 
+        painter.setOpacity(m_logoOpacity); // Reveal nib smoothly
         painter.drawPath(nib);
 
-        // 2. Das Herz/Loch der Feder und der Schlitz (wieder Blau in den Cutout
-        // gemalt)
+        // 2. Das Herz/Loch der Feder und der Schlitz
         painter.setBrush(electricBlue);
-        painter.drawEllipse(QRectF(-4, -6, 8, 8)); // Breather hole
+        painter.drawEllipse(QRectF(-3.5, -6, 7, 7));
 
-        painter.setPen(QPen(electricBlue, 2.5, Qt::SolidLine, Qt::RoundCap));
-        painter.drawLine(0, -2, 0, 32); // Slit
+        painter.setPen(QPen(electricBlue, 2.0, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(0, -2, 0, 28);
 
-        // 3. Dekorativer Cutout-Punkt ("Dot") neben der Feder
+        // 3. Dekorativer Punkt neben der Feder
         painter.setPen(Qt::NoPen);
         painter.setBrush(QColor("#121212"));
-        painter.drawEllipse(QRectF(22, -10, 14, 14));
-
-        // Reset transformation state for the text rendering
-        painter.resetTransform();
-        painter.setOpacity(1.0);
+        painter.drawEllipse(QRectF(22, -10, 12, 12));
       }
+      painter.resetTransform();
     }
   }
 
