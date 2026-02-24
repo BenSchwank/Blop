@@ -53,6 +53,7 @@
 #include <QPropertyAnimation>
 #include <QScreen>
 #include <QScroller>
+#include <QSettings>
 #include <QSlider>
 #include <QStandardPaths>
 #include <QStyle>
@@ -1206,18 +1207,37 @@ void MainWindow::setupSidebar() {
 
   layout->setSpacing(0);
 
+  // --- HEADER: Blop Study style ---
   QWidget *header = new QWidget(m_sidebarContainer);
-  header->setFixedHeight(70);
+  header->setFixedHeight(74);
+  header->setStyleSheet("border-bottom: 1px solid #333;");
   QHBoxLayout *headerLay = new QHBoxLayout(header);
-  headerLay->setContentsMargins(20, 20, 20, 0);
-  QLabel *lblTitle = new QLabel("Blop Notes", header);
+  headerLay->setContentsMargins(16, 16, 16, 16);
+  headerLay->setSpacing(10);
 
-  QString headerStyle =
-      QString("font-size: %1px; font-weight: bold; color: white;")
-          .arg(FONT_SIZE_HEADER);
-  lblTitle->setStyleSheet(headerStyle);
+  // Logo box (oval, accent color)
+  QLabel *lblLogo = new QLabel(header);
+  lblLogo->setFixedSize(38, 38);
+  lblLogo->setAlignment(Qt::AlignCenter);
+  lblLogo->setStyleSheet(
+      "background-color: #5E5CE6; border-radius: 10px; color: white; "
+      "font-weight: bold; font-size: 14px;");
+  lblLogo->setText("B");
+  headerLay->addWidget(lblLogo);
 
-  headerLay->addWidget(lblTitle);
+  QVBoxLayout *titleCol = new QVBoxLayout();
+  titleCol->setSpacing(2);
+  QLabel *lblTitle = new QLabel("Blop", header);
+  lblTitle->setStyleSheet("font-size: 16px; font-weight: bold; color: white; "
+                          "background: transparent;");
+  QLabel *lblSub = new QLabel("Notiz-App", header);
+  lblSub->setStyleSheet(
+      "font-size: 10px; color: #888; background: transparent;");
+  titleCol->addWidget(lblTitle);
+  titleCol->addWidget(lblSub);
+  headerLay->addLayout(titleCol);
+  headerLay->addStretch();
+
   m_closeSidebarBtn = new QPushButton("«", header);
   m_closeSidebarBtn->setFixedSize(24, 24);
   m_closeSidebarBtn->setCursor(Qt::PointingHandCursor);
@@ -1227,7 +1247,6 @@ void MainWindow::setupSidebar() {
       "border-radius: 4px; }");
   connect(m_closeSidebarBtn, &QPushButton::clicked, this,
           &MainWindow::onToggleSidebar);
-  headerLay->addStretch();
   headerLay->addWidget(m_closeSidebarBtn);
   layout->addWidget(header);
 
@@ -1286,30 +1305,57 @@ void MainWindow::setupSidebar() {
   layout->addWidget(m_navSidebar);
   updateSidebarBadges();
 
+  // --- BOTTOM: User Account Section (Blop Study style) ---
   QWidget *bottomBar = new QWidget(m_sidebarContainer);
+  bottomBar->setStyleSheet("border-top: 1px solid #333;");
 
 #ifdef Q_OS_ANDROID
   bottomBar->setFixedHeight(80);
 #else
-  bottomBar->setFixedHeight(60);
+  bottomBar->setFixedHeight(72);
 #endif
 
   QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar);
-  bottomLay->setContentsMargins(15, 0, 15, 15);
-  m_btnSidebarSettings = new QPushButton(bottomBar);
-  m_btnSidebarSettings->setIcon(
-      createModernIcon("settings", QColor(150, 150, 150)));
-  m_btnSidebarSettings->setIconSize(QSize(24, 24));
-  m_btnSidebarSettings->setFixedSize(40, 40);
+  bottomLay->setContentsMargins(14, 10, 14, 14);
+  bottomLay->setSpacing(10);
+
+  // Read username from QSettings (saved by Blop Study web app via localStorage)
+  QString username =
+      QSettings("Blop", "BlopApp").value("username", "Gast").toString();
+  QString initial = username.isEmpty() ? "G" : username.left(1).toUpper();
+
+  // Avatar circle
+  QLabel *lblAvatar = new QLabel(initial, bottomBar);
+  lblAvatar->setFixedSize(36, 36);
+  lblAvatar->setAlignment(Qt::AlignCenter);
+  lblAvatar->setStyleSheet(
+      "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5E5CE6,stop:1 "
+      "#7D7AFF); "
+      "border-radius: 18px; color: white; font-weight: bold; font-size: 14px;");
+  bottomLay->addWidget(lblAvatar);
+
+  // Username + settings link
+  QVBoxLayout *userCol = new QVBoxLayout();
+  userCol->setSpacing(1);
+  QLabel *lblUser = new QLabel(username, bottomBar);
+  lblUser->setStyleSheet("font-size: 12px; font-weight: 600; color: white; "
+                         "background: transparent;");
+  lblUser->setMaximumWidth(130);
+  lblUser->setWordWrap(false);
+  userCol->addWidget(lblUser);
+
+  m_btnSidebarSettings = new QPushButton("Einstellungen", bottomBar);
   m_btnSidebarSettings->setCursor(Qt::PointingHandCursor);
   m_btnSidebarSettings->setStyleSheet(
-      "QPushButton { background: #252526; border-radius: 20px; border: 1px "
-      "solid #444; } QPushButton:hover { background: #333; border: 1px solid "
-      "#555; }");
+      "QPushButton { background: transparent; color: #888; border: none; "
+      "font-size: 10px; padding: 0; text-align: left; } "
+      "QPushButton:hover { color: #5E5CE6; }");
   connect(m_btnSidebarSettings, &QPushButton::clicked, this,
           &MainWindow::onOpenSettings);
-  bottomLay->addWidget(m_btnSidebarSettings);
+  userCol->addWidget(m_btnSidebarSettings);
+  bottomLay->addLayout(userCol);
   bottomLay->addStretch();
+
   layout->addWidget(bottomBar);
 
   m_fabFolder = new QPushButton("+", m_sidebarContainer);
