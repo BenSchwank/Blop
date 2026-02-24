@@ -2,10 +2,5 @@
 <RCC version="1.0">
 <qresource prefix="/">
     <file>assets/logo.jpg</file>
-    <file>assets/Intro1.png</file>
-    <file>assets/Intro2.png</file>
-    <file>assets/Intro3.png</file>
-    <file>assets/Intro4.png</file>
-    <file>assets/Intro5.png</file>
 </qresource>
 </RCC>

@@ -1,10 +1,10 @@
 #ifndef INTROSCREEN_H
 #define INTROSCREEN_H
 
-#include <QList>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QParallelAnimationGroup>
 #include <QPixmap>
 #include <QPropertyAnimation>
 #include <QSequentialAnimationGroup>
@@ -14,8 +14,11 @@
 
 class IntroScreen : public QWidget {
   Q_OBJECT
-  // Wir animieren numerisch durch die Bilder (0.0 bis 4.0)
-  Q_PROPERTY(qreal frameProgress READ frameProgress WRITE setFrameProgress)
+  Q_PROPERTY(qreal dropY READ dropY WRITE setDropY)
+  Q_PROPERTY(qreal dropStretch READ dropStretch WRITE setDropStretch)
+  Q_PROPERTY(qreal splashProgress READ splashProgress WRITE setSplashProgress)
+  Q_PROPERTY(qreal logoOpacity READ logoOpacity WRITE setLogoOpacity)
+  Q_PROPERTY(qreal textOpacity READ textOpacity WRITE setTextOpacity)
 
 public:
   explicit IntroScreen(QWidget *parent = nullptr);
@@ -23,9 +26,33 @@ public:
 
   void startAnimation();
 
-  qreal frameProgress() const { return m_frameProgress; }
-  void setFrameProgress(qreal progress) {
-    m_frameProgress = progress;
+  qreal dropY() const { return m_dropY; }
+  void setDropY(qreal v) {
+    m_dropY = v;
+    update();
+  }
+
+  qreal dropStretch() const { return m_dropStretch; }
+  void setDropStretch(qreal v) {
+    m_dropStretch = v;
+    update();
+  }
+
+  qreal splashProgress() const { return m_splashProgress; }
+  void setSplashProgress(qreal v) {
+    m_splashProgress = v;
+    update();
+  }
+
+  qreal logoOpacity() const { return m_logoOpacity; }
+  void setLogoOpacity(qreal v) {
+    m_logoOpacity = v;
+    update();
+  }
+
+  qreal textOpacity() const { return m_textOpacity; }
+  void setTextOpacity(qreal v) {
+    m_textOpacity = v;
     update();
   }
 
@@ -39,9 +66,13 @@ protected:
 private:
   void finishIntro();
 
-  QList<QPixmap> m_images;
-  qreal m_frameProgress;
+  qreal m_dropY;
+  qreal m_dropStretch;
+  qreal m_splashProgress;
+  qreal m_logoOpacity;
+  qreal m_textOpacity;
 
+  QPixmap m_logoPix;
   QSequentialAnimationGroup *m_mainSequence;
   bool m_finished;
 };

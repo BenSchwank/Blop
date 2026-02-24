@@ -1,68 +1,94 @@
 #include "introscreen.h"
 #include <QApplication>
+#include <QFontDatabase>
 #include <QPainter>
+#include <QPainterPath>
 #include <QScreen>
 
 
 IntroScreen::IntroScreen(QWidget *parent)
-    : QWidget(parent), m_frameProgress(0.0), m_finished(false) {
-  // Modern frameless window setup, stays on top
+    : QWidget(parent), m_dropY(-200.0), m_dropStretch(1.0),
+      m_splashProgress(0.0), m_logoOpacity(0.0), m_textOpacity(0.0),
+      m_finished(false) {
   setWindowFlags(Qt::Window | Qt::FramelessWindowHint |
                  Qt::WindowStaysOnTopHint);
   setAttribute(Qt::WA_TranslucentBackground);
 
-  // Full screen size, centered
   QScreen *screen = QApplication::primaryScreen();
   QRect screenGeom = screen->geometry();
   setGeometry(screenGeom);
 
-  // Load sequence images
-  QStringList imagePaths = {":/assets/Intro1.png", ":/assets/Intro2.png",
-                            ":/assets/Intro3.png", ":/assets/Intro4.png",
-                            ":/assets/Intro5.png"};
+  m_logoPix = QPixmap(":/assets/logo.jpg");
 
-  // Wir skalieren die Bilder auf eine feste Größe relativ zum Bildschirm, z.B.
-  // 800x600 oder 1000x1000, um die Animation scharf und performant zu halten.
-  int targetSize = qMin(screenGeom.width(), screenGeom.height()) * 0.8;
+  // Start Y is way off screen top, end Y is center
+  int cy = screenGeom.height() / 2;
+  int logoBaseY = cy - 40;
 
-  for (const QString &path : imagePaths) {
-    QPixmap pix(path);
-    if (!pix.isNull()) {
-      m_images.append(pix.scaled(targetSize, targetSize, Qt::KeepAspectRatio,
-                                 Qt::SmoothTransformation));
-    }
-  }
-
-  // Setup Animation Sequence
   m_mainSequence = new QSequentialAnimationGroup(this);
 
-  // 1. Image sequence crossfade (0.0 to 4.0)
-  QPropertyAnimation *sequenceAnim =
-      new QPropertyAnimation(this, "frameProgress", this);
-  sequenceAnim->setDuration(1600); // 1.6 seconds for the morphing drop
-  sequenceAnim->setStartValue(0.0);
-  sequenceAnim->setEndValue(qreal(qMax(0, m_images.size() - 1)));
-  sequenceAnim->setEasingCurve(QEasingCurve::InOutQuad);
+  // 1. Drop falling
+  QParallelAnimationGroup *fallGroup = new QParallelAnimationGroup(this);
+  QPropertyAnimation *dropYAnim = new QPropertyAnimation(this, "dropY", this);
+  dropYAnim->setDuration(600);
+  dropYAnim->setStartValue(logoBaseY - 600.0);
+  dropYAnim->setEndValue(qreal(logoBaseY));
+  dropYAnim->setEasingCurve(QEasingCurve::InCubic);
 
-  // Pause before transition
+  QPropertyAnimation *dropStretchAnim =
+      new QPropertyAnimation(this, "dropStretch", this);
+  dropStretchAnim->setDuration(600);
+  dropStretchAnim->setStartValue(1.8);
+  dropStretchAnim->setEndValue(1.0);
+  dropStretchAnim->setEasingCurve(QEasingCurve::OutQuad);
+
+  fallGroup->addAnimation(dropYAnim);
+  fallGroup->addAnimation(dropStretchAnim);
+
+  // 2. Splash / Morph
+  QPropertyAnimation *splashAnim =
+      new QPropertyAnimation(this, "splashProgress", this);
+  splashAnim->setDuration(500);
+  splashAnim->setStartValue(0.0);
+  splashAnim->setEndValue(1.0);
+  splashAnim->setEasingCurve(QEasingCurve::OutBack); // Bouncy splash
+
+  // 3. Logo & Text Reveal
+  QParallelAnimationGroup *revealGroup = new QParallelAnimationGroup(this);
+  QPropertyAnimation *logoAnim =
+      new QPropertyAnimation(this, "logoOpacity", this);
+  logoAnim->setDuration(600);
+  logoAnim->setStartValue(0.0);
+  logoAnim->setEndValue(1.0);
+
+  QPropertyAnimation *textAnim =
+      new QPropertyAnimation(this, "textOpacity", this);
+  textAnim->setDuration(600);
+  textAnim->setStartValue(0.0);
+  textAnim->setEndValue(1.0);
+  textAnim->setEasingCurve(QEasingCurve::InOutQuad);
+
+  revealGroup->addAnimation(logoAnim);
+  revealGroup->addAnimation(textAnim);
+
+  // 4. Final pause and screen fade
   QPropertyAnimation *pauseAnim =
       new QPropertyAnimation(this, "windowOpacity", this);
-  pauseAnim->setDuration(1200); // Wait 1.2s to show final logo
+  pauseAnim->setDuration(800);
   pauseAnim->setStartValue(1.0);
-  pauseAnim->setEndValue(1.0); // essentially a delay
+  pauseAnim->setEndValue(1.0);
 
-  // 2. Screen fade out (Widget property)
-  QPropertyAnimation *screenFadeOut =
+  QPropertyAnimation *fadeOut =
       new QPropertyAnimation(this, "windowOpacity", this);
-  screenFadeOut->setDuration(600);
-  screenFadeOut->setStartValue(1.0);
-  screenFadeOut->setEndValue(0.0);
-  screenFadeOut->setEasingCurve(QEasingCurve::InOutQuad);
+  fadeOut->setDuration(600);
+  fadeOut->setStartValue(1.0);
+  fadeOut->setEndValue(0.0);
+  fadeOut->setEasingCurve(QEasingCurve::InOutQuad);
 
-  // Add everything to the sequence
-  m_mainSequence->addAnimation(sequenceAnim);
+  m_mainSequence->addAnimation(fallGroup);
+  m_mainSequence->addAnimation(splashAnim);
+  m_mainSequence->addAnimation(revealGroup);
   m_mainSequence->addAnimation(pauseAnim);
-  m_mainSequence->addAnimation(screenFadeOut);
+  m_mainSequence->addAnimation(fadeOut);
 
   connect(m_mainSequence, &QSequentialAnimationGroup::finished, this,
           &IntroScreen::finishIntro);
@@ -71,10 +97,6 @@ IntroScreen::IntroScreen(QWidget *parent)
 IntroScreen::~IntroScreen() {}
 
 void IntroScreen::startAnimation() {
-  if (m_images.isEmpty()) {
-    finishIntro();
-    return;
-  }
   show();
   m_mainSequence->start();
 }
@@ -89,7 +111,6 @@ void IntroScreen::finishIntro() {
 
 void IntroScreen::mousePressEvent(QMouseEvent *event) {
   event->accept();
-  // Skip animation on click
   finishIntro();
 }
 
@@ -98,45 +119,92 @@ void IntroScreen::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
 
-  // Paint a solid dark background for the splash
+  // Schwarz füllen
   painter.fillRect(rect(), QColor("#121212"));
-
-  if (m_images.isEmpty())
-    return;
 
   int cx = width() / 2;
   int cy = height() / 2;
+  int logoBaseY = cy - 40;
 
-  int maxIndex = m_images.size() - 1;
+  QColor electricBlue(47, 82, 224); // Angenähertes Blop-Blau
 
-  // Aktueller und nächster Index
-  int lowerIndex = qBound(0, static_cast<int>(m_frameProgress), maxIndex);
-  int upperIndex = qBound(0, lowerIndex + 1, maxIndex);
+  // Zeichne Vektor-Formen für Fall und Impact
+  if (m_logoOpacity < 1.0) {
+    painter.setPen(Qt::NoPen);
 
-  // Wie weit sind wir zwischen lower und upper?
-  qreal fraction = m_frameProgress - lowerIndex;
+    // Wenn das Morphing noch nicht läuft, zeichnen wir den Tropfen
+    if (m_splashProgress == 0.0) {
+      painter.setBrush(electricBlue);
+      int dWidth = 30 / m_dropStretch;
+      int dHeight = 30 * m_dropStretch;
 
-  const QPixmap &pixLower = m_images[lowerIndex];
-  int lw = pixLower.width();
-  int lh = pixLower.height();
-  QRect rectLower(cx - lw / 2, cy - lh / 2, lw, lh);
+      painter.drawEllipse(
+          QRectF(cx - dWidth / 2.0, m_dropY - dHeight / 2.0, dWidth, dHeight));
 
-  if (fraction <= 0.0 || lowerIndex == maxIndex) {
-    // Exakt auf einem Frame, render voll
-    painter.drawPixmap(rectLower, pixLower);
-  } else {
-    // Crossfade zwischen 2 Frames zeichnen
-    const QPixmap &pixUpper = m_images[upperIndex];
-    int uw = pixUpper.width();
-    int uh = pixUpper.height();
-    QRect rectUpper(cx - uw / 2, cy - uh / 2, uw, uh);
+      // Schleppe einen kleinen Schweif mit
+      QPainterPath tail;
+      tail.moveTo(cx - dWidth / 2.0, m_dropY);
+      tail.lineTo(cx, m_dropY - dHeight * 1.5);
+      tail.lineTo(cx + dWidth / 2.0, m_dropY);
+      painter.drawPath(tail);
 
-    // Unteres Bild ausblenden
-    painter.setOpacity(1.0 - fraction);
-    painter.drawPixmap(rectLower, pixLower);
+    } else if (m_splashProgress > 0.0) {
+      // Splash Interpolation
+      // Zentraler Kreis wächst und "morpht" zu der breiteren Blop-Form
+      qreal p = m_splashProgress;
+      qreal baseR = 15 + (130 * p);
 
-    // Oberes Bild einblenden
-    painter.setOpacity(fraction);
-    painter.drawPixmap(rectUpper, pixUpper);
+      // Blenden wir die Geometrien weich aus, während das echte Logo einblendet
+      painter.setOpacity(1.0 - m_logoOpacity);
+      painter.setBrush(electricBlue);
+
+      // Center blob
+      painter.drawEllipse(
+          QRectF(cx - baseR / 2.0, logoBaseY - baseR / 2.0, baseR, baseR));
+
+      // Satelliten-Kleckse, die eine Wolke formen
+      qreal r1 = baseR * 0.75 * p;
+      painter.drawEllipse(QRectF(cx - baseR * 0.65 - r1 / 2.0,
+                                 logoBaseY - baseR * 0.2 - r1 / 2.0, r1, r1));
+
+      qreal r2 = baseR * 0.6 * p;
+      painter.drawEllipse(QRectF(cx + baseR * 0.6 - r2 / 2.0,
+                                 logoBaseY - baseR * 0.1 - r2 / 2.0, r2, r2));
+
+      qreal r3 = baseR * 0.5 * p;
+      painter.drawEllipse(QRectF(cx + baseR * 0.25 - r3 / 2.0,
+                                 logoBaseY + baseR * 0.45 - r3 / 2.0, r3, r3));
+
+      qreal r4 = baseR * 0.45 * p;
+      painter.drawEllipse(QRectF(cx - baseR * 0.35 - r4 / 2.0,
+                                 logoBaseY + baseR * 0.4 - r4 / 2.0, r4, r4));
+
+      painter.setOpacity(1.0);
+    }
+  }
+
+  // Zeige das finale hochauflösende Rasterbild
+  if (!m_logoPix.isNull() && m_logoOpacity > 0.0) {
+    painter.setOpacity(m_logoOpacity);
+    int lw = 180;
+    int lh = 180;
+    painter.drawPixmap(cx - lw / 2, logoBaseY - lh / 2, lw, lh, m_logoPix);
+    painter.setOpacity(1.0);
+  }
+
+  // Zeige den Text "BLOP"
+  if (m_textOpacity > 0.0) {
+    painter.setOpacity(m_textOpacity);
+    QFont font = painter.font();
+    font.setPixelSize(36);
+    font.setBold(true);
+    painter.setFont(font);
+    painter.setPen(QColor("#FFFFFF"));
+
+    int textYOffset = 15 * (1.0 - m_textOpacity);
+    QRect textRect(0, logoBaseY + 105 + textYOffset, width(), 50);
+    painter.drawText(textRect, Qt::AlignCenter, "BLOP");
+
+    painter.setOpacity(1.0);
   }
 }
