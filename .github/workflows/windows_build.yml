@@ -87,10 +87,13 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
+      - name: Install NSIS
+        run: choco install nsis -y
+
       - name: Build NSIS Installer
         shell: cmd
         run: |
-          makensis installer.nsi
+          "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
 
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
