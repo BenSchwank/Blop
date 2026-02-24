@@ -87,12 +87,19 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
+      - name: Build NSIS Installer
+        shell: cmd
+        run: |
+          makensis installer.nsi
+
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
-          files: deployment/Blop_Windows.zip
+          files: |
+            deployment/Blop_Windows.zip
+            Blop_Windows_Installer.exe
           draft: false
           prerelease: false
           repository: BenSchwank/Blop-releases
@@ -104,9 +111,12 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: nightly
           name: Nightly Build (Latest)
-          body: "Neuester automatischer Build mit WebEngine."
-          files: deployment/Blop_Windows.zip
+          body: "Neuester automatischer Build mit WebEngine und Installer."
+          files: |
+            deployment/Blop_Windows.zip
+            Blop_Windows_Installer.exe
           draft: false
           prerelease: true
           overwrite: true
           repository: BenSchwank/Blop-releases
+

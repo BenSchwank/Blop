@@ -549,10 +549,10 @@ void MainWindow::checkForUpdates() {
       }
     }
 #else
-    // Windows / Desktop: prefer Windows zip
+    // Windows / Desktop: prefer Windows installer
     for (const QJsonValue &a : assets) {
       QString name = a.toObject().value("name").toString();
-      if (name == "Blop_Windows.zip") {
+      if (name == "Blop_Windows_Installer.exe") {
         downloadUrl = a.toObject().value("browser_download_url").toString();
         break;
       }
