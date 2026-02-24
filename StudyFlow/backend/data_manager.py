@@ -101,12 +101,16 @@ class DataManager:
     def load(username):
         db = DataManager._init_firestore()
         if db:
-            # CLOUD MODE (No Caching for now, or use Firestore listeners)
-            doc_ref = db.collection("users").document(username)
-            doc = doc_ref.get()
-            if doc.exists:
-                return doc.to_dict()
-            else:
+            # CLOUD MODE: Single Source of Truth
+            try:
+                doc_ref = db.collection("users").document(username)
+                doc = doc_ref.get()
+                if doc.exists:
+                    return doc.to_dict()
+                else:
+                    return {"folders": [], "files": []}
+            except Exception as e:
+                print(f"Firestore Load Error: {e}")
                 return {"folders": [], "files": []}
         else:
             # LOCAL MODE
@@ -137,7 +141,10 @@ class DataManager:
         db = DataManager._init_firestore()
         if db:
             # CLOUD MODE
-            db.collection("users").document(username).set(data)
+            try:
+                db.collection("users").document(username).set(data)
+            except Exception as e:
+                print(f"Firestore Save Error: {e}")
         else:
             # LOCAL MODE
             filepath = DataManager._get_file(username)

@@ -237,6 +237,7 @@ RAHMENDATEN:
 
 ANCORDERUNGEN AN DEN LERNPLAN:
 1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf. ACHTUNG: Plane NUR an den "Aktiven Lerntagen" Aufgaben ein. Wenn der Tag der Woche KEIN aktiver Lerntag ist, weise dem Tag KEINE Aufgaben zu und setze als Ziel/Summary "Ruhetag" oder "Pause".
+   WICHTIGE REGEL: Tag 1 (der ERSTE Tag des Plans) darf unter keinen Umständen ein Ruhetag sein. Beginne den Plan IMMER an einem aktiven Lerntag.
 2. Jede Aufgabe muss KONKRET und UMSETZBAR sein (keine vagen Anweisungen wie "lerne Kapitel X")
 3. Gib GENAUE Zeitangaben für jede Aufgabe (Summe = {hours_per_day}h pro Tag)
 4. Berücksichtige Lernpsychologie: Wiederholungen einbauen, Pausen vorschlagen
@@ -407,10 +408,10 @@ Hier ist das Quellenmaterial:
             raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
 
     @staticmethod
-    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None) -> str:
+    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None) -> Any:
         """Generates targeted spaced-repetition / review material."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference))
+            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
 
             prompt = f"""
 Du bist ein Lernexperte (wie Anki oder Mochi). Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.
@@ -421,12 +422,26 @@ Der Fokus liegt auf aktivem Abruf (Active Recall) und dem Schließen von Wissens
 
 Struktur der Wiederholung:
 1. 🎯 **Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse in je einem Satz.
-2. ❓ **Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen (ohne die Antworten direkt dazuzuschreiben, schreibe die Antworten in einen Spoiler-Block oder ans Ende).
+2. ❓ **Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen und ihre Antworten (Aufgeteilt in separaten Frage/Antwort Feldern für interaktives Aufklappen).
 3. 🧠 **Häufige Stolpersteine:** Welche Details verwechselt man leicht?
 4. 🧮 **Für Mathe/Naturwissenschaften (falls relevant):** Wenn es sich um Rechenaufgaben oder Beweise handelt, erkläre detailliert den Lösungsansatz ("Wie gehe ich an solche Aufgaben heran?") und liste alle zwingend benötigten Formeln übersichtlich auf.
 5. 🔗 **Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
 
-WICHTIG: Nutze Markdown für ein übersichtliches und ansprechendes Layout auf Deutsch. Verwende klare Absätze, Fettgedrucktes und Aufzählungszeichen.
+WICHTIG: Gib das Ergebnis AUSSCHLIESSLICH als JSON-Objekt aus. Formatiere den inneren Text der Felder auf Deutsch gerne mit Markdown für bessere Lesbarkeit (Fettgedrucktes, Listen).
+
+Ausgabe-Format (JSON):
+{{
+    "core_concepts": [ "Konzept 1", "Konzept 2", "Konzept 3" ],
+    "qa_pairs": [
+        {{
+            "question": "Prüfungsfrage 1?",
+            "answer": "Ausführliche, detaillierte Lösung zu Frage 1"
+        }}
+    ],
+    "pitfalls": "Markdown Text über Stolpersteine...",
+    "math_logic": "Markdown Text über Rechenansätze... (oder null wenn nicht anwendbar)",
+    "context": "Markdown Text über den größeren Kontext..."
+}}
 
 Hier ist das Quellenmaterial:
 """
@@ -440,7 +455,7 @@ Hier ist das Quellenmaterial:
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return response.text
+            return json.loads(response.text)
         except Exception as e:
             print(f"Repetition Error: {e}")
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")

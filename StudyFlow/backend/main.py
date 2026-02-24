@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 import os
+from datetime import datetime
 
 # Import local modules
 # Import local modules
@@ -45,6 +46,17 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     password: str
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    username: str
+    folder_id: str
+    message: str
+    history: List[ChatMessage]
+    model_preference: Optional[str] = None
 
 @app.get("/")
 def read_root():
@@ -548,7 +560,7 @@ def create_repetition(request: RepetitionRequest):
         DataManager.save_file_metadata({
             "id": f"repetition_{int(datetime.now().timestamp())}",
             "name": "Wiederholungsbogen",
-            "type": "summary", # Reusing 'summary' rich text editor styling
+            "type": "repetition", 
             "content": repetition_text,
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
@@ -576,6 +588,27 @@ def get_task_help(request: TaskHelpRequest):
     except Exception as e:
         print(f"Task Help error: {e}")
         raise HTTPException(status_code=500, detail=f"Aufgabenhilfe-Fehler: {str(e)}")
+
+@app.post("/api/ai/chat")
+def chat_endpoint(request: ChatRequest):
+    from ai_service import AIService
+    try:
+        _configure_genai(request.username)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            # Fallback to general chat if no context is found, but pass empty list
+            context = []
+        
+        # Convert history
+        history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
+        
+        reply = AIService.chat(context, request.message, history_dicts, request.model_preference)
+        return {"status": "success", "reply": reply}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Chat error: {e}")
+        raise HTTPException(status_code=500, detail=f"Chatbot-Fehler: {str(e)}")
 
 
 if __name__ == "__main__":

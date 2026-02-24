@@ -13,26 +13,45 @@ class AuthManager:
     _sessions_mtime = 0
     @staticmethod
     def _load_sessions():
-        # Check mtime
-        if os.path.exists(SESSION_DB_FILE):
-             mtime = os.path.getmtime(SESSION_DB_FILE)
-             if AuthManager._sessions_cache is not None and mtime == AuthManager._sessions_mtime:
-                 return AuthManager._sessions_cache
-             
-             try:
-                 with open(SESSION_DB_FILE, "r", encoding="utf-8") as f:
-                     AuthManager._sessions_cache = json.load(f)
-                     AuthManager._sessions_mtime = mtime
+        from data_manager import DataManager
+        db = DataManager._init_firestore()
+        if db:
+            try:
+                doc = db.collection("config").document("auth_sessions").get()
+                if doc.exists:
+                    return doc.to_dict()
+                return {}
+            except:
+                return {}
+        else:
+            # Check mtime
+            if os.path.exists(SESSION_DB_FILE):
+                 mtime = os.path.getmtime(SESSION_DB_FILE)
+                 if AuthManager._sessions_cache is not None and mtime == AuthManager._sessions_mtime:
                      return AuthManager._sessions_cache
-             except: pass
-        return {}
+                 
+                 try:
+                     with open(SESSION_DB_FILE, "r", encoding="utf-8") as f:
+                         AuthManager._sessions_cache = json.load(f)
+                         AuthManager._sessions_mtime = mtime
+                         return AuthManager._sessions_cache
+                 except: pass
+            return {}
 
     @staticmethod
     def _save_sessions(sessions):
-        if not os.path.exists("user_data"):
-            os.makedirs("user_data")
-        with open(SESSION_DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(sessions, f, indent=4)
+        from data_manager import DataManager
+        db = DataManager._init_firestore()
+        if db:
+            try:
+                db.collection("config").document("auth_sessions").set(sessions)
+            except:
+                pass
+        else:
+            if not os.path.exists("user_data"):
+                os.makedirs("user_data")
+            with open(SESSION_DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(sessions, f, indent=4)
 
     @staticmethod
     def create_session(username):
@@ -83,56 +102,44 @@ class AuthManager:
 
     @staticmethod
     def _load_users():
-        # 1. Load Local
-        local_users = {}
-        if os.path.exists(USER_DB_FILE):
-             try:
-                 with open(USER_DB_FILE, "r", encoding="utf-8") as f:
-                     local_users = json.load(f)
-             except: pass
-        
-        # 2. Sync with Cloud (Auth Sync)
-        # We try to fetch from a special 'auth_store' document in Firestore
         from data_manager import DataManager
         db = DataManager._init_firestore()
         if db:
             try:
-                # We store all auth data in ONE document for simplicity (like users.json)
-                # Collection: config, Doc: auth_users
+                # Cloud Mode: Single source of truth
                 doc = db.collection("config").document("auth_users").get()
                 if doc.exists:
-                    cloud_users = doc.to_dict()
-                    # Merge: Cloud wins? Or Local wins?
-                    # Let's say Cloud is source of truth if we are "syncing".
-                    # But if we just registered locally, we want to keep it.
-                    # Best: Merge, preferring Cloud for existing keys?
-                    # Actually, if we rebooted, local is empty. Cloud restores it.
-                    for u, data in cloud_users.items():
-                        if u not in local_users:
-                            local_users[u] = data
-                        # If in both, we trust Cloud (maybe user changed PW on another device?)
-                        # local_users[u] = data 
+                    return doc.to_dict()
+                return {}
             except Exception as e:
                 print(f"Auth Sync Error: {e}")
-                
-        return local_users
+                return {}
+        else:
+            # Local Mode
+            local_users = {}
+            if os.path.exists(USER_DB_FILE):
+                 try:
+                     with open(USER_DB_FILE, "r", encoding="utf-8") as f:
+                         local_users = json.load(f)
+                 except: pass
+            return local_users
 
     @staticmethod
     def _save_users(users):
-        # 1. Save Local
-        if not os.path.exists("user_data"):
-            os.makedirs("user_data")
-        with open(USER_DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(users, f, indent=4)
-            
-        # 2. Save Cloud (Auth Sync)
         from data_manager import DataManager
         db = DataManager._init_firestore()
         if db:
+            # Cloud Mode: Single source of truth
             try:
                 db.collection("config").document("auth_users").set(users)
             except Exception as e:
                 print(f"Auth Sync Write Error: {e}")
+        else:
+            # Local Mode
+            if not os.path.exists("user_data"):
+                os.makedirs("user_data")
+            with open(USER_DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(users, f, indent=4)
 
     @staticmethod
     def _hash_password(password):
@@ -170,8 +177,10 @@ class AuthManager:
             "xp_history": []
         }
         AuthManager._save_users(users)
-        return True
-
+        
+        # Also create initial data in DataManager
+        DataManager.save({"folders": [], "files": []}, username)
+        
         return True
 
     @staticmethod

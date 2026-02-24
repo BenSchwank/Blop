@@ -1,0 +1,193 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { MessageCircle, X, Send, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+interface Message {
+    role: 'user' | 'model';
+    content: string;
+}
+
+interface FloatingChatProps {
+    folderId: string;
+    username: string;
+    modelPreference?: string;
+}
+
+export default function FloatingChat({ folderId, username, modelPreference }: FloatingChatProps) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [messages, setMessages] = useState<Message[]>([
+        { role: 'model', content: 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?' }
+    ]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    useEffect(() => {
+        if (isOpen) scrollToBottom();
+    }, [messages, isOpen]);
+
+    const handleSend = async () => {
+        if (!input.trim() || isLoading) return;
+
+        const userMsg = input.trim();
+        setInput('');
+        const newMessages: Message[] = [...messages, { role: 'user', content: userMsg }];
+        setMessages(newMessages);
+        setIsLoading(true);
+
+        try {
+            const res = await fetch('/api/ai/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    message: userMsg,
+                    history: messages.filter(m => m.role !== 'model' || m.content !== 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?'), // Don't send the default greeting
+                    model_preference: modelPreference || null
+                }),
+            });
+
+            if (!res.ok) throw new Error('Netzwerkfehler');
+
+            const data = await res.json();
+            setMessages([...newMessages, { role: 'model', content: data.reply }]);
+        } catch (error) {
+            console.error(error);
+            setMessages([...newMessages, { role: 'model', content: 'Es gab einen Fehler bei der Verbindung zur KI. Bitte versuche es später noch einmal.' }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <motion.div
+            drag
+            dragConstraints={{ left: -1000, right: 0, top: -800, bottom: 0 }}
+            dragElastic={0.1}
+            dragMomentum={false}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="fixed bottom-6 right-6 z-[100] flex flex-col items-end"
+            style={{ touchAction: 'none' }} // Prevents scrolling while dragging on touch devices
+        >
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.8, y: 20 }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className={`bg-[#1e1e1e] border border-[#333] shadow-2xl rounded-2xl mb-4 overflow-hidden flex flex-col ${isExpanded ? 'w-[80vw] h-[80vh] max-w-4xl' : 'w-[350px] sm:w-[400px] h-[500px]'}`}
+                        onPointerDownCapture={(e) => e.stopPropagation()} // Prevent drag when interacting with chat
+                    >
+                        {/* Header */}
+                        <div className="bg-[#252526] p-4 border-b border-[#333] flex items-center justify-between shrink-0 cursor-grab active:cursor-grabbing">
+                            <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                                    <MessageCircle size={18} />
+                                </div>
+                                <h3 className="text-white font-medium">Blop KI-Assistent</h3>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => setIsExpanded(!isExpanded)}
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#333] rounded-lg transition-colors"
+                                >
+                                    {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                                </button>
+                                <button
+                                    onClick={() => setIsOpen(false)}
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-[#333] rounded-lg transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Chat History */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-[#1a1a1b]">
+                            {messages.map((msg, index) => (
+                                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div
+                                        className={`max-w-[85%] rounded-2xl p-4 ${msg.role === 'user'
+                                                ? 'bg-blue-600 text-white rounded-tr-sm'
+                                                : 'bg-[#2d2d2d] text-gray-200 rounded-tl-sm border border-[#3d3d3d]'
+                                            }`}
+                                    >
+                                        {msg.role === 'model' ? (
+                                            <div className="prose prose-invert max-w-none text-sm leading-relaxed">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm">{msg.content}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                            {isLoading && (
+                                <div className="flex justify-start">
+                                    <div className="bg-[#2d2d2d] text-gray-400 rounded-2xl rounded-tl-sm p-4 border border-[#3d3d3d] flex items-center gap-2">
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span className="text-sm">Denkt nach...</span>
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="p-4 bg-[#252526] border-t border-[#333] shrink-0">
+                            <form
+                                onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+                                className="flex items-end gap-2"
+                            >
+                                <textarea
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSend();
+                                        }
+                                    }}
+                                    placeholder="Frage etwas zum Ordner..."
+                                    className="flex-1 bg-[#1a1a1b] text-white border border-[#333] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none max-h-32 min-h-[48px] custom-scrollbar"
+                                    rows={1}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={!input.trim() || isLoading}
+                                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white p-3 rounded-xl transition-colors shrink-0 flex items-center justify-center h-[48px] w-[48px]"
+                                >
+                                    <Send size={18} className={input.trim() ? 'translate-x-0.5' : ''} />
+                                </button>
+                            </form>
+                            <div className="text-center mt-2">
+                                <span className="text-[10px] text-gray-500">Du kannst die Chat-Bubble auf dem Bildschirm verschieben.</span>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setIsOpen(!isOpen)}
+                className="bg-blue-600 hover:bg-blue-500 text-white rounded-full p-4 shadow-xl border border-blue-400/20 flex items-center justify-center"
+            >
+                {isOpen ? <X size={24} /> : <MessageCircle size={24} />}
+            </motion.button>
+        </motion.div>
+    );
+}

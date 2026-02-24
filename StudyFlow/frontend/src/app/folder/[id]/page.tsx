@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2 } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RichTextEditor from "@/components/RichTextEditor";
+import FloatingChat from "@/components/FloatingChat";
 
 interface FileData {
     id: string;
@@ -68,6 +69,109 @@ const QuizViewer = ({ questions }: { questions: any[] }) => {
     );
 };
 
+// Sub-component for interactive Repetition viewing
+const RepetitionViewer = ({ data }: { data: any }) => {
+    const [openAnswers, setOpenAnswers] = useState<Record<number, boolean>>({});
+
+    const toggleAnswer = (index: number) => {
+        setOpenAnswers(prev => ({ ...prev, [index]: !prev[index] }));
+    };
+
+    if (!data) return <p>Keine Daten für Wiederholung gefunden.</p>;
+
+    return (
+        <div className="space-y-8 pb-12 max-w-4xl mx-auto">
+            {/* Core Concepts */}
+            {data.core_concepts && data.core_concepts.length > 0 && (
+                <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-2xl">
+                    <h3 className="text-blue-400 font-bold text-lg mb-4 flex items-center gap-2">
+                        <span className="text-xl">🎯</span> Kernkonzepte (TL;DR)
+                    </h3>
+                    <ul className="space-y-2">
+                        {data.core_concepts.map((concept: string, i: number) => (
+                            <li key={i} className="flex gap-3 text-gray-200">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span>{concept}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {/* QA Pairs / Active Recall */}
+            {data.qa_pairs && data.qa_pairs.length > 0 && (
+                <div>
+                    <h3 className="text-white font-bold text-xl mb-4 flex items-center gap-2">
+                        <span className="text-xl">❓</span> Active Recall Fragen
+                    </h3>
+                    <div className="space-y-4">
+                        {data.qa_pairs.map((qa: any, i: number) => {
+                            const isOpen = openAnswers[i];
+                            return (
+                                <div key={i} className="bg-[#252526] border border-[#333] rounded-xl overflow-hidden shadow-sm">
+                                    <button
+                                        onClick={() => toggleAnswer(i)}
+                                        className="w-full text-left p-5 flex items-start justify-between gap-4 hover:bg-[#2a2a2b] transition-colors"
+                                    >
+                                        <span className="font-medium text-gray-200 text-lg leading-relaxed">{i + 1}. {qa.question}</span>
+                                        <div className={`shrink-0 p-1 rounded-full bg-[#333] text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                        </div>
+                                    </button>
+
+                                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                        <div className="p-5 pt-0 border-t border-[#333] mt-2">
+                                            <div className="prose prose-invert max-w-none text-gray-300 text-base leading-relaxed">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{qa.answer}</ReactMarkdown>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Pitfalls */}
+            {data.pitfalls && (
+                <div className="bg-orange-500/10 border border-orange-500/20 p-6 rounded-2xl">
+                    <h3 className="text-orange-400 font-bold text-lg mb-4 flex items-center gap-2">
+                        <span className="text-xl">🧠</span> Häufige Stolpersteine
+                    </h3>
+                    <div className="prose prose-invert max-w-none text-gray-200">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.pitfalls}</ReactMarkdown>
+                    </div>
+                </div>
+            )}
+
+            {/* Math / Logic */}
+            {data.math_logic && (
+                <div className="bg-purple-500/10 border border-purple-500/20 p-6 rounded-2xl">
+                    <h3 className="text-purple-400 font-bold text-lg mb-4 flex items-center gap-2">
+                        <span className="text-xl">🧮</span> Lösungsansätze & Formeln
+                    </h3>
+                    <div className="prose prose-invert max-w-none text-gray-200">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.math_logic}</ReactMarkdown>
+                    </div>
+                </div>
+            )}
+
+            {/* Context */}
+            {data.context && (
+                <div className="bg-green-500/10 border border-green-500/20 p-6 rounded-2xl">
+                    <h3 className="text-green-400 font-bold text-lg mb-4 flex items-center gap-2">
+                        <span className="text-xl">🔗</span> Kontext & Zusammenhänge
+                    </h3>
+                    <div className="prose prose-invert max-w-none text-gray-200">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.context}</ReactMarkdown>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 export default function FolderPage() {
     const router = useRouter();
@@ -119,6 +223,10 @@ export default function FolderPage() {
     const [taskHelpContent, setTaskHelpContent] = useState('');
     const [isTaskHelpLoading, setIsTaskHelpLoading] = useState(false);
     const [activeTaskTitle, setActiveTaskTitle] = useState('');
+
+    // Fullscreen Flashcard State
+    const [fullscreenCard, setFullscreenCard] = useState<{ front: string, back: string } | null>(null);
+    const [isFullscreenCardFlipped, setIsFullscreenCardFlipped] = useState(false);
 
     // Global AI Model Override State (for all AI generation overlays)
     const [aiModelPreference, setAiModelPreference] = useState<string>('');
@@ -907,16 +1015,29 @@ export default function FolderPage() {
                                         }
                                     }}
                                 >
+                                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setFullscreenCard(c);
+                                                setIsFullscreenCardFlipped(false);
+                                            }}
+                                            className="p-1.5 bg-black/40 hover:bg-black/80 rounded-lg text-gray-300 hover:text-white transition-colors backdrop-blur-sm"
+                                            title="Vollbild"
+                                        >
+                                            <Maximize2 size={16} />
+                                        </button>
+                                    </div>
                                     <div className="flip-card-inner w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#333] bg-[#252526]">
                                         {/* Front Face */}
-                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex items-center justify-center p-6 text-center text-white font-medium text-lg">
+                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex flex-col items-center justify-center p-6 pb-8 text-center text-white font-medium text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                             {c.front}
                                             <div className="absolute bottom-3 right-3 text-xs text-gray-500 flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
                                         </div>
 
                                         {/* Back Face */}
-                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex items-center justify-center p-6 text-center text-gray-300 bg-[#1e1e1e] overflow-y-auto">
-                                            <div>{c.back}</div>
+                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col items-center justify-center p-6 pb-8 text-center text-gray-300 bg-[#1e1e1e] text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                            {c.back}
                                         </div>
                                     </div>
                                 </div>
@@ -925,6 +1046,22 @@ export default function FolderPage() {
                     </div>
                 </div>
             );
+        }
+        if (file.type === 'repetition') {
+            let data = file.content;
+            if (typeof data === 'string') {
+                try {
+                    data = JSON.parse(data);
+                } catch {
+                    // Fallback to legacy markdown rendering if parsing fails (for old repetition records)
+                    return (
+                        <div className="prose prose-invert max-w-3xl mx-auto w-full">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{file.content}</ReactMarkdown>
+                        </div>
+                    );
+                }
+            }
+            return <RepetitionViewer data={data} />;
         }
         return <p className="text-center text-gray-500 mt-10">Vorschau für diesen Datentyp nicht verfügbar.</p>;
     };
@@ -1563,6 +1700,40 @@ export default function FolderPage() {
                     </div>
                 </div>
             )}
+
+            {/* Fullscreen Flashcard Modal */}
+            {fullscreenCard && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                    <button
+                        onClick={() => setFullscreenCard(null)}
+                        className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#333] rounded-full transition-colors z-10"
+                    >
+                        <X size={24} />
+                    </button>
+
+                    <div className="w-full max-w-4xl h-[70vh] [perspective:1500px] cursor-pointer" onClick={() => setIsFullscreenCardFlipped(!isFullscreenCardFlipped)}>
+                        <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#444] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                            {/* Front Face */}
+                            <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#252526] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                {fullscreenCard.front}
+                                <div className="absolute bottom-6 text-sm text-gray-500 flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
+                            </div>
+
+                            {/* Back Face */}
+                            <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#1e1e1e] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                {fullscreenCard.back}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Global Chat Bubble */}
+            <FloatingChat
+                folderId={folderId}
+                username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
+                modelPreference={aiModelPreference}
+            />
         </div >
     );
 }
