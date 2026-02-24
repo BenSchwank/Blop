@@ -325,6 +325,7 @@ class SummaryRequest(BaseModel):
     folder_id: str
     detail_level: str = "Normal"
     model_preference: str = None
+    learning_mode: str = "normal"
 
 class ElaborationRequest(BaseModel):
     username: str
@@ -338,6 +339,7 @@ class RepetitionRequest(BaseModel):
     folder_id: str
     custom_rules: str = ""
     model_preference: str = None
+    learning_mode: str = "normal"
 
 class PlanRequest(BaseModel):
     username: str
@@ -346,6 +348,7 @@ class PlanRequest(BaseModel):
     hours_per_day: float = 2.0  # Default 2 hours per day
     active_days: list[int] = None # List of active weekdays (0=Mo, 6=Su). If None, all days are active.
     model_preference: str = None
+    learning_mode: str = "normal"
 
 class TaskHelpRequest(BaseModel):
     username: str
@@ -370,7 +373,7 @@ def create_study_plan(request: PlanRequest):
             raise HTTPException(status_code=400, detail=error_msg)
 
         # Generate Plan
-        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day, model_preference=request.model_preference, active_days=request.active_days)
+        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day, model_preference=request.model_preference, active_days=request.active_days, learning_mode=request.learning_mode)
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)
@@ -509,7 +512,7 @@ def create_summary(request: SummaryRequest):
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        summary = AIService.generate_summary(context, detail_level=request.detail_level, model_preference=request.model_preference)
+        summary = AIService.generate_summary(context, detail_level=request.detail_level, model_preference=request.model_preference, learning_mode=request.learning_mode)
         DataManager.save_generated_summary(summary, request.username, request.folder_id)
         return {"status": "success", "summary": summary}
     except HTTPException:
@@ -555,7 +558,7 @@ def create_repetition(request: RepetitionRequest):
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
-        repetition_text = AIService.generate_repetition(context, custom_rules=request.custom_rules, model_preference=request.model_preference)
+        repetition_text = AIService.generate_repetition(context, custom_rules=request.custom_rules, model_preference=request.model_preference, learning_mode=request.learning_mode)
         
         DataManager.save_file_metadata({
             "id": f"repetition_{int(datetime.now().timestamp())}",

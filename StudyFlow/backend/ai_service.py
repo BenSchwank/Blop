@@ -59,14 +59,27 @@ SAFETY_SETTINGS = [
 
 class AIService:
     @staticmethod
-    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None) -> str:
+    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal") -> str:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference))
 
+            # --- Learning Mode Preamble ---
+            if learning_mode == "exercise":
+                mode_preamble = """
+DU BIST IM KONZEPTLERNEN-MODUS.
+Das hochgeladene Material enthält Übungsaufgaben, Prüfungen oder Arbeitsblätter.
+DEINE AUFGABE: Erkläre NICHT die Lösungen der Aufgaben direkt.
+Erstelle stattdessen eine Zusammenfassung der KONZEPTE, METHODEN und STRATEGIEN
+die ein Schüler beherrschen muss, um diese Art von Aufgaben selbst lösen zu können.
+Denke: "Was muss ich WISSEN und KÖNNEN, um solche Aufgaben zu meistern?"
+"""
+            else:
+                mode_preamble = ""
+
             prompt = f"""
 Du bist ein erfahrener Tutor und Lernassistent. Deine Aufgabe ist es, eine UMFASSENDE und DETAILLIERTE Zusammenfassung des gesamten Lernmaterials auf Deutsch zu erstellen.
-
+{mode_preamble}
 Detailgrad: {detail_level}
 
 WICHTIGE ANFORDERUNGEN:
@@ -214,7 +227,7 @@ Erstelle die Karteikarten für das folgende Material:
             raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None) -> List[Dict[str, Any]]:
+    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal") -> List[Dict[str, Any]]:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
@@ -226,9 +239,23 @@ Erstelle die Karteikarten für das folgende Material:
             if active_days is not None and len(active_days) > 0:
                 active_days_str = ", ".join([weekday_map.get(d, "") for d in active_days])
 
+            # --- Learning Mode Preamble ---
+            if learning_mode == "exercise":
+                mode_preamble = """
+KONZEPTLERNEN-MODUS AKTIV:
+Das hochgeladene Material enthält Übungsaufgaben, Prüfungsaufgaben oder Arbeitsblätter.
+Erstelle KEINEN Plan der die Aufgaben direkt löst oder abarbeitet.
+Erstelle stattdessen einen LERNPLAN der Schritt für Schritt die KONZEPTE, METHODEN und LÖSUNGSSTRATEGIEN
+vermittelt, die ein Schüler benötigt, um diese Art von Aufgaben eigenständig zu lösen.
+Bei jedem Tag: "Was muss der Schüler VERSTEHEN und ÜBEN, damit er diese Aufgaben selbst meistern kann?"
+Die Aufgaben im Plan sollen das ERLERNEN der Methoden beinhalten, z.B. "Lerne die Methode X anhand von Beispielen aus dem Material".
+"""
+            else:
+                mode_preamble = ""
+
             prompt = f"""
 Du bist ein persönlicher Lerncoach und erstellst einen DETAILLIERTEN, UMSETZBAREN Lernplan.
-
+{mode_preamble}
 RAHMENDATEN:
 - Lernzeitraum: {duration_days} Tage
 - Lernzeit pro Tag: {hours_per_day} Stunden
@@ -408,17 +435,27 @@ Hier ist das Quellenmaterial:
             raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
 
     @staticmethod
-    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None) -> Any:
+    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None, learning_mode: str = "normal") -> Any:
         """Generates targeted spaced-repetition / review material."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+
+            # --- Learning Mode Preamble ---
+            if learning_mode == "exercise":
+                mode_note = """KONZEPTLERNEN-MODUS:
+Das Material enthält Übungsaufgaben. Erstelle die Wiederholung zu den KONZEPTEN und METHODEN
+die man braucht um diese Aufgaben zu lösen – NICHT zu den Aufgaben selbst.
+Die 'Active Recall Fragen' sollen das Verständnis der Lösungsmethoden prüfen, nicht die Lösungen abfragen."""
+            else:
+                mode_note = custom_rules if custom_rules else "Extrahiere die wichtigsten Konzepte, die ein Schüler typischerweise vor der Prüfung vergessen könnte."
 
             prompt = f"""
 Du bist ein Lernexperte (wie Anki oder Mochi). Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.
 Der Fokus liegt auf aktivem Abruf (Active Recall) und dem Schließen von Wissenslücken.
 
-{"Spezifische Anweisungen/Schwerpunkte des Nutzers:" if custom_rules else "Genereller Fokus:"}
-{custom_rules if custom_rules else "Extrahiere die wichtigsten Konzepte, die ein Schüler typischerweise vor der Prüfung vergessen könnte."}
+{"Spezifische Anweisungen/Schwerpunkte des Nutzers:" if custom_rules and learning_mode != "exercise" else "Fokus:"}
+{mode_note}
+
 
 Struktur der Wiederholung:
 1. 🎯 **Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse in je einem Satz.

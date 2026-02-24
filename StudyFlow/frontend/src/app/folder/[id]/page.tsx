@@ -218,6 +218,9 @@ export default function FolderPage() {
     const [isRepetitionConfigOpen, setIsRepetitionConfigOpen] = useState(false);
     const [repetitionRules, setRepetitionRules] = useState('');
 
+    // Learning Mode (shared across plan/summary/repetition modals)
+    const [learningMode, setLearningMode] = useState<'normal' | 'exercise'>('normal');
+
     // Task Help Overlay State
     const [isTaskHelpOpen, setIsTaskHelpOpen] = useState(false);
     const [taskHelpContent, setTaskHelpContent] = useState('');
@@ -506,7 +509,8 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     detail_level: summaryDetailLevel,
-                    model_preference: aiModelPreference || undefined
+                    model_preference: aiModelPreference || undefined,
+                    learning_mode: learningMode
                 })
             });
 
@@ -603,7 +607,8 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     custom_rules: repetitionRules,
-                    model_preference: aiModelPreference || undefined
+                    model_preference: aiModelPreference || undefined,
+                    learning_mode: learningMode
                 })
             });
 
@@ -663,7 +668,8 @@ export default function FolderPage() {
                     duration_days: days,
                     hours_per_day: planHoursPerDay,
                     active_days: planActiveDays.length < 7 ? planActiveDays : undefined,
-                    model_preference: aiModelPreference || undefined
+                    model_preference: aiModelPreference || undefined,
+                    learning_mode: learningMode
                 })
             });
 
@@ -1266,6 +1272,29 @@ export default function FolderPage() {
 
                         {/* Body */}
                         <div className="p-5 space-y-5">
+                            {/* Learning Mode Toggle */}
+                            <div>
+                                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                                <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                    <button
+                                        onClick={() => setLearningMode('normal')}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <span>📝</span> Normaler Modus
+                                    </button>
+                                    <button
+                                        onClick={() => setLearningMode('exercise')}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                                        title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                    >
+                                        <span>🎓</span> Konzepte lernen
+                                    </button>
+                                </div>
+                                {learningMode === 'exercise' && (
+                                    <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1"><span>💡</span> AI erklärt die Konzepte dahinter — nicht die Lösungen</p>
+                                )}
+                            </div>
+
                             {/* Duration Mode Toggle */}
                             <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
                                 <button
@@ -1442,6 +1471,29 @@ export default function FolderPage() {
 
                         {/* Body */}
                         <div className="p-5 space-y-5">
+                            {/* Learning Mode Toggle */}
+                            <div>
+                                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                                <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                    <button
+                                        onClick={() => setLearningMode('normal')}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <span>📝</span> Normaler Modus
+                                    </button>
+                                    <button
+                                        onClick={() => setLearningMode('exercise')}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                                        title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                    >
+                                        <span>🎓</span> Konzepte lernen
+                                    </button>
+                                </div>
+                                {learningMode === 'exercise' && (
+                                    <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> AI erklärt die Konzepte dahinter — nicht die Lösungen</p>
+                                )}
+                            </div>
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-3">Detailgrad wählen</label>
                                 <div className="grid grid-cols-1 gap-3">
@@ -1602,14 +1654,38 @@ export default function FolderPage() {
                         </div>
 
                         {/* Body */}
-                        <div className="p-5">
+                        <div className="p-5 space-y-4">
+                            {/* Learning Mode Toggle */}
+                            <div>
+                                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                                <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                    <button
+                                        onClick={() => setLearningMode('normal')}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <span>📝</span> Normaler Modus
+                                    </button>
+                                    <button
+                                        onClick={() => setLearningMode('exercise')}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                                        title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                    >
+                                        <span>🎓</span> Konzepte lernen
+                                    </button>
+                                </div>
+                                {learningMode === 'exercise' && (
+                                    <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> Wiederholung zu den Konzepten — nicht zu den Aufgaben selbst</p>
+                                )}
+                            </div>
+
                             <label className="block text-sm font-medium text-gray-300 mb-2">Schwerpunkte setzen (Optional)</label>
                             <textarea
                                 value={repetitionRules}
                                 onChange={(e) => setRepetitionRules(e.target.value)}
                                 placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
-                                className="w-full h-32 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
+                                className="w-full h-28 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
                             />
+
                             <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">
                                 <HelpCircle size={14} /> Tipp: Nutze Active Recall, um dir Wissen nachhaltig einzuprägen.
                             </p>
