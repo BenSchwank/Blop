@@ -90,6 +90,10 @@ qt_add_executable(Blop
     UIStyles.h
     uiprofile.h
 
+    # Intro Animation
+    introscreen.h
+    introscreen.cpp
+
     # Image-Provider
     BlopAsyncImageProvider.h
     BlopAsyncImageProvider.cpp

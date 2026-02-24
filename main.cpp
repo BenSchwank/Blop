@@ -3,17 +3,16 @@
 #include <QStandardPaths>
 #include <QUrl>
 
-
 // --- ANDROID WEBVIEW INCLUDE ---
 // Wichtig: Das Include muss bedingt sein, da es auf Desktop oft fehlt
 #ifdef Q_OS_ANDROID
 #include <QtWebView/QtWebView>
 #endif
 
+#include "introscreen.h"
 #include "mainwindow.h"
 #include <QIcon>
 #include <QPixmap>
-#include <QSplashScreen>
 #include <QTimer>
 
 int main(int argc, char *argv[]) {
@@ -44,30 +43,29 @@ int main(int argc, char *argv[]) {
   // App Logo als Fenster Icon setzen
   a.setWindowIcon(QIcon(":/assets/logo.jpg"));
 
-  // --- LADEBILDSCHIRM (Splash Screen) ---
-  QPixmap splashPix(":/assets/logo.jpg");
-  // Skaliere das Logo für den Splash-Screen auf eine angenehme Größe
-  splashPix =
-      splashPix.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-  QSplashScreen splash(splashPix, Qt::WindowStaysOnTopHint);
-  splash.show();
-  // Um sicherzugehen, dass das Bild auch beim Start ordentlich gerendert wird
-  a.processEvents();
+  // --- LADEBILDSCHIRM (Custom Intro Animation) ---
+  IntroScreen *intro = new IntroScreen();
+  intro->show();
+  intro->startAnimation();
 
   // --- HAUPTFENSTER STARTEN ---
-  MainWindow w;
+  // Create Main Window initially hidden
+  MainWindow *w = new MainWindow();
+
+  // Connect Intro Finish to Main Window show
+  QObject::connect(intro, &IntroScreen::introFinished, [w, intro]() {
+    w->show();
+    intro->deleteLater();
+  });
 
 #ifdef Q_OS_ANDROID
   // Auf Android sieht Vollbild besser aus
-  w.showFullScreen();
+  w->showFullScreen();
 #else
   // Auf Desktop starten wir maximiert
-  w.showMaximized();
+  w->showMaximized();
 #endif
 
-  // Simulierter zusätzlicher Lade-Delay (für den sanften Effekt), entferne
-  // falls nicht gewünscht
-  QTimer::singleShot(1000, &splash, SLOT(close()));
-
+  // Starten des normalen Eventloops
   return a.exec();
 }
