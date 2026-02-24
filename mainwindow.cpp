@@ -101,7 +101,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.9.0";
+static const char *BLOP_VERSION = "3.9.1";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -468,6 +468,12 @@ MainWindow::MainWindow(QWidget *parent)
     }
     if (btnStripMenu)
       btnStripMenu->hide();
+    if (m_isSidebarOpen)
+      onToggleSidebar();
+  } else {
+    // Starting logged in: Ensure we start in Notes mode and sidebar is hidden
+    if (m_modeSelector)
+      m_modeSelector->setCurrentIndex(0);
     if (m_isSidebarOpen)
       onToggleSidebar();
   }
@@ -1337,13 +1343,11 @@ void MainWindow::setupWebBrowser() {
   view->setStyleSheet("background: white;");
   layout->addWidget(view);
 
-  // --- SSO Bridge: Read localStorage after every page load ---
-  // When user logs into Blop Study in the webview, Qt reads the
-  // localStorage username and updates the sidebar user section live.
-  connect(view, &QWebEngineView::loadFinished, this, [this, view](bool ok) {
-    if (!ok)
-      return;
-    // Read username from Blop Study's localStorage
+  // --- SSO Bridge: Poll localStorage to support SPA Routing ---
+  // In Next.js, navigating to Dashboard after login doesn't trigger
+  // loadFinished, so we must poll localStorage to detect login state changes.
+  QTimer *ssoTimer = new QTimer(m_studyContainer);
+  connect(ssoTimer, &QTimer::timeout, this, [this, view]() {
     view->page()->runJavaScript(
         R"js(
           (function() {
@@ -1353,12 +1357,16 @@ void MainWindow::setupWebBrowser() {
           })();
         )js",
         [this](const QVariant &result) {
-          QString username = result.toString().trimmed();
-          if (!username.isEmpty()) {
-            updateSidebarUser(username);
+          QString u = result.toString().trimmed();
+          QString currentUser =
+              QSettings("Blop", "BlopApp").value("username").toString();
+          if (u != currentUser) {
+            // Dies triggert sowohl Login (u != "") als auch Logout (u == "")
+            updateSidebarUser(u);
           }
         });
   });
+  ssoTimer->start(1000); // Check every second
 
 #else
   QLabel *lblInfo = new QLabel(
@@ -1385,16 +1393,29 @@ void MainWindow::updateSidebarUser(const QString &username) {
   // Update username text
   if (m_lblSidebarUser)
     m_lblSidebarUser->setText(username.isEmpty() ? "Gast" : username);
+
   // Persist for next app launch
   QSettings("Blop", "BlopApp").setValue("username", username);
 
   // --- Auth Check Unlock ---
+  bool wasLocked = (m_modeSelector && m_modeSelector->isHidden());
+
   if (!username.isEmpty()) {
     // Unlock UI
-    if (m_modeSelector)
+    if (m_modeSelector) {
       m_modeSelector->show();
+      if (wasLocked) {
+        // Nach dem Login automatisch zu Blop Notes wecheln:
+        m_modeSelector->setCurrentIndex(0);
+      }
+    }
     if (btnStripMenu)
       btnStripMenu->show();
+
+    // Nach dem Login soll die Sidebar nicht sichtbar sein
+    if (wasLocked && m_isSidebarOpen) {
+      onToggleSidebar();
+    }
   } else {
     // Lock UI
     if (m_modeSelector) {
