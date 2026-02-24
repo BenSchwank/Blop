@@ -1135,7 +1135,7 @@ void MainWindow::setupWebBrowser() {
             Item {
                 WebView {
                     anchors.fill: parent
-                    url: "https://blop-study.streamlit.app/"
+                    url: "https://blop-six.vercel.app"
                 }
             }
         )");
@@ -1154,7 +1154,7 @@ void MainWindow::setupWebBrowser() {
 #else
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
-  view->load(QUrl("https://blop-study.streamlit.app/"));
+  view->load(QUrl("https://blop-six.vercel.app"));
   view->setStyleSheet("background: white;");
   layout->addWidget(view);
 #else
