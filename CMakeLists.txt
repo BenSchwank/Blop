@@ -95,7 +95,13 @@ qt_add_executable(Blop
     BlopAsyncImageProvider.cpp
     BlopImageResponse.h
     BlopImageResponse.cpp
+    resources.qrc
 )
+
+# App-Icon für Windows hinzufügen
+if(WIN32)
+    target_sources(Blop PRIVATE app_icon.rc)
+endif()
 
 # QML Modul Definition (Nur für Android relevant)
 if(ANDROID)
