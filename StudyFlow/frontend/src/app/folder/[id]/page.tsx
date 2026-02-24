@@ -221,6 +221,14 @@ export default function FolderPage() {
     // Learning Mode (shared across plan/summary/repetition modals)
     const [learningMode, setLearningMode] = useState<'normal' | 'exercise'>('normal');
 
+    // File context menu state
+    const [openMenuFileId, setOpenMenuFileId] = useState<string | null>(null);
+
+    // Subfolder state
+    const [subfolders, setSubfolders] = useState<{ id: string; name: string; created_at: string }[]>([]);
+    const [isCreateSubfolderOpen, setIsCreateSubfolderOpen] = useState(false);
+    const [newSubfolderName, setNewSubfolderName] = useState('');
+
     // Task Help Overlay State
     const [isTaskHelpOpen, setIsTaskHelpOpen] = useState(false);
     const [taskHelpContent, setTaskHelpContent] = useState('');
@@ -245,11 +253,12 @@ export default function FolderPage() {
             const username = localStorage.getItem("username");
             if (!username) return;
 
-            const res = await fetch(`${API_BASE}/files/${folderId}?username=${username}`);
-            if (res.ok) {
-                const data = await res.json();
-                setFiles(data);
-            }
+            const [filesRes, subfoldersRes] = await Promise.all([
+                fetch(`${API_BASE}/files/${folderId}?username=${username}`),
+                fetch(`${API_BASE}/folders/${folderId}/subfolders?username=${username}`)
+            ]);
+            if (filesRes.ok) setFiles(await filesRes.json());
+            if (subfoldersRes.ok) setSubfolders(await subfoldersRes.json());
         } catch (error) {
             console.error("Failed to fetch files:", error);
         } finally {
@@ -1135,681 +1144,819 @@ export default function FolderPage() {
                     <div className="flex justify-center py-20">
                         <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
                     </div>
-                ) : files.length === 0 ? (
-                    <div className="bg-[#252526] border border-[#333] rounded-2xl p-16 text-center border-dashed">
-                        {/* Empty State */}
-                        <div className="flex justify-center mb-6">
-                            <div className="w-16 h-16 bg-[#1e1e1e] rounded-2xl flex items-center justify-center border border-[#333]">
-                                <FileText size={24} className="text-gray-500" />
-                            </div>
-                        </div>
-                        <h3 className="text-xl font-medium text-white mb-2">Dieser Ordner ist noch leer</h3>
-                        <p className="text-base text-gray-400 mb-8">
-                            Lade Skripte (PDF) hoch oder füge YouTube-Videos hinzu,<br />damit die AI einen Lernplan erstellen kann.
-                        </p>
-                        <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
-                    </div>
                 ) : (
-                    <div className="grid grid-cols-1 gap-3">
-                        {files.map((file) => (
-                            <div
-                                key={file.id}
-                                onClick={() => setSelectedFile(file)}
-                                className="bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer"
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
-                                        file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                            file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                                file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                                    file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                        'bg-[#333] text-[#5E5CE6]'
-                                        }`}>
-                                        {getFileIcon(file.type)}
-                                    </div>
-                                    <div>
-                                        <h4 className="text-sm font-medium text-white">{file.name}</h4>
-                                        <p className="text-xs text-gray-500 capitalize">{file.created_at} • {file.type}</p>
-                                    </div>
+                    <div className="space-y-6">
+                        {/* Subfolders section */}
+                        {(subfolders.length > 0 || true) && (
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                                        Unterordner
+                                    </h3>
+                                    <button
+                                        onClick={() => setIsCreateSubfolderOpen(true)}
+                                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#252526] hover:bg-[#333] px-3 py-1.5 rounded-lg border border-[#333] transition-colors"
+                                    >
+                                        <Plus size={13} /> Erstellen
+                                    </button>
                                 </div>
-                                <button className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#333] opacity-0 group-hover:opacity-100 transition-all">
-                                    <MoreVertical size={18} />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Upload Modal */}
-            {isUploadOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
-                            <button onClick={() => setIsUploadOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
-                        </div>
-                        <div className="flex gap-2 p-1 bg-[#252526] rounded-xl mb-6">
-                            <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
-                            <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#333] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
-                            <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#333] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
-                            </button>
-                        </div>
-                        {uploadType === 'pdf' ? (
-                            <form onSubmit={handleFileUpload} className="space-y-4">
-                                <div className="border-2 border-dashed border-[#333] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
-                                    <input type="file" accept=".pdf" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                    <div className="flex flex-col items-center gap-2 text-gray-400"><Upload size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken zum Auswählen"}</span></div>
-                                </div>
-                                <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
-                            </form>
-                        ) : uploadType === 'youtube' ? (
-                            <form onSubmit={handleYoutubeImport} className="space-y-4">
-                                <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
-                                <button type="submit" disabled={!youtubeUrl || isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Importieren</button>
-                            </form>
-                        ) : (
-                            <div className="space-y-6">
-                                <div className="flex flex-col items-center justify-center p-8 bg-[#252526] border border-[#333] rounded-xl">
-                                    {!audioBlob ? (
-                                        <>
+                                {subfolders.length === 0 ? (
+                                    <p className="text-xs text-gray-600 italic">Noch keine Unterordner</p>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {subfolders.map((sf) => (
                                             <button
-                                                onClick={isRecording ? stopRecording : startRecording}
-                                                className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#333] text-gray-400 hover:bg-[#444] hover:text-white'}`}
+                                                key={sf.id}
+                                                onClick={() => router.push(`/folder/${sf.id}`)}
+                                                className="flex items-center gap-2 bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/40 p-3 rounded-xl text-left transition-all group"
                                             >
-                                                {isRecording ? <div className="w-6 h-6 bg-red-500 rounded-sm"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>}
+                                                <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                                                </div>
+                                                <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{sf.name}</span>
                                             </button>
-                                            <div className="text-xl font-mono text-white tracking-widest">
-                                                {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
-                                            </div>
-                                            <p className="text-sm text-gray-500 mt-2">{isRecording ? "Aufnahme läuft..." : "Klicke das Mikrofon, um zu starten"}</p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="w-16 h-16 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center mb-4 border border-blue-500/30">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" /></svg>
-                                            </div>
-                                            <h4 className="text-white font-medium mb-1">Sprachmemo aufgezeichnet</h4>
-                                            <p className="text-sm text-gray-400 mb-6">Dauer: {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</p>
-                                            <div className="flex gap-3 w-full">
-                                                <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#333] hover:bg-[#333] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
-                                                <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2">
-                                                    {isProcessing ? <Loader2 size={16} className="animate-spin" /> : "Verarbeiten"}
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Separator if both exist */}
+                        {subfolders.length > 0 && files.length > 0 && (
+                            <div className="h-px bg-[#333]" />
+                        )}
+
+                        {/* Files */}
+                        {files.length === 0 ? (
+                            <div className="bg-[#252526] border border-[#333] rounded-2xl p-16 text-center border-dashed">
+                                <div className="flex justify-center mb-6">
+                                    <div className="w-16 h-16 bg-[#1e1e1e] rounded-2xl flex items-center justify-center border border-[#333]">
+                                        <FileText size={24} className="text-gray-500" />
+                                    </div>
                                 </div>
+                                <h3 className="text-xl font-medium text-white mb-2">Dieser Ordner ist noch leer</h3>
+                                <p className="text-base text-gray-400 mb-8">
+                                    Lade Skripte (PDF) hoch oder füge YouTube-Videos hinzu,<br />damit die AI einen Lernplan erstellen kann.
+                                </p>
+                                <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-3">
+                                {files.map((file) => (
+                                    <div
+                                        key={file.id}
+                                        onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
+                                        className="bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative"
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                                                file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
+                                                    file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                                                        file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                                            file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
+                                                                'bg-[#333] text-[#5E5CE6]'
+                                                }`}>
+                                                {getFileIcon(file.type)}
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-medium text-white">{file.name}</h4>
+                                                <p className="text-xs text-gray-500 capitalize">{file.created_at} • {file.type}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* 3-dot button + dropdown */}
+                                        <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
+                                                className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#333] opacity-0 group-hover:opacity-100 transition-all"
+                                            >
+                                                <MoreVertical size={18} />
+                                            </button>
+
+                                            {openMenuFileId === file.id && (
+                                                <div className="absolute right-0 top-full mt-1 w-40 bg-[#1e1e1e] border border-[#333] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                                                    <button
+                                                        onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
+                                                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#2d2d2d] hover:text-white transition-colors"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                                        Öffnen
+                                                    </button>
+                                                    <div className="h-px bg-[#333]" />
+                                                    <button
+                                                        onClick={async () => {
+                                                            setOpenMenuFileId(null);
+                                                            if (!confirm(`"${file.name}" wirklich löschen?`)) return;
+                                                            const username = localStorage.getItem('username');
+                                                            const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
+                                                            if (res.ok) fetchFiles();
+                                                            else alert('Fehler beim Löschen.');
+                                                        }}
+                                                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                                                        Löschen
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* File Viewer Modal */}
-            {renderViewer()}
-
-            {/* Plan Config Modal */}
-            {isPlanConfigOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                        {/* Header */}
-                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-                                    <BrainCircuit size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-semibold text-white">Lernplan erstellen</h3>
-                                    <p className="text-xs text-gray-400">Konfiguriere deinen persönlichen Lernplan</p>
-                                </div>
+                {/* Upload Modal */}
+                {isUploadOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
+                                <button onClick={() => setIsUploadOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
                             </div>
-                            <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
-                                <X size={18} />
-                            </button>
+                            <div className="flex gap-2 p-1 bg-[#252526] rounded-xl mb-6">
+                                <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
+                                <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#333] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
+                                <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#333] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
+                                </button>
+                            </div>
+                            {uploadType === 'pdf' ? (
+                                <form onSubmit={handleFileUpload} className="space-y-4">
+                                    <div className="border-2 border-dashed border-[#333] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
+                                        <input type="file" accept=".pdf" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <div className="flex flex-col items-center gap-2 text-gray-400"><Upload size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken zum Auswählen"}</span></div>
+                                    </div>
+                                    <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
+                                </form>
+                            ) : uploadType === 'youtube' ? (
+                                <form onSubmit={handleYoutubeImport} className="space-y-4">
+                                    <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
+                                    <button type="submit" disabled={!youtubeUrl || isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Importieren</button>
+                                </form>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="flex flex-col items-center justify-center p-8 bg-[#252526] border border-[#333] rounded-xl">
+                                        {!audioBlob ? (
+                                            <>
+                                                <button
+                                                    onClick={isRecording ? stopRecording : startRecording}
+                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#333] text-gray-400 hover:bg-[#444] hover:text-white'}`}
+                                                >
+                                                    {isRecording ? <div className="w-6 h-6 bg-red-500 rounded-sm"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>}
+                                                </button>
+                                                <div className="text-xl font-mono text-white tracking-widest">
+                                                    {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
+                                                </div>
+                                                <p className="text-sm text-gray-500 mt-2">{isRecording ? "Aufnahme läuft..." : "Klicke das Mikrofon, um zu starten"}</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="w-16 h-16 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center mb-4 border border-blue-500/30">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" /></svg>
+                                                </div>
+                                                <h4 className="text-white font-medium mb-1">Sprachmemo aufgezeichnet</h4>
+                                                <p className="text-sm text-gray-400 mb-6">Dauer: {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</p>
+                                                <div className="flex gap-3 w-full">
+                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#333] hover:bg-[#333] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
+                                                    <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2">
+                                                        {isProcessing ? <Loader2 size={16} className="animate-spin" /> : "Verarbeiten"}
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
+                    </div>
+                )}
 
-                        {/* Body */}
-                        <div className="p-5 space-y-5">
-                            {/* Learning Mode Toggle */}
-                            <div>
-                                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                {/* File Viewer Modal */}
+                {renderViewer()}
+
+                {/* Plan Config Modal */}
+                {isPlanConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            {/* Header */}
+                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+                                        <BrainCircuit size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Lernplan erstellen</h3>
+                                        <p className="text-xs text-gray-400">Konfiguriere deinen persönlichen Lernplan</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-5 space-y-5 overflow-y-auto max-h-[70vh]">
+                                {/* Learning Mode Toggle */}
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                                    <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                        <button
+                                            onClick={() => setLearningMode('normal')}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        >
+                                            <span>📝</span> Normaler Modus
+                                        </button>
+                                        <button
+                                            onClick={() => setLearningMode('exercise')}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                                            title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                        >
+                                            <span>🎓</span> Konzepte lernen
+                                        </button>
+                                    </div>
+                                    {learningMode === 'exercise' && (
+                                        <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1"><span>💡</span> AI erklärt die Konzepte dahinter — nicht die Lösungen</p>
+                                    )}
+                                </div>
+
+                                {/* Duration Mode Toggle */}
                                 <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
                                     <button
-                                        onClick={() => setLearningMode('normal')}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        onClick={() => setPlanUseDate(false)}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
                                     >
-                                        <span>📝</span> Normaler Modus
+                                        <Clock size={14} /> Anzahl Tage
                                     </button>
                                     <button
-                                        onClick={() => setLearningMode('exercise')}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                                        title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                        onClick={() => setPlanUseDate(true)}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
                                     >
-                                        <span>🎓</span> Konzepte lernen
+                                        <Calendar size={14} /> Enddatum
                                     </button>
                                 </div>
-                                {learningMode === 'exercise' && (
-                                    <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1"><span>💡</span> AI erklärt die Konzepte dahinter — nicht die Lösungen</p>
+
+                                {/* Days OR End Date */}
+                                {!planUseDate ? (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Anzahl Lerntage
+                                            <span className="ml-2 text-[#5E5CE6] font-bold">{planDays} Tage</span>
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min={1} max={60} step={1}
+                                            value={planDays}
+                                            onChange={e => setPlanDays(Number(e.target.value))}
+                                            className="w-full accent-[#5E5CE6]"
+                                        />
+                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                            <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum</label>
+                                        <input
+                                            type="date"
+                                            value={planEndDate}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            onChange={e => setPlanEndDate(e.target.value)}
+                                            className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
+                                        />
+                                        {planEndDate && (
+                                            <p className="text-xs text-gray-400 mt-1.5">
+                                                ≈ {Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Lerntage bis zur Prüfung
+                                            </p>
+                                        )}
+                                    </div>
                                 )}
-                            </div>
 
-                            {/* Duration Mode Toggle */}
-                            <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
-                                <button
-                                    onClick={() => setPlanUseDate(false)}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    <Clock size={14} /> Anzahl Tage
-                                </button>
-                                <button
-                                    onClick={() => setPlanUseDate(true)}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    <Calendar size={14} /> Enddatum
-                                </button>
-                            </div>
-
-                            {/* Days OR End Date */}
-                            {!planUseDate ? (
+                                {/* Hours per Day */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                                        Anzahl Lerntage
-                                        <span className="ml-2 text-[#5E5CE6] font-bold">{planDays} Tage</span>
+                                        Lernzeit pro Tag
+                                        <span className="ml-2 text-[#5E5CE6] font-bold">{planHoursPerDay} Std.</span>
                                     </label>
                                     <input
                                         type="range"
-                                        min={1} max={60} step={1}
-                                        value={planDays}
-                                        onChange={e => setPlanDays(Number(e.target.value))}
+                                        min={0.5} max={8} step={0.5}
+                                        value={planHoursPerDay}
+                                        onChange={e => setPlanHoursPerDay(Number(e.target.value))}
                                         className="w-full accent-[#5E5CE6]"
                                     />
                                     <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                        <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
+                                        <span>30 Min</span><span>4 Std</span><span>8 Std</span>
                                     </div>
                                 </div>
-                            ) : (
+
+                                {/* Active Study Days */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum</label>
-                                    <input
-                                        type="date"
-                                        value={planEndDate}
-                                        min={new Date().toISOString().split('T')[0]}
-                                        onChange={e => setPlanEndDate(e.target.value)}
-                                        className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
-                                    />
-                                    {planEndDate && (
-                                        <p className="text-xs text-gray-400 mt-1.5">
-                                            ≈ {Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Lerntage bis zur Prüfung
-                                        </p>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Aktive Lerntage</label>
+                                    <div className="flex justify-between gap-1 sm:gap-2">
+                                        {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((day, idx) => {
+                                            const isActive = planActiveDays.includes(idx);
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    onClick={() => {
+                                                        setPlanActiveDays(prev =>
+                                                            isActive
+                                                                ? prev.filter(d => d !== idx)
+                                                                : [...prev, idx].sort()
+                                                        );
+                                                    }}
+                                                    className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${isActive
+                                                        ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
+                                                        : 'bg-[#252526] border border-[#444] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
+                                                        }`}
+                                                >
+                                                    {day}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    {planActiveDays.length === 0 && (
+                                        <p className="text-red-400 text-xs mt-2">Bitte mindestens einen Lerntag auswählen</p>
                                     )}
                                 </div>
-                            )}
 
-                            {/* Hours per Day */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">
-                                    Lernzeit pro Tag
-                                    <span className="ml-2 text-[#5E5CE6] font-bold">{planHoursPerDay} Std.</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min={0.5} max={8} step={0.5}
-                                    value={planHoursPerDay}
-                                    onChange={e => setPlanHoursPerDay(Number(e.target.value))}
-                                    className="w-full accent-[#5E5CE6]"
-                                />
-                                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                    <span>30 Min</span><span>4 Std</span><span>8 Std</span>
+                                {/* Summary */}
+                                <div className="bg-[#252526] rounded-xl p-4 border border-[#333]">
+                                    <div className="flex items-center gap-2 text-sm text-gray-300">
+                                        <BookOpen size={14} className="text-purple-400" />
+                                        <span>
+                                            {planUseDate && planEndDate
+                                                ? `${Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Tage`
+                                                : `${planDays} Tage`
+                                            } × {planHoursPerDay} Std.
+                                            = <strong className="text-white">
+                                                {((planUseDate && planEndDate
+                                                    ? Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))
+                                                    : planDays) * planHoursPerDay).toFixed(1)} Std. gesamt
+                                            </strong>
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-
-                            {/* Active Study Days */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Aktive Lerntage</label>
-                                <div className="flex justify-between gap-1 sm:gap-2">
-                                    {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((day, idx) => {
-                                        const isActive = planActiveDays.includes(idx);
-                                        return (
-                                            <button
-                                                key={idx}
-                                                onClick={() => {
-                                                    setPlanActiveDays(prev =>
-                                                        isActive
-                                                            ? prev.filter(d => d !== idx)
-                                                            : [...prev, idx].sort()
-                                                    );
-                                                }}
-                                                className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${isActive
-                                                    ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
-                                                    : 'bg-[#252526] border border-[#444] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
-                                                    }`}
-                                            >
-                                                {day}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                {planActiveDays.length === 0 && (
-                                    <p className="text-red-400 text-xs mt-2">Bitte mindestens einen Lerntag auswählen</p>
-                                )}
-                            </div>
-
-                            {/* Summary */}
-                            <div className="bg-[#252526] rounded-xl p-4 border border-[#333]">
-                                <div className="flex items-center gap-2 text-sm text-gray-300">
-                                    <BookOpen size={14} className="text-purple-400" />
-                                    <span>
-                                        {planUseDate && planEndDate
-                                            ? `${Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Tage`
-                                            : `${planDays} Tage`
-                                        } × {planHoursPerDay} Std.
-                                        = <strong className="text-white">
-                                            {((planUseDate && planEndDate
-                                                ? Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))
-                                                : planDays) * planHoursPerDay).toFixed(1)} Std. gesamt
-                                        </strong>
-                                    </span>
-                                </div>
-                            </div>
-                            {/* Model Preference */}
-                            <div className="pt-4 border-t border-[#333]">
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
-                                <select
-                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
-                                    value={aiModelPreference}
-                                    onChange={(e) => setAiModelPreference(e.target.value)}
-                                >
-                                    <option value="">🚀 Automatisch (Empfohlen)</option>
-                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
-                                </select>
-                                <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen 'Quota Exceeded' bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex gap-3 p-5 border-t border-[#333]">
-                            <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
-                                Abbrechen
-                            </button>
-                            <button
-                                onClick={handlePlanGenerate}
-                                disabled={planUseDate && !planEndDate}
-                                className="flex-1 py-2.5 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                            >
-                                <BrainCircuit size={16} />
-                                Lernplan generieren
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Summary Config Modal */}
-            {isSummaryConfigOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                        {/* Header */}
-                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-                                    <FileOutput size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-semibold text-white">Zusammenfassung erstellen</h3>
-                                    <p className="text-xs text-gray-400">Wie detailliert soll der Text sein?</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-5 space-y-5">
-                            {/* Learning Mode Toggle */}
-                            <div>
-                                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
-                                    <button
-                                        onClick={() => setLearningMode('normal')}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                {/* Model Preference */}
+                                <div className="pt-4 border-t border-[#333]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                    <select
+                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <span>📝</span> Normaler Modus
-                                    </button>
-                                    <button
-                                        onClick={() => setLearningMode('exercise')}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                                        title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
-                                    >
-                                        <span>🎓</span> Konzepte lernen
-                                    </button>
-                                </div>
-                                {learningMode === 'exercise' && (
-                                    <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> AI erklärt die Konzepte dahinter — nicht die Lösungen</p>
-                                )}
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-3">Detailgrad wählen</label>
-                                <div className="grid grid-cols-1 gap-3">
-                                    {['Kurz', 'Normal', 'Ausführlich'].map((level) => (
-                                        <button
-                                            key={level}
-                                            onClick={() => setSummaryDetailLevel(level)}
-                                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${summaryDetailLevel === level
-                                                ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
-                                                : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
-                                        >
-                                            <span className="font-medium">{level}</span>
-                                            {summaryDetailLevel === level && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
-                                        </button>
-                                    ))}
-                                </div>
-                                <p className="text-xs text-gray-500 mt-4 text-center">
-                                    {summaryDetailLevel === 'Kurz' && 'Perfekt für einen schnellen Überblick vor der Prüfung.'}
-                                    {summaryDetailLevel === 'Normal' && 'Ausgewogene Erklärung aller wesentlichen Konzepte.'}
-                                    {summaryDetailLevel === 'Ausführlich' && 'Sehr tiefe Erklärung fast aller Details im Material.'}
-                                </p>
-                            </div>
-                            {/* Model Preference */}
-                            <div className="pt-4 border-t border-[#333]">
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
-                                <select
-                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
-                                    value={aiModelPreference}
-                                    onChange={(e) => setAiModelPreference(e.target.value)}
-                                >
-                                    <option value="">🚀 Automatisch (Empfohlen)</option>
-                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex gap-3 p-5 border-t border-[#333]">
-                            <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
-                                Abbrechen
-                            </button>
-                            <button
-                                onClick={handleSummaryGenerate}
-                                className="flex-1 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                            >
-                                <FileOutput size={16} />
-                                Generieren
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Elaboration (Ausarbeitung) Config Modal */}
-            {isElaborationConfigOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                        {/* Header */}
-                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
-                                    <FileText size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-semibold text-white">Ausarbeitung erstellen</h3>
-                                    <p className="text-xs text-gray-400">Konfiguriere deinen Text</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-5 space-y-5">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-3">Länge / Detailgrad</label>
-                                <div className="grid grid-cols-1 gap-3">
-                                    {['Kurz', 'Normal', 'Ausführlich'].map((level) => (
-                                        <button
-                                            key={level}
-                                            onClick={() => setElaborationDetailLevel(level)}
-                                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${elaborationDetailLevel === level
-                                                ? 'bg-orange-500/10 border-orange-500/50 text-orange-400'
-                                                : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
-                                        >
-                                            <span className="font-medium">{level}</span>
-                                            {elaborationDetailLevel === level && <div className="w-2 h-2 rounded-full bg-orange-500"></div>}
-                                        </button>
-                                    ))}
+                                        <option value="">🚀 Automatisch (Empfohlen)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen 'Quota Exceeded' bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Spezifische Anweisungen (Optional)</label>
-                                <textarea
-                                    value={elaborationRules}
-                                    onChange={(e) => setElaborationRules(e.target.value)}
-                                    placeholder="z.B. Fokussiere dich besonders auf Kapitel 3, schreibe im Stil eines Zeitungsartikels, formuliere Thesen..."
-                                    className="w-full h-24 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
-                                />
-                            </div>
-                            {/* Model Preference */}
-                            <div className="pt-4 border-t border-[#333]">
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
-                                <select
-                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
-                                    value={aiModelPreference}
-                                    onChange={(e) => setAiModelPreference(e.target.value)}
-                                >
-                                    <option value="">🚀 Automatisch (Empfohlen)</option>
-                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex gap-3 p-5 border-t border-[#333]">
-                            <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
-                                Abbrechen
-                            </button>
-                            <button
-                                onClick={handleElaborationGenerate}
-                                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                            >
-                                <FileText size={16} />
-                                Generieren
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Repetition (Wiederholung) Config Modal */}
-            {isRepetitionConfigOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                        {/* Header */}
-                        <div className="flex justify-between items-center p-5 border-b border-[#333]">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-semibold text-white">Wiederholung erstellen</h3>
-                                    <p className="text-xs text-gray-400">Lass dich gezielt abfragen</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-5 space-y-4">
-                            {/* Learning Mode Toggle */}
-                            <div>
-                                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
-                                    <button
-                                        onClick={() => setLearningMode('normal')}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        <span>📝</span> Normaler Modus
-                                    </button>
-                                    <button
-                                        onClick={() => setLearningMode('exercise')}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                                        title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
-                                    >
-                                        <span>🎓</span> Konzepte lernen
-                                    </button>
-                                </div>
-                                {learningMode === 'exercise' && (
-                                    <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> Wiederholung zu den Konzepten — nicht zu den Aufgaben selbst</p>
-                                )}
-                            </div>
-
-                            <label className="block text-sm font-medium text-gray-300 mb-2">Schwerpunkte setzen (Optional)</label>
-                            <textarea
-                                value={repetitionRules}
-                                onChange={(e) => setRepetitionRules(e.target.value)}
-                                placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
-                                className="w-full h-28 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
-                            />
-
-                            <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">
-                                <HelpCircle size={14} /> Tipp: Nutze Active Recall, um dir Wissen nachhaltig einzuprägen.
-                            </p>
-
-                            {/* Model Preference */}
-                            <div className="pt-4 border-t border-[#333]">
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
-                                <select
-                                    className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
-                                    value={aiModelPreference}
-                                    onChange={(e) => setAiModelPreference(e.target.value)}
-                                >
-                                    <option value="">🚀 Automatisch (Empfohlen)</option>
-                                    <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                    <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                    <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                    <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex gap-3 p-5 border-t border-[#333]">
-                            <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
-                                Abbrechen
-                            </button>
-                            <button
-                                onClick={handleRepetitionGenerate}
-                                className="flex-1 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
-                                Los geht's
-                            </button>
-                        </div>
-                    </div>
-                </div >
-            )
-            }
-
-            {/* Task Help Overlay */}
-            {isTaskHelpOpen && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
-                        {/* Header */}
-                        <div className="flex justify-between items-center p-5 border-b border-[#333] shrink-0">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-                                    <BrainCircuit size={20} />
-                                </div>
-                                <div className="max-w-[300px] overflow-hidden">
-                                    <h3 className="text-lg font-semibold text-white truncate" title={activeTaskTitle}>{activeTaskTitle}</h3>
-                                    <p className="text-xs text-purple-400 font-medium">KI-Lernassistenz</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-6 overflow-y-auto">
-                            {isTaskHelpLoading ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-center">
-                                    <div className="w-12 h-12 border-4 border-[#333] border-t-purple-500 rounded-full animate-spin mb-4"></div>
-                                    <p className="text-gray-300 font-medium">Analysiere Ordner-Inhalte...</p>
-                                    <p className="text-sm text-gray-500 mt-2">Ich überlege, was du genau tun sollst.</p>
-                                </div>
-                            ) : (
-                                <div className="prose prose-invert prose-purple max-w-none prose-sm sm:prose-base">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {taskHelpContent}
-                                    </ReactMarkdown>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Footer */}
-                        {!isTaskHelpLoading && (
-                            <div className="p-5 border-t border-[#333] shrink-0 bg-[#252526] rounded-b-2xl">
+                            {/* Footer */}
+                            <div className="flex gap-3 p-5 border-t border-[#333]">
+                                <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
                                 <button
-                                    onClick={() => setIsTaskHelpOpen(false)}
-                                    className="w-full py-2.5 bg-[#333] hover:bg-[#444] text-white rounded-xl font-medium transition-colors"
+                                    onClick={handlePlanGenerate}
+                                    disabled={planUseDate && !planEndDate}
+                                    className="flex-1 py-2.5 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
-                                    Verstanden!
+                                    <BrainCircuit size={16} />
+                                    Lernplan generieren
                                 </button>
                             </div>
-                        )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Fullscreen Flashcard Modal */}
-            {fullscreenCard && (
-                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
-                    <button
-                        onClick={() => setFullscreenCard(null)}
-                        className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#333] rounded-full transition-colors z-10"
-                    >
-                        <X size={24} />
-                    </button>
-
-                    <div className="w-full max-w-4xl h-[70vh] [perspective:1500px] cursor-pointer" onClick={() => setIsFullscreenCardFlipped(!isFullscreenCardFlipped)}>
-                        <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#444] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
-                            {/* Front Face */}
-                            <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#252526] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
-                                {fullscreenCard.front}
-                                <div className="absolute bottom-6 text-sm text-gray-500 flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
+                {/* Summary Config Modal */}
+                {isSummaryConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            {/* Header */}
+                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+                                        <FileOutput size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Zusammenfassung erstellen</h3>
+                                        <p className="text-xs text-gray-400">Wie detailliert soll der Text sein?</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
                             </div>
 
-                            {/* Back Face */}
-                            <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#1e1e1e] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
-                                {fullscreenCard.back}
+                            {/* Body */}
+                            <div className="p-5 space-y-5">
+                                {/* Learning Mode Toggle */}
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                                    <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                        <button
+                                            onClick={() => setLearningMode('normal')}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        >
+                                            <span>📝</span> Normaler Modus
+                                        </button>
+                                        <button
+                                            onClick={() => setLearningMode('exercise')}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                                            title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                        >
+                                            <span>🎓</span> Konzepte lernen
+                                        </button>
+                                    </div>
+                                    {learningMode === 'exercise' && (
+                                        <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> AI erklärt die Konzepte dahinter — nicht die Lösungen</p>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-3">Detailgrad wählen</label>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {['Kurz', 'Normal', 'Ausführlich'].map((level) => (
+                                            <button
+                                                key={level}
+                                                onClick={() => setSummaryDetailLevel(level)}
+                                                className={`flex items-center justify-between p-4 rounded-xl border transition-all ${summaryDetailLevel === level
+                                                    ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
+                                                    : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
+                                            >
+                                                <span className="font-medium">{level}</span>
+                                                {summaryDetailLevel === level && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-4 text-center">
+                                        {summaryDetailLevel === 'Kurz' && 'Perfekt für einen schnellen Überblick vor der Prüfung.'}
+                                        {summaryDetailLevel === 'Normal' && 'Ausgewogene Erklärung aller wesentlichen Konzepte.'}
+                                        {summaryDetailLevel === 'Ausführlich' && 'Sehr tiefe Erklärung fast aller Details im Material.'}
+                                    </p>
+                                </div>
+                                {/* Model Preference */}
+                                <div className="pt-4 border-t border-[#333]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                    <select
+                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">🚀 Automatisch (Empfohlen)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="flex gap-3 p-5 border-t border-[#333]">
+                                <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={handleSummaryGenerate}
+                                    className="flex-1 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <FileOutput size={16} />
+                                    Generieren
+                                </button>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Global Chat Bubble */}
-            <FloatingChat
-                folderId={folderId}
-                username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
-                modelPreference={aiModelPreference}
-            />
-        </div >
+                {/* Elaboration (Ausarbeitung) Config Modal */}
+                {isElaborationConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            {/* Header */}
+                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
+                                        <FileText size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Ausarbeitung erstellen</h3>
+                                        <p className="text-xs text-gray-400">Konfiguriere deinen Text</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-5 space-y-5">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-3">Länge / Detailgrad</label>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {['Kurz', 'Normal', 'Ausführlich'].map((level) => (
+                                            <button
+                                                key={level}
+                                                onClick={() => setElaborationDetailLevel(level)}
+                                                className={`flex items-center justify-between p-4 rounded-xl border transition-all ${elaborationDetailLevel === level
+                                                    ? 'bg-orange-500/10 border-orange-500/50 text-orange-400'
+                                                    : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
+                                            >
+                                                <span className="font-medium">{level}</span>
+                                                {elaborationDetailLevel === level && <div className="w-2 h-2 rounded-full bg-orange-500"></div>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Spezifische Anweisungen (Optional)</label>
+                                    <textarea
+                                        value={elaborationRules}
+                                        onChange={(e) => setElaborationRules(e.target.value)}
+                                        placeholder="z.B. Fokussiere dich besonders auf Kapitel 3, schreibe im Stil eines Zeitungsartikels, formuliere Thesen..."
+                                        className="w-full h-24 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
+                                    />
+                                </div>
+                                {/* Model Preference */}
+                                <div className="pt-4 border-t border-[#333]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                    <select
+                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">🚀 Automatisch (Empfohlen)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="flex gap-3 p-5 border-t border-[#333]">
+                                <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={handleElaborationGenerate}
+                                    className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <FileText size={16} />
+                                    Generieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Repetition (Wiederholung) Config Modal */}
+                {isRepetitionConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            {/* Header */}
+                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Wiederholung erstellen</h3>
+                                        <p className="text-xs text-gray-400">Lass dich gezielt abfragen</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-5 space-y-4">
+                                {/* Learning Mode Toggle */}
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
+                                    <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                        <button
+                                            onClick={() => setLearningMode('normal')}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                        >
+                                            <span>📝</span> Normaler Modus
+                                        </button>
+                                        <button
+                                            onClick={() => setLearningMode('exercise')}
+                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'exercise' ? 'bg-amber-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                                            title="Perfekt wenn du Aufgaben oder Prüfungen hochgeladen hast"
+                                        >
+                                            <span>🎓</span> Konzepte lernen
+                                        </button>
+                                    </div>
+                                    {learningMode === 'exercise' && (
+                                        <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> Wiederholung zu den Konzepten — nicht zu den Aufgaben selbst</p>
+                                    )}
+                                </div>
+
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Schwerpunkte setzen (Optional)</label>
+                                <textarea
+                                    value={repetitionRules}
+                                    onChange={(e) => setRepetitionRules(e.target.value)}
+                                    placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
+                                    className="w-full h-28 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
+                                />
+
+                                <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">
+                                    <HelpCircle size={14} /> Tipp: Nutze Active Recall, um dir Wissen nachhaltig einzuprägen.
+                                </p>
+
+                                {/* Model Preference */}
+                                <div className="pt-4 border-t border-[#333]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                    <select
+                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">🚀 Automatisch (Empfohlen)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
+                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
+                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="flex gap-3 p-5 border-t border-[#333]">
+                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={handleRepetitionGenerate}
+                                    className="flex-1 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
+                                    Los geht's
+                                </button>
+                            </div>
+                        </div>
+                    </div >
+                )
+                }
+
+                {/* Task Help Overlay */}
+                {isTaskHelpOpen && (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
+                            {/* Header */}
+                            <div className="flex justify-between items-center p-5 border-b border-[#333] shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+                                        <BrainCircuit size={20} />
+                                    </div>
+                                    <div className="max-w-[300px] overflow-hidden">
+                                        <h3 className="text-lg font-semibold text-white truncate" title={activeTaskTitle}>{activeTaskTitle}</h3>
+                                        <p className="text-xs text-purple-400 font-medium">KI-Lernassistenz</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-6 overflow-y-auto">
+                                {isTaskHelpLoading ? (
+                                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                                        <div className="w-12 h-12 border-4 border-[#333] border-t-purple-500 rounded-full animate-spin mb-4"></div>
+                                        <p className="text-gray-300 font-medium">Analysiere Ordner-Inhalte...</p>
+                                        <p className="text-sm text-gray-500 mt-2">Ich überlege, was du genau tun sollst.</p>
+                                    </div>
+                                ) : (
+                                    <div className="prose prose-invert prose-purple max-w-none prose-sm sm:prose-base">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {taskHelpContent}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Footer */}
+                            {!isTaskHelpLoading && (
+                                <div className="p-5 border-t border-[#333] shrink-0 bg-[#252526] rounded-b-2xl">
+                                    <button
+                                        onClick={() => setIsTaskHelpOpen(false)}
+                                        className="w-full py-2.5 bg-[#333] hover:bg-[#444] text-white rounded-xl font-medium transition-colors"
+                                    >
+                                        Verstanden!
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Fullscreen Flashcard Modal */}
+                {fullscreenCard && (
+                    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                        <button
+                            onClick={() => setFullscreenCard(null)}
+                            className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#333] rounded-full transition-colors z-10"
+                        >
+                            <X size={24} />
+                        </button>
+
+                        <div className="w-full max-w-4xl h-[70vh] [perspective:1500px] cursor-pointer" onClick={() => setIsFullscreenCardFlipped(!isFullscreenCardFlipped)}>
+                            <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#444] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                                {/* Front Face */}
+                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#252526] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                    {fullscreenCard.front}
+                                    <div className="absolute bottom-6 text-sm text-gray-500 flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
+                                </div>
+
+                                {/* Back Face */}
+                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#1e1e1e] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                    {fullscreenCard.back}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Create Subfolder Modal */}
+                {isCreateSubfolderOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-[#5E5CE6]/10 text-[#5E5CE6]">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                                    </div>
+                                    <h3 className="text-base font-semibold text-white">Unterordner erstellen</h3>
+                                </div>
+                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5">
+                                <input
+                                    type="text"
+                                    placeholder="Name des Unterordners..."
+                                    value={newSubfolderName}
+                                    onChange={(e) => setNewSubfolderName(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('create-subfolder-btn')?.click(); }}
+                                    className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#333]">
+                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    id="create-subfolder-btn"
+                                    disabled={!newSubfolderName.trim()}
+                                    onClick={async () => {
+                                        if (!newSubfolderName.trim()) return;
+                                        const username = localStorage.getItem('username');
+                                        const res = await fetch(`${API_BASE}/folders/${folderId}/subfolders`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ name: newSubfolderName.trim(), username })
+                                        });
+                                        if (res.ok) {
+                                            setNewSubfolderName('');
+                                            setIsCreateSubfolderOpen(false);
+                                            fetchFiles(); // refreshes subfolders too
+                                        } else {
+                                            alert('Fehler beim Erstellen des Unterordners.');
+                                        }
+                                    }}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                                >
+                                    Erstellen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Global Chat Bubble */}
+                <FloatingChat
+                    folderId={folderId}
+                    username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
+                    modelPreference={aiModelPreference}
+                />
+            </div>
+        </div>
     );
 }
+

@@ -185,6 +185,21 @@ class DataManager:
         return folder
 
     @staticmethod
+    def create_subfolder(name, username, parent_id):
+        """Creates a subfolder inside an existing folder."""
+        data = DataManager.load(username)
+        subfolder = {
+            "id": f"folder_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}",
+            "name": name,
+            "parent_id": parent_id,
+            "created_at": datetime.now().strftime("%Y-%m-%d")
+        }
+        if "folders" not in data: data["folders"] = []
+        data["folders"].append(subfolder)
+        DataManager.save(data, username)
+        return subfolder
+
+    @staticmethod
     def delete_folder(folder_id, username):
         """Deletes a folder (Project) and its contents."""
         db = DataManager._init_firestore()

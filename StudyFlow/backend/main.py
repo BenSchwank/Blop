@@ -172,6 +172,26 @@ def create_folder(folder: FolderCreate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class SubfolderCreate(BaseModel):
+    name: str
+    username: str
+
+@app.post("/api/folders/{parent_id}/subfolders")
+def create_subfolder(parent_id: str, body: SubfolderCreate):
+    """Creates a subfolder inside a parent folder."""
+    try:
+        subfolder = DataManager.create_subfolder(body.name, body.username, parent_id)
+        return {"status": "success", "subfolder": subfolder}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/folders/{parent_id}/subfolders")
+def get_subfolders(parent_id: str, username: str):
+    """Returns subfolders inside a parent folder."""
+    data = DataManager.load(username)
+    folders = data.get("folders", [])
+    return [f for f in folders if f.get("parent_id") == parent_id]
+
 # --- FILE ENDPOINTS ---
 @app.get("/api/files/{folder_id}")
 def get_files(folder_id: str, username: str):
