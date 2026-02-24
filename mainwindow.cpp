@@ -97,6 +97,9 @@ static const int FONT_SIZE_HEADER = 18;
 static const int MARGIN_OVERVIEW = 30;
 #endif
 
+// Current app version — update this when you release a new build
+static const char *BLOP_VERSION = "3.3.3";
+
 // ============================================================================
 // 1. DELEGATES & BUTTONS
 // ============================================================================
@@ -482,16 +485,109 @@ void MainWindow::checkForUpdates() {
   if (!m_netManager) {
     m_netManager = new QNetworkAccessManager(this);
   }
-  QUrl url("https://api.github.com/repos/BenSchwank/Blop-releases/releases/"
-           "tags/nightly");
+
+  // Use the latest stable versioned release (e.g. v3.5.3.9), NOT nightly
+  QUrl url(
+      "https://api.github.com/repos/BenSchwank/Blop-releases/releases/latest");
   QNetworkRequest request(url);
-  request.setHeader(QNetworkRequest::UserAgentHeader, "Blop-App");
+  request.setHeader(QNetworkRequest::UserAgentHeader,
+                    "Blop-App/" + QString(BLOP_VERSION));
+  request.setRawHeader("Accept", "application/vnd.github+json");
+
   QNetworkReply *reply = m_netManager->get(request);
   connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-    if (reply->error() == QNetworkReply::NoError) {
-      // ... (Update logic)
-    }
     reply->deleteLater();
+    if (reply->error() != QNetworkReply::NoError)
+      return; // Silent fail on network error
+
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    if (!doc.isObject())
+      return;
+    QJsonObject root = doc.object();
+
+    // Parse tag name, e.g. "v3.5.3.9" → "3.5.3.9"
+    QString tagName = root.value("tag_name").toString();
+    if (tagName.startsWith('v') || tagName.startsWith('V'))
+      tagName = tagName.mid(1);
+
+    // Numeric version comparison: "3.5.3.9" vs BLOP_VERSION "3.3.3"
+    auto parseVersion = [](const QString &v) -> QList<int> {
+      QList<int> parts;
+      for (const QString &p : v.split('.'))
+        parts << p.toInt();
+      while (parts.size() < 4)
+        parts << 0; // normalize to 4 segments
+      return parts;
+    };
+    QList<int> remote = parseVersion(tagName);
+    QList<int> local = parseVersion(QString(BLOP_VERSION));
+
+    bool isNewer = false;
+    for (int i = 0; i < 4; ++i) {
+      if (remote[i] > local[i]) {
+        isNewer = true;
+        break;
+      }
+      if (remote[i] < local[i])
+        break;
+    }
+    if (!isNewer)
+      return; // Already up to date
+
+    // Find the correct download URL for this platform
+    QJsonArray assets = root.value("assets").toArray();
+    QString downloadUrl;
+    QString releasePageUrl = root.value("html_url").toString();
+
+#ifdef Q_OS_ANDROID
+    // Android: prefer signed APK
+    for (const QJsonValue &a : assets) {
+      QString name = a.toObject().value("name").toString();
+      if (name == "Blop-signed.apk") {
+        downloadUrl = a.toObject().value("browser_download_url").toString();
+        break;
+      }
+    }
+#else
+    // Windows / Desktop: prefer Windows zip
+    for (const QJsonValue &a : assets) {
+      QString name = a.toObject().value("name").toString();
+      if (name == "Blop_Windows.zip") {
+        downloadUrl = a.toObject().value("browser_download_url").toString();
+        break;
+      }
+    }
+#endif
+
+    if (downloadUrl.isEmpty())
+      downloadUrl = releasePageUrl; // Fallback: open release page
+
+    // Show update dialog
+    QString currentVer = QString(BLOP_VERSION);
+    QMessageBox *box = new QMessageBox(this);
+    box->setWindowTitle("Update verfügbar");
+    box->setText(QString("<b>Blop %1 ist verfügbar!</b><br>"
+                         "<small>Deine Version: %2</small>")
+                     .arg("v" + tagName, "v" + currentVer));
+    box->setInformativeText(
+        "Möchtest du die neue Version jetzt herunterladen?");
+    box->setStandardButtons(QMessageBox::Yes | QMessageBox::Ignore);
+    box->setDefaultButton(QMessageBox::Yes);
+    box->button(QMessageBox::Yes)->setText("Jetzt herunterladen");
+    box->button(QMessageBox::Ignore)->setText("Später");
+    box->setIcon(QMessageBox::Information);
+    box->setStyleSheet(
+        "QMessageBox { background-color: #1e1e1e; color: white; }"
+        "QLabel { color: #e0e0e0; }"
+        "QPushButton { background: #5E5CE6; color: white; border-radius: 6px; "
+        "padding: 6px 18px; border: none; } "
+        "QPushButton:hover { background: #7D7AFF; } "
+        "QPushButton[text='Später'] { background: #333; }");
+
+    if (box->exec() == QMessageBox::Yes) {
+      QDesktopServices::openUrl(QUrl(downloadUrl));
+    }
+    box->deleteLater();
   });
 }
 
