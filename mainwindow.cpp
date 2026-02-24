@@ -98,7 +98,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.3.3";
+static const char *BLOP_VERSION = "3.6.0";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
