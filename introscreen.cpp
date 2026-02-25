@@ -4,10 +4,10 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QRadialGradient>
+#include <QRandomGenerator>
 #include <QScreen>
 #include <QTimerEvent>
 #include <cmath>
-
 
 // ============= Constructor =============
 IntroScreen::IntroScreen(QWidget *parent)
@@ -143,15 +143,16 @@ void IntroScreen::mousePressEvent(QMouseEvent *e) {
 // ============= Particle System =============
 void IntroScreen::spawnParticles() {
   m_particles.clear();
+  auto *rng = QRandomGenerator::global();
   for (int i = 0; i < 20; ++i) {
     Particle p;
-    p.pos = QPointF(m_cx + (qrand() % 60 - 30), m_cy);
-    qreal angle = (qrand() % 180) * M_PI / 180.0; // upward hemisphere
-    qreal speed = 2.0 + (qrand() % 40) / 10.0;
+    p.pos = QPointF(m_cx + int(rng->bounded(60u)) - 30, m_cy);
+    qreal angle = rng->bounded(180u) * M_PI / 180.0; // upward hemisphere
+    qreal speed = 2.0 + rng->bounded(40u) / 10.0;
     p.vel = QPointF(std::cos(angle) * speed,
                     -std::abs(std::sin(angle)) * speed * 1.3);
     p.life = 1.0;
-    p.size = 2.0 + (qrand() % 30) / 10.0;
+    p.size = 2.0 + rng->bounded(30u) / 10.0;
     m_particles.append(p);
   }
 }
