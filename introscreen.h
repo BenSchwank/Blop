@@ -6,7 +6,6 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QParallelAnimationGroup>
-#include <QPixmap>
 #include <QPointF>
 #include <QPropertyAnimation>
 #include <QSequentialAnimationGroup>

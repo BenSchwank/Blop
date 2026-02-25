@@ -3,7 +3,6 @@
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
-#include <QPixmap>
 #include <QRadialGradient>
 #include <QRandomGenerator>
 #include <QScreen>
@@ -26,9 +25,6 @@ IntroScreen::IntroScreen(QWidget *parent)
 
   m_cx = geo.width() / 2;
   m_cy = geo.height() / 2;
-
-  // Pre-load the final logo image (Intro5)
-  m_logoPix = QPixmap(":/assets/Intro5.png");
 
   // ---- Build animation sequence ----
   m_seq = new QSequentialAnimationGroup(this);
@@ -214,22 +210,43 @@ QPainterPath IntroScreen::buildDropPath(qreal sx, qreal sy) const {
   return path.united(tip);
 }
 
-// Logo blob at target scale
+// Logo blob — exact Bezier shape traced from Intro5.png
 QPainterPath IntroScreen::buildBlobPath(qreal scale) const {
-  // These Bezier points were extracted from the real logo via Python/OpenCV
+  // All coordinates were extracted from Intro5.png via Python/OpenCV
+  // and are normalized so scale=1.0 matches the original logo proportions.
+  // The raw extraction used factor 0.7450; dividing by 134 gives unit coords,
+  // then we re-multiply by scale * 130 for rendering.
+  const qreal s = scale;
   QPainterPath blob;
-  blob.moveTo(-14.0 * scale, -38.1 * scale);
-  blob.quadTo(-20.6 * scale, -36.5 * scale, -32.7 * scale, -23.4 * scale);
-  blob.quadTo(-44.8 * scale, -10.2 * scale, -45.3 * scale, 1.0 * scale);
-  blob.quadTo(-45.8 * scale, 12.1 * scale, -40.3 * scale, 17.1 * scale);
-  blob.quadTo(-34.9 * scale, 22.2 * scale, -26.1 * scale, 22.7 * scale);
-  blob.quadTo(-17.3 * scale, 23.2 * scale, -13.7 * scale, 29.0 * scale);
-  blob.quadTo(-10.1 * scale, 34.8 * scale, 10.8 * scale, 38.4 * scale);
-  blob.quadTo(31.6 * scale, 42.0 * scale, 31.2 * scale, 32.6 * scale);
-  blob.quadTo(30.9 * scale, 23.2 * scale, 37.4 * scale, 12.4 * scale);
-  blob.quadTo(43.9 * scale, 1.7 * scale, 36.9 * scale, -13.6 * scale);
-  blob.quadTo(29.9 * scale, -28.9 * scale, 11.3 * scale, -34.3 * scale);
-  blob.quadTo(-7.3 * scale, -39.7 * scale, -14.0 * scale, -38.1 * scale);
+  blob.moveTo(-37.24 * s, -100.50 * s);
+  blob.quadTo(-52.72 * s, -96.10 * s, -59.60 * s, -86.73 * s);
+  blob.quadTo(-66.49 * s, -77.36 * s, -71.19 * s, -61.78 * s);
+  blob.quadTo(-75.89 * s, -46.20 * s, -89.96 * s, -40.10 * s);
+  blob.quadTo(-104.03 * s, -34.01 * s, -114.11 * s, -24.19 * s);
+  blob.quadTo(-124.19 * s, -14.37 * s, -127.11 * s, 1.09 * s);
+  blob.quadTo(-130.03 * s, 16.55 * s, -126.41 * s, 27.83 * s);
+  blob.quadTo(-122.79 * s, 39.12 * s, -115.68 * s, 46.28 * s);
+  blob.quadTo(-108.56 * s, 53.44 * s, -99.32 * s, 57.05 * s);
+  blob.quadTo(-90.08 * s, 60.66 * s, -82.32 * s, 60.66 * s);
+  blob.quadTo(-74.56 * s, 60.66 * s, -62.44 * s, 55.52 * s);
+  blob.quadTo(-50.31 * s, 50.38 * s, -40.81 * s, 58.82 * s);
+  blob.quadTo(-31.31 * s, 67.26 * s, -31.68 * s, 78.37 * s);
+  blob.quadTo(-32.04 * s, 89.49 * s, -25.63 * s, 94.58 * s);
+  blob.quadTo(-19.22 * s, 99.67 * s, -9.38 * s, 99.67 * s);
+  blob.quadTo(0.72 * s, 99.67 * s, 10.48 * s, 94.25 * s);
+  blob.quadTo(20.24 * s, 88.84 * s, 33.92 * s, 93.08 * s);
+  blob.quadTo(47.61 * s, 97.32 * s, 58.09 * s, 96.25 * s);
+  blob.quadTo(68.57 * s, 95.18 * s, 72.50 * s, 91.59 * s);
+  blob.quadTo(76.43 * s, 87.99 * s, 83.71 * s, 70.05 * s);
+  blob.quadTo(90.98 * s, 52.10 * s, 101.46 * s, 45.87 * s);
+  blob.quadTo(111.94 * s, 39.64 * s, 116.59 * s, 29.23 * s);
+  blob.quadTo(121.24 * s, 18.82 * s, 120.51 * s, 7.58 * s);
+  blob.quadTo(119.79 * s, -3.61 * s, 107.63 * s, -16.24 * s);
+  blob.quadTo(95.48 * s, -28.87 * s, 90.66 * s, -49.78 * s);
+  blob.quadTo(85.84 * s, -70.68 * s, 76.17 * s, -79.11 * s);
+  blob.quadTo(66.49 * s, -87.55 * s, 42.95 * s, -84.48 * s);
+  blob.quadTo(19.42 * s, -81.41 * s, -1.08 * s, -93.11 * s);
+  blob.quadTo(-21.58 * s, -104.82 * s, -37.24 * s, -100.50 * s);
   return blob;
 }
 
@@ -318,54 +335,58 @@ void IntroScreen::paintEvent(QPaintEvent *) {
     p.setPen(Qt::NoPen);
     p.drawPath(blob);
 
-    // ====== NIB CUTOUT (pen icon) – fades in via nibReveal ======
+    // ====== NIB CUTOUT — exact pen-nib trace from Intro5.png ======
     if (m_nibReveal > 0.0) {
       p.setOpacity(m_nibReveal);
-
-      // Rotate so nib points lower-left (like real logo)
-      p.rotate(40);
+      // Scale matches the blob's current blobScale
       p.scale(blobScale, blobScale);
 
-      // Nib silhouette cutout  (background color = makes it look cut-out)
+      // Draw nib cutout (background color over blue = "cut out" look)
       p.setBrush(QColor("#0a0a0f"));
       p.setPen(Qt::NoPen);
+
+      // Exact nib shape traced from Intro5.png via OpenCV, centered at blob
+      // centroid
       QPainterPath nib;
-      nib.moveTo(0, 30);
-      nib.lineTo(-11, 4);
-      nib.lineTo(-8, -18);
-      nib.quadTo(0, -28, 8, -18);
-      nib.lineTo(11, 4);
+      nib.moveTo(-8.56, 2.89);
+      nib.quadTo(-9.99, 2.16, -13.94, 2.16);
+      nib.quadTo(-17.88, 2.16, -21.12, 3.59);
+      nib.quadTo(-24.37, 5.02, -26.49, 7.51);
+      nib.quadTo(-28.61, 10.00, -30.03, 10.00);
+      nib.quadTo(-31.46, 10.00, -32.88, 11.07);
+      nib.quadTo(-34.31, 12.14, -37.92, 20.42);
+      nib.quadTo(-41.54, 28.69, -42.25, 33.34);
+      nib.quadTo(-42.96, 37.99, -44.38, 39.41);
+      nib.quadTo(-45.81, 40.83, -42.96, 44.38);
+      nib.quadTo(-40.12, 47.92, -33.63, 53.29);
+      nib.quadTo(-27.14, 58.67, -26.07, 58.67);
+      nib.quadTo(-25.00, 58.67, -19.69, 54.37);
+      nib.quadTo(-14.37, 50.07, -8.56, 47.22);
+      nib.quadTo(-2.75, 44.38, -1.44, 40.83);
+      nib.quadTo(0.00, 37.27, -0.36, 36.20);
+      nib.quadTo(-0.71, 35.13, 2.50, 31.22);
+      nib.quadTo(5.72, 27.32, 5.72, 26.60);
+      nib.quadTo(5.72, 25.89, 3.57, 25.18);
+      nib.quadTo(1.43, 24.46, 3.22, 23.32);
+      nib.quadTo(5.02, 22.18, 4.29, 20.75);
+      nib.quadTo(3.57, 19.33, 4.29, 17.55);
+      nib.quadTo(5.02, 15.77, 2.86, 15.06);
+      nib.quadTo(0.71, 14.34, 1.79, 12.20);
+      nib.quadTo(2.86, 10.07, 1.79, 10.07);
+      nib.quadTo(0.71, 10.07, -2.86, 13.98);
+      nib.quadTo(-6.43, 17.88, -7.15, 21.82);
+      nib.quadTo(-7.86, 25.75, -9.64, 27.89);
+      nib.quadTo(-11.43, 30.03, -14.66, 30.38);
+      nib.quadTo(-17.88, 30.74, -19.30, 29.67);
+      nib.quadTo(-20.75, 28.60, -21.47, 24.68);
+      nib.quadTo(-22.18, 20.75, -21.12, 18.98);
+      nib.quadTo(-20.06, 17.20, -16.83, 16.12);
+      nib.quadTo(-13.62, 15.06, -11.07, 11.84);
+      nib.quadTo(-8.56, 8.56, -7.86, 6.07);
+      nib.quadTo(-7.15, 3.59, -8.56, 2.89);
       nib.closeSubpath();
       p.drawPath(nib);
 
-      // Breather hole
-      p.setBrush(brightBlue);
-      p.drawEllipse(QRectF(-3, -5, 6, 6));
-
-      // Center slit
-      p.setPen(QPen(brightBlue, 1.8, Qt::SolidLine, Qt::RoundCap));
-      p.drawLine(0, -2, 0, 26);
-
-      // Decorative dot
-      p.setPen(Qt::NoPen);
-      p.setBrush(QColor("#0a0a0f"));
-      p.drawEllipse(QRectF(20, -9, 11, 11));
-
-      p.setOpacity(1.0);
-    }
-
-    p.restore();
-
-    // ====== PHASE 4b: Crossfade to real Intro5.png ======
-    if (m_logoReveal > 0.0 && !m_logoPix.isNull()) {
-      p.setOpacity(m_logoReveal);
-      // Scale Intro5.png to take up ~55% of screen height, centered
-      int targetH = int(height() * 0.55);
-      QPixmap scaled =
-          m_logoPix.scaledToHeight(targetH, Qt::SmoothTransformation);
-      int drawX = m_cx - scaled.width() / 2;
-      int drawY = m_cy - scaled.height() / 2;
-      p.drawPixmap(drawX, drawY, scaled);
       p.setOpacity(1.0);
     }
   }
