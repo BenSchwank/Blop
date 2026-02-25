@@ -193,7 +193,7 @@ void IntroScreen::spawnDrips() {
     d.length = 0.0;
     d.splash = 0.0;
     d.landed = false;
-    d.landY = d.anchor.y() + 180.0 + (qrand() % 30);
+    d.landY = d.anchor.y() + 180.0 + QRandomGenerator::global()->bounded(30u);
     m_drips.append(d);
   }
 }
