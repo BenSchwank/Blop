@@ -3,6 +3,7 @@
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPixmap>
 #include <QRadialGradient>
 #include <QRandomGenerator>
 #include <QScreen>
@@ -12,8 +13,8 @@
 // ============= Constructor =============
 IntroScreen::IntroScreen(QWidget *parent)
     : QWidget(parent), m_dropY(0.0), m_dropScaleX(1.0), m_dropScaleY(1.0),
-      m_splash(0.0), m_nibReveal(0.0), m_textFade(0.0), m_particleTimer(0),
-      m_finished(false) {
+      m_splash(0.0), m_nibReveal(0.0), m_textFade(0.0), m_logoReveal(0.0),
+      m_particleTimer(0), m_finished(false) {
   setWindowFlags(Qt::Window | Qt::FramelessWindowHint |
                  Qt::WindowStaysOnTopHint);
   setAttribute(Qt::WA_TranslucentBackground);
@@ -25,6 +26,9 @@ IntroScreen::IntroScreen(QWidget *parent)
 
   m_cx = geo.width() / 2;
   m_cy = geo.height() / 2;
+
+  // Pre-load the final logo image (Intro5)
+  m_logoPix = QPixmap(":/assets/Intro5.png");
 
   // ---- Build animation sequence ----
   m_seq = new QSequentialAnimationGroup(this);
@@ -90,7 +94,15 @@ IntroScreen::IntroScreen(QWidget *parent)
   nibAnim->setEasingCurve(QEasingCurve::OutCubic);
   m_seq->addAnimation(nibAnim);
 
-  // 5. Text fades in
+  // 5. Crossfade from procedural blob → real Intro5.png
+  auto *logoRevealAnim = new QPropertyAnimation(this, "logoReveal", this);
+  logoRevealAnim->setDuration(600);
+  logoRevealAnim->setStartValue(0.0);
+  logoRevealAnim->setEndValue(1.0);
+  logoRevealAnim->setEasingCurve(QEasingCurve::InOutQuad);
+  m_seq->addAnimation(logoRevealAnim);
+
+  // 6. Text fades in
   auto *textAnim = new QPropertyAnimation(this, "textFade", this);
   textAnim->setDuration(500);
   textAnim->setStartValue(0.0);
@@ -343,6 +355,19 @@ void IntroScreen::paintEvent(QPaintEvent *) {
     }
 
     p.restore();
+
+    // ====== PHASE 4b: Crossfade to real Intro5.png ======
+    if (m_logoReveal > 0.0 && !m_logoPix.isNull()) {
+      p.setOpacity(m_logoReveal);
+      // Scale Intro5.png to take up ~55% of screen height, centered
+      int targetH = int(height() * 0.55);
+      QPixmap scaled =
+          m_logoPix.scaledToHeight(targetH, Qt::SmoothTransformation);
+      int drawX = m_cx - scaled.width() / 2;
+      int drawY = m_cy - scaled.height() / 2;
+      p.drawPixmap(drawX, drawY, scaled);
+      p.setOpacity(1.0);
+    }
   }
 
   // ====== PHASE 5: Text ======

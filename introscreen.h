@@ -6,12 +6,12 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QParallelAnimationGroup>
+#include <QPixmap>
 #include <QPointF>
 #include <QPropertyAnimation>
 #include <QSequentialAnimationGroup>
 #include <QTimer>
 #include <QWidget>
-
 
 struct Particle {
   QPointF pos;
@@ -28,6 +28,7 @@ class IntroScreen : public QWidget {
   Q_PROPERTY(qreal splash READ splash WRITE setSplash)
   Q_PROPERTY(qreal nibReveal READ nibReveal WRITE setNibReveal)
   Q_PROPERTY(qreal textFade READ textFade WRITE setTextFade)
+  Q_PROPERTY(qreal logoReveal READ logoReveal WRITE setLogoReveal)
 
 public:
   explicit IntroScreen(QWidget *parent = nullptr);
@@ -41,6 +42,7 @@ public:
   qreal splash() const { return m_splash; }
   qreal nibReveal() const { return m_nibReveal; }
   qreal textFade() const { return m_textFade; }
+  qreal logoReveal() const { return m_logoReveal; }
 
   void setDropY(qreal v) {
     m_dropY = v;
@@ -69,6 +71,10 @@ public:
     m_textFade = v;
     update();
   }
+  void setLogoReveal(qreal v) {
+    m_logoReveal = v;
+    update();
+  }
 
 signals:
   void introFinished();
@@ -92,7 +98,9 @@ private:
   qreal m_splash;
   qreal m_nibReveal;
   qreal m_textFade;
+  qreal m_logoReveal;
 
+  QPixmap m_logoPix; // Intro5.png pre-loaded
   QList<Particle> m_particles;
   int m_particleTimer;
 
