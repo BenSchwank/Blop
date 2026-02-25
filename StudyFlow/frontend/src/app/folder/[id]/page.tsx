@@ -197,6 +197,13 @@ export default function FolderPage() {
     // AI Generation States
     const [isGenerating, setIsGenerating] = useState<string | null>(null); // 'plan', 'quiz', 'cards', 'summary'
 
+    // Toast notification (replaces all showToast() calls)
+    const [toast, setToast] = useState<{ msg: string; type: 'error' | 'info' | 'success' } | null>(null);
+    const showToast = (msg: string, type: 'error' | 'info' | 'success' = 'error') => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 6000);
+    };
+
     // Plan Config Modal State
     const [isPlanConfigOpen, setIsPlanConfigOpen] = useState(false);
     const [planDays, setPlanDays] = useState(7);
@@ -292,14 +299,14 @@ export default function FolderPage() {
             } else {
                 const err = await res.json();
                 if (err.detail && err.detail.includes("API_KEY")) {
-                    alert("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                    showToast("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
                 } else {
-                    alert(`Fehler beim Upload: ${err.detail || "Server Error"}`);
+                    showToast(`Fehler beim Upload: ${err.detail || "Server Error"}`);
                 }
             }
         } catch (error) {
             console.error(error);
-            alert("Fehler beim Upload.");
+            showToast("Fehler beim Upload.");
         } finally {
             setIsProcessing(false);
         }
@@ -325,14 +332,14 @@ export default function FolderPage() {
             } else {
                 const err = await res.json();
                 if (err.detail && err.detail.includes("API_KEY")) {
-                    alert("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                    showToast("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
                 } else {
-                    alert(`Fehler: ${err.detail || "Ungültige URL oder kein Transkript verfügbar."}`);
+                    showToast(`Fehler: ${err.detail || "Ungültige URL oder kein Transkript verfügbar."}`);
                 }
             }
         } catch (error) {
             console.error(error);
-            alert("Konnte YouTube-Video nicht importieren.");
+            showToast("Konnte YouTube-Video nicht importieren.");
         } finally {
             setIsProcessing(false);
         }
@@ -377,7 +384,7 @@ export default function FolderPage() {
 
         } catch (err) {
             console.error("Error accessing microphone:", err);
-            alert("Fehler beim Zugriff auf das Mikrofon. Bitte Berechtigungen prüfen.");
+            showToast("Fehler beim Zugriff auf das Mikrofon. Bitte Berechtigungen prüfen.");
         }
     };
 
@@ -409,14 +416,14 @@ export default function FolderPage() {
             } else {
                 const err = await res.json();
                 if (err.detail && err.detail.includes("API_KEY")) {
-                    alert("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                    showToast("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
                 } else {
-                    alert(`Fehler beim Audio-Upload: ${err.detail || "Unbekannter Fehler"}`);
+                    showToast(`Fehler beim Audio-Upload: ${err.detail || "Unbekannter Fehler"}`);
                 }
             }
         } catch (error) {
             console.error(error);
-            alert("Konnte Sprachmemo nicht hochladen.");
+            showToast("Konnte Sprachmemo nicht hochladen.");
         } finally {
             setIsProcessing(false);
         }
@@ -463,11 +470,11 @@ export default function FolderPage() {
                 } catch (_) {
                     // Response not JSON — use status code
                 }
-                alert(`Fehler: ${errorMsg}`);
+                showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
-            alert("Ein Fehler ist aufgetreten.");
+            showToast("Ein Fehler ist aufgetreten.");
         } finally {
             stateSetter(null); // Reset the specific AI generation state
         }
@@ -544,11 +551,11 @@ export default function FolderPage() {
                     }
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
                 } catch (_) { }
-                alert(`Zusammenfassungs-Fehler: ${errorMsg}`);
+                showToast(`Zusammenfassungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
-            alert("Ein Fehler ist aufgetreten.");
+            showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating(null);
         }
@@ -593,11 +600,11 @@ export default function FolderPage() {
                     }
                     errorMsg = err.detail || errorMsg;
                 } catch (_) { }
-                alert(`Ausarbeitungs-Fehler: ${errorMsg}`);
+                showToast(`Ausarbeitungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
-            alert("Ein Fehler ist aufgetreten.");
+            showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating(null);
         }
@@ -642,11 +649,11 @@ export default function FolderPage() {
                     }
                     errorMsg = err.detail || errorMsg;
                 } catch (_) { }
-                alert(`Fehler: ${errorMsg}`);
+                showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
-            alert("Ein Fehler ist aufgetreten.");
+            showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating(null);
         }
@@ -693,7 +700,7 @@ export default function FolderPage() {
                         content: data.plan
                     });
                 } else {
-                    alert("Lernplan wurde generiert, ist aber leer. Bitte prüfe ob Material im Ordner vorhanden ist.");
+                    showToast("Lernplan wurde generiert, ist aber leer. Bitte prüfe ob Material im Ordner vorhanden ist.");
                 }
                 fetchFiles();
             } else {
@@ -702,11 +709,11 @@ export default function FolderPage() {
                     const err = await res.json();
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
                 } catch (_) { }
-                alert(`Lernplan-Fehler: ${errorMsg}`);
+                showToast(`Lernplan-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error("Plan error:", error);
-            alert(`Netzwerk-Fehler: ${String(error)}`);
+            showToast(`Netzwerk-Fehler: ${String(error)}`);
         } finally {
             setIsGenerating(null);
         }
@@ -782,10 +789,10 @@ export default function FolderPage() {
                                 // Optional: You could show a small toast here instead of alert for better UX
                             } else {
                                 const err = await res.json();
-                                alert(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
+                                showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
                             }
                         } catch (e) {
-                            alert("Netzwerkfehler beim Speichern.");
+                            showToast("Netzwerkfehler beim Speichern.");
                         }
                     }}
                 />
@@ -1094,6 +1101,20 @@ export default function FolderPage() {
 
     return (
         <div className="bg-[#1e1e1e] min-h-screen">
+            {/* Global Toast */}
+            {toast && (
+                <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
+                        toast.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
+                            'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                    }`}>
+                    {toast.type === 'error' ? <X size={20} /> : <HelpCircle size={20} />}
+                    <span className="font-medium whitespace-pre-wrap max-w-sm">{toast.msg}</span>
+                    <button onClick={() => setToast(null)} className="ml-2 hover:opacity-75">
+                        <X size={16} />
+                    </button>
+                </div>
+            )}
+
             <div className="max-w-6xl mx-auto px-6 py-10">
 
                 {/* Header */}
@@ -1251,7 +1272,7 @@ export default function FolderPage() {
                                                             const username = localStorage.getItem('username');
                                                             const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
                                                             if (res.ok) fetchFiles();
-                                                            else alert('Fehler beim Löschen.');
+                                                            else showToast('Fehler beim Löschen.');
                                                         }}
                                                         className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
                                                     >
@@ -1937,7 +1958,7 @@ export default function FolderPage() {
                                             setIsCreateSubfolderOpen(false);
                                             fetchFiles(); // refreshes subfolders too
                                         } else {
-                                            alert('Fehler beim Erstellen des Unterordners.');
+                                            showToast('Fehler beim Erstellen des Unterordners.');
                                         }
                                     }}
                                     className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
