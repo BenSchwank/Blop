@@ -12,7 +12,7 @@
 // ============= Constructor =============
 IntroScreen::IntroScreen(QWidget *parent)
     : QWidget(parent), m_dropY(0.0), m_dropScaleX(1.0), m_dropScaleY(1.0),
-      m_splash(0.0), m_nibReveal(0.0), m_textFade(0.0), m_logoReveal(0.0),
+      m_splash(0.0), m_nibReveal(0.0), m_textFade(0.0), m_dripsStart(0.0),
       m_particleTimer(0), m_finished(false) {
   setWindowFlags(Qt::Window | Qt::FramelessWindowHint |
                  Qt::WindowStaysOnTopHint);
@@ -90,15 +90,14 @@ IntroScreen::IntroScreen(QWidget *parent)
   nibAnim->setEasingCurve(QEasingCurve::OutCubic);
   m_seq->addAnimation(nibAnim);
 
-  // 5. Crossfade from procedural blob → real Intro5.png
-  auto *logoRevealAnim = new QPropertyAnimation(this, "logoReveal", this);
-  logoRevealAnim->setDuration(600);
-  logoRevealAnim->setStartValue(0.0);
-  logoRevealAnim->setEndValue(1.0);
-  logoRevealAnim->setEasingCurve(QEasingCurve::InOutQuad);
-  m_seq->addAnimation(logoRevealAnim);
+  // 5. Ink Drips begin falling from logo bottom
+  auto *dripsAnim = new QPropertyAnimation(this, "dripsStart", this);
+  dripsAnim->setDuration(100); // triggers spawnDrips() on first tick
+  dripsAnim->setStartValue(0.0);
+  dripsAnim->setEndValue(1.0);
+  m_seq->addAnimation(dripsAnim);
 
-  // 6. Text fades in
+  // 6. Text fades in (drips are physics-driven by timer, concurrent with text)
   auto *textAnim = new QPropertyAnimation(this, "textFade", this);
   textAnim->setDuration(500);
   textAnim->setStartValue(0.0);
@@ -165,17 +164,76 @@ void IntroScreen::spawnParticles() {
   }
 }
 
+// ============= Ink Drip System =============
+void IntroScreen::spawnDrips() {
+  m_drips.clear();
+  // The blob at blobScale=1.5 has bottom points at roughly:
+  // bottom-center, lower-left, lower-right, and a mid-bottom
+  // Anchors are in screen coords relative to screen center (m_cx, m_cy)
+  const qreal bs = 1.5; // final blobScale
+  struct AnchorDef {
+    qreal ax;
+    qreal ay;
+    qreal speed;
+    qreal w;
+    qreal delay;
+  };
+  QList<AnchorDef> anchors = {
+      {-14.0 * bs, 98.0 * bs, 2.8, 4.0, 0},   // bottom-left
+      {0.5 * bs, 99.5 * bs, 3.5, 5.5, 180},   // center bottom (biggest)
+      {33.5 * bs, 93.0 * bs, 2.2, 3.5, 90},   // bottom-right
+      {-31.0 * bs, 79.0 * bs, 1.8, 3.0, 320}, // lower-left shoulder
+  };
+  for (const auto &a : anchors) {
+    InkDrip d;
+    d.anchor = QPointF(m_cx + a.ax, m_cy + a.ay);
+    d.fallY = -a.delay * 0.05; // stagger start (negative = hasn't started)
+    d.speed = a.speed;
+    d.width = a.w;
+    d.length = 0.0;
+    d.splash = 0.0;
+    d.landed = false;
+    d.landY = d.anchor.y() + 180.0 + (qrand() % 30);
+    m_drips.append(d);
+  }
+}
+
 void IntroScreen::timerEvent(QTimerEvent *) {
+  // --- Particles ---
   for (auto &p : m_particles) {
     p.pos += p.vel;
-    p.vel.ry() += 0.15; // gravity
+    p.vel.ry() += 0.15;
     p.life -= 0.03;
   }
   m_particles.erase(
       std::remove_if(m_particles.begin(), m_particles.end(),
                      [](const Particle &p) { return p.life <= 0; }),
       m_particles.end());
-  if (!m_particles.isEmpty())
+
+  // --- Ink Drips ---
+  bool anyDripActive = false;
+  for (auto &d : m_drips) {
+    if (d.fallY < 0) {
+      // Delay countdown
+      d.fallY += 0.05;
+      anyDripActive = true;
+      continue;
+    }
+    if (!d.landed) {
+      d.fallY += d.speed;
+      d.length = qMin(d.fallY * 0.6, 30.0); // elongate as it falls
+      if (d.anchor.y() + d.fallY >= d.landY) {
+        d.landed = true;
+        d.splash = 0.01;
+      }
+      anyDripActive = true;
+    } else if (d.splash < 1.0) {
+      d.splash += 0.04;
+      anyDripActive = true;
+    }
+  }
+
+  if (!m_particles.isEmpty() || anyDripActive)
     update();
 }
 
@@ -388,6 +446,77 @@ void IntroScreen::paintEvent(QPaintEvent *) {
       p.drawPath(nib);
 
       p.setOpacity(1.0);
+    }
+  }
+
+  // ====== INK DRIPS: drawn after blob settles ======
+  if (!m_drips.isEmpty()) {
+    for (const auto &d : m_drips) {
+      if (d.fallY <= 0)
+        continue; // still in delay
+
+      const QColor dripColor(78, 130, 255);
+      const QColor glowColor(100, 160, 255);
+
+      qreal headX = d.anchor.x();
+      qreal headY = d.anchor.y() + d.fallY;
+      qreal tailY = d.anchor.y() + qMax(0.0, d.fallY - d.length);
+
+      if (!d.landed) {
+        // --- Falling drip body (elongated rounded shape) ---
+        // Glow around drip
+        QPainterPath dripPath;
+        dripPath.moveTo(headX, tailY);
+        dripPath.quadTo(headX + d.width * 0.7, tailY + d.length * 0.3, headX,
+                        headY + d.width * 0.6); // bottom tip
+        dripPath.quadTo(headX - d.width * 0.7, tailY + d.length * 0.3, headX,
+                        tailY);
+
+        for (int gi = 4; gi >= 1; --gi) {
+          qreal alpha = 0.07 * gi;
+          QPen gp(QColor(glowColor.red(), glowColor.green(), glowColor.blue(),
+                         int(255 * alpha)),
+                  gi * 8.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+          p.setPen(gp);
+          p.setBrush(Qt::NoBrush);
+          p.drawPath(dripPath);
+        }
+
+        // Filled drip body
+        QLinearGradient dg(headX, tailY, headX, headY);
+        dg.setColorAt(0.0, QColor(120, 175, 255, 200));
+        dg.setColorAt(1.0, dripColor);
+        p.setBrush(dg);
+        p.setPen(Qt::NoPen);
+        p.drawPath(dripPath);
+
+      } else {
+        // --- Splash ring on landing ---
+        qreal sp = d.splash; // 0‥1
+        qreal ringR = sp * d.width * 9.0;
+        qreal alpha = 1.0 - sp;
+        if (alpha > 0) {
+          p.setOpacity(alpha * 0.85);
+
+          // Flat oval splash pool
+          QRadialGradient pool(headX, d.landY, ringR * 0.5);
+          pool.setColorAt(0.0, QColor(78, 130, 255, int(180 * alpha)));
+          pool.setColorAt(1.0, QColor(78, 130, 255, 0));
+          p.setBrush(pool);
+          p.setPen(Qt::NoPen);
+          p.drawEllipse(QPointF(headX, d.landY), ringR, ringR * 0.35);
+
+          // Outer ring outline
+          QPen ringPen(QColor(glowColor.red(), glowColor.green(),
+                              glowColor.blue(), int(200 * alpha)),
+                       1.5);
+          p.setPen(ringPen);
+          p.setBrush(Qt::NoBrush);
+          p.drawEllipse(QPointF(headX, d.landY), ringR, ringR * 0.35);
+
+          p.setOpacity(1.0);
+        }
+      }
     }
   }
 

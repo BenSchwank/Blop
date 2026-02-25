@@ -12,11 +12,25 @@
 #include <QTimer>
 #include <QWidget>
 
+// A particle burst on initial splash impact
 struct Particle {
   QPointF pos;
   QPointF vel;
   qreal life; // 1.0 → 0.0
   qreal size;
+};
+
+// A single ink drip that falls from the bottom of the logo after it settles
+struct InkDrip {
+  QPointF
+      anchor;   // start point on blob edge (screen coords, relative to center)
+  qreal fallY;  // how far it has fallen (0 = at anchor)
+  qreal speed;  // pixels per tick
+  qreal width;  // drip width
+  qreal length; // drip tail length (grows as it falls)
+  qreal splash; // 0‥1: splash ring at landing
+  bool landed;
+  qreal landY; // Y at landing
 };
 
 class IntroScreen : public QWidget {
@@ -27,7 +41,7 @@ class IntroScreen : public QWidget {
   Q_PROPERTY(qreal splash READ splash WRITE setSplash)
   Q_PROPERTY(qreal nibReveal READ nibReveal WRITE setNibReveal)
   Q_PROPERTY(qreal textFade READ textFade WRITE setTextFade)
-  Q_PROPERTY(qreal logoReveal READ logoReveal WRITE setLogoReveal)
+  Q_PROPERTY(qreal dripsStart READ dripsStart WRITE setDripsStart)
 
 public:
   explicit IntroScreen(QWidget *parent = nullptr);
@@ -41,7 +55,7 @@ public:
   qreal splash() const { return m_splash; }
   qreal nibReveal() const { return m_nibReveal; }
   qreal textFade() const { return m_textFade; }
-  qreal logoReveal() const { return m_logoReveal; }
+  qreal dripsStart() const { return m_dripsStart; }
 
   void setDropY(qreal v) {
     m_dropY = v;
@@ -70,8 +84,11 @@ public:
     m_textFade = v;
     update();
   }
-  void setLogoReveal(qreal v) {
-    m_logoReveal = v;
+  void setDripsStart(qreal v) {
+    bool wasZero = (m_dripsStart == 0.0);
+    m_dripsStart = v;
+    if (wasZero && v > 0)
+      spawnDrips();
     update();
   }
 
@@ -86,6 +103,7 @@ protected:
 private:
   void finishIntro();
   void spawnParticles();
+  void spawnDrips();
   void drawGlowShape(QPainter &p, const QPainterPath &path, const QColor &col,
                      int layers);
   QPainterPath buildBlobPath(qreal scale) const;
@@ -97,10 +115,10 @@ private:
   qreal m_splash;
   qreal m_nibReveal;
   qreal m_textFade;
-  qreal m_logoReveal;
+  qreal m_dripsStart;
 
-  QPixmap m_logoPix; // Intro5.png pre-loaded
   QList<Particle> m_particles;
+  QList<InkDrip> m_drips;
   int m_particleTimer;
 
   QSequentialAnimationGroup *m_seq;
