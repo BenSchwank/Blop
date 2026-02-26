@@ -2,6 +2,6 @@
 <RCC version="1.0">
 <qresource prefix="/">
     <file>assets/logo.jpg</file>
-    <file>assets/Intro5.png</file>
+    <file>assets/Intro Blop.mp4</file>
 </qresource>
 </RCC>

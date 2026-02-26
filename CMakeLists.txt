@@ -21,7 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- BASIS-PAKETE ---
 # Hier wird nach Qt6Config.cmake gesucht.
 # Durch den Fix im YAML wird dieser Pfad nun korrekt via CMAKE_PREFIX_PATH gefunden.
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml Multimedia MultimediaWidgets)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
@@ -125,6 +125,8 @@ target_link_libraries(Blop PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Qml
+    Qt6::Multimedia
+    Qt6::MultimediaWidgets
 )
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
