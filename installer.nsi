@@ -5,6 +5,13 @@ OutFile "Blop_Windows_Installer.exe"
 InstallDir "$PROGRAMFILES64\Blop"
 RequestExecutionLevel admin
 
+; Version Information for Windows
+VIProductVersion "3.11.0.0"
+VIAddVersionKey "ProductName" "Blop"
+VIAddVersionKey "FileVersion" "3.11.0"
+VIAddVersionKey "ProductVersion" "3.11.0"
+VIAddVersionKey "FileDescription" "Blop Installer"
+
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -35,6 +42,7 @@ Section "Install"
   
   ; Registry Eintrag für Deinstallation (optional, aber gut für Systemsteuerung)
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayName" "Blop"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayVersion" "3.11.0"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
 SectionEnd
