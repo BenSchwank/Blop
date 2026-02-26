@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2 } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RichTextEditor from "@/components/RichTextEditor";
@@ -230,6 +230,12 @@ export default function FolderPage() {
 
     // File context menu state
     const [openMenuFileId, setOpenMenuFileId] = useState<string | null>(null);
+
+    // File rename state
+    const [isRenameFileOpen, setIsRenameFileOpen] = useState(false);
+    const [fileToRename, setFileToRename] = useState<FileData | null>(null);
+    const [renameFileValue, setRenameFileValue] = useState("");
+    const [isRenamingFile, setIsRenamingFile] = useState(false);
 
     // Subfolder state
     const [subfolders, setSubfolders] = useState<{ id: string; name: string; created_at: string }[]>([]);
@@ -756,6 +762,35 @@ export default function FolderPage() {
             setIsTaskHelpLoading(false);
         }
     };
+    const handleRenameFile = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!renameFileValue.trim() || !fileToRename) return;
+
+        setIsRenamingFile(true);
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/files/${folderId}/${fileToRename.id}/rename`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: renameFileValue, username }),
+            });
+
+            if (res.ok) {
+                setIsRenameFileOpen(false);
+                setFileToRename(null);
+                setRenameFileValue("");
+                fetchFiles();
+            } else {
+                const err = await res.json();
+                showToast(`Fehler beim Umbenennen: ${err.detail || 'Unbekannt'}`);
+            }
+        } catch (error) {
+            console.error("Error renaming file:", error);
+            showToast("Netzwerkfehler beim Umbenennen.");
+        } finally {
+            setIsRenamingFile(false);
+        }
+    };
 
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
@@ -1249,6 +1284,25 @@ export default function FolderPage() {
                                                         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
                                                         Öffnen
                                                     </button>
+
+                                                    {file.type !== 'pdf' && (
+                                                        <>
+                                                            <div className="h-px bg-[#333]" />
+                                                            <button
+                                                                onClick={() => {
+                                                                    setFileToRename(file);
+                                                                    setRenameFileValue(file.name);
+                                                                    setIsRenameFileOpen(true);
+                                                                    setOpenMenuFileId(null);
+                                                                }}
+                                                                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#2d2d2d] hover:text-white transition-colors"
+                                                            >
+                                                                <Edit size={15} />
+                                                                Umbenennen
+                                                            </button>
+                                                        </>
+                                                    )}
+
                                                     <div className="h-px bg-[#333]" />
                                                     <button
                                                         onClick={async () => {
@@ -1892,6 +1946,49 @@ export default function FolderPage() {
                                 <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#1e1e1e] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                     {fullscreenCard.back}
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Rename File Modal */}
+                {isRenameFileOpen && fileToRename && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-[#5E5CE6]/10 text-[#5E5CE6]">
+                                        <Edit size={18} />
+                                    </div>
+                                    <h3 className="text-base font-semibold text-white">Datei umbenennen</h3>
+                                </div>
+                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5">
+                                <input
+                                    type="text"
+                                    placeholder="Neuer Name..."
+                                    value={renameFileValue}
+                                    onChange={(e) => setRenameFileValue(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('rename-file-btn')?.click(); }}
+                                    className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#333]">
+                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    id="rename-file-btn"
+                                    disabled={!renameFileValue.trim() || isRenamingFile || renameFileValue === fileToRename.name}
+                                    onClick={handleRenameFile as any}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                                >
+                                    {isRenamingFile ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Speichern"}
+                                </button>
                             </div>
                         </div>
                     </div>

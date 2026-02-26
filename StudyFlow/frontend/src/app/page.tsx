@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface FolderData {
@@ -21,6 +21,12 @@ export default function Dashboard() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+
+  // Rename Modal State
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [folderToRename, setFolderToRename] = useState<FolderData | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // AI Summary Modal State
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
@@ -74,6 +80,32 @@ export default function Dashboard() {
       console.error("Error creating folder:", error);
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleRenameFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameValue.trim() || !folderToRename) return;
+
+    setIsRenaming(true);
+    try {
+      const username = localStorage.getItem("username");
+      const res = await fetch(`${API_BASE}/folders/${folderToRename.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: renameValue, username }),
+      });
+
+      if (res.ok) {
+        setIsRenameOpen(false);
+        setFolderToRename(null);
+        setRenameValue("");
+        fetchFolders(); // Refresh list
+      }
+    } catch (error) {
+      console.error("Error renaming folder:", error);
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -207,14 +239,28 @@ export default function Dashboard() {
                   onClick={() => router.push(`/folder/${folder.id}`)}
                   className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-2xl p-5 transition-all cursor-pointer shadow-sm hover:shadow-lg hover:shadow-[#5E5CE6]/10 flex flex-col items-center justify-center gap-3 min-h-[150px] text-center"
                 >
-                  {/* Delete Button (Absolute Top Right) */}
-                  <button
-                    onClick={(e) => handleDeleteFolder(folder.id, e)}
-                    className="absolute top-2 right-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1.5 hover:bg-[#333] rounded-lg z-10"
-                    title="Ordner löschen"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {/* Action Buttons (Absolute Top Right) */}
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFolderToRename(folder);
+                        setRenameValue(folder.name);
+                        setIsRenameOpen(true);
+                      }}
+                      className="text-gray-500 hover:text-white p-1.5 hover:bg-[#333] rounded-lg"
+                      title="Ordner umbenennen"
+                    >
+                      <Edit size={16} />
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteFolder(folder.id, e)}
+                      className="text-gray-500 hover:text-red-400 p-1.5 hover:bg-[#333] rounded-lg"
+                      title="Ordner löschen"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
 
                   {/* Centered Large Icon */}
                   <div className="p-3.5 bg-[#333] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
@@ -270,6 +316,58 @@ export default function Dashboard() {
                 >
                   {isCreating && <Loader2 size={14} className="animate-spin" />}
                   Erstellen
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Folder Modal */}
+      {isRenameOpen && folderToRename && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#1e1e1e] border border-[#333] rounded-xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">Ordner umbenennen</h3>
+              <button
+                onClick={() => {
+                  setIsRenameOpen(false);
+                  setFolderToRename(null);
+                }}
+                className="text-gray-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRenameFolder}>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Neuer Name..."
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                className="w-full bg-[#252526] border border-[#333] text-white rounded-lg px-4 py-2.5 mb-4 focus:ring-2 focus:ring-[#5E5CE6] focus:border-transparent outline-none placeholder:text-gray-500"
+              />
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRenameOpen(false);
+                    setFolderToRename(null);
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  disabled={!renameValue.trim() || isRenaming || renameValue === folderToRename.name}
+                  className="px-4 py-2 text-sm font-medium bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isRenaming && <Loader2 size={14} className="animate-spin" />}
+                  Speichern
                 </button>
               </div>
             </form>

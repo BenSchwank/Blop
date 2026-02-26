@@ -15,70 +15,45 @@ export default function ClientLayout({
     const isAuthPage = pathname === "/login" || pathname === "/datenschutz";
 
     // Sidebar starts collapsed – expand on user click
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
-    // Persist preference across navigation, but collapse again after fresh login
+    // Persist preference across navigation
     useEffect(() => {
-        const saved = sessionStorage.getItem("sidebarOpen");
-        setSidebarOpen(saved === "true");
+        const saved = sessionStorage.getItem("sidebarCollapsed");
+        if (saved !== null) {
+            setSidebarCollapsed(saved === "true");
+        }
     }, []);
 
     const toggleSidebar = () => {
-        const next = !sidebarOpen;
-        setSidebarOpen(next);
-        sessionStorage.setItem("sidebarOpen", String(next));
+        const next = !sidebarCollapsed;
+        setSidebarCollapsed(next);
+        sessionStorage.setItem("sidebarCollapsed", String(next));
     };
 
-    // Login / Datenschutz – no sidebar at all
+    // For Auth pages (login/datenschutz), we STILL render the sidebar, but ALWAYS collapsed.
+    // However, the user asked for it to be collapsed on the login screen. No main content scaling needed.
     if (isAuthPage) {
-        return <main className="min-h-screen w-full relative">{children}</main>;
+        return (
+            <div className="flex min-h-screen">
+                <div className="hidden md:flex">
+                    <Sidebar isCollapsed={true} onToggle={() => { }} />
+                </div>
+                <main className="flex-1 min-h-screen relative">{children}</main>
+            </div>
+        );
     }
 
     return (
         <div className="flex min-h-screen">
-            {/* Sidebar panel – slides in/out */}
-            <aside
-                className={`
-                    hidden md:flex flex-col
-                    transition-all duration-300 ease-in-out overflow-hidden
-                    bg-[#1e1e1e] border-r border-[#333] sticky top-0 h-screen
-                    ${sidebarOpen ? "w-[220px]" : "w-0"}
-                `}
-            >
-                {/*
-                  Only render Sidebar content when open, so it doesn't
-                  overflow or ghost-render when collapsed.
-                */}
-                {sidebarOpen && <Sidebar />}
-            </aside>
+            {/* Sidebar panel (visible on desktop) */}
+            <div className="hidden md:flex">
+                <Sidebar isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+            </div>
 
-            {/* Toggle button (always visible) */}
-            <button
-                onClick={toggleSidebar}
-                className="
-                    hidden md:flex
-                    fixed top-4 left-4 z-50
-                    items-center justify-center
-                    w-9 h-9 rounded-lg
-                    bg-[#252526] border border-[#3a3a3a]
-                    text-[#aaa] hover:text-white hover:bg-[#333]
-                    transition-all
-                "
-                title={sidebarOpen ? "Sidebar einklappen" : "Sidebar ausklappen"}
-            >
-                {sidebarOpen
-                    ? <PanelLeftClose size={18} />
-                    : <PanelLeftOpen size={18} />
-                }
-            </button>
-
-            {/* Main content – shifts left when sidebar is open */}
+            {/* Main content */}
             <main
-                className={`
-                    flex-1 min-h-screen overflow-x-hidden pb-20 md:pb-0
-                    transition-all duration-300
-                    ${sidebarOpen ? "md:pl-4" : "md:pl-14"}
-                `}
+                className="flex-1 min-h-screen overflow-x-hidden pb-20 md:pb-0 transition-all duration-300 relative"
             >
                 {children}
             </main>

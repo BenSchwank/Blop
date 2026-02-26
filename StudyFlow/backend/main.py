@@ -166,6 +166,17 @@ def delete_folder(folder_id: str, username: str):
         return {"status": "success", "message": "Ordner gelöscht"}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
+class RenameFolderRequest(BaseModel):
+    name: str
+    username: str
+
+@app.put("/api/folders/{folder_id}")
+def rename_folder(folder_id: str, body: RenameFolderRequest):
+    """Renames a folder."""
+    if DataManager.rename_folder(folder_id, body.name, body.username):
+        return {"status": "success", "folder": body.name}
+    raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
+
 @app.post("/api/folders")
 def create_folder(folder: FolderCreate):
     """Creates a new folder."""
@@ -214,6 +225,17 @@ def update_file(request: FileUpdateRequest):
     if DataManager.update_file_content(request.username, request.folder_id, request.file_id, request.content):
         return {"status": "success", "message": "Datei gespeichert"}
     raise HTTPException(status_code=500, detail="Fehler beim Speichern der Datei")
+
+class RenameFileRequest(BaseModel):
+    name: str
+    username: str
+
+@app.put("/api/files/{folder_id}/{file_id}/rename")
+def rename_file(folder_id: str, file_id: str, body: RenameFileRequest):
+    """Renames a generic file."""
+    if DataManager.rename_file(body.username, folder_id, file_id, body.name):
+        return {"status": "success", "file": body.name}
+    raise HTTPException(status_code=404, detail="Datei nicht gefunden oder Format (z.B. PDF) nicht unterstützt.")
 
 # --- UPLOAD & AI ENDPOINTS ---
 

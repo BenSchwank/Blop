@@ -245,6 +245,18 @@ class DataManager:
             return False
 
     @staticmethod
+    def rename_folder(folder_id, new_name, username):
+        """Renames an existing folder."""
+        data = DataManager.load(username)
+        if "folders" in data:
+            for f in data["folders"]:
+                if f["id"] == folder_id:
+                    f["name"] = new_name
+                    DataManager.save(data, username)
+                    return True
+        return False
+
+    @staticmethod
     def save_summary(title, content, username, folder_id=None):
         """LEGACY: Saves a manual summary note."""
         DataManager.save_summary_as_file(title, content, username, folder_id, "summary")
@@ -363,6 +375,43 @@ class DataManager:
                      if len(found_folder["files"]) < original_len:
                          DataManager.save(data, username)
                          return True
+        return False
+
+    @staticmethod
+    def rename_file(username, folder_id, file_id, new_name):
+        """Renames a file (Plan, Summary, Repetition, etc) by updating its metadata."""
+        db = DataManager._init_firestore()
+        
+        # PDFs are stored differently and renaming them requires moving files/docs,
+        # so for this MVP we only support renaming generic files in the "files" array/collection.
+        is_pdf = file_id.endswith(".pdf") or not (
+            file_id.startswith("plan_") or 
+            file_id.startswith("summary_") or 
+            file_id.startswith("rep_") or 
+            file_id.startswith("elab_") or 
+            file_id.startswith("quiz_") or 
+            file_id.startswith("flash_")
+        )
+        
+        if db:
+             try:
+                 if not is_pdf:
+                     doc_ref = db.collection("users").document(username).collection("folders").document(str(folder_id)).collection("files").document(file_id)
+                     doc_ref.set({"name": new_name}, merge=True)
+                     return True
+             except Exception as e:
+                 print(f"Rename Error: {e}")
+                 return False
+        else:
+             if not is_pdf:
+                 data = DataManager.load(username)
+                 for f in data.get("folders", []):
+                     if f["id"] == folder_id and "files" in f:
+                         for file_item in f["files"]:
+                             if file_item["id"] == file_id:
+                                 file_item["name"] = new_name
+                                 DataManager.save(data, username)
+                                 return True
         return False
 
     @staticmethod
