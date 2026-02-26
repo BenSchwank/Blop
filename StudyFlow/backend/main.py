@@ -152,9 +152,11 @@ def get_leaderboard(limit: int = 10):
 # --- FOLDER ENDPOINTS ---
 @app.get("/api/folders")
 def get_folders(username: str):
-    """Returns list of folders for a user."""
+    """Returns list of root folders for a user."""
     data = DataManager.load(username)
-    return data.get("folders", [])
+    all_folders = data.get("folders", [])
+    # Only return root folders (those without a parent_id)
+    return [f for f in all_folders if not f.get("parent_id")]
 
 @app.delete("/api/folders/{folder_id}")
 def delete_folder(folder_id: str, username: str):

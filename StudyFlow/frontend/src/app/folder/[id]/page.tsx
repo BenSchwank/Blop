@@ -633,7 +633,7 @@ export default function FolderPage() {
                 setSelectedFile({
                     id: `repetition_${Date.now()}`,
                     name: 'Wiederholungsbogen',
-                    type: 'summary',
+                    type: 'repetition',
                     created_at: new Date().toISOString().split('T')[0],
                     content: data.repetition
                 });
@@ -1104,8 +1104,8 @@ export default function FolderPage() {
             {/* Global Toast */}
             {toast && (
                 <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
-                        toast.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
-                            'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                    toast.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
+                        'bg-blue-500/10 border-blue-500/20 text-blue-400'
                     }`}>
                     {toast.type === 'error' ? <X size={20} /> : <HelpCircle size={20} />}
                     <span className="font-medium whitespace-pre-wrap max-w-sm">{toast.msg}</span>
