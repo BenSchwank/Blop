@@ -761,7 +761,7 @@ export default function FolderPage() {
     const renderViewer = () => {
         if (!selectedFile) return null;
 
-        if (selectedFile.type === 'summary' || selectedFile.type === 'repetition') {
+        if (selectedFile.type === 'summary' || selectedFile.type === 'repetition' || selectedFile.type === 'elaboration') {
             return (
                 <RichTextEditor
                     initialContent={typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '')}
@@ -1067,20 +1067,8 @@ export default function FolderPage() {
             );
         }
         if (file.type === 'repetition') {
-            let data = file.content;
-            if (typeof data === 'string') {
-                try {
-                    data = JSON.parse(data);
-                } catch {
-                    // Fallback to legacy markdown rendering if parsing fails (for old repetition records)
-                    return (
-                        <div className="prose prose-invert max-w-3xl mx-auto w-full">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{file.content}</ReactMarkdown>
-                        </div>
-                    );
-                }
-            }
-            return <RepetitionViewer data={data} />;
+            // Note: Repetition is now handled by the generic RichTextEditor block at the top of renderViewer
+            return null;
         }
         return <p className="text-center text-gray-500 mt-10">Vorschau für diesen Datentyp nicht verfügbar.</p>;
     };
