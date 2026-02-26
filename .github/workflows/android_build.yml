@@ -47,8 +47,8 @@ jobs:
           mkdir -p ${{ runner.workspace }}/Qt
           # Desktop Qt für Host-Tools
           python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt
-          # Android Qt MIT Modul qtwebview (WICHTIG!)
-          python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview
+          # Android Qt MIT Modul qtwebview und qtmultimedia (WICHTIG!)
+          python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia
 
       - name: Create Build Directory
         run: mkdir build
