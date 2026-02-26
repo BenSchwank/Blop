@@ -63,6 +63,7 @@ def read_root():
     return {"message": "Blop Study Backend Running", "version": "1.0.0"}
 
 @app.get("/api/health")
+@app.head("/api/health")
 def health_check():
     return {"status": "ok", "database": "firebase" if DataManager._init_firestore() else "local"}
 
