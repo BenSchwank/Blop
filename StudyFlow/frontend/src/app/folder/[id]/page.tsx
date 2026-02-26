@@ -761,7 +761,7 @@ export default function FolderPage() {
     const renderViewer = () => {
         if (!selectedFile) return null;
 
-        if (selectedFile.type === 'summary') {
+        if (selectedFile.type === 'summary' || selectedFile.type === 'repetition') {
             return (
                 <RichTextEditor
                     initialContent={typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '')}
@@ -963,29 +963,26 @@ export default function FolderPage() {
         }
 
         return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-2xl h-[80vh] flex flex-col shadow-2xl animate-in fade-in zoom-in duration-200">
-                    {/* Header */}
-                    <div className="flex justify-between items-center p-4 border-b border-[#333]">
-                        <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${selectedFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                selectedFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                    selectedFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                        'bg-[#333] text-gray-400'
-                                }`}>
-                                {getFileIcon(selectedFile.type)}
-                            </div>
-                            <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
-                        </div>
-                        <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg">
+            <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-10 w-full">
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#333] rounded-xl transition-colors">
                             <X size={20} />
                         </button>
+                        <div className="h-6 w-px bg-[#333] mx-2"></div>
+                        <div className={`p-2 rounded-lg ${selectedFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
+                            selectedFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                                selectedFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                    'bg-[#333] text-gray-400'
+                            }`}>
+                            {getFileIcon(selectedFile.type)}
+                        </div>
+                        <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
                     </div>
+                </div>
 
-                    {/* Content */}
-                    <div className="flex-1 overflow-y-auto p-6 text-gray-300">
-                        {renderFileContent(selectedFile)}
-                    </div>
+                <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-6 text-gray-300">
+                    {renderFileContent(selectedFile)}
                 </div>
             </div>
         );

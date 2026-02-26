@@ -438,47 +438,33 @@ Hier ist das Quellenmaterial:
     def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None, learning_mode: str = "normal") -> Any:
         """Generates targeted spaced-repetition / review material."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel(get_best_model(model_preference))
 
             # --- Learning Mode Preamble ---
             if learning_mode == "exercise":
                 mode_note = """KONZEPTLERNEN-MODUS:
 Das Material enthält Übungsaufgaben. Erstelle die Wiederholung zu den KONZEPTEN und METHODEN
 die man braucht um diese Aufgaben zu lösen – NICHT zu den Aufgaben selbst.
-Die 'Active Recall Fragen' sollen das Verständnis der Lösungsmethoden prüfen, nicht die Lösungen abfragen."""
+Die Wiederholungsfragen sollen das Verständnis der Lösungsmethoden prüfen, nicht die Lösungen abfragen."""
             else:
                 mode_note = custom_rules if custom_rules else "Extrahiere die wichtigsten Konzepte, die ein Schüler typischerweise vor der Prüfung vergessen könnte."
 
             prompt = f"""
-Du bist ein Lernexperte (wie Anki oder Mochi). Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.
+Du bist ein Lernexperte. Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.
 Der Fokus liegt auf aktivem Abruf (Active Recall) und dem Schließen von Wissenslücken.
 
 {"Spezifische Anweisungen/Schwerpunkte des Nutzers:" if custom_rules and learning_mode != "exercise" else "Fokus:"}
 {mode_note}
 
 
-Struktur der Wiederholung:
-1. 🎯 **Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse in je einem Satz.
-2. ❓ **Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen und ihre Antworten (Aufgeteilt in separaten Frage/Antwort Feldern für interaktives Aufklappen).
-3. 🧠 **Häufige Stolpersteine:** Welche Details verwechselt man leicht?
-4. 🧮 **Für Mathe/Naturwissenschaften (falls relevant):** Wenn es sich um Rechenaufgaben oder Beweise handelt, erkläre detailliert den Lösungsansatz ("Wie gehe ich an solche Aufgaben heran?") und liste alle zwingend benötigten Formeln übersichtlich auf.
-5. 🔗 **Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
+Bitte gliedere die Wiederholung in folgende Abschnitte (nutze sauberes Markdown):
+1. **🎯 Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse prägnant zusammengefasst.
+2. **❓ Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen mit direkt darunter stehenden ausführlichen detaillierten Lösungen.
+3. **🧠 Häufige Stolpersteine:** Welche Details verwechselt man leicht? Worauf muss man besonders achten?
+4. **🧮 Lösungsansätze & Formeln (falls relevant):** Wenn es sich um Mathe/Naturwissenschaften handelt, erkläre detailliert den Lösungsansatz und liste benötigte Formeln auf. Sonst weglassen.
+5. **🔗 Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
 
-WICHTIG: Gib das Ergebnis AUSSCHLIESSLICH als JSON-Objekt aus. Formatiere den inneren Text der Felder auf Deutsch gerne mit Markdown für bessere Lesbarkeit (Fettgedrucktes, Listen).
-
-Ausgabe-Format (JSON):
-{{
-    "core_concepts": [ "Konzept 1", "Konzept 2", "Konzept 3" ],
-    "qa_pairs": [
-        {{
-            "question": "Prüfungsfrage 1?",
-            "answer": "Ausführliche, detaillierte Lösung zu Frage 1"
-        }}
-    ],
-    "pitfalls": "Markdown Text über Stolpersteine...",
-    "math_logic": "Markdown Text über Rechenansätze... (oder null wenn nicht anwendbar)",
-    "context": "Markdown Text über den größeren Kontext..."
-}}
+Schreibe auf Deutsch im Fließtext mit Absätzen und Listen, sodass es wie ein schönes direkt lesbares Handout aussieht.
 
 Hier ist das Quellenmaterial:
 """
