@@ -1189,6 +1189,8 @@ void MainWindow::setupUi() {
   QScroller::grabGesture(m_fileListView, QScroller::LeftMouseButtonGesture);
   connect(m_fileListView, &QListView::doubleClicked, this,
           &MainWindow::onFileDoubleClicked);
+  connect(m_fileListView, &FreeGridView::itemDropped, this,
+          &MainWindow::onItemDropped);
   m_fileListView->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_fileListView, &QWidget::customContextMenuRequested,
           [this](const QPoint &pos) {
@@ -2669,6 +2671,58 @@ void MainWindow::onRedo() {
   CanvasView *cv = getCurrentCanvas();
   if (cv)
     cv->redo();
+}
+
+void MainWindow::onItemDropped(const QModelIndex &sourceIndex,
+                               const QModelIndex &targetIndex) {
+  if (!sourceIndex.isValid() || !targetIndex.isValid())
+    return;
+
+  // We only support dropping INTO folders. If the target is not a dir, do
+  // nothing, or we might want to drop it exactly in the target's parent
+  // directory if it's a file.
+  QString targetPath = m_fileModel->filePath(targetIndex);
+  QFileInfo targetInfo(targetPath);
+
+  if (!targetInfo.isDir()) {
+    targetPath =
+        targetInfo
+            .absolutePath(); // Drop into the same folder as the target file
+  }
+
+  QString sourcePath = m_fileModel->filePath(sourceIndex);
+  QFileInfo sourceInfo(sourcePath);
+
+  if (sourcePath == targetPath)
+    return; // Dropping into its current directory
+  if (targetPath.startsWith(sourcePath + "/"))
+    return; // Cannot drop a folder into itself
+
+  QString newPath = targetPath + "/" + sourceInfo.fileName();
+
+  if (QFile::exists(newPath)) {
+    QMessageBox::warning(
+        this, "Move failed",
+        "A file or folder with this name already exists in the destination.");
+    return;
+  }
+
+  // Attempt to move file/folder locally. The backend handles synchronization or
+  // we handle it via network requests? NOTE: In the local version of the app,
+  // renaming the file locally suffices if the path updates.
+  if (sourceInfo.isDir()) {
+    QDir dir;
+    if (!dir.rename(sourcePath, newPath)) {
+      QMessageBox::warning(this, "Move failed",
+                           "Failed to move the directory.");
+      return;
+    }
+  } else {
+    if (!QFile::rename(sourcePath, newPath)) {
+      QMessageBox::warning(this, "Move failed", "Failed to move the file.");
+      return;
+    }
+  }
 }
 
 void MainWindow::onTabChanged(int index) {

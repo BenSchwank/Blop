@@ -1,6 +1,9 @@
 #include "freegridview.h"
+#include <QDrag>
+#include <QMimeData>
 #include <QScrollBar>
 #include <cmath>
+
 
 FreeGridView::FreeGridView(QWidget *parent)
     : QListView(parent), m_showGhost(false), m_accentColor(QColor(0x6c5ce7)),
@@ -111,6 +114,38 @@ void FreeGridView::dragMoveEvent(QDragMoveEvent *e) {
 
 void FreeGridView::dropEvent(QDropEvent *e) {
   m_showGhost = false;
+
+  if (e->source() == this && e->mimeData()->hasUrls()) {
+    QModelIndex targetIndex = indexAt(e->position().toPoint());
+
+    // We emit the signal so MainWindow can handle the actual move logic
+    // if we drop onto a valid target folder.
+    QModelIndexList selected = selectionModel()->selectedIndexes();
+    if (!selected.isEmpty() && targetIndex.isValid() &&
+        targetIndex != selected.first()) {
+      emit itemDropped(selected.first(), targetIndex);
+      e->acceptProposedAction();
+      viewport()->update();
+      return;
+    }
+  }
+
   QListView::dropEvent(e);
   viewport()->update();
+}
+
+void FreeGridView::startDrag(Qt::DropActions supportedActions) {
+  QModelIndexList indexes = selectionModel()->selectedIndexes();
+  if (indexes.count() > 0) {
+    QMimeData *data = model()->mimeData(indexes);
+    if (!data)
+      return;
+    QDrag *drag = new QDrag(this);
+    drag->setMimeData(data);
+
+    // Optional: set a pixmap for the drag
+    // drag->setPixmap(pixmap);
+
+    drag->exec(supportedActions, Qt::MoveAction);
+  }
 }

@@ -139,6 +139,9 @@ private slots:
   void onUndo();
   void onRedo();
 
+  void onItemDropped(const QModelIndex &sourceIndex,
+                     const QModelIndex &targetIndex);
+
   void onToggleFloatingTools();
   void finishRename();
 
