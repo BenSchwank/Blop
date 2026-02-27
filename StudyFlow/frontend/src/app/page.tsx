@@ -4,11 +4,82 @@ import React, { useState, useEffect } from 'react';
 import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 
 interface FolderData {
   id: string;
   name: string;
   files?: any[];
+}
+
+function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: FolderData, onClick: () => void, onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
+  const { attributes, listeners, setNodeRef: setDraggableRef, isDragging } = useDraggable({
+    id: `drag-${folder.id}`,
+    data: { type: 'folder', folder }
+  });
+
+  const { isOver, setNodeRef: setDroppableRef } = useDroppable({
+    id: `drop-${folder.id}`,
+    data: { type: 'folder', folder }
+  });
+
+  const setNodeRef = (node: HTMLElement | null) => {
+    setDraggableRef(node);
+    setDroppableRef(node);
+  };
+
+  return (
+    <motion.div
+      layout
+      ref={setNodeRef}
+      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+      animate={{ opacity: isDragging ? 0.3 : 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9, y: 10 }}
+      transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      className={`group relative bg-[#151525] border rounded-[18px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center
+        ${isOver ? 'border-[#5E5CE6] bg-[#1C1C33] shadow-lg shadow-[#5E5CE6]/20 scale-105' : 'border-[#2A2A40] hover:bg-[#1C1C33] hover:border-[#5E5CE6]/50 hover:shadow-lg hover:shadow-[#5E5CE6]/10'}
+      `}
+    >
+      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+        <div className="relative group/tooltip">
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onRename}
+            className="text-gray-500 hover:text-white p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
+          >
+            <Edit size={16} />
+          </button>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
+            Umbenennen
+          </div>
+        </div>
+        <div className="relative group/tooltip">
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onDelete}
+            className="text-gray-500 hover:text-red-400 p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
+          >
+            <Trash2 size={16} />
+          </button>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
+            Löschen
+          </div>
+        </div>
+      </div>
+
+      <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
+        <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={isOver ? 0.3 : 0.1} />
+      </div>
+
+      <div className="w-full px-2">
+        <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
+        <p className="text-[11px] text-gray-500">{folder.files?.length || 0} Dateien</p>
+      </div>
+    </motion.div>
+  );
 }
 
 export default function Dashboard() {
@@ -31,6 +102,9 @@ export default function Dashboard() {
 
   // AI Summary Modal State
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+
+  // Drag & Drop State
+  const [activeDragFolder, setActiveDragFolder] = useState<FolderData | null>(null);
 
   const API_BASE = '/api';
 
@@ -133,6 +207,48 @@ export default function Dashboard() {
     f.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const folder = active.data.current?.folder as FolderData;
+    if (folder) {
+      setActiveDragFolder(folder);
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveDragFolder(null);
+    const { active, over } = event;
+
+    if (!over) return;
+
+    const sourceFolder = active.data.current?.folder as FolderData;
+    const targetFolder = over.data.current?.folder as FolderData;
+
+    if (!sourceFolder || !targetFolder || sourceFolder.id === targetFolder.id) return;
+
+    // Call backend to move folder
+    try {
+      const username = localStorage.getItem("username");
+      // The API endpoint PUT /api/folders/{id}/move needs a body containing the new parent_id
+      const res = await fetch(`${API_BASE}/folders/${sourceFolder.id}/move`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parent_id: targetFolder.id, username }),
+      });
+
+      if (res.ok) {
+        // Refresh folders list
+        fetchFolders();
+      } else {
+        const err = await res.json();
+        alert(`Fehler beim Verschieben: ${err.detail || 'Unbekannt'}`);
+      }
+    } catch (error) {
+      console.error("Error moving folder:", error);
+      alert("Netzwerkfehler beim Verschieben des Ordners.");
+    }
+  };
+
   return (
     <div className="bg-[#0B0B1A] min-h-screen relative">
       {/* Main Container - Professional Width */}
@@ -233,64 +349,40 @@ export default function Dashboard() {
             </div>
           ) : (
             /* Folder Grid */
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              <AnimatePresence mode='popLayout'>
-              {folders.map((folder) => (
-                <motion.div
-                  layout
-                  initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                  transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
-                  key={folder.id}
-                  onClick={() => router.push(`/folder/${folder.id}`)}
-                  className="group relative bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] hover:border-[#5E5CE6]/50 rounded-[18px] p-5 transition-all cursor-pointer shadow-sm hover:shadow-lg hover:shadow-[#5E5CE6]/10 flex flex-col items-center justify-center gap-3 min-h-[150px] text-center"
-                >
-                  {/* Action Buttons (Absolute Top Right) */}
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
-                    <div className="relative group/tooltip">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setFolderToRename(folder);
-                          setRenameValue(folder.name);
-                          setIsRenameOpen(true);
-                        }}
-                        className="text-gray-500 hover:text-white p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
-                        Umbenennen
-                      </div>
+            <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <AnimatePresence mode='popLayout'>
+                  {filteredFolders.map((folder) => (
+                    <DraggableFolder
+                      key={folder.id}
+                      folder={folder}
+                      onClick={() => router.push(`/folder/${folder.id}`)}
+                      onRename={(e) => {
+                        e.stopPropagation();
+                        setFolderToRename(folder);
+                        setRenameValue(folder.name);
+                        setIsRenameOpen(true);
+                      }}
+                      onDelete={(e) => handleDeleteFolder(folder.id, e)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+
+              <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+                {activeDragFolder ? (
+                  <div className="bg-[#1C1C33] border border-[#5E5CE6] rounded-[18px] p-5 shadow-2xl flex flex-col items-center justify-center gap-3 min-h-[150px] text-center opacity-90 scale-105">
+                    <div className="p-3.5 bg-[#0B0B1A] rounded-full">
+                      <Folder size={40} className="text-[#5E5CE6]" fill="currentColor" fillOpacity={0.2} />
                     </div>
-                    <div className="relative group/tooltip">
-                      <button
-                        onClick={(e) => handleDeleteFolder(folder.id, e)}
-                        className="text-gray-500 hover:text-red-400 p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
-                        Löschen
-                      </div>
+                    <div className="w-full px-2">
+                      <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{activeDragFolder.name}</h3>
+                      <p className="text-[11px] text-gray-500">{activeDragFolder.files?.length || 0} Dateien</p>
                     </div>
                   </div>
-
-                  {/* Centered Large Icon */}
-                  <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
-                    <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={0.1} />
-                  </div>
-
-                  {/* Text Below */}
-                  <div className="w-full px-2">
-                    <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
-                    <p className="text-[11px] text-gray-500">{folder.files?.length || 0} Dateien</p>
-                  </div>
-                </motion.div>
-              ))}
-              </AnimatePresence>
-            </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
           )}
         </div>
 

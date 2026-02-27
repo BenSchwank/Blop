@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import RichTextEditor from "@/components/RichTextEditor";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
+import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 
 interface FileData {
     id: string;
@@ -173,6 +174,124 @@ const RepetitionViewer = ({ data }: { data: any }) => {
     );
 };
 
+// Subfolder Droppable Wrapper
+const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: any, onClick: () => void }) => {
+    const { isOver, setNodeRef } = useDroppable({
+        id: `drop-${subfolder.id}`,
+        data: { type: 'subfolder', subfolder }
+    });
+
+    return (
+        <motion.button
+            ref={setNodeRef}
+            layout
+            initial={{ opacity: 0, scale: 0.95, y: -5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -5 }}
+            transition={{ duration: 0.2 }}
+            onClick={onClick}
+            className={`flex items-center gap-2 border p-3 rounded-xl text-left transition-all group
+                ${isOver ? 'bg-[#1C1C33] border-[#5E5CE6] shadow-lg shadow-[#5E5CE6]/20 scale-105' : 'bg-[#151525] hover:bg-[#1C1C33] border-[#2A2A40] hover:border-[#5E5CE6]/40'}
+            `}
+        >
+            <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+            </div>
+            <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{subfolder.name}</span>
+        </motion.button>
+    );
+};
+
+// Draggable File Wrapper
+const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, getFileIcon }: any) => {
+    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+        id: `drag-${file.id}`,
+        data: { type: 'file', file }
+    });
+
+    return (
+        <motion.div
+            ref={setNodeRef}
+            layout
+            initial={{ opacity: 0, scale: 0.95, x: -10 }}
+            animate={{ opacity: isDragging ? 0.4 : 1, scale: 1, x: 0 }}
+            exit={{ opacity: 0, scale: 0.95, x: -10 }}
+            transition={{ duration: 0.2 }}
+            {...attributes}
+            {...listeners}
+            onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
+            className={`bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative ${isDragging ? 'z-50 shadow-2xl border-[#5E5CE6]' : ''}`}
+        >
+            <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                    file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
+                        file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                            file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
+                                    'bg-[#1C1C33] text-[#5E5CE6]'
+                    }`}>
+                    {icon}
+                </div>
+                <div>
+                    <h4 className="text-sm font-medium text-white select-none">{file.name}</h4>
+                    <p className="text-xs text-gray-500 capitalize select-none">{file.created_at} • {file.type}</p>
+                </div>
+            </div>
+
+            {/* 3-dot button + dropdown */}
+            <div className="relative" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                <button
+                    onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
+                    className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#1C1C33] opacity-0 group-hover:opacity-100 transition-all"
+                >
+                    <MoreVertical size={18} />
+                </button>
+
+                {openMenuFileId === file.id && (
+                    <div className="absolute right-0 top-full mt-1 w-40 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                        <button
+                            onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+                            Öffnen
+                        </button>
+
+                        {file.type !== 'pdf' && (
+                            <>
+                                <div className="h-px bg-[#1C1C33]" />
+                                <button
+                                    onClick={() => {
+                                        setFileToRename(file);
+                                        setRenameFileValue(file.name);
+                                        setIsRenameFileOpen(true);
+                                        setOpenMenuFileId(null);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                >
+                                    <Edit size={15} />
+                                    Umbenennen
+                                </button>
+                            </>
+                        )}
+
+                        <div className="h-px bg-[#1C1C33]" />
+                        <button
+                            onClick={async () => {
+                                setOpenMenuFileId(null);
+                                handleDelete(file);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                            Löschen
+                        </button>
+                    </div>
+                )}
+            </div>
+        </motion.div>
+    );
+};
 
 export default function FolderPage() {
     const router = useRouter();
@@ -255,6 +374,9 @@ export default function FolderPage() {
 
     // Global AI Model Override State (for all AI generation overlays)
     const [aiModelPreference, setAiModelPreference] = useState<string>('');
+
+    // Drag & Drop State
+    const [activeDragFile, setActiveDragFile] = useState<FileData | null>(null);
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
@@ -793,6 +915,55 @@ export default function FolderPage() {
         }
     };
 
+    const handleDeleteFile = async (file: FileData) => {
+        if (!confirm(`"${file.name}" wirklich löschen?`)) return;
+        const username = localStorage.getItem('username');
+        const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
+        if (res.ok) fetchFiles();
+        else showToast('Fehler beim Löschen.');
+    };
+
+    // Drag & Drop Handlers
+    const handleDragStart = (event: DragStartEvent) => {
+        const { active } = event;
+        const file = active.data.current?.file as FileData;
+        if (file) {
+            setActiveDragFile(file);
+        }
+    };
+
+    const handleDragEnd = async (event: DragEndEvent) => {
+        setActiveDragFile(null);
+        const { active, over } = event;
+
+        if (!over) return;
+
+        const sourceFile = active.data.current?.file as FileData;
+        const targetSubfolder = over.data.current?.subfolder;
+
+        if (!sourceFile || !targetSubfolder) return;
+
+        // Call backend to move file
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/files/${folderId}/${sourceFile.id}/move`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target_folder_id: targetSubfolder.id, username }),
+            });
+
+            if (res.ok) {
+                fetchFiles(); // Refresh file / subfolder lists
+            } else {
+                const err = await res.json();
+                showToast(`Fehler beim Verschieben: ${err.detail || 'Unbekannt'}`);
+            }
+        } catch (error) {
+            console.error("Error moving file:", error);
+            showToast("Netzwerkfehler beim Verschieben der Datei.");
+        }
+    };
+
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
         if (!selectedFile) return null;
@@ -1187,160 +1358,100 @@ export default function FolderPage() {
                         <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
                     </div>
                 ) : (
-                    <div className="space-y-6">
-                        {/* Subfolders section */}
-                        {(subfolders.length > 0 || true) && (
-                            <div>
-                                <div className="flex items-center justify-between mb-3">
-                                    <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-                                        Unterordner
-                                    </h3>
-                                    <button
-                                        onClick={() => setIsCreateSubfolderOpen(true)}
-                                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors"
-                                    >
-                                        <Plus size={13} /> Erstellen
-                                    </button>
-                                </div>
-                                {subfolders.length === 0 ? (
-                                    <p className="text-xs text-gray-600 italic">Noch keine Unterordner</p>
-                                ) : (
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        <AnimatePresence mode="popLayout">
-                                            {subfolders.map((sf) => (
-                                                <motion.button
-                                                    layout
-                                                    initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                                    exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                                                    transition={{ duration: 0.2 }}
-                                                    key={sf.id}
-                                                    onClick={() => router.push(`/folder/${sf.id}`)}
-                                                    className="flex items-center gap-2 bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] hover:border-[#5E5CE6]/40 p-3 rounded-xl text-left transition-all group"
-                                                >
-                                                    <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-                                                    </div>
-                                                    <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{sf.name}</span>
-                                                </motion.button>
-                                            ))}
-                                        </AnimatePresence>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Separator if both exist */}
-                        {subfolders.length > 0 && files.length > 0 && (
-                            <div className="h-px bg-[#1C1C33]" />
-                        )}
-
-                        {/* Files */}
-                        {files.length === 0 ? (
-                            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-16 text-center border-dashed">
-                                <div className="flex justify-center mb-6">
-                                    <div className="w-16 h-16 bg-[#0B0B1A] rounded-2xl flex items-center justify-center border border-[#2A2A40]">
-                                        <FileText size={24} className="text-gray-500" />
-                                    </div>
-                                </div>
-                                <h3 className="text-xl font-medium text-white mb-2">Dieser Ordner ist noch leer</h3>
-                                <p className="text-base text-gray-400 mb-8">
-                                    Lade Skripte (PDF) hoch oder füge YouTube-Videos hinzu,<br />damit die AI einen Lernplan erstellen kann.
-                                </p>
-                                <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 gap-3">
-                                <AnimatePresence mode="popLayout">
-                                    {files.map((file) => (
-                                        <motion.div
-                                            layout
-                                            initial={{ opacity: 0, scale: 0.95, x: -10 }}
-                                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                                            exit={{ opacity: 0, scale: 0.95, x: -10 }}
-                                            transition={{ duration: 0.2 }}
-                                            key={file.id}
-                                            onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
-                                            className="bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative"
+                    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
+                        <div className="space-y-6">
+                            {/* Subfolders section */}
+                            {(subfolders.length > 0 || true) && (
+                                <div>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                                            Unterordner
+                                        </h3>
+                                        <button
+                                            onClick={() => setIsCreateSubfolderOpen(true)}
+                                            className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors"
                                         >
-                                            <div className="flex items-center gap-4">
-                                                <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
-                                                    file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                                        file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                                            file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                                                file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                                    'bg-[#1C1C33] text-[#5E5CE6]'
-                                                    }`}>
-                                                    {getFileIcon(file.type)}
-                                                </div>
-                                                <div>
-                                                    <h4 className="text-sm font-medium text-white">{file.name}</h4>
-                                                    <p className="text-xs text-gray-500 capitalize">{file.created_at} • {file.type}</p>
-                                                </div>
-                                            </div>
+                                            <Plus size={13} /> Erstellen
+                                        </button>
+                                    </div>
+                                    {subfolders.length === 0 ? (
+                                        <p className="text-xs text-gray-600 italic">Noch keine Unterordner</p>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                            <AnimatePresence mode="popLayout">
+                                                {subfolders.map((sf) => (
+                                                    <DroppableSubfolder key={sf.id} subfolder={sf} onClick={() => router.push(`/folder/${sf.id}`)} />
+                                                ))}
+                                            </AnimatePresence>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
-                                            {/* 3-dot button + dropdown */}
-                                            <div className="relative" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
-                                                    className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#1C1C33] opacity-0 group-hover:opacity-100 transition-all"
-                                                >
-                                                    <MoreVertical size={18} />
-                                                </button>
+                            {/* Separator if both exist */}
+                            {subfolders.length > 0 && files.length > 0 && (
+                                <div className="h-px bg-[#1C1C33]" />
+                            )}
 
-                                                {openMenuFileId === file.id && (
-                                                    <div className="absolute right-0 top-full mt-1 w-40 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                                                        <button
-                                                            onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
-                                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
-                                                            Öffnen
-                                                        </button>
+                            {/* Files */}
+                            {files.length === 0 ? (
+                                <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-16 text-center border-dashed">
+                                    <div className="flex justify-center mb-6">
+                                        <div className="w-16 h-16 bg-[#0B0B1A] rounded-2xl flex items-center justify-center border border-[#2A2A40]">
+                                            <FileText size={24} className="text-gray-500" />
+                                        </div>
+                                    </div>
+                                    <h3 className="text-xl font-medium text-white mb-2">Dieser Ordner ist noch leer</h3>
+                                    <p className="text-base text-gray-400 mb-8">
+                                        Lade Skripte (PDF) hoch oder füge YouTube-Videos hinzu,<br />damit die AI einen Lernplan erstellen kann.
+                                    </p>
+                                    <button onClick={() => setIsUploadOpen(true)} className="inline-flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all"><Plus size={18} /><span>Material hinzufügen</span></button>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-3">
+                                    <AnimatePresence mode="popLayout">
+                                        {files.map((file) => (
+                                            <DraggableFile
+                                                key={file.id}
+                                                file={file}
+                                                icon={getFileIcon(file.type)}
+                                                openMenuFileId={openMenuFileId}
+                                                setOpenMenuFileId={setOpenMenuFileId}
+                                                setSelectedFile={setSelectedFile}
+                                                setFileToRename={setFileToRename}
+                                                setRenameFileValue={setRenameFileValue}
+                                                setIsRenameFileOpen={setIsRenameFileOpen}
+                                                handleDelete={handleDeleteFile}
+                                                getFileIcon={getFileIcon}
+                                            />
+                                        ))}
+                                    </AnimatePresence>
+                                </div>
+                            )}
+                        </div>
 
-                                                        {file.type !== 'pdf' && (
-                                                            <>
-                                                                <div className="h-px bg-[#1C1C33]" />
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setFileToRename(file);
-                                                                        setRenameFileValue(file.name);
-                                                                        setIsRenameFileOpen(true);
-                                                                        setOpenMenuFileId(null);
-                                                                    }}
-                                                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
-                                                                >
-                                                                    <Edit size={15} />
-                                                                    Umbenennen
-                                                                </button>
-                                                            </>
-                                                        )}
+                        <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+                            {activeDragFile ? (
+                                <div className="bg-[#1C1C33] border border-[#5E5CE6] p-4 rounded-xl shadow-2xl flex items-center gap-4 opacity-90 scale-105 pointer-events-none">
+                                    <div className={`p-3 rounded-lg ${activeDragFile.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                                        activeDragFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
+                                            activeDragFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                                                activeDragFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                                    activeDragFile.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
+                                                        'bg-[#1C1C33] text-[#5E5CE6]'
+                                        }`}>
+                                        {getFileIcon(activeDragFile.type)}
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-medium text-white">{activeDragFile.name}</h4>
+                                        <p className="text-xs text-gray-500 capitalize">{activeDragFile.type}</p>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </DragOverlay>
 
-                                                        <div className="h-px bg-[#1C1C33]" />
-                                                        <button
-                                                            onClick={async () => {
-                                                                setOpenMenuFileId(null);
-                                                                if (!confirm(`"${file.name}" wirklich löschen?`)) return;
-                                                                const username = localStorage.getItem('username');
-                                                                const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
-                                                                if (res.ok) fetchFiles();
-                                                                else showToast('Fehler beim Löschen.');
-                                                            }}
-                                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-                                                            Löschen
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </AnimatePresence>
-                            </div>
-                        )}
-                    </div>
+                    </DndContext>
                 )}
 
                 {/* Upload Modal */}
