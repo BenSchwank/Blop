@@ -101,7 +101,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.11.0";
+static const char *BLOP_VERSION = "3.11.6";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -423,7 +423,7 @@ MainWindow::MainWindow(QWidget *parent)
   m_activeToolType = CanvasView::ToolType::Pen;
   m_penOnlyMode = true;
   m_lblActiveNote = nullptr;
-  m_isSidebarOpen = true;
+  m_isSidebarOpen = false;
 
   m_autoSaveTimer = new QTimer(this);
   m_autoSaveTimer->setInterval(1500);
@@ -1622,6 +1622,12 @@ void MainWindow::setupSidebar() {
   connect(m_btnSidebarSettings, &QPushButton::clicked, this,
           &MainWindow::onOpenSettings);
   userCol->addWidget(m_btnSidebarSettings);
+
+  QLabel *lblVersion = new QLabel("v" + QString(BLOP_VERSION), bottomBar);
+  lblVersion->setStyleSheet(
+      "font-size: 10px; color: #555; background: transparent;");
+  userCol->addWidget(lblVersion);
+
   bottomLay->addLayout(userCol);
   bottomLay->addStretch();
 
