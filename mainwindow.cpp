@@ -259,6 +259,13 @@ void ModernItemDelegate::paint(QPainter *painter,
   painter->save();
   painter->setRenderHint(QPainter::Antialiasing);
   QRect rect = option.rect.adjusted(4, 4, -4, -4);
+
+  if (option.state & QStyle::State_MouseOver) {
+    painter->translate(rect.center());
+    painter->scale(1.02, 1.02);
+    painter->translate(-rect.center());
+  }
+
   // Turbo AI Item Background
   QColor bgColor = QColor("#252526"); // Slightly lighter than #1e1e1e for cards
   if (option.state & QStyle::State_Selected)
@@ -712,26 +719,34 @@ void MainWindow::setupTitleBar() {
 
   layout->addStretch();
   QString btnStyle =
-      "QPushButton { background: transparent; border: none; color: #BBB; "
-      "font-family: 'Segoe MDL2 Assets'; font-size: 12px; } QPushButton:hover "
-      "{ background: #333; color: white; }";
+      "QPushButton { background: transparent; border: none; padding: 6px; }"
+      "QPushButton:hover { background: #333; }";
   QString closeStyle =
-      "QPushButton { background: transparent; border: none; color: #BBB; "
-      "font-family: 'Segoe MDL2 Assets'; font-size: 12px; } QPushButton:hover "
-      "{ background: #E81123; color: white; }";
-  m_btnWinMin = new QPushButton("─", m_titleBarWidget);
+      "QPushButton { background: transparent; border: none; padding: 6px; }"
+      "QPushButton:hover { background: #E81123; }";
+
+  m_btnWinMin = new QPushButton(m_titleBarWidget);
   m_btnWinMin->setFixedSize(45, 30);
-  m_btnWinMin->setStyleSheet(btnStyle);
+  m_btnWinMin->setStyleSheet(
+      btnStyle + " QPushButton { qproperty-icon: url(:/assets/win_min.svg); }");
+  m_btnWinMin->setIconSize(QSize(12, 12));
   connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
   layout->addWidget(m_btnWinMin);
-  m_btnWinMax = new QPushButton("☐", m_titleBarWidget);
+
+  m_btnWinMax = new QPushButton(m_titleBarWidget);
   m_btnWinMax->setFixedSize(45, 30);
-  m_btnWinMax->setStyleSheet(btnStyle);
+  m_btnWinMax->setStyleSheet(
+      btnStyle + " QPushButton { qproperty-icon: url(:/assets/win_max.svg); }");
+  m_btnWinMax->setIconSize(QSize(12, 12));
   connect(m_btnWinMax, &QPushButton::clicked, this, &MainWindow::onWinMaximize);
   layout->addWidget(m_btnWinMax);
-  m_btnWinClose = new QPushButton("✕", m_titleBarWidget);
+
+  m_btnWinClose = new QPushButton(m_titleBarWidget);
   m_btnWinClose->setFixedSize(45, 30);
-  m_btnWinClose->setStyleSheet(closeStyle);
+  m_btnWinClose->setStyleSheet(
+      closeStyle +
+      " QPushButton { qproperty-icon: url(:/assets/win_close.svg); }");
+  m_btnWinClose->setIconSize(QSize(12, 12));
   connect(m_btnWinClose, &QPushButton::clicked, this, &MainWindow::onWinClose);
   layout->addWidget(m_btnWinClose);
 }
@@ -805,7 +820,8 @@ void MainWindow::applyTheme() {
 
   if (m_sidebarContainer)
     m_sidebarContainer->setStyleSheet(
-        "background-color: #1e1e1e; border-right: 1px solid #333;");
+        "background-color: rgba(25, 25, 29, 210); border-right: "
+        "1px solid #111;");
   if (m_sidebarStrip)
     m_sidebarStrip->setStyleSheet(
         "background-color: #1e1e1e; border-right: 1px solid #333;");
@@ -1181,6 +1197,15 @@ void MainWindow::setupUi() {
               showContextMenu(m_fileListView->mapToGlobal(pos), index);
           });
   overviewLayout->addWidget(m_fileListView);
+
+  m_lblEmptyState = new QLabel(
+      "Noch keine Notizen oder Ordner hier.\nKlicke auf das '+' um loszulegen.",
+      m_overviewContainer);
+  m_lblEmptyState->setAlignment(Qt::AlignCenter);
+  m_lblEmptyState->setStyleSheet(
+      "color: #777; font-size: 16px; font-weight: bold;");
+  m_lblEmptyState->hide();
+  overviewLayout->addWidget(m_lblEmptyState);
 
   m_fabNote = new QPushButton("+", m_overviewContainer);
   m_fabNote->setCursor(Qt::PointingHandCursor);
@@ -1676,6 +1701,20 @@ void MainWindow::updateSidebarBadges() {
     QListWidgetItem *item = m_navSidebar->item(i);
     if (item->text() == "All" || item->text() == "Blop Notes") {
       item->setData(Qt::UserRole + 2, rootCountStr);
+    }
+  }
+
+  if (m_lblEmptyState && m_fileListView && m_fileModel) {
+    if (m_fileModel->rowCount(m_fileListView->rootIndex()) == 0) {
+      if (!m_lblEmptyState->isVisible()) {
+        m_lblEmptyState->show();
+        m_fileListView->hide();
+      }
+    } else {
+      if (m_lblEmptyState->isVisible()) {
+        m_lblEmptyState->hide();
+        m_fileListView->show();
+      }
     }
   }
 }
@@ -2214,16 +2253,20 @@ void MainWindow::animateSidebar(bool show) {
   int end = show ? SIDEBAR_WIDTH : 0;
   m_isSidebarOpen = show;
   if (show) {
+    m_sidebarContainer->setFixedWidth(0);
     m_sidebarContainer->setVisible(true);
     updateSidebarState();
   }
-  QPropertyAnimation *anim =
-      new QPropertyAnimation(m_sidebarContainer, "maximumWidth");
-  anim->setDuration(250);
+  QVariantAnimation *anim = new QVariantAnimation(this);
+  anim->setDuration(300);
   anim->setStartValue(start);
   anim->setEndValue(end);
   anim->setEasingCurve(QEasingCurve::OutCubic);
-  connect(anim, &QPropertyAnimation::finished, [this, show]() {
+  connect(anim, &QVariantAnimation::valueChanged, this,
+          [this](const QVariant &value) {
+            m_sidebarContainer->setFixedWidth(value.toInt());
+          });
+  connect(anim, &QVariantAnimation::finished, this, [this, show]() {
     if (!show) {
       m_sidebarContainer->hide();
       updateSidebarState();

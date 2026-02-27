@@ -24,12 +24,10 @@
 #include <QToolButton>
 #include <QTreeView>
 
-
 #include "canvasview.h"
 #include "freegridview.h"
 #include "tools/ToolManager.h" // WICHTIG: Include für ToolManager
 #include "uiprofilemanager.h"
-
 
 // Forward Declarations
 class MainWindow;
@@ -244,6 +242,7 @@ private:
 
   QWidget *m_overviewContainer;
   FreeGridView *m_fileListView;
+  QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote;
 
   QWidget *m_editorContainer;

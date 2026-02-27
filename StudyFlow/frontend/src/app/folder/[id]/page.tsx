@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RichTextEditor from "@/components/RichTextEditor";
 import FloatingChat from "@/components/FloatingChat";
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface FileData {
     id: string;
@@ -30,7 +31,7 @@ const QuizViewer = ({ questions }: { questions: any[] }) => {
             {questions.map((q: any, i: number) => {
                 const userSelected = selectedAnswers[i];
                 return (
-                    <div key={i} className="bg-[#252526] p-5 rounded-xl border border-[#333] shadow-md">
+                    <div key={i} className="bg-[#151525] p-5 rounded-xl border border-[#2A2A40] shadow-md">
                         <p className="font-medium text-white mb-4 text-lg">{i + 1}. {q.question}</p>
                         <div className="space-y-3">
                             {q.options?.map((opt: string, idx: number) => {
@@ -39,10 +40,10 @@ const QuizViewer = ({ questions }: { questions: any[] }) => {
                                 const showCorrect = userSelected && isCorrect; // Highlight correct answer once user has voted
                                 const showWrong = isSelected && !isCorrect;
 
-                                let styles = "border-[#444] hover:bg-[#333] cursor-pointer text-gray-300";
+                                let styles = "border-[#3B3B55] hover:bg-[#1C1C33] cursor-pointer text-gray-300";
 
                                 if (userSelected) {
-                                    styles = "border-[#333] opacity-60 cursor-default"; // General disabled state
+                                    styles = "border-[#2A2A40] opacity-60 cursor-default"; // General disabled state
                                     if (showCorrect) styles = "border-green-500/50 bg-green-500/10 text-green-400 font-medium opacity-100";
                                     if (showWrong) styles = "border-red-500/50 bg-red-500/10 text-red-400 font-medium opacity-100";
                                 }
@@ -108,19 +109,19 @@ const RepetitionViewer = ({ data }: { data: any }) => {
                         {data.qa_pairs.map((qa: any, i: number) => {
                             const isOpen = openAnswers[i];
                             return (
-                                <div key={i} className="bg-[#252526] border border-[#333] rounded-xl overflow-hidden shadow-sm">
+                                <div key={i} className="bg-[#151525] border border-[#2A2A40] rounded-xl overflow-hidden shadow-sm">
                                     <button
                                         onClick={() => toggleAnswer(i)}
                                         className="w-full text-left p-5 flex items-start justify-between gap-4 hover:bg-[#2a2a2b] transition-colors"
                                     >
                                         <span className="font-medium text-gray-200 text-lg leading-relaxed">{i + 1}. {qa.question}</span>
-                                        <div className={`shrink-0 p-1 rounded-full bg-[#333] text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
+                                        <div className={`shrink-0 p-1 rounded-full bg-[#1C1C33] text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
                                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                         </div>
                                     </button>
 
                                     <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                                        <div className="p-5 pt-0 border-t border-[#333] mt-2">
+                                        <div className="p-5 pt-0 border-t border-[#2A2A40] mt-2">
                                             <div className="prose prose-invert max-w-none text-gray-300 text-base leading-relaxed">
                                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{qa.answer}</ReactMarkdown>
                                             </div>
@@ -838,23 +839,23 @@ export default function FolderPage() {
             const plan = selectedFile.content || [];
             if (!Array.isArray(plan) || plan.length === 0) {
                 return (
-                    <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col items-center justify-center p-4">
+                    <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col items-center justify-center p-4">
                         <div className="text-center">
                             <p className="text-gray-400 text-lg mb-2">⚠️ Lernplan ist leer</p>
-                            <button onClick={() => setSelectedFile(null)} className="mt-4 px-4 py-2 bg-[#333] hover:bg-[#444] rounded-lg text-white">Zurück</button>
+                            <button onClick={() => setSelectedFile(null)} className="mt-4 px-4 py-2 bg-[#1C1C33] hover:bg-[#3B3B55] rounded-lg text-white">Zurück</button>
                         </div>
                     </div>
                 );
             }
 
             return (
-                <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-10 w-full">
+                <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
-                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#333] rounded-xl transition-colors">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
                                 <X size={20} />
                             </button>
-                            <div className="h-6 w-px bg-[#333] mx-2"></div>
+                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
                             <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
                                 <Calendar size={20} />
                             </div>
@@ -868,13 +869,13 @@ export default function FolderPage() {
                                 const isExpanded = expandedDay === i;
 
                                 return (
-                                    <div key={i} className={`bg-[#252526] rounded-2xl border transition-all duration-200 overflow-hidden ${isExpanded ? 'border-purple-500/50 shadow-lg shadow-purple-500/5' : 'border-[#333] hover:border-[#444]'}`}>
+                                    <div key={i} className={`bg-[#151525] rounded-2xl border transition-all duration-200 overflow-hidden ${isExpanded ? 'border-purple-500/50 shadow-lg shadow-purple-500/5' : 'border-[#2A2A40] hover:border-[#3B3B55]'}`}>
                                         <button
                                             onClick={() => setExpandedDay(isExpanded ? null : i)}
                                             className="w-full text-left p-5 flex items-center justify-between focus:outline-none group"
                                         >
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${isExpanded ? 'bg-purple-500 text-white' : 'bg-[#333] text-gray-400 group-hover:bg-[#444]'}`}>
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${isExpanded ? 'bg-purple-500 text-white' : 'bg-[#1C1C33] text-gray-400 group-hover:bg-[#3B3B55]'}`}>
                                                     {day.day}
                                                 </div>
                                                 <div>
@@ -882,27 +883,27 @@ export default function FolderPage() {
                                                     {!isExpanded && <p className="text-sm text-gray-500 truncate max-w-md">{day.goal}</p>}
                                                 </div>
                                             </div>
-                                            <div className={`p-2 rounded-full transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-purple-500/10 text-purple-400' : 'bg-[#1e1e1e] text-gray-500 group-hover:text-white'}`}>
+                                            <div className={`p-2 rounded-full transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-purple-500/10 text-purple-400' : 'bg-[#0B0B1A] text-gray-500 group-hover:text-white'}`}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                             </div>
                                         </button>
 
                                         <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                             <div className="p-5 pt-0 ml-14 space-y-4">
-                                                <div className="text-sm text-gray-300 bg-[#1e1e1e] p-4 rounded-xl border border-[#333] shadow-inner">
+                                                <div className="text-sm text-gray-300 bg-[#0B0B1A] p-4 rounded-xl border border-[#2A2A40] shadow-inner">
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <span className="text-purple-400 font-semibold text-xs uppercase tracking-wider">🎯 Tagesziel</span>
                                                     </div>
                                                     <p>{day.goal}</p>
                                                     {day.summary && (
-                                                        <div className="mt-3 pt-3 border-t border-[#333]">
+                                                        <div className="mt-3 pt-3 border-t border-[#2A2A40]">
                                                             <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider mb-2 block">📚 Zusammenfassung (Lernstoff)</span>
                                                             <p className="text-gray-300 leading-relaxed">{day.summary}</p>
                                                         </div>
                                                     )}
                                                 </div>
 
-                                                <div className="bg-[#1e1e1e] p-4 rounded-xl border border-[#333]">
+                                                <div className="bg-[#0B0B1A] p-4 rounded-xl border border-[#2A2A40]">
                                                     <div className="flex items-center gap-2 mb-3">
                                                         <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">📝 Aufgaben</span>
                                                     </div>
@@ -944,7 +945,7 @@ export default function FolderPage() {
                                                                                 console.error("Failed to save checkbox state", e);
                                                                             }
                                                                         }}
-                                                                        className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-2 border-[#444] group-hover/task:border-purple-500 text-transparent hover:bg-white/5'
+                                                                        className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-2 border-[#3B3B55] group-hover/task:border-purple-500 text-transparent hover:bg-white/5'
                                                                             }`}
                                                                     >
                                                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -952,7 +953,7 @@ export default function FolderPage() {
 
                                                                     <button
                                                                         onClick={() => handleTaskHelp(description)}
-                                                                        className={`flex-1 text-left text-sm transition-colors focus:outline-none focus:text-white rounded px-2 -ml-2 py-0.5 hover:bg-[#333] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'
+                                                                        className={`flex-1 text-left text-sm transition-colors focus:outline-none focus:text-white rounded px-2 -ml-2 py-0.5 hover:bg-[#1C1C33] ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-300 group-hover/task:text-white'
                                                                             }`}
                                                                         title="Klicke für KI-Erklärung dieser Aufgabe"
                                                                     >
@@ -998,17 +999,17 @@ export default function FolderPage() {
         }
 
         return (
-            <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-10 w-full">
+            <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#333] rounded-xl transition-colors">
+                        <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
                             <X size={20} />
                         </button>
-                        <div className="h-6 w-px bg-[#333] mx-2"></div>
+                        <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
                         <div className={`p-2 rounded-lg ${selectedFile.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
                             selectedFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                                 selectedFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                    'bg-[#333] text-gray-400'
+                                    'bg-[#1C1C33] text-gray-400'
                             }`}>
                             {getFileIcon(selectedFile.type)}
                         </div>
@@ -1047,7 +1048,7 @@ export default function FolderPage() {
                                 link.click();
                                 document.body.removeChild(link);
                             }}
-                            className="bg-[#252526] hover:bg-[#333] border border-[#444] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                            className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
                             Export to Anki (CSV)
@@ -1082,7 +1083,7 @@ export default function FolderPage() {
                                             <Maximize2 size={16} />
                                         </button>
                                     </div>
-                                    <div className="flip-card-inner w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#333] bg-[#252526]">
+                                    <div className="flip-card-inner w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#2A2A40] bg-[#151525]">
                                         {/* Front Face */}
                                         <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex flex-col items-center justify-center p-6 pb-8 text-center text-white font-medium text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                             {c.front}
@@ -1090,7 +1091,7 @@ export default function FolderPage() {
                                         </div>
 
                                         {/* Back Face */}
-                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col items-center justify-center p-6 pb-8 text-center text-gray-300 bg-[#1e1e1e] text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col items-center justify-center p-6 pb-8 text-center text-gray-300 bg-[#0B0B1A] text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                             {c.back}
                                         </div>
                                     </div>
@@ -1120,7 +1121,7 @@ export default function FolderPage() {
     };
 
     return (
-        <div className="bg-[#1e1e1e] min-h-screen">
+        <div className="bg-[#0B0B1A] min-h-screen">
             {/* Global Toast */}
             {toast && (
                 <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
@@ -1140,7 +1141,7 @@ export default function FolderPage() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.back()} className="p-2 hover:bg-[#333] rounded-xl text-gray-400 hover:text-white transition-colors"><ArrowLeft size={22} /></button>
+                        <button onClick={() => router.back()} className="p-2 hover:bg-[#1C1C33] rounded-xl text-gray-400 hover:text-white transition-colors"><ArrowLeft size={22} /></button>
                         <div>
                             <h1 className="text-2xl font-bold text-white">Ordner Details</h1>
                             <p className="text-sm text-gray-400">ID: {folderId}</p>
@@ -1149,7 +1150,7 @@ export default function FolderPage() {
 
                     <div className="flex flex-wrap gap-2">
                         {/* AI Actions */}
-                        <div className="flex gap-2 mr-2 border-r border-[#333] pr-4">
+                        <div className="flex gap-2 mr-2 border-r border-[#2A2A40] pr-4">
                             <button onClick={() => handleGenerate('plan')} disabled={!!isGenerating} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
                                 {isGenerating === 'plan' ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
                             </button>
@@ -1172,7 +1173,7 @@ export default function FolderPage() {
 
                         <button
                             onClick={() => setIsUploadOpen(true)}
-                            className="flex items-center gap-2 bg-[#252526] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#333] hover:bg-[#333] transition-all"
+                            className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
                         >
                             <Plus size={18} />
                             <span>Material</span>
@@ -1197,7 +1198,7 @@ export default function FolderPage() {
                                     </h3>
                                     <button
                                         onClick={() => setIsCreateSubfolderOpen(true)}
-                                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#252526] hover:bg-[#333] px-3 py-1.5 rounded-lg border border-[#333] transition-colors"
+                                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors"
                                     >
                                         <Plus size={13} /> Erstellen
                                     </button>
@@ -1206,18 +1207,25 @@ export default function FolderPage() {
                                     <p className="text-xs text-gray-600 italic">Noch keine Unterordner</p>
                                 ) : (
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {subfolders.map((sf) => (
-                                            <button
-                                                key={sf.id}
-                                                onClick={() => router.push(`/folder/${sf.id}`)}
-                                                className="flex items-center gap-2 bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/40 p-3 rounded-xl text-left transition-all group"
-                                            >
-                                                <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-                                                </div>
-                                                <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{sf.name}</span>
-                                            </button>
-                                        ))}
+                                        <AnimatePresence mode="popLayout">
+                                            {subfolders.map((sf) => (
+                                                <motion.button
+                                                    layout
+                                                    initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                    exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                                                    transition={{ duration: 0.2 }}
+                                                    key={sf.id}
+                                                    onClick={() => router.push(`/folder/${sf.id}`)}
+                                                    className="flex items-center gap-2 bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] hover:border-[#5E5CE6]/40 p-3 rounded-xl text-left transition-all group"
+                                                >
+                                                    <div className="p-1.5 rounded-lg bg-[#5E5CE6]/10 text-[#5E5CE6] shrink-0">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                                                    </div>
+                                                    <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{sf.name}</span>
+                                                </motion.button>
+                                            ))}
+                                        </AnimatePresence>
                                     </div>
                                 )}
                             </div>
@@ -1225,14 +1233,14 @@ export default function FolderPage() {
 
                         {/* Separator if both exist */}
                         {subfolders.length > 0 && files.length > 0 && (
-                            <div className="h-px bg-[#333]" />
+                            <div className="h-px bg-[#1C1C33]" />
                         )}
 
                         {/* Files */}
                         {files.length === 0 ? (
-                            <div className="bg-[#252526] border border-[#333] rounded-2xl p-16 text-center border-dashed">
+                            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-16 text-center border-dashed">
                                 <div className="flex justify-center mb-6">
-                                    <div className="w-16 h-16 bg-[#1e1e1e] rounded-2xl flex items-center justify-center border border-[#333]">
+                                    <div className="w-16 h-16 bg-[#0B0B1A] rounded-2xl flex items-center justify-center border border-[#2A2A40]">
                                         <FileText size={24} className="text-gray-500" />
                                     </div>
                                 </div>
@@ -1244,85 +1252,92 @@ export default function FolderPage() {
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-3">
-                                {files.map((file) => (
-                                    <div
-                                        key={file.id}
-                                        onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
-                                        className="bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
-                                                file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
-                                                    file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
-                                                        file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
-                                                            file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                                'bg-[#333] text-[#5E5CE6]'
-                                                }`}>
-                                                {getFileIcon(file.type)}
-                                            </div>
-                                            <div>
-                                                <h4 className="text-sm font-medium text-white">{file.name}</h4>
-                                                <p className="text-xs text-gray-500 capitalize">{file.created_at} • {file.type}</p>
-                                            </div>
-                                        </div>
-
-                                        {/* 3-dot button + dropdown */}
-                                        <div className="relative" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                                onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
-                                                className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#333] opacity-0 group-hover:opacity-100 transition-all"
-                                            >
-                                                <MoreVertical size={18} />
-                                            </button>
-
-                                            {openMenuFileId === file.id && (
-                                                <div className="absolute right-0 top-full mt-1 w-40 bg-[#1e1e1e] border border-[#333] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                                                    <button
-                                                        onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
-                                                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#2d2d2d] hover:text-white transition-colors"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
-                                                        Öffnen
-                                                    </button>
-
-                                                    {file.type !== 'pdf' && (
-                                                        <>
-                                                            <div className="h-px bg-[#333]" />
-                                                            <button
-                                                                onClick={() => {
-                                                                    setFileToRename(file);
-                                                                    setRenameFileValue(file.name);
-                                                                    setIsRenameFileOpen(true);
-                                                                    setOpenMenuFileId(null);
-                                                                }}
-                                                                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#2d2d2d] hover:text-white transition-colors"
-                                                            >
-                                                                <Edit size={15} />
-                                                                Umbenennen
-                                                            </button>
-                                                        </>
-                                                    )}
-
-                                                    <div className="h-px bg-[#333]" />
-                                                    <button
-                                                        onClick={async () => {
-                                                            setOpenMenuFileId(null);
-                                                            if (!confirm(`"${file.name}" wirklich löschen?`)) return;
-                                                            const username = localStorage.getItem('username');
-                                                            const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
-                                                            if (res.ok) fetchFiles();
-                                                            else showToast('Fehler beim Löschen.');
-                                                        }}
-                                                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-                                                        Löschen
-                                                    </button>
+                                <AnimatePresence mode="popLayout">
+                                    {files.map((file) => (
+                                        <motion.div
+                                            layout
+                                            initial={{ opacity: 0, scale: 0.95, x: -10 }}
+                                            animate={{ opacity: 1, scale: 1, x: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95, x: -10 }}
+                                            transition={{ duration: 0.2 }}
+                                            key={file.id}
+                                            onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
+                                            className="bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className={`p-3 rounded-lg ${file.type === 'plan' ? 'bg-purple-500/10 text-purple-400' :
+                                                    file.type === 'quiz' ? 'bg-orange-500/10 text-orange-400' :
+                                                        file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
+                                                            file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
+                                                                file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
+                                                                    'bg-[#1C1C33] text-[#5E5CE6]'
+                                                    }`}>
+                                                    {getFileIcon(file.type)}
                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                                <div>
+                                                    <h4 className="text-sm font-medium text-white">{file.name}</h4>
+                                                    <p className="text-xs text-gray-500 capitalize">{file.created_at} • {file.type}</p>
+                                                </div>
+                                            </div>
+
+                                            {/* 3-dot button + dropdown */}
+                                            <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => setOpenMenuFileId(openMenuFileId === file.id ? null : file.id)}
+                                                    className="text-gray-500 hover:text-white p-2 rounded-lg hover:bg-[#1C1C33] opacity-0 group-hover:opacity-100 transition-all"
+                                                >
+                                                    <MoreVertical size={18} />
+                                                </button>
+
+                                                {openMenuFileId === file.id && (
+                                                    <div className="absolute right-0 top-full mt-1 w-40 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                                                        <button
+                                                            onClick={() => { setSelectedFile(file); setOpenMenuFileId(null); }}
+                                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                                            Öffnen
+                                                        </button>
+
+                                                        {file.type !== 'pdf' && (
+                                                            <>
+                                                                <div className="h-px bg-[#1C1C33]" />
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setFileToRename(file);
+                                                                        setRenameFileValue(file.name);
+                                                                        setIsRenameFileOpen(true);
+                                                                        setOpenMenuFileId(null);
+                                                                    }}
+                                                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                                                >
+                                                                    <Edit size={15} />
+                                                                    Umbenennen
+                                                                </button>
+                                                            </>
+                                                        )}
+
+                                                        <div className="h-px bg-[#1C1C33]" />
+                                                        <button
+                                                            onClick={async () => {
+                                                                setOpenMenuFileId(null);
+                                                                if (!confirm(`"${file.name}" wirklich löschen?`)) return;
+                                                                const username = localStorage.getItem('username');
+                                                                const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
+                                                                if (res.ok) fetchFiles();
+                                                                else showToast('Fehler beim Löschen.');
+                                                            }}
+                                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                                                            Löschen
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
                             </div>
                         )}
                     </div>
@@ -1331,21 +1346,21 @@ export default function FolderPage() {
                 {/* Upload Modal */}
                 {isUploadOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
                                 <button onClick={() => setIsUploadOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
                             </div>
-                            <div className="flex gap-2 p-1 bg-[#252526] rounded-xl mb-6">
-                                <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
-                                <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#333] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
-                                <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#333] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
+                            <div className="flex gap-2 p-1 bg-[#151525] rounded-xl mb-6">
+                                <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#1C1C33] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
+                                <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#1C1C33] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
+                                <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#1C1C33] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
                                 </button>
                             </div>
                             {uploadType === 'pdf' ? (
                                 <form onSubmit={handleFileUpload} className="space-y-4">
-                                    <div className="border-2 border-dashed border-[#333] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
+                                    <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
                                         <input type="file" accept=".pdf" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                                         <div className="flex flex-col items-center gap-2 text-gray-400"><Upload size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken zum Auswählen"}</span></div>
                                     </div>
@@ -1353,17 +1368,17 @@ export default function FolderPage() {
                                 </form>
                             ) : uploadType === 'youtube' ? (
                                 <form onSubmit={handleYoutubeImport} className="space-y-4">
-                                    <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
+                                    <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
                                     <button type="submit" disabled={!youtubeUrl || isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Importieren</button>
                                 </form>
                             ) : (
                                 <div className="space-y-6">
-                                    <div className="flex flex-col items-center justify-center p-8 bg-[#252526] border border-[#333] rounded-xl">
+                                    <div className="flex flex-col items-center justify-center p-8 bg-[#151525] border border-[#2A2A40] rounded-xl">
                                         {!audioBlob ? (
                                             <>
                                                 <button
                                                     onClick={isRecording ? stopRecording : startRecording}
-                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#333] text-gray-400 hover:bg-[#444] hover:text-white'}`}
+                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#1C1C33] text-gray-400 hover:bg-[#3B3B55] hover:text-white'}`}
                                                 >
                                                     {isRecording ? <div className="w-6 h-6 bg-red-500 rounded-sm"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>}
                                                 </button>
@@ -1380,7 +1395,7 @@ export default function FolderPage() {
                                                 <h4 className="text-white font-medium mb-1">Sprachmemo aufgezeichnet</h4>
                                                 <p className="text-sm text-gray-400 mb-6">Dauer: {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</p>
                                                 <div className="flex gap-3 w-full">
-                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#333] hover:bg-[#333] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
+                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
                                                     <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2">
                                                         {isProcessing ? <Loader2 size={16} className="animate-spin" /> : "Verarbeiten"}
                                                     </button>
@@ -1400,9 +1415,9 @@ export default function FolderPage() {
                 {/* Plan Config Modal */}
                 {isPlanConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
                                         <BrainCircuit size={20} />
@@ -1412,7 +1427,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Konfiguriere deinen persönlichen Lernplan</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <button onClick={() => setIsPlanConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -1422,7 +1437,7 @@ export default function FolderPage() {
                                 {/* Learning Mode Toggle */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                    <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                    <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
                                         <button
                                             onClick={() => setLearningMode('normal')}
                                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
@@ -1443,7 +1458,7 @@ export default function FolderPage() {
                                 </div>
 
                                 {/* Duration Mode Toggle */}
-                                <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
                                     <button
                                         onClick={() => setPlanUseDate(false)}
                                         className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
@@ -1484,7 +1499,7 @@ export default function FolderPage() {
                                             value={planEndDate}
                                             min={new Date().toISOString().split('T')[0]}
                                             onChange={e => setPlanEndDate(e.target.value)}
-                                            className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
+                                            className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
                                         />
                                         {planEndDate && (
                                             <p className="text-xs text-gray-400 mt-1.5">
@@ -1530,7 +1545,7 @@ export default function FolderPage() {
                                                     }}
                                                     className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${isActive
                                                         ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
-                                                        : 'bg-[#252526] border border-[#444] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
+                                                        : 'bg-[#151525] border border-[#3B3B55] text-gray-400 hover:border-purple-500/50 hover:text-gray-300'
                                                         }`}
                                                 >
                                                     {day}
@@ -1544,7 +1559,7 @@ export default function FolderPage() {
                                 </div>
 
                                 {/* Summary */}
-                                <div className="bg-[#252526] rounded-xl p-4 border border-[#333]">
+                                <div className="bg-[#151525] rounded-xl p-4 border border-[#2A2A40]">
                                     <div className="flex items-center gap-2 text-sm text-gray-300">
                                         <BookOpen size={14} className="text-purple-400" />
                                         <span>
@@ -1561,10 +1576,10 @@ export default function FolderPage() {
                                     </div>
                                 </div>
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#333]">
+                                <div className="pt-4 border-t border-[#2A2A40]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -1579,8 +1594,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#333]">
-                                <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsPlanConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -1599,9 +1614,9 @@ export default function FolderPage() {
                 {/* Summary Config Modal */}
                 {isSummaryConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                                         <FileOutput size={20} />
@@ -1611,7 +1626,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Wie detailliert soll der Text sein?</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <button onClick={() => setIsSummaryConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -1621,7 +1636,7 @@ export default function FolderPage() {
                                 {/* Learning Mode Toggle */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                    <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                    <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
                                         <button
                                             onClick={() => setLearningMode('normal')}
                                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
@@ -1650,7 +1665,7 @@ export default function FolderPage() {
                                                 onClick={() => setSummaryDetailLevel(level)}
                                                 className={`flex items-center justify-between p-4 rounded-xl border transition-all ${summaryDetailLevel === level
                                                     ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
-                                                    : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
+                                                    : 'bg-[#151525] border-[#2A2A40] text-gray-400 hover:border-[#3B3B55] hover:text-gray-300'}`}
                                             >
                                                 <span className="font-medium">{level}</span>
                                                 {summaryDetailLevel === level && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
@@ -1664,10 +1679,10 @@ export default function FolderPage() {
                                     </p>
                                 </div>
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#333]">
+                                <div className="pt-4 border-t border-[#2A2A40]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -1681,8 +1696,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#333]">
-                                <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsSummaryConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -1700,9 +1715,9 @@ export default function FolderPage() {
                 {/* Elaboration (Ausarbeitung) Config Modal */}
                 {isElaborationConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
                                         <FileText size={20} />
@@ -1712,7 +1727,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Konfiguriere deinen Text</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <button onClick={() => setIsElaborationConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -1728,7 +1743,7 @@ export default function FolderPage() {
                                                 onClick={() => setElaborationDetailLevel(level)}
                                                 className={`flex items-center justify-between p-4 rounded-xl border transition-all ${elaborationDetailLevel === level
                                                     ? 'bg-orange-500/10 border-orange-500/50 text-orange-400'
-                                                    : 'bg-[#252526] border-[#333] text-gray-400 hover:border-[#444] hover:text-gray-300'}`}
+                                                    : 'bg-[#151525] border-[#2A2A40] text-gray-400 hover:border-[#3B3B55] hover:text-gray-300'}`}
                                             >
                                                 <span className="font-medium">{level}</span>
                                                 {elaborationDetailLevel === level && <div className="w-2 h-2 rounded-full bg-orange-500"></div>}
@@ -1743,14 +1758,14 @@ export default function FolderPage() {
                                         value={elaborationRules}
                                         onChange={(e) => setElaborationRules(e.target.value)}
                                         placeholder="z.B. Fokussiere dich besonders auf Kapitel 3, schreibe im Stil eines Zeitungsartikels, formuliere Thesen..."
-                                        className="w-full h-24 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
+                                        className="w-full h-24 bg-[#151525] border border-[#2A2A40] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none resize-none placeholder:text-gray-600"
                                     />
                                 </div>
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#333]">
+                                <div className="pt-4 border-t border-[#2A2A40]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -1764,8 +1779,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#333]">
-                                <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsElaborationConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -1783,9 +1798,9 @@ export default function FolderPage() {
                 {/* Repetition (Wiederholung) Config Modal */}
                 {isRepetitionConfigOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
@@ -1795,7 +1810,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-gray-400">Lass dich gezielt abfragen</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -1805,7 +1820,7 @@ export default function FolderPage() {
                                 {/* Learning Mode Toggle */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Modus</label>
-                                    <div className="flex gap-2 bg-[#252526] p-1 rounded-xl">
+                                    <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
                                         <button
                                             onClick={() => setLearningMode('normal')}
                                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${learningMode === 'normal' ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
@@ -1830,7 +1845,7 @@ export default function FolderPage() {
                                     value={repetitionRules}
                                     onChange={(e) => setRepetitionRules(e.target.value)}
                                     placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
-                                    className="w-full h-28 bg-[#252526] border border-[#333] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
+                                    className="w-full h-28 bg-[#151525] border border-[#2A2A40] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
                                 />
 
                                 <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5 mb-4">
@@ -1838,10 +1853,10 @@ export default function FolderPage() {
                                 </p>
 
                                 {/* Model Preference */}
-                                <div className="pt-4 border-t border-[#333]">
+                                <div className="pt-4 border-t border-[#2A2A40]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
                                     <select
-                                        className="w-full bg-[#252526] border border-[#333] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
@@ -1855,8 +1870,8 @@ export default function FolderPage() {
                             </div>
 
                             {/* Footer */}
-                            <div className="flex gap-3 p-5 border-t border-[#333]">
-                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsRepetitionConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -1875,9 +1890,9 @@ export default function FolderPage() {
                 {/* Task Help Overlay */}
                 {isTaskHelpOpen && (
                     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]">
                             {/* Header */}
-                            <div className="flex justify-between items-center p-5 border-b border-[#333] shrink-0">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40] shrink-0">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
                                         <BrainCircuit size={20} />
@@ -1887,7 +1902,7 @@ export default function FolderPage() {
                                         <p className="text-xs text-purple-400 font-medium">KI-Lernassistenz</p>
                                     </div>
                                 </div>
-                                <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg transition-colors">
+                                <button onClick={() => setIsTaskHelpOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -1896,7 +1911,7 @@ export default function FolderPage() {
                             <div className="p-6 overflow-y-auto">
                                 {isTaskHelpLoading ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center">
-                                        <div className="w-12 h-12 border-4 border-[#333] border-t-purple-500 rounded-full animate-spin mb-4"></div>
+                                        <div className="w-12 h-12 border-4 border-[#2A2A40] border-t-purple-500 rounded-full animate-spin mb-4"></div>
                                         <p className="text-gray-300 font-medium">Analysiere Ordner-Inhalte...</p>
                                         <p className="text-sm text-gray-500 mt-2">Ich überlege, was du genau tun sollst.</p>
                                     </div>
@@ -1911,10 +1926,10 @@ export default function FolderPage() {
 
                             {/* Footer */}
                             {!isTaskHelpLoading && (
-                                <div className="p-5 border-t border-[#333] shrink-0 bg-[#252526] rounded-b-2xl">
+                                <div className="p-5 border-t border-[#2A2A40] shrink-0 bg-[#151525] rounded-b-2xl">
                                     <button
                                         onClick={() => setIsTaskHelpOpen(false)}
-                                        className="w-full py-2.5 bg-[#333] hover:bg-[#444] text-white rounded-xl font-medium transition-colors"
+                                        className="w-full py-2.5 bg-[#1C1C33] hover:bg-[#3B3B55] text-white rounded-xl font-medium transition-colors"
                                     >
                                         Verstanden!
                                     </button>
@@ -1929,21 +1944,21 @@ export default function FolderPage() {
                     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
                         <button
                             onClick={() => setFullscreenCard(null)}
-                            className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#333] rounded-full transition-colors z-10"
+                            className="absolute top-6 right-6 text-gray-400 hover:text-white p-3 hover:bg-[#1C1C33] rounded-full transition-colors z-10"
                         >
                             <X size={24} />
                         </button>
 
                         <div className="w-full max-w-4xl h-[70vh] [perspective:1500px] cursor-pointer" onClick={() => setIsFullscreenCardFlipped(!isFullscreenCardFlipped)}>
-                            <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#444] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                            <div className={`w-full h-full transition-all duration-700 [transform-style:preserve-3d] relative rounded-3xl shadow-2xl border border-[#3B3B55] ${isFullscreenCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
                                 {/* Front Face */}
-                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#252526] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] bg-[#151525] flex flex-col items-center justify-center p-12 text-center text-white font-medium text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                     {fullscreenCard.front}
                                     <div className="absolute bottom-6 text-sm text-gray-500 flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
                                 </div>
 
                                 {/* Back Face */}
-                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#1e1e1e] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#0B0B1A] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                     {fullscreenCard.back}
                                 </div>
                             </div>
@@ -1954,15 +1969,15 @@ export default function FolderPage() {
                 {/* Rename File Modal */}
                 {isRenameFileOpen && fileToRename && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-[#5E5CE6]/10 text-[#5E5CE6]">
                                         <Edit size={18} />
                                     </div>
                                     <h3 className="text-base font-semibold text-white">Datei umbenennen</h3>
                                 </div>
-                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg">
+                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -1973,12 +1988,12 @@ export default function FolderPage() {
                                     value={renameFileValue}
                                     onChange={(e) => setRenameFileValue(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('rename-file-btn')?.click(); }}
-                                    className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
                                     autoFocus
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#333]">
-                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => { setIsRenameFileOpen(false); setFileToRename(null); }} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button
@@ -1997,15 +2012,15 @@ export default function FolderPage() {
                 {/* Create Subfolder Modal */}
                 {isCreateSubfolderOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="flex justify-between items-center p-5 border-b border-[#333]">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-xl bg-[#5E5CE6]/10 text-[#5E5CE6]">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                                     </div>
                                     <h3 className="text-base font-semibold text-white">Unterordner erstellen</h3>
                                 </div>
-                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#333] rounded-lg">
+                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
                                     <X size={18} />
                                 </button>
                             </div>
@@ -2016,12 +2031,12 @@ export default function FolderPage() {
                                     value={newSubfolderName}
                                     onChange={(e) => setNewSubfolderName(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('create-subfolder-btn')?.click(); }}
-                                    className="w-full bg-[#252526] border border-[#333] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] transition-all text-sm placeholder:text-gray-600"
                                     autoFocus
                                 />
                             </div>
-                            <div className="flex gap-3 p-5 border-t border-[#333]">
-                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#252526] hover:bg-[#333] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsCreateSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
                                     Abbrechen
                                 </button>
                                 <button

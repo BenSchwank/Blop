@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface FolderData {
   id: string;
@@ -133,7 +134,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="bg-[#1e1e1e] min-h-screen relative">
+    <div className="bg-[#0B0B1A] min-h-screen relative">
       {/* Main Container - Professional Width */}
       <div className="max-w-7xl mr-auto px-8 py-12">
 
@@ -163,7 +164,7 @@ export default function Dashboard() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{ paddingLeft: '68px' }} // Force padding to ensure icon doesn't overlap
-              className="w-full h-full pr-4 bg-[#252526] text-white text-sm rounded-xl border border-[#333] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
+              className="w-full h-full pr-4 bg-[#151525] text-white text-sm rounded-xl border border-[#2A2A40] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
 
@@ -179,7 +180,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="h-full flex items-center justify-center gap-2 bg-[#252526] hover:bg-[#2d2d2d] text-white px-6 rounded-xl text-sm font-semibold border border-[#333] transition-all shadow-md min-w-[140px]"
+              className="h-full flex items-center justify-center gap-2 bg-[#151525] hover:bg-[#1C1C33] text-white px-6 rounded-xl text-sm font-semibold border border-[#2A2A40] transition-all shadow-md min-w-[140px]"
             >
               <Folder size={18} />
               <span>Neuer Ordner</span>
@@ -198,7 +199,7 @@ export default function Dashboard() {
               <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
             </div>
           ) : error ? (
-            <div className="bg-[#252526] border border-red-500/30 rounded-2xl p-10 text-center">
+            <div className="bg-[#151525] border border-red-500/30 rounded-2xl p-10 text-center">
               <div className="text-red-400 font-semibold mb-2">{error}</div>
               <p className="text-gray-500 text-sm mb-4">Prüfe die Render-URL in den Vercel Settings.</p>
               <button onClick={fetchFolders} className="text-sm bg-red-500/10 text-red-400 px-4 py-2 rounded-lg hover:bg-red-500/20 transition-colors">
@@ -207,9 +208,9 @@ export default function Dashboard() {
             </div>
           ) : folders.length === 0 ? (
             /* Empty State */
-            <div className="bg-[#252526] border border-[#333] rounded-2xl p-12 text-center border-dashed">
+            <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-12 text-center border-dashed">
               <div className="flex justify-center mb-4">
-                <div className="w-12 h-12 bg-[#1e1e1e] rounded-xl flex items-center justify-center border border-[#333] shadow-inner">
+                <div className="w-12 h-12 bg-[#0B0B1A] rounded-xl flex items-center justify-center border border-[#2A2A40] shadow-inner">
                   <FolderOpen size={24} className="text-gray-500" />
                 </div>
               </div>
@@ -224,7 +225,7 @@ export default function Dashboard() {
 
               <button
                 onClick={() => setIsCreateOpen(true)}
-                className="inline-flex items-center gap-2 bg-[#333] hover:bg-[#444] text-white px-4 py-2 rounded-lg text-sm font-medium transition-all border border-[#444]"
+                className="inline-flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] text-white px-4 py-2 rounded-lg text-sm font-medium transition-all border border-[#2A2A40]"
               >
                 <Plus size={16} />
                 <span>Ordner erstellen</span>
@@ -233,37 +234,51 @@ export default function Dashboard() {
           ) : (
             /* Folder Grid */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <AnimatePresence mode='popLayout'>
               {folders.map((folder) => (
-                <div
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                  transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
                   key={folder.id}
                   onClick={() => router.push(`/folder/${folder.id}`)}
-                  className="group relative bg-[#252526] hover:bg-[#2d2d2d] border border-[#333] hover:border-[#5E5CE6]/50 rounded-2xl p-5 transition-all cursor-pointer shadow-sm hover:shadow-lg hover:shadow-[#5E5CE6]/10 flex flex-col items-center justify-center gap-3 min-h-[150px] text-center"
+                  className="group relative bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] hover:border-[#5E5CE6]/50 rounded-[18px] p-5 transition-all cursor-pointer shadow-sm hover:shadow-lg hover:shadow-[#5E5CE6]/10 flex flex-col items-center justify-center gap-3 min-h-[150px] text-center"
                 >
                   {/* Action Buttons (Absolute Top Right) */}
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFolderToRename(folder);
-                        setRenameValue(folder.name);
-                        setIsRenameOpen(true);
-                      }}
-                      className="text-gray-500 hover:text-white p-1.5 hover:bg-[#333] rounded-lg"
-                      title="Ordner umbenennen"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      onClick={(e) => handleDeleteFolder(folder.id, e)}
-                      className="text-gray-500 hover:text-red-400 p-1.5 hover:bg-[#333] rounded-lg"
-                      title="Ordner löschen"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="relative group/tooltip">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFolderToRename(folder);
+                          setRenameValue(folder.name);
+                          setIsRenameOpen(true);
+                        }}
+                        className="text-gray-500 hover:text-white p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
+                        Umbenennen
+                      </div>
+                    </div>
+                    <div className="relative group/tooltip">
+                      <button
+                        onClick={(e) => handleDeleteFolder(folder.id, e)}
+                        className="text-gray-500 hover:text-red-400 p-1.5 hover:bg-[#2A2A40] rounded-lg transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-[#0B0B1A] text-[10px] text-white rounded opacity-0 group-hover/tooltip:opacity-100 transition-all pointer-events-none whitespace-nowrap border border-[#2A2A40] shadow-xl scale-95 group-hover/tooltip:scale-100">
+                        Löschen
+                      </div>
+                    </div>
                   </div>
 
                   {/* Centered Large Icon */}
-                  <div className="p-3.5 bg-[#333] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
+                  <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
                     <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={0.1} />
                   </div>
 
@@ -272,8 +287,9 @@ export default function Dashboard() {
                     <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
                     <p className="text-[11px] text-gray-500">{folder.files?.length || 0} Dateien</p>
                   </div>
-                </div>
+                </motion.div>
               ))}
+              </AnimatePresence>
             </div>
           )}
         </div>
