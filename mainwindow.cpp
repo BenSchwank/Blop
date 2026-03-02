@@ -9,11 +9,13 @@
 // --- WICHTIGE ZUSÄTZLICHE INCLUDES ---
 #include "Note.h"
 #include "ToolMode.h"
+#include "markdowneditor.h"
 #include "multipagenoteview.h"
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "pagemanager.h"
 #include "tools/ToolManager.h"
+
 
 // Tools Includes
 #include "tools/EraserTool.h"
@@ -2433,18 +2435,37 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       m_editorTabs->addTab(canvas, fileName);
       m_editorTabs->setCurrentWidget(canvas);
     } else {
-      Note note;
-      if (NoteManager::loadNote(path, note)) {
-        NoteEditor *editor = new NoteEditor(this);
-        Note *heapNote = new Note(note);
-        editor->setNote(heapNote);
-        if (editor->view())
-          editor->view()->setPenOnlyMode(m_penOnlyMode);
-        editor->onSaveRequested = [path](Note *n) {
-          NoteManager::saveNote(*n, path);
+      QFileInfo fi(path);
+      if (fi.suffix().toLower() == "md" || fi.suffix().toLower() == "txt") {
+        MarkdownEditor *mdEditor = new MarkdownEditor(this);
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+          mdEditor->setText(QString::fromUtf8(f.readAll()));
+          f.close();
+        }
+        mdEditor->onSaveRequested = [path](const QString &text) {
+          QFile f(path);
+          if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            f.write(text.toUtf8());
+            f.close();
+          }
         };
-        m_editorTabs->addTab(editor, fileName);
-        m_editorTabs->setCurrentWidget(editor);
+        m_editorTabs->addTab(mdEditor, fileName);
+        m_editorTabs->setCurrentWidget(mdEditor);
+      } else {
+        Note note;
+        if (NoteManager::loadNote(path, note)) {
+          NoteEditor *editor = new NoteEditor(this);
+          Note *heapNote = new Note(note);
+          editor->setNote(heapNote);
+          if (editor->view())
+            editor->view()->setPenOnlyMode(m_penOnlyMode);
+          editor->onSaveRequested = [path](Note *n) {
+            NoteManager::saveNote(*n, path);
+          };
+          m_editorTabs->addTab(editor, fileName);
+          m_editorTabs->setCurrentWidget(editor);
+        }
       }
     }
     m_rightStack->setCurrentWidget(m_editorContainer);

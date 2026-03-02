@@ -55,6 +55,8 @@ qt_add_executable(Blop
     notemanager.h
     noteeditor.cpp
     noteeditor.h
+    markdowneditor.cpp
+    markdowneditor.h
     uiprofilemanager.h
     uiprofilemanager.cpp
     moderntoolbar.cpp
