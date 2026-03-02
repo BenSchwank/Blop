@@ -326,11 +326,47 @@ export default function FolderPage() {
 
     // Plan Config Modal State
     const [isPlanConfigOpen, setIsPlanConfigOpen] = useState(false);
+    const [targetGrade, setTargetGrade] = useState(10); // Default to a solid "Gut" (10 Pkt)
     const [planDays, setPlanDays] = useState(7);
     const [planHoursPerDay, setPlanHoursPerDay] = useState(2);
     const [planEndDate, setPlanEndDate] = useState('');
     const [planUseDate, setPlanUseDate] = useState(false);
     const [planActiveDays, setPlanActiveDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]); // 0=Mo, 6=Su
+
+    // Handler for changing target grade and auto-calculating realistic study times
+    const handleTargetGradeChange = (grade: number) => {
+        setTargetGrade(grade);
+
+        // Base realistic calculations:
+        // 0-4 Pkt: Minimal effort (~3 days, 1h/day)
+        // 5-9 Pkt: Average effort (~5 days, 2h/day)
+        // 10-12 Pkt: Good effort (~7-10 days, 3h/day)
+        // 13-15 Pkt: Excellent effort (~14-21 days, 4-5h/day)
+
+        let recommendedDays = 7;
+        let recommendedHours = 2;
+
+        if (grade <= 4) {
+            recommendedDays = 3;
+            recommendedHours = 1;
+        } else if (grade <= 9) {
+            // Scale linearly between 5 and 9
+            recommendedDays = 4 + (grade - 5);
+            recommendedHours = 2;
+        } else if (grade <= 12) {
+            recommendedDays = 7 + (grade - 10) * 2; // 7, 9, 11
+            recommendedHours = 3;
+        } else {
+            recommendedDays = 14 + (grade - 13) * 3; // 14, 17, 20
+            recommendedHours = 4 + (grade - 13) * 0.5; // 4, 4.5, 5
+        }
+
+        setPlanDays(recommendedDays);
+        setPlanHoursPerDay(recommendedHours);
+
+        // Ensure "Anzahl Tage" mode is active because we calculate relative days
+        setPlanUseDate(false);
+    };
 
     // Summary Config Modal State
     const [isSummaryConfigOpen, setIsSummaryConfigOpen] = useState(false);
@@ -1638,6 +1674,35 @@ export default function FolderPage() {
                                     </div>
                                 </div>
 
+                                {/* Target Grade Slider */}
+                                <div className="bg-[#1C1C33]/50 p-4 rounded-xl border border-[#2A2A40]">
+                                    <label className="block text-sm font-medium text-gray-200 mb-2 flex justify-between items-center">
+                                        <span>Ziel-Note (Punkte)</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`text-lg font-bold ${targetGrade >= 13 ? 'text-green-400' : targetGrade >= 10 ? 'text-blue-400' : targetGrade >= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                                {targetGrade}
+                                            </span>
+                                            <span className="text-xs text-gray-500">Pkt.</span>
+                                        </div>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={1} max={15} step={1}
+                                        value={targetGrade}
+                                        onChange={e => handleTargetGradeChange(Number(e.target.value))}
+                                        className={`w-full ${targetGrade >= 13 ? 'accent-green-500' : targetGrade >= 10 ? 'accent-blue-500' : targetGrade >= 5 ? 'accent-yellow-500' : 'accent-red-500'}`}
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-2">
+                                        <span>Ausreichend (5)</span>
+                                        <span>Gut (10)</span>
+                                        <span>Sehr Gut (15)</span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-3 flex items-start gap-1.5 leading-relaxed">
+                                        <span className="text-[#5E5CE6] mt-0.5"><BrainCircuit size={12} /></span>
+                                        Die Lernzeit wird basierend auf deiner Zielnote automatisch empfohlen, kann aber unten noch manuell angepasst werden.
+                                    </p>
+                                </div>
+
                                 {/* Active Study Days */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Aktive Lerntage</label>
@@ -1667,6 +1732,76 @@ export default function FolderPage() {
                                     {planActiveDays.length === 0 && (
                                         <p className="text-red-400 text-xs mt-2">Bitte mindestens einen Lerntag auswählen</p>
                                     )}
+                                </div>
+
+                                {/* Duration Mode Toggle */}
+                                <div className="flex gap-2 bg-[#151525] p-1 rounded-xl">
+                                    <button
+                                        onClick={() => setPlanUseDate(false)}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${!planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <Clock size={14} /> Anzahl Tage
+                                    </button>
+                                    <button
+                                        onClick={() => setPlanUseDate(true)}
+                                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${planUseDate ? 'bg-[#5E5CE6] text-white' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <Calendar size={14} /> Enddatum
+                                    </button>
+                                </div>
+
+                                {/* Days OR End Date */}
+                                {!planUseDate ? (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Anzahl Lerntage
+                                            <span className="ml-2 text-[#5E5CE6] font-bold">{planDays} Tage</span>
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min={1} max={60} step={1}
+                                            value={planDays}
+                                            onChange={e => setPlanDays(Number(e.target.value))}
+                                            className="w-full accent-[#5E5CE6]"
+                                        />
+                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                            <span>1 Tag</span><span>30 Tage</span><span>60 Tage</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Prüfungsdatum</label>
+                                        <input
+                                            type="date"
+                                            value={planEndDate}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            onChange={e => setPlanEndDate(e.target.value)}
+                                            className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all"
+                                        />
+                                        {planEndDate && (
+                                            <p className="text-xs text-gray-400 mt-1.5">
+                                                ≈ {Math.max(1, Math.ceil((new Date(planEndDate).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))} Tage bis zur Prüfung
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Hours per Day */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Lernzeit pro Tag
+                                        <span className="ml-2 text-[#5E5CE6] font-bold">{planHoursPerDay} Std.</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={0.5} max={8} step={0.5}
+                                        value={planHoursPerDay}
+                                        onChange={e => setPlanHoursPerDay(Number(e.target.value))}
+                                        className="w-full accent-[#5E5CE6]"
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                        <span>30 Min</span><span>4 Std</span><span>8 Std</span>
+                                    </div>
                                 </div>
 
                                 {/* Summary */}

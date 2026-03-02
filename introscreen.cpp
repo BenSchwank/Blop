@@ -43,8 +43,8 @@ IntroScreen::~IntroScreen() {
 }
 
 void IntroScreen::startAnimation() {
-  // Assuming the video is embedded in the QRC under /assets/IntroBlop.mp4
-  m_player->setSource(QUrl("qrc:/assets/IntroBlop.mp4"));
+  // Assuming the video is embedded in the QRC under /assets/Intro Blop.mp4
+  m_player->setSource(QUrl("qrc:/assets/Intro Blop.mp4"));
   m_player->play();
 }
 

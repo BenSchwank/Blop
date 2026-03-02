@@ -166,15 +166,22 @@ def delete_folder(folder_id: str, username: str):
         return {"status": "success", "message": "Ordner gelöscht"}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
-class RenameFolderRequest(BaseModel):
-    name: str
-    username: str
-
 @app.put("/api/folders/{folder_id}")
 def rename_folder(folder_id: str, body: RenameFolderRequest):
     """Renames a folder."""
     if DataManager.rename_folder(folder_id, body.name, body.username):
         return {"status": "success", "folder": body.name}
+    raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
+
+class MoveFolderRequest(BaseModel):
+    new_parent_id: Optional[str] = None
+    username: str
+
+@app.put("/api/folders/{folder_id}/move")
+def move_folder(folder_id: str, body: MoveFolderRequest):
+    """Moves a folder to a new parent."""
+    if DataManager.move_folder(folder_id, body.new_parent_id, body.username):
+        return {"status": "success", "message": "Ordner verschoben"}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
 @app.post("/api/folders")
@@ -226,16 +233,23 @@ def update_file(request: FileUpdateRequest):
         return {"status": "success", "message": "Datei gespeichert"}
     raise HTTPException(status_code=500, detail="Fehler beim Speichern der Datei")
 
-class RenameFileRequest(BaseModel):
-    name: str
-    username: str
-
 @app.put("/api/files/{folder_id}/{file_id}/rename")
 def rename_file(folder_id: str, file_id: str, body: RenameFileRequest):
     """Renames a generic file."""
     if DataManager.rename_file(body.username, folder_id, file_id, body.name):
         return {"status": "success", "file": body.name}
     raise HTTPException(status_code=404, detail="Datei nicht gefunden oder Format (z.B. PDF) nicht unterstützt.")
+
+class MoveFileRequest(BaseModel):
+    target_folder_id: str
+    username: str
+
+@app.put("/api/files/{folder_id}/{file_id}/move")
+def move_file(folder_id: str, file_id: str, body: MoveFileRequest):
+    """Moves a file to a different folder."""
+    if DataManager.move_file(body.username, folder_id, file_id, body.target_folder_id):
+        return {"status": "success", "message": "Datei verschoben"}
+    raise HTTPException(status_code=404, detail="Fehler beim Verschieben der Datei")
 
 # --- UPLOAD & AI ENDPOINTS ---
 

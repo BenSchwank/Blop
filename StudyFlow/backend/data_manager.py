@@ -257,6 +257,21 @@ class DataManager:
         return False
 
     @staticmethod
+    def move_folder(folder_id, new_parent_id, username):
+        """Moves a folder by updating its parent_id."""
+        data = DataManager.load(username)
+        if "folders" in data:
+            for f in data["folders"]:
+                if f["id"] == folder_id:
+                    if new_parent_id:
+                        f["parent_id"] = new_parent_id
+                    else:
+                        f.pop("parent_id", None)
+                    DataManager.save(data, username)
+                    return True
+        return False
+
+    @staticmethod
     def save_summary(title, content, username, folder_id=None):
         """LEGACY: Saves a manual summary note."""
         DataManager.save_summary_as_file(title, content, username, folder_id, "summary")
@@ -412,6 +427,91 @@ class DataManager:
                                  file_item["name"] = new_name
                                  DataManager.save(data, username)
                                  return True
+        return False
+
+    @staticmethod
+    def move_file(username, source_folder_id, file_id, target_folder_id):
+        """Moves a file from one folder to another. Complex due to Cloud/Local diffs."""
+        db = DataManager._init_firestore()
+        is_pdf = file_id.endswith(".pdf") or not (
+            file_id.startswith("plan_") or 
+            file_id.startswith("summary_") or 
+            file_id.startswith("rep_") or 
+            file_id.startswith("elab_") or 
+            file_id.startswith("quiz_") or 
+            file_id.startswith("flash_")
+        )
+
+        if db:
+            try:
+                if is_pdf:
+                    # Move PDF Doc
+                    source_ref = db.collection("users").document(username).collection("pdfs").document(f"{source_folder_id}_{file_id}")
+                    target_ref = db.collection("users").document(username).collection("pdfs").document(f"{target_folder_id}_{file_id}")
+                    
+                    doc = source_ref.get()
+                    if doc.exists:
+                        data = doc.to_dict()
+                        data["folder_id"] = target_folder_id
+                        target_ref.set(data)
+                        
+                        # Move chunks (this is slow, but works for MVP)
+                        chunks = source_ref.collection("chunks").stream()
+                        for chunk in chunks:
+                            target_ref.collection("chunks").document(chunk.id).set(chunk.to_dict())
+                            chunk.reference.delete()
+                            
+                        source_ref.delete()
+                        return True
+                else:
+                    # Move standard file doc
+                    source_ref = db.collection("users").document(username).collection("folders").document(str(source_folder_id)).collection("files").document(file_id)
+                    target_ref = db.collection("users").document(username).collection("folders").document(str(target_folder_id)).collection("files").document(file_id)
+                    
+                    doc = source_ref.get()
+                    if doc.exists:
+                        target_ref.set(doc.to_dict())
+                        source_ref.delete()
+                        return True
+            except Exception as e:
+                print(f"Move Error: {e}")
+                return False
+        else:
+            if is_pdf:
+                # Local FS move
+                source_folder_path = DataManager._get_folder_path(username, source_folder_id)
+                target_folder_path = DataManager._get_folder_path(username, target_folder_id)
+                source_path = os.path.join(source_folder_path, file_id)
+                target_path = os.path.join(target_folder_path, file_id)
+                
+                if os.path.exists(source_path):
+                    if not os.path.exists(target_folder_path):
+                        os.makedirs(target_folder_path)
+                    shutil.move(source_path, target_path)
+                    return True
+            else:
+                # Update JSON Metadata
+                data = DataManager.load(username)
+                file_obj = None
+                
+                # Remove from source
+                for f in data.get("folders", []):
+                    if f["id"] == source_folder_id and "files" in f:
+                        for i, file_item in enumerate(f["files"]):
+                            if file_item["id"] == file_id:
+                                file_obj = f["files"].pop(i)
+                                break
+                        break
+                        
+                # Add to target
+                if file_obj:
+                    for f in data.get("folders", []):
+                        if f["id"] == target_folder_id:
+                            if "files" not in f:
+                                f["files"] = []
+                            f["files"].append(file_obj)
+                            DataManager.save(data, username)
+                            return True
         return False
 
     @staticmethod

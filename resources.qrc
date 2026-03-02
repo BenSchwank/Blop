@@ -2,7 +2,7 @@
 <RCC version="1.0">
 <qresource prefix="/">
     <file>assets/logo.jpg</file>
-    <file>assets/IntroBlop.mp4</file>
+    <file>assets/Intro Blop.mp4</file>
     <file>assets/win_min.svg</file>
     <file>assets/win_max.svg</file>
     <file>assets/win_close.svg</file>
