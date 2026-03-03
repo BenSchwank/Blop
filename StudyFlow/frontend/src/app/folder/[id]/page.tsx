@@ -398,6 +398,11 @@ export default function FolderPage() {
     const [isCreateSubfolderOpen, setIsCreateSubfolderOpen] = useState(false);
     const [newSubfolderName, setNewSubfolderName] = useState('');
 
+    // Native Drag and Drop State (OS to Browser)
+    const [isDraggingOverBase, setIsDraggingOverBase] = useState(false);
+    const [isUploadingFromDrop, setIsUploadingFromDrop] = useState(false);
+    const [uploadDropMessage, setUploadDropMessage] = useState("");
+
     // Task Help Overlay State
     const [isTaskHelpOpen, setIsTaskHelpOpen] = useState(false);
     const [taskHelpContent, setTaskHelpContent] = useState('');
@@ -456,24 +461,72 @@ export default function FolderPage() {
         fetchFiles();
     }, [folderId]);
 
-    const handleFileUpload = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!fileToUpload) return;
+    // Setup global drag and drop event listeners
+    useEffect(() => {
+        const handleDragOver = (e: DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Check if the dragged item is a file (not a dnd-kit element)
+            if (e.dataTransfer?.types.includes('Files')) {
+                setIsDraggingOverBase(true);
+            }
+        };
 
-        setIsProcessing(true);
+        const handleDragLeave = (e: DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOverBase(false);
+        };
+
+        const handleDrop = async (e: DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOverBase(false);
+
+            const filesToUpload = e.dataTransfer?.files;
+            if (filesToUpload && filesToUpload.length > 0) {
+                // Handle the first dropped file
+                const file = filesToUpload[0];
+                await processNativeFileUpload(file);
+            }
+        };
+
+        // We bind to document body so the whole page acts as a drop zone
+        document.body.addEventListener('dragover', handleDragOver);
+        document.body.addEventListener('dragleave', handleDragLeave);
+        document.body.addEventListener('drop', handleDrop);
+
+        return () => {
+            document.body.removeEventListener('dragover', handleDragOver);
+            document.body.removeEventListener('dragleave', handleDragLeave);
+            document.body.removeEventListener('drop', handleDrop);
+        };
+    }, [folderId]); // Include folderId so the closure captures the correct folder
+
+    // Shared upload processing logic for both Modal and Drag & Drop
+    const processNativeFileUpload = async (file: File) => {
+        const isAudio = file.type.startsWith('audio/') || file.name.match(/\.(mp3|wav|m4a|webm)$/i);
+        const username = localStorage.getItem("username");
+        const formData = new FormData();
+        formData.append("file", file);
+
+        setIsUploadingFromDrop(true);
+        setUploadDropMessage(isAudio ? "Verarbeite Audio..." : "Lade Datei hoch...");
+
         try {
-            const username = localStorage.getItem("username");
-            const formData = new FormData();
-            formData.append("file", fileToUpload);
+            const endpoint = isAudio
+                ? `${API_BASE}/files/audio?username=${username}&folder_id=${folderId}`
+                : `${API_BASE}/files/upload?username=${username}&folder_id=${folderId}`;
 
-            const res = await fetch(`${API_BASE}/files/upload?username=${username}&folder_id=${folderId}`, {
+            const res = await fetch(endpoint, {
                 method: "POST",
                 body: formData
             });
 
             if (res.ok) {
-                setFileToUpload(null);
-                setIsUploadOpen(false);
+                showToast(isAudio ? "Audio erfolgreich transkribiert!" : "Datei hochgeladen!");
+                if (isUploadOpen) setIsUploadOpen(false); // Close modal if it was open
+                setFileToUpload(null); // Reset manual selection form state
                 fetchFiles();
             } else {
                 const err = await res.json();
@@ -484,11 +537,19 @@ export default function FolderPage() {
                 }
             }
         } catch (error) {
-            console.error(error);
-            showToast("Fehler beim Upload.");
+            console.error("Upload Error:", error);
+            showToast("Netzwerkfehler beim Upload.");
         } finally {
-            setIsProcessing(false);
+            setIsUploadingFromDrop(false);
+            if (isProcessing) setIsProcessing(false); // Clear parent modal loading state if used there
         }
+    };
+
+    const handleFileUpload = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!fileToUpload) return;
+        setIsProcessing(true); // Let the processNativeFileUpload handle the actual request
+        await processNativeFileUpload(fileToUpload);
     };
 
     const handleYoutubeImport = async (e: React.FormEvent) => {
@@ -1522,7 +1583,7 @@ export default function FolderPage() {
                             {uploadType === 'pdf' ? (
                                 <form onSubmit={handleFileUpload} className="space-y-4">
                                     <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
-                                        <input type="file" accept=".pdf" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <input type="file" accept=".pdf,audio/*" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                                         <div className="flex flex-col items-center gap-2 text-gray-400"><Upload size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken zum Auswählen"}</span></div>
                                     </div>
                                     <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
@@ -2333,6 +2394,28 @@ export default function FolderPage() {
                     username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
                     modelPreference={aiModelPreference}
                 />
+
+                {/* Global OS file drop overlay */}
+                {isDraggingOverBase && (
+                    <div className="fixed inset-0 z-[200] bg-[#5E5CE6]/90 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
+                        <div className="bg-[#0B0B1A] border-2 border-dashed border-[#5E5CE6] rounded-3xl p-16 shadow-2xl flex flex-col items-center">
+                            <Upload size={64} className="text-[#5E5CE6] mb-6 animate-bounce" />
+                            <h2 className="text-3xl font-bold text-white mb-2">Hier ablegen</h2>
+                            <p className="text-gray-300 text-lg">PDFs oder Audio (mp3/wav) direkt hochladen</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Upload processing overlay */}
+                {isUploadingFromDrop && (
+                    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-3xl p-12 shadow-2xl flex flex-col items-center">
+                            <Loader2 size={48} className="text-[#5E5CE6] animate-spin mb-6" />
+                            <h2 className="text-xl font-bold text-white mb-2">{uploadDropMessage}</h2>
+                            <p className="text-gray-400 text-sm">Das kann einen Moment dauern...</p>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

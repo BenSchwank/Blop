@@ -568,29 +568,16 @@ class DataManager:
 
     @staticmethod
     def save_transcript(filename, content, username, folder_id):
-        """Saves a transcript as a file (Cloud: Metadata with content, Local: File)."""
-        db = DataManager._init_firestore()
-        
-        if db:
-            # CLOUD MODE: Save as file metadata with content
-            # file_id = f"transcript_{int(datetime.now().timestamp())}" (Use filename to dedupe?)
-            file_id = filename # Simple ID
-            
-            file_meta = {
-                "id": file_id,
-                "name": filename,
-                "type": "transcript",
-                "content": content,
-                "created_at": datetime.now().strftime("%Y-%m-%d")
-            }
-            # Save to subcollection
-            DataManager.save_file_metadata(file_meta, username, folder_id)
-        else:
-            # LOCAL MODE: Save to disk
-            folder_path = DataManager._get_folder_path(username, folder_id)
-            file_path = os.path.join(folder_path, filename)
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
+        """Saves a transcript as a file metadata object with content."""
+        file_id = f"transcript_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}"
+        file_meta = {
+            "id": file_id,
+            "name": filename,
+            "type": "transcript",
+            "content": content,
+            "created_at": datetime.now().strftime("%Y-%m-%d")
+        }
+        DataManager.save_file_metadata(file_meta, username, folder_id)
 
     @staticmethod
     def save_plan_as_file(plan_data, username, folder_id, name="Lernplan"):
