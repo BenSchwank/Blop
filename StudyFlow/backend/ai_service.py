@@ -513,3 +513,59 @@ Hier ist das Quellenmaterial:
             print(f"Repetition Error: {e}")
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
 
+    @staticmethod
+    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None) -> str:
+        """Handles a conversational chat with the AI, given the folder content context."""
+        try:
+            # Format the system prompt with the content
+            system_instruction = f"""
+Du bist der hilfreiche 'Blop KI-Assistent'. Deine Aufgabe ist es, Fragen des Schülers zu seinen Lernmaterialien zu beantworten.
+Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).
+Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.
+
+Hier ist das gesamte Material im aktuellen Ordner des Schülers als Kontext:
+--- MATERIAL START ---"""
+
+            if isinstance(content, list):
+                for item in content:
+                    # In main.py _get_folder_context returned strings representing file content
+                    if isinstance(item, str):
+                        system_instruction += f"\n\n{item}"
+                    elif hasattr(item, 'text'):
+                        system_instruction += f"\n\n{item.text}"
+            else:
+                system_instruction += f"\n\n{content}"
+
+            system_instruction += "\n--- MATERIAL ENDE ---\n\nBitte beziehe dich auf diese Materialien, wenn du Fragen beantwortest. Wenn die Antwort im Material steht, erwähne es."
+
+            # Initialize model with the system instruction
+            model = genai.GenerativeModel(
+                model_name=get_best_model(model_preference),
+                system_instruction=system_instruction
+            )
+
+            # Format history for Gemini API ("user" and "model" roles)
+            formatted_history = []
+            if history:
+                 for msg in history:
+                     # Skip empty messages or system messages which aren't supported in history easily
+                     if not msg.get("content"):
+                         continue
+                     role = "user" if msg.get("role") == "user" else "model"
+                     formatted_history.append({"role": role, "parts": [msg.get("content")]})
+
+            # Start the chat
+            chat_session = model.start_chat(history=formatted_history)
+
+            # Send the new message
+            response = chat_session.send_message(user_message, safety_settings=SAFETY_SETTINGS)
+            
+            if not response.text:
+                raise Exception("Keine Antwort vom Modell erhalten.")
+                
+            return response.text
+            
+        except Exception as e:
+            print(f"Chat Error: {e}")
+            raise Exception(f"Fehler im Chatbot: {str(e)}")
+
