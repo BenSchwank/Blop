@@ -28,7 +28,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         setMounted(true);
         const user = localStorage.getItem('username') || 'User';
         setUsername(user);
-        setIsAdmin(user === 'admin_');
+        setIsAdmin(user.startsWith('admin_'));
     }, [pathname]);
 
     const handleLogout = () => {

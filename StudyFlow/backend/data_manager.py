@@ -142,7 +142,10 @@ class DataManager:
         if db:
             # CLOUD MODE
             try:
-                db.collection("users").document(username).set(data)
+                # CRITICAL: Use merge=True so we don't accidentally wipe out other fields
+                # if the 'data' object passed here doesn't contain the full user state
+                # (e.g. when setting API keys).
+                db.collection("users").document(username).set(data, merge=True)
             except Exception as e:
                 print(f"Firestore Save Error: {e}")
         else:
