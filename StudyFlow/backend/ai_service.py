@@ -351,39 +351,40 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
     def transcribe_audio(audio_file_path: str, model_preference: str = None) -> str:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference)) # Use the dynamically selected best model
-            
-            # Upload the file to Gemini API temporarily
-            print(f"Uploading audio to Gemini: {audio_file_path}")
-            import time
-            
-            # Manually set mime_type because .webm defaults to video/webm
-            # which fails Gemini's video frame processing for audio-only files!
-            mime_type = None
-            if audio_file_path.endswith('.webm'):
-                mime_type = "audio/webm"
-            elif audio_file_path.endswith('.mp3'):
-                mime_type = "audio/mp3"
-            elif audio_file_path.endswith('.wav'):
-                mime_type = "audio/wav"
-            elif audio_file_path.endswith('.m4a'):
-                mime_type = "audio/mp4"
-
-            uploaded_file = genai.upload_file(path=audio_file_path, mime_type=mime_type)
-            
-            while uploaded_file.state.name == "PROCESSING":
-                print("Waiting for audio processing...")
-                time.sleep(2)
-                uploaded_file = genai.get_file(uploaded_file.name)
-                
-            if uploaded_file.state.name == "FAILED":
-                raise Exception("Audio file processing failed on Gemini's servers.")
-            
             prompt = """
-Bitte erstelle ein präzises, zusammenhängendes und vollständiges Transkript dieser Audioaufnahme auf Deutsch. 
-Erfasse alle wichtigen Details, Fachbegriffe und Zusammenhänge.
-Lasse Füllwörter (Ähm, öhm) weg, um den Text lesbar zu machen.
+Lass uns eine atemberaubende, strukturierte Notiz aus dieser Audioaufnahme erstellen!
+Bitte analysiere das angehängte Audio und generiere eine wunderschön formatierte Markdown-Notiz, die den Inhalt perfekt, präzise und visuell ansprechend zusammenfasst.
+
+Die Notiz **MUSS** folgende Struktur haben (inklusive der Emojis für visuelle Struktur):
+
+# [Ein passender, knackiger Titel für die Notiz]
+
+## 📝 Brief Overview
+[Eine kurze, prägnante Zusammenfassung worum es in dem Audiofenster insgesamt ging, in 2-3 Sätzen.]
+
+## 🎯 Key Points
+*   [Wichtiger Punkt 1 mit detaillierter Erklärung]
+*   [Wichtiger Punkt 2 mit detaillierter Erklärung]
+*   ... [So viele wie nötig, um den Inhalt vollständig abzubilden]
+
+## 📊 Detail-Analyse / Fakten (falls zutreffend)
+[Wenn das Audio zeitliche Abläufe, historische Fakten, Vergleiche oder messbare Daten enthält, erstelle hier eine übersichtliche Markdown-Tabelle. Wenn nicht, nutze diesen Bereich für tiefergehende Erklärungen oder Definitionen aus dem Audio.]
+
+## 💡 Fazit / Takeaway
+[Was ist die wichtigste Schlussfolgerung oder das wichtigste Learning aus diesem Audio?]
+
+WICHTIG:
+- Schreibe auf Deutsch.
+- Lasse Füllwörter (Ähm, öhm) komplett weg.
+- Der Text muss professionell, aber sehr ansprechend und leicht lesbar (wie eine perfekte Zusammenfassung für eine Prüfung) gestaltet sein.
+
+Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zurück (KEIN Markdown-Code-Block drumherum, nur das reine JSON):
+{
+  "title": "Der generierte, knackige Titel",
+  "content": "Der komplette generierte Markdown-Text (inklusive der # Überschrift am Anfang)"
+}
 """
+            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
             response = model.generate_content([prompt, uploaded_file], safety_settings=SAFETY_SETTINGS)
             
             # Cleanup the file from Google's servers
@@ -391,7 +392,9 @@ Lasse Füllwörter (Ähm, öhm) weg, um den Text lesbar zu machen.
             
             if not response.text:
                 raise Exception("Leeres Transkript vom Modell erhalten.")
-            return response.text
+                
+            result = json.loads(response.text)
+            return result
         except Exception as e:
             print(f"Audio Transcription Error: {e}")
             raise Exception(f"Fehler bei der Audio-Transkription: {str(e)}")

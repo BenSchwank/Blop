@@ -357,13 +357,15 @@ async def upload_audio(
             
         try:
             # Transcribe via Gemini
-            transcript_text = AIService.transcribe_audio(temp_audio_path)
+            result_dict = AIService.transcribe_audio(temp_audio_path)
+            
+            transcript_text = result_dict.get("content", "")
+            audio_title = result_dict.get("title", f"Audio Notiz {datetime.now().strftime('%d.%m.%Y %H:%M')}")
             
             # Save the transcript as if it were a Youtube video
-            audio_title = f"Sprachmemo {datetime.now().strftime('%d.%m.%Y %H:%M')}"
             DataManager.save_transcript(audio_title, transcript_text, username, folder_id)
             
-            return {"status": "success", "message": "Audio transkribiert und gespeichert"}
+            return {"status": "success", "message": "Audio transkribiert und als Notiz gespeichert"}
         finally:
              if os.path.exists(temp_audio_path):
                  os.remove(temp_audio_path)

@@ -1004,7 +1004,7 @@ export default function FolderPage() {
     const renderViewer = () => {
         if (!selectedFile) return null;
 
-        if (selectedFile.type === 'summary' || selectedFile.type === 'repetition' || selectedFile.type === 'elaboration') {
+        if (selectedFile.type === 'summary' || selectedFile.type === 'repetition' || selectedFile.type === 'elaboration' || selectedFile.type === 'transcript') {
             return (
                 <RichTextEditor
                     initialContent={typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '')}
@@ -1544,7 +1544,7 @@ export default function FolderPage() {
                                                 <div className="flex gap-3 w-full">
                                                     <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
                                                     <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2">
-                                                        {isProcessing ? <Loader2 size={16} className="animate-spin" /> : "Verarbeiten"}
+                                                        {isProcessing ? <><Loader2 size={16} className="animate-spin" /> Verarbeiten...</> : "Als AI Notiz speichern"}
                                                     </button>
                                                 </div>
                                             </>
