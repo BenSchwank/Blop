@@ -533,15 +533,10 @@ export default function FolderPage() {
             setIsRecording(true);
             setRecordingTime(0);
 
-            // Timer interval
+            // Timer interval: Just increment unconditionally.
+            // The interval is cleared when we stop recording.
             const interval = setInterval(() => {
-                setRecordingTime(prev => {
-                    if (!isRecording) {
-                        clearInterval(interval);
-                        return prev;
-                    }
-                    return prev + 1;
-                });
+                setRecordingTime(prev => prev + 1);
             }, 1000);
 
             // Cleanup interval when recording stops

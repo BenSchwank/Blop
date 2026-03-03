@@ -351,6 +351,33 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
     def transcribe_audio(audio_file_path: str, model_preference: str = None) -> str:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
+            model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
+            
+            # Upload the file to Gemini API temporarily
+            print(f"Uploading audio to Gemini: {audio_file_path}")
+            import time
+            
+            # Manually set mime_type because .webm defaults to video/webm
+            # which fails Gemini's video frame processing for audio-only files!
+            mime_type = None
+            if audio_file_path.endswith('.webm'):
+                mime_type = "audio/webm"
+            elif audio_file_path.endswith('.mp3'):
+                mime_type = "audio/mp3"
+            elif audio_file_path.endswith('.wav'):
+                mime_type = "audio/wav"
+            elif audio_file_path.endswith('.m4a'):
+                mime_type = "audio/mp4"
+
+            uploaded_file = genai.upload_file(path=audio_file_path, mime_type=mime_type)
+            
+            while uploaded_file.state.name == "PROCESSING":
+                print("Waiting for audio processing...")
+                time.sleep(2)
+                uploaded_file = genai.get_file(uploaded_file.name)
+                
+            if uploaded_file.state.name == "FAILED":
+                raise Exception("Audio file processing failed on Gemini's servers.")
             prompt = """
 Lass uns eine atemberaubende, strukturierte Notiz aus dieser Audioaufnahme erstellen!
 Bitte analysiere das angehängte Audio und generiere eine wunderschön formatierte Markdown-Notiz, die den Inhalt perfekt, präzise und visuell ansprechend zusammenfasst.
