@@ -36,19 +36,22 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         window.location.href = '/login';
     };
 
-    // Don't render until mounted to avoid hydration mismatch
+    // Don't render full interactive content until mounted to avoid hydration mismatch,
+    // but KEEP the exact same layout structure to prevent layout jumps/hydration errors.
     if (!mounted) {
         return (
-            <aside className="h-screen w-full bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0">
-                <div className="p-6 border-b border-[#333]">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-[#5E5CE6] flex items-center justify-center overflow-hidden">
-                            <Image src="/logo.jpg" alt="Blop Logo" width={40} height={40} className="object-cover" />
+            <aside className={`h-screen bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0 shrink-0 transition-all duration-300 ${isCollapsed ? 'w-[72px]' : 'w-[260px]'}`}>
+                <div className={`h-[74px] border-b border-[#333] flex items-center px-4 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-[38px] h-[38px] rounded-[10px] bg-[#5E5CE6] flex items-center justify-center text-white font-bold text-sm">
+                            B
                         </div>
-                        <div>
-                            <h1 className="text-xl font-semibold text-white">Blop Study</h1>
-                            <p className="text-xs text-[#888]">AI Lernassistent</p>
-                        </div>
+                        {!isCollapsed && (
+                            <div className="flex flex-col gap-0.5">
+                                <h1 className="text-[16px] font-bold text-white leading-tight">Blop</h1>
+                                <p className="text-[10px] text-[#888] leading-tight">Lernassistent</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </aside>
