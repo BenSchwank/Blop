@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 import RichTextEditor from "@/components/RichTextEditor";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
-import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 
 interface FileData {
     id: string;
@@ -413,6 +413,20 @@ export default function FolderPage() {
 
     // Drag & Drop State
     const [activeDragFile, setActiveDragFile] = useState<FileData | null>(null);
+
+    const sensors = useSensors(
+        useSensor(MouseSensor, {
+            activationConstraint: {
+                distance: 8, // Require 8px of movement to start dragging. This allows clicks to fire.
+            },
+        }),
+        useSensor(TouchSensor, {
+            activationConstraint: {
+                delay: 200, // Press and hold for 200ms to drag on mobile
+                tolerance: 5,
+            },
+        })
+    );
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
@@ -1389,7 +1403,12 @@ export default function FolderPage() {
                         <Loader2 className="animate-spin text-[#5E5CE6]" size={32} />
                     </div>
                 ) : (
-                    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
+                    <DndContext
+                        sensors={sensors}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        collisionDetection={closestCenter}
+                    >
                         <div className="space-y-6">
                             {/* Subfolders section */}
                             {(subfolders.length > 0 || true) && (

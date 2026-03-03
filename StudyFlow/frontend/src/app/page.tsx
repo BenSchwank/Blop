@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 
 interface FolderData {
   id: string;
@@ -105,6 +105,20 @@ export default function Dashboard() {
 
   // Drag & Drop State
   const [activeDragFolder, setActiveDragFolder] = useState<FolderData | null>(null);
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px of movement to start dragging. This allows clicks to fire.
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200, // Press and hold for 200ms to drag on mobile
+        tolerance: 5,
+      },
+    })
+  );
 
   const API_BASE = '/api';
 
@@ -349,7 +363,12 @@ export default function Dashboard() {
             </div>
           ) : (
             /* Folder Grid */
-            <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              collisionDetection={closestCenter}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 <AnimatePresence mode='popLayout'>
                   {filteredFolders.map((folder) => (
