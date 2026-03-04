@@ -87,13 +87,21 @@ jobs:
           filename: 'Blop_Windows.zip'
           directory: 'deployment'
 
-      - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Build NSIS Installer
-        shell: cmd
+      - name: Install NSIS and Build Installer
+        shell: pwsh
         run: |
-          "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+          choco install nsis -y --no-progress
+          $nsisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (-not (Test-Path $nsisPath)) {
+            # Fallback: search common locations
+            $nsisPath = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          }
+          if (-not $nsisPath -or -not (Test-Path $nsisPath)) {
+            Write-Error "NSIS makensis.exe not found after installation!"
+            exit 1
+          }
+          Write-Host "Using NSIS at: $nsisPath"
+          & $nsisPath installer.nsi
 
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
