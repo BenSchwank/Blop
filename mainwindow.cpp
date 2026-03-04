@@ -466,24 +466,16 @@ MainWindow::MainWindow(QWidget *parent)
 
   updateOverviewBackButton();
 
-  // --- Auth Check (Require Login) ---
-  QString username = QSettings("Blop", "BlopApp").value("username").toString();
-  if (username.isEmpty()) {
-    // Lock UI to Study Mode
-    if (m_modeSelector) {
-      m_modeSelector->setCurrentIndex(1); // Force Study Mode
-      m_modeSelector->hide();
-    }
-    if (btnStripMenu)
-      btnStripMenu->hide();
-    if (m_isSidebarOpen)
-      onToggleSidebar();
-  } else {
-    // Starting logged in: Ensure we start in Notes mode and sidebar is hidden
-    if (m_modeSelector)
-      m_modeSelector->setCurrentIndex(0);
-    if (m_isSidebarOpen)
-      onToggleSidebar();
+  // --- Startup Mode: Always show the Study/Login web view first ---
+  // After web login, the SSO bridge (ssoTimer in setupWebBrowser) detects the
+  // session and calls updateSidebarUser(), which switches us to Notes mode.
+  if (m_modeSelector) {
+    m_modeSelector->setCurrentIndex(1); // Always start in Study/Login mode
+  }
+  // Update sidebar to show saved username if available
+  QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
+  if (!savedUser.isEmpty()) {
+    updateSidebarUser(savedUser);
   }
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
@@ -1442,29 +1434,26 @@ void MainWindow::updateSidebarUser(const QString &username) {
   bool wasLocked = (m_modeSelector && m_modeSelector->isHidden());
 
   if (!username.isEmpty()) {
-    // Unlock UI
+    // Logged in: Switch to Blop Notes mode
     if (m_modeSelector) {
       m_modeSelector->show();
-      if (wasLocked) {
-        // Nach dem Login automatisch zu Blop Notes wecheln:
-        m_modeSelector->setCurrentIndex(0);
-      }
+      m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
     }
     if (btnStripMenu)
       btnStripMenu->show();
 
-    // Nach dem Login soll die Sidebar nicht sichtbar sein
-    if (wasLocked && m_isSidebarOpen) {
+    // Hide sidebar after login
+    if (m_isSidebarOpen) {
       onToggleSidebar();
     }
   } else {
-    // Lock UI
+    // Logged out: Switch back to Study/Login web view
     if (m_modeSelector) {
-      m_modeSelector->setCurrentIndex(1); // Force Study Mode
-      m_modeSelector->hide();
+      m_modeSelector->setCurrentIndex(1); // Force back to web login
+      m_modeSelector->show(); // Keep it visible so user can switch manually
     }
     if (btnStripMenu)
-      btnStripMenu->hide();
+      btnStripMenu->show();
     if (m_isSidebarOpen)
       onToggleSidebar();
   }
