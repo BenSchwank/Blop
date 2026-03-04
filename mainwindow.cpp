@@ -559,6 +559,13 @@ void MainWindow::checkForUpdates() {
     if (!isNewer)
       return; // Already up to date
 
+    // Check if the user already dismissed this specific version
+    QSettings settings("Blop", "BlopApp");
+    QString dismissedVersion =
+        settings.value("dismissedUpdateVersion").toString();
+    if (dismissedVersion == tagName)
+      return; // User already chose "Später" for this version
+
     // Find the correct download URL for this platform
     QJsonArray assets = root.value("assets").toArray();
     QString downloadUrl;
@@ -676,6 +683,9 @@ void MainWindow::checkForUpdates() {
           });
       }
 #endif
+    } else {
+      // User clicked "Später" — remember this version, don't show again for it
+      QSettings("Blop", "BlopApp").setValue("dismissedUpdateVersion", tagName);
     }
     box->deleteLater();
   });
