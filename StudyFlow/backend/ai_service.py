@@ -379,36 +379,52 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
             if uploaded_file.state.name == "FAILED":
                 raise Exception("Audio file processing failed on Gemini's servers.")
             prompt = """
-Lass uns eine atemberaubende, strukturierte Notiz aus dieser Audioaufnahme erstellen!
-Bitte analysiere das angehängte Audio und generiere eine wunderschön formatierte Markdown-Notiz, die den Inhalt perfekt, präzise und visuell ansprechend zusammenfasst.
+Du bist ein professioneller Mitschriften-Assistent. Du hast Zugriff auf eine Audioaufnahme einer Vorlesung / eines Unterrichts.
 
-Die Notiz **MUSS** folgende Struktur haben (inklusive der Emojis für visuelle Struktur):
+Deine Aufgabe: Erstelle eine VOLLSTÄNDIGE, AUSFÜHRLICHE und DETAILLIERTE Mitschrift — so als ob ein sehr fleißiger Schüler mitgeschrieben hätte. Die Mitschrift soll LANG sein und den gesamten Inhalt des Audios abdecken.
 
-# [Ein passender, knackiger Titel für die Notiz]
+WICHTIGE ANWEISUNG ZUR LÄNGE:
+- Bei einem kurzen Audio (< 5 Min): Mindestens 300 Wörter Mitschrift.
+- Bei einem mittleren Audio (5-20 Min): Mindestens 800 Wörter Mitschrift.
+- Bei einem langen Audio (20+ Min): Mindestens 1500-3000 Wörter Mitschrift. Gehe durch das Audio CHRONOLOGISCH und lasse NICHTS aus!
+- Wenn der Lehrer Beispiele nennt → schreibe sie auf.
+- Wenn Formeln erklärt werden → schreibe sie auf.
+- Wenn Definitionen gegeben werden → schreibe sie wörtlich auf.
+- Lasse KEINE Inhalte weg — auch scheinbar unwichtige Erklärungen oder Wiederholungen.
 
-## 📝 Brief Overview
-[Eine kurze, prägnante Zusammenfassung worum es in dem Audiofenster insgesamt ging, in 2-3 Sätzen.]
+Die Mitschrift MUSS folgende Struktur haben:
 
-## 🎯 Key Points
-*   [Wichtiger Punkt 1 mit detaillierter Erklärung]
-*   [Wichtiger Punkt 2 mit detaillierter Erklärung]
-*   ... [So viele wie nötig, um den Inhalt vollständig abzubilden]
+# [Passender Titel für das Thema der Stunde]
 
-## 📊 Detail-Analyse / Fakten (falls zutreffend)
-[Wenn das Audio zeitliche Abläufe, historische Fakten, Vergleiche oder messbare Daten enthält, erstelle hier eine übersichtliche Markdown-Tabelle. Wenn nicht, nutze diesen Bereich für tiefergehende Erklärungen oder Definitionen aus dem Audio.]
+## 📝 Zusammenfassung (kurz)
+[2-3 Sätze: Gesamteindruck der Stunde]
 
-## 💡 Fazit / Takeaway
-[Was ist die wichtigste Schlussfolgerung oder das wichtigste Learning aus diesem Audio?]
+## 📖 Vollständige Mitschrift
+
+### [Thema 1 / Abschnitt 1]
+[Ausführliche, detaillierte Notizen zum ersten Thema]
+
+### [Thema 2 / Abschnitt 2]
+[Ausführliche, detaillierte Notizen zum zweiten Thema]
+
+... [So viele Abschnitte wie nötig, um den gesamten Stoff abzubilden]
+
+## 🎯 Wichtigste Konzepte & Definitionen
+[Tabellarische oder aufgelistete, wichtige Definitionen, Formeln, Regeln aus dem Audio]
+
+## 💡 Fazit / Lernziele
+[Was ist das wichtigste Lernziel dieser Stunde?]
 
 WICHTIG:
 - Schreibe auf Deutsch.
-- Lasse Füllwörter (Ähm, öhm) komplett weg.
-- Der Text muss professionell, aber sehr ansprechend und leicht lesbar (wie eine perfekte Zusammenfassung für eine Prüfung) gestaltet sein.
+- Lasse Füllwörter (ähm, öhm) weg.
+- Gehe das Audio CHRONOLOGISCH durch — nichts auslassen!
+- Die Mitschrift MUSS dem Umfang des Audios entsprechen. Ein 55-minütiges Audio → sehr lange, mehrseitige Mitschrift!
 
-Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zurück (KEIN Markdown-Code-Block drumherum, nur das reine JSON):
+Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zurück (KEIN Markdown-Code-Block drumherum):
 {
-  "title": "Der generierte, knackige Titel",
-  "content": "Der komplette generierte Markdown-Text (inklusive der # Überschrift am Anfang)"
+  "title": "Der Titel der Stunde",
+  "content": "Die vollständige Mitschrift als Markdown-Text"
 }
 """
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
