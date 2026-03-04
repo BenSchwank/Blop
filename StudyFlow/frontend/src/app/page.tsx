@@ -122,6 +122,15 @@ export default function Dashboard() {
 
   const API_BASE = '/api';
 
+  // --- Auth Guard: Redirect to login if not logged in ---
+  useEffect(() => {
+    const username = localStorage.getItem('username');
+    const session = localStorage.getItem('session_id');
+    if (!username || !session) {
+      router.replace('/login');
+    }
+  }, [router]);
+
   const fetchFolders = async () => {
     try {
       const username = localStorage.getItem("username");

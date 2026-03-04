@@ -15,8 +15,8 @@ export default function ClientLayout({
     const pathname = usePathname();
     const isAuthPage = pathname === "/login" || pathname === "/datenschutz";
 
-    // Sidebar starts collapsed – expand on user click
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+    // Sidebar starts expanded by default on desktop
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
     // Persist preference across navigation
     useEffect(() => {
@@ -32,14 +32,10 @@ export default function ClientLayout({
         sessionStorage.setItem("sidebarCollapsed", String(next));
     };
 
-    // For Auth pages (login/datenschutz), we STILL render the sidebar, but ALWAYS collapsed.
-    // However, the user asked for it to be collapsed on the login screen. No main content scaling needed.
+    // For Auth pages (login/datenschutz), render WITHOUT sidebar
     if (isAuthPage) {
         return (
             <div className="flex min-h-screen">
-                <div className="hidden md:flex">
-                    <Sidebar isCollapsed={true} onToggle={() => { }} />
-                </div>
                 <main className="flex-1 min-h-screen relative">{children}</main>
             </div>
         );
