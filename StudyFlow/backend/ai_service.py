@@ -514,29 +514,47 @@ Hier ist das Quellenmaterial:
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
 
     @staticmethod
-    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None) -> str:
-        """Handles a conversational chat with the AI, given the folder content context."""
+    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None) -> str:
+        """Handles a conversational chat with the AI, given the folder content context and optionally the currently active file."""
         try:
-            # Format the system prompt with the content
-            system_instruction = f"""
-Du bist der hilfreiche 'Blop KI-Assistent'. Deine Aufgabe ist es, Fragen des Schülers zu seinen Lernmaterialien zu beantworten.
-Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).
-Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.
+            system_instruction = (
+                "Du bist der hilfreiche 'Blop KI-Assistent'. Deine Aufgabe ist es, Fragen des Schülers "
+                "zu seinen Lernmaterialien (PDFs, Notizen, etc.) zu beantworten.\n"
+                "Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).\n"
+                "Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.\n\n"
+            )
 
-Hier ist das gesamte Material im aktuellen Ordner des Schülers als Kontext:
---- MATERIAL START ---"""
+            if active_file:
+                # Add context about the currently open file and instructions for editing
+                file_name = active_file.get("name", "Unbekannt")
+                file_type = active_file.get("type", "Unbekannt")
+                file_content = active_file.get("content", "")
+                
+                # Make sure file content is a string if it's a JSON structure (like plans/flashcards)
+                if isinstance(file_content, (dict, list)):
+                    file_content_str = json.dumps(file_content, ensure_ascii=False, indent=2)
+                else:
+                    file_content_str = str(file_content)
 
-            if isinstance(content, list):
-                for item in content:
-                    # In main.py _get_folder_context returned strings representing file content
-                    if isinstance(item, str):
-                        system_instruction += f"\n\n{item}"
-                    elif hasattr(item, 'text'):
-                        system_instruction += f"\n\n{item.text}"
-            else:
-                system_instruction += f"\n\n{content}"
-
-            system_instruction += "\n--- MATERIAL ENDE ---\n\nBitte beziehe dich auf diese Materialien, wenn du Fragen beantwortest. Wenn die Antwort im Material steht, erwähne es."
+                system_instruction += (
+                    f"WICHTIGE OPERATION (DOKUMENTEN-BEARBEITUNG):\n"
+                    f"Der Nutzer hat aktuell folgende Datei geöffnet:\n"
+                    f"- Name: {file_name}\n"
+                    f"- Typ: {file_type}\n"
+                    f"- Inhalt:\n{file_content_str}\n\n"
+                    f"ANWEISUNG ZUM BEARBEITEN DER DATEI:\n"
+                    f"Wenn der Nutzer dich bittet, diese geöffnete Datei zu ändern (z.B. 'Kürze die Zusammenfassung', 'Füge X zum Plan hinzu', 'Übersetze es'), "
+                    f"dann MUSST DU die GANZ genaue und komplette NEUE Version dieser Datei generieren.\n"
+                    f"Wenn du das Dokument bearbeitest, antworte AUSSCHLIEßLICH mit einem JSON-Block im folgenden Format (KEIN anderer Text!):\n"
+                    f"```json\n"
+                    f"{{\n"
+                    f"  \"blop_action\": \"update_file\",\n"
+                    f"  \"new_content\": <HIER DER KOMPLETTE NEUE INHALT_STR ODER DAS JSON ARRAY WIE VORHER>\n"
+                    f"}}\n"
+                    f"```\n"
+                    f"Beachte: Wenn die Originaldatei ein JSON Array war (wie bei Lernplänen, Karteikarten oder Quizzes), muss `new_content` wieder exakt so ein Array sein.\n"
+                    f"Wenn es nur normaler Chat ist (keine Änderung gefordert), antworte ganz normal als Text."
+                )
 
             # Initialize model with the system instruction
             model = genai.GenerativeModel(
@@ -544,21 +562,38 @@ Hier ist das gesamte Material im aktuellen Ordner des Schülers als Kontext:
                 system_instruction=system_instruction
             )
 
-            # Format history for Gemini API ("user" and "model" roles)
+            # The context must be injected. Since we are stateless, we inject it into the VERY FIRST user message.
+            context_parts = ["--- LERNMATERIAL KONTEXT ---\nBitte nutze dieses Material, um Anfragen darauf basierend zu beantworten.\n"]
+            if isinstance(content, list):
+                context_parts.extend(content)
+            elif content:
+                context_parts.append(content)
+                
             formatted_history = []
             if history:
+                 first_user_msg = True
                  for msg in history:
-                     # Skip empty messages or system messages which aren't supported in history easily
                      if not msg.get("content"):
                          continue
                      role = "user" if msg.get("role") == "user" else "model"
-                     formatted_history.append({"role": role, "parts": [msg.get("content")]})
-
-            # Start the chat
-            chat_session = model.start_chat(history=formatted_history)
-
-            # Send the new message
-            response = chat_session.send_message(user_message, safety_settings=SAFETY_SETTINGS)
+                     
+                     parts = [msg.get("content")]
+                     if role == "user" and first_user_msg:
+                         # Inject the folder materials into the very first message of the conversation
+                         parts = context_parts + parts
+                         first_user_msg = False
+                         
+                     formatted_history.append({"role": role, "parts": parts})
+                     
+                 # Start the chat with reconstructed history
+                 chat_session = model.start_chat(history=formatted_history)
+                 # Send the new incoming message
+                 response = chat_session.send_message(user_message, safety_settings=SAFETY_SETTINGS)
+            else:
+                 # No history, this is the very first message. Inject context directly into the new message.
+                 message_parts = context_parts + [user_message]
+                 chat_session = model.start_chat(history=[])
+                 response = chat_session.send_message(message_parts, safety_settings=SAFETY_SETTINGS)
             
             if not response.text:
                 raise Exception("Keine Antwort vom Modell erhalten.")
@@ -566,6 +601,8 @@ Hier ist das gesamte Material im aktuellen Ordner des Schülers als Kontext:
             return response.text
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Chat Error: {e}")
             raise Exception(f"Fehler im Chatbot: {str(e)}")
 

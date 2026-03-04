@@ -57,6 +57,46 @@ class ChatRequest(BaseModel):
     message: str
     history: List[ChatMessage]
     model_preference: Optional[str] = None
+    active_file: Optional[dict] = None  # {id, name, type, content}
+
+@app.get("/api/search")
+def global_search(username: str, q: str):
+    """Searches through all folders and files for the given user"""
+    if not username or not q:
+        return []
+
+    q_lower = q.lower()
+    results = []
+    
+    # 1. Search Folders
+    folders = DataManager.get_folders(username)
+    for folder in folders:
+        # Match folder name
+        if q_lower in folder.get("name", "").lower():
+            results.append({
+                "type": "folder",
+                "id": folder["id"],
+                "name": folder["name"],
+                "folder_id": folder["id"] # To navigate to it
+            })
+            
+        # 2. Search Files inside this folder
+        files = DataManager.get_files(username, folder["id"])
+        for file in files:
+            # We search by name or type
+            file_name = file.get("name", "")
+            file_type = file.get("type", "")
+            if q_lower in file_name.lower() or q_lower in file_type.lower():
+                results.append({
+                    "type": "file",
+                    "file_type": file_type,
+                    "id": file["id"],
+                    "name": file_name,
+                    "folder_id": folder["id"],
+                    "folder_name": folder.get("name", "Ordner")
+                })
+                
+    return results
 
 @app.get("/")
 def read_root():
@@ -666,7 +706,13 @@ def chat_endpoint(request: ChatRequest):
         # Convert history
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
         
-        reply = AIService.chat(context, request.message, history_dicts, request.model_preference)
+        reply = AIService.chat(
+            content=context, 
+            user_message=request.message, 
+            history=history_dicts, 
+            model_preference=request.model_preference,
+            active_file=request.active_file
+        )
         return {"status": "success", "reply": reply}
     except HTTPException:
         raise

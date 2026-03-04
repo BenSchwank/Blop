@@ -109,13 +109,13 @@ export default function Dashboard() {
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
-        distance: 8, // Require 8px of movement to start dragging. This allows clicks to fire.
+        distance: 25, // Require 25px of movement to start dragging. This allows clicks to fire.
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 200, // Press and hold for 200ms to drag on mobile
-        tolerance: 5,
+        delay: 250, // Press and hold for 250ms to drag on mobile
+        tolerance: 8,
       },
     })
   );

@@ -115,10 +115,20 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, on
                 </div>
             </div>
 
-            <div className="flex items-center gap-4 shrink-0 pl-4">
+            <div className="flex items-center gap-4 shrink-0 pl-4 no-print">
                 <div className="hidden md:block text-gray-400 text-sm max-w-[200px] truncate" title={title}>
                     {title}
                 </div>
+
+                <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#444] text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+                    title="Als PDF exportieren"
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                    <span className="hidden sm:inline">PDF Export</span>
+                </button>
+
                 <button
                     onClick={onSave}
                     disabled={isSaving}

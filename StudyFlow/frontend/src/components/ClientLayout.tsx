@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
+import CommandMenu from "@/components/CommandMenu";
 import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
 
 export default function ClientLayout({
@@ -46,6 +47,9 @@ export default function ClientLayout({
 
     return (
         <div className="flex min-h-screen">
+            {/* Command Menu Modal (Ctrl/Cmd+K) */}
+            <CommandMenu />
+
             {/* Sidebar panel (visible on desktop) */}
             <div className="hidden md:flex">
                 <Sidebar isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />

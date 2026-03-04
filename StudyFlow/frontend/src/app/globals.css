@@ -272,3 +272,129 @@ input:focus-visible {
   margin-top: 2rem;
   margin-bottom: 2rem;
 }
+
+/* --- PDF Export & Print Styles ---
+   These styles apply ONLY when window.print() is called.
+   They override the dark theme to create clean, sharp, black-text-on-white-bg documents.
+*/
+@media print {
+  /* Reset Backgrounds & Text Colors */
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide all UI elements that shouldn't be printed (Sidebars, Navs, Floating Buttons, etc) */
+  .no-print,
+  aside, 
+  nav,
+  header,
+  .blop-fab,
+  button {
+    display: none !important;
+  }
+
+  /* Expand the main content area to fill the page */
+  main {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Override the Prose formatting for print */
+  .prose-blop {
+    color: #000000 !important;
+  }
+
+  .prose-blop h1, .prose-blop h2, .prose-blop h3, .prose-blop h4, .prose-blop strong {
+    color: #000000 !important;
+  }
+
+  .prose-blop p, .prose-blop li {
+    color: #333333 !important;
+    page-break-inside: avoid;
+  }
+
+  .prose-blop a {
+    color: #000000 !important;
+    text-decoration: none !important;
+  }
+
+  .prose-blop code {
+    background: #f1f1f1 !important;
+    color: #000000 !important;
+    border: 1px solid #dddddd !important;
+  }
+
+  .prose-blop pre {
+    background: #f8f8f8 !important;
+    border: 1px solid #dddddd !important;
+    page-break-inside: avoid;
+  }
+  
+  .prose-blop pre code {
+    color: #000000 !important;
+  }
+
+  .prose-blop blockquote {
+    background: #f8f8f8 !important;
+    border-left: 4px solid #000000 !important;
+    color: #333333 !important;
+    page-break-inside: avoid;
+  }
+
+  .prose-blop table {
+    box-shadow: none !important;
+    border: 1px solid #000000 !important;
+    page-break-inside: auto;
+  }
+
+  .prose-blop tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  .prose-blop th {
+    background: #f1f1f1 !important;
+    color: #000000 !important;
+    border-bottom: 2px solid #000000 !important;
+  }
+
+  .prose-blop td {
+    color: #000000 !important;
+    border-bottom: 1px solid #dddddd !important;
+  }
+
+  /* Print specific utilities */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Hide the actual UI boxes, only print the content */
+  .blop-card, .print-container {
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Force headers to start at the top of the page if needed */
+  h1 {
+    page-break-before: always;
+  }
+  
+  /* Never break after a heading */
+  h1, h2, h3, h4, h5 {
+    page-break-after: avoid;
+  }
+
+  @page {
+    margin: 2cm;
+  }
+}

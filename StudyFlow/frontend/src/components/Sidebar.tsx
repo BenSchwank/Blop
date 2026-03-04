@@ -36,27 +36,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         window.location.href = '/login';
     };
 
-    // Don't render full interactive content until mounted to avoid hydration mismatch,
-    // but KEEP the exact same layout structure to prevent layout jumps/hydration errors.
-    if (!mounted) {
-        return (
-            <aside className={`h-screen bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0 shrink-0 transition-all duration-300 ${isCollapsed ? 'w-[72px]' : 'w-[260px]'}`}>
-                <div className={`h-[74px] border-b border-[#333] flex items-center px-4 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-[38px] h-[38px] rounded-[10px] bg-[#5E5CE6] flex items-center justify-center text-white font-bold text-sm">
-                            B
-                        </div>
-                        {!isCollapsed && (
-                            <div className="flex flex-col gap-0.5">
-                                <h1 className="text-[16px] font-bold text-white leading-tight">Blop</h1>
-                                <p className="text-[10px] text-[#888] leading-tight">Lernassistent</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </aside>
-        );
-    }
+    // We use suppressHydrationWarning on dynamic client elements instead of an early return 
+    // so the entire sidebar layout renders immediately without layout jumps.
 
     return (
         <aside className="h-screen w-[260px] bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0 shrink-0">
@@ -72,9 +53,12 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         <p className="text-[10px] text-[#888] leading-tight">Lernassistent</p>
                     </div>
                 </div>
-                {/* Collapse button placeholder style like in Qt */}
-                <button className="text-[#888] hover:text-white hover:bg-[#333] w-6 h-6 rounded flex items-center justify-center transition-colors text-base">
-                    «
+                {/* Collapse button style like in Qt */}
+                <button
+                    onClick={onToggle}
+                    className="text-[#888] hover:text-white hover:bg-[#333] w-6 h-6 rounded flex items-center justify-center transition-colors text-base"
+                >
+                    {isCollapsed ? '»' : '«'}
                 </button>
             </div>
 
@@ -132,8 +116,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 </div>
                 {!isCollapsed && (
                     <div className="flex-1 min-w-0 flex flex-col justify-center gap-[1px]">
-                        <p className="text-[12px] font-semibold text-white truncate max-w-[130px]">
-                            {username}
+                        <p suppressHydrationWarning className="text-[12px] font-semibold text-white truncate max-w-[130px]">
+                            {mounted ? username : 'Lade...'}
                         </p>
                         <button
                             onClick={handleLogout}

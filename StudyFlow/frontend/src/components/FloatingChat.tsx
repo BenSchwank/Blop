@@ -13,9 +13,11 @@ interface FloatingChatProps {
     folderId: string;
     username: string;
     modelPreference?: string;
+    activeFile?: any | null;
+    onUpdateActiveFile?: (newContent: any) => Promise<void>;
 }
 
-export default function FloatingChat({ folderId, username, modelPreference }: FloatingChatProps) {
+export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile }: FloatingChatProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
@@ -53,14 +55,37 @@ export default function FloatingChat({ folderId, username, modelPreference }: Fl
                     folder_id: folderId,
                     message: userMsg,
                     history: messages.filter(m => m.role !== 'model' || m.content !== 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?'), // Don't send the default greeting
-                    model_preference: modelPreference || null
+                    model_preference: modelPreference || null,
+                    active_file: activeFile || null
                 }),
             });
 
             if (!res.ok) throw new Error('Netzwerkfehler');
 
             const data = await res.json();
-            setMessages([...newMessages, { role: 'model', content: data.reply }]);
+            const replyText = data.reply;
+
+            // Try to parse JSON to see if it's an action rather than a chat message
+            try {
+                // The AI might wrap the JSON in markdown code blocks like ```json ... ```
+                let jsonStr = replyText.trim();
+                if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
+                if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
+                if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+                jsonStr = jsonStr.trim();
+
+                const jsonObj = JSON.parse(jsonStr);
+
+                if (jsonObj && jsonObj.blop_action === "update_file" && onUpdateActiveFile) {
+                    await onUpdateActiveFile(jsonObj.new_content);
+                    setMessages([...newMessages, { role: 'model', content: `Ich habe das Dokument "${activeFile?.name}" für dich aktualisiert! ✨` }]);
+                    return;
+                }
+            } catch (jsonError) {
+                // Not JSON, or not our specific action - just treat as a normal text reply.
+            }
+
+            setMessages([...newMessages, { role: 'model', content: replyText }]);
         } catch (error) {
             console.error(error);
             setMessages([...newMessages, { role: 'model', content: 'Es gab einen Fehler bei der Verbindung zur KI. Bitte versuche es später noch einmal.' }]);
@@ -120,8 +145,8 @@ export default function FloatingChat({ folderId, username, modelPreference }: Fl
                                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div
                                         className={`max-w-[85%] rounded-2xl p-4 ${msg.role === 'user'
-                                                ? 'bg-blue-600 text-white rounded-tr-sm'
-                                                : 'bg-[#2d2d2d] text-gray-200 rounded-tl-sm border border-[#3d3d3d]'
+                                            ? 'bg-blue-600 text-white rounded-tr-sm'
+                                            : 'bg-[#2d2d2d] text-gray-200 rounded-tl-sm border border-[#3d3d3d]'
                                             }`}
                                     >
                                         {msg.role === 'model' ? (

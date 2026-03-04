@@ -422,13 +422,13 @@ export default function FolderPage() {
     const sensors = useSensors(
         useSensor(MouseSensor, {
             activationConstraint: {
-                distance: 8, // Require 8px of movement to start dragging. This allows clicks to fire.
+                distance: 25, // Require 25px of movement to start dragging. This allows clicks to fire.
             },
         }),
         useSensor(TouchSensor, {
             activationConstraint: {
-                delay: 200, // Press and hold for 200ms to drag on mobile
-                tolerance: 5,
+                delay: 250, // Press and hold for 250ms to drag on mobile
+                tolerance: 8,
             },
         })
     );
@@ -1138,6 +1138,16 @@ export default function FolderPage() {
                             </div>
                             <h3 className="text-lg font-semibold text-white">{selectedFile.name || 'Persönlicher Lernplan'}</h3>
                         </div>
+                        <div className="flex items-center gap-2 no-print">
+                            <button
+                                onClick={() => window.print()}
+                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                title="Lernplan als PDF drucken"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                                <span className="hidden sm:inline">PDF Export</span>
+                            </button>
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-6">
@@ -1291,6 +1301,16 @@ export default function FolderPage() {
                             {getFileIcon(selectedFile.type)}
                         </div>
                         <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
+                    </div>
+                    <div className="flex items-center gap-2 no-print">
+                        <button
+                            onClick={() => window.print()}
+                            className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                            title="Als PDF exportieren"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                            <span className="hidden sm:inline">PDF Export</span>
+                        </button>
                     </div>
                 </div>
 
@@ -2393,6 +2413,37 @@ export default function FolderPage() {
                     folderId={folderId}
                     username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
                     modelPreference={aiModelPreference}
+                    activeFile={selectedFile}
+                    onUpdateActiveFile={async (newContent) => {
+                        if (!selectedFile) return;
+
+                        try {
+                            const username = localStorage.getItem("username");
+                            const res = await fetch(`${API_BASE}/files/update`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    username,
+                                    folder_id: folderId,
+                                    file_id: selectedFile.id,
+                                    content: newContent
+                                })
+                            });
+
+                            if (res.ok) {
+                                // Update local state
+                                const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
+                                setFiles(updatedFiles);
+                                setSelectedFile({ ...selectedFile, content: newContent });
+                                showToast("Dokument wurde durch die KI aktualisiert und gespeichert! ✨", "success");
+                            } else {
+                                const err = await res.json();
+                                showToast(`Fehler beim Speichern der KI-Änderung: ${err.detail || 'Unbekannt'}`);
+                            }
+                        } catch (e) {
+                            showToast("Netzwerkfehler beim Speichern der KI-Änderung.");
+                        }
+                    }}
                 />
 
                 {/* Global OS file drop overlay */}
