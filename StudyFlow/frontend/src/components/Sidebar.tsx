@@ -1,18 +1,15 @@
 "use client";
 
-import Image from 'next/image';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, BookOpen, MessageSquare, Brain, Settings, Sparkles, Shield } from 'lucide-react';
+import { Home, Settings, Shield } from 'lucide-react';
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
-    // { href: '/plans', label: 'Lernpläne', icon: BookOpen },
-    // { href: '/chat', label: 'AI Chat', icon: MessageSquare },
-    // { href: '/flashcards', label: 'Karteikarten', icon: Brain },
     { href: '/settings', label: 'Einstellungen', icon: Settings },
 ];
+
 interface SidebarProps {
     isCollapsed: boolean;
     onToggle: () => void;
@@ -20,13 +17,13 @@ interface SidebarProps {
 
 export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const pathname = usePathname();
-    const [username, setUsername] = useState('User');
+    const [username, setUsername] = useState('');
     const [isAdmin, setIsAdmin] = useState(false);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
         setMounted(true);
-        const user = localStorage.getItem('username') || 'User';
+        const user = localStorage.getItem('username') || '';
         setUsername(user);
         setIsAdmin(user.startsWith('admin_'));
     }, [pathname]);
@@ -36,64 +33,74 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         window.location.href = '/login';
     };
 
-    // We use suppressHydrationWarning on dynamic client elements instead of an early return 
-    // so the entire sidebar layout renders immediately without layout jumps.
+    const initial = username ? username.charAt(0).toUpperCase() : '?';
 
     return (
-        <aside className="h-screen w-[260px] bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0 shrink-0">
-            {/* Header matches Blop Study style */}
-            <div className="h-[74px] border-b border-[#333] flex items-center px-4 justify-between">
-                <div className="flex items-center gap-2.5">
-                    {/* Logo box (oval, accent color) */}
-                    <div className="w-[38px] h-[38px] rounded-[10px] bg-[#5E5CE6] flex items-center justify-center text-white font-bold text-sm">
+        <aside
+            className="h-screen bg-[#1e1e1e] border-r border-[#333] flex flex-col sticky top-0 shrink-0 transition-all duration-300 overflow-hidden"
+            style={{ width: isCollapsed ? '72px' : '260px' }}
+        >
+            {/* Header */}
+            <div className="h-[74px] border-b border-[#333] flex items-center px-3 justify-between shrink-0">
+                {/* Logo */}
+                <div className="flex items-center gap-2.5 overflow-hidden">
+                    <div className="w-[38px] h-[38px] rounded-[10px] bg-[#5E5CE6] flex items-center justify-center text-white font-bold text-sm shrink-0">
                         B
                     </div>
-                    <div className="flex flex-col gap-0.5">
-                        <h1 className="text-[16px] font-bold text-white leading-tight">Blop</h1>
-                        <p className="text-[10px] text-[#888] leading-tight">Lernassistent</p>
-                    </div>
+                    {!isCollapsed && (
+                        <div className="flex flex-col gap-0.5 overflow-hidden">
+                            <h1 className="text-[16px] font-bold text-white leading-tight whitespace-nowrap">Blop</h1>
+                            <p className="text-[10px] text-[#888] leading-tight whitespace-nowrap">Lernassistent</p>
+                        </div>
+                    )}
                 </div>
-                {/* Collapse button style like in Qt */}
+                {/* Collapse Button */}
                 <button
                     onClick={onToggle}
-                    className="text-[#888] hover:text-white hover:bg-[#333] w-6 h-6 rounded flex items-center justify-center transition-colors text-base"
+                    className="text-[#888] hover:text-white hover:bg-[#333] w-7 h-7 rounded flex items-center justify-center transition-colors text-base shrink-0 ml-1"
+                    title={isCollapsed ? 'Sidebar ausklappen' : 'Sidebar einklappen'}
                 >
                     {isCollapsed ? '»' : '«'}
                 </button>
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+            <nav className="flex-1 p-2 space-y-1 overflow-y-auto overflow-x-hidden">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = pathname === item.href;
-
                     return (
                         <Link
                             key={item.href}
                             href={item.href}
+                            title={isCollapsed ? item.label : undefined}
                             className={`
-                                flex items-center gap-3 px-4 py-2.5 rounded-none text-[14px] transition-all relative overflow-hidden group
+                                flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
+                                ${isCollapsed ? 'justify-center px-0' : 'px-4'}
                                 ${isActive
                                     ? 'bg-[#252526] text-white font-medium'
                                     : 'text-[#DDD] hover:bg-[#252526] active:bg-[#333]'
                                 }
                             `}
                         >
-                            <Icon size={18} strokeWidth={isActive ? 2.5 : 2} className={isActive ? 'text-[#5E5CE6] relative z-10' : 'text-[#888] relative z-10'} />
-                            <span className="relative z-10">{item.label}</span>
-                            {isActive && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#5E5CE6] rounded-r-full" />}
+                            <Icon
+                                size={18}
+                                strokeWidth={isActive ? 2.5 : 2}
+                                className={`${isActive ? 'text-[#5E5CE6]' : 'text-[#888]'} relative z-10 shrink-0`}
+                            />
+                            {!isCollapsed && <span className="relative z-10 whitespace-nowrap">{item.label}</span>}
+                            {isActive && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#5E5CE6] rounded-r-full" />}
                         </Link>
                     );
                 })}
 
-                {/* Admin Panel (only for admin_) */}
-                {isAdmin && (
+                {/* Admin Panel */}
+                {mounted && isAdmin && (
                     <Link
                         href="/admin"
-                        title={isCollapsed ? "Admin Panel" : undefined}
+                        title={isCollapsed ? 'Admin Panel' : undefined}
                         className={`
-                            flex items-center gap-3 py-2.5 rounded-none text-[14px] transition-all relative overflow-hidden group
+                            flex items-center gap-3 py-2.5 rounded-lg text-[14px] transition-all relative overflow-hidden group
                             ${isCollapsed ? 'justify-center px-0' : 'px-4'}
                             ${pathname === '/admin'
                                 ? 'bg-[#252526] text-white font-medium'
@@ -101,27 +108,34 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             }
                         `}
                     >
-                        <Shield size={18} strokeWidth={pathname === '/admin' ? 2.5 : 2} className={pathname === '/admin' ? 'text-red-500 relative z-10 shrink-0' : 'text-[#888] relative z-10 shrink-0'} />
+                        <Shield
+                            size={18}
+                            strokeWidth={pathname === '/admin' ? 2.5 : 2}
+                            className={`${pathname === '/admin' ? 'text-red-500' : 'text-[#888]'} relative z-10 shrink-0`}
+                        />
                         {!isCollapsed && <span className="relative z-10 whitespace-nowrap">Admin Panel</span>}
-                        {pathname === '/admin' && <div className="absolute left-0 top-1 bottom-1 w-1 bg-red-500 rounded-r-full" />}
+                        {pathname === '/admin' && !isCollapsed && <div className="absolute left-0 top-1 bottom-1 w-1 bg-red-500 rounded-r-full" />}
                     </Link>
                 )}
             </nav>
 
-            {/* User Profile with Logout */}
-            <div className={`h-[72px] border-t border-[#333] flex items-center py-[10px] gap-2.5 transition-all overflow-hidden ${isCollapsed ? 'justify-center px-0' : 'px-[14px]'}`}>
-                {/* Avatar circle */}
-                <div className="w-[36px] h-[36px] rounded-[18px] bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-[14px] shrink-0">
-                    {username.charAt(0).toUpperCase()}
+            {/* User Profile */}
+            <div
+                className={`border-t border-[#333] flex items-center py-3 gap-2.5 transition-all overflow-hidden shrink-0 ${isCollapsed ? 'justify-center px-0' : 'px-[14px]'}`}
+                style={{ minHeight: '64px' }}
+            >
+                {/* Avatar */}
+                <div className="w-[36px] h-[36px] rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-[14px] shrink-0">
+                    {mounted ? initial : '?'}
                 </div>
                 {!isCollapsed && (
-                    <div className="flex-1 min-w-0 flex flex-col justify-center gap-[1px]">
-                        <p suppressHydrationWarning className="text-[12px] font-semibold text-white truncate max-w-[130px]">
-                            {mounted ? username : 'Lade...'}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center gap-[2px]">
+                        <p suppressHydrationWarning className="text-[12px] font-semibold text-white truncate">
+                            {mounted ? (username || 'Gast') : '...'}
                         </p>
                         <button
                             onClick={handleLogout}
-                            className="text-[10px] text-[#888] hover:text-[#5E5CE6] transition-colors text-left p-0 border-none bg-transparent"
+                            className="text-[10px] text-[#888] hover:text-[#5E5CE6] transition-colors text-left p-0 border-none bg-transparent cursor-pointer"
                         >
                             Abmelden
                         </button>
@@ -129,15 +143,15 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 )}
             </div>
 
-            {/* Datenschutz Link */}
+            {/* Datenschutz */}
             {!isCollapsed && (
-                <div className="px-4 pb-4">
+                <div className="px-4 pb-3 shrink-0">
                     <Link
                         href="/datenschutz"
                         className="flex items-center gap-2 text-[11px] text-[#888] hover:text-[#DDD] transition-colors py-1.5"
                     >
                         <Shield size={12} />
-                        Datenschutzerklärung
+                        <span className="whitespace-nowrap">Datenschutzerklärung</span>
                     </Link>
                 </div>
             )}

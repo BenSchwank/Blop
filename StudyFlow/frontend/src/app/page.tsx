@@ -122,14 +122,20 @@ export default function Dashboard() {
 
   const API_BASE = '/api';
 
-  // --- Auth Guard: Redirect to login if not logged in ---
+  // --- Auth Guard ---
+  // Check auth synchronously in state initialization to prevent blank flash
+  const [authChecked, setAuthChecked] = useState(false);
+
   useEffect(() => {
     const username = localStorage.getItem('username');
     const session = localStorage.getItem('session_id');
     if (!username || !session) {
       router.replace('/login');
+      return; // Don't set authChecked — keep showing loading
     }
-  }, [router]);
+    setAuthChecked(true);
+    fetchFolders();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchFolders = async () => {
     try {
@@ -152,9 +158,6 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    fetchFolders();
-  }, []);
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,6 +274,15 @@ export default function Dashboard() {
       alert("Netzwerkfehler beim Verschieben des Ordners.");
     }
   };
+
+  // Show a blank/loading screen while auth is being checked (prevents flash)
+  if (!authChecked) {
+    return (
+      <div className="bg-[#0B0B1A] min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#5E5CE6] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#0B0B1A] min-h-screen relative">
