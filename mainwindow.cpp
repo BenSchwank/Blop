@@ -16,7 +16,6 @@
 #include "pagemanager.h"
 #include "tools/ToolManager.h"
 
-
 // Tools Includes
 #include "tools/EraserTool.h"
 #include "tools/ImageTool.h"
@@ -103,7 +102,7 @@ static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.11.8";
+static const char *BLOP_VERSION = "3.12.1";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS

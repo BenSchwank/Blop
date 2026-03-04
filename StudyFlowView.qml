@@ -8,11 +8,11 @@ Item {
         id: webView
         anchors.fill: parent
         
-        // Load Blop Study (Local Development)
-        url: "http://localhost:3000"
+        // Load Blop Study (Production)
+        url: "https://blop-study.vercel.app"
         
-        // Production URL (after deployment)
-        // url: "https://blop-study.vercel.app"
+        // Development URL (only if running locally)
+        // url: "http://localhost:3000"
         
         // Settings
         settings.javascriptEnabled: true
