@@ -101,8 +101,10 @@ static const int FONT_SIZE_HEADER = 18;
 static const int MARGIN_OVERVIEW = 30;
 #endif
 
-// Current app version — update this when you release a new build
-static const char *BLOP_VERSION = "3.12.1";
+// Current app version is set automatically by CMake (project VERSION in
+// CMakeLists.txt). Do NOT hardcode BLOP_VERSION here — update it only in
+// CMakeLists.txt project(...). static const char *BLOP_VERSION = "3.13.0"; // ←
+// Do not use this line anymore
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS

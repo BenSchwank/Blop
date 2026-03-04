@@ -5,7 +5,7 @@ if(ANDROID)
     set(ANDROID_PLATFORM "android-33")
 endif()
 
-project(Blop VERSION 0.1 LANGUAGES CXX)
+project(Blop VERSION 3.13.0 LANGUAGES CXX)
 
 if(MSVC)
     add_compile_options(/utf-8)
@@ -144,6 +144,11 @@ else()
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
 endif()
+
+# Inject the CMake project version into C++ as BLOP_VERSION string
+target_compile_definitions(Blop PRIVATE
+    BLOP_VERSION="${PROJECT_VERSION}"
+)
 
 # Windows: Konsole bei Release-Builds ausblenden
 if(WIN32)
