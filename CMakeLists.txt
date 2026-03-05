@@ -145,11 +145,6 @@ else()
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
 endif()
 
-# Inject the CMake project version into C++ as BLOP_VERSION string
-target_compile_definitions(Blop PRIVATE
-    BLOP_VERSION="${PROJECT_VERSION}"
-)
-
 # Windows: Konsole bei Release-Builds ausblenden
 if(WIN32)
     set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
