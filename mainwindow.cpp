@@ -103,7 +103,7 @@ static const int MARGIN_OVERVIEW = 30;
 
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
-static const char *BLOP_VERSION = "3.13.4";
+static const char *BLOP_VERSION = "3.13.5";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
