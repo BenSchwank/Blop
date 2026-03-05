@@ -82,6 +82,11 @@ Du bist ein erfahrener Tutor und Lernassistent. Deine Aufgabe ist es, eine UMFAS
 {mode_preamble}
 Detailgrad: {detail_level}
 
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+
 WICHTIGE ANFORDERUNGEN:
 - Die Zusammenfassung muss VOLLSTÄNDIG sein – decke ALLE wichtigen Themen, Konzepte und Details ab
 - Sei so detailliert wie möglich – ein Schüler soll nur mit dieser Zusammenfassung lernen können
@@ -153,6 +158,11 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
             prompt = """
 Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit 10 Fragen basierend auf dem Lernmaterial.
 
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in den Fragen und Antworten. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+
 Anforderungen:
 - Decke ALLE wichtigen Themen des Materials ab
 - Mische verschiedene Schwierigkeitsgrade (leicht, mittel, schwer)
@@ -194,6 +204,11 @@ Erstelle das Quiz für das folgende Material:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
             prompt = """
 Du bist ein erfahrener Tutor. Erstelle 20 hochwertige Karteikarten aus dem Lernmaterial.
+
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
 Anforderungen:
 - Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab
@@ -262,6 +277,11 @@ RAHMENDATEN:
 - Gesamtlernzeit: {total_hours} Stunden
 - Aktive Lerntage: {active_days_str}
 
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in den Beschreibungen und Zusammenfassungen. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+
 ANCORDERUNGEN AN DEN LERNPLAN:
 1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf. ACHTUNG: Plane NUR an den "Aktiven Lerntagen" Aufgaben ein. Wenn der Tag der Woche KEIN aktiver Lerntag ist, weise dem Tag KEINE Aufgaben zu und setze als Ziel/Summary "Ruhetag" oder "Pause".
    WICHTIGE REGEL: Tag 1 (der ERSTE Tag des Plans) darf unter keinen Umständen ein Ruhetag sein. Beginne den Plan IMMER an einem aktiven Lerntag.
@@ -328,6 +348,11 @@ Der Student hat folgende Aufgabe in seinem Lernplan:
 Erkläre KURZ, KONKRET und HILFREICH, was bei dieser Aufgabe zu tun ist und welche Inhalte aus dem beiliegenden Material relevant sind. 
 Die Erklärung soll maximal 3-5 Sätze lang sein und direkt dabei helfen, die Aufgabe zu starten oder zu verstehen. Antworte in Markdown.
 
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
+- Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$
+
 Analysiere dazu folgendes Material aus dem Ordner des Studenten:
 """
             input_parts = [prompt]
@@ -382,6 +407,11 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
 Du bist ein professioneller Mitschriften-Assistent. Du hast Zugriff auf eine Audioaufnahme einer Vorlesung / eines Unterrichts.
 
 Deine Aufgabe: Erstelle eine VOLLSTÄNDIGE, AUSFÜHRLICHE und DETAILLIERTE Mitschrift — so als ob ein sehr fleißiger Schüler mitgeschrieben hätte. Die Mitschrift soll LANG sein und den gesamten Inhalt des Audios abdecken.
+
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
 WICHTIGE ANWEISUNG ZUR LÄNGE:
 - Bei einem kurzen Audio (< 5 Min): Mindestens 300 Wörter Mitschrift.
@@ -456,6 +486,11 @@ Gewünschter Detailgrad / Länge: {detail_level}
 {"Spezifische Anweisungen des Nutzers:" if custom_rules else "Generelle Anweisung:"}
 {custom_rules if custom_rules else "Fasse die wichtigsten Aspekte des Materials in einem gut strukturierten Text zusammen."}
 
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+
 Achte auf eine klare Struktur:
 1. Einleitung (Heranführung ans Thema)
 2. Hauptteil (Logische, detaillierte Abhandlung mit Argumenten/Konzepten aus dem Material)
@@ -502,6 +537,10 @@ Der Fokus liegt auf aktivem Abruf (Active Recall) und dem Schließen von Wissens
 {"Spezifische Anweisungen/Schwerpunkte des Nutzers:" if custom_rules and learning_mode != "exercise" else "Fokus:"}
 {mode_note}
 
+WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
+- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
+- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
 Bitte gliedere die Wiederholung in folgende Abschnitte (nutze sauberes Markdown):
 1. **🎯 Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse prägnant zusammengefasst.
@@ -538,6 +577,11 @@ Hier ist das Quellenmaterial:
                 "zu seinen Lernmaterialien (PDFs, Notizen, etc.) zu beantworten.\n"
                 "Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).\n"
                 "Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.\n\n"
+                "WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:\n"
+                "Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. \n"
+                "- Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$ \n"
+                "- Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$ \n"
+                "Verwende niemals andere Notationen für Mathematik.\n\n"
             )
 
             if active_file:
