@@ -26,6 +26,66 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, on
         }
     };
 
+    // --- Full Document PDF Export ---
+    const handleExportPdf = async () => {
+        // Dynamically import to avoid SSR issues
+        const html2canvas = (await import('html2canvas')).default;
+        const { jsPDF } = await import('jspdf');
+
+        // Get the full editor HTML content
+        const htmlContent = editor.getHTML();
+
+        // Create a hidden off-screen container with full width/height (no scroll clipping)
+        const container = document.createElement('div');
+        container.style.cssText = [
+            'position:fixed', 'top:-9999px', 'left:-9999px',
+            'width:794px',  // A4 width in px at 96dpi
+            'padding:40px 48px',
+            'background:#ffffff',
+            'color:#000000',
+            'font-family:Georgia,serif',
+            'font-size:14px',
+            'line-height:1.7',
+            'box-sizing:border-box',
+        ].join(';');
+        container.innerHTML = htmlContent;
+        document.body.appendChild(container);
+
+        try {
+            const canvas = await html2canvas(container, {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                width: container.offsetWidth,
+                height: container.scrollHeight,
+                windowWidth: container.offsetWidth,
+                windowHeight: container.scrollHeight,
+            });
+
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
+            const pageW = pdf.internal.pageSize.getWidth();
+            const pageH = pdf.internal.pageSize.getHeight();
+            const imgW = pageW;
+            const imgH = (canvas.height * pageW) / canvas.width;
+
+            let yPos = 0;
+            let remaining = imgH;
+            let page = 0;
+            while (remaining > 0) {
+                if (page > 0) pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, -page * pageH, imgW, imgH);
+                remaining -= pageH;
+                page++;
+            }
+
+            const safeName = (title || 'Dokument').replace(/[^a-zA-Z0-9_-]/g, '_');
+            pdf.save(`${safeName}.pdf`);
+        } finally {
+            document.body.removeChild(container);
+        }
+    };
+
     return (
         <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-10 w-full overflow-x-auto custom-scrollbar">
             <div className="flex items-center gap-4 min-w-max">
@@ -121,7 +181,7 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, on
                 </div>
 
                 <button
-                    onClick={() => window.print()}
+                    onClick={handleExportPdf}
                     className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#444] text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
                     title="Als PDF exportieren"
                 >
