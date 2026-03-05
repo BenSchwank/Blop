@@ -101,10 +101,9 @@ static const int FONT_SIZE_HEADER = 18;
 static const int MARGIN_OVERVIEW = 30;
 #endif
 
-// Current app version is set automatically by CMake (project VERSION in
-// CMakeLists.txt). Do NOT hardcode BLOP_VERSION here — update it only in
-// CMakeLists.txt project(...). static const char *BLOP_VERSION = "3.13.0"; // ←
-// Do not use this line anymore
+// IMPORTANT: Update this version string for every new release build!
+// Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
+static const char *BLOP_VERSION = "3.13.4";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -481,7 +480,9 @@ MainWindow::MainWindow(QWidget *parent)
   }
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
-  QTimer::singleShot(2000, this, &MainWindow::checkForUpdates);
+  // Delay update check by 5s so the web view has time to render before the
+  // modal blocks
+  QTimer::singleShot(5000, this, &MainWindow::checkForUpdates);
 }
 MainWindow::~MainWindow() {}
 
@@ -1347,6 +1348,8 @@ void MainWindow::setupUi() {
 
 void MainWindow::setupWebBrowser() {
   m_studyContainer = new QWidget(this);
+  // Dark background so it's not pitch-black while WebEngine loads
+  m_studyContainer->setStyleSheet("background-color: #1e1e1e;");
   QVBoxLayout *layout = new QVBoxLayout(m_studyContainer);
   layout->setContentsMargins(0, 0, 0, 0);
 
@@ -1385,7 +1388,7 @@ void MainWindow::setupWebBrowser() {
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
   view->load(QUrl("https://blop-six.vercel.app"));
-  view->setStyleSheet("background: white;");
+  view->setStyleSheet("background: transparent;");
   layout->addWidget(view);
 
   // --- SSO Bridge: Poll localStorage to support SPA Routing ---
