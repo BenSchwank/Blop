@@ -666,7 +666,7 @@ class DataManager:
                 return f.get("summary_text", "")
         return ""
 
-    # --- PDF File Management ---
+    # --- PDF & Audio File Management ---
     @staticmethod
     def _get_folder_path(username, folder_id):
         safe_user = "".join([c for c in username if c.isalnum() or c in "-_"])
@@ -801,6 +801,77 @@ class DataManager:
         else:
             # LOCAL MODE
             return os.path.join(DataManager._get_folder_path(username, folder_id), filename)
+
+    @staticmethod
+    def save_audio(file_data, filename, username, folder_id):
+        """Saves an audio file securely in the user's directory."""
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD MODE
+            import base64
+            total_size = len(file_data)
+            chunk_size = 500 * 1024
+            doc_ref = db.collection("users").document(username).collection("audio").document(f"{folder_id}_{filename}")
+            
+            metadata = {
+                "name": filename,
+                "folder_id": folder_id,
+                "created_at": datetime.now().strftime("%Y-%m-%d"),
+                "total_size": total_size,
+                "is_chunked": True,
+                "chunk_count": (total_size + chunk_size - 1) // chunk_size
+            }
+            doc_ref.set(metadata)
+            
+            for i in range(0, total_size, chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                b64_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                doc_ref.collection("chunks").document(f"chunk_{i // chunk_size}").set({
+                    "index": i // chunk_size,
+                    "data": b64_chunk
+                })
+            return filename
+        else:
+            # LOCAL MODE
+            folder_path = DataManager._get_folder_path(username, folder_id)
+            file_path = os.path.join(folder_path, filename)
+            with open(file_path, "wb") as f:
+                f.write(file_data)
+            return filename
+
+    @staticmethod
+    def get_audio_path(filename, username, folder_id):
+        """Retrieves path to an audio file. Downloads to temp if in Cloud."""
+        db = DataManager._init_firestore()
+        if db:
+            # CLOUD MODE
+            doc_ref = db.collection("users").document(username).collection("audio").document(f"{folder_id}_{filename}")
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                meta = doc.to_dict()
+                import base64
+                if meta.get("is_chunked"):
+                    tmp_dir = os.path.join(DATA_DIR, "temp")
+                    if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
+                    tmp_path = os.path.join(tmp_dir, filename)
+                    
+                    with open(tmp_path, "wb") as f:
+                        chunks = doc_ref.collection("chunks").order_by("index").stream()
+                        for chunk in chunks:
+                            f.write(base64.b64decode(chunk.to_dict()["data"]))
+                    
+                    if os.path.getsize(tmp_path) == 0:
+                        return None
+                    return tmp_path
+            return None
+        else:
+            # LOCAL MODE
+            folder_path = DataManager._get_folder_path(username, folder_id)
+            path = os.path.join(folder_path, filename)
+            if os.path.exists(path):
+                return path
+            return None
 
     @staticmethod
     def delete_user_data(username):

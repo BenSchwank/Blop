@@ -389,9 +389,8 @@ async def upload_audio(
              
         _configure_genai(username)
         
-        # Save audio to temp file for Gemini upload
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
-            content = await file.read()
+        # Save audio temporarily for Gemini
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_audio:
             temp_audio.write(content)
             temp_audio_path = temp_audio.name
             
@@ -402,7 +401,14 @@ async def upload_audio(
             transcript_text = result_dict.get("content", "")
             audio_title = result_dict.get("title", f"Audio Notiz {datetime.now().strftime('%d.%m.%Y %H:%M')}")
             
-            # Save the transcript as if it were a Youtube video
+            # Persist original audio securely for downloading
+            safe_filename = f"audio_{int(datetime.now().timestamp())}{Path(file.filename).suffix}"
+            DataManager.save_audio(content, safe_filename, username, folder_id)
+
+            # Save the transcript, linking it to the audio file if needed
+            # We add a hidden markdown link or metadata so the frontend knows there's a file
+            transcript_text = f"<!-- AUDIO_FILE:{safe_filename} -->\n{transcript_text}"
+            
             DataManager.save_transcript(audio_title, transcript_text, username, folder_id)
             
             return {"status": "success", "message": "Audio transkribiert und als Notiz gespeichert"}
@@ -415,6 +421,15 @@ async def upload_audio(
     except Exception as e:
         print(f"Audio Upload Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler bei der Audio-Verarbeitung: {str(e)}")
+
+@app.get("/api/files/download_audio")
+def download_audio(username: str, folder_id: str, filename: str):
+    """Downloads an audio file."""
+    from fastapi.responses import FileResponse
+    path = DataManager.get_audio_path(filename, username, folder_id)
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
+    return FileResponse(path, media_type="audio/mpeg", filename=filename)
 
 class GenRequest(BaseModel):
     username: str

@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, X, Send, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 interface Message {
     role: 'user' | 'model';
@@ -151,7 +154,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                     >
                                         {msg.role === 'model' ? (
                                             <div className="prose prose-invert max-w-none text-sm leading-relaxed">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{msg.content}</ReactMarkdown>
                                             </div>
                                         ) : (
                                             <p className="text-sm">{msg.content}</p>

@@ -2,9 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
@@ -124,7 +127,7 @@ const RepetitionViewer = ({ data }: { data: any }) => {
                                     <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="p-5 pt-0 border-t border-[#2A2A40] mt-2">
                                             <div className="prose prose-invert max-w-none text-gray-300 text-base leading-relaxed">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{qa.answer}</ReactMarkdown>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{qa.answer}</ReactMarkdown>
                                             </div>
                                         </div>
                                     </div>
@@ -142,7 +145,7 @@ const RepetitionViewer = ({ data }: { data: any }) => {
                         <span className="text-xl">🧠</span> Häufige Stolpersteine
                     </h3>
                     <div className="prose prose-invert max-w-none text-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.pitfalls}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{data.pitfalls}</ReactMarkdown>
                     </div>
                 </div>
             )}
@@ -154,7 +157,7 @@ const RepetitionViewer = ({ data }: { data: any }) => {
                         <span className="text-xl">🧮</span> Lösungsansätze & Formeln
                     </h3>
                     <div className="prose prose-invert max-w-none text-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.math_logic}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{data.math_logic}</ReactMarkdown>
                     </div>
                 </div>
             )}
@@ -166,7 +169,7 @@ const RepetitionViewer = ({ data }: { data: any }) => {
                         <span className="text-xl">🔗</span> Kontext & Zusammenhänge
                     </h3>
                     <div className="prose prose-invert max-w-none text-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.context}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{data.context}</ReactMarkdown>
                     </div>
                 </div>
             )}
@@ -1303,6 +1306,34 @@ export default function FolderPage() {
                         <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
                     </div>
                     <div className="flex items-center gap-2 no-print">
+                        {selectedFile.type === 'transcript' && (
+                            <button
+                                onClick={async () => {
+                                    const username = localStorage.getItem("username") || "";
+                                    // The audio filename was embedded via <!-- AUDIO_FILE:filename -->
+                                    const match = selectedFile.content?.match(/<!-- AUDIO_FILE:(.*?) -->/);
+                                    if (match && match[1]) {
+                                        const filename = match[1];
+                                        const url = `${API_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
+
+                                        // Trigger download
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = filename;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        a.remove();
+                                    } else {
+                                        alert("Keine Audio-Datei für diesen Eintrag gefunden.");
+                                    }
+                                }}
+                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors h-full"
+                                title="Original-Audio (MP3) herunterladen"
+                            >
+                                <Download size={14} />
+                                <span className="hidden sm:inline">MP3 Download</span>
+                            </button>
+                        )}
                         <button
                             onClick={() => window.print()}
                             className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
