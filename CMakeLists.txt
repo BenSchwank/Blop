@@ -5,7 +5,7 @@ if(ANDROID)
     set(ANDROID_PLATFORM "android-33")
 endif()
 
-project(Blop VERSION 3.13.5 LANGUAGES CXX)
+project(Blop VERSION 3.13.5.1 LANGUAGES CXX)
 
 if(MSVC)
     add_compile_options(/utf-8)

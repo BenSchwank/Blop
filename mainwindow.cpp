@@ -103,7 +103,7 @@ static const int MARGIN_OVERVIEW = 30;
 
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
-static const char *BLOP_VERSION = "3.13.5";
+static const char *BLOP_VERSION = "3.13.5.1";
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -1387,8 +1387,25 @@ void MainWindow::setupWebBrowser() {
 #else
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
-  view->load(QUrl("https://blop-six.vercel.app"));
   view->setStyleSheet("background: transparent;");
+
+  // --- Auto-reload fix ---
+  // After a fresh install the WebEngine sometimes loads a blank page.
+  // Retry up to 2 times on failure, and force one reload after 4 seconds
+  // to recover from the black-screen-on-first-launch issue.
+  auto *retryCount = new int(0);
+  connect(view, &QWebEngineView::loadFinished, m_studyContainer,
+          [view, retryCount](bool ok) {
+            if (!ok && *retryCount < 2) {
+              ++(*retryCount);
+              QTimer::singleShot(1500, view, [view]() { view->reload(); });
+            }
+          });
+
+  // Force one reload 4 s after startup to fix the post-install blank page
+  QTimer::singleShot(4000, view, [view]() { view->reload(); });
+
+  view->load(QUrl("https://blop-six.vercel.app"));
   layout->addWidget(view);
 
   // --- SSO Bridge: Poll localStorage to support SPA Routing ---
@@ -1409,7 +1426,6 @@ void MainWindow::setupWebBrowser() {
           QString currentUser =
               QSettings("Blop", "BlopApp").value("username").toString();
           if (u != currentUser) {
-            // Dies triggert sowohl Login (u != "") als auch Logout (u == "")
             updateSidebarUser(u);
           }
         });
