@@ -90,7 +90,23 @@ jobs:
       - name: Install NSIS and Build Installer
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress
+          $retryCount = 0
+          $success = $false
+          while (-not $success -and $retryCount -lt 5) {
+            Write-Host "Installing NSIS (Attempt $($retryCount + 1))..."
+            $proc = Start-Process choco -ArgumentList "install", "nsis", "-y", "--no-progress" -Wait -PassThru
+            if ($proc.ExitCode -eq 0) {
+              $success = $true
+            } else {
+              Write-Host "Chocolatey failed. Retrying in 15 seconds..."
+              Start-Sleep -Seconds 15
+              $retryCount++
+            }
+          }
+          if (-not $success) {
+            Write-Error "Failed to install NSIS after 5 attempts."
+            exit 1
+          }
           $nsisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $nsisPath)) {
             # Fallback: search common locations
