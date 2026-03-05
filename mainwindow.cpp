@@ -1473,7 +1473,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (btnStripMenu)
       btnStripMenu->show();
 
-    // Hide sidebar after login
+    // Ensure sidebar is closed (not double-visible)
     if (m_isSidebarOpen) {
       onToggleSidebar();
     }
@@ -1481,13 +1481,15 @@ void MainWindow::updateSidebarUser(const QString &username) {
     // Logged out: Switch back to Study/Login web view
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(1); // Force back to web login
-      m_modeSelector->show(); // Keep it visible so user can switch manually
+      m_modeSelector->show();
     }
     if (btnStripMenu)
       btnStripMenu->show();
     if (m_isSidebarOpen)
       onToggleSidebar();
   }
+  // Re-sync sidebar strip/full sidebar visibility after mode switch
+  updateSidebarState();
 }
 
 void MainWindow::setupSidebar() {
