@@ -5,6 +5,7 @@ from typing import List, Optional
 import uvicorn
 import os
 from datetime import datetime
+from pathlib import Path
 
 # Import local modules
 # Import local modules
@@ -388,6 +389,9 @@ async def upload_audio(
              raise HTTPException(status_code=400, detail="Nur unterstützte Audioformate (.webm, .wav, .mp3, .m4a)")
              
         _configure_genai(username)
+        
+        # Read the file content
+        content = await file.read()
         
         # Save audio temporarily for Gemini
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_audio:
