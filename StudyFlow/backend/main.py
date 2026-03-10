@@ -292,6 +292,13 @@ def move_file(folder_id: str, file_id: str, body: MoveFileRequest):
         return {"status": "success", "message": "Datei verschoben"}
     raise HTTPException(status_code=404, detail="Fehler beim Verschieben der Datei")
 
+@app.delete("/api/files/{file_id}")
+def delete_file(file_id: str, username: str, folder_id: str):
+    """Deletes a file from a folder."""
+    if DataManager.delete_file(username, folder_id, file_id):
+        return {"status": "success", "message": "Datei gelöscht"}
+    raise HTTPException(status_code=404, detail="Fehler beim Löschen der Datei")
+
 # --- UPLOAD & AI ENDPOINTS ---
 
 class APIKeyRequest(BaseModel):
@@ -347,7 +354,7 @@ async def upload_file(
 def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=True)):
     """Imports a YouTube video transcript."""
     try:
-        from youtube_transcript_api import YouTubeTranscriptApi
+        import youtube_transcript_api
         
         # Extract Video ID
         video_id = ""
@@ -360,7 +367,7 @@ def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=Tru
             raise HTTPException(status_code=400, detail="Ungültige YouTube URL")
             
         # Get Transcript
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
+        transcript_list = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
         transcript_text = " ".join([t['text'] for t in transcript_list])
         
         # Get Video Title (Mock or requires API Key, using generic for now)
@@ -425,6 +432,51 @@ async def upload_audio(
     except Exception as e:
         print(f"Audio Upload Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler bei der Audio-Verarbeitung: {str(e)}")
+
+@app.post("/api/files/image")
+async def upload_image(
+    username: str, 
+    folder_id: str, 
+    file: UploadFile = File(...)
+):
+    """Uploads an image, extracts text/context via Gemini, and saves."""
+    import tempfile
+    try:
+        if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+             raise HTTPException(status_code=400, detail="Nur unterstützte Bildformate (.jpg, .jpeg, .png, .webp)")
+             
+        _configure_genai(username)
+        
+        content = await file.read()
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_img:
+            temp_img.write(content)
+            temp_img_path = temp_img.name
+            
+        try:
+            import google.generativeai as genai
+            from PIL import Image
+            
+            img = Image.open(temp_img_path)
+            model = genai.GenerativeModel('gemini-1.5-pro')
+            response = model.generate_content([
+                "Beschreibe dieses Bild detailliert für meine Lernunterlagen. Extrahiere jeglichen relevanten Text und erkläre Diagramme oder Konzepte.",
+                img
+            ])
+            
+            extracted_text = response.text
+            image_title = f"Bild: {file.filename}"
+            
+            DataManager.save_transcript(image_title, extracted_text, username, folder_id)
+            
+            return {"status": "success", "message": "Bild verarbeitet und als Text notiert"}
+        finally:
+             if os.path.exists(temp_img_path):
+                 os.remove(temp_img_path)
+                 
+    except Exception as e:
+        print(f"Image Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Bildverarbeitung: {str(e)}")
 
 @app.get("/api/files/download_audio")
 def download_audio(username: str, folder_id: str, filename: str):

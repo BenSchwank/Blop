@@ -2,14 +2,14 @@
 #include <QColor>
 
 namespace UIStyles {
-// Turbo AI Palette
-static const QColor Background = QColor("#121212");
-static const QColor Sidebar = QColor("#1e1e1e");
-static const QColor PageBackground = QColor("#FFFFFF");
-static const QColor SceneBackground = QColor("#121212");
-static const QColor ToolbarBg = QColor(30,30,30,220);
-static const QColor ToolbarBorder = QColor(60,60,60);
-static const QColor Accent = QColor("#6c5ce7");
+// Blop Study Palette
+static const QColor Background = QColor("#0B0B1A");
+static const QColor Sidebar = QColor("#0B0B1A");
+static const QColor PageBackground = QColor("#151525");
+static const QColor SceneBackground = QColor("#0B0B1A");
+static const QColor ToolbarBg = QColor(21, 21, 37, 240); // 151525 with alpha
+static const QColor ToolbarBorder = QColor("#2A2A40");
+static const QColor Accent = QColor("#5E5CE6");
 static const QColor Text = QColor("#e0e0e0");
-}
+} // namespace UIStyles
 //

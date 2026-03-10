@@ -268,12 +268,12 @@ void ModernItemDelegate::paint(QPainter *painter,
     painter->translate(-rect.center());
   }
 
-  // Turbo AI Item Background
-  QColor bgColor = QColor("#252526"); // Slightly lighter than #1e1e1e for cards
+  // Blop Study Item Background
+  QColor bgColor = QColor("#151525"); // Card background
   if (option.state & QStyle::State_Selected)
     bgColor = m_window->currentAccentColor().darker(120);
   else if (option.state & QStyle::State_MouseOver)
-    bgColor = QColor("#333333");
+    bgColor = QColor("#1C1C33"); // Hover background
 
   painter->setBrush(bgColor);
   painter->setPen(Qt::NoPen);
@@ -710,14 +710,13 @@ void MainWindow::setupTitleBar() {
   m_modeSelector->addItem("Notizen");
   m_modeSelector->addItem("Study");
   m_modeSelector->setFixedWidth(120);
-  // Combobox style update
   m_modeSelector->setStyleSheet(
-      "QComboBox { background-color: #2d2d2d; color: white; border: 1px solid "
-      "#444; border-radius: 4px; padding: 2px 10px; }"
+      "QComboBox { background-color: #151525; color: white; border: 1px solid "
+      "#2A2A40; border-radius: 4px; padding: 2px 10px; }"
       "QComboBox::drop-down { border: none; }"
       "QComboBox::down-arrow { image: none; }"
-      "QComboBox QAbstractItemView { background-color: #2d2d2d; color: white; "
-      "selection-background-color: #6c5ce7; }");
+      "QComboBox QAbstractItemView { background-color: #151525; color: white; "
+      "selection-background-color: #5E5CE6; }");
   m_modeSelector->setCursor(Qt::PointingHandCursor);
   connect(m_modeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
           this, &MainWindow::onModeChanged);
@@ -807,17 +806,17 @@ void MainWindow::applyTheme() {
   if (m_fileListView)
     m_fileListView->setAccentColor(m_currentAccentColor);
 
-  // Turbo AI Theme: #121212 Main, #1e1e1e Sidebar/Tabs
+  // Blop Study Theme: #0B0B1A Main, #151525 Sidebar/Tabs
   QString style =
       QString(
-          "QMainWindow { background-color: #121212; } "
+          "QMainWindow { background-color: #0B0B1A; } "
           "QListView { background: transparent; border: none; outline: 0; } "
-          "QTabWidget::pane { border: 0; background: #121212; } "
-          "QTabBar::tab { background: #1e1e1e; color: #888; padding: 10px "
+          "QTabWidget::pane { border: 0; background: #0B0B1A; } "
+          "QTabBar::tab { background: #0B0B1A; color: #888; padding: 10px "
           "25px; border-top-left-radius: 12px; border-top-right-radius: 12px; "
           "margin-right: 2px;} "
           "QTabBar::tab:selected { background: %1; color: white; } "
-          "QMenu { background-color: #1e1e1e; border: 1px solid #333; "
+          "QMenu { background-color: #0B0B1A; border: 1px solid #2A2A40; "
           "border-radius: 10px; padding: 10px; color: #E0E0E0; } "
           "QMenu::item { padding: 8px 20px; border-radius: 5px; } "
           "QMenu::item:selected { background-color: %2; color: white; }")
@@ -826,11 +825,11 @@ void MainWindow::applyTheme() {
 
   if (m_sidebarContainer)
     m_sidebarContainer->setStyleSheet(
-        "background-color: rgba(25, 25, 29, 210); border-right: "
-        "1px solid #111;");
+        "background-color: rgba(11, 11, 26, 210); border-right: "
+        "1px solid #2A2A40;");
   if (m_sidebarStrip)
     m_sidebarStrip->setStyleSheet(
-        "background-color: #1e1e1e; border-right: 1px solid #333;");
+        "background-color: #0B0B1A; border-right: 1px solid #2A2A40;");
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
         "QListWidget { background-color: transparent; border: none; outline: "
@@ -839,11 +838,11 @@ void MainWindow::applyTheme() {
 
   if (m_rightSidebar)
     m_rightSidebar->setStyleSheet(
-        "background-color: #1e1e1e; border-left: 1px solid #333;");
+        "background-color: #0B0B1A; border-left: 1px solid #2A2A40;");
 
   if (m_titleBarWidget)
     m_titleBarWidget->setStyleSheet(
-        "background-color: #1e1e1e; border-bottom: 1px solid #333;");
+        "background-color: #0B0B1A; border-bottom: 1px solid #2A2A40;");
 
   auto getFabStyle = [&](int w) {
     int r = w / 2;
@@ -1121,10 +1120,10 @@ void MainWindow::setupUi() {
   m_modeSelector->addItem("Notizen");
   m_modeSelector->addItem("Study");
   m_modeSelector->setStyleSheet(
-      "QComboBox { background-color: #252526; color: white; border: 1px solid "
-      "#444; border-radius: 4px; padding: 5px 10px; }"
+      "QComboBox { background-color: #151525; color: white; border: 1px solid "
+      "#2A2A40; border-radius: 4px; padding: 5px 10px; }"
       "QComboBox::drop-down { border: none; }"
-      "QComboBox QAbstractItemView { background-color: #252526; color: white; "
+      "QComboBox QAbstractItemView { background-color: #151525; color: white; "
       "selection-background-color: #5E5CE6; }");
   connect(m_modeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
           this, &MainWindow::onModeChanged);

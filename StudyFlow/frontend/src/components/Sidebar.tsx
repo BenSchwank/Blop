@@ -44,9 +44,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             <div className="h-[74px] border-b border-[#333] flex items-center px-3 justify-between shrink-0">
                 {/* Logo */}
                 <div className="flex items-center gap-2.5 overflow-hidden">
-                    <div className="w-[38px] h-[38px] rounded-[10px] bg-[#5E5CE6] flex items-center justify-center text-white font-bold text-sm shrink-0">
-                        B
-                    </div>
+                    <img src="/logo.jpg" alt="Blop Logo" className="w-[38px] h-[38px] rounded-[10px] object-cover shrink-0" />
                     {!isCollapsed && (
                         <div className="flex flex-col gap-0.5 overflow-hidden">
                             <h1 className="text-[16px] font-bold text-white leading-tight whitespace-nowrap">Blop</h1>

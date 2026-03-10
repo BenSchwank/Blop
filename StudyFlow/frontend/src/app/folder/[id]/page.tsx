@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -305,7 +305,7 @@ export default function FolderPage() {
 
     // Upload / Action States
     const [isUploadOpen, setIsUploadOpen] = useState(false);
-    const [uploadType, setUploadType] = useState<'pdf' | 'youtube' | 'audio'>('pdf');
+    const [uploadType, setUploadType] = useState<'pdf' | 'youtube' | 'audio' | 'image'>('pdf');
     const [fileToUpload, setFileToUpload] = useState<File | null>(null);
     const [youtubeUrl, setYoutubeUrl] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
@@ -315,6 +315,7 @@ export default function FolderPage() {
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
     const [recordingTime, setRecordingTime] = useState(0);
+    const audioTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
     // AI Generation States
@@ -588,6 +589,36 @@ export default function FolderPage() {
         }
     };
 
+    const handleImageUpload = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!fileToUpload) return;
+        setIsProcessing(true);
+        try {
+            const username = localStorage.getItem("username");
+            const formData = new FormData();
+            formData.append("file", fileToUpload);
+
+            const res = await fetch(`${API_BASE}/files/image?username=${username}&folder_id=${folderId}`, {
+                method: "POST",
+                body: formData
+            });
+
+            if (res.ok) {
+                setFileToUpload(null);
+                setIsUploadOpen(false);
+                fetchFiles();
+            } else {
+                const err = await res.json();
+                showToast(`Fehler beim Bild-Upload: ${err.detail || "Unbekannter Fehler"}`);
+            }
+        } catch (error) {
+            console.error("Image upload error:", error);
+            showToast("Konnte Bild nicht hochladen.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     // --- Audio Recording Logic ---
     const startRecording = async () => {
         try {
@@ -611,14 +642,19 @@ export default function FolderPage() {
             setIsRecording(true);
             setRecordingTime(0);
 
-            // Timer interval: Just increment unconditionally.
-            // The interval is cleared when we stop recording.
-            const interval = setInterval(() => {
+            // Safely clear old intervals
+            if (audioTimerRef.current) clearInterval(audioTimerRef.current);
+            audioTimerRef.current = setInterval(() => {
                 setRecordingTime(prev => prev + 1);
             }, 1000);
 
             // Cleanup interval when recording stops
-            recorder.addEventListener('stop', () => clearInterval(interval));
+            recorder.addEventListener('stop', () => {
+                if (audioTimerRef.current) {
+                    clearInterval(audioTimerRef.current);
+                    audioTimerRef.current = null;
+                }
+            });
 
         } catch (err) {
             console.error("Error accessing microphone:", err);
@@ -1499,13 +1535,30 @@ export default function FolderPage() {
                             </button>
                         </div>
 
-                        <button
-                            onClick={() => setIsUploadOpen(true)}
-                            className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
-                        >
-                            <Plus size={18} />
-                            <span>Material</span>
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => {
+                                    setSelectedFile({
+                                        id: `draft_${Date.now()}`,
+                                        name: "Neues Dokument",
+                                        type: "summary",
+                                        created_at: new Date().toISOString().split('T')[0],
+                                        content: ""
+                                    });
+                                }}
+                                className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#2A2A40] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                            >
+                                <Edit size={18} />
+                                <span className="hidden sm:inline">Neues Dokument</span>
+                            </button>
+                            <button
+                                onClick={() => setIsUploadOpen(true)}
+                                className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
+                            >
+                                <Plus size={18} />
+                                <span>Material</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -1626,6 +1679,7 @@ export default function FolderPage() {
                             </div>
                             <div className="flex gap-2 p-1 bg-[#151525] rounded-xl mb-6">
                                 <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#1C1C33] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
+                                <button onClick={() => setUploadType('image')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'image' ? 'bg-[#1C1C33] text-green-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><ImageIcon size={16} /> Bild</button>
                                 <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#1C1C33] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
                                 <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#1C1C33] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
@@ -1638,6 +1692,14 @@ export default function FolderPage() {
                                         <div className="flex flex-col items-center gap-2 text-gray-400"><Upload size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken zum Auswählen"}</span></div>
                                     </div>
                                     <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
+                                </form>
+                            ) : uploadType === 'image' ? (
+                                <form onSubmit={handleImageUpload} className="space-y-4">
+                                    <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-green-500 transition-colors cursor-pointer relative">
+                                        <input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <div className="flex flex-col items-center gap-2 text-gray-400"><ImageIcon size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken für Bildauswahl"}</span></div>
+                                    </div>
+                                    <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Bild analysieren</button>
                                 </form>
                             ) : uploadType === 'youtube' ? (
                                 <form onSubmit={handleYoutubeImport} className="space-y-4">
@@ -1667,10 +1729,20 @@ export default function FolderPage() {
                                                 </div>
                                                 <h4 className="text-white font-medium mb-1">Sprachmemo aufgezeichnet</h4>
                                                 <p className="text-sm text-gray-400 mb-6">Dauer: {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</p>
-                                                <div className="flex gap-3 w-full">
-                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-gray-300 rounded-lg transition-colors text-sm font-medium">Neu starten</button>
-                                                    <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2">
-                                                        {isProcessing ? <><Loader2 size={16} className="animate-spin" /> Verarbeiten...</> : "Als AI Notiz speichern"}
+                                                <div className="flex gap-2 w-full mt-2">
+                                                    <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-gray-300 rounded-lg transition-colors text-sm font-medium text-center">Neu starten</button>
+                                                    <button onClick={() => {
+                                                        if (audioBlob) {
+                                                            const url = URL.createObjectURL(audioBlob);
+                                                            const a = document.createElement("a");
+                                                            a.href = url;
+                                                            a.download = `audio_${Date.now()}.webm`;
+                                                            a.click();
+                                                            URL.revokeObjectURL(url);
+                                                        }
+                                                    }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-blue-400 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"><Download size={14} /> Speichern</button>
+                                                    <button onClick={handleAudioUpload} disabled={isProcessing} className="flex-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium flex justify-center items-center gap-2 min-w-[40%]">
+                                                        {isProcessing ? <><Loader2 size={16} className="animate-spin" /> ...</> : "Als AI Notiz speichern"}
                                                     </button>
                                                 </div>
                                             </>
