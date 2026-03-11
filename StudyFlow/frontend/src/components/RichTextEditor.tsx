@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Heading from '@tiptap/extension-heading';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
-import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Heading3, Quote, Code, ImageIcon, Save, X, Loader2 } from 'lucide-react';
+import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Heading3, Quote, Code, ImageIcon, Save, X, Loader2, Check } from 'lucide-react';
 import { marked } from 'marked';
 
 interface RichTextEditorProps {
@@ -14,7 +14,7 @@ interface RichTextEditorProps {
     onClose: () => void;
 }
 
-const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, onSave: () => void, onClose: () => void, isSaving: boolean, title: string }) => {
+const MenuBar = ({ editor, onSave, onClose, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
     if (!editor) {
         return null;
     }
@@ -194,8 +194,22 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, on
                     disabled={isSaving}
                     className="flex items-center gap-2 bg-[#5E5CE6] hover:bg-[#7D7AFF] text-white px-5 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                 >
-                    {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                    <span className="hidden sm:inline">Speichern</span>
+                    {isSaving || saveStatus === 'saving' ? (
+                        <>
+                            <Loader2 size={16} className="animate-spin" />
+                            <span className="hidden sm:inline">Speichert...</span>
+                        </>
+                    ) : saveStatus === 'saved' ? (
+                        <>
+                            <Check size={16} />
+                            <span className="hidden sm:inline">Gespeichert</span>
+                        </>
+                    ) : (
+                        <>
+                            <Save size={16} />
+                            <span className="hidden sm:inline">Speichern</span>
+                        </>
+                    )}
                 </button>
             </div>
         </div>
@@ -204,6 +218,8 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title }: { editor: any, on
 
 export default function RichTextEditor({ initialContent, title, onSave, onClose }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
     // If it already looks like HTML (from a previous edit), we can just use it directly. 
@@ -236,22 +252,58 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
                 class: 'prose-blop focus:outline-none min-h-[500px] max-w-4xl mx-auto py-10 px-6 prose-img:rounded-xl prose-img:shadow-lg prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40]',
             },
         },
+        onUpdate: ({ editor }) => {
+            // Auto-save logic
+            const currentHtml = editor.getHTML();
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+            
+            setSaveStatus('idle'); // Indicate that there are unsaved changes
+            
+            saveTimeoutRef.current = setTimeout(async () => {
+                setSaveStatus('saving');
+                try {
+                    await onSave(currentHtml);
+                    setSaveStatus('saved');
+                    // Reset back to idle after a while so the button looks normal
+                    setTimeout(() => { if (setSaveStatus) setSaveStatus('idle'); }, 2000);
+                } catch (e) {
+                    setSaveStatus('idle');
+                }
+            }, 2000); // 2 second debounce
+        }
     });
 
     const handleSave = async () => {
         if (!editor) return;
         setIsSaving(true);
-        // Save as Markdown or HTML. Tiptap outputs HTML by default.
-        // For our `prose-blop` Markdown renderer to still work if needed (or if we just render HTML directly), 
-        // we'll get HTML. 
+        setSaveStatus('saving');
+        
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
+        
         const htmlContent = editor.getHTML();
         await onSave(htmlContent);
+        
         setIsSaving(false);
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
     };
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+        };
+    }, []);
 
     return (
         <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <MenuBar editor={editor} onSave={handleSave} onClose={onClose} isSaving={isSaving} title={title} />
+            <MenuBar editor={editor} onSave={handleSave} onClose={onClose} isSaving={isSaving} title={title} saveStatus={saveStatus} />
             <div className="flex-1 overflow-y-auto bg-[#1e1e1e]">
                 <EditorContent editor={editor} />
             </div>
