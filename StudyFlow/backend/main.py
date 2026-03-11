@@ -487,6 +487,13 @@ def download_audio(username: str, folder_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
     return FileResponse(path, media_type="audio/mpeg", filename=filename)
 
+@app.delete("/api/files/{file_id}")
+def delete_file(file_id: str, username: str, folder_id: str):
+    """Deletes a file from the server and metadata."""
+    if DataManager.delete_file(username, folder_id, file_id):
+        return {"status": "success", "message": "Datei gelöscht"}
+    raise HTTPException(status_code=404, detail="Datei nicht gefunden oder Fehler beim Löschen")
+
 class GenRequest(BaseModel):
     username: str
     folder_id: str

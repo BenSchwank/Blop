@@ -320,6 +320,7 @@ export default function FolderPage() {
 
     // AI Generation States
     const [isGenerating, setIsGenerating] = useState<string | null>(null); // 'plan', 'quiz', 'cards', 'summary'
+    const [isEditingFile, setIsEditingFile] = useState(false);
 
     // Toast notification (replaces all showToast() calls)
     const [toast, setToast] = useState<{ msg: string; type: 'error' | 'info' | 'success' } | null>(null);
@@ -1114,40 +1115,106 @@ export default function FolderPage() {
         if (!selectedFile) return null;
 
         if (selectedFile.type === 'summary' || selectedFile.type === 'repetition' || selectedFile.type === 'elaboration' || selectedFile.type === 'transcript') {
-            return (
-                <RichTextEditor
-                    initialContent={typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '')}
-                    title={selectedFile.name}
-                    onClose={() => setSelectedFile(null)}
-                    onSave={async (newContent) => {
-                        try {
-                            const username = localStorage.getItem("username");
-                            const res = await fetch(`${API_BASE}/files/update`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    username,
-                                    folder_id: folderId,
-                                    file_id: selectedFile.id,
-                                    content: newContent
-                                })
-                            });
+            const contentStr = typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '');
+            const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote|<img/i.test(contentStr);
 
-                            if (res.ok) {
-                                // Update local state so it doesn't revert on close
-                                const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
-                                setFiles(updatedFiles);
-                                setSelectedFile({ ...selectedFile, content: newContent });
-                                // Optional: You could show a small toast here instead of alert for better UX
-                            } else {
-                                const err = await res.json();
-                                showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
+            if (isEditingFile || isHtml) {
+                return (
+                    <RichTextEditor
+                        initialContent={contentStr}
+                        title={selectedFile.name}
+                        onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
+                        onSave={async (newContent) => {
+                            try {
+                                const username = localStorage.getItem("username");
+                                const res = await fetch(`${API_BASE}/files/update`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        username,
+                                        folder_id: folderId,
+                                        file_id: selectedFile.id,
+                                        content: newContent
+                                    })
+                                });
+
+                                if (res.ok) {
+                                    // Update local state so it doesn't revert on close
+                                    const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
+                                    setFiles(updatedFiles);
+                                    setSelectedFile({ ...selectedFile, content: newContent });
+                                    setIsEditingFile(false);
+                                } else {
+                                    const err = await res.json();
+                                    showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
+                                }
+                            } catch (e) {
+                                showToast("Netzwerkfehler beim Speichern.");
                             }
-                        } catch (e) {
-                            showToast("Netzwerkfehler beim Speichern.");
-                        }
-                    }}
-                />
+                        }}
+                    />
+                );
+            }
+
+            return (
+                <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                                <X size={20} />
+                            </button>
+                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                            <div className={`p-2 rounded-lg bg-blue-500/10 text-blue-400`}>
+                                <FileText size={20} />
+                            </div>
+                            <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
+                        </div>
+                        <div className="flex items-center gap-2 no-print">
+                            <button onClick={() => setIsEditingFile(true)} className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">
+                                <Edit size={14} />
+                                <span className="hidden sm:inline">Bearbeiten</span>
+                            </button>
+                            {selectedFile.type === 'transcript' && (
+                                <button
+                                    onClick={async () => {
+                                        const username = localStorage.getItem("username") || "";
+                                        const match = contentStr.match(/<!-- AUDIO_FILE:(.*?) -->/);
+                                        if (match && match[1]) {
+                                            const filename = match[1];
+                                            const url = `${API_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = filename;
+                                            document.body.appendChild(a);
+                                            a.click();
+                                            a.remove();
+                                        } else {
+                                            alert("Keine Audio-Datei für diesen Eintrag gefunden.");
+                                        }
+                                    }}
+                                    className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                    title="Original-Audio (MP3) herunterladen"
+                                >
+                                    <Download size={14} />
+                                    <span className="hidden sm:inline">MP3 Download</span>
+                                </button>
+                            )}
+                            <button
+                                onClick={() => window.print()}
+                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                title="Als PDF exportieren"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                                <span className="hidden sm:inline">PDF Export</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-8">
+                        <div className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40]">
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{contentStr}</ReactMarkdown>
+                        </div>
+                    </div>
+                </div>
             );
         }
 
@@ -1708,27 +1775,43 @@ export default function FolderPage() {
                                 </form>
                             ) : (
                                 <div className="space-y-6">
-                                    <div className="flex flex-col items-center justify-center p-8 bg-[#151525] border border-[#2A2A40] rounded-xl">
+                                    <div className="flex flex-col items-center justify-center p-8 bg-[#151525] border border-[#2A2A40] rounded-xl relative">
                                         {!audioBlob ? (
                                             <>
+                                                {/* Hidden File Input for Audio */}
+                                                <input
+                                                    type="file"
+                                                    accept="audio/webm,audio/mpeg,audio/wav,audio/mp4,audio/m4a"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) setAudioBlob(file);
+                                                    }}
+                                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                                    title="Klicken, um eine Audio-Datei hochzuladen"
+                                                />
                                                 <button
                                                     onClick={isRecording ? stopRecording : startRecording}
-                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#1C1C33] text-gray-400 hover:bg-[#3B3B55] hover:text-white'}`}
+                                                    className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all z-20 relative ${isRecording ? 'bg-red-500/20 text-red-500 border-4 border-red-500 animate-pulse' : 'bg-[#1C1C33] text-gray-400 hover:bg-[#3B3B55] hover:text-white'}`}
+                                                    title="Aufnahme starten/stoppen"
                                                 >
                                                     {isRecording ? <div className="w-6 h-6 bg-red-500 rounded-sm"></div> : <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>}
                                                 </button>
-                                                <div className="text-xl font-mono text-white tracking-widest">
+                                                <div className="text-xl font-mono text-white tracking-widest z-20 relative">
                                                     {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
                                                 </div>
-                                                <p className="text-sm text-gray-500 mt-2">{isRecording ? "Aufnahme läuft..." : "Klicke das Mikrofon, um zu starten"}</p>
+                                                <p className="text-sm text-gray-500 mt-3 text-center z-20 relative pointer-events-none">
+                                                    {isRecording ? "Aufnahme läuft..." : "Klicke das Mikrofon zum Aufnehmen\noder ziehe eine Audio-Datei (.mp3, .webm) hierher"}
+                                                </p>
                                             </>
                                         ) : (
-                                            <>
+                                            <div className="z-20 relative w-full flex flex-col items-center">
                                                 <div className="w-16 h-16 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center mb-4 border border-blue-500/30">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" /></svg>
                                                 </div>
-                                                <h4 className="text-white font-medium mb-1">Sprachmemo aufgezeichnet</h4>
-                                                <p className="text-sm text-gray-400 mb-6">Dauer: {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}</p>
+                                                <h4 className="text-white font-medium mb-1">Audio bereit</h4>
+                                                <p className="text-sm text-gray-400 mb-6 truncate max-w-full">
+                                                    {audioBlob instanceof File ? audioBlob.name : `Dauer: ${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')}`}
+                                                </p>
                                                 <div className="flex gap-2 w-full mt-2">
                                                     <button onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="flex-1 px-4 py-2 border border-[#2A2A40] hover:bg-[#1C1C33] text-gray-300 rounded-lg transition-colors text-sm font-medium text-center">Neu starten</button>
                                                     <button onClick={() => {
@@ -1745,7 +1828,7 @@ export default function FolderPage() {
                                                         {isProcessing ? <><Loader2 size={16} className="animate-spin" /> ...</> : "Als AI Notiz speichern"}
                                                     </button>
                                                 </div>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
