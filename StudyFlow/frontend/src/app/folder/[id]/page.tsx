@@ -305,7 +305,7 @@ export default function FolderPage() {
 
     // Upload / Action States
     const [isUploadOpen, setIsUploadOpen] = useState(false);
-    const [uploadType, setUploadType] = useState<'pdf' | 'youtube' | 'audio'>('pdf');
+    const [uploadType, setUploadType] = useState<'pdf' | 'youtube' | 'audio' | 'document'>('pdf');
     const [fileToUpload, setFileToUpload] = useState<File | null>(null);
     const [youtubeUrl, setYoutubeUrl] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
@@ -584,6 +584,44 @@ export default function FolderPage() {
         } catch (error) {
             console.error(error);
             showToast("Konnte YouTube-Video nicht importieren.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleDocumentCreate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const titleElement = document.getElementById('new-document-title') as HTMLInputElement;
+        const title = titleElement?.value;
+        if (!title) {
+            showToast("Bitte gib einen Titel für das Dokument ein.");
+            return;
+        }
+
+        setIsProcessing(true);
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/files/document?username=${username}&folder_id=${folderId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: title, content: "<h1>" + title + "</h1>\n<p>Start typing...</p>" })
+            });
+
+            if (res.ok) {
+                setIsUploadOpen(false);
+                fetchFiles();
+                // Optionally open it right away for editing
+                setTimeout(() => {
+                    // Try to find the just created file. We fetch it again so it might not be in the state instantly.
+                    // This is a simple improvement for later. For now, just refresh the list.
+                }, 500);
+            } else {
+                const err = await res.json();
+                showToast(`Fehler beim Erstellen: ${err.detail || 'Unbekannt'}`);
+            }
+        } catch (error) {
+            console.error("Create document error:", error);
+            showToast("Netzwerkfehler beim Erstellen.");
         } finally {
             setIsProcessing(false);
         }
@@ -1697,6 +1735,9 @@ export default function FolderPage() {
                                 <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#1C1C33] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
                                 </button>
+                                <button onClick={() => setUploadType('document')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'document' ? 'bg-[#1C1C33] text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`} title="Leeres Dokument erstellen">
+                                    <FileText size={16} /> Text
+                                </button>
                             </div>
                             {uploadType === 'pdf' ? (
                                 <form onSubmit={handleFileUpload} className="space-y-4">
@@ -1710,6 +1751,16 @@ export default function FolderPage() {
                                 <form onSubmit={handleYoutubeImport} className="space-y-4">
                                     <div><label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">YouTube URL</label><input type="url" placeholder="https://youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none placeholder:text-gray-600 transition-all font-sans" /></div>
                                     <button type="submit" disabled={!youtubeUrl || isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Importieren</button>
+                                </form>
+                            ) : uploadType === 'document' ? (
+                                <form onSubmit={handleDocumentCreate} className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-1.5 ml-1">Dokumenten-Titel</label>
+                                        <input id="new-document-title" type="text" placeholder="Mein neues Dokument..." className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none placeholder:text-gray-600 transition-all font-sans" required />
+                                    </div>
+                                    <button type="submit" disabled={isProcessing} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">
+                                        {isProcessing && <Loader2 size={16} className="animate-spin" />} Dokument erstellen
+                                    </button>
                                 </form>
                             ) : (
                                 <div className="space-y-6">
