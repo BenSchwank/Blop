@@ -2812,6 +2812,7 @@ void MainWindow::restoreWindowState() {
   if (settings.contains("geometry") && settings.contains("windowState")) {
     restoreGeometry(settings.value("geometry").toByteArray());
     restoreState(settings.value("windowState").toByteArray());
+    show(); // Important: Actually display the window if we didn't call showMaximized/showFullScreen!
   } else {
     // Default fallback on first run
 #ifdef Q_OS_ANDROID
