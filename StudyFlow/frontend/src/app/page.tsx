@@ -130,7 +130,7 @@ export default function Dashboard() {
     const username = localStorage.getItem('username');
     const session = localStorage.getItem('session_id');
     if (!username || !session) {
-      router.replace('/login');
+      window.location.href = '/login';
       return; // Don't set authChecked — keep showing loading
     }
     setAuthChecked(true);

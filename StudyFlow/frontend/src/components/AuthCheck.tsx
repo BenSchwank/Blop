@@ -20,10 +20,10 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
         const username = localStorage.getItem('username');
 
         if (!sessionId || !username) {
-            // Not authenticated, redirect to login
-            router.push('/login');
+            // Not authenticated, force hard redirect to fix Safari caching/race conditions
+            window.location.href = '/login';
         }
-    }, [pathname, router]);
+    }, [pathname]); // Removing router dependency as we no longer use it inside the effect
 
     // Always render children (including login page)
     return <>{children}</>;

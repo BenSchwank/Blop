@@ -563,7 +563,7 @@ Hier ist das Quellenmaterial:
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return json.loads(response.text)
+            return response.text
         except Exception as e:
             print(f"Repetition Error: {e}")
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
