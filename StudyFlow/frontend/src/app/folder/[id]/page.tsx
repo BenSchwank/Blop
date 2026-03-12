@@ -306,7 +306,7 @@ export default function FolderPage() {
     // Upload / Action States
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [uploadType, setUploadType] = useState<'pdf' | 'youtube' | 'audio' | 'image' | 'document'>('pdf');
-    const [fileToUpload, setFileToUpload] = useState<File | null>(null);
+    const [filesToUpload, setFilesToUpload] = useState<File[]>([]);
     const [youtubeUrl, setYoutubeUrl] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
 
@@ -531,7 +531,7 @@ export default function FolderPage() {
             if (res.ok) {
                 showToast(isAudio ? "Audio erfolgreich transkribiert!" : "Datei hochgeladen!");
                 if (isUploadOpen) setIsUploadOpen(false); // Close modal if it was open
-                setFileToUpload(null); // Reset manual selection form state
+                setFilesToUpload([]); // Reset manual selection form state
                 fetchFiles();
             } else {
                 const err = await res.json();
@@ -552,9 +552,11 @@ export default function FolderPage() {
 
     const handleFileUpload = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!fileToUpload) return;
-        setIsProcessing(true); // Let the processNativeFileUpload handle the actual request
-        await processNativeFileUpload(fileToUpload);
+        if (filesToUpload.length === 0) return;
+        setIsProcessing(true); // Let the processNativeFileUpload handle the actual requests
+        
+        await Promise.all(filesToUpload.map(file => processNativeFileUpload(file)));
+        setIsProcessing(false);
     };
 
     const handleYoutubeImport = async (e: React.FormEvent) => {
@@ -592,29 +594,33 @@ export default function FolderPage() {
 
     const handleImageUpload = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!fileToUpload) return;
+        if (filesToUpload.length === 0) return;
         setIsProcessing(true);
         try {
             const username = localStorage.getItem("username");
-            const formData = new FormData();
-            formData.append("file", fileToUpload);
+            
+            await Promise.all(filesToUpload.map(async (file) => {
+                const formData = new FormData();
+                formData.append("file", file);
 
-            const res = await fetch(`${API_BASE}/files/image?username=${username}&folder_id=${folderId}`, {
-                method: "POST",
-                body: formData
-            });
+                const res = await fetch(`${API_BASE}/files/image?username=${username}&folder_id=${folderId}`, {
+                    method: "POST",
+                    body: formData
+                });
 
-            if (res.ok) {
-                setFileToUpload(null);
-                setIsUploadOpen(false);
-                fetchFiles();
-            } else {
-                const err = await res.json();
-                showToast(`Fehler beim Bild-Upload: ${err.detail || "Unbekannter Fehler"}`);
-            }
+                if (!res.ok) {
+                    const err = await res.json();
+                    showToast(`Fehler beim Bild-Upload von ${file.name}: ${err.detail || "Unbekannter Fehler"}`);
+                }
+            }));
+
+            setFilesToUpload([]);
+            setIsUploadOpen(false);
+            fetchFiles();
+            showToast("Bilder erfolgreich hochgeladen!", "success");
         } catch (error) {
             console.error("Image upload error:", error);
-            showToast("Konnte Bild nicht hochladen.");
+            showToast("Konnte Bilder nicht hochladen.");
         } finally {
             setIsProcessing(false);
         }
@@ -1779,7 +1785,7 @@ export default function FolderPage() {
                 {/* Upload Modal */}
                 {isUploadOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
                                 <button onClick={() => setIsUploadOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
@@ -1798,18 +1804,32 @@ export default function FolderPage() {
                             {uploadType === 'pdf' ? (
                                 <form onSubmit={handleFileUpload} className="space-y-4">
                                     <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-[#5E5CE6] transition-colors cursor-pointer relative">
-                                        <input type="file" accept=".pdf,audio/*" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                        <div className="flex flex-col items-center gap-2 text-gray-400"><Upload size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken zum Auswählen"}</span></div>
+                                        <input type="file" accept=".pdf,audio/*" multiple onChange={(e) => setFilesToUpload(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                                            <Upload size={24} />
+                                            <span className="text-sm">
+                                                {filesToUpload.length > 0 
+                                                    ? `${filesToUpload.length} Datei(en) ausgewählt` 
+                                                    : "Klicken zum Auswählen (mehrere möglich)"}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
+                                    <button type="submit" disabled={filesToUpload.length === 0 || isProcessing} className="w-full bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Hochladen</button>
                                 </form>
                             ) : uploadType === 'image' ? (
                                 <form onSubmit={handleImageUpload} className="space-y-4">
                                     <div className="border-2 border-dashed border-[#2A2A40] rounded-xl p-8 text-center hover:border-green-500 transition-colors cursor-pointer relative">
-                                        <input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                        <div className="flex flex-col items-center gap-2 text-gray-400"><ImageIcon size={24} /><span className="text-sm">{fileToUpload ? fileToUpload.name : "Klicken für Bildauswahl"}</span></div>
+                                        <input type="file" accept=".jpg,.jpeg,.png,.webp" multiple onChange={(e) => setFilesToUpload(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                                            <ImageIcon size={24} />
+                                            <span className="text-sm">
+                                                {filesToUpload.length > 0 
+                                                    ? `${filesToUpload.length} Bild(er) ausgewählt` 
+                                                    : "Klicken für Bildauswahl (mehrere möglich)"}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <button type="submit" disabled={!fileToUpload || isProcessing} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Bild analysieren</button>
+                                    <button type="submit" disabled={filesToUpload.length === 0 || isProcessing} className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 flex justify-center items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Bilder analysieren</button>
                                 </form>
                             ) : uploadType === 'youtube' ? (
                                 <form onSubmit={handleYoutubeImport} className="space-y-4">
