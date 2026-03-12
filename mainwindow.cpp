@@ -2802,3 +2802,26 @@ void MainWindow::onTabChanged(int index) {
   }
   updateSidebarState();
 }
+
+void MainWindow::restoreWindowState() {
+  QSettings settings("Blop", "BlopApp");
+  
+  if (settings.contains("geometry") && settings.contains("windowState")) {
+    restoreGeometry(settings.value("geometry").toByteArray());
+    restoreState(settings.value("windowState").toByteArray());
+  } else {
+    // Default fallback on first run
+#ifdef Q_OS_ANDROID
+    showFullScreen();
+#else
+    showMaximized();
+#endif
+  }
+}
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+  QSettings settings("Blop", "BlopApp");
+  settings.setValue("geometry", saveGeometry());
+  settings.setValue("windowState", saveState());
+  QMainWindow::closeEvent(event);
+}
