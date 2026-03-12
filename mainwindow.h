@@ -107,6 +107,8 @@ public:
 
   void switchToSelectTool();
 
+  void restoreWindowState();
+
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
@@ -188,7 +190,6 @@ private:
 
   void showRenameOverlay(const QString &currentName);
 
-  void restoreWindowState();
   void animateSidebar(bool show);
   void animateRightSidebar(bool show);
 
