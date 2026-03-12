@@ -119,24 +119,27 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
             {/* User Profile */}
             <div
-                className={`border-t border-[#333] flex items-center py-3 gap-2.5 transition-all overflow-hidden shrink-0 ${isCollapsed ? 'justify-center px-0' : 'px-[14px]'}`}
+                className={`border-t border-[#333] flex items-center py-3 gap-3 transition-all overflow-hidden shrink-0 ${isCollapsed ? 'justify-center px-0' : 'px-4'}`}
                 style={{ minHeight: '64px' }}
             >
                 {/* Avatar */}
-                <div className="w-[36px] h-[36px] rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-[14px] shrink-0">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-[15px] shrink-0">
                     {mounted ? initial : '?'}
                 </div>
                 {!isCollapsed && (
-                    <div className="flex-1 min-w-0 flex flex-col justify-center gap-[2px]">
-                        <p suppressHydrationWarning className="text-[12px] font-semibold text-white truncate">
+                    <div className="flex-1 min-w-0 flex flex-col justify-center gap-[0px]">
+                        <p suppressHydrationWarning className="text-[13px] font-semibold text-white truncate leading-tight">
                             {mounted ? (username || 'Gast') : '...'}
                         </p>
-                        <button
-                            onClick={handleLogout}
-                            className="text-[10px] text-[#888] hover:text-[#5E5CE6] transition-colors text-left p-0 border-none bg-transparent cursor-pointer"
+                        <Link
+                            href="/settings"
+                            className="text-[11px] text-[#888] hover:text-[#5E5CE6] transition-colors leading-tight block mt-0.5"
                         >
-                            Abmelden
-                        </button>
+                            Einstellungen
+                        </Link>
+                        <p className="text-[10px] text-[#555] opacity-80 leading-tight mt-[1px]">
+                            v3.13.5.11
+                        </p>
                     </div>
                 )}
             </div>

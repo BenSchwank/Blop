@@ -870,11 +870,11 @@ void MainWindow::applyTheme() {
 
   if (m_sidebarContainer)
     m_sidebarContainer->setStyleSheet(
-        "background-color: rgba(11, 11, 26, 210); border-right: "
-        "1px solid #2A2A40;");
+        "background-color: rgba(30, 30, 30, 255); border-right: "
+        "1px solid #333333;");
   if (m_sidebarStrip)
     m_sidebarStrip->setStyleSheet(
-        "background-color: #0B0B1A; border-right: 1px solid #2A2A40;");
+        "background-color: #1e1e1e; border-right: 1px solid #333333;");
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
         "QListWidget { background-color: transparent; border: none; outline: "
