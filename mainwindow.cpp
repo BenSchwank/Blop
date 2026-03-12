@@ -56,6 +56,11 @@
 #include <QProgressDialog>
 #include <QPropertyAnimation>
 #include <QScreen>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <windowsx.h>
+#endif
 #include <QScroller>
 #include <QSettings>
 #include <QSlider>
@@ -770,6 +775,7 @@ void MainWindow::onWinMaximize() {
 void MainWindow::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton && m_titleBarWidget &&
       m_titleBarWidget->geometry().contains(event->pos())) {
+    m_isDragging = true;
     m_windowDragPos =
         event->globalPosition().toPoint() - frameGeometry().topLeft();
     event->accept();
@@ -778,15 +784,50 @@ void MainWindow::mousePressEvent(QMouseEvent *event) {
   QMainWindow::mousePressEvent(event);
 }
 void MainWindow::mouseMoveEvent(QMouseEvent *event) {
-  if (event->buttons() & Qt::LeftButton && m_titleBarWidget &&
-      m_titleBarWidget->geometry().contains(mapFromGlobal(QCursor::pos())) &&
-      !isMaximized()) {
+  if (m_isDragging && (event->buttons() & Qt::LeftButton) && !isMaximized()) {
     move(event->globalPosition().toPoint() - m_windowDragPos);
     event->accept();
     return;
   }
   QMainWindow::mouseMoveEvent(event);
 }
+void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
+  if (event->button() == Qt::LeftButton && m_isDragging) {
+    m_isDragging = false;
+    event->accept();
+    return;
+  }
+  QMainWindow::mouseReleaseEvent(event);
+}
+
+#ifdef Q_OS_WIN
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+  MSG *msg = static_cast<MSG *>(message);
+  if (msg->message == WM_NCHITTEST) {
+    if (isMaximized()) return false;
+    
+    long x = GET_X_LPARAM(msg->lParam);
+    long y = GET_Y_LPARAM(msg->lParam);
+    QPoint pos = mapFromGlobal(QPoint(x, y));
+    
+    int borderSize = 6;
+    bool left = pos.x() < borderSize;
+    bool right = pos.x() > width() - borderSize;
+    bool top = pos.y() < borderSize;
+    bool bottom = pos.y() > height() - borderSize;
+    
+    if (top && left) { *result = HTTOPLEFT; return true; }
+    if (top && right) { *result = HTTOPRIGHT; return true; }
+    if (bottom && left) { *result = HTBOTTOMLEFT; return true; }
+    if (bottom && right) { *result = HTBOTTOMRIGHT; return true; }
+    if (left) { *result = HTLEFT; return true; }
+    if (right) { *result = HTRIGHT; return true; }
+    if (top) { *result = HTTOP; return true; }
+    if (bottom) { *result = HTBOTTOM; return true; }
+  }
+  return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::onContentModified() { m_autoSaveTimer->start(); }
 void MainWindow::performAutoSave() {

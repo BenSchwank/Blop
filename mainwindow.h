@@ -114,7 +114,11 @@ protected:
   void resizeEvent(QResizeEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
+  void mouseReleaseEvent(QMouseEvent *event) override;
   void closeEvent(QCloseEvent *event) override;
+#ifdef Q_OS_WIN
+  bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+#endif
 
 private slots:
   void checkForUpdates();
@@ -226,6 +230,7 @@ private:
   QPushButton *m_btnWinMax;
   QPushButton *m_btnWinClose;
   QPoint m_windowDragPos;
+  bool m_isDragging{false};
 
   QSplitter *m_mainSplitter;
   QStackedWidget *m_rightStack;
