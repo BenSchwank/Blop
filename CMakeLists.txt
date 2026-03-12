@@ -5,7 +5,30 @@ if(ANDROID)
     set(ANDROID_PLATFORM "android-33")
 endif()
 
-project(Blop VERSION 3.13.5.6 LANGUAGES CXX)
+# Fetch version from Git
+execute_process(
+    COMMAND git describe --tags --always
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+
+# Fallback if git fails
+if(NOT GIT_VERSION)
+    set(GIT_VERSION "3.13.5.6")
+endif()
+
+# Remove 'v' prefix if it exists for the project() call
+string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
+# If there's a git hash suffix (-1-gX), the VERSION might be invalid for CMake project().
+# We'll just extract the numeric part x.y.z.w
+string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
+if(NOT SAFE_VERSION)
+    set(SAFE_VERSION "3.13.5.6")
+endif()
+
+project(Blop VERSION ${SAFE_VERSION} LANGUAGES CXX)
 
 if(MSVC)
     add_compile_options(/utf-8)
@@ -130,6 +153,9 @@ target_link_libraries(Blop PRIVATE
     Qt6::Multimedia
     Qt6::MultimediaWidgets
 )
+
+# Export BLOP_VERSION_STR for runtime usage in mainwindow.cpp
+target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
 if(ANDROID)
