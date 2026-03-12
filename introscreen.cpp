@@ -10,9 +10,10 @@ IntroScreen::IntroScreen(QWidget *parent) : QWidget(parent), m_finished(false) {
   setAttribute(Qt::WA_OpaquePaintEvent, false);
   setStyleSheet("background-color: transparent;");
 
-  // Make it fill the parent
+  // Make it fill the parent and track its resize events
   if (parent) {
       setGeometry(parent->rect());
+      parent->installEventFilter(this);
   } else {
       QScreen *screen = QApplication::primaryScreen();
       setGeometry(screen->geometry());
@@ -55,11 +56,21 @@ void IntroScreen::onMediaStatusChanged(QMediaPlayer::MediaStatus status) {
   if (m_finished)
     return;
 
-  // When the video finishes playing
+  // When the video finishes playing, start fade out
   if (status == QMediaPlayer::EndOfMedia) {
     m_finished = true;
-    emit introFinished();
+    
+    QPropertyAnimation *animation = new QPropertyAnimation(this, "windowOpacity");
+    animation->setDuration(500); // 500ms fade out
+    animation->setStartValue(1.0);
+    animation->setEndValue(0.0);
+    connect(animation, &QPropertyAnimation::finished, this, &IntroScreen::onAnimationFinished);
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
   }
+}
+
+void IntroScreen::onAnimationFinished() {
+  emit introFinished();
 }
 
 void IntroScreen::onErrorOccurred(QMediaPlayer::Error error,
@@ -70,4 +81,12 @@ void IntroScreen::onErrorOccurred(QMediaPlayer::Error error,
     m_finished = true;
     emit introFinished();
   }
+}
+
+bool IntroScreen::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == parent() && event->type() == QEvent::Resize) {
+    QResizeEvent *resizeEvent = static_cast<QResizeEvent *>(event);
+    setGeometry(QRect(QPoint(0, 0), resizeEvent->size()));
+  }
+  return QWidget::eventFilter(watched, event);
 }
