@@ -43,28 +43,26 @@ int main(int argc, char *argv[]) {
   // App Logo als Fenster Icon setzen
   a.setWindowIcon(QIcon(":/assets/logo.jpg"));
 
-  // --- LADEBILDSCHIRM (Custom Intro Animation) ---
-  IntroScreen *intro = new IntroScreen();
-  intro->show();
-  intro->startAnimation();
-
   // --- HAUPTFENSTER STARTEN ---
-  // Create Main Window initially hidden
   MainWindow *w = new MainWindow();
 
-  // Connect Intro Finish to Main Window show
-  QObject::connect(intro, &IntroScreen::introFinished, [w, intro]() {
-    w->show();
+  // --- LADEBILDSCHIRM (Custom Intro Animation) ---
+  // Create intro as a child of the MainWindow to overlay it perfectly
+  IntroScreen *intro = new IntroScreen(w);
+
+  // Connect Intro Finish to clean it up and enable main window interaction
+  QObject::connect(intro, &IntroScreen::introFinished, [intro]() {
     intro->deleteLater();
   });
 
-#ifdef Q_OS_ANDROID
-  // Auf Android sieht Vollbild besser aus
-  w->showFullScreen();
-#else
-  // Auf Desktop starten wir maximiert
-  w->showMaximized();
-#endif
+  // Restore previous window size/position, or default to maximized/fullscreen
+  w->restoreWindowState();
+
+  // Now properly size and show the intro over the shown window
+  intro->setGeometry(w->rect());
+  intro->show();
+  intro->raise(); // ensure it's on top
+  intro->startAnimation();
 
   // Starten des normalen Eventloops
   return a.exec();

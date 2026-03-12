@@ -4,16 +4,19 @@
 
 IntroScreen::IntroScreen(QWidget *parent) : QWidget(parent), m_finished(false) {
 
-  // Setup frameless, transparent-ready window
-  setWindowFlags(Qt::Window | Qt::FramelessWindowHint |
-                 Qt::WindowStaysOnTopHint);
+  // Remove Qt::Window so it can be a child overlay
+  setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
   setAttribute(Qt::WA_TranslucentBackground);
   setAttribute(Qt::WA_OpaquePaintEvent, false);
   setStyleSheet("background-color: transparent;");
 
-  // Make it fill the screen
-  QScreen *screen = QApplication::primaryScreen();
-  setGeometry(screen->geometry());
+  // Make it fill the parent
+  if (parent) {
+      setGeometry(parent->rect());
+  } else {
+      QScreen *screen = QApplication::primaryScreen();
+      setGeometry(screen->geometry());
+  }
 
   // Setup Layout and Video Widget
   QVBoxLayout *layout = new QVBoxLayout(this);

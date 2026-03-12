@@ -112,6 +112,7 @@ protected:
   void resizeEvent(QResizeEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
+  void closeEvent(QCloseEvent *event) override;
 
 private slots:
   void checkForUpdates();
@@ -187,6 +188,7 @@ private:
 
   void showRenameOverlay(const QString &currentName);
 
+  void restoreWindowState();
   void animateSidebar(bool show);
   void animateRightSidebar(bool show);
 

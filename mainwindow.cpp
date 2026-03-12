@@ -66,6 +66,7 @@
 #include <QWidgetAction>
 #include <algorithm>
 #include <utility>
+#include <QCloseEvent>
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
@@ -1712,6 +1713,10 @@ void MainWindow::setupSidebar() {
   m_sidebarContainer->hide();
 #else
   m_mainSplitter->addWidget(m_sidebarContainer);
+  if (!m_isSidebarOpen) {
+      m_sidebarContainer->setFixedWidth(0);
+      m_sidebarContainer->hide();
+  }
 #endif
 }
 
