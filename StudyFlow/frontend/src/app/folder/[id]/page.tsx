@@ -1785,19 +1785,19 @@ export default function FolderPage() {
                 {/* Upload Modal */}
                 {isUploadOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-3xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-lg font-semibold text-white">Material hinzufügen</h3>
                                 <button onClick={() => setIsUploadOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
                             </div>
-                            <div className="flex gap-2 p-1 bg-[#151525] rounded-xl mb-6">
-                                <button onClick={() => setUploadType('pdf')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#1C1C33] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
-                                <button onClick={() => setUploadType('image')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'image' ? 'bg-[#1C1C33] text-green-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><ImageIcon size={16} /> Bild</button>
-                                <button onClick={() => setUploadType('youtube')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#1C1C33] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
-                                <button onClick={() => setUploadType('audio')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#1C1C33] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
+                            <div className="flex flex-wrap gap-2 p-1 bg-[#151525] rounded-xl mb-6">
+                                <button onClick={() => setUploadType('pdf')} className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'pdf' ? 'bg-[#1C1C33] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Upload size={16} /> PDF Upload</button>
+                                <button onClick={() => setUploadType('image')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'image' ? 'bg-[#1C1C33] text-green-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><ImageIcon size={16} /> Bild</button>
+                                <button onClick={() => setUploadType('youtube')} className={`flex-1 min-w-[110px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'youtube' ? 'bg-[#1C1C33] text-red-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}><Youtube size={16} /> YouTube</button>
+                                <button onClick={() => setUploadType('audio')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'audio' ? 'bg-[#1C1C33] text-blue-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg> Audio
                                 </button>
-                                <button onClick={() => setUploadType('document')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'document' ? 'bg-[#1C1C33] text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`} title="Leeres Dokument erstellen">
+                                <button onClick={() => setUploadType('document')} className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${uploadType === 'document' ? 'bg-[#1C1C33] text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`} title="Leeres Dokument erstellen">
                                     <FileText size={16} /> Text
                                 </button>
                             </div>
