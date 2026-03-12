@@ -19,12 +19,32 @@ export default function Settings() {
     const [savingKey, setSavingKey] = useState(false);
     const [keyStatus, setKeyStatus] = useState("");
 
+    const [hasApiKey, setHasApiKey] = useState(false);
+
     const API_BASE = '/api';
 
     useEffect(() => {
         const user = localStorage.getItem("username");
-        if (user) setUsername(user);
+        if (user) {
+            setUsername(user);
+            checkApiKeyStatus(user);
+        }
     }, []);
+
+    const checkApiKeyStatus = async (user: string) => {
+        try {
+            const res = await fetch(`${API_BASE}/auth/apikey/${user}`);
+            if (res.ok) {
+                const data = await res.json();
+                setHasApiKey(data.has_key);
+                if (data.has_key) {
+                    setKeyStatus("✅ Ein API Key ist bereits in der Datenbank gespeichert.");
+                }
+            }
+        } catch (error) {
+            console.error("Error checking API key status:", error);
+        }
+    };
 
     const handleSaveApiKey = async () => {
         setSavingKey(true);
@@ -36,6 +56,7 @@ export default function Settings() {
                 body: JSON.stringify({ username, api_key: apiKey })
             });
             if (res.ok) {
+                setHasApiKey(true);
                 setKeyStatus("API Key erfolgreich gespeichert! ✅");
                 setApiKey(""); // Clear input
             } else {
@@ -57,6 +78,7 @@ export default function Settings() {
                 method: "DELETE",
             });
             if (res.ok) {
+                setHasApiKey(false);
                 setKeyStatus("API Key erfolgreich gelöscht! 🗑️");
                 setApiKey("");
             } else {
@@ -150,7 +172,7 @@ export default function Settings() {
                         <div className="flex gap-2">
                             <input
                                 type="password"
-                                placeholder="Dein API Key (AIza...)"
+                                placeholder={hasApiKey ? "Neuen API Key eingeben (überschreibt alten)" : "Dein API Key (AIza...)"}
                                 value={apiKey}
                                 onChange={(e) => setApiKey(e.target.value)}
                                 className="flex-1 bg-[#1e1e1e] border border-[#333] text-white rounded-xl px-4 py-2 focus:outline-none focus:border-[#5E5CE6] transition-colors"

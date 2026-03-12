@@ -311,6 +311,12 @@ def save_api_key(request: APIKeyRequest):
     DataManager.save_api_key(request.username, request.api_key)
     return {"status": "success", "message": "API Key gespeichert"}
 
+@app.get("/api/auth/apikey/{username}")
+def check_api_key(username: str):
+    """Checks if the user has a saved API key (without returning the actual key)."""
+    key = DataManager.get_api_key(username)
+    return {"has_key": bool(key)}
+
 @app.delete("/api/auth/apikey/{username}")
 def remove_api_key(username: str):
     """Removes the user's Google API Key."""

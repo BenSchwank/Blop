@@ -319,7 +319,7 @@ export default function FolderPage() {
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
     // AI Generation States
-    const [isGenerating, setIsGenerating] = useState<string | null>(null); // 'plan', 'quiz', 'cards', 'summary'
+    const [isGenerating, setIsGenerating] = useState<string[]>([]); // Array to support concurrent calls: 'plan', 'quiz', 'cards', 'summary', 'elaboration', 'repetition'
     const [isEditingFile, setIsEditingFile] = useState(false);
 
     // Toast notification (replaces all showToast() calls)
@@ -743,7 +743,10 @@ export default function FolderPage() {
     };
     // ----------------------------
 
-    const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string | null>>, successMessage: string) => {
+    // Helper for AI Actions using the concurrent state array
+    const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string[]>>, successMsg: string) => {
+        stateSetter(prev => [...prev, endpoint]);
+
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
@@ -789,7 +792,7 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            stateSetter(null); // Reset the specific AI generation state
+            stateSetter(prev => prev.filter(t => t !== endpoint)); // Remove specific action from processing array
         }
     };
 
@@ -814,7 +817,6 @@ export default function FolderPage() {
             return;
         }
 
-        setIsGenerating(type);
         let msg = "Erfolgreich generiert!";
         if (type === 'quiz') msg = "Quiz erstellt!";
         else if (type === 'flashcards') msg = "Karteikarten erstellt!";
@@ -824,7 +826,7 @@ export default function FolderPage() {
 
     const handleSummaryGenerate = async () => {
         setIsSummaryConfigOpen(false);
-        setIsGenerating('summary');
+        setIsGenerating(prev => [...prev, 'summary']);
 
         // Pass detailLevel to backend (Need to update ai/summary endpoint to accept this optionally, 
         // or just append it to a prompt. If backend doesn't accept it yet, we just generate standard for now.
@@ -870,13 +872,13 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            setIsGenerating(null);
+            setIsGenerating(prev => prev.filter(t => t !== 'summary'));
         }
     };
 
     const handleElaborationGenerate = async () => {
         setIsElaborationConfigOpen(false);
-        setIsGenerating('elaboration');
+        setIsGenerating(prev => [...prev, 'elaboration']);
 
         try {
             const username = localStorage.getItem("username");
@@ -919,13 +921,13 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            setIsGenerating(null);
+            setIsGenerating(prev => prev.filter(t => t !== 'elaboration'));
         }
     };
 
     const handleRepetitionGenerate = async () => {
         setIsRepetitionConfigOpen(false);
-        setIsGenerating('repetition');
+        setIsGenerating(prev => [...prev, 'repetition']);
 
         try {
             const username = localStorage.getItem("username");
@@ -968,13 +970,13 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            setIsGenerating(null);
+            setIsGenerating(prev => prev.filter(t => t !== 'repetition'));
         }
     };
 
     const handlePlanGenerate = async () => {
         setIsPlanConfigOpen(false);
-        setIsGenerating('plan');
+        setIsGenerating(prev => [...prev, 'plan']);
 
         // Calculate duration from end date if selected
         let days = planDays;
@@ -1028,7 +1030,7 @@ export default function FolderPage() {
             console.error("Plan error:", error);
             showToast(`Netzwerk-Fehler: ${String(error)}`);
         } finally {
-            setIsGenerating(null);
+            setIsGenerating(prev => prev.filter(t => t !== 'plan'));
         }
     };
 
@@ -1620,23 +1622,23 @@ export default function FolderPage() {
                     <div className="flex flex-wrap gap-2">
                         {/* AI Actions */}
                         <div className="flex gap-2 mr-2 border-r border-[#2A2A40] pr-4">
-                            <button onClick={() => handleGenerate('plan')} disabled={!!isGenerating} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
-                                {isGenerating === 'plan' ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
+                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.length > 0} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
+                                {isGenerating.includes('plan') ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('quiz')} disabled={!!isGenerating} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
-                                {isGenerating === 'quiz' ? <Loader2 size={20} className="animate-spin" /> : <HelpCircle size={20} />}
+                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.length > 0} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
+                                {isGenerating.includes('quiz') ? <Loader2 size={20} className="animate-spin" /> : <HelpCircle size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('flashcards')} disabled={!!isGenerating} className="p-2.5 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50" title="Karteikarten erstellen">
-                                {isGenerating === 'flashcards' ? <Loader2 size={20} className="animate-spin" /> : <Layers size={20} />}
+                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.length > 0} className="p-2.5 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50" title="Karteikarten erstellen">
+                                {isGenerating.includes('flashcards') ? <Loader2 size={20} className="animate-spin" /> : <Layers size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('summary')} disabled={!!isGenerating} className="p-2.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50" title="Zusammenfassung erstellen">
-                                {isGenerating === 'summary' ? <Loader2 size={20} className="animate-spin" /> : <FileOutput size={20} />}
+                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.length > 0} className="p-2.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50" title="Zusammenfassung erstellen">
+                                {isGenerating.includes('summary') ? <Loader2 size={20} className="animate-spin" /> : <FileOutput size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('elaboration')} disabled={!!isGenerating} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Ausarbeitung erstellen">
-                                {isGenerating === 'elaboration' ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.length > 0} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Ausarbeitung erstellen">
+                                {isGenerating.includes('elaboration') ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('repetition')} disabled={!!isGenerating} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
-                                {isGenerating === 'repetition' ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
+                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.length > 0} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
+                                {isGenerating.includes('repetition') ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
                             </button>
                         </div>
 
