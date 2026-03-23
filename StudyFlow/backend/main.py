@@ -307,35 +307,35 @@ class APIKeyRequest(BaseModel):
 
 @app.post("/api/auth/apikey")
 def save_api_key(request: APIKeyRequest):
-    """Saves the user's Google API Key."""
-    DataManager.save_api_key(request.username, request.api_key)
+    """(Deprecated) Returns success so frontend doesn't break."""
     return {"status": "success", "message": "API Key gespeichert"}
 
 @app.get("/api/auth/apikey/{username}")
 def check_api_key(username: str):
-    """Checks if the user has a saved API key (without returning the actual key)."""
-    key = DataManager.get_api_key(username)
-    return {"has_key": bool(key)}
+    """Returns true to force frontend into 'ready' state."""
+    return {"has_key": True}
 
 @app.delete("/api/auth/apikey/{username}")
 def remove_api_key(username: str):
-    """Removes the user's Google API Key."""
-    if DataManager.delete_api_key(username):
-        return {"status": "success", "message": "API Key entfernt"}
-    raise HTTPException(status_code=404, detail="API Key nicht gefunden")
+    """(Deprecated) Returns success."""
+    return {"status": "success", "message": "API Key entfernt"}
 
-def _configure_genai(username: str):
-    """Configures GenAI with User Key (priority) or Env Key."""
-    user_key = DataManager.get_api_key(username)
+def check_and_deduct_tokens(username: str, cost: int):
+    tokens = AuthManager.get_tokens(username)
+    if tokens < cost:
+        raise HTTPException(status_code=402, detail=f"Nicht genügend Tokens. Du hast {tokens}, {cost} werden benötigt.")
+    AuthManager.deduct_tokens(username, cost)
+    return True
+
+def _configure_genai(username: str = None):
+    """Configures GenAI with Central Env Key."""
     env_key = os.environ.get("GOOGLE_API_KEY")
     
-    active_key = user_key if user_key else env_key
-    
-    if not active_key:
-        raise HTTPException(status_code=400, detail="NO_API_KEY_FOUND")
+    if not env_key:
+        raise HTTPException(status_code=500, detail="NO_API_KEY_FOUND")
         
-    genai.configure(api_key=active_key)
-    return active_key
+    genai.configure(api_key=env_key)
+    return env_key
 
 @app.post("/api/files/upload")
 async def upload_file(
@@ -422,6 +422,7 @@ async def upload_audio(
         if not file.filename.lower().endswith(('.webm', '.wav', '.mp3', '.m4a')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Audioformate (.webm, .wav, .mp3, .m4a)")
              
+        check_and_deduct_tokens(username, 5)
         _configure_genai(username)
         
         # Read the file content
@@ -472,6 +473,7 @@ async def upload_image(
         if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Bildformate (.jpg, .jpeg, .png, .webp)")
              
+        check_and_deduct_tokens(username, 5)
         _configure_genai(username)
         
         content = await file.read()
@@ -612,8 +614,9 @@ def create_study_plan(request: PlanRequest):
     from ai_service import AIService
     
     try:
-        # Configure API Key
-        _configure_genai(request.username)
+        # Check Tokens & Configure API Key
+        check_and_deduct_tokens(request.username, 20)
+        _configure_genai()
         
         context, debug_log = _get_folder_context(request.username, request.folder_id)
 
@@ -714,7 +717,8 @@ def create_quiz(request: GenRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 10)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
@@ -735,7 +739,8 @@ def create_flashcards(request: GenRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 15)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
@@ -758,7 +763,8 @@ def create_flashcards(request: GenRequest):
 def create_summary(request: SummaryRequest):
     from ai_service import AIService
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 10)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
@@ -776,7 +782,8 @@ def create_elaboration(request: ElaborationRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 10)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
@@ -803,7 +810,8 @@ def create_repetition(request: RepetitionRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 15)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
@@ -829,7 +837,8 @@ def create_repetition(request: RepetitionRequest):
 def get_task_help(request: TaskHelpRequest):
     from ai_service import AIService
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 3)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
@@ -846,7 +855,8 @@ def get_task_help(request: TaskHelpRequest):
 def chat_endpoint(request: ChatRequest):
     from ai_service import AIService
     try:
-        _configure_genai(request.username)
+        check_and_deduct_tokens(request.username, 2)
+        _configure_genai()
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             # Fallback to general chat if no context is found, but pass empty list

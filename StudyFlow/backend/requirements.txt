@@ -7,8 +7,8 @@ google-genai
 langchain
 langchain-community
 langchain-google-genai
-# Firebase
-firebase-admin
+# Supabase
+supabase
 # PDF & Utils
 PyPDF2
 fpdf

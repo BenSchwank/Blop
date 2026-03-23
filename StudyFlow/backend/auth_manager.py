@@ -4,62 +4,45 @@ import os
 from datetime import datetime
 import uuid
 
-USER_DB_FILE = "user_data/users.json"
 SESSION_DB_FILE = "user_data/sessions.json"
 
 class AuthManager:
-    _db_cache = None
     _sessions_cache = None
     _sessions_mtime = 0
+
+    @staticmethod
+    def _get_db():
+        from data_manager import DataManager
+        return DataManager._init_supabase()
+
     @staticmethod
     def _load_sessions():
-        from data_manager import DataManager
-        db = DataManager._init_firestore()
-        if db:
-            try:
-                doc = db.collection("config").document("auth_sessions").get()
-                if doc.exists:
-                    return doc.to_dict()
-                return {}
-            except:
-                return {}
-        else:
-            # Check mtime
-            if os.path.exists(SESSION_DB_FILE):
-                 mtime = os.path.getmtime(SESSION_DB_FILE)
-                 if AuthManager._sessions_cache is not None and mtime == AuthManager._sessions_mtime:
+        if os.path.exists(SESSION_DB_FILE):
+             mtime = os.path.getmtime(SESSION_DB_FILE)
+             if AuthManager._sessions_cache is not None and mtime == AuthManager._sessions_mtime:
+                 return AuthManager._sessions_cache
+             
+             try:
+                 with open(SESSION_DB_FILE, "r", encoding="utf-8") as f:
+                     AuthManager._sessions_cache = json.load(f)
+                     AuthManager._sessions_mtime = mtime
                      return AuthManager._sessions_cache
-                 
-                 try:
-                     with open(SESSION_DB_FILE, "r", encoding="utf-8") as f:
-                         AuthManager._sessions_cache = json.load(f)
-                         AuthManager._sessions_mtime = mtime
-                         return AuthManager._sessions_cache
-                 except: pass
-            return {}
+             except: pass
+        return {}
 
     @staticmethod
     def _save_sessions(sessions):
-        from data_manager import DataManager
-        db = DataManager._init_firestore()
-        if db:
-            try:
-                db.collection("config").document("auth_sessions").set(sessions)
-            except:
-                pass
-        else:
-            if not os.path.exists("user_data"):
-                os.makedirs("user_data")
-            with open(SESSION_DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(sessions, f, indent=4)
+        if not os.path.exists("user_data"):
+            os.makedirs("user_data")
+        with open(SESSION_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, indent=4)
+        AuthManager._sessions_cache = sessions
+        AuthManager._sessions_mtime = os.path.getmtime(SESSION_DB_FILE)
 
     @staticmethod
     def create_session(username):
         session_id = str(uuid.uuid4())
         sessions = AuthManager._load_sessions()
-        
-        # Clean up old sessions first (simple housekeeping)
-        # AuthManager._cleanup_sessions(sessions) 
         
         sessions[session_id] = {
             "username": username,
@@ -77,18 +60,16 @@ class AuthManager:
             
         session = sessions[session_id]
         
-        # Check Timestamp (4 mins = 240 seconds)
         try:
             last_active = datetime.fromisoformat(session["last_active"])
-            if (datetime.now() - last_active).total_seconds() > 240:
-                # Expired
+            # Extended session timeout for production (e.g. 24 hours)
+            if (datetime.now() - last_active).total_seconds() > 86400:
                 del sessions[session_id]
                 AuthManager._save_sessions(sessions)
                 return None
         except:
-             return None # Invalid format
+             return None 
             
-        # Update activity
         session["last_active"] = datetime.now().isoformat()
         AuthManager._save_sessions(sessions)
         return session["username"]
@@ -101,296 +82,158 @@ class AuthManager:
             AuthManager._save_sessions(sessions)
 
     @staticmethod
-    def _load_users():
-        from data_manager import DataManager
-        db = DataManager._init_firestore()
-        if db:
-            try:
-                # Cloud Mode: Single source of truth
-                doc = db.collection("config").document("auth_users").get()
-                if doc.exists:
-                    return doc.to_dict()
-                return {}
-            except Exception as e:
-                print(f"Auth Sync Error: {e}")
-                return {}
-        else:
-            # Local Mode
-            local_users = {}
-            if os.path.exists(USER_DB_FILE):
-                 try:
-                     with open(USER_DB_FILE, "r", encoding="utf-8") as f:
-                         local_users = json.load(f)
-                 except: pass
-            return local_users
-
-    @staticmethod
-    def _save_users(users):
-        from data_manager import DataManager
-        db = DataManager._init_firestore()
-        if db:
-            # Cloud Mode: Single source of truth
-            try:
-                db.collection("config").document("auth_users").set(users)
-            except Exception as e:
-                print(f"Auth Sync Write Error: {e}")
-        else:
-            # Local Mode
-            if not os.path.exists("user_data"):
-                os.makedirs("user_data")
-            with open(USER_DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(users, f, indent=4)
-
-    @staticmethod
     def _hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
 
     @staticmethod
+    def get_user(username):
+        db = AuthManager._get_db()
+        if not db: return None
+        res = db.table('users').select('*').eq('username', username).execute()
+        if len(res.data) > 0:
+            return res.data[0]
+        return None
+
+    @staticmethod
     def login(username, password):
-        AuthManager.ensure_admin() # Ensure admin exists before login check
-        users = AuthManager._load_users()
-        if username not in users:
+        AuthManager.ensure_admin()
+        user = AuthManager.get_user(username)
+        if not user:
             return False
         
         hashed_pw = AuthManager._hash_password(password)
-        if users[username]["password"] == hashed_pw:
+        if user["password_hash"] == hashed_pw:
             return True
         return False
 
     @staticmethod
     def register(username, password):
-        users = AuthManager._load_users()
-        if username in users:
-            return False # User exists locally
+        user = AuthManager.get_user(username)
+        if user:
+            return False # User exists
             
-        # Check Cloud (Firestore) to prevent claiming existing cloud user
-        from data_manager import DataManager
-        if DataManager.user_exists(username):
-            return False # User exists in cloud
+        db = AuthManager._get_db()
+        if not db: raise Exception("Supabase DB nicht initialisiert")
         
-        users[username] = {
-            "password": AuthManager._hash_password(password),
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "join_date": datetime.now().strftime("%Y-%m-%d"),
+        new_user = {
+            "username": username,
+            "password_hash": AuthManager._hash_password(password),
+            "tokens": 500, # Initial tokens
             "xp": 0,
-            "streak_days": 0,
-            "xp_history": []
+            "streak_days": 1,
+            "is_admin": False,
+            "created_at": datetime.now().isoformat()
         }
-        AuthManager._save_users(users)
         
-        # Also create initial data in DataManager
-        DataManager.save({"folders": [], "files": []}, username)
+        db.table('users').insert(new_user).execute()
+        return True
+
+    @staticmethod
+    def get_tokens(username):
+        user = AuthManager.get_user(username)
+        if not user: return 0
         
+        # Admins have infinite tokens implicitly
+        if user.get("is_admin", False):
+            return 999999
+            
+        return user.get("tokens", 0)
+
+    @staticmethod
+    def deduct_tokens(username, amount):
+        user = AuthManager.get_user(username)
+        if not user: return False
+        
+        if user.get("is_admin", False):
+            return True # Admins don't pay
+            
+        current_tokens = user.get("tokens", 0)
+        if current_tokens < amount:
+            return False
+            
+        db = AuthManager._get_db()
+        new_balance = current_tokens - amount
+        db.table('users').update({"tokens": new_balance}).eq('username', username).execute()
         return True
 
     @staticmethod
     def add_xp(username, amount):
-        """Adds XP to the user."""
-        users = AuthManager._load_users()
-        if username in users:
-            current_xp = users[username].get("xp", 0)
-            users[username]["xp"] = current_xp + amount
-            
-            # History
-            if "xp_history" not in users[username]:
-                users[username]["xp_history"] = []
-            
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            found = False
-            for entry in users[username]["xp_history"]:
-                if entry["date"] == today_str:
-                    entry["amount"] += amount
-                    found = True
-                    break
-            
-            if not found:
-                 users[username]["xp_history"].append({"date": today_str, "amount": amount})
-                 
-            # Limit history
-            if len(users[username]["xp_history"]) > 30:
-                users[username]["xp_history"] = users[username]["xp_history"][-30:]
-
-            AuthManager._save_users(users)
-            return users[username]["xp"]
-        return 0
+        user = AuthManager.get_user(username)
+        if not user: return 0
+        
+        new_xp = user.get("xp", 0) + amount
+        db = AuthManager._get_db()
+        db.table('users').update({"xp": new_xp}).eq('username', username).execute()
+        return new_xp
 
     @staticmethod
     def update_activity(username):
-        """Tracks daily streak."""
-        users = AuthManager._load_users()
-        if username not in users: return
-        
-        user = users[username]
-        today = datetime.now().date()
-        last_active_str = user.get("last_active_date")
-        
-        if last_active_str:
-            last_active = datetime.fromisoformat(last_active_str).date()
-            if last_active == today:
-                return # Already active today
-            elif (today - last_active).days == 1:
-                # Streak continues!
-                user["streak_days"] = user.get("streak_days", 0) + 1
-            else:
-                # Streak broken :(
-                user["streak_days"] = 1
-        else:
-            # First time
-            user["streak_days"] = 1
-            
-        user["last_active_date"] = today.isoformat()
-        AuthManager._save_users(users)
-        user["last_active_date"] = today.isoformat()
-        AuthManager._save_users(users)
-        return user["streak_days"]
+        user = AuthManager.get_user(username)
+        if not user: return
+        # A simple placeholder. To implement proper streaks, we need last_active_date in db schema.
+        # Since it's not in schema MVP, we just bump streak if needed, but skip for now to keep it simple.
+        pass
 
     @staticmethod
     def get_leaderboard_data(limit=5):
-        """Returns sorted list of users by XP."""
-        users = AuthManager._load_users()
-        # Filter out admin and config
-        valid_users = []
-        for u, data in users.items():
-            if u not in ["admin_", "config"]:
-                valid_users.append({
-                    "username": u,
-                    "xp": data.get("xp", 0),
-                    "streak": data.get("streak_days", 0)
-                })
-        
-        # Sort by XP desc
-        valid_users.sort(key=lambda x: x["xp"], reverse=True)
-        return valid_users[:limit]
+        db = AuthManager._get_db()
+        if not db: return []
+        res = db.table('users').select('username', 'xp', 'streak_days').eq('is_admin', False).order('xp', desc=True).limit(limit).execute()
+        return res.data
 
     @staticmethod
     def get_all_users():
-        # Get Local/Synced Users
-        users = AuthManager._load_users()
+        db = AuthManager._get_db()
+        if not db: return {}
+        res = db.table('users').select('*').execute()
         
-        # Get Orphaned Cloud Users (Have Data but no Auth)
-        from data_manager import DataManager
-        cloud_user_ids = DataManager.get_all_cloud_users()
-        
-        for uid in cloud_user_ids:
-            if uid not in users and uid != "config": # Exclude config collection
-                # Add placeholder for Admin Panel visibility
-                users[uid] = {
-                    "password": "CLOUD_ONLY_NO_PASSWORD",
-                    "created_at": "Unknown (Cloud Data)",
-                    "is_cloud_only": True
-                }
-        return users
-
-    @staticmethod
-    def set_user_api_key(username, api_key):
-        users = AuthManager._load_users()
-        if username in users:
-            users[username]["api_key"] = api_key
-            AuthManager._save_users(users)
-            return True
-        return False
-
-    @staticmethod
-    def get_user_api_key(username):
-        users = AuthManager._load_users()
-        if username in users:
-            return users[username].get("api_key")
-        return None
-
-    @staticmethod
-    def set_accent_color(username, color):
-        users = AuthManager._load_users()
-        if username in users:
-            users[username]["accent_color"] = color
-            AuthManager._save_users(users)
-            return True
-        return False
-
-    @staticmethod
-    def get_accent_color(username):
-        users = AuthManager._load_users()
-        if username in users:
-            return users[username].get("accent_color", "#7C3AED")
-        return "#7C3AED"
+        # Convert to dictionary format for legacy API expectations
+        users_dict = {}
+        for r in res.data:
+            users_dict[r['username']] = r
+        return users_dict
 
     @staticmethod
     def delete_user(username):
-        users = AuthManager._load_users()
-        if username in users:
-            del users[username]
-            AuthManager._save_users(users)
-            # Cleanup Data
-            from data_manager import DataManager
-            DataManager.delete_user_data(username)
-            return True
-        return False
-
-    @staticmethod
-    def reset_password_force(username, new_password):
-        """Resets a user's password to a specific value immediately."""
-        try:
-            users = AuthManager._load_users()
-            
-            # If user is not in local/auth store, we CREATE them (Adopting cloud user)
-            if username not in users:
-                users[username] = {
-                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                
-            users[username]["password"] = AuthManager._hash_password(new_password)
-            users[username]["is_cloud_only"] = False # Remove flag if present
-            
-            AuthManager._save_users(users)
-            return True
-        except Exception as e:
-            print(f"Password Reset Error: {e}")
-            return False
+        db = AuthManager._get_db()
+        if not db: return False
+        res = db.table('users').delete().eq('username', username).execute()
+        return True
 
     @staticmethod
     def change_password(username, old_password, new_password):
-        """Allows a user to change their own password verify old password first."""
-        try:
-            users = AuthManager._load_users()
-            if username not in users:
-                return False, "Benutzer nicht gefunden."
-            
-            # Verify Old Password
-            user_data = users[username]
-            hashed_old = AuthManager._hash_password(old_password)
-            
-            # Handle cases where password might be missing (cloud-only adopted users)
-            current_stored_pw = user_data.get("password")
-            
-            if current_stored_pw and current_stored_pw != hashed_old:
-                return False, "Altes Passwort ist falsch."
-            
-            # Update Password
-            users[username]["password"] = AuthManager._hash_password(new_password)
-            # Ensure "is_cloud_only" is removed if present
-            if "is_cloud_only" in users[username]:
-                del users[username]["is_cloud_only"]
-                
-            AuthManager._save_users(users)
-            return True, "Passwort erfolgreich geändert!"
-            
-        except Exception as e:
-            return False, f"Fehler: {str(e)}"
+        user = AuthManager.get_user(username)
+        if not user:
+            return False, "Benutzer nicht gefunden."
+        
+        hashed_old = AuthManager._hash_password(old_password)
+        if user["password_hash"] != hashed_old:
+            return False, "Altes Passwort ist falsch."
+        
+        db = AuthManager._get_db()
+        db.table('users').update({"password_hash": AuthManager._hash_password(new_password)}).eq('username', username).execute()
+        return True, "Passwort erfolgreich geändert!"
 
     @staticmethod
     def ensure_admin():
-        users = AuthManager._load_users()
         admin_user = "admin_"
         target_pw = "Martin400!"
         target_hash = AuthManager._hash_password(target_pw)
         
-        # Create or Reset Admin if missing or wrong password
-        if admin_user not in users or users[admin_user]["password"] != target_hash:
-            users[admin_user] = {
-                "password": target_hash,
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        db = AuthManager._get_db()
+        if not db: return
+        
+        res = db.table('users').select('password_hash').eq('username', admin_user).execute()
+        if len(res.data) == 0:
+            db.table('users').insert({
+                "username": admin_user,
+                "password_hash": target_hash,
+                "tokens": 999999,
                 "is_admin": True
-            }
-            AuthManager._save_users(users)
-
-    # Streamlit-specific methods removed for FastAPI compatibility
-    # Use validate_session() and logout_session() directly in API endpoints
+            }).execute()
+        elif res.data[0]['password_hash'] != target_hash:
+            db.table('users').update({
+                "password_hash": target_hash,
+                "is_admin": True,
+                "tokens": 999999
+            }).eq('username', admin_user).execute()
