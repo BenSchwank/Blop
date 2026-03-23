@@ -46,9 +46,9 @@ jobs:
           pip install aqtinstall
           mkdir -p ${{ runner.workspace }}/Qt
           # Desktop Qt für Host-Tools
-          python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt
+          python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
           # Android Qt MIT Modul qtwebview und qtmultimedia (WICHTIG!)
-          python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia
+          python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
 
       - name: Create Build Directory
         run: mkdir build

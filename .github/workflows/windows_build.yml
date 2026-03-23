@@ -30,7 +30,7 @@ jobs:
 
           # Installiere Qt 6.7.2 direkt in dieses Verzeichnis
           # WICHTIG: --outputdir $qtDir sorgt dafür, dass die Pfade stimmen
-          aqt install-qt windows desktop 6.7.2 win64_msvc2019_64 -m qtwebengine qtwebchannel qtpositioning qtmultimedia --outputdir $qtDir
+          aqt install-qt windows desktop 6.7.2 win64_msvc2019_64 -m qtwebengine qtwebchannel qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
 
           # Setze den Pfad zur Installation
           $qtBase = "$qtDir\6.7.2\msvc2019_64"
