@@ -6,6 +6,7 @@
 #include "ShapeTool.h"
 #include "ImageTool.h"
 #include "RulerTool.h"
+#include "TextTool.h"
 
 class ToolFactory {
 public:
@@ -19,5 +20,6 @@ public:
         mgr.registerTool(new ShapeTool(&mgr));
         mgr.registerTool(new ImageTool(&mgr));
         mgr.registerTool(new RulerTool(&mgr));
+        mgr.registerTool(new TextTool(&mgr));
     }
 };

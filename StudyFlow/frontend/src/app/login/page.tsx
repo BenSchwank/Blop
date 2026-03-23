@@ -17,6 +17,11 @@ export default function LoginPage() {
 
     const API_BASE = '/api';
 
+    // Clear stale session on login page load
+    React.useEffect(() => {
+        localStorage.removeItem('session_id');
+        localStorage.removeItem('username');
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

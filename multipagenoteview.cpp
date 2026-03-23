@@ -1,8 +1,11 @@
 #include "multipagenoteview.h"
+#include "TransformOverlay.h"
+#include "TransformOverlay.h"
 #include "UIStyles.h"
 #include "tools/AbstractTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
 #include "tools/ToolManager.h"
+#include "tools/StrokeItem.h"
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
@@ -12,8 +15,63 @@
 #include <QPen>
 #include <QPointingDevice>
 #include <QScrollBar>
+#include <QClipboard>
+#include <QColorDialog>
+#include <QGuiApplication>
+#ifdef BLOP_HAS_PDF
+#include <QPdfDocument>
+#endif
 #include <algorithm>
 #include <cmath>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include <QFrame>
+
+class NoteSelectionMenu : public QWidget {
+  Q_OBJECT
+public:
+  explicit NoteSelectionMenu(QWidget *parent = nullptr) : QWidget(parent) {
+    setStyleSheet(
+        "QWidget { background-color: #252526; border-radius: 8px; border: 1px "
+        "solid #444; }"
+        "QPushButton { background: transparent; border: none; color: white; "
+        "font-weight: bold; padding: 5px 8px; font-size: 14px; }"
+        "QPushButton:hover { background-color: #3E3E42; border-radius: 4px; }");
+    setAttribute(Qt::WA_StyledBackground);
+    QHBoxLayout *layout = new QHBoxLayout(this);
+    layout->setContentsMargins(5, 5, 5, 5);
+    layout->setSpacing(2);
+    auto addBtn = [&](QString text, auto signal) {
+      QPushButton *btn = new QPushButton(text, this);
+      connect(btn, &QPushButton::clicked, this, signal);
+      layout->addWidget(btn);
+    };
+    addBtn("✂️", &NoteSelectionMenu::cutRequested);
+    addBtn("📋", &NoteSelectionMenu::copyRequested);
+    addBtn("🎨", &NoteSelectionMenu::colorRequested);
+    addBtn("📐", &NoteSelectionMenu::cropRequested);
+    addBtn("📸", &NoteSelectionMenu::screenshotRequested);
+    QFrame *line = new QFrame;
+    line->setFrameShape(QFrame::VLine);
+    line->setStyleSheet("color: #555;");
+    layout->addWidget(line);
+    QPushButton *btnDel = new QPushButton("🗑️", this);
+    btnDel->setStyleSheet("color: #FF5555;");
+    connect(btnDel, &QPushButton::clicked, this,
+            &NoteSelectionMenu::deleteRequested);
+    layout->addWidget(btnDel);
+    adjustSize();
+    hide();
+  }
+signals:
+  void deleteRequested();
+  void duplicateRequested();
+  void copyRequested();
+  void cutRequested();
+  void colorRequested();
+  void screenshotRequested();
+  void cropRequested();
+};
 
 static constexpr int A4W = 793;
 static constexpr int A4H = 1122;
@@ -55,6 +113,15 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
               RulerTool::ensureRulerExists(&scene_, config);
             }
           });
+
+  m_selectionMenu = new NoteSelectionMenu(this);
+  connect(&scene_, &QGraphicsScene::selectionChanged, this, &MultiPageNoteView::onSelectionChanged);
+  connect(m_selectionMenu, &NoteSelectionMenu::deleteRequested, this, &MultiPageNoteView::deleteSelection);
+  connect(m_selectionMenu, &NoteSelectionMenu::copyRequested, this, &MultiPageNoteView::copySelection);
+  connect(m_selectionMenu, &NoteSelectionMenu::cutRequested, this, &MultiPageNoteView::cutSelection);
+  connect(m_selectionMenu, &NoteSelectionMenu::colorRequested, this, &MultiPageNoteView::changeSelectionColor);
+  connect(m_selectionMenu, &NoteSelectionMenu::screenshotRequested, this, &MultiPageNoteView::screenshotSelection);
+
 }
 
 void MultiPageNoteView::setNote(Note *note) {
@@ -76,25 +143,36 @@ void MultiPageNoteView::setNote(Note *note) {
   bool wasBlocked = scene_.blockSignals(true);
 
   for (int i = 0; i < note_->pages.size(); ++i) {
+    // Restore background image on the PageItem if present
+    if (i < pageItems_.size() && !note_->pages[i].backgroundImage.isNull()) {
+      pageItems_[i]->setBackgroundImage(note_->pages[i].backgroundImage);
+    }
     for (const auto &s : note_->pages[i].strokes) {
-      auto item = new QGraphicsPathItem(s.path);
-
+      StrokeItem::StrokeStyle type = StrokeItem::Normal;
       QPen pen;
       if (s.isEraser) {
         pen = QPen(UIStyles::PageBackground, s.width);
-        item->setZValue(1.0);
+        type = StrokeItem::Eraser;
       } else if (s.isHighlighter) {
         QColor c = s.color;
         c.setAlpha(80);
         pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        item->setZValue(0.5);
+        type = StrokeItem::Highlighter;
       } else {
-        pen =
-            QPen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        item->setZValue(1.0);
+        pen = QPen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        type = StrokeItem::Normal;
       }
 
-      item->setPen(pen);
+      auto item = new StrokeItem(s.path, pen, QVector<StrokePoint>(), type);
+      
+      if (s.isEraser || (!s.isEraser && !s.isHighlighter)) {
+          item->setZValue(1.0);
+      } else if (s.isHighlighter) {
+          item->setZValue(0.5);
+      }
+      
+      item->setFlag(QGraphicsItem::ItemIsSelectable, true);
+      item->setFlag(QGraphicsItem::ItemIsMovable, true);
       scene_.addItem(item);
       item->setPos(pageRect(i).topLeft());
     }
@@ -130,6 +208,19 @@ void MultiPageNoteView::layoutPages() {
   scene_.setSceneRect(QRectF(-100, -100, A4W + 200, y + 200));
 }
 
+void MultiPageNoteView::toggleRuler(bool active) {
+    if (active) {
+        ToolConfig config = ToolManager::instance().config();
+        RulerTool::ensureRulerExists(&scene_, config);
+    } else {
+        for (QGraphicsItem* item : scene_.items()) {
+            if (item->type() == RulerItem::Type) {
+                item->setVisible(false);
+            }
+        }
+    }
+}
+
 QRectF MultiPageNoteView::pageRect(int idx) const {
   qreal y = idx * (A4H + PageSpacing);
   return QRectF(0, y, A4W, A4H);
@@ -162,6 +253,25 @@ void MultiPageNoteView::addNewPage() {
 void MultiPageNoteView::resizeEvent(QResizeEvent *) {}
 
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
+  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+      RulerItem* ruler = nullptr;
+      for (QGraphicsItem* item : scene_.items()) {
+          if (item->type() == RulerItem::Type) {
+              ruler = static_cast<RulerItem*>(item);
+              break;
+          }
+      }
+      if (ruler && ruler->isVisible()) {
+          qreal delta = e->angleDelta().y();
+          qreal step = (e->modifiers() & Qt::ShiftModifier) ? 1.0 : 15.0;
+          if (delta > 0) ruler->setRotation(ruler->rotation() - step);
+          else if (delta < 0) ruler->setRotation(ruler->rotation() + step);
+          ruler->update();
+          e->accept();
+          return;
+      }
+  }
+
   if (e->modifiers() & Qt::ControlModifier) {
     qreal delta = e->angleDelta().y() / 120.0;
     qreal factor = (delta > 0) ? 1.1 : 0.9;
@@ -262,6 +372,18 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     }
   }
 
+  // Auto-deselect if clicking explicitly outside the transform overlay
+  // Or delegate to QGraphicsView if a handle is pressed
+  if (m_transformOverlay) {
+      if (!m_transformOverlay->isHandleAt(mapToScene(e->pos()))) {
+          scene_.clearSelection();
+          applyTransform();
+      } else {
+          QGraphicsView::mousePressEvent(e);
+          return;
+      }
+  }
+
   // --- ToolManager & Ruler Logic ---
   AbstractTool *tool = ToolManager::instance().activeTool();
   if (tool && e->button() == Qt::LeftButton) {
@@ -277,9 +399,10 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
       return;
     }
   }
-  // ------------------------------------------
 
-  if (e->button() == Qt::LeftButton) {
+  if (e->button() == Qt::LeftButton && tool &&
+     (tool->mode() == ToolMode::Pen || tool->mode() == ToolMode::Eraser ||
+      tool->mode() == ToolMode::Highlighter || tool->mode() == ToolMode::Pencil)) {
     QTabletEvent fake(QEvent::TabletPress,
                       QPointingDevice::primaryPointingDevice(), e->position(),
                       e->globalPosition(), 1.0, 0, 0, 0, 0, 0, e->modifiers(),
@@ -385,8 +508,67 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     scEvent.setButton(e->button());
 
     if (tool->handleMouseRelease(&scEvent, &scene_)) {
+      // 1. Hole den neu gezeichneten StrokeItem aus der Szene
+      QList<QGraphicsItem*> itemsToRemove;
+      for (QGraphicsItem* item : scene_.items()) {
+        if (!item->parentItem() && item->type() == QGraphicsItem::UserType + 1) {
+            auto* strokeItem = static_cast<StrokeItem*>(item);
+            auto points = strokeItem->points();
+            if (!points.isEmpty()) {
+                int pIdx = pageAt(points.first().pos);
+                if (pIdx >= 0 && note_) {
+                    note_->ensurePage(pIdx);
+                    QPointF pageTopLeft = pageRect(pIdx).topLeft();
+                    
+                    Stroke s;
+                    s.pageIndex = pIdx;
+                    s.color = strokeItem->pen().color();
+                    s.width = strokeItem->pen().width();
+                    s.isEraser = (strokeItem->strokeStyle() == StrokeItem::Eraser);
+                    s.isHighlighter = (strokeItem->strokeStyle() == StrokeItem::Highlighter);
+                    
+                    QPainterPath localPath;
+                    for (int i=0; i < points.size(); ++i) {
+                        QPointF localP = points[i].pos - pageTopLeft;
+                        s.points.append(localP);
+                        if (i == 0) localPath.moveTo(localP);
+                        else localPath.lineTo(localP);
+                    }
+                    s.path = localPath;
+                    note_->pages[pIdx].strokes.append(s);
+
+                    // 2. Füge das Stroke als Child-Item des PageItems hinzu, damit es an der Seite klebt
+                    auto pathItem = new QGraphicsPathItem(s.path);
+                    QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+                    if (s.isEraser) {
+                        pen.setColor(Qt::white);
+                        pen.setWidthF(s.width * 2);
+                    } else if (s.isHighlighter) {
+                        pen.setColor(QColor(s.color.red(), s.color.green(), s.color.blue(), 100)); // transparent
+                    }
+                    pathItem->setPen(pen);
+                    pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
+                    pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
+                    pathItem->setZValue(1);
+                    pathItem->setParentItem(pageItems_[pIdx]);
+                }
+            }
+            itemsToRemove.append(item);
+        }
+      }
+
+      for (auto* item : itemsToRemove) {
+          scene_.removeItem(item);
+          delete item;
+      }
+
       if (onSaveRequested)
         onSaveRequested(note_);
+
+      if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty()) {
+          startTransformSession();
+      }
+
       e->accept();
       return;
     }
@@ -453,6 +635,8 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
              Qt::RoundCap, Qt::RoundJoin);
     currentPathItem_->setPen(pen);
     currentPathItem_->setZValue(currentStroke_.isHighlighter ? 0.5 : 1.0);
+    currentPathItem_->setFlag(QGraphicsItem::ItemIsSelectable, true);
+    currentPathItem_->setFlag(QGraphicsItem::ItemIsMovable, true);
     scene_.addItem(currentPathItem_);
     currentPathItem_->setPos(pageRect(p).topLeft());
     e->accept();
@@ -623,4 +807,176 @@ void MultiPageNoteView::drawPullIndicator(QPainter *painter) {
     painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y());
   }
   painter->restore();
+}
+
+// ─── PDF Import ─────────────────────────────────────────────────────────────
+bool MultiPageNoteView::importPdfPages(const QString &pdfPath) {
+  if (!note_) return false;
+
+#ifdef BLOP_HAS_PDF
+  QPdfDocument doc;
+  auto status = doc.load(pdfPath);
+  if (status != QPdfDocument::Error::None) return false;
+
+  int pageCount = doc.pageCount();
+  if (pageCount == 0) return false;
+
+  for (int i = 0; i < pageCount; ++i) {
+    int pageIdx = note_->pages.size();
+    note_->ensurePage(pageIdx);
+    note_->pages[pageIdx].title = QString("PDF S.%1").arg(i + 1);
+
+    // Render at A4 pixel resolution (793 x 1122)
+    QImage img = doc.render(i, QSize(A4W, A4H));
+    if (!img.isNull())
+      note_->pages[pageIdx].backgroundImage = img;
+  }
+  setNote(note_);
+  if (onSaveRequested) onSaveRequested(note_);
+  return true;
+#else
+  Q_UNUSED(pdfPath);
+  return false;
+#endif
+
+}
+
+void MultiPageNoteView::onSelectionChanged() {
+  QList<QGraphicsItem*> items = scene_.selectedItems();
+  if (items.isEmpty() || !m_selectionMenu) {
+      if (m_selectionMenu) m_selectionMenu->hide();
+      applyTransform(); // Deselect and remove overlay if it exists
+      return;
+  }
+
+  qDebug() << "--- onSelectionChanged ---";
+  for (QGraphicsItem* item : items) {
+      qDebug() << "Selected Type:" << item->type() << "Rect:" << item->sceneBoundingRect();
+  }
+  // Find bounding rect of all selected items
+  QRectF boundingRect;
+  for (QGraphicsItem* item : items) {
+      if (item->type() == QGraphicsPathItem::Type) { // StrokeItem is now PathItem
+          boundingRect = boundingRect.isValid() ? boundingRect.united(item->sceneBoundingRect()) : item->sceneBoundingRect();
+      }
+  }
+
+  if (!boundingRect.isValid()) {
+      m_selectionMenu->hide();
+      return;
+  }
+
+  // Calculate viewport position
+  QPoint viewPos = mapFromScene(boundingRect.topLeft());
+  m_selectionMenu->move(viewPos.x() + 10, qMax(0, viewPos.y() - m_selectionMenu->height() - 55));
+  m_selectionMenu->show();
+  m_selectionMenu->raise();
+}
+
+#include "multipagenoteview.moc"
+
+
+void MultiPageNoteView::deleteSelection() {
+    for (auto item : scene_.selectedItems()) {
+        scene_.removeItem(item);
+        delete item;
+    }
+    if (m_selectionMenu) m_selectionMenu->hide();
+    if (onSaveRequested) onSaveRequested(note_);
+}
+
+void MultiPageNoteView::copySelection() {
+    const QList<QGraphicsItem*> selected = scene_.selectedItems();
+    if (selected.isEmpty()) return;
+    QRectF selRect;
+    for (auto *i : selected) selRect = selRect.united(i->sceneBoundingRect());
+    if (!selRect.isEmpty()) {
+        QImage img(selRect.size().toSize(), QImage::Format_ARGB32);
+        img.fill(Qt::transparent);
+        QPainter p(&img);
+        scene_.render(&p, QRectF(0, 0, img.width(), img.height()), selRect);
+        QGuiApplication::clipboard()->setImage(img);
+    }
+    if (m_selectionMenu) m_selectionMenu->hide();
+}
+
+void MultiPageNoteView::cutSelection() {
+    copySelection();
+    deleteSelection();
+}
+
+void MultiPageNoteView::duplicateSelection() {}
+
+void MultiPageNoteView::changeSelectionColor() {
+    QColor c = QColorDialog::getColor(Qt::black, this, "Farbe ändern");
+    if (c.isValid()) {
+        for (auto *item : scene_.selectedItems()) {
+            if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
+                QPen p = pi->pen();
+                p.setColor(c);
+                pi->setPen(p);
+            }
+        }
+        scene_.update();
+    }
+    if (m_selectionMenu) m_selectionMenu->hide();
+    if (onSaveRequested) onSaveRequested(note_);
+}
+
+void MultiPageNoteView::startTransformSession() {
+  QList<QGraphicsItem *> items = scene_.selectedItems();
+  if (items.isEmpty()) return;
+
+  // Clean up previous session if still active
+  if (m_transformOverlay) {
+    scene_.removeItem(m_transformOverlay);
+    delete m_transformOverlay;
+    m_transformOverlay = nullptr;
+  }
+  if (m_transformGroup) {
+    scene_.destroyItemGroup(m_transformGroup);
+    m_transformGroup = nullptr;
+  }
+
+  if (items.count() == 1) {
+    QGraphicsItem *singleItem = items.first();
+    m_transformGroup = nullptr;
+    QPointF oldCenter = singleItem->sceneBoundingRect().center();
+    singleItem->setTransformOriginPoint(singleItem->boundingRect().center());
+    QPointF newCenter = singleItem->sceneBoundingRect().center();
+    singleItem->moveBy(oldCenter.x() - newCenter.x(), oldCenter.y() - newCenter.y());
+    m_transformOverlay = new TransformOverlay(singleItem);
+    connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &MultiPageNoteView::onSelectionChanged);
+    connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
+    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this, &MultiPageNoteView::onSelectionChanged);
+  } else {
+    m_transformGroup = scene_.createItemGroup(items);
+    QRectF grpRect = m_transformGroup->boundingRect();
+    m_transformGroup->setTransformOriginPoint(grpRect.center());
+    m_transformOverlay = new TransformOverlay(m_transformGroup);
+    connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &MultiPageNoteView::onSelectionChanged);
+    connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
+    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this, &MultiPageNoteView::onSelectionChanged);
+  }
+  m_transformOverlay->setZValue(99999);
+  scene_.addItem(m_transformOverlay);
+
+  onSelectionChanged();
+}
+
+void MultiPageNoteView::applyTransform() {
+  if (m_transformOverlay) {
+    scene_.removeItem(m_transformOverlay);
+    delete m_transformOverlay;
+    m_transformOverlay = nullptr;
+  }
+  if (m_transformGroup) {
+    scene_.destroyItemGroup(m_transformGroup);
+    m_transformGroup = nullptr;
+  }
+  if (onSaveRequested) onSaveRequested(note_);
+}
+
+void MultiPageNoteView::screenshotSelection() {
+    copySelection(); 
 }

@@ -11,6 +11,7 @@
 
 #include "introscreen.h"
 #include "mainwindow.h"
+#include <QFont>
 #include <QIcon>
 #include <QPixmap>
 #include <QTimer>
@@ -25,6 +26,11 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+  // set global app font (Blop Study Redesign)
+  QFont appFont("Segoe UI", 10);
+  appFont.setStyleHint(QFont::SansSerif);
+  a.setFont(appFont);
 
   // --- SPEICHERPFADE EINRICHTEN ---
 #ifdef Q_OS_ANDROID
@@ -46,23 +52,20 @@ int main(int argc, char *argv[]) {
   // --- HAUPTFENSTER STARTEN ---
   MainWindow *w = new MainWindow();
 
-  // --- LADEBILDSCHIRM (Custom Intro Animation) ---
-  // Create intro as a child of the MainWindow to overlay it perfectly
-  IntroScreen *intro = new IntroScreen(w);
+  // Restore previous window size/position, or default to maximized/fullscreen
+  w->restoreWindowState();
+  w->show(); // ensure it's visible
 
-  // Connect Intro Finish to clean it up and enable main window interaction
+  /* --- LADEBILDSCHIRM (Custom Intro Animation) DEAKTIVIERT ---
+  IntroScreen *intro = new IntroScreen(w);
   QObject::connect(intro, &IntroScreen::introFinished, [intro]() {
     intro->deleteLater();
   });
-
-  // Restore previous window size/position, or default to maximized/fullscreen
-  w->restoreWindowState();
-
-  // Now properly size and show the intro over the shown window
   intro->setGeometry(w->rect());
   intro->show();
   intro->raise(); // ensure it's on top
   intro->startAnimation();
+  */
 
   // Starten des normalen Eventloops
   return a.exec();

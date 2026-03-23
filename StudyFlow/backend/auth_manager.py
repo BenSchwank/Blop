@@ -225,6 +225,7 @@ class AuthManager:
         
         res = db.table('users').select('password_hash').eq('username', admin_user).execute()
         if len(res.data) == 0:
+            # Admin doesn't exist — create
             db.table('users').insert({
                 "username": admin_user,
                 "password_hash": target_hash,
@@ -232,8 +233,10 @@ class AuthManager:
                 "is_admin": True
             }).execute()
         elif res.data[0]['password_hash'] != target_hash:
+            # Admin exists but hash is wrong (e.g. changed from another device) — force reset
             db.table('users').update({
                 "password_hash": target_hash,
                 "is_admin": True,
                 "tokens": 999999
             }).eq('username', admin_user).execute()
+

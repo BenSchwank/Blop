@@ -49,18 +49,6 @@ public:
     QString name() const override { return "Füller"; }
     QString iconName() const override { return "pen"; }
 
-    bool handleMousePress(QGraphicsSceneMouseEvent* e, QGraphicsScene* s) override {
-        AbstractStrokeTool::handleMousePress(e, s);
-        if(m_currentItem) {
-            s->removeItem(m_currentItem); delete m_currentItem;
-            StrokeItem* si = new StrokeItem(m_currentPath, createPen(), StrokeItem::Normal);
-            si->setZValue(getZValue());
-            s->addItem(si);
-            m_currentItem = si;
-        }
-        return true;
-    }
-
 protected:
     QPen createPen() const override {
         QColor c = m_config.penColor;
@@ -83,17 +71,6 @@ public:
     QString name() const override { return "Bleistift"; }
     QString iconName() const override { return "pencil"; }
 
-    bool handleMousePress(QGraphicsSceneMouseEvent* e, QGraphicsScene* s) override {
-        AbstractStrokeTool::handleMousePress(e, s);
-        if(m_currentItem) {
-            s->removeItem(m_currentItem); delete m_currentItem;
-            StrokeItem* si = new StrokeItem(m_currentPath, createPen(), StrokeItem::Normal);
-            si->setZValue(getZValue());
-            s->addItem(si);
-            m_currentItem = si;
-        }
-        return true;
-    }
 
 protected:
     QPen createPen() const override {
@@ -131,7 +108,7 @@ public:
 
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_config.smartLine && m_currentItem && !m_pointsBuffer.isEmpty()) {
-            QPointF start = m_pointsBuffer.first();
+            QPointF start = m_pointsBuffer.first().pos;
             QPointF current = event->scenePos();
             m_currentPath = QPainterPath();
             m_currentPath.moveTo(start);
@@ -141,21 +118,9 @@ public:
         }
         return AbstractStrokeTool::handleMouseMove(event, scene);
     }
-
-    bool handleMousePress(QGraphicsSceneMouseEvent* e, QGraphicsScene* s) override {
-        AbstractStrokeTool::handleMousePress(e, s);
-        if(m_currentItem) {
-            s->removeItem(m_currentItem); delete m_currentItem;
-
-            // Draw Behind -> Nutzt "Multiply" Modus im StrokeItem
-            StrokeItem::Type type = m_config.drawBehind ? StrokeItem::Highlighter : StrokeItem::Normal;
-
-            StrokeItem* si = new StrokeItem(m_currentPath, createPen(), type);
-            si->setZValue(getZValue());
-            s->addItem(si);
-            m_currentItem = si;
-        }
-        return true;
+    
+    StrokeItem::StrokeStyle strokeStyle() const override {
+        return m_config.drawBehind ? StrokeItem::Highlighter : StrokeItem::Normal;
     }
 
 protected:

@@ -1,6 +1,10 @@
 #pragma once
 #include <QGraphicsRectItem>
+#include <QGraphicsItem>
+#include <QImage>
 #include <QPainter>
+#include <QStyleOptionGraphicsItem>
+#include <QWidget>
 
 enum class PageBackgroundType {
     Blank,
@@ -14,12 +18,21 @@ public:
     PageItem(qreal x, qreal y, qreal w, qreal h, QGraphicsItem *parent = nullptr)
         : QGraphicsRectItem(x, y, w, h, parent) {
         setZValue(0);
+        setFlag(QGraphicsItem::ItemIsSelectable, false);
+        setFlag(QGraphicsItem::ItemIsMovable, false);
     }
 
     void setType(PageBackgroundType type) {
         m_type = type;
         update();
     }
+
+    // Set a background image (e.g. a rendered PDF page)
+    void setBackgroundImage(const QImage &img) {
+        m_backgroundImage = img;
+        update();
+    }
+    const QImage &backgroundImage() const { return m_backgroundImage; }
 
 protected:
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override {
@@ -36,8 +49,14 @@ protected:
         painter->setPen(Qt::NoPen);
         painter->drawRect(rect());
 
-        // 3. Muster (Gitter)
-        if (m_type == PageBackgroundType::Grid) {
+        // 3. Hintergrundbild (z.B. importierte PDF-Seite)
+        if (!m_backgroundImage.isNull()) {
+            painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+            painter->drawImage(rect(), m_backgroundImage);
+        }
+
+        // 4. Muster (Gitter) - nur wenn kein Hintergrundbild
+        if (m_backgroundImage.isNull() && m_type == PageBackgroundType::Grid) {
             painter->setPen(QPen(QColor(230, 230, 245), 1));
             qreal left = rect().left();
             qreal right = rect().right();
@@ -54,4 +73,5 @@ protected:
 
 private:
     PageBackgroundType m_type{PageBackgroundType::Grid};
+    QImage m_backgroundImage;
 };

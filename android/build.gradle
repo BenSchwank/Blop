@@ -15,7 +15,19 @@ repositories {
     mavenCentral()
 }
 
-apply plugin: qtGradlePluginType
+// --- FIX: Provide fallback properties if gradle.properties is missing, stopping IDE sync crashes ---
+def localQtGradlePluginType = project.findProperty('qtGradlePluginType') ?: 'com.android.application'
+def localAndroidPackageName = project.findProperty('androidPackageName') ?: 'com.benschwank.blop'
+def localAndroidCompileSdkVersion = project.findProperty('androidCompileSdkVersion') ? project.findProperty('androidCompileSdkVersion').toInteger() : 33
+def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '33.0.0'
+def localAndroidNdkVersion = project.findProperty('androidNdkVersion') ?: '25.1.8937393'
+def localQtAndroidDir = project.findProperty('qtAndroidDir') ?: '.'
+def localQtMinSdkVersion = project.findProperty('qtMinSdkVersion') ? project.findProperty('qtMinSdkVersion').toInteger() : 23
+def localQtTargetSdkVersion = project.findProperty('qtTargetSdkVersion') ? project.findProperty('qtTargetSdkVersion').toInteger() : 33
+def localQtTargetAbiList = project.findProperty('qtTargetAbiList') ?: 'arm64-v8a,armeabi-v7a,x86,x86_64'
+// --------------------------------------------------------------------------------------------------
+
+apply plugin: localQtGradlePluginType
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
@@ -38,17 +50,17 @@ android {
      * Changing them manually might break the compilation!
      *******************************************************/
 
-    namespace = androidPackageName
-    compileSdkVersion androidCompileSdkVersion
-    buildToolsVersion androidBuildToolsVersion
-    ndkVersion = androidNdkVersion
+    namespace = localAndroidPackageName
+    compileSdkVersion localAndroidCompileSdkVersion
+    buildToolsVersion localAndroidBuildToolsVersion
+    ndkVersion = localAndroidNdkVersion
 
     sourceSets {
         main {
             manifest.srcFile 'AndroidManifest.xml'
-            java.srcDirs = [qtAndroidDir + '/src', 'src', 'java']
-            aidl.srcDirs = [qtAndroidDir + '/src', 'src', 'aidl']
-            res.srcDirs = [qtAndroidDir + '/res', 'res']
+            java.srcDirs = [localQtAndroidDir + '/src', 'src', 'java']
+            aidl.srcDirs = [localQtAndroidDir + '/src', 'src', 'aidl']
+            res.srcDirs = [localQtAndroidDir + '/res', 'res']
             resources.srcDirs = ['resources']
             renderscript.srcDirs = ['src']
             assets.srcDirs = ['assets']
@@ -77,8 +89,8 @@ android {
 
     defaultConfig {
         resConfig "en"
-        minSdkVersion qtMinSdkVersion
-        targetSdkVersion qtTargetSdkVersion
-        ndk.abiFilters = qtTargetAbiList.split(",")
+        minSdkVersion localQtMinSdkVersion
+        targetSdkVersion localQtTargetSdkVersion
+        ndk.abiFilters = localQtTargetAbiList.split(",")
     }
 }

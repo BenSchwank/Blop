@@ -33,6 +33,7 @@ ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
     : QWidget(parent), m_iconName(iconName) {
   setBtnSize(40);
   setCursor(Qt::PointingHandCursor);
+  setAttribute(Qt::WA_AcceptTouchEvents, true);
 }
 void ToolbarBtn::setBtnSize(int s) {
   if (m_size != s) {
@@ -45,12 +46,16 @@ void ToolbarBtn::setIcon(const QString &name) {
   m_iconName = name;
   update();
 }
+void ToolbarBtn::setDrawFloatingBg(bool draw) {
+  m_drawFloatingBg = draw;
+  update();
+}
 void ToolbarBtn::setActive(bool active) {
   m_active = active;
   update();
 }
 void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
-  if (e->button() == Qt::LeftButton)
+  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton || e->source() != Qt::MouseEventNotSynthesized)
     emit clicked();
 }
 void ToolbarBtn::enterEvent(QEnterEvent *) {
@@ -73,6 +78,13 @@ void ToolbarBtn::animateSelect() {
 void ToolbarBtn::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
+  
+  if (m_drawFloatingBg) {
+    p.setBrush(QColor(30, 28, 52, 245));
+    p.setPen(QPen(QColor(124, 92, 252, 60), 1));
+    p.drawEllipse(rect().adjusted(2, 2, -2, -2));
+  }
+
   int r = m_size / 2 - 4;
   if (m_active) {
     p.setBrush(UIStyles::Accent);
@@ -83,7 +95,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   }
-  p.setPen(QPen(Qt::white, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setPen(QPen(Qt::white, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   p.setBrush(Qt::NoBrush);
   int w = width();
   int h = height();
@@ -93,95 +105,38 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   p.scale(scale, scale);
   p.translate(-32, -32);
 
-  if (m_iconName == "pen") {
-    QPainterPath pa;
-    pa.moveTo(12, 52);
-    pa.lineTo(22, 52);
-    pa.lineTo(50, 24);
-    pa.lineTo(40, 14);
-    pa.lineTo(12, 42);
-    pa.closeSubpath();
-    p.drawPath(pa);
-  } else if (m_iconName == "pencil") {
-    QPainterPath pa;
-    pa.moveTo(14, 50);
-    pa.lineTo(24, 50);
-    pa.lineTo(52, 22);
-    pa.lineTo(42, 12);
-    pa.lineTo(14, 40);
-    pa.closeSubpath();
-    p.drawPath(pa);
-    p.drawLine(16, 48, 22, 42);
-    p.drawLine(18, 50, 24, 44);
-  } else if (m_iconName == "highlighter") {
-    p.setPen(Qt::NoPen);
-    p.setBrush(Qt::white);
-    p.save();
-    p.translate(32, 32);
-    p.rotate(-45);
-    p.drawRoundedRect(-6, -24, 12, 36, 2, 2);
-    p.setOpacity(0.5);
-    p.drawRect(-6, -30, 12, 6);
-    p.restore();
-  } else if (m_iconName == "eraser") {
-    p.drawRoundedRect(15, 15, 34, 34, 5, 5);
-    p.drawLine(25, 25, 39, 39);
-    p.drawLine(39, 25, 25, 39);
-  } else if (m_iconName == "lasso") {
-    p.drawEllipse(15, 15, 34, 34);
-    p.drawLine(45, 45, 55, 55);
-  } else if (m_iconName == "ruler") {
-    p.save();
-    p.translate(32, 32);
-    p.rotate(-45);
-    p.drawRect(-10, -25, 20, 50);
-    for (int i = -20; i <= 20; i += 10)
-      p.drawLine(-10, i, -5, i);
-    p.restore();
-  } else if (m_iconName == "shape") {
-    p.drawRect(12, 32, 20, 20);
-    p.drawEllipse(32, 12, 20, 20);
-  } else if (m_iconName == "stickynote") {
-    QPainterPath pa;
-    pa.moveTo(15, 15);
-    pa.lineTo(40, 15);
-    pa.lineTo(50, 25);
-    pa.lineTo(50, 50);
-    pa.lineTo(15, 50);
-    pa.closeSubpath();
-    p.drawPath(pa);
-    p.drawLine(40, 15, 40, 25);
-    p.drawLine(40, 25, 50, 25);
-  } else if (m_iconName == "text") {
-    p.drawLine(20, 15, 44, 15);
-    p.drawLine(32, 15, 32, 49);
-    p.drawLine(28, 49, 36, 49);
-  } else if (m_iconName == "image") {
-    p.drawRect(10, 15, 44, 34);
-    p.drawEllipse(16, 20, 8, 8);
-    p.drawLine(10, 40, 20, 30);
-    p.drawLine(20, 30, 30, 40);
-    p.drawLine(30, 40, 40, 25);
-    p.drawLine(40, 25, 54, 45);
-  } else if (m_iconName == "hand") {
-    p.drawRoundedRect(20, 25, 24, 24, 4, 4);
-    p.drawLine(20, 25, 20, 15);
-    p.drawLine(28, 25, 28, 12);
-  } else if (m_iconName == "undo") {
-    QPainterPath pa;
-    pa.moveTo(40, 20);
-    pa.arcTo(20, 20, 30, 30, 90, 180);
-    p.drawPath(pa);
-    p.drawLine(20, 35, 10, 25);
-    p.drawLine(20, 15, 10, 25);
-  } else if (m_iconName == "redo") {
-    QPainterPath pa;
-    pa.moveTo(24, 20);
-    pa.arcTo(14, 20, 30, 30, 90, -180);
-    p.drawPath(pa);
-    p.drawLine(44, 35, 54, 25);
-    p.drawLine(44, 15, 54, 25);
-  }
+  QString emoji = m_iconName;
+  if (m_iconName == "pen") emoji = "✏️";
+  else if (m_iconName == "pencil") emoji = "✒️";
+  else if (m_iconName == "highlighter") emoji = "🖊";
+  else if (m_iconName == "eraser") emoji = "⬜";
+  else if (m_iconName == "lasso") emoji = "⬭";
+  else if (m_iconName == "ruler") emoji = "📏";
+  else if (m_iconName == "shape") emoji = "◻";
+  else if (m_iconName == "stickynote") emoji = "🗒";
+  else if (m_iconName == "text") emoji = "T";
+  else if (m_iconName == "image") emoji = "🖼";
+  else if (m_iconName == "hand") emoji = "✋";
+  else if (m_iconName == "undo") emoji = "↩";
+  else if (m_iconName == "redo") emoji = "↪";
+  // Fallback for dock_toggle or other dynamically set emojis
+  
+  // Custom font size for the emoji
+  p.restore(); // Undo the 110.0 scaling and translations done previously in the method because text draws differently
+  
+  // We need to redo the scale because we restored
+  p.save();
+  p.translate(w / 2, h / 2);
+  p.scale(m_animScale, m_animScale);
+  
+  QFont f = p.font();
+  f.setPixelSize(static_cast<int>(34 * (w / 40.0))); // Much bigger base size
+  p.setFont(f);
+  p.setPen(QPen(QColor(255, 255, 255, 220)));
+  
+  // Da Text aus der Baseline gerendert wird, nutzen wir Text flags zum genauen zentrieren
+  p.drawText(QRectF(-w/2.0, -h/2.0, w, h), Qt::AlignCenter, emoji);
+  p.restore();
 }
 
 // =============================================================================
@@ -613,6 +568,7 @@ private:
 
 ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_TranslucentBackground);
+  setAttribute(Qt::WA_AcceptTouchEvents, true);
   setWindowFlags(Qt::FramelessWindowHint);
   setMouseTracking(true);
   if (parent)
@@ -631,18 +587,34 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnHand = new ToolbarBtn("hand", this);
   btnUndo = new ToolbarBtn("undo", this);
   btnRedo = new ToolbarBtn("redo", this);
+  btnDockToggle = new ToolbarBtn("↥", this); // Default detach/dock icon
 
-  m_buttons = {btnUndo,  btnPen,   btnPencil, btnHighlighter, btnEraser,
-               btnLasso, btnRuler, btnShape,  btnStickyNote,  btnText,
-               btnImage, btnHand,  btnRedo};
+  btnSettings = new ToolbarBtn("⚙️", this);
+  btnSave = new ToolbarBtn("💾", this);
+  btnPalette = new ToolbarBtn("🎨", this);
+  btnBrushSize = new ToolbarBtn("🖌️", this);
+  
+  m_dockedOnlyButtons = {btnSettings, btnSave, btnPalette, btnBrushSize};
+
+  m_buttons = {btnSettings, btnSave, btnPen,      btnPencil, btnHighlighter, btnEraser,
+               btnLasso,    btnRuler,  btnShape,       btnStickyNote,
+               btnText,     btnImage,  btnHand,        btnUndo,
+               btnRedo,     btnPalette, btnBrushSize,  btnDockToggle};
 
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
 
   auto handleToolClick = [this](ToolMode m) {
     if (mode_ == m) {
-      showSettingsPopup();
+      if (m_style == Radial) {
+          toggleRadialSettings();
+      } else {
+          showSettingsPopup();
+      }
       return;
+    }
+    if (m_showRadialSettings) {
+        toggleRadialSettings(); // Hide settings when switching tools
     }
     ToolbarBtn *btn = getButtonForMode(m);
     if (btn) {
@@ -652,6 +624,34 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     ToolManager::instance().selectTool(m);
     setToolMode(m);
   };
+  
+  // Initialize Secondary Settings Ring (Colors & Sizes)
+  for (QColor c : m_customColors) {
+    QPushButton *btn = new QPushButton(this);
+    btn->setFixedSize(28, 28);
+    btn->setStyleSheet(QString("background-color: %1; border-radius: 14px; border: 2px solid rgba(255,255,255,100);").arg(c.name()));
+    btn->hide();
+    m_radialSettingsBtns.append(btn);
+    connect(btn, &QPushButton::clicked, this, [this, c]() {
+       ToolUIBridge::instance().setPenColor(c);
+       toggleRadialSettings();
+    });
+  }
+  
+  QList<int> sizes = {2, 6, 12, 24};
+  for (int s : sizes) {
+    QPushButton *btn = new QPushButton(this);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedSize(30, 30);
+    btn->setStyleSheet("background-color: rgba(30, 28, 52, 200); border-radius: 15px; border: 1px solid rgba(255,255,255,50); color: white; font-weight: bold;");
+    btn->setText(QString::number(s));
+    btn->hide();
+    m_radialSettingsBtns.append(btn);
+    connect(btn, &QPushButton::clicked, this, [this, s]() {
+       ToolUIBridge::instance().setPenWidth(s);
+       toggleRadialSettings();
+    });
+  }
 
   connect(btnPen, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Pen); });
@@ -661,22 +661,30 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           [=]() { handleToolClick(ToolMode::Highlighter); });
   connect(btnEraser, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Eraser); });
+
   connect(btnLasso, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Lasso); });
-  connect(btnRuler, &ToolbarBtn::clicked,
-          [=]() { handleToolClick(ToolMode::Ruler); });
+  connect(btnRuler, &ToolbarBtn::clicked, [this]() {
+      m_rulerActive = !m_rulerActive;
+      btnRuler->setActive(m_rulerActive);
+      emit rulerToggled(m_rulerActive);
+  });
   connect(btnShape, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Shape); });
   connect(btnStickyNote, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::StickyNote); });
   connect(btnText, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Text); });
-  connect(btnImage, &ToolbarBtn::clicked,
-          [=]() { handleToolClick(ToolMode::Image); });
   connect(btnHand, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Hand); });
-  connect(btnUndo, &ToolbarBtn::clicked, this, &ModernToolbar::undoRequested);
-  connect(btnRedo, &ToolbarBtn::clicked, this, &ModernToolbar::redoRequested);
+  connect(btnImage, &ToolbarBtn::clicked,
+          [=]() { handleToolClick(ToolMode::Image); });
+  connect(btnUndo, &ToolbarBtn::clicked,
+          [this]() { emit undoRequested(); });
+  connect(btnRedo, &ToolbarBtn::clicked,
+          [this]() { emit redoRequested(); });
+  connect(btnDockToggle, &ToolbarBtn::clicked,
+          [this]() { setDockMode(!m_isDockedMode); });
 
   setStyle(Normal);
   setToolMode(ToolMode::Pen);
@@ -694,29 +702,92 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
   if (m_style == Normal) {
     int w = width();
     int h = height();
-    p.setBrush(UIStyles::ToolbarBg);
-    p.setPen(QPen(UIStyles::ToolbarBorder, 1));
-    int radius = (m_orientation == Vertical) ? w / 2 : h / 2;
-    p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), radius, radius);
-    p.setBrush(QColor(150, 150, 150));
-    p.setPen(Qt::NoPen);
-    if (m_orientation == Vertical)
-      p.drawRoundedRect(w / 2 - 12, 18, 24, 4, 2, 2);
-    else
-      p.drawRoundedRect(18, h / 2 - 12, 4, 24, 2, 2);
+
+    if (m_orientation == Vertical || m_orientation == Horizontal) {
+      if (m_isDockedMode) {
+        // Notch appearance: Flush on top, rounded on the bottom corners.
+        QLinearGradient grad(0, 0, w, h);
+        grad.setColorAt(0, QColor(30, 28, 52, 255));
+        grad.setColorAt(1, QColor(20, 18, 40, 255));
+        p.setBrush(grad);
+        p.setPen(Qt::NoPen);
+        
+        int r = 16; // Notch radius
+        // Drawing slightly higher so the top corners are un-rounded (cut off by widget bounds)
+        p.drawRoundedRect(0, -r, w, h + r, r, r);
+
+        // Subtler bottom border for "leichte Hervorhebung"
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(QColor(124, 92, 252, 100), 2));
+        p.drawRoundedRect(1, -r, w - 2, h + r - 1, r, r);
+        
+        // Separators for docked mode
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        for (int sx : m_separatorXPositions) {
+          p.drawLine(sx, 12, sx, h - 12);
+        }
+      } else {
+        // Floating pill container
+        int radius = std::min(w, h) / 2;
+        // Outer glow / shadow
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 0, 0, 60));
+        p.drawRoundedRect(rect().adjusted(2, 4, -2, -2), radius, radius);
+        
+        // Container body
+        QLinearGradient grad(0, 0, w, h);
+        grad.setColorAt(0, QColor(30, 28, 52, 248));
+        grad.setColorAt(1, QColor(20, 18, 40, 248));
+        p.setBrush(grad);
+        p.setPen(QPen(QColor(124, 92, 252, 60), 1));
+        p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), radius, radius);
+
+        // Drag grip
+        if (m_draggable) {
+          if (m_orientation == Vertical) {
+            p.setBrush(QColor(255, 255, 255, 55));
+            p.setPen(Qt::NoPen);
+            for (int i = -1; i <= 1; ++i)
+              p.drawEllipse(w / 2 - 2, h / 2 + i * 7 - 2, 4, 4);
+          } else {
+            p.setPen(QPen(QColor(255, 255, 255, 50), 2));
+            p.drawLine(10, h / 2 - 8, 10, h / 2 + 8);
+            p.drawLine(14, h / 2 - 8, 14, h / 2 + 8);
+          }
+        }
+      }
+    }
   } else {
-    p.setBrush(UIStyles::ToolbarBg);
-    p.setPen(QPen(UIStyles::Accent, 2));
-    int rMain = 95 * m_scale;
+    int rMain = 135 * m_scale;
     if (m_radialType == HalfEdge) {
       int paintCx = m_isDockedLeft ? 0 : width();
       QRect box(paintCx - rMain, cy - rMain, rMain * 2, rMain * 2);
+      
+      p.setPen(Qt::NoPen);
+      p.setBrush(QColor(0, 0, 0, 60));
+      p.drawPie(QRect(box.x(), box.y() + 4, box.width(), box.height()), (m_isDockedLeft ? -90 : 90) * 16, 180 * 16);
+      
+      QRadialGradient bgGrad(paintCx, cy, rMain * 0.8);
+      bgGrad.setColorAt(0.0, QColor(35, 33, 58, 245));
+      bgGrad.setColorAt(1.0, QColor(20, 18, 40, 245));
+      p.setBrush(bgGrad);
+      p.setPen(QPen(QColor(124, 92, 252, 90), 1));
       p.drawPie(box, (m_isDockedLeft ? -90 : 90) * 16, 180 * 16);
     } else {
-      p.drawEllipse(QPoint(cx, cy), rMain, rMain);
-      p.setBrush(UIStyles::Sidebar);
       p.setPen(Qt::NoPen);
-      int hole = static_cast<int>(45 * m_scale);
+      p.setBrush(QColor(0, 0, 0, 60));
+      p.drawEllipse(QPoint(cx, cy + 4), rMain, rMain);
+      
+      QRadialGradient bgGrad(cx, cy, rMain * 0.8);
+      bgGrad.setColorAt(0.0, QColor(35, 33, 58, 245));
+      bgGrad.setColorAt(1.0, QColor(20, 18, 40, 245));
+      p.setBrush(bgGrad);
+      p.setPen(QPen(QColor(124, 92, 252, 90), 1));
+      p.drawEllipse(QPoint(cx, cy), rMain, rMain);
+
+      int hole = static_cast<int>(55 * m_scale);
+      p.setBrush(QColor(15, 14, 25, 255));
+      p.setPen(QPen(QColor(0, 0, 0, 150), 2));
       p.drawEllipse(QPoint(cx, cy), hole, hole);
     }
   }
@@ -733,6 +804,8 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     int dragR = 45 * m_scale;
     int cx = width() / 2;
     int cy = height() / 2;
+    dragStartPos_ = e->pos();
+    
     if (m_style == Radial && m_radialType == HalfEdge)
       cx = m_isDockedLeft ? 0 : width();
     int dx = e->pos().x() - cx;
@@ -760,10 +833,7 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     }
     if (!m_isPreview && !m_pressedButton) {
       bool canDrag = false;
-      if (m_style == Radial) {
-        if (dist < dragR)
-          canDrag = true;
-      } else {
+      if (m_style != Radial) {
         if (m_orientation == Vertical && e->pos().y() < 50)
           canDrag = true;
         if (m_orientation == Horizontal && e->pos().x() < 50)
@@ -783,6 +853,41 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
 }
 
 void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
+  if (e->buttons() == Qt::NoButton && !m_isDragging && !m_isScrolling && e->source() == Qt::MouseEventNotSynthesized) return;
+
+  if (m_style == Radial && !m_isDragging) {
+     QPoint delta = e->pos() - dragStartPos_;
+     
+     if (m_pressedButton) {
+         if (delta.manhattanLength() > 5) {
+             m_isDragging = true;
+             m_pressedButton = nullptr; 
+             m_isScrolling = false;
+             m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0, 0));
+             clearMask();
+             return;
+         }
+     } else {
+         if (m_radialType == HalfEdge) {
+             if ((m_isDockedLeft && delta.x() > 10) || (!m_isDockedLeft && delta.x() < -10)) {
+                 m_isDragging = true;
+                 m_isScrolling = false;
+                 m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0, 0));
+                 clearMask();
+                 return;
+             }
+         } else if (m_radialType == FullCircle) {
+             if (delta.manhattanLength() > 5) {
+                 m_isDragging = true;
+                 m_isScrolling = false;
+                 m_dragOffset = e->globalPosition().toPoint() - mapToGlobal(QPoint(0, 0));
+                 clearMask();
+                 return;
+             }
+         }
+     }
+  }
+
   if (m_style == Radial && m_isScrolling && m_radialType == HalfEdge &&
       !m_pressedButton && !m_isDragging) {
     int cx = m_isDockedLeft ? 0 : width();
@@ -820,8 +925,7 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
       int rVisual = 175 * m_scale;
       int rWidget = width() / 2;
       effectivePadding = rWidget - rVisual;
-    }
-    if (m_style == Radial) {
+
       int snapDist = 60 * m_scale;
       int tearDist = 120 * m_scale;
       if (m_radialType == FullCircle) {
@@ -867,9 +971,50 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
     int minX = -effectivePadding;
     int maxX = parentW - width() + effectivePadding;
     int maxY = parentH - height() + effectivePadding;
-    int effectiveTop = (m_style == Radial) ? -effectivePadding : m_topBound;
-    move(qBound(minX, newTopLeft.x(), maxX),
-         qBound(effectiveTop, newTopLeft.y(), maxY));
+    
+    // Allow dragging all the way to y=0 to merge with header
+    int effectiveTop = (m_style == Radial) ? -effectivePadding : 0; 
+    
+    int newY = qBound(effectiveTop, newTopLeft.y(), maxY);
+    int newX = qBound(minX, newTopLeft.x(), maxX);
+    
+    // Docking Previews
+    if (m_style == Normal) {
+      if (!m_snapPreview) {
+        m_snapPreview = new QWidget(parentWidget());
+        m_snapPreview->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_snapPreview->setStyleSheet("background-color: transparent; border: 2px dashed rgba(255, 255, 255, 120); border-radius: 20px;");
+      }
+      
+      int idealL = calculateMinLength() + 20;
+
+      if (newY <= 50) {
+        // Top Snap: Centered width 
+        m_snapPreview->setGeometry((parentW - idealL) / 2, 10, idealL, 52);
+        m_snapPreview->setStyleSheet(
+            "background-color: transparent;"
+            "border: 2px dashed #5E5CE6;"
+            "border-radius: 20px;");
+        m_snapPreview->show();
+        m_snapPreview->raise();
+      } else if (newX <= 50) {
+        // Left Snap (Vertical Pill)
+        m_snapPreview->setGeometry(15, (parentH - idealL) / 2, 65, idealL);
+        m_snapPreview->setStyleSheet("background-color: transparent; border: 2px dashed #5E5CE6; border-radius: 20px;");
+        m_snapPreview->show();
+        m_snapPreview->raise();
+      } else if (newX >= parentW - 100) {
+        // Right Snap (Vertical Pill)
+        m_snapPreview->setGeometry(parentW - 80, (parentH - idealL) / 2, 65, idealL);
+        m_snapPreview->setStyleSheet("background-color: transparent; border: 2px dashed #5E5CE6; border-radius: 20px;");
+        m_snapPreview->show();
+        m_snapPreview->raise();
+      } else {
+        m_snapPreview->hide();
+      }
+    }
+
+    move(newX, newY);
     return;
   }
   if (m_isResizing && m_style == Normal) {
@@ -913,8 +1058,36 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
   if (m_isDragging) {
     m_cachedMask = QRegion();
     updateHitbox();
-    if (m_style == Normal)
-      checkOrientation(e->globalPosition().toPoint());
+    
+    if (m_style == Normal && m_snapPreview && m_snapPreview->isVisible()) {
+        QRect snapGeom = m_snapPreview->geometry();
+        m_snapPreview->hide();
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        
+        bool isTopSnap = (snapGeom.y() == 10 && snapGeom.width() > 100);
+        bool isVertical = !isTopSnap;
+        
+        if (isTopSnap) {
+            setMaximumSize(snapGeom.size());
+            setFixedSize(snapGeom.size());
+            setOrientation(Horizontal, false); // no internal animation, we'll do geom animation
+        } else {
+            setMaximumSize(snapGeom.size());
+            setFixedSize(snapGeom.size());
+            setOrientation(Vertical, false);
+        }
+        
+        // Smooth snap animation
+        QPropertyAnimation *snapAnim = new QPropertyAnimation(this, "geometry");
+        snapAnim->setDuration(220);
+        snapAnim->setStartValue(geometry());
+        snapAnim->setEndValue(snapGeom);
+        snapAnim->setEasingCurve(QEasingCurve::OutCubic);
+        snapAnim->start(QAbstractAnimation::DeleteWhenStopped);
+    } else {
+        if (m_snapPreview) m_snapPreview->hide();
+        if (m_style == Normal) checkOrientation(e->globalPosition().toPoint());
+    }
   }
   m_isDragging = false;
   m_isResizing = false;
@@ -943,10 +1116,31 @@ void ModernToolbar::showSettingsPopup() {
   ToolSettingsPopup *popup =
       new ToolSettingsPopup(mode_, currentConfig, this->window());
   ToolbarBtn *btn = getButtonForMode(mode_);
-  if (btn)
-    popup->move(btn->mapToGlobal(QPoint(btn->width() + 10, 0)));
-  else
-    popup->move(mapToGlobal(rect().topRight()) + QPoint(10, 0));
+  popup->adjustSize();
+  QPoint targetPos;
+  if (btn) {
+    if (m_orientation == Horizontal) {
+      targetPos = btn->mapToGlobal(QPoint((btn->width() - popup->width()) / 2, btn->height() + 10));
+    } else {
+      targetPos = btn->mapToGlobal(QPoint(btn->width() + 10, 0));
+    }
+  } else {
+    targetPos = mapToGlobal(rect().bottomLeft()) + QPoint(0, 10);
+  }
+
+  if (this->window()) {
+      QRect windowRect = this->window()->geometry();
+      if (targetPos.x() + popup->width() > windowRect.right()) {
+          targetPos.setX(windowRect.right() - popup->width() - 10);
+      }
+      if (targetPos.y() + popup->height() > windowRect.bottom()) {
+          targetPos.setY(windowRect.bottom() - popup->height() - 10);
+      }
+      if (targetPos.x() < windowRect.left()) targetPos.setX(windowRect.left() + 10);
+      if (targetPos.y() < windowRect.top()) targetPos.setY(windowRect.top() + 10);
+  }
+
+  popup->move(targetPos);
   popup->show();
 }
 
@@ -963,7 +1157,7 @@ ToolbarBtn *ModernToolbar::getButtonForMode(ToolMode m) {
   case ToolMode::Lasso:
     return btnLasso;
   case ToolMode::Ruler:
-    return btnRuler;
+    return nullptr; // Ruler ist jetzt ein Toggle, kein ToolMode
   case ToolMode::Shape:
     return btnShape;
   case ToolMode::StickyNote:
@@ -1053,25 +1247,17 @@ void ModernToolbar::constrainToParent() {
     move(newX, newY);
   }
 }
+void ModernToolbar::toggleRadialSettings() {
+  m_showRadialSettings = !m_showRadialSettings;
+  updateLayout(true);
+  updateHitbox();
+  update();
+}
 void ModernToolbar::reorderButtons() {
-  ToolbarBtn *targetBtn = getButtonForMode(mode_);
-  int targetIdx = m_buttons.indexOf(targetBtn);
-  if (targetIdx > 0 && targetIdx < m_buttons.size() - 1) {
-    m_buttons.move(targetIdx, 0);
-  }
-  updateLayout(false);
+  // Deprecated: We no longer mutate the m_buttons array to prevent destroying structural layouts across Docked/Linear modes.
 }
 void ModernToolbar::setToolMode(ToolMode mode) {
-  if (m_style == Radial && m_radialType == FullCircle && mode_ != mode) {
-    ToolbarBtn *targetBtn = getButtonForMode(mode);
-    if (targetBtn) {
-      int targetIdx = m_buttons.indexOf(targetBtn);
-      if (targetIdx != -1) {
-        m_buttons.move(targetIdx, 0);
-        updateLayout(true);
-      }
-    }
-  }
+  bool changed = (mode_ != mode);
   mode_ = mode;
   for (auto *b : m_buttons)
     b->setActive(false);
@@ -1080,25 +1266,34 @@ void ModernToolbar::setToolMode(ToolMode mode) {
     activeBtn->setActive(true);
     activeBtn->animateSelect();
   }
+  if (m_style == Radial && m_radialType == FullCircle && changed) {
+    updateLayout(true);
+  }
   update();
   updateHitbox();
 }
 void ModernToolbar::setStyle(Style style) {
   m_style = style;
   m_cachedMask = QRegion();
+  m_showRadialSettings = false; // Hide settings rings when changing main styles
   bool buttonsIgnoreMouse = (style == Radial);
   for (auto *b : m_buttons) {
     b->setAttribute(Qt::WA_TransparentForMouseEvents, buttonsIgnoreMouse);
   }
   if (m_style == Normal) {
-    setMinimumSize(50, 50);
-    setMaximumSize(1200, 1200);
-    if (m_orientation == Vertical)
-      resize(55, calculateMinLength());
-    else
-      resize(calculateMinLength(), 55);
+    setMinimumSize(50, 65);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    if (m_orientation == Vertical) {
+      setFixedWidth(65);
+      setMinimumHeight(calculateMinLength());
+      setMaximumHeight(QWIDGETSIZE_MAX);
+    } else {
+      setFixedHeight(65);
+      setMinimumWidth(calculateMinLength());
+      setMaximumWidth(QWIDGETSIZE_MAX);
+    }
   } else {
-    int size = 460 * m_scale;
+    int size = 380 * m_scale;
     setFixedSize(size, size);
     reorderButtons();
   }
@@ -1138,7 +1333,7 @@ void ModernToolbar::updateHitbox() {
     m_cachedMask = QRegion();
     return;
   }
-  int r = 95 * m_scale;
+  int r = m_showRadialSettings ? 200 * m_scale : 145 * m_scale;
   int maskR = r + 4;
   QRegion newMask;
   if (m_radialType == FullCircle) {
@@ -1241,15 +1436,67 @@ void ModernToolbar::setOrientation(Orientation o, bool animate) {
     updateLayout();
   }
 }
+void ModernToolbar::setDockMode(bool docked) {
+  if (m_isDockedMode == docked) return;
+  m_isDockedMode = docked;
+  if (btnDockToggle) btnDockToggle->setIcon(docked ? "⊞" : "↥");
+  m_draggable = !docked;
+
+  // Clear any size constraints set by edge snapping
+  setMinimumSize(0, 0);
+  setMaximumSize(16777215, 16777215);
+  setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+
+  if (QWidget *pw = parentWidget()) {
+    QRect targetGeom;
+    int idealW = calculateMinLength();
+    if (docked) {
+      m_orientation = Horizontal;
+      targetGeom = QRect((pw->width() - idealW) / 2, 0, idealW, 48);
+    } else {
+      m_orientation = Horizontal;
+      int idealW = calculateMinLength();
+      targetGeom = QRect((pw->width() - idealW) / 2, 60, idealW, 52);
+    }
+
+    QPropertyAnimation *anim = new QPropertyAnimation(this, "geometry");
+    anim->setDuration(300);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    anim->setEndValue(targetGeom);
+    connect(anim, &QPropertyAnimation::valueChanged, this, [this]() {
+      updateLayout(false);
+      update();
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+  } else {
+    updateLayout(false);
+    update();
+  }
+}
+
 int ModernToolbar::calculateMinLength() {
-  int btnS = 40 * m_scale;
-  if (!m_buttons.isEmpty())
-    btnS = m_buttons[0]->width();
-  int dragH = 50;
-  int handleH = 30;
-  int minGap = 5;
-  int numButtons = m_buttons.size();
-  return dragH + (numButtons * btnS) + ((numButtons + 1) * minGap) + handleH;
+  int btnS = 40;
+  int minGap = 6;
+  
+  if (m_isDockedMode) {
+    QList<ToolbarBtn*> leftGroup = {btnUndo, btnRedo};
+    QList<ToolbarBtn*> rightGroup = {btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
+    int centerGroupSize = m_buttons.size() - leftGroup.size() - rightGroup.size();
+    
+    int leftW = leftGroup.size() * btnS + (leftGroup.size() - 1) * minGap;
+    int rightW = rightGroup.size() * btnS + (rightGroup.size() - 1) * minGap;
+    int centerW = centerGroupSize * btnS + (centerGroupSize - 1) * minGap + 24; // 24 = 3 separators * 8px
+    
+    return 20 + leftW + 30 + centerW + 30 + rightW + 20; // 20px margins, 30px group gaps
+  } else {
+    int dragH = 30;
+    int numButtons = 0;
+    for (auto *b : m_buttons) {
+      if (m_dockedOnlyButtons.contains(b)) continue;
+      numButtons++;
+    }
+    return dragH + (numButtons * btnS) + ((numButtons - 1) * minGap) + 16;
+  }
 }
 void ModernToolbar::updateLayout(bool animate) {
   if (m_isDragging)
@@ -1257,60 +1504,312 @@ void ModernToolbar::updateLayout(bool animate) {
   if (m_style == Normal) {
     int w = width();
     int h = height();
-    for (auto *b : m_buttons)
-      b->setBtnSize(w < h ? w - 14 : h - 14);
-    int btnS = m_buttons[0]->width();
-    int dragSize = 50;
-    int gap = 8;
-    int currentPos = dragSize;
+    int btnS = 40;
+    if (m_orientation == Vertical) {
+      btnS = std::max(30, (w < h ? w - 14 : h - 14));
+    } else {
+      btnS = std::max(30, (h < w ? h - 12 : w - 12)); 
+    }
+    
     for (auto *b : m_buttons) {
-      int bx, by;
-      if (m_orientation == Vertical) {
-        bx = (w - btnS) / 2;
-        by = currentPos;
+      b->setBtnSize(btnS);
+    }
+    
+    int numVisible = 0;
+    for (auto *b : m_buttons) {
+      if (m_dockedOnlyButtons.contains(b)) {
+        b->setVisible(m_isDockedMode);
       } else {
-        bx = currentPos;
-        by = (h - btnS) / 2;
+        b->setVisible(true);
       }
-      currentPos += btnS + gap;
-      if (animate) {
-        QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
-        anim->setDuration(200);
-        anim->setEndValue(QPoint(bx, by));
-        anim->start(QAbstractAnimation::DeleteWhenStopped);
-      } else {
-        b->move(bx, by);
+      if (b->isVisible()) numVisible++;
+    }
+    
+    int dragSize = (m_draggable && !m_isDockedMode) ? 20 : 10;
+    int gap = 6;
+    m_separatorXPositions.clear();
+    
+    if (m_isDockedMode) {
+      if (btnUndo->parentWidget() != this) {
+          QPoint gU = btnUndo->parentWidget()->mapToGlobal(btnUndo->pos());
+          QPoint lU = mapFromGlobal(gU);
+          btnUndo->setParent(this);
+          btnUndo->move(lU);
+          btnUndo->setDrawFloatingBg(false);
+          btnUndo->show();
+
+          QPoint gR = btnRedo->parentWidget()->mapToGlobal(btnRedo->pos());
+          QPoint lR = mapFromGlobal(gR);
+          btnRedo->setParent(this);
+          btnRedo->move(lR);
+          btnRedo->setDrawFloatingBg(false);
+          btnRedo->show();
+      }
+
+      QList<ToolbarBtn*> leftGroup = {btnUndo, btnRedo}; 
+      QList<ToolbarBtn*> rightGroup = {btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
+      QList<ToolbarBtn*> centerGroup;
+      for (auto *b : m_buttons) {
+          if (!leftGroup.contains(b) && !rightGroup.contains(b)) {
+              centerGroup.append(b);
+          }
+      }
+      
+      // Calculate widths and starting X positions
+      int totalCenterW = centerGroup.size() * btnS + (centerGroup.size() - 1) * gap + (3 * 20);
+      int centerStartX = (w - totalCenterW) / 2;
+      int leftStartX = 20;
+      int rightStartX = w - 20 - (rightGroup.size() * btnS + (rightGroup.size() - 1) * gap);
+      
+      for (int i = 0; i < m_buttons.size(); ++i) {
+        auto *b = m_buttons[i];
+        if (!b->isVisible()) continue;
+        
+        int bx = 0;
+        int by = (h - btnS) / 2;
+
+        if (leftGroup.contains(b)) {
+            bx = leftStartX;
+            leftStartX += btnS + gap;
+        } else if (rightGroup.contains(b)) {
+            bx = rightStartX;
+            rightStartX += btnS + gap;
+        } else {
+            bx = centerStartX;
+            centerStartX += btnS + gap;
+            
+            if (b == btnRuler || b == btnImage || b == btnHand) {
+              centerStartX += 4;
+              m_separatorXPositions.append(centerStartX);
+              centerStartX += gap + 4;
+            }
+        }
+        
+        if (animate) {
+          QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
+          anim->setDuration(200);
+          anim->setEndValue(QPoint(bx, by));
+          anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+          b->move(bx, by);
+        }
+      }
+    } else {
+      int currentPos = dragSize;
+      
+      // Undock floating buttons
+      for (auto *b : {btnUndo, btnRedo}) {
+          if (QWidget *pw = parentWidget()) {
+              if (b->parentWidget() == this) {
+                  QPoint g = mapToGlobal(b->pos());
+                  QPoint lp = pw->mapFromGlobal(g);
+                  b->setParent(pw);
+                  b->move(lp);
+                  b->setDrawFloatingBg(true);
+                  b->show();
+              }
+              int targetX = (b == btnUndo) ? 20 : 70;
+              int targetY = 20;
+              if (animate) {
+                  QPropertyAnimation* anim = new QPropertyAnimation(b, "pos");
+                  anim->setDuration(200);
+                  anim->setEndValue(QPoint(targetX, targetY));
+                  anim->start(QAbstractAnimation::DeleteWhenStopped);
+              } else {
+                  b->move(targetX, targetY);
+              }
+          }
+      }
+
+      for (auto *b : m_buttons) {
+        if (b == btnUndo || b == btnRedo) continue;
+        if (!b->isVisible()) continue;
+        int bx, by;
+        if (m_orientation == Vertical) {
+          bx = (w - btnS) / 2;
+          by = currentPos;
+        } else {
+          bx = currentPos;
+          by = (h - btnS) / 2;
+        }
+        currentPos += btnS + gap;
+        if (animate) {
+          QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
+          anim->setDuration(200);
+          anim->setEndValue(QPoint(bx, by));
+          anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+          b->move(bx, by);
+        }
+        b->show();
       }
     }
-    for (auto b : m_buttons)
-      b->show();
   } else {
     int cx = width() / 2;
     int cy = height() / 2;
-    int btnS = 40 * m_scale;
+    int paintCx = cx;
     if (m_radialType == HalfEdge) {
-      int paintCx = m_isDockedLeft ? 0 : width();
-      int r = 70 * m_scale;
-      for (int i = 0; i < m_buttons.size(); ++i) {
-        double angle =
-            (m_isDockedLeft ? 0.0 : 180.0) + ((i - 2) * 35.0) + m_scrollAngle;
+        paintCx = m_isDockedLeft ? 0 : width();
+    }
+    int btnS = 40 * m_scale;
+    
+    QList<ToolbarBtn*> radialBtns = {
+      btnPen, btnPencil, btnHighlighter, btnEraser,
+      btnLasso, btnRuler, btnShape, btnStickyNote,
+      btnText, btnImage, btnHand
+    };
+    
+    // Undock floating buttons
+    for (auto *b : {btnUndo, btnRedo}) {
+        if (QWidget *pw = parentWidget()) {
+            if (b->parentWidget() == this) {
+                QPoint g = mapToGlobal(b->pos());
+                QPoint lp = pw->mapFromGlobal(g);
+                b->setParent(pw);
+                b->move(lp);
+                b->setDrawFloatingBg(true);
+                b->show();
+            }
+            int targetX = (b == btnUndo) ? 20 : 70;
+            int targetY = 20;
+            if (animate) {
+                QPropertyAnimation* anim = new QPropertyAnimation(b, "pos");
+                anim->setDuration(200);
+                anim->setEndValue(QPoint(targetX, targetY));
+                anim->start(QAbstractAnimation::DeleteWhenStopped);
+            } else {
+                b->move(targetX, targetY);
+            }
+        }
+    }
+    
+    ToolbarBtn *activeBtn = getButtonForMode(mode_);
+    if (!activeBtn || !radialBtns.contains(activeBtn)) {
+        activeBtn = btnPen;
+    }
+    
+    for (auto *b : m_buttons) {
+      if (!radialBtns.contains(b)) {
+        b->hide();
+      } else {
+        b->setBtnSize(btnS);
+      }
+    }
+    
+    activeBtn->setBtnSize(btnS + 12);
+    
+    if (m_radialType == FullCircle) {
+        if (animate) {
+          QPropertyAnimation *anim = new QPropertyAnimation(activeBtn, "pos");
+          anim->setDuration(200);
+          anim->setEndValue(QPoint(cx - (btnS+12)/2, cy - (btnS+12)/2));
+          anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+          activeBtn->move(cx - (btnS+12)/2, cy - (btnS+12)/2);
+        }
+        activeBtn->show();
+    }
+
+    // Absolute slot positioning reduces staggering layout animations by 90%
+    if (m_radialType == HalfEdge) {
+      int r = 110 * m_scale;
+      for (int i = 0; i < radialBtns.size(); ++i) {
+        auto *b = radialBtns[i];
+        double angle = (m_isDockedLeft ? 0.0 : 180.0) + ((i - 2) * 35.0) + m_scrollAngle;
         double rad = angle * 3.14159 / 180.0;
-        m_buttons[i]->move(paintCx + r * cos(rad) - btnS / 2,
-                           cy + r * sin(rad) - btnS / 2);
-        m_buttons[i]->setVisible(m_isDockedLeft ? cos(rad) > 0.05
-                                                : cos(rad) < -0.05);
+        int currentSize = (b == activeBtn) ? (btnS + 12) : btnS;
+        
+        int targetX = paintCx + r * cos(rad) - currentSize / 2;
+        int targetY = cy + r * sin(rad) - currentSize / 2;
+        
+        if (animate) {
+          QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
+          anim->setDuration(200);
+          anim->setEndValue(QPoint(targetX, targetY));
+          anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+          b->move(targetX, targetY);
+        }
+        b->setVisible(m_isDockedLeft ? cos(rad) > 0.05 : cos(rad) < -0.05);
       }
     } else {
-      int r = 65 * m_scale;
-      m_buttons[0]->move((width() - btnS) / 2, (height() - btnS) / 2);
-      for (int i = 1; i < m_buttons.size(); ++i) {
-        double rad = (-90.0 + (i - 1) * (360.0 / (m_buttons.size() - 1))) *
-                     3.14159 / 180.0;
-        m_buttons[i]->move(cx + r * cos(rad) - btnS / 2,
-                           cy + r * sin(rad) - btnS / 2);
+      int r = 90 * m_scale;
+      double angleStep = 360.0 / radialBtns.size();
+      for (int i = 0; i < radialBtns.size(); ++i) {
+        if (radialBtns[i] == activeBtn) continue;
+        double rad = (-90.0 + i * angleStep) * 3.14159 / 180.0;
+        int targetX = cx + r * cos(rad) - btnS / 2;
+        int targetY = cy + r * sin(rad) - btnS / 2;
+        
+        if (animate) {
+          QPropertyAnimation *anim = new QPropertyAnimation(radialBtns[i], "pos");
+          anim->setDuration(200);
+          anim->setEndValue(QPoint(targetX, targetY));
+          anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+          radialBtns[i]->move(targetX, targetY);
+        }
+        radialBtns[i]->show();
       }
-      for (auto b : m_buttons)
-        b->show();
+    }
+    
+    // Position the Setting Ring
+    if (m_showRadialSettings) {
+        int outerR = 155 * m_scale;
+        
+        if (m_radialType == HalfEdge) {
+            double angleStep = 180.0 / (m_radialSettingsBtns.size() - 1);
+            for (int i = 0; i < m_radialSettingsBtns.size(); ++i) {
+                auto *btn = m_radialSettingsBtns[i];
+                double angle = (m_isDockedLeft ? -90.0 : 90.0) + (i * angleStep);
+                double rad = angle * 3.14159 / 180.0;
+                int targetX = paintCx + outerR * cos(rad) - btn->width() / 2;
+                int targetY = cy + outerR * sin(rad) - btn->height() / 2;
+                
+                if (animate) {
+                    QPropertyAnimation *anim = new QPropertyAnimation(btn, "pos");
+                    anim->setDuration(250);
+                    anim->setEasingCurve(QEasingCurve::OutBack);
+                    if (btn->isHidden()) {
+                        btn->move(paintCx - btn->width() / 2, cy - btn->height() / 2);
+                    }
+                    anim->setEndValue(QPoint(targetX, targetY));
+                    anim->start(QAbstractAnimation::DeleteWhenStopped);
+                } else {
+                    btn->move(targetX, targetY);
+                }
+                btn->show();
+                btn->raise();
+                btn->setVisible(m_isDockedLeft ? cos(rad) > 0.05 : cos(rad) < -0.05);
+            }
+        } else {
+            double outerAngleStep = 360.0 / m_radialSettingsBtns.size();
+            for (int i = 0; i < m_radialSettingsBtns.size(); ++i) {
+                auto *btn = m_radialSettingsBtns[i];
+                double rad = (-90.0 + i * outerAngleStep) * 3.14159 / 180.0;
+                int targetX = cx + outerR * cos(rad) - btn->width() / 2;
+                int targetY = cy + outerR * sin(rad) - btn->height() / 2;
+                
+                if (animate) {
+                    QPropertyAnimation *anim = new QPropertyAnimation(btn, "pos");
+                    anim->setDuration(250);
+                    anim->setEasingCurve(QEasingCurve::OutBack);
+                    if (btn->isHidden()) {
+                        btn->move(cx - btn->width() / 2, cy - btn->height() / 2);
+                    }
+                    anim->setEndValue(QPoint(targetX, targetY));
+                    anim->start(QAbstractAnimation::DeleteWhenStopped);
+                } else {
+                    btn->move(targetX, targetY);
+                }
+                btn->show();
+                btn->raise();
+            }
+        }
+    } else {
+        for (auto *btn : m_radialSettingsBtns) {
+            btn->hide();
+        }
     }
   }
 }

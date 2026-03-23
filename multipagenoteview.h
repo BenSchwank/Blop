@@ -11,6 +11,9 @@
 #include "Note.h"
 #include "ToolMode.h"
 #include "PageItem.h"
+#include "TransformOverlay.h"
+
+class NoteSelectionMenu;
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
@@ -21,6 +24,8 @@ public:
     Note* note() const { return note_; }
 
     void setToolMode(ToolMode m) { mode_ = m; }
+    void toggleRuler(bool active);
+
     void setPenColor(const QColor& c) { penColor_ = c; }
     void setPenWidth(qreal w) { penWidth_ = w; }
 
@@ -39,6 +44,22 @@ public:
     void scrollToPage(int pageIndex);
 
     std::function<void(Note*)> onSaveRequested;
+
+    // PDF Import: renders each PDF page as a note page background image
+    bool importPdfPages(const QString &pdfPath);
+
+
+public slots:
+    void onSelectionChanged();
+    void deleteSelection();
+    void copySelection();
+    void cutSelection();
+    void duplicateSelection();
+    void changeSelectionColor();
+    void startTransformSession();
+    void applyTransform();
+    void screenshotSelection();
+
 
 protected:
     void resizeEvent(QResizeEvent*) override;
@@ -62,7 +83,12 @@ private:
     bool drawing_{false};
     int currentPage_{0};
 
-    bool m_penOnlyMode{true};
+    NoteSelectionMenu* m_selectionMenu{nullptr};
+
+    TransformOverlay* m_transformOverlay{nullptr};
+    QGraphicsItemGroup* m_transformGroup{nullptr};
+
+    bool m_penOnlyMode{false};
 
     // Flags für Panning & Zoom
     bool m_isPanning{false};

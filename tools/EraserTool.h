@@ -97,6 +97,12 @@ private:
                         // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
                         pathItem->setBrush(pathItem->pen().brush());
                         pathItem->setPen(Qt::NoPen);
+                        
+                        // Wenn es ein Pressure-Stroke ist, Punkte löschen, damit er in den Fallback-Render geht
+                        StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
+                        if(strokeItem) {
+                            strokeItem->setPoints({});
+                        }
                     }
                     else {
                         // Das Item ist bereits eine Fläche (wurde schonmal radiert)

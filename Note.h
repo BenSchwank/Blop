@@ -4,6 +4,7 @@
 #include <QPointF>
 #include <QPainterPath>
 #include <QColor>
+#include <QImage>
 
 struct Stroke {
     QVector<QPointF> points;
@@ -16,8 +17,9 @@ struct Stroke {
 };
 
 struct NotePage {
-    QString title; // Speichert den Namen der Seite
+    QString title;        // Seitenname
     QVector<Stroke> strokes;
+    QImage backgroundImage; // PDF-Import: Hintergrundbild (leer = nicht gesetzt)
 };
 
 struct Note {

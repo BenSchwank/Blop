@@ -5,6 +5,12 @@
 #include <QGraphicsScene>
 #include <QPainterPath>
 #include <QTransform>
+#include "ToolManager.h"
+#include <QGraphicsSceneMouseEvent>
+#include <QGraphicsItem>
+#include <QObject>
+#include <QString>
+#include <QPointF>
 
 class LassoTool : public AbstractTool {
     Q_OBJECT
@@ -15,17 +21,17 @@ public:
     QString iconName() const override { return "lasso"; }
 
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        // INTELLIGENTES BEWEGEN:
-        // Prüfen, ob wir auf ein bereits ausgewähltes Item klicken.
-        // Falls ja, geben wir 'false' zurück. Das signalisiert dem CanvasView,
-        // dass das Tool das Event NICHT verarbeitet hat.
-        // Der CanvasView leitet es dann an die QGraphicsScene weiter, welche das Verschieben übernimmt.
         QGraphicsItem* itemUnderMouse = scene->itemAt(event->scenePos(), QTransform());
+
+        // Wenn auf ein markiertes Objekt geklickt wurde: Nichts tun -> Verschieben!
         if (itemUnderMouse && itemUnderMouse->isSelected()) {
             return false; // -> Standard Qt Verschiebe-Logik greift!
         }
 
-        // Sonst: Neue Auswahl starten
+        // Sonst: Immer alte Auswahl verwerfen, da wir explizit eine neue Starten
+        scene->clearSelection();
+
+        // Neue Auswahl starten
         m_startPos = event->scenePos();
         m_currentPath = QPainterPath();
 
@@ -46,7 +52,6 @@ public:
         m_selectionItem->setPath(m_currentPath);
         m_selectionItem->show();
 
-        scene->clearSelection();
         return true;
     }
 
@@ -55,6 +60,7 @@ public:
 
         if (m_config.lassoMode == LassoMode::Rectangle) {
             QRectF rect(m_startPos, event->scenePos());
+            rect = rect.normalized(); // FIX: Prevent degenerate shapes with negative dimensions
             if (m_config.aspectLock) {
                 qreal w = rect.width();
                 qreal h = rect.height();
@@ -82,11 +88,15 @@ public:
             m_selectionItem->setPath(m_currentPath);
         }
 
-        auto selectionMode = (m_config.lassoMode == LassoMode::Rectangle)
-                                 ? Qt::ContainsItemShape
-                                 : Qt::IntersectsItemShape;
+        auto selectionMode = Qt::IntersectsItemShape;
 
         scene->setSelectionArea(m_currentPath, Qt::ReplaceSelection, selectionMode, QTransform());
+
+        for (QGraphicsItem* item : scene->selectedItems()) {
+            if (item->type() == RulerItem::Type) {
+                item->setSelected(false);
+            }
+        }
 
         scene->removeItem(m_selectionItem);
         delete m_selectionItem;

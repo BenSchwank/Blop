@@ -2,6 +2,8 @@
 #include "Note.h"
 #include "multipagenoteview.h"
 #include <QWidget>
+#include <QPushButton>
+#include <QResizeEvent>
 #include <functional>
 
 class NoteEditor : public QWidget {
@@ -17,11 +19,15 @@ public:
 
     std::function<void(Note *)> onSaveRequested;
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     Note *note_{nullptr};
 
     // Nur noch der Canvas, keine eigene Toolbar
     MultiPageNoteView *canvas_{nullptr};
+    QPushButton *m_menuBtn{nullptr};
 
     void setupUi();
     void setupShortcuts();

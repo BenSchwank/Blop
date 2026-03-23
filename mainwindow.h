@@ -152,6 +152,11 @@ private slots:
   void onToggleFloatingTools();
   void finishRename();
 
+  void addNoteTab(const QString &title);
+  void closeNoteTab(int index);
+
+  void onShowNewTabPopup();
+
   void onItemSizeChanged(int value);
   void onGridSpacingChanged(int value);
 
@@ -159,6 +164,7 @@ private slots:
 
   void onToggleRightSidebar();
   void onTogglePageManager();
+  void onShareClicked();
 
   void setPageColor(bool dark);
 
@@ -209,9 +215,9 @@ private:
   // --- Web Integration ---
   void setupWebBrowser();
   void updateSidebarUser(const QString &username); // syncs login from webview
-  QWidget *m_studyContainer;
-  QStackedWidget *m_mainContentStack;
-  QComboBox *m_modeSelector;
+  QWidget *m_studyContainer{nullptr};
+  QStackedWidget *m_mainContentStack{nullptr};
+  QComboBox *m_modeSelector{nullptr};
   // ----------------------------
 
   // --- Sidebar user section labels (updated on webview login) ---
@@ -219,75 +225,92 @@ private:
   QLabel *m_lblSidebarAvatar{nullptr};
   // ----------------------------
 
-  UiProfileManager *m_profileManager;
+  UiProfileManager *m_profileManager{nullptr};
   UiProfile m_currentProfile;
-  ToolManager *m_toolManager; // Pointer auf Singleton
+  ToolManager *m_toolManager{nullptr};
 
-  QWidget *m_centralContainer;
+  QWidget *m_centralContainer{nullptr};
 
-  QWidget *m_titleBarWidget;
-  QPushButton *m_btnWinMin;
-  QPushButton *m_btnWinMax;
-  QPushButton *m_btnWinClose;
+  QWidget *m_titleBarWidget{nullptr};
+  QWidget *m_topNavControls{nullptr};
+  QWidget *m_tabBarWidget{nullptr};
+  QHBoxLayout *m_tabBarLayout{nullptr};
+  QWidget *m_tabScrollArea{nullptr};
+  QPushButton *m_btnHomeTab{nullptr};
+  QList<QPushButton *> m_noteTabButtons;
+  int m_activeTabIndex{-1}; // -1 = Home
+  QLineEdit *m_titleSearchBar{nullptr};
+  QPushButton *m_btnTitleSettings{nullptr};
+  QPushButton *m_btnTitleShare{nullptr};
+  QWidget *m_editorTitleControls{nullptr};
+  QPushButton *m_btnWinMin{nullptr};
+  QPushButton *m_btnWinMax{nullptr};
+  QPushButton *m_btnWinClose{nullptr};
   QPoint m_windowDragPos;
   bool m_isDragging{false};
 
-  QSplitter *m_mainSplitter;
-  QStackedWidget *m_rightStack;
+  QSplitter *m_mainSplitter{nullptr};
+  QStackedWidget *m_rightStack{nullptr};
 
-  QWidget *m_sidebarStrip;
-  ModernButton *btnStripMenu;
-  ModernButton *btnEditorMenu;
+  QWidget *m_sidebarStrip{nullptr};
+  ModernButton *btnStripMenu{nullptr};
+  ModernButton *btnEditorMenu{nullptr};
 
-  ModernButton *btnOverviewMenu;
+  ModernButton *btnOverviewMenu{nullptr};
 
   bool m_isSidebarOpen;
 
-  QWidget *m_sidebarContainer;
-  QListWidget *m_navSidebar;
-  QFileSystemModel *m_fileModel;
-  QPushButton *m_fabFolder;
-  QPushButton *m_closeSidebarBtn;
+  QWidget *m_sidebarContainer{nullptr};
+  QListWidget *m_navSidebar{nullptr};
+  QFileSystemModel *m_fileModel{nullptr};
+  QPushButton *m_closeSidebarBtn{nullptr};
 
-  QPushButton *m_btnSidebarSettings;
+  QPushButton *m_btnSidebarSettings{nullptr};
 
-  QWidget *m_overviewContainer;
-  FreeGridView *m_fileListView;
+  QWidget *m_overviewContainer{nullptr};
+  FreeGridView *m_fileListView{nullptr};
   QLabel *m_lblEmptyState{nullptr};
-  QPushButton *m_fabNote;
+  QPushButton *m_fabNote{nullptr};
 
-  QWidget *m_editorContainer;
-  QWidget *m_editorCenterWidget;
-  QTabWidget *m_editorTabs;
+  QWidget *m_editorContainer{nullptr};
+  QWidget *m_editorCenterWidget{nullptr};
+  QTabWidget *m_editorTabs{nullptr};
 
-  QWidget *m_rightSidebar;
-  QLabel *m_lblActiveNote;
-  QPushButton *m_btnFormatInfinite;
-  QPushButton *m_btnFormatA4;
-  QPushButton *m_btnColorWhite;
-  QPushButton *m_btnColorDark;
-  QPushButton *m_btnInputPen;
-  QPushButton *m_btnInputTouch;
-  QPushButton *m_btnUiDesktop;
-  QPushButton *m_btnUiTouch;
+  QWidget *m_rightSidebar{nullptr};
+  QLabel *m_lblActiveNote{nullptr};
 
-  QButtonGroup *m_grpPageStyle;
-  QPushButton *m_btnStyleBlank;
-  QPushButton *m_btnStyleLined;
-  QPushButton *m_btnStyleSquared;
-  QPushButton *m_btnStyleDotted;
-  QSlider *m_sliderGridSpacing;
+  // Quick-Tags Sidebar
+  QWidget     *m_tagsContainer{nullptr};
+  QHBoxLayout *m_tagsFlowLayout{nullptr};
+  QLabel      *m_lblMetaCreated{nullptr};
+  QLabel      *m_lblMetaModified{nullptr};
+  QPushButton *m_btnFormatInfinite{nullptr};
+  QPushButton *m_btnFormatA4{nullptr};
+  QPushButton *m_btnColorWhite{nullptr};
+  QPushButton *m_btnColorDark{nullptr};
+  QPushButton *m_btnInputPen{nullptr};
+  QPushButton *m_btnInputTouch{nullptr};
+  QPushButton *m_btnUiDesktop{nullptr};
+  QPushButton *m_btnUiTouch{nullptr};
 
-  QComboBox *m_comboProfiles;
-  QComboBox *m_comboToolbarStyle;
-  QSlider *m_sliderToolbarScale;
+  QButtonGroup *m_grpPageStyle{nullptr};
+  QPushButton *m_btnStyleBlank{nullptr};
+  QPushButton *m_btnStyleLined{nullptr};
+  QPushButton *m_btnStyleSquared{nullptr};
+  QPushButton *m_btnStyleDotted{nullptr};
+  QSlider *m_sliderGridSpacing{nullptr};
 
-  QWidget *m_floatingTools;
-  PageManager *m_pageManager;
+  QComboBox *m_comboProfiles{nullptr};
+  QComboBox *m_comboToolbarStyle{nullptr};
+  QSlider *m_sliderToolbarScale{nullptr};
 
-  ModernButton *btnEditorSettings;
-  ModernButton *m_btnPages;
-  ModernButton *btnBackOverview;
+  QWidget *m_floatingTools{nullptr};
+
+  PageManager *m_pageManager{nullptr};
+
+  ModernButton *btnEditorSettings{nullptr};
+  ModernButton *m_btnPages{nullptr};
+  ModernButton *btnBackOverview{nullptr};
 
   QString m_rootPath;
   QColor m_currentAccentColor;
@@ -300,14 +323,14 @@ private:
   bool m_penOnlyMode;
   bool m_touchMode;
 
-  QTimer *m_autoSaveTimer;
-  QTimer *m_gridSpacingTimer;
+  QTimer *m_autoSaveTimer{nullptr};
+  QTimer *m_gridSpacingTimer{nullptr};
 
   CanvasView::ToolType m_activeToolType;
 
   QModelIndex m_indexToRename;
-  QWidget *m_renameOverlay;
-  QLineEdit *m_renameInput;
+  QWidget *m_renameOverlay{nullptr};
+  QLineEdit *m_renameInput{nullptr};
 
   QNetworkAccessManager *m_netManager{nullptr};
 };

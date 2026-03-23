@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Android Setup
 if(ANDROID)
     set(ANDROID_PLATFORM "android-33")
@@ -44,7 +44,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- BASIS-PAKETE ---
 # Hier wird nach Qt6Config.cmake gesucht.
 # Durch den Fix im YAML wird dieser Pfad nun korrekt via CMAKE_PREFIX_PATH gefunden.
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Quick QuickControls2 Qml Multimedia MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickControls2 Qml Multimedia MultimediaWidgets)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
@@ -52,8 +52,9 @@ if(ANDROID)
     find_package(Qt6 REQUIRED COMPONENTS WebView)
 else()
     # Desktop: WebEngine (Chromium) - REQUIRED
-    # Dies stellt sicher, dass WebEngineWidgets gelinkt wird.
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
+    # PDF support for import (optional, but present in standard Qt6 desktop install)
+    find_package(Qt6 OPTIONAL_COMPONENTS Pdf)
 endif()
 
 qt_add_executable(Blop
@@ -76,6 +77,8 @@ qt_add_executable(Blop
     profileeditordialog.cpp
     notemanager.cpp
     notemanager.h
+    googleauthmanager.cpp
+    googleauthmanager.h
     noteeditor.cpp
     noteeditor.h
     markdowneditor.cpp
@@ -112,6 +115,7 @@ qt_add_executable(Blop
     PageItem.h
     ToolMode.h
     ToolSettings.h
+    TransformOverlay.h
     UIStyles.h
     uiprofile.h
 
@@ -147,6 +151,7 @@ endif()
 target_link_libraries(Blop PRIVATE
     Qt6::Widgets
     Qt6::Network
+    Qt6::NetworkAuth
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Qml
@@ -169,9 +174,15 @@ else()
     # Desktop: WebEngine linken und Define setzen
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
+    # Optional PDF module
+    if(Qt6Pdf_FOUND)
+        target_link_libraries(Blop PRIVATE Qt6::Pdf)
+        target_compile_definitions(Blop PRIVATE BLOP_HAS_PDF)
+    endif()
 endif()
 
 # Windows: Konsole bei Release-Builds ausblenden
 if(WIN32)
     set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
+# Forcing CMake refresh for AUTOMOC

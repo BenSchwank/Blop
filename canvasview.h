@@ -54,6 +54,7 @@ public:
     void setTool(ToolType tool);
     void setPenColor(const QColor &color);
     void setPenWidth(int width);
+    void toggleRuler(bool active);
 
     void undo();
     void redo();
@@ -84,6 +85,10 @@ public:
     bool saveToFile();
     bool loadFromFile();
 
+    // Export
+    bool exportToPDF(const QString &path);
+    bool exportToImage(const QString &path);
+
 public slots:
     void updateSceneRect();
 
@@ -94,6 +99,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void tabletEvent(QTabletEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     bool event(QEvent *event) override;
     void drawBackground(QPainter *painter, const QRectF &rect) override;

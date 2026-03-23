@@ -1,6 +1,7 @@
 #include "introscreen.h"
 #include <QApplication>
 #include <QScreen>
+#include <QTimer>
 
 IntroScreen::IntroScreen(QWidget *parent) : QWidget(parent), m_finished(false) {
 
@@ -8,6 +9,7 @@ IntroScreen::IntroScreen(QWidget *parent) : QWidget(parent), m_finished(false) {
   setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
   setAttribute(Qt::WA_TranslucentBackground);
   setAttribute(Qt::WA_OpaquePaintEvent, false);
+  setAttribute(Qt::WA_TransparentForMouseEvents); // VERHINDERT DIE GLASSCHEIBE! Klicks gehen durch.
   setStyleSheet("background-color: transparent;");
 
   // Make it fill the parent and track its resize events
@@ -50,6 +52,15 @@ void IntroScreen::startAnimation() {
   // Assuming the video is embedded in the QRC under /assets/Intro Blop.mp4
   m_player->setSource(QUrl("qrc:/assets/Intro Blop.mp4"));
   m_player->play();
+
+  // FALLBACK: Falls das Video auf Windows hängt und kein Signal sendet,
+  // blenden wir den Intro-Screen nach 4,5 Sekunden hart aus.
+  QTimer::singleShot(4500, this, [this]() {
+    if (!m_finished) {
+      m_finished = true;
+      emit introFinished();
+    }
+  });
 }
 
 void IntroScreen::onMediaStatusChanged(QMediaPlayer::MediaStatus status) {

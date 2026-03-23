@@ -370,19 +370,38 @@ class AuthManager:
 
     @staticmethod
     def ensure_admin():
-        users = AuthManager._load_users()
         admin_user = "admin_"
         target_pw = "Martin400!"
         target_hash = AuthManager._hash_password(target_pw)
         
-        # Create or Reset Admin if missing or wrong password
-        if admin_user not in users or users[admin_user]["password"] != target_hash:
+        # Load users to check current state
+        users = AuthManager._load_users()
+        
+        # Always enforce the correct admin password — override even if cloud had a different value
+        if admin_user not in users or users[admin_user].get("password") != target_hash:
             users[admin_user] = {
                 "password": target_hash,
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "is_admin": True
             }
-            AuthManager._save_users(users)
+            # Save locally first
+            if not os.path.exists("user_data"):
+                os.makedirs("user_data")
+            with open(USER_DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(users, f, indent=4)
+            # Forcefully overwrite admin_ in cloud too (prevents future drift)
+            try:
+                from data_manager import DataManager
+                db = DataManager._init_firestore()
+                if db:
+                    cloud_data = {}
+                    doc = db.collection("config").document("auth_users").get()
+                    if doc.exists:
+                        cloud_data = doc.to_dict()
+                    cloud_data[admin_user] = users[admin_user]
+                    db.collection("config").document("auth_users").set(cloud_data)
+            except Exception as e:
+                print(f"Admin cloud sync error: {e}")
 
     @staticmethod
     def check_login():

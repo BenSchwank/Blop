@@ -1,8 +1,10 @@
 #include "canvasview.h"
+#include "TransformOverlay.h"
 #include "UIStyles.h"
 #include "mainwindow.h"
 #include "tools/AbstractTool.h"
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
+#include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
 
 #include <QApplication>
@@ -14,14 +16,15 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QGestureEvent>
-#include <QGraphicsItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QInputDevice>
+#include <QTabletEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
 #include <QStyleOptionGraphicsItem>
 #include <QVector2D>
+#include <QPdfWriter>
 #include <QtMath>
 #include <cmath>
 #include <utility>
@@ -34,64 +37,6 @@ static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
 // =============================================================================
 // HELPER: BAKING TRANSFORM & CURSOR
 // =============================================================================
-static void bakeTransform(QGraphicsItem *item) {
-  if (!item)
-    return;
-  QTransform localToParent = item->sceneTransform();
-  if (item->parentItem()) {
-    localToParent =
-        localToParent * item->parentItem()->sceneTransform().inverted();
-  }
-  item->setTransform(localToParent);
-  item->setPos(0, 0);
-  item->setRotation(0);
-  item->setScale(1.0);
-}
-
-static QCursor getRotatedCursor(Qt::CursorShape shape, qreal angle) {
-  qreal baseAngle = 0;
-  bool isDoubleArrow = false;
-
-  if (shape == Qt::SizeVerCursor) {
-    baseAngle = 90;
-    isDoubleArrow = true;
-  } else if (shape == Qt::SizeHorCursor) {
-    baseAngle = 0;
-    isDoubleArrow = true;
-  } else if (shape == Qt::SizeBDiagCursor) {
-    baseAngle = 45;
-    isDoubleArrow = true;
-  } else if (shape == Qt::SizeFDiagCursor) {
-    baseAngle = 135;
-    isDoubleArrow = true;
-  }
-
-  if (!isDoubleArrow)
-    return QCursor(shape);
-
-  qreal totalAngle = baseAngle + angle;
-  int size = 32;
-  QPixmap pix(size, size);
-  pix.fill(Qt::transparent);
-  QPainter p(&pix);
-  p.setRenderHint(QPainter::Antialiasing);
-  p.translate(size / 2, size / 2);
-  p.rotate(totalAngle);
-  QPen whitePen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap);
-  QPen blackPen(Qt::black, 1, Qt::SolidLine, Qt::RoundCap);
-  auto drawArrow = [&](QPainter &p) {
-    p.drawLine(-9, 0, 9, 0);
-    p.drawLine(-9, 0, -5, -4);
-    p.drawLine(-9, 0, -5, 4);
-    p.drawLine(9, 0, 5, -4);
-    p.drawLine(9, 0, 5, 4);
-  };
-  p.setPen(whitePen);
-  drawArrow(p);
-  p.setPen(blackPen);
-  drawArrow(p);
-  return QCursor(pix, size / 2, size / 2);
-}
 
 // =============================================================================
 // MENUS (Selection, Crop, Resizer, Transform)
@@ -116,7 +61,6 @@ public:
       connect(btn, &QPushButton::clicked, this, signal);
       layout->addWidget(btn);
     };
-    addBtn("🔄", &SelectionMenu::transformRequested);
     addBtn("✂️", &SelectionMenu::cutRequested);
     addBtn("📋", &SelectionMenu::copyRequested);
     addBtn("🎨", &SelectionMenu::colorRequested);
@@ -142,7 +86,6 @@ signals:
   void colorRequested();
   void screenshotRequested();
   void cropRequested();
-  void transformRequested();
 };
 
 class CropMenu : public QWidget {
@@ -325,288 +268,6 @@ private:
   Handle m_dragHandle;
 };
 
-class TransformOverlay : public QGraphicsObject {
-public:
-  enum Handle {
-    None,
-    TopLeft,
-    Top,
-    TopRight,
-    Left,
-    Right,
-    BottomLeft,
-    Bottom,
-    BottomRight,
-    Rotate,
-    Center
-  };
-  TransformOverlay(QGraphicsItem *targetItem) : m_target(targetItem) {
-    setFlags(ItemIsSelectable | ItemIsMovable);
-    setAcceptHoverEvents(true);
-    sync();
-  }
-  QGraphicsItem *target() const { return m_target; }
-  QRectF boundingRect() const override {
-    return m_target->boundingRect().adjusted(-5000, -5000, 5000, 5000);
-  }
-  void paint(QPainter *painter, const QStyleOptionGraphicsItem *,
-             QWidget *) override {
-    QTransform devTx = painter->deviceTransform();
-    qreal sx = std::sqrt(devTx.m11() * devTx.m11() + devTx.m12() * devTx.m12());
-    qreal sy = std::sqrt(devTx.m21() * devTx.m21() + devTx.m22() * devTx.m22());
-    qreal angle = std::atan2(devTx.m12(), devTx.m11()) * 180.0 / M_PI;
-    if (sx < 0.001)
-      sx = 1.0;
-    if (sy < 0.001)
-      sy = 1.0;
-    QRectF rect = m_target->boundingRect();
-
-    painter->save();
-    QPen framePen(QColor(0x6c5ce7), 0, Qt::SolidLine);
-    framePen.setCosmetic(true);
-    framePen.setWidthF(2.0);
-    painter->setPen(framePen);
-    painter->setBrush(Qt::NoBrush);
-    painter->drawRect(rect);
-    painter->restore();
-
-    qreal r = 7.0;
-    auto drawHandle = [&](QPointF localPos, bool isBar) {
-      painter->save();
-      painter->translate(localPos);
-      painter->rotate(-angle);
-      painter->scale(1.0 / sx, 1.0 / sy);
-      painter->setPen(QPen(QColor(Qt::black), 1));
-      painter->setBrush(QColor(Qt::white));
-      if (isBar)
-        painter->drawRoundedRect(QRectF(-r, -r, 2 * r, 2 * r), r, r);
-      else
-        painter->drawEllipse(QPointF(0, 0), r, r);
-      painter->restore();
-    };
-
-    drawHandle(rect.topLeft(), false);
-    drawHandle(rect.topRight(), false);
-    drawHandle(rect.bottomLeft(), false);
-    drawHandle(rect.bottomRight(), false);
-    drawHandle(QPointF(rect.center().x(), rect.top()), true);
-    drawHandle(QPointF(rect.center().x(), rect.bottom()), true);
-    drawHandle(QPointF(rect.left(), rect.center().y()), true);
-    drawHandle(QPointF(rect.right(), rect.center().y()), true);
-
-    qreal localDist = 60.0 / sy;
-    QPointF topCenterLocal(rect.center().x(), rect.top());
-    QPointF rotHandleLocal(topCenterLocal.x(), topCenterLocal.y() - localDist);
-
-    painter->save();
-    QPen dashPen(QColor(0x6c5ce7), 1, Qt::DashLine);
-    dashPen.setCosmetic(true);
-    painter->setPen(dashPen);
-    painter->drawLine(topCenterLocal, rotHandleLocal);
-    painter->restore();
-
-    painter->save();
-    painter->translate(rotHandleLocal);
-    painter->scale(1.0 / sx, 1.0 / sy);
-    qreal rotR = 14.0;
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(QColor(0x6c5ce7));
-    painter->drawEllipse(QPointF(0, 0), rotR, rotR);
-    painter->setPen(QPen(QColor(Qt::white), 2.0));
-    painter->setBrush(Qt::NoBrush);
-    qreal iconR = rotR * 0.6;
-    painter->drawArc(QRectF(-iconR, -iconR, iconR * 2, iconR * 2), 0, 270 * 16);
-    painter->restore();
-  }
-  void sync() {
-    prepareGeometryChange();
-    setPos(m_target->pos());
-    setRotation(m_target->rotation());
-    setScale(m_target->scale());
-    setTransform(m_target->transform());
-    setTransformOriginPoint(m_target->transformOriginPoint());
-    update();
-  }
-  Handle handleAt(QPointF scenePos) {
-    if (!scene() || scene()->views().isEmpty())
-      return None;
-    QGraphicsView *view = scene()->views().first();
-    QTransform viewTx = view->viewportTransform();
-    QTransform itemToView = sceneTransform() * viewTx;
-    qreal sy = std::sqrt(itemToView.m21() * itemToView.m21() +
-                         itemToView.m22() * itemToView.m22());
-    if (sy < 0.001)
-      sy = 1.0;
-    QPointF mouseP(view->mapFromScene(scenePos));
-    QRectF r = m_target->boundingRect();
-    double scaleThreshold = 25.0;
-    double rotateThreshold = 40.0;
-    qreal localDist = 60.0 / sy;
-    QPointF topCenterLocal(r.center().x(), r.top());
-    QPointF rotHandleLocal(topCenterLocal.x(), topCenterLocal.y() - localDist);
-    QPointF rotHandleView = itemToView.map(rotHandleLocal);
-    if (QVector2D(mouseP - rotHandleView).length() < rotateThreshold)
-      return Rotate;
-    auto check = [&](QPointF localP) {
-      QPointF handleView = itemToView.map(localP);
-      return QVector2D(mouseP - handleView).length() < scaleThreshold;
-    };
-    if (check(r.topLeft()))
-      return TopLeft;
-    if (check(r.topRight()))
-      return TopRight;
-    if (check(r.bottomLeft()))
-      return BottomLeft;
-    if (check(r.bottomRight()))
-      return BottomRight;
-    if (check(QPointF(r.center().x(), r.top())))
-      return Top;
-    if (check(QPointF(r.center().x(), r.bottom())))
-      return Bottom;
-    if (check(QPointF(r.left(), r.center().y())))
-      return Left;
-    if (check(QPointF(r.right(), r.center().y())))
-      return Right;
-    QPointF localMouse = sceneTransform().inverted().map(scenePos);
-    if (r.contains(localMouse))
-      return Center;
-    return None;
-  }
-
-protected:
-  void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override {
-    Handle h = handleAt(event->scenePos());
-    QTransform t = m_target->transform();
-    qreal rot = std::atan2(t.m12(), t.m11()) * 180.0 / M_PI;
-    if (h == Rotate)
-      setCursor(Qt::PointingHandCursor);
-    else if (h == Center)
-      setCursor(Qt::SizeAllCursor);
-    else if (h == None)
-      setCursor(Qt::ArrowCursor);
-    else {
-      Qt::CursorShape shape = Qt::ArrowCursor;
-      if (h == Top || h == Bottom)
-        shape = Qt::SizeVerCursor;
-      else if (h == Left || h == Right)
-        shape = Qt::SizeHorCursor;
-      else if (h == TopLeft || h == BottomRight)
-        shape = Qt::SizeFDiagCursor;
-      else if (h == TopRight || h == BottomLeft)
-        shape = Qt::SizeBDiagCursor;
-      setCursor(getRotatedCursor(shape, rot));
-    }
-    QGraphicsObject::hoverMoveEvent(event);
-  }
-  void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
-    m_dragHandle = handleAt(event->scenePos());
-    if (m_dragHandle != None && m_dragHandle != Center) {
-      bakeTransform(m_target);
-      sync();
-    }
-    m_startScenePos = event->scenePos();
-    m_initialSceneTransform = m_target->sceneTransform();
-    m_initialTransform = m_target->transform();
-    m_initialBoundingRect = m_target->boundingRect();
-    if (m_dragHandle == None)
-      m_dragHandle = Center;
-  }
-  void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override {
-    if (m_dragHandle == Center) {
-      QPointF delta = event->scenePos() - m_startScenePos;
-      m_target->moveBy(delta.x(), delta.y());
-      m_startScenePos = event->scenePos();
-      sync();
-      return;
-    }
-    if (m_dragHandle == Rotate) {
-      QPointF sceneCenter =
-          m_initialSceneTransform.map(m_initialBoundingRect.center());
-      QLineF startLine(sceneCenter, m_startScenePos);
-      QLineF currentLine(sceneCenter, event->scenePos());
-      qreal angleDiff = startLine.angleTo(currentLine);
-      qreal initialRot = std::atan2(m_initialSceneTransform.m12(),
-                                    m_initialSceneTransform.m11()) *
-                         180.0 / M_PI;
-      qreal targetRot = initialRot - angleDiff;
-      qreal quotient = targetRot / 90.0;
-      qreal nearest90 = std::round(quotient) * 90.0;
-      if (std::abs(targetRot - nearest90) < 5.0) {
-        targetRot = nearest90;
-        angleDiff = initialRot - targetRot;
-      }
-      QTransform rotMatrix;
-      rotMatrix.translate(sceneCenter.x(), sceneCenter.y());
-      rotMatrix.rotate(-angleDiff);
-      rotMatrix.translate(-sceneCenter.x(), -sceneCenter.y());
-      QTransform newSceneTransform = m_initialSceneTransform * rotMatrix;
-      if (m_target->parentItem())
-        newSceneTransform = newSceneTransform *
-                            m_target->parentItem()->sceneTransform().inverted();
-      m_target->setTransform(newSceneTransform);
-      sync();
-      return;
-    }
-    QPointF localPos =
-        m_initialSceneTransform.inverted().map(event->scenePos());
-    QRectF r = m_initialBoundingRect;
-    QPointF pivot;
-    qreal dsx = 1.0;
-    qreal dsy = 1.0;
-    if (m_dragHandle == Left || m_dragHandle == TopLeft ||
-        m_dragHandle == BottomLeft) {
-      pivot.setX(r.right());
-      qreal oldWidth = r.width();
-      qreal newWidth = r.right() - localPos.x();
-      if (oldWidth > 0.1)
-        dsx = newWidth / oldWidth;
-    } else if (m_dragHandle == Right || m_dragHandle == TopRight ||
-               m_dragHandle == BottomRight) {
-      pivot.setX(r.left());
-      qreal oldWidth = r.width();
-      qreal newWidth = localPos.x() - r.left();
-      if (oldWidth > 0.1)
-        dsx = newWidth / oldWidth;
-    } else {
-      pivot.setX(r.center().x());
-    }
-    if (m_dragHandle == Top || m_dragHandle == TopLeft ||
-        m_dragHandle == TopRight) {
-      pivot.setY(r.bottom());
-      qreal oldHeight = r.height();
-      qreal newHeight = r.bottom() - localPos.y();
-      if (oldHeight > 0.1)
-        dsy = newHeight / oldHeight;
-    } else if (m_dragHandle == Bottom || m_dragHandle == BottomLeft ||
-               m_dragHandle == BottomRight) {
-      pivot.setY(r.top());
-      qreal oldHeight = r.height();
-      qreal newHeight = localPos.y() - r.top();
-      if (oldHeight > 0.1)
-        dsy = newHeight / oldHeight;
-    } else {
-      pivot.setY(r.center().y());
-    }
-    if (dsx < 0.01)
-      dsx = 0.01;
-    if (dsy < 0.01)
-      dsy = 0.01;
-    QTransform scaleMatrix;
-    scaleMatrix.translate(pivot.x(), pivot.y());
-    scaleMatrix.scale(dsx, dsy);
-    scaleMatrix.translate(-pivot.x(), -pivot.y());
-    m_target->setTransform(scaleMatrix * m_initialTransform);
-    sync();
-  }
-
-private:
-  QGraphicsItem *m_target;
-  QPointF m_startScenePos;
-  Handle m_dragHandle;
-  QTransform m_initialSceneTransform;
-  QTransform m_initialTransform;
-  QRectF m_initialBoundingRect;
-};
 
 // =============================================================================
 // CANVAS VIEW IMPLEMENTATION
@@ -615,7 +276,7 @@ private:
 CanvasView::CanvasView(QWidget *parent)
     : QGraphicsView(parent), m_toolManager(nullptr), m_currentItem(nullptr),
       m_lassoItem(nullptr), m_isDrawing(false), m_isInfinite(true),
-      m_penOnlyMode(true), m_pageColor(QColor(0xF5F5F5)) // Default
+      m_penOnlyMode(false), m_pageColor(QColor(0xF5F5F5)) // Default: mouse enabled
       ,
       m_pageStyle(PageStyle::Squared), m_gridSize(40),
       m_currentTool(ToolType::Pen), m_penColor(Qt::black), m_penWidth(3),
@@ -661,8 +322,7 @@ CanvasView::CanvasView(QWidget *parent)
           &CanvasView::screenshotSelection);
   connect(m_selectionMenu, &SelectionMenu::cropRequested, this,
           &CanvasView::startCropSession);
-  connect(m_selectionMenu, &SelectionMenu::transformRequested, this,
-          &CanvasView::startTransformSession);
+
 
   m_cropMenu = new CropMenu(this);
   connect(m_cropMenu, &CropMenu::rectRequested, this,
@@ -777,8 +437,10 @@ void CanvasView::updateBackgroundTile() {
     return;
   QPainter p(&m_bgTile);
   p.setRenderHint(QPainter::Antialiasing, false);
-  QColor lineColor = (m_pageColor.value() < 128) ? QColor(255, 255, 255, 30)
-                                                 : QColor(0, 0, 0, 20);
+  
+  // Sanftere Linienfarben gegen das Ausfransen/Brennen der weißen Linien
+  QColor lineColor = (m_pageColor.value() < 128) ? QColor(255, 255, 255, 12)
+                                                 : QColor(0, 0, 0, 15);
   p.setPen(QPen(lineColor, 1));
   if (m_pageStyle == PageStyle::Squared) {
     for (int i = 1; i <= multiplier; ++i) {
@@ -921,21 +583,35 @@ bool CanvasView::saveToFile() {
   if (!file.open(QIODevice::WriteOnly))
     return false;
   QDataStream out(&file);
-  out << (quint32)0xB10B0002;
+  
+  out << (quint32)0xB10B0003; // Protocol Format V3 (Stroke Pressure Support)
   out << m_isInfinite;
+  
   QList<QGraphicsItem *> items = m_scene->items(Qt::AscendingOrder);
   int count = 0;
   for (auto *item : std::as_const(items)) {
-    if (item->type() == QGraphicsPathItem::Type && item != m_lassoItem)
-      count++;
-  }
-  out << count;
-  for (auto *item : std::as_const(items)) {
-    if (item->type() == QGraphicsPathItem::Type && item != m_lassoItem &&
+    if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
         item != m_cropResizer && item != m_transformOverlay) {
-      QGraphicsPathItem *pathItem = static_cast<QGraphicsPathItem *>(item);
-      out << pathItem->pos() << pathItem->pen().color()
-          << (int)pathItem->pen().width() << pathItem->path();
+        count++;
+    }
+  }
+  
+  out << count;
+  
+  for (auto *item : std::as_const(items)) {
+    if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
+        item != m_cropResizer && item != m_transformOverlay) {
+            
+      StrokeItem *strokeItem = static_cast<StrokeItem *>(item);
+      out << strokeItem->pos() << strokeItem->pen().color()
+          << (int)strokeItem->pen().width() << strokeItem->path();
+          
+      // V3 Serialization: Pressure Points Buffer
+      const QVector<StrokePoint>& pts = strokeItem->points();
+      out << (qint32)pts.size();
+      for(const auto& p : pts) {
+          out << p.pos << p.pressure;
+      }
     }
   }
   return true;
@@ -950,16 +626,19 @@ bool CanvasView::loadFromFile() {
   QDataStream in(&file);
   quint32 magic;
   in >> magic;
+  
   if (magic == 0xB10B0001) {
     m_isInfinite = true;
-  } else if (magic == 0xB10B0002) {
+  } else if (magic == 0xB10B0002 || magic == 0xB10B0003) {
     in >> m_isInfinite;
   } else {
-    return false;
+    return false; // Unknown Corrupt Format
   }
+  
   setPageFormat(m_isInfinite);
   m_scene->clear();
   m_undoStack->clear();
+  
   int count;
   in >> count;
   bool wasBlocked = m_scene->blockSignals(true);
@@ -970,19 +649,44 @@ bool CanvasView::loadFromFile() {
     QPainterPath path;
     in >> pos >> color >> width >> path;
     QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    QGraphicsPathItem *item = m_scene->addPath(path, pen);
+    
+    QVector<StrokePoint> pts;
+    if (magic >= 0xB10B0003) {
+        qint32 ptCount;
+        in >> ptCount;
+        for(int j = 0; j < ptCount; ++j) {
+            QPointF ppos; qreal ppress;
+            in >> ppos >> ppress;
+            pts.append({ppos, ppress});
+        }
+    }
+    
+    StrokeItem *item = new StrokeItem(path, pen, pts, StrokeItem::Normal);
+    m_scene->addItem(item);
     item->setPos(pos);
     if (color.alpha() < 255)
       item->setZValue(0.1);
     else
       item->setZValue(1.0);
-    item->setFlags(QGraphicsItem::ItemIsSelectable |
-                   QGraphicsItem::ItemIsMovable);
   }
   m_scene->blockSignals(wasBlocked);
   if (m_isInfinite)
     updateSceneRect();
   return true;
+}
+
+void CanvasView::toggleRuler(bool active) {
+    if (active) {
+        if (m_toolManager) {
+            RulerTool::ensureRulerExists(scene(), m_toolManager->config());
+        }
+    } else {
+        for (QGraphicsItem* item : scene()->items()) {
+            if (item->type() == RulerItem::Type) {
+                item->setVisible(false);
+            }
+        }
+    }
 }
 
 void CanvasView::setTool(ToolType tool) {
@@ -1206,7 +910,17 @@ void CanvasView::startTransformSession() {
   QList<QGraphicsItem *> items = m_scene->selectedItems();
   if (items.isEmpty())
     return;
-  m_selectionMenu->hide();
+
+  // Clean up previous session if still active
+  if (m_transformOverlay) {
+    m_scene->removeItem(m_transformOverlay);
+    delete m_transformOverlay;
+    m_transformOverlay = nullptr;
+  }
+  if (m_transformGroup) {
+    m_scene->destroyItemGroup(m_transformGroup);
+    m_transformGroup = nullptr;
+  }
   m_interactionMode = InteractionMode::Transform;
   if (items.count() == 1) {
     QGraphicsItem *singleItem = items.first();
@@ -1218,11 +932,17 @@ void CanvasView::startTransformSession() {
                        oldCenter.y() - newCenter.y());
     bakeTransform(singleItem);
     m_transformOverlay = new TransformOverlay(singleItem);
+    connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &CanvasView::updateSelectionMenuPosition);
+    connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
+    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this, &CanvasView::updateSelectionMenuPosition);
   } else {
     m_transformGroup = m_scene->createItemGroup(items);
     QRectF grpRect = m_transformGroup->boundingRect();
     m_transformGroup->setTransformOriginPoint(grpRect.center());
     m_transformOverlay = new TransformOverlay(m_transformGroup);
+    connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &CanvasView::updateSelectionMenuPosition);
+    connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
+    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this, &CanvasView::updateSelectionMenuPosition);
   }
   m_transformOverlay->setZValue(99999);
   m_scene->addItem(m_transformOverlay);
@@ -1254,7 +974,7 @@ void CanvasView::updateSelectionMenuPosition() {
   int x = viewPos.x() +
           (mapFromScene(totalRect.bottomRight()).x() - viewPos.x()) / 2 -
           m_selectionMenu->width() / 2;
-  int y = viewPos.y() - m_selectionMenu->height() - 10;
+  int y = viewPos.y() - m_selectionMenu->height() - 55;
   x = qMax(0, qMin(x, width() - m_selectionMenu->width()));
   y = qMax(0, y);
   m_selectionMenu->move(x, y);
@@ -1291,6 +1011,25 @@ void CanvasView::clearSelection() {
 }
 
 void CanvasView::wheelEvent(QWheelEvent *event) {
+  if (m_toolManager && m_toolManager->activeToolMode() == ToolMode::Ruler) {
+      RulerItem* ruler = nullptr;
+      for (QGraphicsItem* item : m_scene->items()) {
+          if (item->type() == RulerItem::Type) {
+              ruler = static_cast<RulerItem*>(item);
+              break;
+          }
+      }
+      if (ruler && ruler->isVisible()) {
+          qreal delta = event->angleDelta().y();
+          qreal step = (event->modifiers() & Qt::ShiftModifier) ? 1.0 : 15.0;
+          if (delta > 0) ruler->setRotation(ruler->rotation() - step);
+          else if (delta < 0) ruler->setRotation(ruler->rotation() + step);
+          ruler->update();
+          event->accept();
+          return;
+      }
+  }
+
   if (event->modifiers() & Qt::ControlModifier) {
     double angle = event->angleDelta().y();
     double factor = std::pow(1.0015, angle);
@@ -1330,8 +1069,43 @@ void CanvasView::resizeEvent(QResizeEvent *event) {
 
 // === WICHTIG: EVENT DELEGATION AN TOOL MANAGER ===
 
+void CanvasView::tabletEvent(QTabletEvent *event) {
+    if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
+        // Automatically switch to drawing mode (disabling touch-panning temporarily if they hover with pen)
+        QPointF scenePos = mapToScene(event->position().toPoint());
+        
+        if (m_toolManager->activeTool()->handleTabletEvent(event, scenePos)) {
+            if (event->type() == QEvent::TabletPress) {
+                m_isDrawing = true;
+            } else if (event->type() == QEvent::TabletRelease) {
+                m_isDrawing = false;
+                emit contentModified();
+                if (m_toolManager->activeTool()->mode() == ToolMode::Lasso) {
+                    finishLasso();
+                }
+            }
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsView::tabletEvent(event);
+}
+
+
 void CanvasView::mousePressEvent(QMouseEvent *event) {
   const QInputDevice *dev = event->device();
+  
+  // Ignore fallback mouse events generated by the OS for Stylus EXCEPT when using tools like Lasso that rely on mouse events,
+  // or when we are interacting with Transform overlays.
+  if (dev && dev->type() == QInputDevice::DeviceType::Stylus) {
+      if (m_interactionMode == InteractionMode::None && 
+          m_toolManager && m_toolManager->activeTool() &&
+          m_toolManager->activeTool()->mode() != ToolMode::Lasso) {
+          event->accept();
+          return;
+      }
+  }
+
   bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
   if (!isTouch && event->source() == Qt::MouseEventSynthesizedBySystem)
     isTouch = true;
@@ -1345,7 +1119,10 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
       hitHandle = true;
   }
 
-  if (m_penOnlyMode && isTouch && !hitHandle) {
+  // Panning: only apply when touch events are used AND pen-only mode is enabled
+  // Regular mouse (left button) should ALWAYS reach tool delegation, not pan.
+  bool isRegularMouse = (dev == nullptr || dev->type() == QInputDevice::DeviceType::Mouse);
+  if (m_penOnlyMode && isTouch && !hitHandle && !isRegularMouse) {
     m_isPanning = true;
     m_lastPanPos = event->pos();
     setCursor(Qt::ClosedHandCursor);
@@ -1378,7 +1155,7 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
   }
 
   if (m_interactionMode == InteractionMode::Transform) {
-    if (m_transformOverlay && !m_transformOverlay->isUnderMouse())
+    if (m_transformOverlay && !m_transformOverlay->isHandleAt(mapToScene(event->pos())))
       applyTransform();
     else {
       QGraphicsView::mousePressEvent(event);
@@ -1430,6 +1207,12 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event) {
+  const QInputDevice *dev = event->device();
+  if (dev && dev->type() == QInputDevice::DeviceType::Stylus) {
+      event->accept();
+      return;
+  }
+
   if (m_isPanning) {
     QPoint delta = event->pos() - m_lastPanPos;
     m_lastPanPos = event->pos();
@@ -1467,6 +1250,11 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
   const QInputDevice *dev = event->device();
+  if (dev && dev->type() == QInputDevice::DeviceType::Stylus) {
+      event->accept();
+      return;
+  }
+
   bool isTouch = (dev && dev->type() == QInputDevice::DeviceType::TouchScreen);
   if (!isTouch && event->source() == Qt::MouseEventSynthesizedBySystem)
     isTouch = true;
@@ -1584,10 +1372,12 @@ void CanvasView::pinchTriggered(QPinchGesture *gesture) {
 }
 
 void CanvasView::finishLasso() {
-  if (!m_scene->selectedItems().isEmpty())
+  if (!m_scene->selectedItems().isEmpty()) {
+    startTransformSession();
     updateSelectionMenuPosition();
-  else
+  } else {
     m_selectionMenu->hide();
+  }
 }
 
 void CanvasView::applyEraser(const QPointF &pos) {
@@ -1598,12 +1388,76 @@ void CanvasView::applyEraser(const QPointF &pos) {
     if (item->type() == QGraphicsPathItem::Type) {
       m_scene->removeItem(item);
       m_undoStack->push(new QUndoCommand());
-      delete item;
-      erased = true;
     }
   }
   if (erased)
     emit contentModified();
+}
+
+bool CanvasView::exportToPDF(const QString &path) {
+    if (path.isEmpty()) return false;
+    
+    QPdfWriter pdfWriter(path);
+    pdfWriter.setPageSize(QPageSize(QPageSize::A4));
+    pdfWriter.setResolution(300);
+    pdfWriter.setCreator("Blop Notes");
+    
+    QPainter painter(&pdfWriter);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    QRectF bounds;
+    if (m_isInfinite) {
+        bounds = m_scene->itemsBoundingRect();
+        if (bounds.isEmpty()) bounds = QRectF(0, 0, 800, 1130);
+        else bounds.adjust(-50, -50, 50, 50);
+    } else {
+        bounds = m_scene->sceneRect();
+    }
+    
+    // Calculate aspect ratio matching
+    QRect targetRect = pdfWriter.pageLayout().paintRectPixels(pdfWriter.resolution());
+    double scale = qMin(targetRect.width() / bounds.width(), targetRect.height() / bounds.height());
+    
+    painter.translate(targetRect.center());
+    painter.scale(scale, scale);
+    painter.translate(-bounds.center());
+    
+    // Draw background grid
+    drawBackground(&painter, bounds);
+    // Draw scene items
+    m_scene->render(&painter, bounds, bounds);
+    
+    return true;
+}
+
+bool CanvasView::exportToImage(const QString &path) {
+    if (path.isEmpty()) return false;
+    
+    QRectF bounds;
+    if (m_isInfinite) {
+        bounds = m_scene->itemsBoundingRect();
+        if (bounds.isEmpty()) bounds = QRectF(0, 0, 1920, 1080);
+        else bounds.adjust(-50, -50, 50, 50);
+    } else {
+        bounds = m_scene->sceneRect();
+    }
+    
+    QImage image(bounds.size().toSize(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(m_pageColor);
+    
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    // Translate painter to match image zero coordinate logic
+    painter.translate(-bounds.topLeft());
+    
+    // Render the grid background
+    drawBackground(&painter, bounds);
+    
+    // Render strokes
+    m_scene->render(&painter, bounds, bounds);
+    
+    return image.save(path);
 }
 
 #include "canvasview.moc"

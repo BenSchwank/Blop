@@ -1,10 +1,12 @@
 #pragma once
 #include "AbstractTool.h"
 #include "RulerItem.h"
+#include "StrokeItem.h"
 #include <QGraphicsPathItem>
 #include <QPen>
 #include <QList>
 #include <QPointF>
+#include <QTabletEvent>
 
 class AbstractStrokeTool : public AbstractTool {
     Q_OBJECT
@@ -12,69 +14,50 @@ class AbstractStrokeTool : public AbstractTool {
 public:
     using AbstractTool::AbstractTool;
 
-    bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        if (!scene) return false;
-        m_currentPath = QPainterPath();
-        QPointF startPos = event->scenePos();
-        m_isSnapping = false;
-        m_rulerRef = nullptr;
+    // We store the last pressure so that mouseMove events (if synthesized) have a fallback,
+    // though native TabletEvents will use their own pressure.
+    qreal m_lastPressure{1.0};
 
-        if (m_config.rulerSnap) {
-            m_rulerRef = findRuler(scene);
-            if (m_rulerRef && m_rulerRef->isVisible()) {
-                startPos = m_rulerRef->snapPoint(startPos);
-                m_isSnapping = true;
-            }
-        }
-
-        m_currentPath.moveTo(startPos);
-        m_pointsBuffer.clear();
-        m_pointsBuffer.append(startPos);
-
-        m_currentItem = new QGraphicsPathItem();
-        m_currentItem->setPath(m_currentPath);
-        m_currentItem->setPen(createPen());
-        m_currentItem->setZValue(getZValue());
-        m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
-
-        scene->addItem(m_currentItem);
-        return true;
-    }
-
-    bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        if (m_currentItem) {
-            QPointF newPos = event->scenePos();
-            if (m_isSnapping && m_rulerRef) {
-                newPos = m_rulerRef->snapPoint(newPos);
-                QPointF start = m_pointsBuffer.first();
-                QPainterPath snapPath = m_rulerRef->getSnapPath(start, newPos);
-                m_currentItem->setPath(snapPath);
-                m_currentPath = snapPath;
-                return true;
-            }
-
-            if (m_config.smoothing > 0) {
-                double factor = m_config.smoothing / 120.0;
-                if (factor > 0.95) factor = 0.95;
-                QPointF lastPos = m_pointsBuffer.last();
-                newPos = lastPos * factor + newPos * (1.0 - factor);
-            }
-
-            if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last()).length() > 1.0) {
-                m_pointsBuffer.append(newPos);
-                m_currentPath.lineTo(newPos);
-                m_currentItem->setPath(m_currentPath);
-            }
+    bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
+        // Tablet events give us robust pressure [0.0 - 1.0]
+        m_lastPressure = event->pressure();
+        
+        // We simulate a mouse event call to keep the logic unified. 
+        // The actual drawing loop uses m_lastPressure.
+        if (event->type() == QEvent::TabletPress) {
+            handleMoveOrPress(scenePos, true, nullptr);
             return true;
+        } else if (event->type() == QEvent::TabletMove) {
+            handleMoveOrPress(scenePos, false, nullptr);
+            return true;
+        } else if (event->type() == QEvent::TabletRelease) {
+            // End stroke
+            return handleMouseRelease(nullptr, nullptr); // scene is stored conceptually
         }
         return false;
     }
 
+    bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
+        if (!scene) return false;
+        // Mouse clicks default to max pressure if not overriden by tablet prior
+        m_sceneRef = scene;
+        m_lastPressure = 1.0; 
+        return handleMoveOrPress(event->scenePos(), true, scene);
+    }
+
+    bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
+        return handleMoveOrPress(event->scenePos(), false, scene);
+    }
+
     bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentItem) {
+            // Bake the geometry down into a VRAM hardware pixmap cache
+            m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
             m_currentItem = nullptr;
             m_pointsBuffer.clear();
-            m_isSnapping = false; m_rulerRef = nullptr;
+            m_isSnapping = false; 
+            m_rulerRef = nullptr;
+            m_sceneRef = nullptr;
             emit contentModified();
             return true;
         }
@@ -84,14 +67,81 @@ public:
 protected:
     virtual QPen createPen() const = 0;
     virtual qreal getZValue() const { return 0; }
+    virtual StrokeItem::StrokeStyle strokeStyle() const { return StrokeItem::Normal; }
 
     QGraphicsPathItem* m_currentItem{nullptr};
     QPainterPath m_currentPath;
-    QList<QPointF> m_pointsBuffer;
+    QList<StrokePoint> m_pointsBuffer;
     bool m_isSnapping{false};
     RulerItem* m_rulerRef{nullptr};
+    QGraphicsScene* m_sceneRef{nullptr};
+
+    bool handleMoveOrPress(QPointF scenePos, bool isPress, QGraphicsScene* scene) {
+        if (isPress) {
+            m_currentPath = QPainterPath();
+            QPointF startPos = scenePos;
+            m_isSnapping = false;
+            m_rulerRef = nullptr;
+            if (scene) m_sceneRef = scene;
+
+            if (m_config.rulerSnap && m_sceneRef) {
+                m_rulerRef = findRuler(m_sceneRef);
+                if (m_rulerRef && m_rulerRef->isVisible()) {
+                    startPos = m_rulerRef->snapPoint(startPos);
+                    m_isSnapping = true;
+                }
+            }
+
+            m_currentPath.moveTo(startPos);
+            m_pointsBuffer.clear();
+            m_pointsBuffer.append({startPos, m_lastPressure});
+
+            auto* typedItem = new StrokeItem(m_currentPath, createPen(), QVector<StrokePoint>(), strokeStyle());
+            typedItem->addPoint({startPos, m_lastPressure});
+            m_currentItem = typedItem;
+            m_currentItem->setZValue(getZValue());
+
+            if (m_sceneRef) m_sceneRef->addItem(m_currentItem);
+            return true;
+        } else {
+            if (m_currentItem) {
+                QPointF newPos = scenePos;
+                if (m_isSnapping && m_rulerRef) {
+                    newPos = m_rulerRef->snapPoint(newPos);
+                    QPointF start = m_pointsBuffer.first().pos;
+                    QPainterPath snapPath = m_rulerRef->getSnapPath(start, newPos);
+                    m_currentItem->setPath(snapPath);
+                    m_currentPath = snapPath;
+                    
+                    // In snap mode, we just enforce the end point
+                    auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
+                    typedItem->addPoint({newPos, m_lastPressure});
+                    return true;
+                }
+
+                if (m_config.smoothing > 0) {
+                    double factor = m_config.smoothing / 120.0;
+                    if (factor > 0.95) factor = 0.95;
+                    QPointF lastPos = m_pointsBuffer.last().pos;
+                    newPos = lastPos * factor + newPos * (1.0 - factor);
+                }
+
+                if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last().pos).length() > 1.0) {
+                    m_pointsBuffer.append({newPos, m_lastPressure});
+                    m_currentPath.lineTo(newPos);
+                    
+                    m_currentItem->setPath(m_currentPath);
+                    auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
+                    typedItem->addPoint({newPos, m_lastPressure});
+                }
+                return true;
+            }
+        }
+        return false;
+    }
 
     RulerItem* findRuler(QGraphicsScene* scene) {
+        if (!scene) return nullptr;
         for (QGraphicsItem* item : scene->items()) {
             if (item->type() == RulerItem::Type) return static_cast<RulerItem*>(item);
         }
