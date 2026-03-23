@@ -1643,43 +1643,6 @@ void MainWindow::setupUi() {
           &MainWindow::onNavigateUp);
   topBar->addWidget(btnBackOverview);
   topBar->addStretch();
-
-  QPushButton *btnLogin = new QPushButton(" Mit Google anmelden", this);
-  btnLogin->setIcon(QIcon(":/icons/google_logo.svg")); // optional
-  btnLogin->setCursor(Qt::PointingHandCursor);
-  btnLogin->setStyleSheet(
-      "QPushButton {"
-      "  background-color: #4285F4;"
-      "  color: white;"
-      "  border-radius: 18px;"
-      "  padding: 8px 16px;"
-      "  font-weight: bold;"
-      "  font-size: 13px;"
-      "  border: none;"
-      "}"
-      "QPushButton:hover { background-color: #5a9df8; }"
-  );
-  connect(btnLogin, &QPushButton::clicked, this, []() {
-      GoogleAuthManager::instance().login();
-  });
-  
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::userInfoUpdated, this, [btnLogin]() {
-      btnLogin->setText(" " + GoogleAuthManager::instance().userName());
-      btnLogin->setStyleSheet(
-          "QPushButton {"
-          "  background-color: #2D2B3F;"
-          "  color: #E2E2E2;"
-          "  border-radius: 18px;"
-          "  padding: 8px 16px;"
-          "  font-weight: bold;"
-          "  font-size: 13px;"
-          "  border: 1px solid #444;"
-          "}"
-      );
-  });
-  
-  topBar->addWidget(btnLogin);
-
   overviewLayout->addLayout(topBar);
 
   // --- NEW HEADER BEREICH (Blop Notes Redesign Etappe 3) ---
@@ -1937,6 +1900,11 @@ void MainWindow::setupUi() {
   mainLayout->addWidget(m_mainContentStack);
 
   setWindowTitle("Blop");
+  
+  // Force authentication state check at startup so the user is locked into Anmeldescreen if empty
+  QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
+  updateSidebarUser(currentUser);
+  
   qDebug() << "setupUi() Ende";
 }
 
@@ -2038,6 +2006,31 @@ void MainWindow::setupWebBrowser() {
   layout->addWidget(lblInfo);
 #endif
 #endif
+
+  m_btnLogin = new QPushButton(" Mit Google Desktop-Login anmelden", m_studyContainer);
+  m_btnLogin->setIcon(QIcon(":/icons/google_logo.svg")); // optional
+  m_btnLogin->setCursor(Qt::PointingHandCursor);
+  m_btnLogin->setFixedHeight(48);
+  m_btnLogin->setStyleSheet(
+      "QPushButton {"
+      "  background-color: #4285F4;"
+      "  color: white;"
+      "  border-radius: 0px;"
+      "  font-weight: bold;"
+      "  font-size: 14px;"
+      "  border: none;"
+      "}"
+      "QPushButton:hover { background-color: #5a9df8; }"
+  );
+  connect(m_btnLogin, &QPushButton::clicked, this, []() {
+      GoogleAuthManager::instance().login();
+  });
+  
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::userInfoUpdated, this, [this]() {
+      if (m_btnLogin) m_btnLogin->setText(" " + GoogleAuthManager::instance().userName());
+  });
+  layout->addWidget(m_btnLogin);
+
 }
 
 void MainWindow::onModeChanged(int index) {
@@ -2064,6 +2057,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
   if (!username.isEmpty()) {
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
+    if (m_btnLogin) m_btnLogin->hide();
     
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
@@ -2078,6 +2072,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
   } else {
     // Logged out: Switch back to Study/Login web view
     if (m_topNavControls) m_topNavControls->hide();
+    if (m_btnLogin) m_btnLogin->show();
 
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(1); // Force back to web login
