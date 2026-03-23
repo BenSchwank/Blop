@@ -26,8 +26,8 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   // here! For Desktop, Redirect URI must be: http://127.0.0.1:8080/ Paste your
   // Client ID and Secret from Google Cloud Console below:
   m_oauth2->setClientIdentifier(
-      "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com");
-  m_oauth2->setClientIdentifierSharedKey("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");
+      "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com");
+  m_oauth2->setClientIdentifierSharedKey("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");
 
   // Scopes needed for basic profile info
   m_oauth2->setScope("email profile");
