@@ -1908,6 +1908,16 @@ void MainWindow::setupUi() {
   qDebug() << "setupUi() Ende";
 }
 
+#ifdef BLOP_HAS_WEBENGINE
+bool InterceptingWebPage::acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) {
+    if (url.scheme() == "blop" && (url.host() == "google-login" || url.path().contains("google-login"))) {
+        emit googleLoginRequested();
+        return false;
+    }
+    return QWebEnginePage::acceptNavigationRequest(url, type, isMainFrame);
+}
+#endif
+
 void MainWindow::setupWebBrowser() {
   m_studyContainer = new QWidget(this);
   // Dark background so it's not pitch-black while WebEngine loads
@@ -1970,6 +1980,12 @@ void MainWindow::setupWebBrowser() {
   // Force one reload 4 s after startup to fix the post-install blank page
   QTimer::singleShot(4000, view, [view]() { view->reload(); });
 
+  InterceptingWebPage *customPage = new InterceptingWebPage(view);
+  connect(customPage, &InterceptingWebPage::googleLoginRequested, this, []() {
+      GoogleAuthManager::instance().login();
+  });
+  view->setPage(customPage);
+
   view->load(QUrl("https://blop-six.vercel.app"));
   layout->addWidget(view);
 
@@ -2006,31 +2022,6 @@ void MainWindow::setupWebBrowser() {
   layout->addWidget(lblInfo);
 #endif
 #endif
-
-  m_btnLogin = new QPushButton(" Mit Google Desktop-Login anmelden", m_studyContainer);
-  m_btnLogin->setIcon(QIcon(":/icons/google_logo.svg")); // optional
-  m_btnLogin->setCursor(Qt::PointingHandCursor);
-  m_btnLogin->setFixedHeight(48);
-  m_btnLogin->setStyleSheet(
-      "QPushButton {"
-      "  background-color: #4285F4;"
-      "  color: white;"
-      "  border-radius: 0px;"
-      "  font-weight: bold;"
-      "  font-size: 14px;"
-      "  border: none;"
-      "}"
-      "QPushButton:hover { background-color: #5a9df8; }"
-  );
-  connect(m_btnLogin, &QPushButton::clicked, this, []() {
-      GoogleAuthManager::instance().login();
-  });
-  
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::userInfoUpdated, this, [this]() {
-      if (m_btnLogin) m_btnLogin->setText(" " + GoogleAuthManager::instance().userName());
-  });
-  layout->addWidget(m_btnLogin);
-
 }
 
 void MainWindow::onModeChanged(int index) {
@@ -2057,7 +2048,6 @@ void MainWindow::updateSidebarUser(const QString &username) {
   if (!username.isEmpty()) {
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
-    if (m_btnLogin) m_btnLogin->hide();
     
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
@@ -2072,7 +2062,6 @@ void MainWindow::updateSidebarUser(const QString &username) {
   } else {
     // Logged out: Switch back to Study/Login web view
     if (m_topNavControls) m_topNavControls->hide();
-    if (m_btnLogin) m_btnLogin->show();
 
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(1); // Force back to web login

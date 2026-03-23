@@ -218,7 +218,6 @@ private:
   QWidget *m_studyContainer{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
   QComboBox *m_modeSelector{nullptr};
-  QPushButton *m_btnLogin{nullptr};
   // ----------------------------
 
   // --- Sidebar user section labels (updated on webview login) ---
