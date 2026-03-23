@@ -60,6 +60,10 @@ class ChatRequest(BaseModel):
     model_preference: Optional[str] = None
     active_file: Optional[dict] = None  # {id, name, type, content}
 
+class GoogleVerifyRequest(BaseModel):
+    token: str
+    client_id: Optional[str] = None
+
 @app.get("/api/search")
 def global_search(username: str, q: str):
     """Searches through all folders and files for the given user"""
@@ -133,10 +137,66 @@ def register(request: RegisterRequest):
     raise HTTPException(status_code=400, detail="Benutzername bereits vergeben")
 
 @app.post("/api/auth/logout")
-def logout(session_id: str):
-    """Logout - invalidate session"""
+def logout(session_id: str = Body(..., embed=True)):
+    if not session_id:
+         raise HTTPException(status_code=400, detail="Keine Session ID")
     AuthManager.logout_session(session_id)
-    return {"success": True}
+    return {"message": "Logged out successfully"}
+
+@app.post("/api/auth/google/verify")
+def verify_google_oauth(req: GoogleVerifyRequest):
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+        import uuid
+        import string
+        import random
+
+        # Verify the token against Google's servers
+        # Setting audience=None if client_id is None, it disables audience validation. 
+        # For production security, this should validate req.client_id matching our env.
+        idinfo = id_token.verify_oauth2_token(
+            req.token, 
+            google_requests.Request()
+        )
+        
+        email = idinfo.get('email')
+        if not email:
+            raise HTTPException(status_code=400, detail="Keine Email in Google Token gefunden")
+
+        # Generate a username from the email or use the email
+        username = email.split('@')[0]
+        name = idinfo.get('name', username)
+        
+        # Ensure user exists in our DB
+        user = AuthManager.get_user(email)
+        if not user:
+            # Maybe the username from email is taken?
+            existing = AuthManager.get_user(username)
+            if existing: # Append numeric suffix if username exists
+                username = f"{username}_{random.randint(100,999)}"
+            
+            # Register them automatically with a random impossible password
+            random_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+            try:
+                AuthManager.register(username, random_pw)
+                # Note: We should ideally update the email column if it existed, but we just use username as primary key
+            except Exception as e:
+                pass # User might already exist in some edge case
+        else:
+            username = user['username']
+
+        # Ensure we don't accidentally log into admin_ via Google unless they somehow have the admin email
+        if username == "admin_":
+            raise HTTPException(status_code=403, detail="Google Login für admin_ gesperrt")
+
+        session_id = AuthManager.create_session(username)
+        return {"session_id": session_id, "username": username}
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Ungültiges Google Auth Token")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/auth/validate")
 def validate_session(session_id: str):

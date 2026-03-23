@@ -1997,6 +1997,7 @@ void MainWindow::setupWebBrowser() {
     view->page()->runJavaScript(
         R"js(
           (function() {
+            window.isBlopNativeApp = true;
             var u = localStorage.getItem('username');
             var s = localStorage.getItem('session_id');
             return (u && s) ? u : '';
