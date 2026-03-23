@@ -46,6 +46,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     username: str
+    email: str
     password: str
 
 class ChatMessage(BaseModel):
@@ -120,21 +121,23 @@ def ping():
 @app.post("/api/auth/login")
 def login(request: LoginRequest):
     """Login endpoint - returns session token"""
-    if AuthManager.login(request.username, request.password):
-        session_id = AuthManager.create_session(request.username)
+    success, result_or_error = AuthManager.login(request.username, request.password)
+    if success:
+        session_id = AuthManager.create_session(result_or_error)
         return {
             "success": True,
             "session_id": session_id,
-            "username": request.username
+            "username": result_or_error
         }
-    raise HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
+    raise HTTPException(status_code=401, detail=result_or_error)
 
 @app.post("/api/auth/register")
 def register(request: RegisterRequest):
-    """Register new user"""
-    if AuthManager.register(request.username, request.password):
-        return {"success": True, "message": "Registrierung erfolgreich"}
-    raise HTTPException(status_code=400, detail="Benutzername bereits vergeben")
+    """Register new user via Email and Supabase Auth"""
+    success, message = AuthManager.register(request.username, request.email, request.password)
+    if success:
+        return {"success": True, "message": message}
+    raise HTTPException(status_code=400, detail=message)
 
 @app.post("/api/auth/logout")
 def logout(session_id: str = Body(..., embed=True)):

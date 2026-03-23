@@ -95,28 +95,79 @@ class AuthManager:
         return None
 
     @staticmethod
-    def login(username, password):
-        AuthManager.ensure_admin()
-        user = AuthManager.get_user(username)
-        if not user:
-            return False
-        
-        hashed_pw = AuthManager._hash_password(password)
-        if user["password_hash"] == hashed_pw:
-            return True
-        return False
+    def get_user_by_email(email):
+        db = AuthManager._get_db()
+        if not db: return None
+        res = db.table('users').select('*').eq('email', email).execute()
+        if len(res.data) > 0:
+            return res.data[0]
+        return None
 
     @staticmethod
-    def register(username, password):
+    def login(email_or_username, password):
+        AuthManager.ensure_admin()
+        db = AuthManager._get_db()
+        
+        if '@' in email_or_username:
+            # New Email-based flow via Supabase Auth
+            try:
+                auth_res = db.auth.sign_in_with_password({
+                    "email": email_or_username,
+                    "password": password
+                })
+                if not auth_res.user:
+                    return False, "Login fehlgeschlagen"
+                
+                # Found user, return associated username
+                user = AuthManager.get_user_by_email(email_or_username)
+                if user:
+                    return True, user["username"]
+                return False, "Datenbank-Eintrag für diese E-Mail fehlt."
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "email not confirmed" in err_msg:
+                    return False, "Bitte bestätige zuerst deine E-Mail Adresse über den Link in deinem Postfach."
+                return False, "E-Mail oder Passwort falsch."
+        else:
+            # Old Username-based fallback
+            user = AuthManager.get_user(email_or_username)
+            if not user:
+                return False, "Benutzer nicht gefunden"
+            
+            hashed_pw = AuthManager._hash_password(password)
+            if user["password_hash"] == hashed_pw:
+                return True, user["username"]
+            return False, "Passwort falsch"
+
+    @staticmethod
+    def register(username, email, password):
         user = AuthManager.get_user(username)
         if user:
-            return False # User exists
+            return False, "Benutzername bereits vergeben"
             
         db = AuthManager._get_db()
         if not db: raise Exception("Supabase DB nicht initialisiert")
         
+        existing_email = db.table('users').select('*').eq('email', email).execute()
+        if len(existing_email.data) > 0:
+            return False, "Diese E-Mail Adresse ist bereits registriert"
+
+        # 1. Register with Supabase Auth
+        try:
+            auth_res = db.auth.sign_up({
+                "email": email,
+                "password": password
+            })
+            if not auth_res.user:
+                return False, "Fehler bei der Registrierung"
+        except Exception as e:
+            return False, f"Auth Fehler: {str(e)}"
+        
+        # 2. Store in our custom users table
         new_user = {
             "username": username,
+            "email": email,
+            "auth_id": auth_res.user.id,
             "password_hash": AuthManager._hash_password(password),
             "tokens": 500, # Initial tokens
             "xp": 0,
@@ -126,7 +177,7 @@ class AuthManager:
         }
         
         db.table('users').insert(new_user).execute()
-        return True
+        return True, "Registrierung erfolgreich! Bitte überprüfe dein E-Mail Postfach, um deinen Account zu aktivieren."
 
     @staticmethod
     def get_tokens(username):

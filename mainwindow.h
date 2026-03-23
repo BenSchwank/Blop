@@ -33,6 +33,20 @@
 class MainWindow;
 class PageManager;
 
+#ifdef BLOP_HAS_WEBENGINE
+#include <QWebEnginePage>
+
+class InterceptingWebPage : public QWebEnginePage {
+  Q_OBJECT
+public:
+  explicit InterceptingWebPage(QObject *parent = nullptr) : QWebEnginePage(parent) {}
+protected:
+  bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) override;
+signals:
+  void googleLoginRequested();
+};
+#endif
+
 // --- SidebarNavDelegate ---
 class SidebarNavDelegate : public QStyledItemDelegate {
   Q_OBJECT

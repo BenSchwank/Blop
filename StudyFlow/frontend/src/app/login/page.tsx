@@ -11,6 +11,7 @@ export default function LoginPage() {
     const router = useRouter();
     const [isLogin, setIsLogin] = useState(true);
     const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -64,10 +65,12 @@ export default function LoginPage() {
 
         try {
             const endpoint = isLogin ? '/auth/login' : '/auth/register';
+            const payload = isLogin ? { username, password } : { username, email, password };
+            
             const res = await fetch(`${API_BASE}${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify(payload),
             });
 
             const data = await res.json();
@@ -87,7 +90,7 @@ export default function LoginPage() {
                 // After registration, switch to login
                 setIsLogin(true);
                 setPassword('');
-                setError('Registrierung erfolgreich! Bitte melde dich an.');
+                setError('Erfolgreich! Bitte bestätige den Link in deiner E-Mail, bevor du dich anmeldest.');
             }
         } catch (err: any) {
             setError(err.message);
@@ -133,7 +136,7 @@ export default function LoginPage() {
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-[#DDD] mb-2">
-                                Benutzername
+                                {isLogin ? 'E-Mail oder Benutzername' : 'Benutzername'}
                             </label>
                             <input
                                 type="text"
@@ -141,9 +144,25 @@ export default function LoginPage() {
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
                                 className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all"
-                                placeholder="Dein Benutzername"
+                                placeholder={isLogin ? 'Deine E-Mail oder dein Benutzername' : 'Dein sichtbarer Benutzername'}
                             />
                         </div>
+
+                        {!isLogin && (
+                            <div>
+                                <label className="block text-sm font-medium text-[#DDD] mb-2">
+                                    E-Mail Adresse
+                                </label>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
+                                    className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20 transition-all"
+                                    placeholder="Deine E-Mail Adresse"
+                                />
+                            </div>
+                        )}
 
                         <div>
                             <label className="block text-sm font-medium text-[#DDD] mb-2">
