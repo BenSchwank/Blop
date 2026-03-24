@@ -28,12 +28,14 @@
 // -------------------------------------
 
 #include <QApplication>
+#include <QMessageBox>
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QDataStream>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QQmlContext>
 #include <QEvent>
 #include <QFile>
 #include <QGraphicsBlurEffect>
@@ -498,11 +500,41 @@ MainWindow::MainWindow(QWidget *parent)
   if (m_modeSelector) {
     m_modeSelector->setCurrentIndex(1); // Always start in Study/Login mode
   }
-  // Update sidebar to show saved username if available
+  // Update sidebar and Android navigation states based on initial login state
   QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
-  if (!savedUser.isEmpty()) {
-    updateSidebarUser(savedUser);
-  }
+  updateSidebarUser(savedUser);
+
+  // Connect GoogleAuthManager's browser prompts to custom overly logic
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::requireBrowser,
+          this, &MainWindow::showAuthOverlay);
+          
+  // Close the overlay when login completes successfully
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
+      if (m_authOverlay) {
+          m_authOverlay->accept();
+          m_authOverlay->deleteLater();
+          m_authOverlay = nullptr;
+      }
+  });
+
+  // Inject the token into the frontend session
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this](const QString &token) {
+      qDebug() << "Received Token inside MainWindow, injecting...";
+#ifdef Q_OS_ANDROID
+      emit injectToken(token); // QML receives this -> injects via runJavaScript
+#else
+      QWebEngineView *view = m_studyContainer->findChild<QWebEngineView*>();
+      if (view) {
+          QString js = QString("if (window.handleGoogleLoginSuccess) { window.handleGoogleLoginSuccess({credential: '%1'}); }").arg(token);
+          view->page()->runJavaScript(js);
+      }
+#endif
+  });
+
+  // Warn user if OAuth fails locally or via server
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this](const QString& error) {
+      QMessageBox::warning(this, "Google Login Fehler", "Der Login über Google ist fehlgeschlagen:\n" + error);
+  });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
   // Delay update check by 5s so the web view has time to render before the
@@ -1568,8 +1600,21 @@ void MainWindow::setupUi() {
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
   headerLay->setContentsMargins(15, 10, 15, 10);
 
+  btnEditorMenu = new ModernButton(androidHeader);
+  btnEditorMenu->setIcon(createModernIcon("menu", QColor("#A0A0C8")));
+  btnEditorMenu->setFixedSize(36, 36);
+  btnEditorMenu->setStyleSheet(
+      "QToolButton {"
+      "  background: transparent; border: none; border-radius: 8px;"
+      "}"
+  );
+  connect(btnEditorMenu, &QAbstractButton::clicked, this,
+          &MainWindow::onToggleSidebar);
+  headerLay->addWidget(btnEditorMenu);
+
   QLabel *lblLogo = new QLabel("Blop", androidHeader);
-  lblLogo->setStyleSheet("color: white; font-weight: bold; font-size: 18px;");
+  lblLogo->setAlignment(Qt::AlignVCenter);
+  lblLogo->setStyleSheet("color: white; font-weight: bold; font-size: 18px; margin: 0px; padding: 0px; padding-bottom: 2px;");
   headerLay->addWidget(lblLogo);
 
   m_modeSelector = new QComboBox(androidHeader);
@@ -1929,31 +1974,32 @@ void MainWindow::setupWebBrowser() {
   QQuickView *view = new QQuickView();
   view->setResizeMode(QQuickView::SizeRootObjectToView);
 
-  QString tempPath =
-      QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
-      "/blop_webview.qml";
-  QFile f(tempPath);
-  if (f.open(QIODevice::WriteOnly)) {
-    f.write(R"(
-            import QtQuick 2.0
-            import QtWebView 1.1
-            Item {
-                WebView {
-                    anchors.fill: parent
-                    url: "https://blop-six.vercel.app"
-                }
-            }
-        )");
-    f.close();
-    view->setSource(QUrl::fromLocalFile(tempPath));
-  } else {
-    QLabel *err =
-        new QLabel("Fehler: Konnte Web-Modul nicht laden.", m_studyContainer);
-    layout->addWidget(err);
-    return;
+  // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
+  view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
+
+  // Load the natively bundled QML module to ensure QtWebView is detected 
+  // by androiddeployqt during the build step. 
+  // Das qrc-Prefix '/' aus resources.qrc ist sicherer als der Qt6 auto-generierte Ordner.
+  view->setSource(QUrl("qrc:/AndroidWebView.qml"));
+
+  // Check if it's actually loaded
+  if (view->status() == QQuickView::Error) {
+      QString errorStr = "Fehler: Konnte Web-Modul nicht laden.\n";
+      for (const QQmlError &e : view->errors()) {
+          errorStr += e.toString() + "\n";
+          qWarning() << "QML Error:" << e.toString();
+      }
+      QLabel *err = new QLabel(errorStr, m_studyContainer);
+      err->setStyleSheet("color: white; font-weight: bold; padding: 20px;");
+      err->setWordWrap(true);
+      layout->addWidget(err);
+      return;
   }
 
   QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
+  // Important for Touch Input on Android: allow QWidget to forward touch to QQuickView
+  container->setAttribute(Qt::WA_AcceptTouchEvents);
+  container->setFocusPolicy(Qt::StrongFocus);
   layout->addWidget(container);
 
 #else
@@ -1984,6 +2030,16 @@ void MainWindow::setupWebBrowser() {
   connect(customPage, &InterceptingWebPage::googleLoginRequested, this, []() {
       GoogleAuthManager::instance().login();
   });
+  
+  // Bridge: Send Google ID Token back into the Next.js Web App
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [view](const QString& idToken) {
+      if (!idToken.isEmpty()) {
+          QString js = QString("if (typeof window.handleGoogleLoginSuccess === 'function') { window.handleGoogleLoginSuccess({ credential: '%1' }); }").arg(idToken);
+          view->page()->runJavaScript(js);
+      } else {
+          qWarning() << "Google Auth granted but no id_token received!";
+      }
+  });
   view->setPage(customPage);
 
   view->load(QUrl("https://blop-six.vercel.app"));
@@ -1998,17 +2054,24 @@ void MainWindow::setupWebBrowser() {
         R"js(
           (function() {
             window.isBlopNativeApp = true;
+            if (localStorage.getItem('trigger_google_login') === '1') {
+                localStorage.removeItem('trigger_google_login');
+                return 'TRIGGER_GOOGLE_LOGIN';
+            }
             var u = localStorage.getItem('username');
             var s = localStorage.getItem('session_id');
             return (u && s) ? u : '';
           })();
         )js",
         [this](const QVariant &result) {
-          QString u = result.toString().trimmed();
-          QString currentUser =
-              QSettings("Blop", "BlopApp").value("username").toString();
-          if (u != currentUser) {
-            updateSidebarUser(u);
+          QString resStr = result.toString().trimmed();
+          if (resStr == "TRIGGER_GOOGLE_LOGIN") {
+              GoogleAuthManager::instance().login();
+          } else if (!resStr.isEmpty()) {
+              QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
+              if (resStr != currentUser) {
+                  updateSidebarUser(resStr);
+              }
           }
         });
   });
@@ -2029,6 +2092,16 @@ void MainWindow::onModeChanged(int index) {
   if (m_mainContentStack) {
     m_mainContentStack->setCurrentIndex(index);
   }
+}
+
+void MainWindow::requestGoogleLogin() {
+    GoogleAuthManager::instance().login();
+}
+
+void MainWindow::onSessionCheck(const QString &sessionData) {
+    if (!sessionData.isEmpty() && sessionData != "null") {
+        updateSidebarUser(sessionData);
+    }
 }
 
 void MainWindow::updateSidebarUser(const QString &username) {
@@ -2052,9 +2125,12 @@ void MainWindow::updateSidebarUser(const QString &username) {
     
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
+      m_modeSelector->show(); // Show selector when logged in
     }
     if (btnStripMenu)
       btnStripMenu->show();
+    if (btnEditorMenu)
+        btnEditorMenu->show(); // Show the Android Header menu when logged in
 
     // Ensure sidebar is closed (not double-visible)
     if (m_isSidebarOpen) {
@@ -2066,9 +2142,12 @@ void MainWindow::updateSidebarUser(const QString &username) {
 
     if (m_modeSelector) {
       m_modeSelector->setCurrentIndex(1); // Force back to web login
+      m_modeSelector->hide(); // Hide the selector completely to prevent bypass
     }
     if (btnStripMenu)
       btnStripMenu->hide(); // Hide the sidebar hamburger when logged out to fully trap user in login
+    if (btnEditorMenu)
+      btnEditorMenu->hide(); // Hide the Android Header menu when logged out
 
     if (m_isSidebarOpen)
       onToggleSidebar();
@@ -3659,4 +3738,36 @@ void MainWindow::onShareClicked() {
       else QMessageBox::warning(this, "Fehler", "Bild konnte nicht gespeichert werden.");
     }
   }
+}
+
+void MainWindow::showAuthOverlay(const QUrl &url) {
+#ifdef Q_OS_ANDROID
+    // Google blocks OAuth2 login from any embedded WebView on Android (403 disallowed_useragent).
+    // Spoofing the User-Agent is not supported in QML QtWebView without complex JNI hooks.
+    // The only authorized way to log in on Android is via the system browser (Chrome/Custom Tabs).
+    QDesktopServices::openUrl(url);
+#else
+    if (m_authOverlay) {
+        m_authOverlay->deleteLater();
+    }
+    m_authOverlay = new QDialog(this);
+    m_authOverlay->setWindowTitle("Google Login");
+    
+    // Setting up the basic Overlay layout
+    m_authOverlay->setModal(true);
+    m_authOverlay->resize(450, 650);
+
+    QVBoxLayout *lay = new QVBoxLayout(m_authOverlay);
+    lay->setContentsMargins(0, 0, 0, 0);
+
+    // Windows/Desktop uses QWebEngineView natively
+    QWebEngineView *wv = new QWebEngineView(m_authOverlay);
+    QWebEngineProfile *prof = wv->page()->profile();
+    // Spoofing User-Agent is necessary to bypass Google's "403 disallowed_useragent" error for Desktop Embedded Browsers
+    prof->setHttpUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+    wv->load(url);
+    lay->addWidget(wv);
+
+    m_authOverlay->show();
+#endif
 }

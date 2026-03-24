@@ -29,17 +29,36 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
       "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com");
   m_oauth2->setClientIdentifierSharedKey("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");
 
-  // Scopes needed for basic profile info
-  m_oauth2->setScope("email profile");
+  // Scopes needed for basic profile info AND Google ID Token
+  m_oauth2->setScope("openid email profile");
 
-  // Open the browser when authorization is required
+  // Request a browser (overlay) when authorization is required
   connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::authorizeWithBrowser,
-          &QDesktopServices::openUrl);
+          this, &GoogleAuthManager::requireBrowser);
 
+  // --- Error Logging ---
+  connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::error, this, [this](const QString &error, const QString &description, const QUrl &url) {
+      qWarning() << "Google OAuth Error:" << error << description << url;
+      emit authenticationFailed("OAuth Error: " + error + " - " + description);
+  });
+  
   // React when an access token is successfully granted
   connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::granted, this, [this]() {
     qDebug() << "Google OAuth granted successfully!";
     m_authenticated = true;
+    
+    // Since Qt 6 QOAuth2AuthorizationCodeFlow doesn't reliably expose the id_token
+    // from the token endpoint, we just pass the Access Token instead.
+    // The backend handleGoogleLoginSuccess is updated to accept both JWT and Access Tokens.
+    QString accessToken = m_oauth2->token();
+    qDebug() << "Emitting Access Token to WebView bridge. Is empty?" << accessToken.isEmpty();
+    
+    if (accessToken.isEmpty()) {
+        emit authenticationFailed("Google hat kein gültiges Access-Token gesendet!");
+    } else {
+        emit idTokenReceived(accessToken);
+    }
+    
     emit authenticated();
 
     // Fetch the user information automatically

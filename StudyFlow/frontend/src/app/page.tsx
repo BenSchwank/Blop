@@ -267,11 +267,13 @@ export default function Dashboard() {
         fetchFolders();
       } else {
         const err = await res.json();
-        alert(`Fehler beim Verschieben: ${err.detail || 'Unbekannt'}`);
+        setError(`Fehler beim Verschieben: ${err.detail || 'Unbekannt'}`);
+        setTimeout(() => setError(""), 5000);
       }
     } catch (error) {
       console.error("Error moving folder:", error);
-      alert("Netzwerkfehler beim Verschieben des Ordners.");
+      setError("Netzwerkfehler beim Verschieben des Ordners.");
+      setTimeout(() => setError(""), 5000);
     }
   };
 

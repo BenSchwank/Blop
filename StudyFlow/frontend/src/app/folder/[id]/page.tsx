@@ -529,14 +529,16 @@ export default function FolderPage() {
             });
 
             if (res.ok) {
-                showToast(isAudio ? "Audio erfolgreich transkribiert!" : "Datei hochgeladen!");
+                showToast(isAudio ? "Audio erfolgreich transkribiert!" : "Datei hochgeladen!", "success");
                 if (isUploadOpen) setIsUploadOpen(false); // Close modal if it was open
                 setFilesToUpload([]); // Reset manual selection form state
                 fetchFiles();
             } else {
                 const err = await res.json();
-                if (err.detail && err.detail.includes("API_KEY")) {
-                    showToast("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                if (res.status === 402 || (err.detail && err.detail.includes("Nicht genügend Tokens"))) {
+                    showToast(err.detail || "Nicht genügend Tokens für diese Aktion.");
+                } else if (err.detail && err.detail.includes("API_KEY")) {
+                    showToast("Serverfehler: Kein Google Gemini API Key auf dem Server konfiguriert.");
                 } else {
                     showToast(`Fehler beim Upload: ${err.detail || "Server Error"}`);
                 }
@@ -578,8 +580,10 @@ export default function FolderPage() {
                 fetchFiles();
             } else {
                 const err = await res.json();
-                if (err.detail && err.detail.includes("API_KEY")) {
-                    showToast("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                if (res.status === 402 || (err.detail && err.detail.includes("Nicht genügend Tokens"))) {
+                    showToast(err.detail || "Nicht genügend Tokens.");
+                } else if (err.detail && err.detail.includes("API_KEY")) {
+                    showToast("Serverfehler: Kein Google Gemini API Key auf dem Server konfiguriert.");
                 } else {
                     showToast(`Fehler: ${err.detail || "Ungültige URL oder kein Transkript verfügbar."}`);
                 }
@@ -734,8 +738,10 @@ export default function FolderPage() {
                 fetchFiles();
             } else {
                 const err = await res.json();
-                if (err.detail && err.detail.includes("API_KEY")) {
-                    showToast("Kein gültiger Google Gemini API Key gefunden. Bitte füge deinen Key in den Einstellungen hinzu!");
+                if (res.status === 402 || (err.detail && err.detail.includes("Nicht genügend Tokens"))) {
+                    showToast(err.detail || "Nicht genügend Tokens für diese Aktion.");
+                } else if (err.detail && err.detail.includes("API_KEY")) {
+                    showToast("Serverfehler: Kein Google Gemini API Key konfiguriert.");
                 } else {
                     showToast(`Fehler beim Audio-Upload: ${err.detail || "Unbekannter Fehler"}`);
                 }
@@ -781,11 +787,14 @@ export default function FolderPage() {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
                     const err = await res.json();
+                    
+                    if (res.status === 402 || (typeof err.detail === 'string' && err.detail.includes("Nicht genügend Tokens"))) {
+                        showToast(err.detail || "Nicht genügend Tokens. Bitte lade dein Abo in den Einstellungen auf!");
+                        return;
+                    }
+
                     if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
-                        const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nDu musst erst deinen Google Gemini API Key in den Einstellungen hinterlegen, um AI-Features zu nutzen.\n\nJetzt zu den Einstellungen?");
-                        if (goToSettings) {
-                            router.push("/settings");
-                        }
+                        showToast("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
                         return;
                     }
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);

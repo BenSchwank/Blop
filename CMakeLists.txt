@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Android Setup
 if(ANDROID)
-    set(ANDROID_PLATFORM "android-33")
+    set(ANDROID_PLATFORM "android-34")
 endif()
 
 # Fetch version from Git
@@ -44,7 +44,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- BASIS-PAKETE ---
 # Hier wird nach Qt6Config.cmake gesucht.
 # Durch den Fix im YAML wird dieser Pfad nun korrekt via CMAKE_PREFIX_PATH gefunden.
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickControls2 Qml Multimedia MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidgets QuickControls2 Qml Multimedia MultimediaWidgets)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
@@ -144,6 +144,8 @@ if(ANDROID)
         QML_FILES
             Main.qml
             ui/ToolSettingsOverlay.qml
+            AndroidWebView.qml
+            AuthOverlay.qml
     )
 endif()
 
@@ -153,6 +155,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::Network
     Qt6::NetworkAuth
     Qt6::Quick
+    Qt6::QuickWidgets
     Qt6::QuickControls2
     Qt6::Qml
     Qt6::Multimedia
@@ -163,12 +166,19 @@ target_link_libraries(Blop PRIVATE
 target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
+# Ensure ANDROID_VERSION_CODE has a fallback
+if(NOT DEFINED ANDROID_VERSION_CODE OR "${ANDROID_VERSION_CODE}" STREQUAL "")
+    set(ANDROID_VERSION_CODE "1")
+endif()
+
 if(ANDROID)
     target_link_libraries(Blop PRIVATE Qt6::WebView)
     set_target_properties(Blop PROPERTIES
-        QT_ANDROID_COMPILE_SDK_VERSION "33"
-        QT_ANDROID_TARGET_SDK_VERSION "33"
+        QT_ANDROID_COMPILE_SDK_VERSION "34"
+        QT_ANDROID_TARGET_SDK_VERSION "34"
         QT_ANDROID_MIN_SDK_VERSION "23"
+        QT_ANDROID_VERSION_CODE "${ANDROID_VERSION_CODE}"
+        QT_ANDROID_VERSION_NAME "${SAFE_VERSION}"
     )
 else()
     # Desktop: WebEngine linken und Define setzen

@@ -105,39 +105,43 @@ class AuthManager:
 
     @staticmethod
     def login(email_or_username, password):
-        AuthManager.ensure_admin()
-        db = AuthManager._get_db()
-        
-        if '@' in email_or_username:
-            # New Email-based flow via Supabase Auth
-            try:
-                auth_res = db.auth.sign_in_with_password({
-                    "email": email_or_username,
-                    "password": password
-                })
-                if not auth_res.user:
-                    return False, "Login fehlgeschlagen"
-                
-                # Found user, return associated username
-                user = AuthManager.get_user_by_email(email_or_username)
-                if user:
-                    return True, user["username"]
-                return False, "Datenbank-Eintrag für diese E-Mail fehlt."
-            except Exception as e:
-                err_msg = str(e).lower()
-                if "email not confirmed" in err_msg:
-                    return False, "Bitte bestätige zuerst deine E-Mail Adresse über den Link in deinem Postfach."
-                return False, "E-Mail oder Passwort falsch."
-        else:
-            # Old Username-based fallback
-            user = AuthManager.get_user(email_or_username)
-            if not user:
-                return False, "Benutzer nicht gefunden"
+        try:
+            AuthManager.ensure_admin()
+            db = AuthManager._get_db()
             
-            hashed_pw = AuthManager._hash_password(password)
-            if user["password_hash"] == hashed_pw:
-                return True, user["username"]
-            return False, "Passwort falsch"
+            if '@' in email_or_username:
+                # New Email-based flow via Supabase Auth
+                try:
+                    auth_res = db.auth.sign_in_with_password({
+                        "email": email_or_username,
+                        "password": password
+                    })
+                    if not auth_res.user:
+                        return False, "Login fehlgeschlagen"
+                    
+                    # Found user, return associated username
+                    user = AuthManager.get_user_by_email(email_or_username)
+                    if user:
+                        return True, user["username"]
+                    return False, "Datenbank-Eintrag für diese E-Mail fehlt."
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if "email not confirmed" in err_msg:
+                        return False, "Bitte bestätige zuerst deine E-Mail Adresse über den Link in deinem Postfach."
+                    return False, "E-Mail oder Passwort falsch."
+            else:
+                # Old Username-based fallback
+                user = AuthManager.get_user(email_or_username)
+                if not user:
+                    return False, "Benutzer nicht gefunden"
+                
+                hashed_pw = AuthManager._hash_password(password)
+                if user["password_hash"] == hashed_pw:
+                    return True, user["username"]
+                return False, "Passwort falsch"
+        except Exception as e:
+            print(f"AuthManager.login crash: {e}")
+            return False, "Ein interner Fehler ist aufgetreten."
 
     @staticmethod
     def register(username, email, password):

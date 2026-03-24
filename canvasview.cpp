@@ -1324,6 +1324,22 @@ void CanvasView::gestureEvent(QGestureEvent *event) {
 }
 
 void CanvasView::pinchTriggered(QPinchGesture *gesture) {
+  QPointF scenePos = mapToScene(gesture->centerPoint().toPoint());
+  QGraphicsItem *hoveredItem = scene()->itemAt(scenePos, transform());
+  while (hoveredItem && hoveredItem->type() != QGraphicsItem::UserType + 100) {
+    hoveredItem = hoveredItem->parentItem();
+  }
+
+  if (hoveredItem && hoveredItem->type() == QGraphicsItem::UserType + 100) {
+    qreal rotationDelta = gesture->rotationAngle() - gesture->lastRotationAngle();
+    hoveredItem->setRotation(hoveredItem->rotation() + rotationDelta);
+
+    QPointF diff = mapToScene(gesture->centerPoint().toPoint()) -
+                   mapToScene(gesture->lastCenterPoint().toPoint());
+    hoveredItem->moveBy(diff.x(), diff.y());
+    return;
+  }
+
   if (m_interactionMode == InteractionMode::Transform && m_transformOverlay) {
     if (gesture->state() == Qt::GestureStarted) {
       bakeTransform(m_transformOverlay->target());

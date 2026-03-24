@@ -19,6 +19,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const pathname = usePathname();
     const [username, setUsername] = useState('');
     const [isAdmin, setIsAdmin] = useState(false);
+    const [tokens, setTokens] = useState<number | null>(null);
+    const [tier, setTier] = useState<string>('free');
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -26,6 +28,16 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         const user = localStorage.getItem('username') || '';
         setUsername(user);
         setIsAdmin(user.startsWith('admin_'));
+        
+        if (user) {
+            fetch(`/api/user/${user}`)
+                .then(res => res.json())
+                .then(data => {
+                    setTokens(data.tokens);
+                    setTier(data.subscription_tier);
+                })
+                .catch(err => console.error("Error fetching user info:", err));
+        }
     }, [pathname]);
 
     const handleLogout = () => {
@@ -120,7 +132,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             {/* User Profile */}
             <div
                 className={`border-t border-[#333] flex items-center py-3 gap-3 transition-all overflow-hidden shrink-0 ${isCollapsed ? 'justify-center px-0' : 'px-4'}`}
-                style={{ minHeight: '64px' }}
+                style={{ minHeight: '74px' }}
             >
                 {/* Avatar */}
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#5E5CE6] to-[#7D7AFF] flex items-center justify-center text-white font-bold text-[15px] shrink-0">
@@ -137,7 +149,17 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         >
                             Einstellungen
                         </Link>
-                        <p className="text-[10px] text-[#555] opacity-80 leading-tight mt-[1px]">
+                        {tokens !== null && (
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                                <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${tier === 'premium' ? 'bg-amber-500/20 text-amber-400' : tier === 'pro' ? 'bg-blue-500/20 text-blue-400' : 'bg-[#333] text-gray-300'}`}>
+                                    {tier.toUpperCase()}
+                                </span>
+                                <span className="text-[10px] text-[#7D7AFF] font-medium flex items-center gap-0.5">
+                                    🪙 {tokens > 900000 ? '∞' : tokens}
+                                </span>
+                            </div>
+                        )}
+                        <p className="text-[10px] text-[#555] opacity-80 leading-tight mt-[2px]">
                             v3.13.5.11
                         </p>
                     </div>

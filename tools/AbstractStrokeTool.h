@@ -107,15 +107,17 @@ protected:
             if (m_currentItem) {
                 QPointF newPos = scenePos;
                 if (m_isSnapping && m_rulerRef) {
-                    newPos = m_rulerRef->snapPoint(newPos);
                     QPointF start = m_pointsBuffer.first().pos;
-                    QPainterPath snapPath = m_rulerRef->getSnapPath(start, newPos);
-                    m_currentItem->setPath(snapPath);
-                    m_currentPath = snapPath;
+                    newPos = m_rulerRef->snapPoint(newPos, start);
                     
-                    // In snap mode, we just enforce the end point
-                    auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
-                    typedItem->addPoint({newPos, m_lastPressure});
+                    // Bei Snapping wollen wir keine Glättung und den Punkt normal hinzufügen
+                    if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last().pos).length() > 0.5) {
+                        m_pointsBuffer.append({newPos, m_lastPressure});
+                        m_currentPath.lineTo(newPos);
+                        m_currentItem->setPath(m_currentPath);
+                        auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
+                        typedItem->addPoint({newPos, m_lastPressure});
+                    }
                     return true;
                 }
 

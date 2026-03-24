@@ -6,5 +6,7 @@
     <file>assets/win_min.svg</file>
     <file>assets/win_max.svg</file>
     <file>assets/win_close.svg</file>
+    <file>AndroidWebView.qml</file>
+    <file>AuthOverlay.qml</file>
 </qresource>
 </RCC>

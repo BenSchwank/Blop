@@ -4,6 +4,7 @@
 #include <QtMath>
 #include "../ToolSettings.h"
 #include "../UIStyles.h"
+#include <QGraphicsSceneWheelEvent>
 
 class RulerItem : public QGraphicsObject {
     Q_OBJECT
@@ -30,70 +31,46 @@ public:
     }
 
     // Berechnet den Einrast-Punkt (Snapping)
-    QPointF snapPoint(QPointF scenePos) const {
-        // Transformiere Szenen-Punkt in lokales System des Lineals
-        QPointF localPos = sceneTransform().inverted().map(scenePos);
-
+    QPointF snapPoint(QPointF scenePos, QPointF strokeStart = QPointF()) const {
         if (m_config.compassMode) {
             // Kompass-Modus: Einrasten auf den Kreisradius relativ zum Lineal-Ursprung
-            // Wir nutzen die X-Position als Radius-Definition?
-            // Besser: Wir nutzen den Abstand vom Zentrum des Lineals als Radius.
-            // Aber für einen Zirkel ist der Radius meist fixiert durch eine Einstellung oder eine zweite Hand.
-            // Hier vereinfacht: Der User zeichnet entlang der Kante -> Radius = Breite/2 ?
-            // Nein, intuitive Lösung: Projektion auf die Linie, dann Rotation.
+            QPointF c = mapToScene(transformOriginPoint());
+            if (strokeStart.isNull()) return scenePos; // On press, do not snap
 
-            // Für diesen Code implementieren wir: Der Stift rastet auf der Linie ein,
-            // aber die BEWEGUNG (in AbstractStrokeTool) erzeugt einen Kreisbogen.
-            return sceneTransform().map(localPos);
+            QLineF radiusLine(c, strokeStart);
+            double r = radiusLine.length();
+
+            QLineF currentLine(c, scenePos);
+            currentLine.setLength(r);
+            return currentLine.p2();
         } else {
             // Standard Lineal: Einrasten auf obere oder untere Kante
+            QPointF localPos = sceneTransform().inverted().map(scenePos);
             qreal yTop = 0;
             qreal yBottom = m_height;
 
-            // Zu welcher Kante ist die Maus näher?
-            if (std::abs(localPos.y() - yTop) < std::abs(localPos.y() - yBottom)) {
-                localPos.setY(yTop);
+            if (!strokeStart.isNull()) {
+                // Lock onto the edge where we started
+                QPointF localStart = sceneTransform().inverted().map(strokeStart);
+                if (std::abs(localStart.y() - yTop) < std::abs(localStart.y() - yBottom)) {
+                    localPos.setY(yTop);
+                } else {
+                    localPos.setY(yBottom);
+                }
             } else {
-                localPos.setY(yBottom);
+                // Initial snap
+                if (std::abs(localPos.y() - yTop) < std::abs(localPos.y() - yBottom)) {
+                    localPos.setY(yTop);
+                } else {
+                    localPos.setY(yBottom);
+                }
             }
-
-            // Optional: Begrenzung auf die Länge des Lineals
-            // if (localPos.x() < 0) localPos.setX(0);
-            // if (localPos.x() > m_width) localPos.setX(m_width);
 
             return sceneTransform().map(localPos);
         }
     }
 
-    // Liefert den Pfad für die Linie (Gerade oder Bogen)
-    QPainterPath getSnapPath(QPointF sceneStart, QPointF sceneEnd) const {
-        QPainterPath p;
-        if (m_config.compassMode) {
-            // Zirkel-Logik: Zeichne Bogen um den Mittelpunkt des Lineals
-            QPointF center = mapToScene(transformOriginPoint());
-            QLineF lineStart(center, sceneStart);
-            QLineF lineEnd(center, sceneEnd);
-
-            double radius = lineStart.length();
-            QRectF rect(center.x() - radius, center.y() - radius, radius*2, radius*2);
-
-            double angleStart = lineStart.angle();
-            double angleEnd = lineEnd.angle();
-            double sweepLength = angleEnd - angleStart;
-
-            // Normalisierung der Winkel für kürzesten Weg
-            while (sweepLength > 180) sweepLength -= 360;
-            while (sweepLength < -180) sweepLength += 360;
-
-            p.arcMoveTo(rect, angleStart);
-            p.arcTo(rect, angleStart, sweepLength);
-        } else {
-            // Lineal-Logik: Einfache gerade Linie
-            p.moveTo(sceneStart);
-            p.lineTo(sceneEnd);
-        }
-        return p;
-    }
+    // (getSnapPath was removed as it is no longer needed since points snap individually)
 
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override {
         painter->setRenderHint(QPainter::Antialiasing);
@@ -136,6 +113,25 @@ public:
             painter->drawLine(c.x()-4, c.y(), c.x()+4, c.y());
             painter->drawLine(c.x(), c.y()-4, c.x(), c.y()+4);
         }
+    }
+
+    void wheelEvent(QGraphicsSceneWheelEvent* event) override {
+        double currentAngle = rotation();
+        // Optionale Modifikation durch Shift-Taste
+        double step = (event->modifiers() & Qt::ShiftModifier) ? 15.0 : 1.0;
+        
+        if (event->delta() > 0) {
+            currentAngle -= step;
+        } else {
+            currentAngle += step;
+        }
+        
+        // Winkel normalisieren (0-360)
+        while (currentAngle >= 360) currentAngle -= 360;
+        while (currentAngle < 0) currentAngle += 360;
+        
+        setRotation(currentAngle);
+        event->accept();
     }
 
 private:

@@ -317,6 +317,22 @@ void MultiPageNoteView::gestureEvent(QGestureEvent *event) {
 }
 
 void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
+  QPointF scenePos = mapToScene(gesture->centerPoint().toPoint());
+  QGraphicsItem *hoveredItem = scene()->itemAt(scenePos, transform());
+  while (hoveredItem && hoveredItem->type() != QGraphicsItem::UserType + 100) {
+    hoveredItem = hoveredItem->parentItem();
+  }
+
+  if (hoveredItem && hoveredItem->type() == QGraphicsItem::UserType + 100) {
+    qreal rotationDelta = gesture->rotationAngle() - gesture->lastRotationAngle();
+    hoveredItem->setRotation(hoveredItem->rotation() + rotationDelta);
+
+    QPointF diff = mapToScene(gesture->centerPoint().toPoint()) -
+                   mapToScene(gesture->lastCenterPoint().toPoint());
+    hoveredItem->moveBy(diff.x(), diff.y());
+    return;
+  }
+
   QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
 
   if (gesture->state() == Qt::GestureStarted) {

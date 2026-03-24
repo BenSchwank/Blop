@@ -63,7 +63,20 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                 }),
             });
 
-            if (!res.ok) throw new Error('Netzwerkfehler');
+            let errData = null;
+            if (!res.ok) {
+                try {
+                    errData = await res.json();
+                } catch(e) {}
+                
+                if (res.status === 402 || (errData && errData.detail && typeof errData.detail === 'string' && errData.detail.includes("Nicht genügend Tokens"))) {
+                    throw new Error(errData?.detail || "Nicht genügend Tokens. Bitte lade dein Abo in den Einstellungen auf!");
+                }
+                if (errData && errData.detail === "NO_API_KEY_FOUND") {
+                    throw new Error("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
+                }
+                throw new Error(typeof errData?.detail === 'string' ? errData.detail : 'Netzwerkfehler');
+            }
 
             const data = await res.json();
             const replyText = data.reply;
@@ -89,9 +102,9 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             }
 
             setMessages([...newMessages, { role: 'model', content: replyText }]);
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            setMessages([...newMessages, { role: 'model', content: 'Es gab einen Fehler bei der Verbindung zur KI. Bitte versuche es später noch einmal.' }]);
+            setMessages([...newMessages, { role: 'model', content: error.message || 'Es gab einen Fehler bei der Verbindung zur KI. Bitte versuche es später noch einmal.' }]);
         } finally {
             setIsLoading(false);
         }

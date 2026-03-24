@@ -539,6 +539,43 @@ public:
         apply();
       });
       layout->addWidget(chkAspect);
+    } else if (m_mode == ToolMode::Ruler) {
+      // --- RULER SETTINGS ---
+      layout->addWidget(new QLabel("Einheit:"));
+      QHBoxLayout *unitLayout = new QHBoxLayout;
+      unitLayout->setSpacing(5);
+      QButtonGroup *unitGroup = new QButtonGroup(this);
+      struct UnitEntry { QString label; RulerUnit unit; };
+      QList<UnitEntry> units = {{"px", RulerUnit::Pixel}, {"cm", RulerUnit::Centimeter}, {"Zoll", RulerUnit::Inch}};
+      for (const UnitEntry &u : units) {
+        QPushButton *btn = new QPushButton(u.label);
+        btn->setCheckable(true);
+        btn->setFixedHeight(30);
+        if (m_config.rulerUnit == u.unit) btn->setChecked(true);
+        unitGroup->addButton(btn);
+        unitLayout->addWidget(btn);
+        connect(btn, &QPushButton::clicked, [this, u]() {
+          m_config.rulerUnit = u.unit;
+          apply();
+        });
+      }
+      layout->addLayout(unitLayout);
+
+      QCheckBox *chkSnap = new QCheckBox("Einrasten");
+      chkSnap->setChecked(m_config.rulerSnap);
+      connect(chkSnap, &QCheckBox::toggled, [this](bool v) {
+        m_config.rulerSnap = v;
+        apply();
+      });
+      layout->addWidget(chkSnap);
+
+      QCheckBox *chkCompass = new QCheckBox("Kompassmodus (Bogen)");
+      chkCompass->setChecked(m_config.compassMode);
+      connect(chkCompass, &QCheckBox::toggled, [this](bool v) {
+        m_config.compassMode = v;
+        apply();
+      });
+      layout->addWidget(chkCompass);
     }
   }
 
@@ -664,11 +701,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
 
   connect(btnLasso, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Lasso); });
-  connect(btnRuler, &ToolbarBtn::clicked, [this]() {
-      m_rulerActive = !m_rulerActive;
-      btnRuler->setActive(m_rulerActive);
-      emit rulerToggled(m_rulerActive);
-  });
+  connect(btnRuler, &ToolbarBtn::clicked,
+          [=]() { handleToolClick(ToolMode::Ruler); });
   connect(btnShape, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Shape); });
   connect(btnStickyNote, &ToolbarBtn::clicked,
@@ -1110,7 +1144,7 @@ void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 void ModernToolbar::showSettingsPopup() {
   if (mode_ != ToolMode::Pen && mode_ != ToolMode::Pencil &&
       mode_ != ToolMode::Highlighter && mode_ != ToolMode::Eraser &&
-      mode_ != ToolMode::Lasso)
+      mode_ != ToolMode::Lasso && mode_ != ToolMode::Ruler)
     return;
   ToolConfig currentConfig = ToolManager::instance().config();
   ToolSettingsPopup *popup =
@@ -1157,7 +1191,7 @@ ToolbarBtn *ModernToolbar::getButtonForMode(ToolMode m) {
   case ToolMode::Lasso:
     return btnLasso;
   case ToolMode::Ruler:
-    return nullptr; // Ruler ist jetzt ein Toggle, kein ToolMode
+    return btnRuler;
   case ToolMode::Shape:
     return btnShape;
   case ToolMode::StickyNote:
@@ -1265,6 +1299,9 @@ void ModernToolbar::setToolMode(ToolMode mode) {
   if (activeBtn) {
     activeBtn->setActive(true);
     activeBtn->animateSelect();
+  }
+  if (changed) {
+    emit rulerToggled(mode == ToolMode::Ruler);
   }
   if (m_style == Radial && m_radialType == FullCircle && changed) {
     updateLayout(true);

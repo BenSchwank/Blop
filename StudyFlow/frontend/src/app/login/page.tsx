@@ -73,7 +73,15 @@ export default function LoginPage() {
                 body: JSON.stringify(payload),
             });
 
-            const data = await res.json();
+            // Try to parse JSON safely, since 500 errors might be returned as plain text by the proxy
+            const textData = await res.text();
+            let data;
+            try {
+                data = JSON.parse(textData);
+            } catch (parseError) {
+                // If parsing fails but the response is not OK, the text is the error message
+                data = { detail: res.ok ? 'Unbekannter Fehler' : (textData || 'Server Fehler (500)') };
+            }
 
             if (!res.ok) {
                 throw new Error(data.detail || 'Fehler bei der Anmeldung');
@@ -93,7 +101,7 @@ export default function LoginPage() {
                 setError('Erfolgreich! Bitte bestätige den Link in deiner E-Mail, bevor du dich anmeldest.');
             }
         } catch (err: any) {
-            setError(err.message);
+            setError(err.message || 'Ein Fehler ist aufgetreten');
         } finally {
             setLoading(false);
         }
@@ -213,7 +221,7 @@ export default function LoginPage() {
                                 {isNativeApp ? (
                                     <button
                                         type="button"
-                                        onClick={() => window.location.href = "blop://google-login"}
+                                        onClick={() => localStorage.setItem('trigger_google_login', '1')}
                                         className="w-full py-3.5 bg-white text-gray-800 rounded-lg font-semibold hover:bg-gray-100 active:bg-gray-200 transition-all flex items-center justify-center gap-2 border border-gray-300"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20px" height="20px">

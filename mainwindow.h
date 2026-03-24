@@ -134,6 +134,14 @@ protected:
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 #endif
 
+signals:
+  void injectToken(const QString &token);
+
+public slots:
+  void requestGoogleLogin();
+  void onSessionCheck(const QString &sessionData);
+  void showAuthOverlay(const QUrl &url);
+
 private slots:
   void checkForUpdates();
 
@@ -230,6 +238,7 @@ private:
   void setupWebBrowser();
   void updateSidebarUser(const QString &username); // syncs login from webview
   QWidget *m_studyContainer{nullptr};
+  QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
   QComboBox *m_modeSelector{nullptr};
   // ----------------------------

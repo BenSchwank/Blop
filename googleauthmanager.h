@@ -21,6 +21,8 @@ signals:
     void authenticated();
     void authenticationFailed(const QString& error);
     void userInfoUpdated();
+    void idTokenReceived(const QString& idToken);
+    void requireBrowser(const QUrl &url);
 
 private:
     explicit GoogleAuthManager(QObject* parent = nullptr);

@@ -14,12 +14,11 @@ export default function Settings() {
     const [deletePassword, setDeletePassword] = useState("");
     const [deleteError, setDeleteError] = useState("");
 
-    // API Key State
-    const [apiKey, setApiKey] = useState("");
-    const [savingKey, setSavingKey] = useState(false);
-    const [keyStatus, setKeyStatus] = useState("");
-
-    const [hasApiKey, setHasApiKey] = useState(false);
+    // Auth Token Stats
+    const [tokens, setTokens] = useState<number | null>(null);
+    const [tier, setTier] = useState<string>("free");
+    const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
+    const [upgradeStatus, setUpgradeStatus] = useState<{message: string, isError: boolean} | null>(null);
 
     const API_BASE = '/api';
 
@@ -27,67 +26,46 @@ export default function Settings() {
         const user = localStorage.getItem("username");
         if (user) {
             setUsername(user);
-            checkApiKeyStatus(user);
+            fetchUserInfo(user);
         }
     }, []);
 
-    const checkApiKeyStatus = async (user: string) => {
+    const fetchUserInfo = async (user: string) => {
         try {
-            const res = await fetch(`${API_BASE}/auth/apikey/${user}`);
+            const res = await fetch(`${API_BASE}/user/${user}`);
             if (res.ok) {
                 const data = await res.json();
-                setHasApiKey(data.has_key);
-                if (data.has_key) {
-                    setKeyStatus("✅ Ein API Key ist bereits in der Datenbank gespeichert.");
-                }
+                setTokens(data.tokens);
+                setTier(data.subscription_tier);
             }
         } catch (error) {
-            console.error("Error checking API key status:", error);
+            console.error("Error fetching user info:", error);
         }
     };
 
-    const handleSaveApiKey = async () => {
-        setSavingKey(true);
-        setKeyStatus("");
+    const handleUpgrade = async (newTier: string) => {
+        if (!username) return;
+        setUpgradeLoading(newTier);
+        setUpgradeStatus(null);
         try {
-            const res = await fetch(`${API_BASE}/auth/apikey`, {
+            const res = await fetch(`${API_BASE}/subscription/upgrade`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, api_key: apiKey })
+                body: JSON.stringify({ username, tier: newTier })
             });
+            const data = await res.json();
             if (res.ok) {
-                setHasApiKey(true);
-                setKeyStatus("API Key erfolgreich gespeichert! ✅");
-                setApiKey(""); // Clear input
+                // Update local state
+                setTokens(data.new_tokens);
+                setTier(data.subscription_tier);
+                setUpgradeStatus({message: data.message, isError: false});
             } else {
-                setKeyStatus("Fehler beim Speichern.");
+                setUpgradeStatus({message: data.detail || "Fehler beim Upgrade.", isError: true});
             }
         } catch (error) {
-            setKeyStatus("Verbindungsfehler.");
+            setUpgradeStatus({message: "Verbindungsfehler zur API.", isError: true});
         } finally {
-            setSavingKey(false);
-        }
-    };
-
-    const handleDeleteApiKey = async () => {
-        if (!username) return;
-        setSavingKey(true);
-        setKeyStatus("");
-        try {
-            const res = await fetch(`${API_BASE}/auth/apikey/${username}`, {
-                method: "DELETE",
-            });
-            if (res.ok) {
-                setHasApiKey(false);
-                setKeyStatus("API Key erfolgreich gelöscht! 🗑️");
-                setApiKey("");
-            } else {
-                setKeyStatus("Fehler beim Löschen.");
-            }
-        } catch (error) {
-            setKeyStatus("Verbindungsfehler.");
-        } finally {
-            setSavingKey(false);
+            setUpgradeLoading(null);
         }
     };
 
@@ -155,48 +133,58 @@ export default function Settings() {
                     </div>
                 </section>
 
-                {/* AI Configuration Section */}
+                {/* Subscription Section */}
                 <section>
                     <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-                        🤖 AI Konfiguration
+                        💎 Abonnement & Tokens
                     </h2>
                     <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
-                        <p className="text-gray-400 text-sm">
-                            Trage hier deinen eigenen <strong>Google Gemini API Key</strong> ein, um die AI-Features (Zusammenfassungen, Quiz, Uploads) zu nutzen. Wenn du den Key löschst, verwendet das System keinen Key mehr für diesen Account.
-                            <br />
-                            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-                                Hier kostenlos Key erstellen &rarr;
-                            </a>
-                        </p>
-
-                        <div className="flex gap-2">
-                            <input
-                                type="password"
-                                placeholder={hasApiKey ? "Neuen API Key eingeben (überschreibt alten)" : "Dein API Key (AIza...)"}
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                className="flex-1 bg-[#1e1e1e] border border-[#333] text-white rounded-xl px-4 py-2 focus:outline-none focus:border-[#5E5CE6] transition-colors"
-                            />
-                            <button
-                                onClick={handleSaveApiKey}
-                                disabled={savingKey}
-                                className="bg-[#5E5CE6] hover:bg-[#4c4ab5] text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {savingKey ? <Loader2 size={18} className="animate-spin" /> : "Speichern"}
-                            </button>
-                            <button
-                                onClick={handleDeleteApiKey}
-                                disabled={savingKey}
-                                className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-500 px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                                title="API Key löschen"
-                            >
-                                <Trash2 size={18} />
-                            </button>
+                        <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
+                            <div className="flex-1">
+                                <p className="text-gray-400 text-sm mb-4">
+                                    Nutze Tokens für AI-Funktionen wie Zusammenfassungen, Quizze und Audios.
+                                    Upgrade dein Abo für mehr Tokens.
+                                </p>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-3xl font-bold text-white flex items-center gap-2">
+                                        🪙 {tokens !== null ? (tokens > 900000 ? '∞' : tokens) : '...'}
+                                    </span>
+                                    <span className="text-sm text-gray-500 font-medium">Tokens verfügbar</span>
+                                </div>
+                                <div className="mt-3 inline-block px-3 py-1 bg-[#333] rounded-md text-sm text-[#5E5CE6] font-medium border border-[#444]">
+                                    Aktuelles Abo: {tier.toUpperCase()}
+                                </div>
+                            </div>
+                            
+                            <div className="flex flex-col gap-3 w-full md:w-auto shrink-0 md:min-w-[180px]">
+                                <button 
+                                    onClick={() => handleUpgrade('basic')}
+                                    disabled={upgradeLoading !== null}
+                                    className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
+                                >
+                                    {upgradeLoading === 'basic' ? <Loader2 size={16} className="animate-spin" /> : "Basic (+1000)"}
+                                </button>
+                                <button 
+                                    onClick={() => handleUpgrade('pro')}
+                                    disabled={upgradeLoading !== null}
+                                    className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
+                                >
+                                    {upgradeLoading === 'pro' ? <Loader2 size={16} className="animate-spin" /> : "Pro (+5000)"}
+                                </button>
+                                <button 
+                                    onClick={() => handleUpgrade('premium')}
+                                    disabled={upgradeLoading !== null}
+                                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-90 text-white shadow-lg shadow-orange-500/20 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
+                                >
+                                    {upgradeLoading === 'premium' ? <Loader2 size={16} className="animate-spin" /> : "Premium (+15000)"}
+                                </button>
+                            </div>
                         </div>
-                        {keyStatus && (
-                            <p className={`text-sm ${keyStatus.includes("Erfolg") ? "text-green-400" : "text-red-400"}`}>
-                                {keyStatus}
-                            </p>
+                        
+                        {upgradeStatus && (
+                            <div className={`mt-4 p-3 rounded-xl border text-sm text-center ${upgradeStatus.isError ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'}`}>
+                                {upgradeStatus.message}
+                            </div>
                         )}
                     </div>
                 </section>
