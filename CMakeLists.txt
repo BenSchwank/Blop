@@ -173,6 +173,21 @@ endif()
 
 if(ANDROID)
     target_link_libraries(Blop PRIVATE Qt6::WebView)
+
+    # --- Android OpenSSL: Required for HTTPS (OAuth token exchange, backend calls) ---
+    # Download from: git clone https://github.com/KDAB/android_openssl C:/Qt/android_openssl
+    set(ANDROID_OPENSSL_ROOT "C:/Qt/android_openssl" CACHE PATH "Path to android_openssl prebuilt libs")
+    if(EXISTS "${ANDROID_OPENSSL_ROOT}/ssl_3/${CMAKE_ANDROID_ARCH_ABI}/libssl_3.so")
+        message(STATUS "Found android_openssl for ${CMAKE_ANDROID_ARCH_ABI}")
+        set(OPENSSL_EXTRA_LIBS
+            "${ANDROID_OPENSSL_ROOT}/ssl_3/${CMAKE_ANDROID_ARCH_ABI}/libssl_3.so"
+            "${ANDROID_OPENSSL_ROOT}/ssl_3/${CMAKE_ANDROID_ARCH_ABI}/libcrypto_3.so"
+        )
+        set_target_properties(Blop PROPERTIES QT_ANDROID_EXTRA_LIBS "${OPENSSL_EXTRA_LIBS}")
+    else()
+        message(WARNING "android_openssl not found at ${ANDROID_OPENSSL_ROOT}! TLS will not work. Clone from https://github.com/KDAB/android_openssl")
+    endif()
+
     set_target_properties(Blop PROPERTIES
         QT_ANDROID_COMPILE_SDK_VERSION "34"
         QT_ANDROID_TARGET_SDK_VERSION "34"

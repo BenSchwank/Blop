@@ -81,6 +81,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickView>
+#include <QSslSocket>
 #include <QTemporaryFile>
 #include <QWidget>
 #else
@@ -504,9 +505,22 @@ MainWindow::MainWindow(QWidget *parent)
   QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
   updateSidebarUser(savedUser);
 
-  // Connect GoogleAuthManager's browser prompts to custom overly logic
+  // Connect GoogleAuthManager's browser prompts to custom overlay logic
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::requireBrowser,
-          this, &MainWindow::showAuthOverlay);
+          this, [this](const QUrl &url) {
+#ifdef Q_OS_ANDROID
+              // Check TLS availability before opening browser, warn user if broken
+              if (!QSslSocket::supportsSsl()) {
+                  QMessageBox::critical(this, "TLS Fehler",
+                      "HTTPS wird nicht unterstützt!\n\n"
+                      "OpenSSL wurde nicht gefunden. "
+                      "Der Google-Login kann nicht funktionieren.\n\n"
+                      "TLS-Version: " + QSslSocket::sslLibraryVersionString());
+                  return;
+              }
+#endif
+              showAuthOverlay(url);
+          });
           
   // Close the overlay when login completes successfully
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
