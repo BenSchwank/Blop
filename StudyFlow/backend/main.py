@@ -151,17 +151,27 @@ def verify_google_oauth(req: GoogleVerifyRequest):
     try:
         from google.oauth2 import id_token
         from google.auth.transport import requests as google_requests
+        import requests as py_requests
         import uuid
         import string
         import random
 
-        # Verify the token against Google's servers
-        # Setting audience=None if client_id is None, it disables audience validation. 
-        # For production security, this should validate req.client_id matching our env.
-        idinfo = id_token.verify_oauth2_token(
-            req.token, 
-            google_requests.Request()
-        )
+        # Check if the token is a JWT (id_token) or a plain access_token.
+        # JWTs start with 'eyJ'
+        if req.token.startswith("eyJ") or req.token.startswith("ey"):
+            idinfo = id_token.verify_oauth2_token(
+                req.token, 
+                google_requests.Request()
+            )
+        else:
+            # Verifying an OAuth Access Token by fetching the user profile
+            resp = py_requests.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {req.token}"}
+            )
+            if resp.status_code != 200:
+                raise ValueError(f"Invalid Google Access Token. Status: {resp.status_code}, Response: {resp.text}")
+            idinfo = resp.json()
         
         email = idinfo.get('email')
         if not email:
@@ -196,10 +206,10 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         session_id = AuthManager.create_session(username)
         return {"session_id": session_id, "username": username}
 
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Ungültiges Google Auth Token")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=f"Ungültiges Google Auth Token: {str(ve)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Server Fehler: {str(e)}")
 
 @app.get("/api/auth/validate")
 def validate_session(session_id: str):
@@ -364,24 +374,68 @@ def delete_file(file_id: str, username: str, folder_id: str):
 
 # --- UPLOAD & AI ENDPOINTS ---
 
-class APIKeyRequest(BaseModel):
+class SubscriptionUpgradeRequest(BaseModel):
     username: str
-    api_key: str
+    tier: str
 
-@app.post("/api/auth/apikey")
-def save_api_key(request: APIKeyRequest):
-    """(Deprecated) Returns success so frontend doesn't break."""
-    return {"status": "success", "message": "API Key gespeichert"}
+@app.get("/api/user/{username}")
+def get_user_info(username: str):
+    """Returns user profile info including tokens and subscription tier."""
+    user = AuthManager.get_user(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # Standardize output, default to "free" and set admin tokens to infinity visually
+    tokens = user.get("tokens", 0)
+    if user.get("is_admin", False):
+         tokens = 999999
+         
+    return {
+        "username": user.get("username"),
+        "email": user.get("email", ""),
+        "tokens": tokens,
+        "subscription_tier": user.get("subscription_tier", "free"),
+        "xp": user.get("xp", 0),
+        "is_admin": user.get("is_admin", False)
+    }
 
-@app.get("/api/auth/apikey/{username}")
-def check_api_key(username: str):
-    """Returns true to force frontend into 'ready' state."""
-    return {"has_key": True}
-
-@app.delete("/api/auth/apikey/{username}")
-def remove_api_key(username: str):
-    """(Deprecated) Returns success."""
-    return {"status": "success", "message": "API Key entfernt"}
+@app.post("/api/subscription/upgrade")
+def upgrade_subscription(request: SubscriptionUpgradeRequest):
+    """Mock endpoint to upgrade subscription and grant tokens."""
+    tier_lower = request.tier.lower()
+    
+    # Define token grants per tier
+    tier_tokens = {
+        "basic": 1000,
+        "pro": 5000,
+        "premium": 15000
+    }
+    
+    if tier_lower not in tier_tokens:
+        raise HTTPException(status_code=400, detail="Ungültiges Abo-Modell (Verfügbar: basic, pro, premium)")
+        
+    db = AuthManager._get_db()
+    if not db:
+        raise HTTPException(status_code=500, detail="DB Error")
+        
+    user = AuthManager.get_user(request.username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    new_tokens = user.get("tokens", 0) + tier_tokens[tier_lower]
+    
+    # Update DB
+    db.table('users').update({
+        "subscription_tier": tier_lower,
+        "tokens": new_tokens
+    }).eq("username", request.username).execute()
+    
+    return {
+        "status": "success", 
+        "message": f"Erfolgreich auf {tier_lower.capitalize()} hochgestuft. {tier_tokens[tier_lower]} Tokens hinzugefügt!",
+        "new_tokens": new_tokens,
+        "subscription_tier": tier_lower
+    }
 
 def check_and_deduct_tokens(username: str, cost: int):
     tokens = AuthManager.get_tokens(username)
