@@ -86,9 +86,9 @@
 #else
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
+#include <QWebEngineProfile>
 #endif
 #endif
-
 // ============================================================================
 // KONFIGURATION FÜR ANDROID SCALING & MARGINS
 // ============================================================================
