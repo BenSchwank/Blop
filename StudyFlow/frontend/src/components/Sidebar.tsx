@@ -33,8 +33,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             fetch(`/api/user/${user}`)
                 .then(res => res.json())
                 .then(data => {
-                    setTokens(data.tokens);
-                    setTier(data.subscription_tier);
+                    if (data && data.tokens !== undefined) setTokens(data.tokens);
+                    if (data && data.subscription_tier) setTier(data.subscription_tier);
                 })
                 .catch(err => console.error("Error fetching user info:", err));
         }
@@ -152,7 +152,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         {tokens !== null && (
                             <div className="flex items-center gap-1.5 mt-1.5">
                                 <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${tier === 'premium' ? 'bg-amber-500/20 text-amber-400' : tier === 'pro' ? 'bg-blue-500/20 text-blue-400' : 'bg-[#333] text-gray-300'}`}>
-                                    {tier.toUpperCase()}
+                                    {(tier || 'free').toUpperCase()}
                                 </span>
                                 <span className="text-[10px] text-[#7D7AFF] font-medium flex items-center gap-0.5">
                                     🪙 {tokens > 900000 ? '∞' : tokens}
