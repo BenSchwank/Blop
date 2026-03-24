@@ -517,18 +517,51 @@ MainWindow::MainWindow(QWidget *parent)
       }
   });
 
-  // Inject the token into the frontend session
+  // Verify the Google access token via our own backend and inject session into the WebView
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this](const QString &token) {
-      qDebug() << "Received Token inside MainWindow, injecting...";
+      qDebug() << "Received Google token in MainWindow, posting to backend for verification...";
+
+      QNetworkAccessManager *nam = new QNetworkAccessManager(this);
+      QNetworkRequest req(QUrl("https://blop-study.com/api/auth/google/verify"));
+      req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+      QJsonObject body;
+      body["token"] = token;
+      QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
+
+      QNetworkReply *reply = nam->post(req, postData);
+      connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
+          reply->deleteLater();
+          nam->deleteLater();
+          if (reply->error() != QNetworkReply::NoError) {
+              qWarning() << "Backend Google verify failed:" << reply->errorString();
+              return;
+          }
+          QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+          if (doc.isNull() || !doc.isObject()) return;
+          QJsonObject obj = doc.object();
+          QString sessionId = obj.value("session_id").toString();
+          QString username  = obj.value("username").toString();
+          if (sessionId.isEmpty() || username.isEmpty()) {
+              qWarning() << "Backend returned empty session_id or username!";
+              return;
+          }
+          qDebug() << "Backend verified Google login! username:" << username;
+
+          // Inject directly into WebView localStorage — works on both Android (QML) and Desktop (WebEngine)
+          QString js = QString(
+              "localStorage.setItem('session_id', '%1');"
+              "localStorage.setItem('username', '%2');"
+              "window.location.href = '/';")
+              .arg(sessionId, username);
+
 #ifdef Q_OS_ANDROID
-      emit injectToken(token); // QML receives this -> injects via runJavaScript
+          emit injectToken(js); // We reuse injectToken to pass raw JS to the QML WebView
 #else
-      QWebEngineView *view = m_studyContainer->findChild<QWebEngineView*>();
-      if (view) {
-          QString js = QString("if (window.handleGoogleLoginSuccess) { window.handleGoogleLoginSuccess({credential: '%1'}); }").arg(token);
-          view->page()->runJavaScript(js);
-      }
+          QWebEngineView *view = m_studyContainer->findChild<QWebEngineView*>();
+          if (view) view->page()->runJavaScript(js);
 #endif
+      });
   });
 
   // Warn user if OAuth fails locally or via server

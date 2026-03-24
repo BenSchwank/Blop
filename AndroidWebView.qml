@@ -20,9 +20,9 @@ Item {
     Connections {
         target: typeof blopAppBridge !== "undefined" ? blopAppBridge : null
         
-        function onInjectToken(token) {
-            console.log("QML: Token received from bridge! Injecting into React app...");
-            var jsCode = "if (window.handleGoogleLoginSuccess) { window.handleGoogleLoginSuccess({credential: '" + token + "'}); }";
+        function onInjectToken(jsCode) {
+            // jsCode is pre-built by C++: sets session_id + username in localStorage, then navigates to /
+            console.log("QML: Injecting session from C++ backend verification...");
             webView.runJavaScript(jsCode);
         }
     }
