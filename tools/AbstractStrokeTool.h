@@ -51,8 +51,8 @@ public:
 
     bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentItem) {
-            // Bake the geometry down into a VRAM hardware pixmap cache
             m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
+            m_lastCompletedItem = m_currentItem;
             m_currentItem = nullptr;
             m_pointsBuffer.clear();
             m_isSnapping = false; 

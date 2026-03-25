@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
@@ -11,18 +11,58 @@ import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
-import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
 
 interface FileData {
     id: string;
     name: string;
     type: string;
     created_at: string;
-    content?: any;
+    content?: unknown;
 }
 
+interface QuizQuestion {
+    question: string;
+    options?: string[];
+    answer: string;
+}
+
+interface SubfolderRow {
+    id: string;
+    name: string;
+    created_at: string;
+}
+
+type PlanTask = string | { description: string; completed?: boolean };
+
+interface PlanDayRow {
+    day: number | string;
+    topic: string;
+    goal: string;
+    summary?: string;
+    focus?: string;
+    tasks?: PlanTask[];
+}
+
+interface FlashcardRow {
+    front: string;
+    back: string;
+}
+
+type DraggableFileProps = {
+    file: FileData;
+    icon: React.ReactNode;
+    openMenuFileId: string | null;
+    setOpenMenuFileId: React.Dispatch<React.SetStateAction<string | null>>;
+    setSelectedFile: React.Dispatch<React.SetStateAction<FileData | null>>;
+    setFileToRename: React.Dispatch<React.SetStateAction<FileData | null>>;
+    setRenameFileValue: React.Dispatch<React.SetStateAction<string>>;
+    setIsRenameFileOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    handleDelete: (file: FileData) => void;
+};
+
 // Sub-component for interactive Quiz viewing
-const QuizViewer = ({ questions }: { questions: any[] }) => {
+const QuizViewer = ({ questions }: { questions: QuizQuestion[] }) => {
     const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
 
     const handleSelect = (qIndex: number, option: string) => {
@@ -32,7 +72,7 @@ const QuizViewer = ({ questions }: { questions: any[] }) => {
 
     return (
         <div className="space-y-6 pb-12">
-            {questions.map((q: any, i: number) => {
+            {questions.map((q: QuizQuestion, i: number) => {
                 const userSelected = selectedAnswers[i];
                 return (
                     <div key={i} className="bg-[#151525] p-5 rounded-xl border border-[#2A2A40] shadow-md">
@@ -74,111 +114,8 @@ const QuizViewer = ({ questions }: { questions: any[] }) => {
     );
 };
 
-// Sub-component for interactive Repetition viewing
-const RepetitionViewer = ({ data }: { data: any }) => {
-    const [openAnswers, setOpenAnswers] = useState<Record<number, boolean>>({});
-
-    const toggleAnswer = (index: number) => {
-        setOpenAnswers(prev => ({ ...prev, [index]: !prev[index] }));
-    };
-
-    if (!data) return <p>Keine Daten für Wiederholung gefunden.</p>;
-
-    return (
-        <div className="space-y-8 pb-12 max-w-4xl mx-auto">
-            {/* Core Concepts */}
-            {data.core_concepts && data.core_concepts.length > 0 && (
-                <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-2xl">
-                    <h3 className="text-blue-400 font-bold text-lg mb-4 flex items-center gap-2">
-                        <span className="text-xl">🎯</span> Kernkonzepte (TL;DR)
-                    </h3>
-                    <ul className="space-y-2">
-                        {data.core_concepts.map((concept: string, i: number) => (
-                            <li key={i} className="flex gap-3 text-gray-200">
-                                <span className="text-blue-500 mt-1">•</span>
-                                <span>{concept}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-
-            {/* QA Pairs / Active Recall */}
-            {data.qa_pairs && data.qa_pairs.length > 0 && (
-                <div>
-                    <h3 className="text-white font-bold text-xl mb-4 flex items-center gap-2">
-                        <span className="text-xl">❓</span> Active Recall Fragen
-                    </h3>
-                    <div className="space-y-4">
-                        {data.qa_pairs.map((qa: any, i: number) => {
-                            const isOpen = openAnswers[i];
-                            return (
-                                <div key={i} className="bg-[#151525] border border-[#2A2A40] rounded-xl overflow-hidden shadow-sm">
-                                    <button
-                                        onClick={() => toggleAnswer(i)}
-                                        className="w-full text-left p-5 flex items-start justify-between gap-4 hover:bg-[#2a2a2b] transition-colors"
-                                    >
-                                        <span className="font-medium text-gray-200 text-lg leading-relaxed">{i + 1}. {qa.question}</span>
-                                        <div className={`shrink-0 p-1 rounded-full bg-[#1C1C33] text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
-                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                                        </div>
-                                    </button>
-
-                                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                                        <div className="p-5 pt-0 border-t border-[#2A2A40] mt-2">
-                                            <div className="prose prose-invert max-w-none text-gray-300 text-base leading-relaxed">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{qa.answer}</ReactMarkdown>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* Pitfalls */}
-            {data.pitfalls && (
-                <div className="bg-orange-500/10 border border-orange-500/20 p-6 rounded-2xl">
-                    <h3 className="text-orange-400 font-bold text-lg mb-4 flex items-center gap-2">
-                        <span className="text-xl">🧠</span> Häufige Stolpersteine
-                    </h3>
-                    <div className="prose prose-invert max-w-none text-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{data.pitfalls}</ReactMarkdown>
-                    </div>
-                </div>
-            )}
-
-            {/* Math / Logic */}
-            {data.math_logic && (
-                <div className="bg-purple-500/10 border border-purple-500/20 p-6 rounded-2xl">
-                    <h3 className="text-purple-400 font-bold text-lg mb-4 flex items-center gap-2">
-                        <span className="text-xl">🧮</span> Lösungsansätze & Formeln
-                    </h3>
-                    <div className="prose prose-invert max-w-none text-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{data.math_logic}</ReactMarkdown>
-                    </div>
-                </div>
-            )}
-
-            {/* Context */}
-            {data.context && (
-                <div className="bg-green-500/10 border border-green-500/20 p-6 rounded-2xl">
-                    <h3 className="text-green-400 font-bold text-lg mb-4 flex items-center gap-2">
-                        <span className="text-xl">🔗</span> Kontext & Zusammenhänge
-                    </h3>
-                    <div className="prose prose-invert max-w-none text-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{data.context}</ReactMarkdown>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
 // Subfolder Droppable Wrapper
-const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: any, onClick: () => void }) => {
+const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: SubfolderRow, onClick: () => void }) => {
     const { isOver, setNodeRef } = useDroppable({
         id: `drop-${subfolder.id}`,
         data: { type: 'subfolder', subfolder }
@@ -206,7 +143,7 @@ const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: any, onClick: (
 };
 
 // Draggable File Wrapper
-const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, getFileIcon }: any) => {
+const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete }: DraggableFileProps) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `drag-${file.id}`,
         data: { type: 'file', file }
@@ -313,7 +250,6 @@ export default function FolderPage() {
     // Audio Recording State
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-    const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
     const [recordingTime, setRecordingTime] = useState(0);
     const audioTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -429,12 +365,6 @@ export default function FolderPage() {
             activationConstraint: {
                 distance: 25, // Require 25px of movement to start dragging. This allows clicks to fire.
             },
-        }),
-        useSensor(TouchSensor, {
-            activationConstraint: {
-                delay: 250, // Press and hold for 250ms to drag on mobile
-                tolerance: 8,
-            },
         })
     );
 
@@ -444,7 +374,7 @@ export default function FolderPage() {
 
     const API_BASE = '/api';
 
-    const fetchFiles = async () => {
+    const fetchFiles = useCallback(async () => {
         try {
             const username = localStorage.getItem("username");
             if (!username) return;
@@ -460,11 +390,11 @@ export default function FolderPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [folderId]);
 
     useEffect(() => {
-        fetchFiles();
-    }, [folderId]);
+        void fetchFiles();
+    }, [fetchFiles]);
 
     // Setup global drag and drop event listeners
     useEffect(() => {
@@ -506,7 +436,9 @@ export default function FolderPage() {
             document.body.removeEventListener('dragleave', handleDragLeave);
             document.body.removeEventListener('drop', handleDrop);
         };
-    }, [folderId]); // Include folderId so the closure captures the correct folder
+    // processNativeFileUpload is defined below; folderId keeps drop target in sync
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [folderId]);
 
     // Shared upload processing logic for both Modal and Drag & Drop
     const processNativeFileUpload = async (file: File) => {
@@ -682,7 +614,6 @@ export default function FolderPage() {
             recorder.onstop = () => {
                 const blob = new Blob(chunks, { type: 'audio/webm' });
                 setAudioBlob(blob);
-                setAudioChunks([]);
                 stream.getTracks().forEach(track => track.stop());
             };
 
@@ -756,7 +687,7 @@ export default function FolderPage() {
     // ----------------------------
 
     // Helper for AI Actions using the concurrent state array
-    const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string[]>>, successMsg: string) => {
+    const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string[]>>) => {
         stateSetter(prev => [...prev, endpoint]);
 
         try {
@@ -798,7 +729,7 @@ export default function FolderPage() {
                         return;
                     }
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
-                } catch (_) {
+                } catch {
                     // Response not JSON — use status code
                 }
                 showToast(`Fehler: ${errorMsg}`);
@@ -832,11 +763,7 @@ export default function FolderPage() {
             return;
         }
 
-        let msg = "Erfolgreich generiert!";
-        if (type === 'quiz') msg = "Quiz erstellt!";
-        else if (type === 'flashcards') msg = "Karteikarten erstellt!";
-
-        await handleAIAction(type, setIsGenerating, msg);
+        await handleAIAction(type, setIsGenerating);
     };
 
     const handleSummaryGenerate = async () => {
@@ -880,7 +807,7 @@ export default function FolderPage() {
                         return;
                     }
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
-                } catch (_) { }
+                } catch { /* not JSON */ }
                 showToast(`Zusammenfassungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
@@ -929,7 +856,7 @@ export default function FolderPage() {
                         return;
                     }
                     errorMsg = err.detail || errorMsg;
-                } catch (_) { }
+                } catch { /* ignore */ }
                 showToast(`Ausarbeitungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
@@ -978,7 +905,7 @@ export default function FolderPage() {
                         return;
                     }
                     errorMsg = err.detail || errorMsg;
-                } catch (_) { }
+                } catch { /* ignore */ }
                 showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
@@ -1038,7 +965,7 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
-                } catch (_) { }
+                } catch { /* ignore */ }
                 showToast(`Lernplan-Fehler: ${errorMsg}`);
             }
         } catch (error) {
@@ -1076,7 +1003,7 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     errorMsg = err.detail || errorMsg;
-                } catch (_) { }
+                } catch { /* ignore */ }
                 setTaskHelpContent(`Fehler beim Laden der Hilfe: ${errorMsg}`);
             }
         } catch (error) {
@@ -1086,8 +1013,7 @@ export default function FolderPage() {
             setIsTaskHelpLoading(false);
         }
     };
-    const handleRenameFile = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleRenameFile = async () => {
         if (!renameFileValue.trim() || !fileToRename) return;
 
         setIsRenamingFile(true);
@@ -1203,7 +1129,7 @@ export default function FolderPage() {
                                     const err = await res.json();
                                     showToast(`Fehler beim Speichern: ${err.detail || 'Unbekannt'}`);
                                 }
-                            } catch (e) {
+                            } catch {
                                 showToast("Netzwerkfehler beim Speichern.");
                             }
                         }}
@@ -1274,7 +1200,7 @@ export default function FolderPage() {
         }
 
         if (selectedFile.type === 'plan') {
-            const plan = selectedFile.content || [];
+            const plan = (Array.isArray(selectedFile.content) ? selectedFile.content : []) as PlanDayRow[];
             if (!Array.isArray(plan) || plan.length === 0) {
                 return (
                     <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col items-center justify-center p-4">
@@ -1313,7 +1239,7 @@ export default function FolderPage() {
 
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-6">
                         <div className="max-w-4xl mx-auto space-y-4">
-                            {plan.map((day: any, i: number) => {
+                            {plan.map((day: PlanDayRow, i: number) => {
                                 const isExpanded = expandedDay === i;
 
                                 return (
@@ -1356,9 +1282,9 @@ export default function FolderPage() {
                                                         <span className="text-gray-400 font-semibold text-xs uppercase tracking-wider">📝 Aufgaben</span>
                                                     </div>
                                                     <ul className="space-y-3">
-                                                        {day.tasks?.map((task: any, idx: number) => {
-                                                            const isCompleted = typeof task === 'object' ? task.completed : false;
-                                                            const description = typeof task === 'object' ? task.description : task;
+                                                        {day.tasks?.map((task: PlanTask, idx: number) => {
+                                                            const isCompleted = typeof task === 'object' && task !== null ? Boolean((task as { completed?: boolean }).completed) : false;
+                                                            const description = typeof task === 'object' && task !== null ? String((task as { description?: string }).description ?? '') : String(task);
                                                             return (
                                                                 <li key={idx} className="flex items-start gap-3 group/task">
                                                                     <button
@@ -1512,20 +1438,21 @@ export default function FolderPage() {
 
     const renderFileContent = (file: FileData) => {
         if (file.type === 'quiz') {
-            const questions = file.content || [];
+            const questions = file.content;
             if (!Array.isArray(questions)) return <p>Fehlerhaftes Quiz-Format.</p>;
-            return <QuizViewer questions={questions} />;
+            return <QuizViewer questions={questions as QuizQuestion[]} />;
         }
         if (file.type === 'flashcards') {
-            const cards = file.content || [];
+            const cards = file.content;
             if (!Array.isArray(cards)) return <p>Fehlerhaftes Format.</p>;
+            const cardRows = cards as FlashcardRow[];
             return (
                 <div className="flex flex-col h-full">
                     <div className="flex justify-end mb-4">
                         <button
                             onClick={() => {
                                 const csvContent = "data:text/csv;charset=utf-8,"
-                                    + cards.map(c => `"${c.front.replace(/"/g, '""')}","${c.back.replace(/"/g, '""')}"`).join("\n");
+                                    + cardRows.map(c => `"${c.front.replace(/"/g, '""')}","${c.back.replace(/"/g, '""')}"`).join("\n");
                                 const encodedUri = encodeURI(csvContent);
                                 const link = document.createElement("a");
                                 link.setAttribute("href", encodedUri);
@@ -1541,7 +1468,7 @@ export default function FolderPage() {
                         </button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
-                        {cards.map((c: any, i: number) => {
+                        {cardRows.map((c: FlashcardRow, i: number) => {
                             // Using a data attribute or simple react state pattern isn't possible directly inside map without a hook.
                             // We will use inline script-like behavior by toggling a class on click for the flip.
                             return (
@@ -1760,7 +1687,6 @@ export default function FolderPage() {
                                                 setRenameFileValue={setRenameFileValue}
                                                 setIsRenameFileOpen={setIsRenameFileOpen}
                                                 handleDelete={handleDeleteFile}
-                                                getFileIcon={getFileIcon}
                                             />
                                         ))}
                                     </AnimatePresence>
@@ -2198,7 +2124,7 @@ export default function FolderPage() {
                                         <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
                                         <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
                                     </select>
-                                    <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen 'Quota Exceeded' bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
+                                    <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen &apos;Quota Exceeded&apos; bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
                                 </div>
                             </div>
 
@@ -2488,7 +2414,7 @@ export default function FolderPage() {
                                     className="flex-1 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
-                                    Los geht's
+                                    Los geht&apos;s
                                 </button>
                             </div>
                         </div>
@@ -2608,7 +2534,7 @@ export default function FolderPage() {
                                 <button
                                     id="rename-file-btn"
                                     disabled={!renameFileValue.trim() || isRenamingFile || renameFileValue === fileToRename.name}
-                                    onClick={handleRenameFile as any}
+                                    onClick={() => void handleRenameFile()}
                                     className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                                 >
                                     {isRenamingFile ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Speichern"}
@@ -2708,7 +2634,7 @@ export default function FolderPage() {
                                 const err = await res.json();
                                 showToast(`Fehler beim Speichern der KI-Änderung: ${err.detail || 'Unbekannt'}`);
                             }
-                        } catch (e) {
+                        } catch {
                             showToast("Netzwerkfehler beim Speichern der KI-Änderung.");
                         }
                     }}

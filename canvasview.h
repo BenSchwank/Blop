@@ -8,6 +8,7 @@
 #include <QGraphicsItemGroup>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QSet>
 #include <QUndoStack>
 #include <QWidget>
 #include <QPushButton>
@@ -125,7 +126,8 @@ private:
     int m_penWidth;
     QString m_filePath;
 
-    QUndoStack *m_undoStack; // Nutze QUndoStack statt manueller Listen für Konsistenz
+    QUndoStack *m_undoStack;
+    QSet<QGraphicsItem *> m_preStrokeItems; // snapshot before a stroke begins
 
     // Selection & Menus
     QGraphicsPathItem *m_lassoItem;

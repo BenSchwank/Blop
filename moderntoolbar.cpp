@@ -25,6 +25,7 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <cmath>
+#include <QtGlobal>
 
 // =============================================================================
 // 1. ToolbarBtn Implementation
@@ -55,7 +56,7 @@ void ToolbarBtn::setActive(bool active) {
   update();
 }
 void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
-  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton || e->source() != Qt::MouseEventNotSynthesized)
+  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton)
     emit clicked();
 }
 void ToolbarBtn::enterEvent(QEnterEvent *) {
@@ -119,6 +120,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   else if (m_iconName == "hand") emoji = "✋";
   else if (m_iconName == "undo") emoji = "↩";
   else if (m_iconName == "redo") emoji = "↪";
+  else if (m_iconName == "overview") emoji = "\u2302";
   // Fallback for dock_toggle or other dynamically set emojis
   
   // Custom font size for the emoji
@@ -624,6 +626,12 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnHand = new ToolbarBtn("hand", this);
   btnUndo = new ToolbarBtn("undo", this);
   btnRedo = new ToolbarBtn("redo", this);
+#ifdef Q_OS_ANDROID
+  btnBackOverview = new ToolbarBtn("overview", this);
+  btnBackOverview->setToolTip(tr("Zur Übersicht"));
+  connect(btnBackOverview, &ToolbarBtn::clicked, this,
+          [this]() { emit backToOverviewRequested(); });
+#endif
   btnDockToggle = new ToolbarBtn("↥", this); // Default detach/dock icon
 
   btnSettings = new ToolbarBtn("⚙️", this);
@@ -633,10 +641,17 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   
   m_dockedOnlyButtons = {btnSettings, btnSave, btnPalette, btnBrushSize};
 
+#ifdef Q_OS_ANDROID
+  m_buttons = {btnSettings, btnSave, btnPen,      btnPencil, btnHighlighter, btnEraser,
+               btnLasso,    btnRuler,  btnShape,       btnStickyNote,
+               btnText,     btnImage,  btnHand,        btnBackOverview,
+               btnUndo,     btnRedo,   btnPalette,     btnBrushSize, btnDockToggle};
+#else
   m_buttons = {btnSettings, btnSave, btnPen,      btnPencil, btnHighlighter, btnEraser,
                btnLasso,    btnRuler,  btnShape,       btnStickyNote,
                btnText,     btnImage,  btnHand,        btnUndo,
                btnRedo,     btnPalette, btnBrushSize,  btnDockToggle};
+#endif
 
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
@@ -1511,12 +1526,23 @@ void ModernToolbar::setDockMode(bool docked) {
   }
 }
 
+QList<ToolbarBtn *> ModernToolbar::leftChromeButtons() const {
+  QList<ToolbarBtn *> out;
+#ifdef Q_OS_ANDROID
+  if (btnBackOverview)
+    out.append(btnBackOverview);
+#endif
+  out.append(btnUndo);
+  out.append(btnRedo);
+  return out;
+}
+
 int ModernToolbar::calculateMinLength() {
   int btnS = 40;
   int minGap = 6;
   
   if (m_isDockedMode) {
-    QList<ToolbarBtn*> leftGroup = {btnUndo, btnRedo};
+    QList<ToolbarBtn*> leftGroup = leftChromeButtons();
     QList<ToolbarBtn*> rightGroup = {btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
     int centerGroupSize = m_buttons.size() - leftGroup.size() - rightGroup.size();
     
@@ -1567,23 +1593,18 @@ void ModernToolbar::updateLayout(bool animate) {
     m_separatorXPositions.clear();
     
     if (m_isDockedMode) {
-      if (btnUndo->parentWidget() != this) {
-          QPoint gU = btnUndo->parentWidget()->mapToGlobal(btnUndo->pos());
-          QPoint lU = mapFromGlobal(gU);
-          btnUndo->setParent(this);
-          btnUndo->move(lU);
-          btnUndo->setDrawFloatingBg(false);
-          btnUndo->show();
-
-          QPoint gR = btnRedo->parentWidget()->mapToGlobal(btnRedo->pos());
-          QPoint lR = mapFromGlobal(gR);
-          btnRedo->setParent(this);
-          btnRedo->move(lR);
-          btnRedo->setDrawFloatingBg(false);
-          btnRedo->show();
+      for (ToolbarBtn *b : leftChromeButtons()) {
+        if (b->parentWidget() != this) {
+          QPoint g = b->parentWidget()->mapToGlobal(b->pos());
+          QPoint l = mapFromGlobal(g);
+          b->setParent(this);
+          b->move(l);
+          b->setDrawFloatingBg(false);
+          b->show();
+        }
       }
 
-      QList<ToolbarBtn*> leftGroup = {btnUndo, btnRedo}; 
+      QList<ToolbarBtn*> leftGroup = leftChromeButtons(); 
       QList<ToolbarBtn*> rightGroup = {btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
       QList<ToolbarBtn*> centerGroup;
       for (auto *b : m_buttons) {
@@ -1633,33 +1654,37 @@ void ModernToolbar::updateLayout(bool animate) {
       }
     } else {
       int currentPos = dragSize;
-      
-      // Undock floating buttons
-      for (auto *b : {btnUndo, btnRedo}) {
-          if (QWidget *pw = parentWidget()) {
-              if (b->parentWidget() == this) {
-                  QPoint g = mapToGlobal(b->pos());
-                  QPoint lp = pw->mapFromGlobal(g);
-                  b->setParent(pw);
-                  b->move(lp);
-                  b->setDrawFloatingBg(true);
-                  b->show();
-              }
-              int targetX = (b == btnUndo) ? 20 : 70;
-              int targetY = 20;
-              if (animate) {
-                  QPropertyAnimation* anim = new QPropertyAnimation(b, "pos");
-                  anim->setDuration(200);
-                  anim->setEndValue(QPoint(targetX, targetY));
-                  anim->start(QAbstractAnimation::DeleteWhenStopped);
-              } else {
-                  b->move(targetX, targetY);
-              }
+      const QList<ToolbarBtn *> chromeRow = leftChromeButtons();
+
+      // Undock: back + undo + redo in one row on the editor surface
+      int floaterX = 16;
+      const int floaterY = 18;
+      for (ToolbarBtn *b : chromeRow) {
+        if (QWidget *pw = parentWidget()) {
+          if (b->parentWidget() == this) {
+            QPoint g = mapToGlobal(b->pos());
+            QPoint lp = pw->mapFromGlobal(g);
+            b->setParent(pw);
+            b->move(lp);
+            b->setDrawFloatingBg(true);
+            b->show();
           }
+          QPoint targetPos(floaterX, floaterY);
+          if (animate) {
+            QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
+            anim->setDuration(200);
+            anim->setEndValue(targetPos);
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
+          } else {
+            b->move(targetPos);
+          }
+          b->raise();
+          floaterX += btnS + gap;
+        }
       }
 
       for (auto *b : m_buttons) {
-        if (b == btnUndo || b == btnRedo) continue;
+        if (chromeRow.contains(b)) continue;
         if (!b->isVisible()) continue;
         int bx, by;
         if (m_orientation == Vertical) {
@@ -1689,6 +1714,7 @@ void ModernToolbar::updateLayout(bool animate) {
         paintCx = m_isDockedLeft ? 0 : width();
     }
     int btnS = 40 * m_scale;
+    const int gap = 6;
     
     QList<ToolbarBtn*> radialBtns = {
       btnPen, btnPencil, btnHighlighter, btnEraser,
@@ -1696,28 +1722,34 @@ void ModernToolbar::updateLayout(bool animate) {
       btnText, btnImage, btnHand
     };
     
-    // Undock floating buttons
-    for (auto *b : {btnUndo, btnRedo}) {
+    // Undock: back + undo + redo in one row
+    {
+      int floaterX = 16;
+      const int floaterY = 18;
+      for (ToolbarBtn *b : leftChromeButtons()) {
+        b->setBtnSize(btnS);
         if (QWidget *pw = parentWidget()) {
-            if (b->parentWidget() == this) {
-                QPoint g = mapToGlobal(b->pos());
-                QPoint lp = pw->mapFromGlobal(g);
-                b->setParent(pw);
-                b->move(lp);
-                b->setDrawFloatingBg(true);
-                b->show();
-            }
-            int targetX = (b == btnUndo) ? 20 : 70;
-            int targetY = 20;
-            if (animate) {
-                QPropertyAnimation* anim = new QPropertyAnimation(b, "pos");
-                anim->setDuration(200);
-                anim->setEndValue(QPoint(targetX, targetY));
-                anim->start(QAbstractAnimation::DeleteWhenStopped);
-            } else {
-                b->move(targetX, targetY);
-            }
+          if (b->parentWidget() == this) {
+            QPoint g = mapToGlobal(b->pos());
+            QPoint lp = pw->mapFromGlobal(g);
+            b->setParent(pw);
+            b->move(lp);
+            b->setDrawFloatingBg(true);
+            b->show();
+          }
+          QPoint targetPos(floaterX, floaterY);
+          if (animate) {
+            QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
+            anim->setDuration(200);
+            anim->setEndValue(targetPos);
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
+          } else {
+            b->move(targetPos);
+          }
+          b->raise();
+          floaterX += btnS + gap;
         }
+      }
     }
     
     ToolbarBtn *activeBtn = getButtonForMode(mode_);
@@ -1725,7 +1757,10 @@ void ModernToolbar::updateLayout(bool animate) {
         activeBtn = btnPen;
     }
     
+    const QList<ToolbarBtn *> chrome = leftChromeButtons();
     for (auto *b : m_buttons) {
+      if (chrome.contains(b))
+        continue;
       if (!radialBtns.contains(b)) {
         b->hide();
       } else {

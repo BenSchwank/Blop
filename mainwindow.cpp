@@ -66,16 +66,23 @@
 #include <windowsx.h>
 #endif
 #include <QScroller>
+#include <QScrollerProperties>
+#include <QVariant>
+#include <QVariantAnimation>
 #include <QSettings>
 #include <QSlider>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTimer>
+#include <QSignalBlocker>
+#include <QToolBar>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 #include <QWidgetAction>
 #include <algorithm>
 #include <utility>
 #include <QCloseEvent>
+#include <QShowEvent>
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
@@ -86,6 +93,7 @@
 #include <QWidget>
 #include <QElapsedTimer>
 #include <QJniObject>
+#include <QtCore/qnativeinterface.h>
 #else
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
@@ -95,10 +103,15 @@
 // ============================================================================
 // KONFIGURATION FÜR ANDROID SCALING & MARGINS
 // ============================================================================
+// Overview margins (used on both Android and desktop)
+static const int MARGIN_OVERVIEW = 30;
+
 #ifdef Q_OS_ANDROID
-static const int SIDEBAR_WIDTH = 280;
-static const int ROW_HEIGHT_HEADER = 50;
-static const int ROW_HEIGHT_ITEM = 64;
+static const int SIDEBAR_WIDTH = 248;
+// Sidebar list only (Overview grid still uses FONT_SIZE_BASE below)
+static const int ROW_HEIGHT_HEADER = 40;
+static const int ROW_HEIGHT_ITEM = 52;
+static const int SIDEBAR_NAV_FONT_PT = 13;
 static const int FONT_SIZE_BASE = 16;
 static const int FONT_SIZE_HEADER = 22;
 static const int MARGIN_ANDROID_TOP = 50;
@@ -111,7 +124,6 @@ static const int ROW_HEIGHT_HEADER = 40;
 static const int ROW_HEIGHT_ITEM = 44;
 static const int FONT_SIZE_BASE = 10;
 static const int FONT_SIZE_HEADER = 18;
-static const int MARGIN_OVERVIEW = 30;
 #endif
 
 // IMPORTANT: Update this version string for every new release build!
@@ -140,6 +152,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
                                const QModelIndex &index) const {
   painter->save();
   painter->setRenderHint(QPainter::Antialiasing);
+#ifdef Q_OS_ANDROID
+  const int navFont = SIDEBAR_NAV_FONT_PT;
+#else
+  const int navFont = FONT_SIZE_BASE;
+#endif
 
   bool isHeader = index.data(Qt::UserRole + 1).toBool();
   bool isExpandable = index.data(Qt::UserRole + 6).toBool();
@@ -152,7 +169,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
     painter->setPen(QColor("#888888"));
     QFont f = m_window->font();
     f.setBold(true);
-    f.setPointSize(FONT_SIZE_BASE - 2);
+    f.setPointSize(navFont - 2);
     painter->setFont(f);
 
     int arrowX = option.rect.left() + 15;
@@ -181,7 +198,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
     painter->setPen(QColor("#333333"));
     painter->drawLine(lineX, lineY, option.rect.right() - 15, lineY);
   } else {
+#ifdef Q_OS_ANDROID
+    QRect rect = option.rect.adjusted(8 + indent, 2, -8, -2);
+#else
     QRect rect = option.rect.adjusted(8 + indent, 4, -8, -4);
+#endif
     bool selected = (option.state & QStyle::State_Selected);
     bool hover = (option.state & QStyle::State_MouseOver);
 
@@ -219,7 +240,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
     int iconSize = 24;
 #ifdef Q_OS_ANDROID
-    iconSize = 32;
+    iconSize = 24;
 #endif
 
     QRect iconRect(rect.left() + iconOffset, rect.center().y() - iconSize / 2,
@@ -239,7 +260,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
     painter->setPen(selected ? m_window->currentAccentColor() : QColor(220, 220, 220));
 
     QFont f = m_window->font();
-    f.setPointSize(FONT_SIZE_BASE);
+    f.setPointSize(navFont);
     if (selected)
       f.setBold(true);
     painter->setFont(f);
@@ -250,14 +271,19 @@ void SidebarNavDelegate::paint(QPainter *painter,
 
     QString count = index.data(Qt::UserRole + 2).toString();
     if (!count.isEmpty()) {
+#ifdef Q_OS_ANDROID
+      int badgeW = 28;
+      int badgeH = 18;
+#else
       int badgeW = 30;
       int badgeH = 20;
+#endif
       QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH / 2,
                       badgeW, badgeH);
       painter->setPen(selected ? Qt::white : m_window->currentAccentColor());
       QFont bf = f;
       bf.setBold(true);
-      bf.setPointSize(FONT_SIZE_BASE - 2);
+      bf.setPointSize(navFont - 2);
       painter->setFont(bf);
       painter->drawText(badgeRect, Qt::AlignCenter, count);
     }
@@ -317,6 +343,8 @@ void ModernItemDelegate::paint(QPainter *painter,
     int iconDim = rect.height() - 20;
     if (iconDim < 16)
       iconDim = 16;
+    // Visually shrink the icon inside the touch cell.
+    iconDim = qMax(16, (int)(iconDim * 0.65));
     QRect iconRect(rect.left() + 12, rect.center().y() - iconDim / 2, iconDim,
                    iconDim);
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
@@ -335,6 +363,8 @@ void ModernItemDelegate::paint(QPainter *painter,
     int maxIconH = rect.height() - textH - 10;
     int maxIconW = rect.width() - 20;
     int iconDim = qMin(maxIconW, maxIconH);
+    // Visually shrink the icon inside the touch cell.
+    iconDim = qMax(18, (int)(iconDim * 0.65));
 
     int contentHeight = iconDim + textH + 5;
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
@@ -497,13 +527,7 @@ MainWindow::MainWindow(QWidget *parent)
   qDebug() << "MainWindow: updateSidebarState danach";
 #endif
 
-  // --- Startup Mode: Always show the Study/Login web view first ---
-  // After web login, the SSO bridge (ssoTimer in setupWebBrowser) detects the
-  // session and calls updateSidebarUser(), which switches us to Notes mode.
-  if (m_modeSelector) {
-    m_modeSelector->setCurrentIndex(1); // Always start in Study/Login mode
-  }
-  // Update sidebar and Android navigation states based on initial login state
+  // Initial mode: guest → Study, logged-in → Notes (setCurrentIndex emits onModeChanged)
   QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
   updateSidebarUser(savedUser);
 
@@ -1405,9 +1429,15 @@ void MainWindow::applyTheme() {
         "background-color: #14121F; border-right: 1px solid #201E2E;");
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
+#ifdef Q_OS_ANDROID
+        "QListWidget { background-color: transparent; border: none; outline: "
+        "0; margin-left: 8px; margin-right: 8px; padding: 6px 2px; } "
+        "QListWidget::item { border: none; }");
+#else
         "QListWidget { background-color: transparent; border: none; outline: "
         "0; margin-left: 5px; margin-right: 5px; } QListWidget::item { border: "
         "none; }");
+#endif
 
   if (m_rightSidebar)
     m_rightSidebar->setStyleSheet(
@@ -1434,25 +1464,40 @@ void MainWindow::updateGrid() {
     return;
 
 #ifdef Q_OS_ANDROID
+  // Match Windows desktop grid: same profile-driven tile size, square cells, spacing
   int screenWidth = m_fileListView->width();
   if (screenWidth <= 0)
     screenWidth = QApplication::primaryScreen()->availableGeometry().width();
 
-  int columns = 2;
-  if (screenWidth > 600)
-    columns = 4;
-  if (screenWidth > 900)
-    columns = 6;
+  int s = m_currentProfile.iconSize;
+  if (s <= 20)
+    s = 100;
 
-  int spacing = 15;
+  int spacing = m_currentProfile.gridSpacing;
+  if (spacing <= 0)
+    spacing = 20;
+
   m_fileListView->setSpacing(spacing);
 
+  int avail = screenWidth;
+  int columns = (avail - spacing) / (s + spacing);
+  if (columns < 1)
+    columns = 1;
+  if (columns > 6)
+    columns = 6;
+
   int totalSpacing = (columns + 1) * spacing;
-  int itemWidth = (screenWidth - totalSpacing) / columns;
-  int itemHeight = itemWidth + 40;
+  int itemWidth = (avail - totalSpacing) / columns;
+  while (itemWidth < 64 && columns > 1) {
+    columns--;
+    totalSpacing = (columns + 1) * spacing;
+    itemWidth = (avail - totalSpacing) / columns;
+  }
+
+  const int itemHeight = itemWidth;
 
   m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
-  m_fileListView->setIconSize(QSize(itemWidth - 20, itemWidth - 20));
+  m_fileListView->setIconSize(QSize(itemWidth, itemWidth));
   m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
 
 #else
@@ -1642,62 +1687,123 @@ void MainWindow::setupUi() {
   mainLayout->setSpacing(0);
 
 #ifdef Q_OS_ANDROID
-  QWidget *androidHeader = new QWidget(this);
-  androidHeader->setFixedHeight(60);
-  androidHeader->setStyleSheet(
-      "background-color: #0F111A; border-bottom: 1px solid #1F2335;");
-  QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
-  headerLay->setContentsMargins(15, 10, 15, 10);
+  // Native QQuickView/WebView can draw above normal widgets in the central layout
+  // (Android SurfaceView z-order). Put tabs in QMainWindow's top tool bar so they
+  // stay above the embedded native surface — changing onModeChanged alone won't fix that.
+  QToolBar *topBar = new QToolBar(this);
+  m_androidHeader = topBar;
+  topBar->setObjectName("AndroidTopBar");
+  topBar->setMovable(false);
+  topBar->setFloatable(false);
+  topBar->setAllowedAreas(Qt::TopToolBarArea);
+  topBar->setContentsMargins(0, 0, 0, 0);
+  topBar->setStyleSheet(
+      "QToolBar { background-color: #0F111A; border: none; "
+      "border-bottom: 1px solid #1F2335; spacing: 0; padding: 0px; }"
+      "QToolButton { background: transparent; border: none; }");
+  topBar->setFixedHeight(60);
 
-  btnEditorMenu = new ModernButton(androidHeader);
-  btnEditorMenu->setIcon(createModernIcon("menu", QColor("#A0A0C8")));
-  btnEditorMenu->setFixedSize(36, 36);
-  btnEditorMenu->setStyleSheet(
+  QWidget *androidHeader = new QWidget(topBar);
+  androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  androidHeader->setFixedHeight(60);
+  androidHeader->setStyleSheet("background-color: #0F111A;");
+  QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
+  headerLay->setContentsMargins(12, 6, 12, 6);
+  headerLay->setSpacing(8);
+
+  // Hamburger only while a note is open (overview uses floating menu next to welcome)
+  m_btnAndroidToolbarMenu = new ModernButton(androidHeader);
+  m_btnAndroidToolbarMenu->setIcon(createModernIcon("menu", QColor("#A0A0C8")));
+  m_btnAndroidToolbarMenu->setFixedSize(36, 36);
+  m_btnAndroidToolbarMenu->setStyleSheet(
       "QToolButton {"
       "  background: transparent; border: none; border-radius: 8px;"
       "}"
   );
-  connect(btnEditorMenu, &QAbstractButton::clicked, this,
+  m_btnAndroidToolbarMenu->hide();
+  connect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
-  headerLay->addWidget(btnEditorMenu);
+  headerLay->addWidget(m_btnAndroidToolbarMenu);
 
   QLabel *lblLogo = new QLabel("Blop", androidHeader);
-  lblLogo->setAlignment(Qt::AlignVCenter);
-  lblLogo->setStyleSheet("color: white; font-weight: bold; font-size: 18px; margin: 0px; padding: 0px; padding-bottom: 2px;");
+  lblLogo->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+  lblLogo->setStyleSheet(
+      "color: white; font-weight: bold; font-size: 17px; margin: 0px; padding: 0px;");
   headerLay->addWidget(lblLogo);
+  headerLay->addSpacing(4);
 
+  // Keep m_modeSelector QComboBox as the logic controller (hidden, 0x0)
+  // Use visible tab buttons instead — QComboBox popups dismiss immediately on Android touch
   m_modeSelector = new QComboBox(androidHeader);
   m_modeSelector->addItem("Notizen");
   m_modeSelector->addItem("Study");
-  m_modeSelector->setStyleSheet(
-      "QComboBox { background-color: #151525; color: white; border: 1px solid "
-      "#2A2A40; border-radius: 4px; padding: 5px 10px; }"
-      "QComboBox::drop-down { border: none; }"
-      "QComboBox QAbstractItemView { background-color: #151525; color: white; "
-      "selection-background-color: #5E5CE6; }");
+  m_modeSelector->setFixedSize(0, 0);
+  m_modeSelector->setMaximumSize(0, 0);
+  // Desktop: combo drives onModeChanged. Android: only explicit onModeChanged (tabs +
+  // updateSidebarUser) — otherwise setCurrentIndex fires onModeChanged twice per tap
+  // and updateSidebarState() can leave the UI stuck in Notes.
+#ifndef Q_OS_ANDROID
   connect(m_modeSelector, &QComboBox::currentIndexChanged,
           this, &MainWindow::onModeChanged);
-  headerLay->addWidget(m_modeSelector);
-  headerLay->addStretch();
+#endif
 
-  mainLayout->addWidget(androidHeader);
+  // Visible tab-style toggle buttons
+  QString tabActiveStyle =
+      "QPushButton { background: #5E5CE6; color: white; border-radius: 14px;"
+      "  padding: 4px 14px; font-weight: bold; font-size: 13px; border: none; }";
+  QString tabInactiveStyle =
+      "QPushButton { background: transparent; color: #AAA; border-radius: 14px;"
+      "  padding: 4px 14px; font-weight: bold; font-size: 13px;"
+      "  border: 1px solid #333; }"
+      "QPushButton:pressed { background: rgba(94,92,230,0.2); }";
 
-  // Delay the JNI status bar fix: the Window isn't fully ready during the constructor.
-  // Run it 300ms after the event loop starts to ensure the Activity is available.
+  m_btnAndroidNotes = new QPushButton("Notizen", androidHeader);
+  m_btnAndroidNotes->setFixedHeight(30);
+  m_btnAndroidNotes->setCursor(Qt::PointingHandCursor);
+  m_btnAndroidNotes->setStyleSheet(tabActiveStyle); // default: notes active
+
+  m_btnAndroidStudy = new QPushButton("Study", androidHeader);
+  m_btnAndroidStudy->setFixedHeight(30);
+  m_btnAndroidStudy->setCursor(Qt::PointingHandCursor);
+  m_btnAndroidStudy->setStyleSheet(tabInactiveStyle);
+
+  connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(0);
+    onModeChanged(0);
+  });
+  connect(m_btnAndroidStudy, &QPushButton::clicked, this, [this]() {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(1);
+    onModeChanged(1);
+  });
+
+  headerLay->addWidget(m_btnAndroidNotes);
+  headerLay->addWidget(m_btnAndroidStudy);
+  headerLay->addWidget(m_modeSelector); // hidden 0x0, logic only
+  headerLay->addStretch(); // Blop + tabs stay left; stretch fills the bar
+
+  topBar->addWidget(androidHeader);
+  addToolBar(Qt::TopToolBarArea, topBar);
+
+  // Status bar colors must run on Android's *UI* thread — JNI from Qt's thread
+  // triggers CalledFromWrongThreadException and can break touch/layout (see logcat).
   QTimer::singleShot(300, this, []() {
-      QJniObject activity = QJniObject::callStaticObjectMethod(
-          "org/qtproject/qt/android/QtNative",
-          "activity",
-          "()Landroid/app/Activity;");
-      if (activity.isValid()) {
-          QJniObject window = activity.callObjectMethod(
-              "getWindow", "()Landroid/view/Window;");
+      QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+        QJniObject activity = QJniObject::callStaticObjectMethod(
+            "org/qtproject/qt/android/QtNative",
+            "activity",
+            "()Landroid/app/Activity;");
+        if (activity.isValid()) {
+          QJniObject window =
+              activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
           if (window.isValid()) {
-              window.callMethod<void>("addFlags", "(I)V", 0x80000000);
-              window.callMethod<void>("setStatusBarColor",     "(I)V", 0xFF0F111A);
-              window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0F111A);
+            window.callMethod<void>("addFlags", "(I)V", 0x80000000);
+            window.callMethod<void>("setStatusBarColor", "(I)V", 0xFF0F111A);
+            window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0F111A);
           }
-      }
+        }
+      });
   });
 
 #else
@@ -1733,17 +1839,20 @@ void MainWindow::setupUi() {
 
   m_rightStack = new QStackedWidget(this);
   m_overviewContainer = new QWidget(this);
+#ifdef Q_OS_ANDROID
+  m_overviewContainer->setStyleSheet("background-color: #0D0D12;");
+#endif
   // KEIN installEventFilter - damit Klicks auf Buttons korrekt weitergeleitet werden!
   QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 #ifdef Q_OS_ANDROID
-  overviewLayout->setContentsMargins(MARGIN_ANDROID_SIDE, 12,
-                                     MARGIN_ANDROID_SIDE, 100);
+  // Align with Windows overview: same horizontal breathing room; bottom inset for nav/FAB
+  overviewLayout->setContentsMargins(MARGIN_OVERVIEW, 20, MARGIN_OVERVIEW, 100);
 #else
   overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW,
                                      MARGIN_OVERVIEW, MARGIN_OVERVIEW);
 #endif
 
-  QHBoxLayout *topBar = new QHBoxLayout();
+  QHBoxLayout *overviewTopRow = new QHBoxLayout();
   btnOverviewMenu = new ModernButton(this);
   btnOverviewMenu->setIcon(createModernIcon("menu", Qt::white));
   connect(btnOverviewMenu, &QAbstractButton::clicked, this,
@@ -1752,62 +1861,97 @@ void MainWindow::setupUi() {
   // Android already has the hamburger in the androidHeader bar — hide duplicate
   btnOverviewMenu->hide();
 #endif
-  topBar->addWidget(btnOverviewMenu);
+  overviewTopRow->addWidget(btnOverviewMenu);
   btnBackOverview = new ModernButton(this);
   btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white));
   btnBackOverview->hide();
   connect(btnBackOverview, &QAbstractButton::clicked, this,
           &MainWindow::onNavigateUp);
-  topBar->addWidget(btnBackOverview);
-  topBar->addStretch();
-  overviewLayout->addLayout(topBar);
+  overviewTopRow->addWidget(btnBackOverview);
+  overviewTopRow->addStretch();
+  overviewLayout->addLayout(overviewTopRow);
 
   // --- NEW HEADER BEREICH (Blop Notes Redesign Etappe 3) ---
   QVBoxLayout *headerLayout = new QVBoxLayout();
 
 #ifdef Q_OS_ANDROID
-  // ── Android: Search bar full-width, buttons in separate row below ─────────
-  headerLayout->setContentsMargins(0, 8, 0, 16);
-  headerLayout->setSpacing(12);
+  // ── Android: same structure & styles as Windows (welcome → search row) ────
+  headerLayout->setContentsMargins(10, 20, 10, 30);
+  headerLayout->setSpacing(15);
+
+  // Hamburger top-left, title below — matches Windows reference layout
+  btnEditorMenu = new ModernButton(m_overviewContainer);
+  btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
+  btnEditorMenu->setFixedSize(40, 40);
+  btnEditorMenu->setCursor(Qt::PointingHandCursor);
+  btnEditorMenu->setStyleSheet(
+      "QToolButton { background: transparent; border: none; border-radius: 8px; }"
+      "QToolButton:pressed { background-color: rgba(255,255,255,0.08); }");
+  connect(btnEditorMenu, &QAbstractButton::clicked, this,
+          &MainWindow::onToggleSidebar);
+  headerLayout->addWidget(btnEditorMenu, 0, Qt::AlignLeft);
 
   QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
-  lblWelcome->setStyleSheet("color: white; font-size: 22px; font-weight: bold;");
+  lblWelcome->setStyleSheet(
+      "color: white; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';");
   headerLayout->addWidget(lblWelcome);
+
+  QHBoxLayout *searchActionLayout = new QHBoxLayout();
+  searchActionLayout->setSpacing(15);
 
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
   searchBar->setPlaceholderText("Notizen durchsuchen...");
   searchBar->setFixedHeight(44);
   searchBar->setStyleSheet(
       "QLineEdit {"
-      "  background-color: #1A1829; color: white;"
-      "  border: 1px solid #201E2E; border-radius: 22px;"
-      "  padding: 0 20px; font-size: 14px;"
+      "  background-color: #1A1829;"
+      "  color: white;"
+      "  border: 1px solid #201E2E;"
+      "  border-radius: 22px;"
+      "  padding: 0 20px;"
+      "  font-size: 14px;"
       "}"
-      "QLineEdit:focus { border: 1px solid #5E5CE6; }");
-  headerLayout->addWidget(searchBar);
-
-  QHBoxLayout *searchActionLayout = new QHBoxLayout();
-  searchActionLayout->setSpacing(10);
+      "QLineEdit:focus {"
+      "  border: 1px solid #5E5CE6;"
+      "}"
+  );
+  searchActionLayout->addWidget(searchBar, 1);
 
   QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setFixedHeight(44);
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
-      "QPushButton { background-color: #5E5CE6; color: white; border-radius: 22px;"
-      "  padding: 0 20px; font-weight: bold; font-size: 14px; border: none; }"
-      "QPushButton:hover { background-color: #7D7AFF; }");
+      "QPushButton {"
+      "  background-color: #5E5CE6;"
+      "  color: white;"
+      "  border-radius: 22px;"
+      "  padding: 0 24px;"
+      "  font-weight: bold;"
+      "  font-size: 14px;"
+      "  border: none;"
+      "}"
+      "QPushButton:hover { background-color: #7D7AFF; }"
+  );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
-  searchActionLayout->addWidget(btnNewNote, 1);
+  searchActionLayout->addWidget(btnNewNote);
 
   QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setFixedHeight(44);
   btnNewFolder->setCursor(Qt::PointingHandCursor);
   btnNewFolder->setStyleSheet(
-      "QPushButton { background-color: transparent; color: white; border-radius: 22px;"
-      "  padding: 0 20px; font-weight: bold; font-size: 14px; border: 1px solid #333; }"
-      "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }");
+      "QPushButton {"
+      "  background-color: transparent;"
+      "  color: white;"
+      "  border-radius: 22px;"
+      "  padding: 0 24px;"
+      "  font-weight: bold;"
+      "  font-size: 14px;"
+      "  border: 1px solid #333;"
+      "}"
+      "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }"
+  );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
-  searchActionLayout->addWidget(btnNewFolder, 1);
+  searchActionLayout->addWidget(btnNewFolder);
 
   headerLayout->addLayout(searchActionLayout);
 
@@ -1888,8 +2032,21 @@ void MainWindow::setupUi() {
   m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
   m_fileListView->setSpacing(20);
   m_fileListView->setFrameShape(QFrame::NoFrame);
+#ifdef Q_OS_ANDROID
+  m_fileListView->setStyleSheet(
+      "QListView { background: transparent; border: none; }"
+      "QListView::item { background: transparent; }");
+#endif
   m_fileListView->setItemDelegate(new ModernItemDelegate(this));
+  // On Android, use TouchGesture; LeftMouseButtonGesture can cause "stuck" interactions
+  // and mis-detected taps when using finger input.
+#ifdef Q_OS_ANDROID
+  if (m_fileListView->viewport())
+    m_fileListView->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+  QScroller::grabGesture(m_fileListView, QScroller::TouchGesture);
+#else
   QScroller::grabGesture(m_fileListView, QScroller::LeftMouseButtonGesture);
+#endif
   connect(m_fileListView, &QListView::doubleClicked, this,
           &MainWindow::onFileDoubleClicked);
   connect(m_fileListView, &FreeGridView::itemDropped, this,
@@ -2019,6 +2176,13 @@ void MainWindow::setupUi() {
           }
       }
   });
+  connect(topToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo);
+  connect(topToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
+#ifdef Q_OS_ANDROID
+  connect(topToolbar, &ModernToolbar::backToOverviewRequested, this,
+          &MainWindow::onBackToOverview);
+#endif
+
   connect(topToolbar, &ModernToolbar::penConfigChanged,
           [this](QColor c, int w) {
             m_penColor = c;
@@ -2065,14 +2229,24 @@ void MainWindow::setupUi() {
   m_mainContentStack->addWidget(notesPage);
   m_mainContentStack->addWidget(m_studyContainer);
 
+#ifndef Q_OS_ANDROID
+  m_desktopSidebarPushSpacer = new QWidget(m_centralContainer);
+  m_desktopSidebarPushSpacer->setFixedWidth(0);
+  m_desktopSidebarPushSpacer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+  QWidget *desktopContentRow = new QWidget(m_centralContainer);
+  QHBoxLayout *desktopRowLay = new QHBoxLayout(desktopContentRow);
+  desktopRowLay->setContentsMargins(0, 0, 0, 0);
+  desktopRowLay->setSpacing(0);
+  desktopRowLay->addWidget(m_desktopSidebarPushSpacer);
+  desktopRowLay->addWidget(m_mainContentStack, 1);
+  mainLayout->addWidget(desktopContentRow, 1);
+#else
   mainLayout->addWidget(m_mainContentStack);
+#endif
 
   setWindowTitle("Blop");
-  
-  // Force authentication state check at startup so the user is locked into Anmeldescreen if empty
-  QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
-  updateSidebarUser(currentUser);
-  
+  // updateSidebarUser() runs from MainWindow ctor after setupUi — avoid calling twice here
+
   qDebug() << "setupUi() Ende";
 }
 
@@ -2092,17 +2266,22 @@ void MainWindow::setupWebBrowser() {
   m_studyContainer->setStyleSheet("background-color: #1e1e1e;");
   QVBoxLayout *layout = new QVBoxLayout(m_studyContainer);
   layout->setContentsMargins(0, 0, 0, 0);
+#ifdef Q_OS_ANDROID
+  m_studyVBoxLayout = layout;
+#endif
 
 #ifdef Q_OS_ANDROID
+  // IMPORTANT: QtWebView on Android uses a native Android WebView.
+  // It renders correctly with a real QQuickWindow (QQuickView), but can appear
+  // blank/gray when embedded via QQuickWidget.
   QQuickView *view = new QQuickView();
+  m_studyQQuickView = view;
   view->setResizeMode(QQuickView::SizeRootObjectToView);
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
 
-  // Load the natively bundled QML module to ensure QtWebView is detected 
-  // by androiddeployqt during the build step. 
-  // Das qrc-Prefix '/' aus resources.qrc ist sicherer als der Qt6 auto-generierte Ordner.
+  // Load the bundled QML (contains QtWebView WebView)
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
 
   // Check if it's actually loaded
@@ -2120,9 +2299,14 @@ void MainWindow::setupWebBrowser() {
   }
 
   QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
-  // Important for Touch Input on Android: allow QWidget to forward touch to QQuickView
-  container->setAttribute(Qt::WA_AcceptTouchEvents);
+  container->setObjectName("StudyQuickContainer");
+  m_studyWindowContainer = container;
+  // Touch/focus hardening for Android
+  container->setAttribute(Qt::WA_AcceptTouchEvents, true);
+  container->setAttribute(Qt::WA_NativeWindow, true);
   container->setFocusPolicy(Qt::StrongFocus);
+  container->setFocus(Qt::OtherFocusReason);
+  container->raise();
   layout->addWidget(container);
 
 #else
@@ -2211,10 +2395,72 @@ void MainWindow::setupWebBrowser() {
 #endif
 }
 
+#ifdef Q_OS_ANDROID
+void MainWindow::applyAndroidTabStyles(int index) {
+  if (!m_btnAndroidNotes || !m_btnAndroidStudy)
+    return;
+  const QString tabActive =
+      "QPushButton { background: #5E5CE6; color: white; border-radius: 14px;"
+      "  padding: 4px 14px; font-weight: bold; font-size: 13px; border: none; }";
+  const QString tabInactive =
+      "QPushButton { background: transparent; color: #AAA; border-radius: 14px;"
+      "  padding: 4px 14px; font-weight: bold; font-size: 13px;"
+      "  border: 1px solid #333; }"
+      "QPushButton:pressed { background: rgba(94,92,230,0.2); }";
+  m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
+  m_btnAndroidStudy->setStyleSheet(index == 1 ? tabActive : tabInactive);
+}
+#endif
+
 void MainWindow::onModeChanged(int index) {
+#ifdef Q_OS_ANDROID
+  // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
+  // broke re-entering Study on some devices).
+  if (index == 0) {
+    if (m_studyWindowContainer) {
+      m_studyWindowContainer->setEnabled(false);
+      m_studyWindowContainer->clearFocus();
+      m_studyWindowContainer->hide();
+    }
+    if (m_studyQQuickView)
+      m_studyQQuickView->hide();
+  }
+#endif
   if (m_mainContentStack) {
     m_mainContentStack->setCurrentIndex(index);
+#ifdef Q_OS_ANDROID
+    if (m_androidHeader)
+      m_androidHeader->raise();
+#endif
   }
+#ifdef Q_OS_ANDROID
+  if (index == 1 && m_studyWindowContainer && m_studyVBoxLayout) {
+    m_studyWindowContainer->setEnabled(true);
+    if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
+      m_studyVBoxLayout->addWidget(m_studyWindowContainer);
+    m_studyWindowContainer->show();
+    if (m_studyQQuickView)
+      m_studyQQuickView->show();
+  }
+  if (m_mainContentStack) {
+    if (QWidget *cur = m_mainContentStack->currentWidget()) {
+      cur->raise();
+      cur->setEnabled(true);
+      cur->setFocus(Qt::OtherFocusReason);
+    }
+  }
+  if (m_androidHeader)
+    m_androidHeader->raise();
+#endif
+
+#ifdef Q_OS_ANDROID
+  applyAndroidTabStyles(index);
+#endif
+
+  // Ensure toolbar/mode selector visibility is correct for the selected mode.
+  // Without this, the UI can remain in an "editor" state while the Study
+  // WebView is shown, which may block switching back.
+  updateSidebarState();
 }
 
 void MainWindow::requestGoogleLogin() {
@@ -2223,7 +2469,10 @@ void MainWindow::requestGoogleLogin() {
 
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
-        updateSidebarUser(sessionData);
+        QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
+        if (sessionData != currentUser) {
+            updateSidebarUser(sessionData);
+        }
     }
 }
 
@@ -2247,9 +2496,15 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_topNavControls) m_topNavControls->show();
     
     if (m_modeSelector) {
+#ifdef Q_OS_ANDROID
+      QSignalBlocker b(m_modeSelector);
+#endif
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
       m_modeSelector->show(); // Show selector when logged in
     }
+#ifdef Q_OS_ANDROID
+    onModeChanged(0);
+#endif
     if (btnStripMenu)
       btnStripMenu->show();
     if (btnEditorMenu)
@@ -2264,9 +2519,15 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_topNavControls) m_topNavControls->hide();
 
     if (m_modeSelector) {
+#ifdef Q_OS_ANDROID
+      QSignalBlocker b(m_modeSelector);
+#endif
       m_modeSelector->setCurrentIndex(1); // Force back to web login
       m_modeSelector->hide(); // Hide the selector completely to prevent bypass
     }
+#ifdef Q_OS_ANDROID
+    onModeChanged(1);
+#endif
     if (btnStripMenu)
       btnStripMenu->hide(); // Hide the sidebar hamburger when logged out to fully trap user in login
     if (btnEditorMenu)
@@ -2278,6 +2539,55 @@ void MainWindow::updateSidebarUser(const QString &username) {
   
   // Re-sync sidebar strip/full sidebar visibility after mode switch
   updateSidebarState();
+}
+
+QRect MainWindow::sidebarPushContentRect() const {
+  if (!m_centralContainer)
+    return QRect(0, 0, SIDEBAR_WIDTH, height());
+  const QPoint tl = m_centralContainer->mapTo(const_cast<MainWindow *>(this),
+                                               QPoint(0, 0));
+  int y = tl.y();
+  int h = m_centralContainer->height();
+#ifndef Q_OS_ANDROID
+  if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
+    const int th = m_titleBarWidget->height();
+    y = m_centralContainer->mapTo(const_cast<MainWindow *>(this), QPoint(0, th)).y();
+    h -= th;
+  }
+#endif
+  return QRect(tl.x(), y, SIDEBAR_WIDTH, h);
+}
+
+void MainWindow::syncSidebarPushLayout() {
+  if (!m_centralContainer)
+    return;
+  QRect r = sidebarPushContentRect();
+  int h = r.height();
+  if (h <= 0)
+    h = qMax(100, height() - r.y());
+
+  if (!m_sidebarContainer || !m_sidebarContainer->isVisible()) {
+#ifdef Q_OS_ANDROID
+    if (QVBoxLayout *mainLayout =
+            qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
+      mainLayout->setContentsMargins(0, 0, 0, 0);
+#else
+    if (m_desktopSidebarPushSpacer)
+      m_desktopSidebarPushSpacer->setFixedWidth(0);
+#endif
+    return;
+  }
+  const int w = m_sidebarContainer->width();
+#ifdef Q_OS_ANDROID
+  if (QVBoxLayout *mainLayout =
+          qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
+    mainLayout->setContentsMargins(w, 0, 0, 0);
+#else
+  if (m_desktopSidebarPushSpacer)
+    m_desktopSidebarPushSpacer->setFixedWidth(w);
+#endif
+  m_sidebarContainer->setGeometry(r.x(), r.y(), w, h);
+  m_sidebarContainer->raise();
 }
 
 void MainWindow::setupSidebar() {
@@ -2300,12 +2610,18 @@ void MainWindow::setupSidebar() {
 #endif
 
   m_sidebarContainer = new QWidget(this);
-  m_sidebarContainer->setFixedWidth(SIDEBAR_WIDTH);
+  m_sidebarContainer->setMinimumWidth(0);
+  m_sidebarContainer->setMaximumWidth(SIDEBAR_WIDTH);
+#ifdef Q_OS_ANDROID
+  // On Android, give the sidebar a solid background and enable styled background
+  // so touch events are fully absorbed and don't pass through to the main content.
+  m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
+  m_sidebarContainer->setStyleSheet("background-color: #14121F;");
+#endif
 
   QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
-
 #ifdef Q_OS_ANDROID
-  layout->setContentsMargins(0, MARGIN_ANDROID_TOP, 0, 0);
+  layout->setContentsMargins(6, 0, 6, 0);
 #else
   layout->setContentsMargins(0, 0, 0, 0);
 #endif
@@ -2314,30 +2630,56 @@ void MainWindow::setupSidebar() {
 
   // --- HEADER: Blop Study style ---
   QWidget *header = new QWidget(m_sidebarContainer);
+#ifdef Q_OS_ANDROID
+  header->setFixedHeight(58);
+#else
   header->setFixedHeight(74);
+#endif
   header->setStyleSheet("border-bottom: 1px solid #333;");
   QHBoxLayout *headerLay = new QHBoxLayout(header);
+#ifdef Q_OS_ANDROID
+  headerLay->setContentsMargins(12, 10, 12, 10);
+  headerLay->setSpacing(8);
+#else
   headerLay->setContentsMargins(16, 16, 16, 16);
   headerLay->setSpacing(10);
+#endif
 
   // Logo box (oval, accent color)
   QLabel *lblLogo = new QLabel(header);
+#ifdef Q_OS_ANDROID
+  lblLogo->setFixedSize(32, 32);
+  lblLogo->setStyleSheet(
+      "background-color: #5E5CE6; border-radius: 8px; color: white; "
+      "font-weight: bold; font-size: 12px;");
+#else
   lblLogo->setFixedSize(38, 38);
-  lblLogo->setAlignment(Qt::AlignCenter);
   lblLogo->setStyleSheet(
       "background-color: #5E5CE6; border-radius: 10px; color: white; "
       "font-weight: bold; font-size: 14px;");
+#endif
+  lblLogo->setAlignment(Qt::AlignCenter);
   lblLogo->setText("B");
   headerLay->addWidget(lblLogo);
 
   QVBoxLayout *titleCol = new QVBoxLayout();
   titleCol->setSpacing(2);
   QLabel *lblTitle = new QLabel("Blop", header);
+#ifdef Q_OS_ANDROID
+  lblTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: white; "
+                          "background: transparent;");
+#else
   lblTitle->setStyleSheet("font-size: 16px; font-weight: bold; color: white; "
                           "background: transparent;");
+#endif
   QLabel *lblSub = new QLabel("Notiz-App", header);
+#ifdef Q_OS_ANDROID
+  lblSub->setStyleSheet(
+      "font-size: 9px; color: #888; background: transparent;");
+#else
   lblSub->setStyleSheet(
       "font-size: 10px; color: #888; background: transparent;");
+#endif
   titleCol->addWidget(lblTitle);
   titleCol->addWidget(lblSub);
   headerLay->addLayout(titleCol);
@@ -2359,8 +2701,30 @@ void MainWindow::setupSidebar() {
   m_navSidebar->setItemDelegate(new SidebarNavDelegate(this));
   m_navSidebar->setFrameShape(QFrame::NoFrame);
   m_navSidebar->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+  m_navSidebar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_navSidebar->setTextElideMode(Qt::ElideRight);
 
+  // On Android: scroll only vertically (no horizontal pan); smooth touch scroll on viewport.
+#ifdef Q_OS_ANDROID
+  if (m_navSidebar->viewport())
+    m_navSidebar->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+  QScroller::grabGesture(m_navSidebar->viewport(), QScroller::TouchGesture);
+  if (QScroller *navScroller = QScroller::scroller(m_navSidebar->viewport())) {
+    QScrollerProperties sp = navScroller->scrollerProperties();
+    // Prefer vertical drags; no horizontal rubber-band (list is not horizontally scrollable).
+    sp.setScrollMetric(QScrollerProperties::AxisLockThreshold, QVariant(0.55));
+    sp.setScrollMetric(
+        QScrollerProperties::HorizontalOvershootPolicy,
+        QVariant::fromValue(QScrollerProperties::OvershootAlwaysOff));
+    sp.setScrollMetric(
+        QScrollerProperties::VerticalOvershootPolicy,
+        QVariant::fromValue(QScrollerProperties::OvershootWhenScrollable));
+    sp.setScrollMetric(QScrollerProperties::DecelerationFactor, QVariant(0.14));
+    navScroller->setScrollerProperties(sp);
+  }
+#else
   QScroller::grabGesture(m_navSidebar, QScroller::LeftMouseButtonGesture);
+#endif
 
   QDir rootDir(m_rootPath);
   int rootCount =
@@ -2416,14 +2780,19 @@ void MainWindow::setupSidebar() {
   bottomBar->setStyleSheet("QWidget#BottomBar { border-top: 1px solid #201E2E; }");
 
 #ifdef Q_OS_ANDROID
-  bottomBar->setFixedHeight(80);
+  bottomBar->setFixedHeight(68);
 #else
   bottomBar->setFixedHeight(72);
 #endif
 
   QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar);
+#ifdef Q_OS_ANDROID
+  bottomLay->setContentsMargins(12, 8, 12, 10);
+  bottomLay->setSpacing(8);
+#else
   bottomLay->setContentsMargins(14, 10, 14, 14);
   bottomLay->setSpacing(10);
+#endif
 
   // Read username from QSettings (saved by Blop Study web app via localStorage)
   QString username =
@@ -2432,12 +2801,20 @@ void MainWindow::setupSidebar() {
 
   // Avatar circle
   m_lblSidebarAvatar = new QLabel(initial, bottomBar);
+#ifdef Q_OS_ANDROID
+  m_lblSidebarAvatar->setFixedSize(32, 32);
+  m_lblSidebarAvatar->setStyleSheet(
+      "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5E5CE6,stop:1 "
+      "#7D7AFF); "
+      "border-radius: 16px; color: white; font-weight: bold; font-size: 12px;");
+#else
   m_lblSidebarAvatar->setFixedSize(36, 36);
-  m_lblSidebarAvatar->setAlignment(Qt::AlignCenter);
   m_lblSidebarAvatar->setStyleSheet(
       "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5E5CE6,stop:1 "
       "#7D7AFF); "
       "border-radius: 18px; color: white; font-weight: bold; font-size: 14px;");
+#endif
+  m_lblSidebarAvatar->setAlignment(Qt::AlignCenter);
   bottomLay->addWidget(m_lblSidebarAvatar);
 
   // Username + settings link
@@ -2445,10 +2822,17 @@ void MainWindow::setupSidebar() {
   userCol->setSpacing(1);
   m_lblSidebarUser =
       new QLabel(username.isEmpty() ? "Gast" : username, bottomBar);
+#ifdef Q_OS_ANDROID
+  m_lblSidebarUser->setStyleSheet(
+      "font-size: 11px; font-weight: 600; color: white; "
+      "background: transparent;");
+  m_lblSidebarUser->setMaximumWidth(118);
+#else
   m_lblSidebarUser->setStyleSheet(
       "font-size: 12px; font-weight: 600; color: white; "
       "background: transparent;");
   m_lblSidebarUser->setMaximumWidth(130);
+#endif
   m_lblSidebarUser->setWordWrap(false);
   userCol->addWidget(m_lblSidebarUser);
 
@@ -2472,17 +2856,15 @@ void MainWindow::setupSidebar() {
 
   layout->addWidget(bottomBar);
 
-#ifdef Q_OS_ANDROID
   m_sidebarContainer->setParent(this);
-  m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH, this->height());
-  m_sidebarContainer->hide();
-#else
-  m_mainSplitter->addWidget(m_sidebarContainer);
-  if (!m_isSidebarOpen) {
-      m_sidebarContainer->setFixedWidth(0);
-      m_sidebarContainer->hide();
+  {
+    QRect r = sidebarPushContentRect();
+    int h = r.height();
+    if (h <= 0)
+      h = qMax(100, height() - r.y());
+    m_sidebarContainer->setGeometry(r.x(), r.y(), 0, h);
   }
-#endif
+  m_sidebarContainer->hide();
 }
 
 void MainWindow::updateSidebarBadges() {
@@ -3144,72 +3526,88 @@ void MainWindow::applyDelayedGridSpacing() {
 }
 
 void MainWindow::animateSidebar(bool show) {
-#ifdef Q_OS_ANDROID
-  m_isSidebarOpen = show;
-  int startX = show ? -SIDEBAR_WIDTH : 0;
-  int endX = show ? 0 : -SIDEBAR_WIDTH;
+  QRect r = sidebarPushContentRect();
+  int containerHeight = r.height();
+  if (containerHeight <= 0)
+    containerHeight = qMax(100, height() - r.y());
+
   if (show) {
-    m_sidebarContainer->move(-SIDEBAR_WIDTH, 0);
+    m_isSidebarOpen = true;
+    m_sidebarContainer->setGeometry(r.x(), r.y(), 0, containerHeight);
     m_sidebarContainer->raise();
     m_sidebarContainer->show();
-  }
-  QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "pos");
-  anim->setDuration(250);
-  anim->setStartValue(QPoint(startX, 0));
-  anim->setEndValue(QPoint(endX, 0));
-  anim->setEasingCurve(QEasingCurve::OutCubic);
-  connect(anim, &QPropertyAnimation::finished, [this, show]() {
-    if (!show)
-      m_sidebarContainer->hide();
-    updateSidebarState();
-  });
-  anim->start(QAbstractAnimation::DeleteWhenStopped);
-#else
-  int start = show ? 0 : SIDEBAR_WIDTH;
-  int end = show ? SIDEBAR_WIDTH : 0;
-  m_isSidebarOpen = show;
-  
-  if (show) {
-    m_sidebarContainer->setMaximumWidth(0);
-    m_sidebarContainer->setMinimumWidth(0);
-    m_sidebarContainer->setVisible(true);
-    updateSidebarState();
   } else {
-    m_sidebarContainer->setMinimumWidth(0);
+    m_sidebarContainer->raise();
   }
-  
-  QPropertyAnimation *anim = new QPropertyAnimation(m_sidebarContainer, "maximumWidth");
-  anim->setDuration(250);
-  anim->setStartValue(start);
-  anim->setEndValue(end);
-  anim->setEasingCurve(QEasingCurve::OutExpo);
-  
-  connect(anim, &QPropertyAnimation::finished, this, [this, show]() {
-    if (!show) {
-      m_sidebarContainer->hide();
-      updateSidebarState();
+
+  QVariantAnimation *anim = new QVariantAnimation(this);
+  anim->setDuration(280);
+  anim->setEasingCurve(QEasingCurve::OutCubic);
+  anim->setStartValue(show ? 0 : SIDEBAR_WIDTH);
+  anim->setEndValue(show ? SIDEBAR_WIDTH : 0);
+  connect(anim, &QVariantAnimation::valueChanged, this,
+          [this](const QVariant &v) {
+            const int w = v.toInt();
+            QRect r2 = sidebarPushContentRect();
+            int h2 = r2.height();
+            if (h2 <= 0)
+              h2 = qMax(100, height() - r2.y());
+#ifdef Q_OS_ANDROID
+            if (QVBoxLayout *lay =
+                    qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
+              lay->setContentsMargins(w, 0, 0, 0);
+#else
+            if (m_desktopSidebarPushSpacer)
+              m_desktopSidebarPushSpacer->setFixedWidth(w);
+#endif
+            if (m_sidebarContainer)
+              m_sidebarContainer->setGeometry(r2.x(), r2.y(), w, h2);
+          });
+  connect(anim, &QVariantAnimation::finished, this, [this, show]() {
+    if (show) {
+      syncSidebarPushLayout();
     } else {
-      m_sidebarContainer->setFixedWidth(SIDEBAR_WIDTH);
+      m_isSidebarOpen = false;
+      if (m_sidebarContainer)
+        m_sidebarContainer->hide();
+#ifdef Q_OS_ANDROID
+      if (QVBoxLayout *lay =
+              qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
+        lay->setContentsMargins(0, 0, 0, 0);
+#else
+      if (m_desktopSidebarPushSpacer)
+        m_desktopSidebarPushSpacer->setFixedWidth(0);
+#endif
     }
+#ifdef Q_OS_ANDROID
+    if (m_androidHeader)
+      m_androidHeader->raise();
+#endif
+    updateSidebarState();
   });
   anim->start(QAbstractAnimation::DeleteWhenStopped);
+#ifdef Q_OS_ANDROID
+  if (m_androidHeader)
+    m_androidHeader->raise();
 #endif
 }
 void MainWindow::onToggleSidebar() {
 #ifdef Q_OS_ANDROID
   // Debounce: Android touch events can fire clicked() twice (press+release propagation).
-  // Ignore a second toggle call within 400ms of the first.
   static QElapsedTimer sidebarToggleCooldown;
   if (sidebarToggleCooldown.isValid() && sidebarToggleCooldown.elapsed() < 400)
     return;
   sidebarToggleCooldown.start();
 #endif
-  bool isVisible =
-      m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0;
-  animateSidebar(!isVisible);
+  animateSidebar(!m_isSidebarOpen);
 }
 void MainWindow::updateSidebarState() {
-  bool isEditor = (m_rightStack->currentWidget() == m_editorContainer);
+  // When the Study WebView is active, we must not treat the UI as "editor"
+  // even if the last Notes tab was an editor.
+  bool inNotesMode = true;
+  if (m_mainContentStack)
+    inNotesMode = (m_mainContentStack->currentIndex() == 0);
+  bool isEditor = inNotesMode && (m_rightStack->currentWidget() == m_editorContainer);
   if (m_floatingTools) {
     m_floatingTools->setVisible(isEditor);
   }
@@ -3225,16 +3623,40 @@ void MainWindow::updateSidebarState() {
   
   if (m_isSidebarOpen) {
     m_sidebarStrip->hide();
-    if (btnEditorMenu) btnEditorMenu->hide();
+    if (btnEditorMenu)
+      btnEditorMenu->hide();
+#ifdef Q_OS_ANDROID
+    if (m_btnAndroidToolbarMenu)
+      m_btnAndroidToolbarMenu->hide();
+#endif
     return;
   }
+#ifdef Q_OS_ANDROID
+  // Overview: floating menu next to welcome; Editor: compact hamburger in top bar
   if (isEditor) {
     m_sidebarStrip->hide();
-    if (btnEditorMenu) btnEditorMenu->show();
+    if (btnEditorMenu)
+      btnEditorMenu->hide();
+    if (m_btnAndroidToolbarMenu)
+      m_btnAndroidToolbarMenu->show();
   } else {
     m_sidebarStrip->show();
-    if (btnEditorMenu) btnEditorMenu->hide();
+    if (btnEditorMenu)
+      btnEditorMenu->show();
+    if (m_btnAndroidToolbarMenu)
+      m_btnAndroidToolbarMenu->hide();
   }
+#else
+  if (isEditor) {
+    m_sidebarStrip->hide();
+    if (btnEditorMenu)
+      btnEditorMenu->show();
+  } else {
+    m_sidebarStrip->show();
+    if (btnEditorMenu)
+      btnEditorMenu->hide();
+  }
+#endif
 }
 
 void MainWindow::animateRightSidebar(bool show) {
@@ -3527,6 +3949,15 @@ void MainWindow::finishRename() {
     m_renameOverlay->hide();
   }
 }
+
+void MainWindow::showEvent(QShowEvent *event) {
+  QMainWindow::showEvent(event);
+#ifdef Q_OS_ANDROID
+  if (m_androidHeader)
+    m_androidHeader->raise();
+#endif
+}
+
 void MainWindow::resizeEvent(QResizeEvent *event) {
   QMainWindow::resizeEvent(event);
   updateGrid();
@@ -3535,13 +3966,13 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 #ifdef Q_OS_ANDROID
   fabSize = FAB_SIZE_ANDROID;
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
-  if (m_isSidebarOpen && m_sidebarContainer) {
-    m_sidebarContainer->setGeometry(0, 0, SIDEBAR_WIDTH,
-                                    m_centralContainer->height());
-  }
+  syncSidebarPushLayout();
+  if (m_androidHeader)
+    m_androidHeader->raise();
 #else
   if (isTouchMode())
     bottomOffset = 100;
+  syncSidebarPushLayout();
 #endif
   if (m_renameOverlay) {
     m_renameOverlay->resize(size());
@@ -3562,49 +3993,53 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 }
 
 void MainWindow::onOpenSettings() {
+  // Close sidebar so modal overlays receive mouse/touch reliably.
+  if (m_isSidebarOpen)
+    onToggleSidebar();
+
   QWidget *overlay = new QWidget(this);
   overlay->setGeometry(this->rect());
   overlay->setStyleSheet("background-color: rgba(0, 0, 0, 150);");
+  overlay->setAttribute(Qt::WA_DeleteOnClose);
   overlay->show();
-  bool keepOpen = true;
-  while (keepOpen) {
-    SettingsDialog dlg(m_profileManager, this);
-    ModernToolbar *toolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
-    if (toolbar) {
-      bool isRad = (toolbar->currentStyle() == ModernToolbar::Radial);
-      bool isHalf = (toolbar->radialType() == ModernToolbar::HalfEdge);
-      dlg.setToolbarConfig(isRad, isHalf);
-    }
-    connect(&dlg, &SettingsDialog::accentColorChanged, this,
-            &MainWindow::updateTheme);
-    connect(&dlg, &SettingsDialog::toolbarStyleChanged,
-            [this, toolbar](bool radial) {
-              if (toolbar)
-                toolbar->setStyle(radial ? ModernToolbar::Radial
-                                         : ModernToolbar::Normal);
-            });
-    int res = dlg.exec();
-    if (res == SettingsDialog::EditProfileCode) {
-      overlay->hide();
-      QString id = dlg.profileIdToEdit();
-      UiProfile p = m_profileManager->profileById(id);
-      UiProfile original = p;
-      ProfileEditorDialog editor(p, this);
-      connect(&editor, &ProfileEditorDialog::previewRequested, this,
-              &MainWindow::applyProfile);
-      if (editor.exec() == QDialog::Accepted) {
-        m_profileManager->updateProfile(editor.getProfile(), true);
-        applyProfile(editor.getProfile());
-      } else {
-        m_profileManager->updateProfile(original, true);
-        applyProfile(m_profileManager->currentProfile());
-      }
-      overlay->show();
+  overlay->raise();
+
+  SettingsDialog dlg(m_profileManager, this);
+  ModernToolbar *toolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
+  if (toolbar) {
+    bool isRad = (toolbar->currentStyle() == ModernToolbar::Radial);
+    bool isHalf = (toolbar->radialType() == ModernToolbar::HalfEdge);
+    dlg.setToolbarConfig(isRad, isHalf);
+  }
+  connect(&dlg, &SettingsDialog::accentColorChanged, this,
+          &MainWindow::updateTheme);
+  connect(&dlg, &SettingsDialog::toolbarStyleChanged,
+          [this, toolbar](bool radial) {
+            if (toolbar)
+              toolbar->setStyle(radial ? ModernToolbar::Radial
+                                       : ModernToolbar::Normal);
+          });
+
+  int res = dlg.exec();
+  if (res == SettingsDialog::EditProfileCode) {
+    QString id = dlg.profileIdToEdit();
+    UiProfile p = m_profileManager->profileById(id);
+    UiProfile original = p;
+    ProfileEditorDialog editor(p, this);
+    connect(&editor, &ProfileEditorDialog::previewRequested, this,
+            &MainWindow::applyProfile);
+    if (editor.exec() == QDialog::Accepted) {
+      m_profileManager->updateProfile(editor.getProfile(), true);
+      applyProfile(editor.getProfile());
     } else {
-      keepOpen = false;
+      m_profileManager->updateProfile(original, true);
+      applyProfile(m_profileManager->currentProfile());
     }
   }
-  delete overlay;
+
+  if (overlay) {
+    overlay->close();
+  }
 }
 
 void MainWindow::setPageColor(bool dark) {
@@ -3681,14 +4116,26 @@ void MainWindow::onToolPen() {
 void MainWindow::onToolEraser() { setActiveTool(CanvasView::ToolType::Eraser); }
 void MainWindow::onToolLasso() { setActiveTool(CanvasView::ToolType::Lasso); }
 void MainWindow::onUndo() {
-  CanvasView *cv = getCurrentCanvas();
-  if (cv)
+  if (CanvasView *cv = getCurrentCanvas()) {
     cv->undo();
+    return;
+  }
+  QWidget *cur = m_editorTabs ? m_editorTabs->currentWidget() : nullptr;
+  if (auto *ed = qobject_cast<NoteEditor *>(cur)) {
+    if (MultiPageNoteView *v = ed->view())
+      v->undo();
+  }
 }
 void MainWindow::onRedo() {
-  CanvasView *cv = getCurrentCanvas();
-  if (cv)
+  if (CanvasView *cv = getCurrentCanvas()) {
     cv->redo();
+    return;
+  }
+  QWidget *cur = m_editorTabs ? m_editorTabs->currentWidget() : nullptr;
+  if (auto *ed = qobject_cast<NoteEditor *>(cur)) {
+    if (MultiPageNoteView *v = ed->view())
+      v->redo();
+  }
 }
 
 void MainWindow::onItemDropped(const QModelIndex &sourceIndex,

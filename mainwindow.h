@@ -32,6 +32,11 @@
 // Forward Declarations
 class MainWindow;
 class PageManager;
+class QShowEvent;
+#ifdef Q_OS_ANDROID
+class QQuickView;
+class QVBoxLayout;
+#endif
 
 #ifdef BLOP_HAS_WEBENGINE
 #include <QWebEnginePage>
@@ -125,6 +130,7 @@ public:
 
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
+  void showEvent(QShowEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
@@ -219,6 +225,14 @@ private:
   void updateGrid();
   void updateSidebarState();
   void updateOverviewBackButton();
+#ifdef Q_OS_ANDROID
+  /// Sync Notizen/Study tab visuals (combo does not drive onModeChanged on Android).
+  void applyAndroidTabStyles(int index);
+#endif
+  /// Sidebar rect in MainWindow coords (below title bar on desktop, under toolbar on Android).
+  QRect sidebarPushContentRect() const;
+  /// Keep push offset + sidebar geometry in sync (no overlap with main content).
+  void syncSidebarPushLayout();
 
   void showRenameOverlay(const QString &currentName);
 
@@ -238,6 +252,18 @@ private:
   void setupWebBrowser();
   void updateSidebarUser(const QString &username); // syncs login from webview
   QWidget *m_studyContainer{nullptr};
+#ifdef Q_OS_ANDROID
+  // Embedded Study UI (QML + QtWebView). Must be hidden when leaving Study or
+  // the native surface can stay above Qt and block taps (e.g. header tabs).
+  QQuickView *m_studyQQuickView{nullptr};
+  QWidget *m_androidHeader{nullptr};
+  QVBoxLayout *m_studyVBoxLayout{nullptr};
+  QWidget *m_studyWindowContainer{nullptr}; // QWidget::createWindowContainer(QQuickView)
+  QPushButton *m_btnAndroidNotes{nullptr};
+  QPushButton *m_btnAndroidStudy{nullptr};
+  /// Shown only while editing a note (overview uses floating btnEditorMenu).
+  ModernButton *m_btnAndroidToolbarMenu{nullptr};
+#endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
   QComboBox *m_modeSelector{nullptr};
@@ -253,6 +279,8 @@ private:
   ToolManager *m_toolManager{nullptr};
 
   QWidget *m_centralContainer{nullptr};
+  /// Left column width for push-style sidebar (desktop only; Android uses layout margins).
+  QWidget *m_desktopSidebarPushSpacer{nullptr};
 
   QWidget *m_titleBarWidget{nullptr};
   QWidget *m_topNavControls{nullptr};

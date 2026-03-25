@@ -31,10 +31,12 @@ public:
     virtual void setConfig(const ToolConfig& config) { m_config = config; }
     ToolConfig config() const { return m_config; }
 
-    // WICHTIG: Diese Methode muss public sein!
     void triggerSettingsMenu() {
         emit requestSettingsMenu();
     }
+
+    QGraphicsItem* lastCompletedItem() const { return m_lastCompletedItem; }
+    void clearLastCompletedItem() { m_lastCompletedItem = nullptr; }
 
 signals:
     void overlayChanged();
@@ -43,4 +45,5 @@ signals:
 
 protected:
     ToolConfig m_config;
+    QGraphicsItem* m_lastCompletedItem{nullptr};
 };

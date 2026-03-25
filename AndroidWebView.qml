@@ -5,19 +5,50 @@ import QtWebView 1.1
 Item {
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
+    property string studyUrl: "https://blop-six.vercel.app"
+    property bool firstLoadDone: false
+
+    function ensureStudyLoaded() {
+        if (!firstLoadDone || webView.url.toString() === "" || webView.url.toString() === "about:blank") {
+            webView.url = studyUrl
+            firstLoadDone = true
+        }
+    }
 
     WebView {
         id: webView
         anchors.fill: parent
-        url: "https://blop-six.vercel.app"
+        url: "about:blank"
 
-        onLoadingChanged: {
+        // Qt 6: declare loadRequest explicitly (injected implicit parameter is deprecated)
+        onLoadingChanged: function(loadRequest) {
             if (loadRequest.url.toString().indexOf("blop://google-login") === 0) {
                 webView.stop()
                 if (typeof blopAppBridge !== "undefined") {
                     blopAppBridge.requestGoogleLogin()
                 }
             }
+            // Defensive reset: if an OAuth overlay stayed visible accidentally, clear it
+            // when normal website navigation happens.
+            if (loadRequest.url.toString().indexOf("https://") === 0 ||
+                loadRequest.url.toString().indexOf("http://") === 0) {
+                oauthPending = false
+            }
+        }
+    }
+
+    // Delay initial URL assignment until the view is fully attached to avoid
+    // occasional gray/blank starts on Android.
+    Timer {
+        interval: 120
+        running: true
+        repeat: false
+        onTriggered: ensureStudyLoaded()
+    }
+
+    onVisibleChanged: {
+        if (visible) {
+            ensureStudyLoaded()
         }
     }
 

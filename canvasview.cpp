@@ -6,6 +6,63 @@
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
 #include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
+#include <QUndoCommand>
+
+// ---------------------------------------------------------------------------
+// Undo commands for canvas items
+// ---------------------------------------------------------------------------
+class AddItemCommand : public QUndoCommand {
+public:
+    AddItemCommand(QGraphicsScene *scene, QGraphicsItem *item)
+        : m_scene(scene), m_item(item) {}
+
+    ~AddItemCommand() override {
+        // If the item is not on the scene, we own it and must delete it
+        if (m_item && !m_scene->items().contains(m_item))
+            delete m_item;
+    }
+
+    void undo() override {
+        if (m_item) m_scene->removeItem(m_item);
+    }
+
+    // redo() is also called on first push — but item is already on scene then.
+    // We use m_firstRedo to skip that initial add.
+    void redo() override {
+        if (m_firstRedo) { m_firstRedo = false; return; }
+        if (m_item) m_scene->addItem(m_item);
+    }
+
+private:
+    QGraphicsScene *m_scene;
+    QGraphicsItem *m_item;
+    bool m_firstRedo{true};
+};
+
+class RemoveItemCommand : public QUndoCommand {
+public:
+    RemoveItemCommand(QGraphicsScene *scene, QGraphicsItem *item)
+        : m_scene(scene), m_item(item) {}
+
+    ~RemoveItemCommand() override {
+        if (m_item && !m_scene->items().contains(m_item))
+            delete m_item;
+    }
+
+    void undo() override {
+        if (m_item) m_scene->addItem(m_item);
+    }
+
+    void redo() override {
+        if (m_firstRedo) { m_firstRedo = false; return; }
+        if (m_item) m_scene->removeItem(m_item);
+    }
+
+private:
+    QGraphicsScene *m_scene;
+    QGraphicsItem *m_item;
+    bool m_firstRedo{true};
+};
 
 #include <QApplication>
 #include <QBitmap>
@@ -25,6 +82,7 @@
 #include <QStyleOptionGraphicsItem>
 #include <QVector2D>
 #include <QPdfWriter>
+#include <QUndoCommand>
 #include <QtMath>
 #include <cmath>
 #include <utility>
@@ -1079,6 +1137,10 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
                 m_isDrawing = true;
             } else if (event->type() == QEvent::TabletRelease) {
                 m_isDrawing = false;
+                if (auto* item = m_toolManager->activeTool()->lastCompletedItem()) {
+                    m_undoStack->push(new AddItemCommand(m_scene, item));
+                    m_toolManager->activeTool()->clearLastCompletedItem();
+                }
                 emit contentModified();
                 if (m_toolManager->activeTool()->mode() == ToolMode::Lasso) {
                     finishLasso();
@@ -1174,8 +1236,9 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     scEvent.setButtons(event->buttons());
     scEvent.setModifiers(event->modifiers());
 
-    // Wenn das Tool das Event verarbeitet (z.B. Lineal verschieben oder Malen),
-    // dann hier stop
+    // Snapshot current items so we can detect newly added items on release
+    m_preStrokeItems = QSet<QGraphicsItem *>(m_scene->items().begin(), m_scene->items().end());
+
     if (m_toolManager->activeTool()->handleMousePress(&scEvent, m_scene)) {
       m_isDrawing = true;
       event->accept();
@@ -1299,7 +1362,22 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
 
     if (m_toolManager->activeTool()->handleMouseRelease(&scEvent, m_scene)) {
       m_isDrawing = false;
+      if (auto* item = m_toolManager->activeTool()->lastCompletedItem()) {
+          m_undoStack->push(new AddItemCommand(m_scene, item));
+          m_toolManager->activeTool()->clearLastCompletedItem();
+      }
       emit contentModified();
+
+      // Push undo commands for any items added since the stroke started
+      if (!m_preStrokeItems.isEmpty()) {
+          for (QGraphicsItem *item : m_scene->items()) {
+              if (!m_preStrokeItems.contains(item)) {
+                  m_undoStack->push(new AddItemCommand(m_scene, item));
+              }
+          }
+          m_preStrokeItems.clear();
+      }
+
       if (m_toolManager->activeTool()->mode() == ToolMode::Lasso) {
         finishLasso();
       }
@@ -1403,7 +1481,8 @@ void CanvasView::applyEraser(const QPointF &pos) {
   for (auto *item : std::as_const(items)) {
     if (item->type() == QGraphicsPathItem::Type) {
       m_scene->removeItem(item);
-      m_undoStack->push(new QUndoCommand());
+      m_undoStack->push(new RemoveItemCommand(m_scene, item));
+      erased = true;
     }
   }
   if (erased)

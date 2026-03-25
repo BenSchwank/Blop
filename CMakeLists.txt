@@ -149,6 +149,12 @@ if(ANDROID)
     )
 endif()
 
+# MOC outputs (e.g. canvasview.moc for Q_OBJECT classes in .cpp) live under
+# Blop_autogen/include — ensure the compiler always sees that path (Android/IDE).
+target_include_directories(Blop PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/Blop_autogen/include"
+)
+
 # Core Libraries verlinken
 target_link_libraries(Blop PRIVATE
     Qt6::Widgets

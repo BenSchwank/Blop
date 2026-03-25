@@ -7,6 +7,7 @@
 #include <QTabletEvent>
 #include <QPinchGesture>
 #include <QGestureEvent>
+#include <QUndoStack>
 #include <functional>
 #include "Note.h"
 #include "ToolMode.h"
@@ -14,9 +15,11 @@
 #include "TransformOverlay.h"
 
 class NoteSelectionMenu;
+class StrokeAddUndoCommand;
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
+    friend class StrokeAddUndoCommand;
 public:
     explicit MultiPageNoteView(QWidget* parent=nullptr);
 
@@ -28,6 +31,10 @@ public:
 
     void setPenColor(const QColor& c) { penColor_ = c; }
     void setPenWidth(qreal w) { penWidth_ = w; }
+    void undo();
+    void redo();
+    bool canUndo() const;
+    bool canRedo() const;
 
     void setPenOnlyMode(bool enabled) { m_penOnlyMode = enabled; }
     bool penOnlyMode() const { return m_penOnlyMode; }
@@ -47,7 +54,6 @@ public:
 
     // PDF Import: renders each PDF page as a note page background image
     bool importPdfPages(const QString &pdfPath);
-
 
 public slots:
     void onSelectionChanged();
@@ -105,8 +111,17 @@ private:
 
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
+    QVector<NotePage> m_strokeSnapshot;
+    bool m_hasStrokeSnapshot{false};
+    QVector<QVector<NotePage>> m_undoHistory;
+    QVector<QVector<NotePage>> m_redoHistory;
+    static constexpr int MaxUndoSteps = 40;
+
+    QUndoStack *m_undoStack{nullptr};
 
     void layoutPages();
+    QGraphicsPathItem *createStrokeGraphicsItem(const Stroke &s);
+    void pushStrokeUndoCommand(int pageIdx, Stroke stroke);
     // void ensureOverscrollPage(); // Entfernt/Ersetzt durch Pull-Logik
     int pageAt(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
@@ -117,4 +132,5 @@ private:
 
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);
+    void pushUndoSnapshot(const QVector<NotePage>& beforeState);
 };

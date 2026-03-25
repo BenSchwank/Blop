@@ -1,4 +1,5 @@
 #pragma once
+#include <QList>
 #include <QWidget>
 #include <QIcon>
 #include <QVector>
@@ -93,6 +94,7 @@ signals:
     void scaleChanged(double newScale);
     void settingsRequested();
     void rulerToggled(bool active); // NEU: Globaler Toggle für das Lineal
+    void backToOverviewRequested();
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -155,6 +157,7 @@ private:
 
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;
+    ToolbarBtn* btnBackOverview{nullptr};
 
     ToolbarBtn* btnDockToggle; // New button for detach/dock
 
@@ -169,6 +172,7 @@ private:
     QList<QColor> m_customColors;
 
     void updateLayout(bool animate = false);
+    QList<ToolbarBtn*> leftChromeButtons() const;
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);
     void reorderButtons();

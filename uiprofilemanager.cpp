@@ -36,8 +36,9 @@ void UiProfileManager::ensureDefaults() {
     UiProfile tablet;
     tablet.id = "{tablet-default}";
     tablet.name = "Tablet (Groß)";
-    tablet.iconSize = 160;
-    tablet.gridSpacing = 30;
+    // Align overview tile size with Windows default (100) for a consistent look
+    tablet.iconSize = 100;
+    tablet.gridSpacing = 20;
     tablet.toolbarScale = 1.3;
     tablet.buttonSize = 56;
     m_profiles.append(tablet);

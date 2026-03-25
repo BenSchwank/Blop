@@ -26,6 +26,55 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QFrame>
+#include <QUndoCommand>
+
+class StrokeAddUndoCommand : public QUndoCommand {
+public:
+  StrokeAddUndoCommand(MultiPageNoteView *view, int pageIdx, Stroke stroke)
+      : QUndoCommand(), m_view(view), m_page(pageIdx),
+        m_stroke(std::move(stroke)), m_item(nullptr), m_index(-1) {}
+  ~StrokeAddUndoCommand() override { delete m_item; }
+
+  void undo() override {
+    if (!m_view || !m_view->note_ || m_page < 0 ||
+        m_page >= m_view->note_->pages.size())
+      return;
+    auto &strokes = m_view->note_->pages[m_page].strokes;
+    if (m_index < 0 || m_index >= strokes.size())
+      return;
+    strokes.removeAt(m_index);
+    delete m_item;
+    m_item = nullptr;
+    if (m_view->onSaveRequested)
+      m_view->onSaveRequested(m_view->note_);
+  }
+
+  void redo() override {
+    if (!m_view || !m_view->note_)
+      return;
+    m_view->note_->ensurePage(m_page);
+    auto &strokes = m_view->note_->pages[m_page].strokes;
+    if (m_index < 0) {
+      m_index = strokes.size();
+      strokes.append(m_stroke);
+    } else {
+      strokes.insert(m_index, m_stroke);
+    }
+    m_item = m_view->createStrokeGraphicsItem(m_stroke);
+    if (m_page >= 0 && m_page < m_view->pageItems_.size() &&
+        m_view->pageItems_[m_page])
+      m_item->setParentItem(m_view->pageItems_[m_page]);
+    if (m_view->onSaveRequested)
+      m_view->onSaveRequested(m_view->note_);
+  }
+
+private:
+  MultiPageNoteView *m_view;
+  int m_page;
+  Stroke m_stroke;
+  QGraphicsPathItem *m_item;
+  int m_index;
+};
 
 class NoteSelectionMenu : public QWidget {
   Q_OBJECT
@@ -78,6 +127,8 @@ static constexpr int A4H = 1122;
 static constexpr int PageSpacing = 60;
 
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
+  m_undoStack = new QUndoStack(this);
+
   setScene(&scene_);
   setBackgroundBrush(UIStyles::SceneBackground);
 
@@ -126,6 +177,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
 
 void MultiPageNoteView::setNote(Note *note) {
   note_ = note;
+  if (m_undoStack)
+    m_undoStack->clear();
   scene_.clear();
   pageItems_.clear();
 
@@ -180,7 +233,49 @@ void MultiPageNoteView::setNote(Note *note) {
   scene_.blockSignals(wasBlocked);
 }
 
+QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) {
+  auto *pathItem = new QGraphicsPathItem(s.path);
+  QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  if (s.isEraser) {
+    pen.setColor(Qt::white);
+    pen.setWidthF(s.width * 2);
+  } else if (s.isHighlighter) {
+    pen.setColor(QColor(s.color.red(), s.color.green(), s.color.blue(), 100));
+  }
+  pathItem->setPen(pen);
+  pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
+  pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
+  pathItem->setZValue(s.isHighlighter ? 0.5 : 1.0);
+  return pathItem;
+}
+
+void MultiPageNoteView::pushStrokeUndoCommand(int pageIdx, Stroke stroke) {
+  if (!m_undoStack || !note_)
+    return;
+  m_undoStack->push(new StrokeAddUndoCommand(this, pageIdx, std::move(stroke)));
+}
+
+void MultiPageNoteView::undo() {
+  if (m_undoStack)
+    m_undoStack->undo();
+}
+
+void MultiPageNoteView::redo() {
+  if (m_undoStack)
+    m_undoStack->redo();
+}
+
+bool MultiPageNoteView::canUndo() const {
+  return m_undoStack && m_undoStack->canUndo();
+}
+
+bool MultiPageNoteView::canRedo() const {
+  return m_undoStack && m_undoStack->canRedo();
+}
+
 void MultiPageNoteView::layoutPages() {
+  if (m_undoStack)
+    m_undoStack->clear();
   // Vorhandene Seiten-Items entfernen
   for (auto *item : pageItems_) {
     // Sicherstellen, dass wir nicht versehentlich das Lineal oder andere Tools
@@ -551,22 +646,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
                         else localPath.lineTo(localP);
                     }
                     s.path = localPath;
-                    note_->pages[pIdx].strokes.append(s);
-
-                    // 2. Füge das Stroke als Child-Item des PageItems hinzu, damit es an der Seite klebt
-                    auto pathItem = new QGraphicsPathItem(s.path);
-                    QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-                    if (s.isEraser) {
-                        pen.setColor(Qt::white);
-                        pen.setWidthF(s.width * 2);
-                    } else if (s.isHighlighter) {
-                        pen.setColor(QColor(s.color.red(), s.color.green(), s.color.blue(), 100)); // transparent
-                    }
-                    pathItem->setPen(pen);
-                    pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
-                    pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
-                    pathItem->setZValue(1);
-                    pathItem->setParentItem(pageItems_[pIdx]);
+                    pushStrokeUndoCommand(pIdx, std::move(s));
                 }
             }
             itemsToRemove.append(item);
@@ -577,9 +657,6 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
           scene_.removeItem(item);
           delete item;
       }
-
-      if (onSaveRequested)
-        onSaveRequested(note_);
 
       if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty()) {
           startTransformSession();
@@ -663,12 +740,13 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
     e->accept();
   } else if (e->type() == QEvent::TabletRelease && drawing_) {
     drawing_ = false;
-    if (note_) {
-      note_->pages[currentPage_].strokes.push_back(std::move(currentStroke_));
-      if (onSaveRequested)
-        onSaveRequested(note_);
+    if (currentPathItem_) {
+      scene_.removeItem(currentPathItem_);
+      delete currentPathItem_;
+      currentPathItem_ = nullptr;
     }
-    currentPathItem_ = nullptr;
+    if (note_)
+      pushStrokeUndoCommand(currentPage_, std::move(currentStroke_));
     e->accept();
   } else {
     e->ignore();

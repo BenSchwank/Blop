@@ -1,15 +1,21 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
+
+declare global {
+  interface Window {
+    isBlopNativeApp?: boolean;
+  }
+}
 
 interface FolderData {
   id: string;
   name: string;
-  files?: any[];
+  files?: unknown[];
 }
 
 function DraggableFolder({ folder, onClick, onRename, onDelete }: { folder: FolderData, onClick: () => void, onRename: (e: React.MouseEvent) => void, onDelete: (e: React.MouseEvent) => void }) {
@@ -88,6 +94,7 @@ export default function Dashboard() {
   const [folders, setFolders] = useState<FolderData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [dndEnabled, setDndEnabled] = useState(true);
 
   // Create Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -106,38 +113,28 @@ export default function Dashboard() {
   // Drag & Drop State
   const [activeDragFolder, setActiveDragFolder] = useState<FolderData | null>(null);
 
+  useEffect(() => {
+    // In Android WebViews, dnd-kit TouchSensor can occasionally "stick" after the first touch
+    // and block all further interactions. We disable DnD in the native app / on touch devices.
+    if (typeof window === "undefined") return;
+    const isNative = Boolean(window.isBlopNativeApp);
+    const isTouch = typeof window.matchMedia === "function"
+      ? window.matchMedia("(pointer: coarse)").matches
+      : /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    setDndEnabled(!(isNative || isTouch));
+  }, []);
+
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
         distance: 25, // Require 25px of movement to start dragging. This allows clicks to fire.
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250, // Press and hold for 250ms to drag on mobile
-        tolerance: 8,
       },
     })
   );
 
   const API_BASE = '/api';
 
-  // --- Auth Guard ---
-  // Check auth synchronously in state initialization to prevent blank flash
-  const [authChecked, setAuthChecked] = useState(false);
-
-  useEffect(() => {
-    const username = localStorage.getItem('username');
-    const session = localStorage.getItem('session_id');
-    if (!username || !session) {
-      window.location.href = '/login';
-      return; // Don't set authChecked — keep showing loading
-    }
-    setAuthChecked(true);
-    fetchFolders();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchFolders = async () => {
+  const fetchFolders = useCallback(async () => {
     try {
       const username = localStorage.getItem("username");
       if (!username) return;
@@ -156,7 +153,22 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // --- Auth Guard ---
+  // Check auth synchronously in state initialization to prevent blank flash
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    const username = localStorage.getItem('username');
+    const session = localStorage.getItem('session_id');
+    if (!username || !session) {
+      window.location.href = '/login';
+      return; // Don't set authChecked — keep showing loading
+    }
+    setAuthChecked(true);
+    void fetchFolders();
+  }, [fetchFolders]);
 
 
   const handleCreateFolder = async (e: React.FormEvent) => {
@@ -325,7 +337,7 @@ export default function Dashboard() {
           <div className="flex flex-col sm:flex-row gap-3 h-full">
             <button
               onClick={() => setIsSummaryOpen(true)}
-              className="h-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-6 rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[140px]"
+              className="h-10 sm:h-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-4 sm:px-6 rounded-xl text-[13px] sm:text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[120px] sm:min-w-[140px]"
             >
               <Sparkles size={18} />
               <span>AI-Summary</span>
@@ -333,7 +345,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="h-full flex items-center justify-center gap-2 bg-[#151525] hover:bg-[#1C1C33] text-white px-6 rounded-xl text-sm font-semibold border border-[#2A2A40] transition-all shadow-md min-w-[140px]"
+              className="h-10 sm:h-full flex items-center justify-center gap-2 bg-[#151525] hover:bg-[#1C1C33] text-white px-4 sm:px-6 rounded-xl text-[13px] sm:text-sm font-semibold border border-[#2A2A40] transition-all shadow-md min-w-[120px] sm:min-w-[140px]"
             >
               <Folder size={18} />
               <span>Neuer Ordner</span>
@@ -386,45 +398,72 @@ export default function Dashboard() {
             </div>
           ) : (
             /* Folder Grid */
-            <DndContext
-              sensors={sensors}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-              collisionDetection={closestCenter}
-            >
+            dndEnabled ? (
+              <DndContext
+                sensors={sensors}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                collisionDetection={closestCenter}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  <AnimatePresence mode='popLayout'>
+                    {filteredFolders.map((folder) => (
+                      <DraggableFolder
+                        key={folder.id}
+                        folder={folder}
+                        onClick={() => router.push(`/folder/${folder.id}`)}
+                        onRename={(e) => {
+                          e.stopPropagation();
+                          setFolderToRename(folder);
+                          setRenameValue(folder.name);
+                          setIsRenameOpen(true);
+                        }}
+                        onDelete={(e) => handleDeleteFolder(folder.id, e)}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+
+                <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+                  {activeDragFolder ? (
+                    <div className="bg-[#1C1C33] border border-[#5E5CE6] rounded-[18px] p-5 shadow-2xl flex flex-col items-center justify-center gap-3 min-h-[150px] text-center opacity-90 scale-105">
+                      <div className="p-3.5 bg-[#0B0B1A] rounded-full">
+                        <Folder size={40} className="text-[#5E5CE6]" fill="currentColor" fillOpacity={0.2} />
+                      </div>
+                      <div className="w-full px-2">
+                        <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{activeDragFolder.name}</h3>
+                        <p className="text-[11px] text-gray-500">{activeDragFolder.files?.length || 0} Dateien</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 <AnimatePresence mode='popLayout'>
                   {filteredFolders.map((folder) => (
-                    <DraggableFolder
+                    <motion.div
                       key={folder.id}
-                      folder={folder}
+                      layout
+                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                      transition={{ duration: 0.2, type: "spring", bounce: 0.3 }}
                       onClick={() => router.push(`/folder/${folder.id}`)}
-                      onRename={(e) => {
-                        e.stopPropagation();
-                        setFolderToRename(folder);
-                        setRenameValue(folder.name);
-                        setIsRenameOpen(true);
-                      }}
-                      onDelete={(e) => handleDeleteFolder(folder.id, e)}
-                    />
+                      className="group relative bg-[#151525] border rounded-[18px] p-5 transition-all cursor-pointer shadow-sm flex flex-col items-center justify-center gap-3 min-h-[150px] text-center border-[#2A2A40] hover:bg-[#1C1C33] hover:border-[#5E5CE6]/50 hover:shadow-lg hover:shadow-[#5E5CE6]/10"
+                    >
+                      <div className="p-3.5 bg-[#0B0B1A] group-hover:bg-[#5E5CE6]/10 rounded-full transition-colors duration-300">
+                        <Folder size={40} className="text-gray-400 group-hover:text-[#5E5CE6] transition-colors" fill="currentColor" fillOpacity={0.1} />
+                      </div>
+                      <div className="w-full px-2">
+                        <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{folder.name}</h3>
+                        <p className="text-[11px] text-gray-500">{folder.files?.length || 0} Dateien</p>
+                      </div>
+                    </motion.div>
                   ))}
                 </AnimatePresence>
               </div>
-
-              <DragOverlay dropAnimation={{ duration: 250, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
-                {activeDragFolder ? (
-                  <div className="bg-[#1C1C33] border border-[#5E5CE6] rounded-[18px] p-5 shadow-2xl flex flex-col items-center justify-center gap-3 min-h-[150px] text-center opacity-90 scale-105">
-                    <div className="p-3.5 bg-[#0B0B1A] rounded-full">
-                      <Folder size={40} className="text-[#5E5CE6]" fill="currentColor" fillOpacity={0.2} />
-                    </div>
-                    <div className="w-full px-2">
-                      <h3 className="text-sm font-bold text-white mb-0.5 line-clamp-1">{activeDragFolder.name}</h3>
-                      <p className="text-[11px] text-gray-500">{activeDragFolder.files?.length || 0} Dateien</p>
-                    </div>
-                  </div>
-                ) : null}
-              </DragOverlay>
-            </DndContext>
+            )
           )}
         </div>
 
