@@ -1744,23 +1744,65 @@ void MainWindow::setupUi() {
 
   // --- NEW HEADER BEREICH (Blop Notes Redesign Etappe 3) ---
   QVBoxLayout *headerLayout = new QVBoxLayout();
+
 #ifdef Q_OS_ANDROID
+  // ── Android: Search bar full-width, buttons in separate row below ─────────
   headerLayout->setContentsMargins(0, 8, 0, 16);
   headerLayout->setSpacing(12);
-#else
-  headerLayout->setContentsMargins(10, 20, 10, 30);
-  headerLayout->setSpacing(15);
-#endif
 
   QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
-#ifdef Q_OS_ANDROID
   lblWelcome->setStyleSheet("color: white; font-size: 22px; font-weight: bold;");
-#else
-  lblWelcome->setStyleSheet("color: white; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';");
-#endif
   headerLayout->addWidget(lblWelcome);
 
-  // Search bar (full width)
+  QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
+  searchBar->setPlaceholderText("Notizen durchsuchen...");
+  searchBar->setFixedHeight(44);
+  searchBar->setStyleSheet(
+      "QLineEdit {"
+      "  background-color: #1A1829; color: white;"
+      "  border: 1px solid #201E2E; border-radius: 22px;"
+      "  padding: 0 20px; font-size: 14px;"
+      "}"
+      "QLineEdit:focus { border: 1px solid #5E5CE6; }");
+  headerLayout->addWidget(searchBar);
+
+  QHBoxLayout *searchActionLayout = new QHBoxLayout();
+  searchActionLayout->setSpacing(10);
+
+  QPushButton *btnNewNote = new QPushButton("+ Neue Notiz", m_overviewContainer);
+  btnNewNote->setFixedHeight(44);
+  btnNewNote->setCursor(Qt::PointingHandCursor);
+  btnNewNote->setStyleSheet(
+      "QPushButton { background-color: #5E5CE6; color: white; border-radius: 22px;"
+      "  padding: 0 20px; font-weight: bold; font-size: 14px; border: none; }"
+      "QPushButton:hover { background-color: #7D7AFF; }");
+  connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
+  searchActionLayout->addWidget(btnNewNote, 1);
+
+  QPushButton *btnNewFolder = new QPushButton("+ Neuer Ordner", m_overviewContainer);
+  btnNewFolder->setFixedHeight(44);
+  btnNewFolder->setCursor(Qt::PointingHandCursor);
+  btnNewFolder->setStyleSheet(
+      "QPushButton { background-color: transparent; color: white; border-radius: 22px;"
+      "  padding: 0 20px; font-weight: bold; font-size: 14px; border: 1px solid #333; }"
+      "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }");
+  connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+  searchActionLayout->addWidget(btnNewFolder, 1);
+
+  headerLayout->addLayout(searchActionLayout);
+
+#else
+  // ── Desktop/Windows: Original layout unchanged ───────────────────────────
+  headerLayout->setContentsMargins(10, 20, 10, 30);
+  headerLayout->setSpacing(15);
+
+  QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
+  lblWelcome->setStyleSheet("color: white; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';");
+  headerLayout->addWidget(lblWelcome);
+
+  QHBoxLayout *searchActionLayout = new QHBoxLayout();
+  searchActionLayout->setSpacing(15);
+
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
   searchBar->setPlaceholderText("Notizen durchsuchen...");
   searchBar->setFixedHeight(44);
@@ -1775,14 +1817,11 @@ void MainWindow::setupUi() {
       "}"
       "QLineEdit:focus {"
       "  border: 1px solid #5E5CE6;"
-      "}");
-  headerLayout->addWidget(searchBar);
+      "}"
+  );
+  searchActionLayout->addWidget(searchBar, 1); // stretcht aus
 
-  // Action buttons — horizontal row below search
-  QHBoxLayout *searchActionLayout = new QHBoxLayout();
-  searchActionLayout->setSpacing(10);
-
-  QPushButton *btnNewNote = new QPushButton("+ Neue Notiz", m_overviewContainer);
+  QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setFixedHeight(44);
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
@@ -1790,16 +1829,17 @@ void MainWindow::setupUi() {
       "  background-color: #5E5CE6;"
       "  color: white;"
       "  border-radius: 22px;"
-      "  padding: 0 20px;"
+      "  padding: 0 24px;"
       "  font-weight: bold;"
       "  font-size: 14px;"
       "  border: none;"
       "}"
-      "QPushButton:hover { background-color: #7D7AFF; }");
+      "QPushButton:hover { background-color: #7D7AFF; }"
+  );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
-  searchActionLayout->addWidget(btnNewNote, 1);
+  searchActionLayout->addWidget(btnNewNote);
 
-  QPushButton *btnNewFolder = new QPushButton("+ Neuer Ordner", m_overviewContainer);
+  QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setFixedHeight(44);
   btnNewFolder->setCursor(Qt::PointingHandCursor);
   btnNewFolder->setStyleSheet(
@@ -1807,16 +1847,19 @@ void MainWindow::setupUi() {
       "  background-color: transparent;"
       "  color: white;"
       "  border-radius: 22px;"
-      "  padding: 0 20px;"
+      "  padding: 0 24px;"
       "  font-weight: bold;"
       "  font-size: 14px;"
       "  border: 1px solid #333;"
       "}"
-      "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }");
+      "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }"
+  );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
-  searchActionLayout->addWidget(btnNewFolder, 1);
+  searchActionLayout->addWidget(btnNewFolder);
 
   headerLayout->addLayout(searchActionLayout);
+#endif
+
   overviewLayout->addLayout(headerLayout);
   // --------------------------------------------------------
 
