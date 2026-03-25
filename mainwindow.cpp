@@ -86,7 +86,6 @@
 #include <QWidget>
 #include <QElapsedTimer>
 #include <QJniObject>
-#include <QNativeInterface>
 #else
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
@@ -1683,17 +1682,23 @@ void MainWindow::setupUi() {
 
   mainLayout->addWidget(androidHeader);
 
-  // Force status bar & navigation bar colors via JNI — Qt overrides XML theme at startup
-  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
-      QJniObject activity = QNativeInterface::QAndroidApplication::context();
-      QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
-      if (window.isValid()) {
-          // STATUS_BAR_COLOR flag (0x80000000) must be set first
-          window.callMethod<void>("addFlags", "(I)V", 0x80000000);
-          window.callMethod<void>("setStatusBarColor",   "(I)V", 0xFF0F111A);
-          window.callMethod<void>("setNavigationBarColor","(I)V", 0xFF0F111A);
+  // Force dark status bar & navigation bar colors via JNI.
+  // Qt overrides the XML theme after startup, so we must set it programmatically.
+  {
+      QJniObject activity = QJniObject::callStaticObjectMethod(
+          "org/qtproject/qt/android/QtNative",
+          "activity",
+          "()Landroid/app/Activity;");
+      if (activity.isValid()) {
+          QJniObject window = activity.callObjectMethod(
+              "getWindow", "()Landroid/view/Window;");
+          if (window.isValid()) {
+              window.callMethod<void>("addFlags", "(I)V", 0x80000000);
+              window.callMethod<void>("setStatusBarColor",    "(I)V", 0xFF0F111A);
+              window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0F111A);
+          }
       }
-  });
+  }
 
 #else
   if (m_titleBarWidget) {
