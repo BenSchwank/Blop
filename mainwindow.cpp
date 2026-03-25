@@ -84,6 +84,7 @@
 #include <QSslSocket>
 #include <QTemporaryFile>
 #include <QWidget>
+#include <QElapsedTimer>
 #else
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
@@ -3120,6 +3121,14 @@ void MainWindow::animateSidebar(bool show) {
 #endif
 }
 void MainWindow::onToggleSidebar() {
+#ifdef Q_OS_ANDROID
+  // Debounce: Android touch events can fire clicked() twice (press+release propagation).
+  // Ignore a second toggle call within 400ms of the first.
+  static QElapsedTimer sidebarToggleCooldown;
+  if (sidebarToggleCooldown.isValid() && sidebarToggleCooldown.elapsed() < 400)
+    return;
+  sidebarToggleCooldown.start();
+#endif
   bool isVisible =
       m_sidebarContainer->isVisible() && m_sidebarContainer->width() > 0;
   animateSidebar(!isVisible);

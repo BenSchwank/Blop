@@ -78,9 +78,11 @@ button {
   border-radius: var(--radius-sm);
 }
 
-/* Smooth Transitions */
-* {
-  transition: all 0.2s ease-out;
+/* Smooth Transitions - only on interactive elements, NOT on * (breaks Android touch) */
+a, button, input, [role="button"] {
+  transition: color 0.15s ease-out, background-color 0.15s ease-out,
+              border-color 0.15s ease-out, box-shadow 0.15s ease-out,
+              opacity 0.15s ease-out;
 }
 
 /* Custom Scrollbar (iOS-inspired) */
