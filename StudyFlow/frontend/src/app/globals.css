@@ -46,11 +46,6 @@ body {
   overflow-x: hidden;
   font-size: 16px;
   /* Base size for better readability */
-  /* Safe-area insets for Android/iOS WebView (notch/status bar) */
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
 }
 
 /* Touch-Friendly Buttons */
@@ -78,11 +73,9 @@ button {
   border-radius: var(--radius-sm);
 }
 
-/* Smooth Transitions - only on interactive elements, NOT on * (breaks Android touch) */
-a, button, input, [role="button"] {
-  transition: color 0.15s ease-out, background-color 0.15s ease-out,
-              border-color 0.15s ease-out, box-shadow 0.15s ease-out,
-              opacity 0.15s ease-out;
+/* Smooth Transitions */
+* {
+  transition: all 0.2s ease-out;
 }
 
 /* Custom Scrollbar (iOS-inspired) */

@@ -109,13 +109,13 @@ export default function Dashboard() {
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
-        distance: 25,
+        distance: 25, // Require 25px of movement to start dragging. This allows clicks to fire.
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 500, // Increased: require longer press to initiate drag (prevents tap interference)
-        tolerance: 10,
+        delay: 250, // Press and hold for 250ms to drag on mobile
+        tolerance: 8,
       },
     })
   );
@@ -289,7 +289,7 @@ export default function Dashboard() {
   return (
     <div className="bg-[#0B0B1A] min-h-screen relative">
       {/* Main Container - Professional Width */}
-      <div className="max-w-7xl mr-auto px-4 py-6 sm:px-6 sm:py-8 md:px-8 md:py-12">
+      <div className="max-w-7xl mr-auto px-8 py-12">
 
         {/* Header */}
         <div className="mb-10 flex items-center justify-between">
@@ -304,28 +304,28 @@ export default function Dashboard() {
         </div>
 
         {/* Search Bar & Actions Row - GRID LAYOUT */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] items-center gap-3 mb-8">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] items-center gap-4 mb-8 h-12">
 
           {/* Search */}
-          <div className="relative w-full">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
-              <Search size={20} className="text-gray-400" />
+          <div className="relative w-full h-full">
+            <div className="absolute inset-y-0 left-0 pl-6 flex items-center pointer-events-none text-gray-400">
+              <Search size={22} className="text-gray-400" />
             </div>
             <input
               type="text"
               placeholder="Suche nach Ordnern..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '44px' }}
-              className="w-full h-12 pr-4 bg-[#151525] text-white text-sm rounded-xl border border-[#2A2A40] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
+              style={{ paddingLeft: '68px' }} // Force padding to ensure icon doesn't overlap
+              className="w-full h-full pr-4 bg-[#151525] text-white text-sm rounded-xl border border-[#2A2A40] focus:border-[#5E5CE6] focus:outline-none transition-all placeholder:text-gray-500 shadow-sm"
             />
           </div>
 
           {/* Buttons */}
-          <div className="flex flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 h-full">
             <button
               onClick={() => setIsSummaryOpen(true)}
-              className="flex-1 lg:flex-none h-12 flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-5 rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md"
+              className="h-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-6 rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[140px]"
             >
               <Sparkles size={18} />
               <span>AI-Summary</span>
@@ -333,7 +333,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="flex-1 lg:flex-none h-12 flex items-center justify-center gap-2 bg-[#151525] hover:bg-[#1C1C33] text-white px-5 rounded-xl text-sm font-semibold border border-[#2A2A40] transition-all shadow-md"
+              className="h-full flex items-center justify-center gap-2 bg-[#151525] hover:bg-[#1C1C33] text-white px-6 rounded-xl text-sm font-semibold border border-[#2A2A40] transition-all shadow-md min-w-[140px]"
             >
               <Folder size={18} />
               <span>Neuer Ordner</span>
@@ -392,7 +392,7 @@ export default function Dashboard() {
               onDragEnd={handleDragEnd}
               collisionDetection={closestCenter}
             >
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 <AnimatePresence mode='popLayout'>
                   {filteredFolders.map((folder) => (
                     <DraggableFolder
