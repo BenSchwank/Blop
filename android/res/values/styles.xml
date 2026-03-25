@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Blop Dark Theme: matches the app's dark background color -->
+    <style name="BlopTheme" parent="Theme.AppCompat.NoActionBar">
+        <!-- Status bar color: matches the dark app background exactly -->
+        <item name="android:statusBarColor">#1e1e2e</item>
+        <!-- Navigation bar color: also dark -->
+        <item name="android:navigationBarColor">#1e1e2e</item>
+        <!-- Window background: dark -->
+        <item name="android:windowBackground">#1e1e2e</item>
+        <!-- Light status bar icons: false = white icons on dark background -->
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
