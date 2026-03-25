@@ -1682,9 +1682,9 @@ void MainWindow::setupUi() {
 
   mainLayout->addWidget(androidHeader);
 
-  // Force dark status bar & navigation bar colors via JNI.
-  // Qt overrides the XML theme after startup, so we must set it programmatically.
-  {
+  // Delay the JNI status bar fix: the Window isn't fully ready during the constructor.
+  // Run it 300ms after the event loop starts to ensure the Activity is available.
+  QTimer::singleShot(300, this, []() {
       QJniObject activity = QJniObject::callStaticObjectMethod(
           "org/qtproject/qt/android/QtNative",
           "activity",
@@ -1694,11 +1694,11 @@ void MainWindow::setupUi() {
               "getWindow", "()Landroid/view/Window;");
           if (window.isValid()) {
               window.callMethod<void>("addFlags", "(I)V", 0x80000000);
-              window.callMethod<void>("setStatusBarColor",    "(I)V", 0xFF0F111A);
+              window.callMethod<void>("setStatusBarColor",     "(I)V", 0xFF0F111A);
               window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0F111A);
           }
       }
-  }
+  });
 
 #else
   if (m_titleBarWidget) {
