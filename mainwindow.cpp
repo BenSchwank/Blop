@@ -85,6 +85,8 @@
 #include <QTemporaryFile>
 #include <QWidget>
 #include <QElapsedTimer>
+#include <QJniObject>
+#include <QNativeInterface>
 #else
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
@@ -1680,6 +1682,19 @@ void MainWindow::setupUi() {
   headerLay->addStretch();
 
   mainLayout->addWidget(androidHeader);
+
+  // Force status bar & navigation bar colors via JNI — Qt overrides XML theme at startup
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+      QJniObject activity = QNativeInterface::QAndroidApplication::context();
+      QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
+      if (window.isValid()) {
+          // STATUS_BAR_COLOR flag (0x80000000) must be set first
+          window.callMethod<void>("addFlags", "(I)V", 0x80000000);
+          window.callMethod<void>("setStatusBarColor",   "(I)V", 0xFF0F111A);
+          window.callMethod<void>("setNavigationBarColor","(I)V", 0xFF0F111A);
+      }
+  });
+
 #else
   if (m_titleBarWidget) {
     mainLayout->addWidget(m_titleBarWidget);
@@ -1769,7 +1784,7 @@ void MainWindow::setupUi() {
   QHBoxLayout *searchActionLayout = new QHBoxLayout();
   searchActionLayout->setSpacing(10);
 
-  QPushButton *btnNewNote = new QPushButton("+ Neue Notiz", m_overviewContainer);
+  QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setFixedHeight(44);
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
@@ -1779,7 +1794,7 @@ void MainWindow::setupUi() {
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   searchActionLayout->addWidget(btnNewNote, 1);
 
-  QPushButton *btnNewFolder = new QPushButton("+ Neuer Ordner", m_overviewContainer);
+  QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setFixedHeight(44);
   btnNewFolder->setCursor(Qt::PointingHandCursor);
   btnNewFolder->setStyleSheet(
