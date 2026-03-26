@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QShortcut>
 #include <QVBoxLayout>
+#include "UIStyles.h"
 
 NoteEditor::NoteEditor(QWidget *parent) : QWidget(parent) {
     setupUi();
@@ -42,15 +43,25 @@ void NoteEditor::setupUi() {
         "  color: white;"
         "}");
 
+#ifdef Q_OS_ANDROID
+    // On Android we use the top bar menu instead of the floating ⋯ button.
+    m_menuBtn->hide();
+#endif
+
     connect(m_menuBtn, &QPushButton::clicked, this, [this]() {
         QMenu *menu = new QMenu(this);
         menu->setAttribute(Qt::WA_DeleteOnClose);
-        menu->setStyleSheet(
-            "QMenu { background: #1E1E2E; border: 1px solid #6C5CE7;"
-            "  border-radius: 8px; padding: 6px; }"
-            "QMenu::item { color: #D8D5FF; padding: 10px 20px;"
-            "  border-radius: 5px; font-size: 13px; }"
-            "QMenu::item:selected { background: #6C5CE7; color: white; }");
+        const QString accent = UIStyles::Accent.name();
+        menu->setStyleSheet(QString(
+                                 "QMenu { background: #1E1E2E; "
+                                 "border: 1px solid %1; "
+                                 "border-radius: 8px; padding: 6px; }"
+                                 "QMenu::item { color: #D8D5FF; "
+                                 "padding: 10px 20px; "
+                                 "border-radius: 5px; font-size: 13px; }"
+                                 "QMenu::item:selected { background: %1; "
+                                 "color: white; }")
+                                 .arg(accent));
 
         QAction *actExportPdf = menu->addAction("📄  Als PDF exportieren");
         QAction *actExportImg = menu->addAction("🖼️  Als Bild exportieren");

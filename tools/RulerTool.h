@@ -2,6 +2,7 @@
 #include "AbstractTool.h"
 #include "RulerItem.h"
 #include <QGraphicsScene>
+#include <limits>
 
 class RulerTool : public AbstractTool {
     Q_OBJECT
@@ -26,7 +27,9 @@ public:
 
     // STATISCHE HELPER-FUNKTION:
     // Diese muss von CanvasView::setTool oder MultiPageNoteView::setToolMode aufgerufen werden!
-    static RulerItem* ensureRulerExists(QGraphicsScene* scene, const ToolConfig& config) {
+    static RulerItem* ensureRulerExists(QGraphicsScene* scene, const ToolConfig& config,
+                                        const QPointF& preferredScenePos = QPointF(std::numeric_limits<qreal>::quiet_NaN(),
+                                                                                   std::numeric_limits<qreal>::quiet_NaN())) {
         if (!scene) return nullptr;
 
         RulerItem* ruler = nullptr;
@@ -42,14 +45,20 @@ public:
         // 2. Erstellen, falls nicht vorhanden
         if (!ruler) {
             ruler = new RulerItem();
-            // Startposition: Mitte der Szene (oder Viewport-Mitte, wenn möglich)
+            // Startposition: bevorzugt sichtbarer Viewport-Mittelpunkt, sonst Szenenmitte.
             QRectF r = scene->sceneRect();
-            ruler->setPos(r.center());
+            QPointF spawn = r.center();
+            if (!qIsNaN(preferredScenePos.x()) && !qIsNaN(preferredScenePos.y()))
+                spawn = preferredScenePos;
+            ruler->setPos(spawn);
             ruler->setZValue(5000); // Über allem anderen liegen
             scene->addItem(ruler);
         }
 
         // 3. Konfigurieren und Anzeigen
+        if (!ruler->isVisible() && !qIsNaN(preferredScenePos.x()) && !qIsNaN(preferredScenePos.y())) {
+            ruler->setPos(preferredScenePos);
+        }
         ruler->setVisible(true);
         ruler->setConfig(config);
 

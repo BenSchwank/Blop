@@ -36,6 +36,7 @@ class ToolUIBridge : public QObject {
     // ... Ruler ...
     Q_PROPERTY(bool rulerSnap READ rulerSnap WRITE setRulerSnap NOTIFY rulerConfigChanged)
     Q_PROPERTY(bool compassMode READ compassMode WRITE setCompassMode NOTIFY rulerConfigChanged)
+    Q_PROPERTY(bool infiniteRuler READ infiniteRuler WRITE setInfiniteRuler NOTIFY rulerConfigChanged)
     Q_PROPERTY(int rulerUnit READ rulerUnit WRITE setRulerUnit NOTIFY rulerConfigChanged)
 
     // Basis
@@ -79,6 +80,7 @@ public:
 
     bool rulerSnap() const { return ToolManager::instance().config().rulerSnap; }
     bool compassMode() const { return ToolManager::instance().config().compassMode; }
+    bool infiniteRuler() const { return ToolManager::instance().config().infiniteRuler; }
     int rulerUnit() const { return (int)ToolManager::instance().config().rulerUnit; }
 
     // SETTERS
@@ -99,6 +101,7 @@ public:
 
     void setRulerSnap(bool v) { updateConfig([v](ToolConfig& c){ c.rulerSnap = v; }); emit rulerConfigChanged(); }
     void setCompassMode(bool v) { updateConfig([v](ToolConfig& c){ c.compassMode = v; }); emit rulerConfigChanged(); }
+    void setInfiniteRuler(bool v) { updateConfig([v](ToolConfig& c){ c.infiniteRuler = v; }); emit rulerConfigChanged(); }
     void setRulerUnit(int v) { updateConfig([v](ToolConfig& c){ c.rulerUnit = (RulerUnit)v; }); emit rulerConfigChanged(); }
 
 signals:

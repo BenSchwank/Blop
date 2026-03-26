@@ -7,6 +7,27 @@ Item {
     property bool oauthPending: false
     property string studyUrl: "https://blop-six.vercel.app"
     property bool firstLoadDone: false
+    // Slight zoom-out so auth forms fit better without vertical scrolling.
+    property real authUiScale: 0.86
+
+    function applyAuthUiScale() {
+        var jsCode = "(function() {" +
+                     "  try {" +
+                     "    var bodyText = (document.body && document.body.innerText ? document.body.innerText : '').toLowerCase();" +
+                     "    var path = (location.pathname || '').toLowerCase();" +
+                     "    var authLike = path.indexOf('login') !== -1 || path.indexOf('register') !== -1 || bodyText.indexOf('passwort') !== -1 || bodyText.indexOf('benutzername') !== -1;" +
+                     "    if (authLike) {" +
+                     "      document.documentElement.style.zoom = '" + authUiScale + "';" +
+                     "      if (document.body) document.body.style.zoom = '" + authUiScale + "';" +
+                     "    } else {" +
+                     "      document.documentElement.style.zoom = '0.94';" +
+                     "      if (document.body) document.body.style.zoom = '0.94';" +
+                     "    }" +
+                     "  } catch(e) {}" +
+                     "  return true;" +
+                     "})();";
+        webView.runJavaScript(jsCode);
+    }
 
     function ensureStudyLoaded() {
         if (!firstLoadDone || webView.url.toString() === "" || webView.url.toString() === "about:blank") {
@@ -33,6 +54,7 @@ Item {
             if (loadRequest.url.toString().indexOf("https://") === 0 ||
                 loadRequest.url.toString().indexOf("http://") === 0) {
                 oauthPending = false
+                applyAuthUiScale()
             }
         }
     }
@@ -49,6 +71,7 @@ Item {
     onVisibleChanged: {
         if (visible) {
             ensureStudyLoaded()
+            applyAuthUiScale()
         }
     }
 
@@ -148,6 +171,9 @@ Item {
                     } else if (resStr !== "") {
                         oauthPending = false;
                         blopAppBridge.onSessionCheck(resStr);
+                    } else {
+                        // Keep the login/register page slightly zoomed out.
+                        applyAuthUiScale();
                     }
                 }
             })

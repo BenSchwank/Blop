@@ -6,6 +6,7 @@
 #include <QTouchEvent>
 #include <QTabletEvent>
 #include <QPinchGesture>
+#include <QShowEvent>
 #include <QGestureEvent>
 #include <QUndoStack>
 #include <functional>
@@ -69,6 +70,7 @@ public slots:
 
 protected:
     void resizeEvent(QResizeEvent*) override;
+    void showEvent(QShowEvent *event) override;
     void wheelEvent(QWheelEvent*) override;
     void tabletEvent(QTabletEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
@@ -120,6 +122,8 @@ private:
     QUndoStack *m_undoStack{nullptr};
 
     void layoutPages();
+    /// Scene rect must cover mapToScene(viewport) or letterbox margins show wrong color until scroll.
+    void ensureSceneRectCoversViewport();
     QGraphicsPathItem *createStrokeGraphicsItem(const Stroke &s);
     void pushStrokeUndoCommand(int pageIdx, Stroke stroke);
     // void ensureOverscrollPage(); // Entfernt/Ersetzt durch Pull-Logik

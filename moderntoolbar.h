@@ -6,6 +6,7 @@
 #include <QColor>
 #include <QPropertyAnimation>
 #include <QRegion>
+#include <QTimer>
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
@@ -33,10 +34,12 @@ public:
 
 signals:
     void clicked();
+    void longPressed();
 
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
 
@@ -48,6 +51,10 @@ private:
     int m_size{40};
 
     double m_animScale{1.0};
+    QTimer m_holdTimer;
+    bool m_pressing{false};
+    bool m_longPressTriggered{false};
+    double m_holdProgress{0.0};
 };
 
 // --- Main Toolbar Class ---

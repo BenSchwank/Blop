@@ -35,6 +35,19 @@ ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
   setBtnSize(40);
   setCursor(Qt::PointingHandCursor);
   setAttribute(Qt::WA_AcceptTouchEvents, true);
+  m_holdTimer.setInterval(16);
+  connect(&m_holdTimer, &QTimer::timeout, this, [this]() {
+    if (!m_pressing)
+      return;
+    m_holdProgress += (double)m_holdTimer.interval() / 700.0;
+    if (m_holdProgress >= 1.0) {
+      m_holdProgress = 1.0;
+      m_holdTimer.stop();
+      m_longPressTriggered = true;
+      emit longPressed();
+    }
+    update();
+  });
 }
 void ToolbarBtn::setBtnSize(int s) {
   if (m_size != s) {
@@ -56,8 +69,33 @@ void ToolbarBtn::setActive(bool active) {
   update();
 }
 void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
-  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton)
+  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton) {
+    m_pressing = true;
+    m_longPressTriggered = false;
+    m_holdProgress = 0.0;
+    m_holdTimer.start();
+    update();
+    e->accept();
+    return;
+  }
+  QWidget::mousePressEvent(e);
+}
+void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
+  const bool inside = rect().contains(e->pos());
+  const bool shouldClick = m_pressing && !m_longPressTriggered && inside &&
+                           (e->button() == Qt::LeftButton ||
+                            e->button() == Qt::NoButton);
+  m_holdTimer.stop();
+  m_pressing = false;
+  m_longPressTriggered = false;
+  m_holdProgress = 0.0;
+  update();
+  if (shouldClick) {
     emit clicked();
+    e->accept();
+    return;
+  }
+  QWidget::mouseReleaseEvent(e);
 }
 void ToolbarBtn::enterEvent(QEnterEvent *) {
   m_hover = true;
@@ -139,6 +177,17 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   // Da Text aus der Baseline gerendert wird, nutzen wir Text flags zum genauen zentrieren
   p.drawText(QRectF(-w/2.0, -h/2.0, w, h), Qt::AlignCenter, emoji);
   p.restore();
+
+  if (m_active && m_holdProgress > 0.0) {
+    QPainter ring(this);
+    ring.setRenderHint(QPainter::Antialiasing);
+    QPen pen(QColor(216, 213, 255, 220), 3);
+    pen.setCapStyle(Qt::RoundCap);
+    ring.setPen(pen);
+    ring.setBrush(Qt::NoBrush);
+    const QRectF arcRect = rect().adjusted(3, 3, -3, -3);
+    ring.drawArc(arcRect, 90 * 16, -m_holdProgress * 360.0 * 16.0);
+  }
 }
 
 // =============================================================================
@@ -571,13 +620,21 @@ public:
       });
       layout->addWidget(chkSnap);
 
-      QCheckBox *chkCompass = new QCheckBox("Kompassmodus (Bogen)");
+      QCheckBox *chkCompass = new QCheckBox("Rundes Lineal");
       chkCompass->setChecked(m_config.compassMode);
       connect(chkCompass, &QCheckBox::toggled, [this](bool v) {
         m_config.compassMode = v;
         apply();
       });
       layout->addWidget(chkCompass);
+
+      QCheckBox *chkInfinite = new QCheckBox("Unendliches Lineal");
+      chkInfinite->setChecked(m_config.infiniteRuler);
+      connect(chkInfinite, &QCheckBox::toggled, [this](bool v) {
+        m_config.infiniteRuler = v;
+        apply();
+      });
+      layout->addWidget(chkInfinite);
     }
   }
 
@@ -635,6 +692,10 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnDockToggle = new ToolbarBtn("↥", this); // Default detach/dock icon
 
   btnSettings = new ToolbarBtn("⚙️", this);
+#ifdef Q_OS_ANDROID
+  // Settings lives in the fixed Android top bar – hide duplicate in the notch.
+  btnSettings->hide();
+#endif
   btnSave = new ToolbarBtn("💾", this);
   btnPalette = new ToolbarBtn("🎨", this);
   btnBrushSize = new ToolbarBtn("🖌️", this);
@@ -642,10 +703,12 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   m_dockedOnlyButtons = {btnSettings, btnSave, btnPalette, btnBrushSize};
 
 #ifdef Q_OS_ANDROID
-  m_buttons = {btnSettings, btnSave, btnPen,      btnPencil, btnHighlighter, btnEraser,
-               btnLasso,    btnRuler,  btnShape,       btnStickyNote,
-               btnText,     btnImage,  btnHand,        btnBackOverview,
-               btnUndo,     btnRedo,   btnPalette,     btnBrushSize, btnDockToggle};
+  // On Android the global settings live in the fixed top bar, so we do not
+  // show a duplicate settings button in the docked toolbar.
+  m_buttons = {btnSave,   btnPen,   btnPencil,   btnHighlighter, btnEraser,
+               btnLasso,  btnRuler, btnShape,    btnStickyNote,
+               btnText,   btnImage, btnHand,     btnBackOverview,
+               btnUndo,   btnRedo,  btnPalette,  btnBrushSize,   btnDockToggle};
 #else
   m_buttons = {btnSettings, btnSave, btnPen,      btnPencil, btnHighlighter, btnEraser,
                btnLasso,    btnRuler,  btnShape,       btnStickyNote,
@@ -659,7 +722,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   auto handleToolClick = [this](ToolMode m) {
     if (mode_ == m) {
       if (m_style == Radial) {
-          toggleRadialSettings();
+          if (!m_showRadialSettings)
+              toggleRadialSettings();
       } else {
           showSettingsPopup();
       }
@@ -728,6 +792,32 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           [=]() { handleToolClick(ToolMode::Hand); });
   connect(btnImage, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Image); });
+
+  auto connectLongPressClose = [this](ToolbarBtn *btn, ToolMode mode) {
+    connect(btn, &ToolbarBtn::longPressed, this, [this, mode]() {
+      if (mode_ != mode)
+        return;
+      if (m_style == Radial && m_showRadialSettings) {
+        toggleRadialSettings();
+      }
+      // Long-press closes current tool selection with a short fill animation.
+      if (mode != ToolMode::Pen) {
+        ToolManager::instance().selectTool(ToolMode::Pen);
+        setToolMode(ToolMode::Pen);
+      }
+    });
+  };
+  connectLongPressClose(btnPen, ToolMode::Pen);
+  connectLongPressClose(btnPencil, ToolMode::Pencil);
+  connectLongPressClose(btnHighlighter, ToolMode::Highlighter);
+  connectLongPressClose(btnEraser, ToolMode::Eraser);
+  connectLongPressClose(btnLasso, ToolMode::Lasso);
+  connectLongPressClose(btnRuler, ToolMode::Ruler);
+  connectLongPressClose(btnShape, ToolMode::Shape);
+  connectLongPressClose(btnStickyNote, ToolMode::StickyNote);
+  connectLongPressClose(btnText, ToolMode::Text);
+  connectLongPressClose(btnHand, ToolMode::Hand);
+  connectLongPressClose(btnImage, ToolMode::Image);
   connect(btnUndo, &ToolbarBtn::clicked,
           [this]() { emit undoRequested(); });
   connect(btnRedo, &ToolbarBtn::clicked,
@@ -1543,7 +1633,12 @@ int ModernToolbar::calculateMinLength() {
   
   if (m_isDockedMode) {
     QList<ToolbarBtn*> leftGroup = leftChromeButtons();
-    QList<ToolbarBtn*> rightGroup = {btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
+    QList<ToolbarBtn*> rightGroup =
+#ifdef Q_OS_ANDROID
+        QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnDockToggle};
+#else
+        QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
+#endif
     int centerGroupSize = m_buttons.size() - leftGroup.size() - rightGroup.size();
     
     int leftW = leftGroup.size() * btnS + (leftGroup.size() - 1) * minGap;
@@ -1604,8 +1699,13 @@ void ModernToolbar::updateLayout(bool animate) {
         }
       }
 
-      QList<ToolbarBtn*> leftGroup = leftChromeButtons(); 
-      QList<ToolbarBtn*> rightGroup = {btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
+      QList<ToolbarBtn*> leftGroup = leftChromeButtons();
+      QList<ToolbarBtn*> rightGroup =
+#ifdef Q_OS_ANDROID
+          QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnDockToggle};
+#else
+          QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
+#endif
       QList<ToolbarBtn*> centerGroup;
       for (auto *b : m_buttons) {
           if (!leftGroup.contains(b) && !rightGroup.contains(b)) {

@@ -263,6 +263,12 @@ private:
   QPushButton *m_btnAndroidStudy{nullptr};
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};
+  /// Opens right note settings while editing on Android.
+  ModernButton *m_btnAndroidToolbarSettings{nullptr};
+  /// Orange page manager button (only for A4 notes).
+  ModernButton *m_btnAndroidToolbarPageManager{nullptr};
+  /// Export current note while editing on Android.
+  ModernButton *m_btnAndroidToolbarExport{nullptr};
 #endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
@@ -310,6 +316,7 @@ private:
   ModernButton *btnOverviewMenu{nullptr};
 
   bool m_isSidebarOpen;
+  bool m_lastIsEditor{false};
 
   QWidget *m_sidebarContainer{nullptr};
   QListWidget *m_navSidebar{nullptr};

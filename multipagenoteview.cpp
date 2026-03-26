@@ -26,6 +26,8 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QFrame>
+#include <QPalette>
+#include <QShowEvent>
 #include <QUndoCommand>
 
 class StrokeAddUndoCommand : public QUndoCommand {
@@ -126,21 +128,38 @@ static constexpr int A4W = 793;
 static constexpr int A4H = 1122;
 static constexpr int PageSpacing = 60;
 
+static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
+  if (!view)
+    return;
+  const QColor bg = UIStyles::SceneBackground;
+  view->setBackgroundBrush(bg);
+  view->setFrameShape(QFrame::NoFrame);
+  view->setCacheMode(QGraphicsView::CacheNone);
+  if (QWidget *vp = view->viewport()) {
+    vp->setAutoFillBackground(true);
+    QPalette pal = vp->palette();
+    pal.setColor(QPalette::Window, bg);
+    pal.setColor(QPalette::Base, bg);
+    vp->setPalette(pal);
+  }
+}
+
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_undoStack = new QUndoStack(this);
 
   setScene(&scene_);
-  setBackgroundBrush(UIStyles::SceneBackground);
+  scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
+  applyGraphicsViewCanvasBackground(this);
 
   // Gesten auf dem Viewport registrieren
   viewport()->grabGesture(Qt::PinchGesture);
 
   setOptimizationFlags(QGraphicsView::DontSavePainterState |
                        QGraphicsView::DontAdjustForAntialiasing);
-  setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
+  setRenderHints(QPainter::Antialiasing);
+  setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
 
   setDragMode(QGraphicsView::NoDrag);
-  setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
   setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
   setAcceptDrops(false);
 
@@ -301,16 +320,19 @@ void MultiPageNoteView::layoutPages() {
     y += A4H + PageSpacing;
   }
   scene_.setSceneRect(QRectF(-100, -100, A4W + 200, y + 200));
+  ensureSceneRectCoversViewport();
 }
 
 void MultiPageNoteView::toggleRuler(bool active) {
     if (active) {
         ToolConfig config = ToolManager::instance().config();
-        RulerTool::ensureRulerExists(&scene_, config);
+        const QPointF spawn = mapToScene(viewport()->rect().center());
+        RulerTool::ensureRulerExists(&scene_, config, spawn);
     } else {
-        for (QGraphicsItem* item : scene_.items()) {
+        for (QGraphicsItem *item : scene_.items()) {
             if (item->type() == RulerItem::Type) {
                 item->setVisible(false);
+                break;
             }
         }
     }
@@ -345,7 +367,25 @@ void MultiPageNoteView::addNewPage() {
     onSaveRequested(note_);
 }
 
-void MultiPageNoteView::resizeEvent(QResizeEvent *) {}
+void MultiPageNoteView::ensureSceneRectCoversViewport() {
+  if (!viewport() || viewport()->width() <= 0 || viewport()->height() <= 0)
+    return;
+  const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
+  if (vis.isEmpty())
+    return;
+  QRectF sr = scene_.sceneRect();
+  scene_.setSceneRect(sr.united(vis.adjusted(-80, -80, 80, 80)));
+}
+
+void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
+  QGraphicsView::resizeEvent(e);
+  ensureSceneRectCoversViewport();
+}
+
+void MultiPageNoteView::showEvent(QShowEvent *e) {
+  QGraphicsView::showEvent(e);
+  ensureSceneRectCoversViewport();
+}
 
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
@@ -372,6 +412,7 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
     qreal factor = (delta > 0) ? 1.1 : 0.9;
     scale(factor, factor);
     zoom_ *= factor;
+    ensureSceneRectCoversViewport();
     e->accept();
   } else {
     QScrollBar *vb = verticalScrollBar();
@@ -445,6 +486,7 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
           (currentScale > 4.0 && factor > 1.0))) {
       scale(factor, factor);
       zoom_ *= factor;
+      ensureSceneRectCoversViewport();
     }
   }
 
@@ -943,10 +985,7 @@ void MultiPageNoteView::onSelectionChanged() {
       return;
   }
 
-  qDebug() << "--- onSelectionChanged ---";
-  for (QGraphicsItem* item : items) {
-      qDebug() << "Selected Type:" << item->type() << "Rect:" << item->sceneBoundingRect();
-  }
+  // Selection debug logs removed for smoother debug performance.
   // Find bounding rect of all selected items
   QRectF boundingRect;
   for (QGraphicsItem* item : items) {

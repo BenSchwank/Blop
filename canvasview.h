@@ -8,6 +8,7 @@
 #include <QGraphicsItemGroup>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QShowEvent>
 #include <QSet>
 #include <QUndoStack>
 #include <QWidget>
@@ -106,6 +107,7 @@ protected:
     void drawBackground(QPainter *painter, const QRectF &rect) override;
     void drawForeground(QPainter *painter, const QRectF &rect) override;
     void resizeEvent(QResizeEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
     QGraphicsScene *m_scene;

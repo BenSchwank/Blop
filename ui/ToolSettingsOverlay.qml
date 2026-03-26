@@ -178,9 +178,10 @@ Rectangle {
     Component {
         id: rulerComponent
         ColumnLayout { spacing: 12
-            SectionLabel { text: "Lineal Modi" }
+            SectionLabel { text: "Lineal Optionen" }
             CustomSwitch { text: "Am Lineal einrasten"; checked: Bridge.rulerSnap; onToggled: Bridge.rulerSnap = checked }
-            CustomSwitch { text: "Kompass-Modus (Zirkel)"; checked: Bridge.compassMode; onToggled: Bridge.compassMode = checked }
+            CustomSwitch { text: "Rundes Lineal"; checked: Bridge.compassMode; onToggled: Bridge.compassMode = checked }
+            CustomSwitch { text: "Unendliches Lineal"; checked: Bridge.infiniteRuler; onToggled: Bridge.infiniteRuler = checked }
             SectionLabel { text: "Einheiten" }
             RowLayout { spacing: 10
                 Repeater { model: ["px", "cm", "in"]

@@ -45,5 +45,6 @@ struct ToolConfig {
     // 7. RULER (NEU)
     RulerUnit rulerUnit = RulerUnit::Pixel;
     bool rulerSnap = true;      // Einrasten aktiv?
-    bool compassMode = false;   // Kompass-Modus
+    bool compassMode = false;   // Rundes Lineal
+    bool infiniteRuler = false; // Über die ganze Seite
 };

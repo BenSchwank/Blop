@@ -66,6 +66,8 @@ private:
 
 #include <QApplication>
 #include <QBitmap>
+#include <QPalette>
+#include <QShowEvent>
 #include <QClipboard>
 #include <QColorDialog>
 #include <QCursor>
@@ -91,6 +93,24 @@ static constexpr float PAGE_WIDTH = 794 * 1.5f;
 static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
 static constexpr float PAGE_GAP = 60.0f;
 static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
+
+/// Solid canvas color via palette (no viewport stylesheet overlay). Stylesheets
+/// caused a "black bar" that only refreshed after scroll; CacheBackground made it worse.
+static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
+  if (!view)
+    return;
+  const QColor bg = UIStyles::SceneBackground;
+  view->setBackgroundBrush(bg);
+  view->setFrameShape(QFrame::NoFrame);
+  view->setCacheMode(QGraphicsView::CacheNone);
+  if (QWidget *vp = view->viewport()) {
+    vp->setAutoFillBackground(true);
+    QPalette pal = vp->palette();
+    pal.setColor(QPalette::Window, bg);
+    pal.setColor(QPalette::Base, bg);
+    vp->setPalette(pal);
+  }
+}
 
 // =============================================================================
 // HELPER: BAKING TRANSFORM & CURSOR
@@ -334,7 +354,7 @@ private:
 CanvasView::CanvasView(QWidget *parent)
     : QGraphicsView(parent), m_toolManager(nullptr), m_currentItem(nullptr),
       m_lassoItem(nullptr), m_isDrawing(false), m_isInfinite(true),
-      m_penOnlyMode(false), m_pageColor(QColor(0xF5F5F5)) // Default: mouse enabled
+      m_penOnlyMode(false), m_pageColor(UIStyles::SceneBackground) // Default: dark page
       ,
       m_pageStyle(PageStyle::Squared), m_gridSize(40),
       m_currentTool(ToolType::Pen), m_penColor(Qt::black), m_penWidth(3),
@@ -342,15 +362,19 @@ CanvasView::CanvasView(QWidget *parent)
       m_transformOverlay(nullptr), m_transformGroup(nullptr) {
   m_scene = new QGraphicsScene(this);
   setScene(m_scene);
+  m_scene->setItemIndexMethod(QGraphicsScene::NoIndex);
   m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
   m_undoStack = new QUndoStack(this);
 
   setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
-  setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
+  setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing |
+                       QGraphicsView::DontSavePainterState);
   setRenderHint(QPainter::Antialiasing);
   setRenderHint(QPainter::SmoothPixmapTransform, false);
   setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
   setResizeAnchor(QGraphicsView::AnchorUnderMouse);
+
+  applyGraphicsViewCanvasBackground(this);
 
   grabGesture(Qt::PinchGesture);
   viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
@@ -523,8 +547,12 @@ void CanvasView::updateBackgroundTile() {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
-  // Zeichne Hintergrundfarbe
-  painter->fillRect(rect, m_pageColor);
+  // Infinite canvas: full area uses page color.
+  // Paged mode: outside-page area should stay dark to avoid white side panels.
+  if (m_isInfinite)
+    painter->fillRect(rect, m_pageColor);
+  else
+    painter->fillRect(rect, UIStyles::SceneBackground);
 
   if (m_isInfinite && !m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
     double zoomLevel = transform().m11();
@@ -736,12 +764,14 @@ bool CanvasView::loadFromFile() {
 void CanvasView::toggleRuler(bool active) {
     if (active) {
         if (m_toolManager) {
-            RulerTool::ensureRulerExists(scene(), m_toolManager->config());
+            const QPointF spawn = mapToScene(viewport()->rect().center());
+            RulerTool::ensureRulerExists(scene(), m_toolManager->config(), spawn);
         }
     } else {
-        for (QGraphicsItem* item : scene()->items()) {
+        for (QGraphicsItem *item : m_scene->items()) {
             if (item->type() == RulerItem::Type) {
                 item->setVisible(false);
+                break;
             }
         }
     }
@@ -754,7 +784,8 @@ void CanvasView::setTool(ToolType tool) {
   // es existiert
   if (tool == ToolType::Ruler) {
     if (m_toolManager) {
-      RulerTool::ensureRulerExists(m_scene, m_toolManager->config());
+      const QPointF spawn = mapToScene(viewport()->rect().center());
+      RulerTool::ensureRulerExists(m_scene, m_toolManager->config(), spawn);
     }
     // Keine Cursor-Änderung hier, RulerTool steuert das nicht direkt
   } else if (tool == ToolType::Select) {
@@ -1122,7 +1153,30 @@ void CanvasView::wheelEvent(QWheelEvent *event) {
 
 void CanvasView::resizeEvent(QResizeEvent *event) {
   QGraphicsView::resizeEvent(event);
-  updateSceneRect(); // Sicherstellen, dass die Szene beim Resizen passt
+  if (m_isInfinite) {
+    updateSceneRect();
+  } else if (viewport() && viewport()->width() > 0 && viewport()->height() > 0) {
+    // Letterboxing: visible scene area can extend past m_a4Rect; include it so
+    // drawBackground paints dark there immediately (no fake black strip).
+    const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
+    if (!vis.isEmpty()) {
+      QRectF sr = m_scene->sceneRect();
+      m_scene->setSceneRect(sr.united(vis.adjusted(-100, -100, 100, 100)));
+    }
+  }
+}
+
+void CanvasView::showEvent(QShowEvent *event) {
+  QGraphicsView::showEvent(event);
+  if (m_isInfinite) {
+    updateSceneRect();
+  } else if (viewport() && viewport()->width() > 0 && viewport()->height() > 0) {
+    const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
+    if (!vis.isEmpty()) {
+      QRectF sr = m_scene->sceneRect();
+      m_scene->setSceneRect(sr.united(vis.adjusted(-100, -100, 100, 100)));
+    }
+  }
 }
 
 // === WICHTIG: EVENT DELEGATION AN TOOL MANAGER ===
