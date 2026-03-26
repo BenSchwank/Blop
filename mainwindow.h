@@ -40,6 +40,9 @@ class QVBoxLayout;
 
 #ifdef BLOP_HAS_WEBENGINE
 #include <QWebEnginePage>
+#ifndef Q_OS_ANDROID
+class QWebEngineView;
+#endif
 
 class InterceptingWebPage : public QWebEnginePage {
   Q_OBJECT
@@ -275,6 +278,9 @@ private:
   QComboBox *m_modeSelector{nullptr};
   /// Desktop title bar: visible Notizen/Study control (logic in m_modeSelector).
   QPushButton *m_btnMode{nullptr};
+#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  QWebEngineView *m_studyWebView{nullptr};
+#endif
   // ----------------------------
 
   // --- Sidebar user section labels (updated on webview login) ---

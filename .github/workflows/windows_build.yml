@@ -80,6 +80,8 @@ jobs:
           if (!(Test-Path "deployment\Qt6WebEngineCore.dll")) { Write-Error "CRITICAL: Qt6WebEngineCore.dll missing!" }
           if (!(Test-Path "deployment\QtWebEngineProcess.exe")) { Write-Error "CRITICAL: QtWebEngineProcess.exe missing!" }
           if (!(Test-Path "deployment\resources")) { Write-Error "CRITICAL: Resources folder missing!" }
+          $icu = Get-ChildItem deployment -Recurse -Filter icudtl.dat -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $icu) { Write-Error "CRITICAL: icudtl.dat missing under deployment (WebEngine will not render)!" }
 
       - name: Zip Release
         uses: TheDoctor0/zip-release@0.7.1

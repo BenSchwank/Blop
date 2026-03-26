@@ -28,6 +28,7 @@
 // -------------------------------------
 
 #include <QApplication>
+#include <QColor>
 #include <QMessageBox>
 #include <QButtonGroup>
 #include <QComboBox>
@@ -100,6 +101,7 @@
 #include <QtWebEngineWidgets/QWebEngineView>
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
+#include <QWebEngineSettings>
 #endif
 #endif
 // ============================================================================
@@ -2600,10 +2602,18 @@ void MainWindow::setupWebBrowser() {
 #else
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
+  m_studyWebView = view;
   view->setStyleSheet("background: transparent;");
   // FIX: FramelessWindowHint + QWebEngineView auf Windows braucht WA_NativeWindow,
   // damit der interne Chromium-HWND korrekte Mouse-Events bekommt (sonst Glasscheibe).
   view->setAttribute(Qt::WA_NativeWindow);
+
+  // Reduce GPU/compositor paths that often stay black in packaged Windows builds.
+  if (QWebEngineSettings *ws = view->settings()) {
+    ws->setAttribute(QWebEngineSettings::WebGLEnabled, false);
+    ws->setAttribute(QWebEngineSettings::Accelerated2dCanvasEnabled, false);
+    ws->setAttribute(QWebEngineSettings::PluginsEnabled, false);
+  }
 
   // --- Auto-reload fix ---
   // After a fresh install the WebEngine sometimes loads a blank page.
@@ -2636,6 +2646,7 @@ void MainWindow::setupWebBrowser() {
       }
   });
   view->setPage(customPage);
+  customPage->setBackgroundColor(QColor(30, 30, 30));
 
   // Renderer/GPU crash leaves a black view; reload recovers (common in release-only setups).
   connect(customPage, &QWebEnginePage::renderProcessTerminated, m_studyContainer,
@@ -2645,7 +2656,11 @@ void MainWindow::setupWebBrowser() {
               QTimer::singleShot(400, view, [view]() { view->reload(); });
           });
 
-  view->load(QUrl("https://blop-six.vercel.app"));
+  // Defer first navigation until after the window is shown so the native surface exists
+  // (helps some Windows + frameless + WebEngine combinations that stay black).
+  QTimer::singleShot(250, view, [view]() {
+    view->load(QUrl("https://blop-six.vercel.app"));
+  });
   layout->addWidget(view);
 
   // --- SSO Bridge: Poll localStorage to support SPA Routing ---
@@ -4382,6 +4397,12 @@ void MainWindow::showEvent(QShowEvent *event) {
 #ifdef Q_OS_ANDROID
   if (m_androidHeader)
     m_androidHeader->raise();
+#endif
+#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  if (m_studyWebView) {
+    m_studyWebView->updateGeometry();
+    m_studyWebView->raise();
+  }
 #endif
 }
 

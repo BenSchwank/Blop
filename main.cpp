@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QGuiApplication>
 #include <QStandardPaths>
 #include <QUrl>
 
@@ -29,20 +30,31 @@ int main(int argc, char *argv[]) {
   // Must be set before QApplication when mixing WebEngine with other GL users.
   // Packaged installs (installer / windeployqt) often hit a black WebView without this.
 #ifdef Q_OS_WIN
+  // Last resort for stubborn black WebView: set BLOP_FORCE_SOFTWARE_OPENGL=1 before launch.
+  if (qgetenv("BLOP_FORCE_SOFTWARE_OPENGL") == "1")
+    QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
   // Chromium sandbox can fail under some AV / locked-down installs; WebView stays black.
   if (qgetenv("QTWEBENGINE_DISABLE_SANDBOX").isEmpty())
     qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
-  // Packaged Release builds often show a black WebView on some GPUs/drivers (Vulkan/ANGLE).
-  // Debug in Qt Creator usually works; allow override via QTWEBENGINE_CHROMIUM_FLAGS.
-#  ifndef QT_DEBUG
-  if (qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").isEmpty())
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
-#  endif
+  // Packaged installs: broaden Chromium compatibility (override via QTWEBENGINE_CHROMIUM_FLAGS).
+  if (qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").isEmpty()) {
+    QByteArray flags =
+        "--disable-gpu --disable-gpu-compositing "
+        "--disable-features=Vulkan "
+        "--disable-backgrounding-occluded-windows "
+        "--disable-renderer-backgrounding";
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
+  }
 #endif
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+#ifdef Q_OS_WIN
+  QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+      Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#endif
 
   // set global app font (Blop Study Redesign)
   QFont appFont("Segoe UI", 10);
