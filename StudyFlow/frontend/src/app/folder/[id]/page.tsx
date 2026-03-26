@@ -1395,7 +1395,11 @@ export default function FolderPage() {
                                 onClick={async () => {
                                     const username = localStorage.getItem("username") || "";
                                     // The audio filename was embedded via <!-- AUDIO_FILE:filename -->
-                                    const match = selectedFile.content?.match(/<!-- AUDIO_FILE:(.*?) -->/);
+                                    const contentStr =
+                                        typeof selectedFile.content === "string"
+                                            ? selectedFile.content
+                                            : JSON.stringify(selectedFile.content ?? "");
+                                    const match = contentStr.match(/<!-- AUDIO_FILE:(.*?) -->/);
                                     if (match && match[1]) {
                                         const filename = match[1];
                                         const url = `${API_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
