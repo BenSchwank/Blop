@@ -37,7 +37,10 @@ int main(int argc, char *argv[]) {
   // Chromium sandbox can fail under some AV / locked-down installs; WebView stays black.
   if (qgetenv("QTWEBENGINE_DISABLE_SANDBOX").isEmpty())
     qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
-  // Packaged installs: broaden Chromium compatibility (override via QTWEBENGINE_CHROMIUM_FLAGS).
+  // Default Chromium flags (--disable-gpu, …) must NOT run in Debug builds: Qt WebEngine
+  // asserts gpu_info.IsInitialized() in content_gpu_client_qt.cpp; disabling the GPU prevents that.
+  // Packaged Release: set flags here. Debug: leave unset (or set QTWEBENGINE_CHROMIUM_FLAGS yourself).
+#  ifndef QT_DEBUG
   if (qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").isEmpty()) {
     QByteArray flags =
         "--disable-gpu --disable-gpu-compositing "
@@ -46,6 +49,7 @@ int main(int argc, char *argv[]) {
         "--disable-renderer-backgrounding";
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
   }
+#  endif
 #endif
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
