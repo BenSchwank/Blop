@@ -98,6 +98,7 @@
 #else
 #ifdef BLOP_HAS_WEBENGINE
 #include <QtWebEngineWidgets/QWebEngineView>
+#include <QWebEnginePage>
 #include <QWebEngineProfile>
 #endif
 #endif
@@ -910,12 +911,31 @@ void MainWindow::setupTitleBar() {
       "  background: rgba(124,92,252,0.18);"
       "  color: rgba(220,216,255,1.0);"
       "}");
-  connect(btnMode, &QPushButton::clicked, this,
-          [this]() { m_modeSelector->showPopup(); });
   connect(m_modeSelector, &QComboBox::currentIndexChanged,
           [btnMode, this](int idx) {
             btnMode->setText(m_modeSelector->itemText(idx) + "  ▾");
           });
+  m_btnMode = btnMode;
+  // QComboBox stays hidden; Qt may refuse showPopup() when visible==false — use QMenu instead.
+  m_modeSelector->hide();
+  connect(btnMode, &QPushButton::clicked, this, [this, btnMode]() {
+    QMenu menu(this);
+    menu.setStyleSheet(
+        "QMenu { background: #1E1E2E; border: 1px solid rgba(255,255,255,0.12); "
+        "border-radius: 8px; padding: 4px; }"
+        "QMenu::item { color: #E0DEFF; padding: 8px 28px; }"
+        "QMenu::item:selected { background: rgba(124,92,252,0.35); }");
+    QAction *aNotes = menu.addAction(tr("Notizen"));
+    QAction *aStudy = menu.addAction(tr("Study"));
+    QAction *chosen =
+        menu.exec(btnMode->mapToGlobal(QPoint(0, btnMode->height())));
+    if (!m_modeSelector)
+      return;
+    if (chosen == aNotes)
+      m_modeSelector->setCurrentIndex(0);
+    else if (chosen == aStudy)
+      m_modeSelector->setCurrentIndex(1);
+  });
   navLayout->addWidget(btnMode);
   navLayout->addWidget(m_modeSelector);
   navLayout->addSpacing(12);
@@ -2617,6 +2637,14 @@ void MainWindow::setupWebBrowser() {
   });
   view->setPage(customPage);
 
+  // Renderer/GPU crash leaves a black view; reload recovers (common in release-only setups).
+  connect(customPage, &QWebEnginePage::renderProcessTerminated, m_studyContainer,
+          [view](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
+            Q_UNUSED(exitCode);
+            if (status != QWebEnginePage::RenderProcessTerminationStatus::NormalTerminationStatus)
+              QTimer::singleShot(400, view, [view]() { view->reload(); });
+          });
+
   view->load(QUrl("https://blop-six.vercel.app"));
   layout->addWidget(view);
 
@@ -2735,6 +2763,11 @@ void MainWindow::onModeChanged(int index) {
   applyAndroidTabStyles(index);
 #endif
 
+#ifndef Q_OS_ANDROID
+  if (m_titleBarWidget)
+    m_titleBarWidget->raise();
+#endif
+
   // Ensure toolbar/mode selector visibility is correct for the selected mode.
   // Without this, the UI can remain in an "editor" state while the Study
   // WebView is shown, which may block switching back.
@@ -2778,7 +2811,6 @@ void MainWindow::updateSidebarUser(const QString &username) {
       QSignalBlocker b(m_modeSelector);
 #endif
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
-      m_modeSelector->show(); // Show selector when logged in
     }
 #ifdef Q_OS_ANDROID
     onModeChanged(0);
@@ -3962,12 +3994,10 @@ void MainWindow::updateSidebarState() {
   if (m_editorTitleControls) {
     m_editorTitleControls->setVisible(isEditor);
   }
-  if (m_modeSelector) {
-    // Only show mode selector on Desktop if we are in the Overview AND not in Android mode (where it has its own header)
 #ifndef Q_OS_ANDROID
-    m_modeSelector->setVisible(!isEditor);
+  if (m_btnMode)
+    m_btnMode->setVisible(!isEditor);
 #endif
-  }
   
   if (m_isSidebarOpen) {
     m_sidebarStrip->hide();

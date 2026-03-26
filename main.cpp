@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QCoreApplication>
 #include <QDir>
 #include <QStandardPaths>
 #include <QUrl>
@@ -22,6 +23,16 @@ int main(int argc, char *argv[]) {
   // damit das native Android-Web-Backend geladen wird.
 #ifdef Q_OS_ANDROID
   QtWebView::initialize();
+#endif
+
+  // --- WINDOWS + Qt WebEngine (Study / Login) ---
+  // Must be set before QApplication when mixing WebEngine with other GL users.
+  // Packaged installs (installer / windeployqt) often hit a black WebView without this.
+#ifdef Q_OS_WIN
+  QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+  // Chromium sandbox can fail under some AV / locked-down installs; WebView stays black.
+  if (qgetenv("QTWEBENGINE_DISABLE_SANDBOX").isEmpty())
+    qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
 #endif
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen

@@ -273,6 +273,8 @@ private:
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
   QComboBox *m_modeSelector{nullptr};
+  /// Desktop title bar: visible Notizen/Study control (logic in m_modeSelector).
+  QPushButton *m_btnMode{nullptr};
   // ----------------------------
 
   // --- Sidebar user section labels (updated on webview login) ---
