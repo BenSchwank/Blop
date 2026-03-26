@@ -1418,20 +1418,16 @@ void MainWindow::onToggleFloatingTools() {}
 void MainWindow::applyTheme() {
   QString c = m_currentAccentColor.name();
   QString c_light = m_currentAccentColor.lighter(130).name();
-  const QString c_scrollPress = m_currentAccentColor.darker(118).name();
 #ifdef Q_OS_ANDROID
-  // Slightly wider hit area for touch; still minimal visually.
+  const QString c_scrollPress = m_currentAccentColor.darker(118).name();
   const char *sbW = "12px";
   const char *sbH = "12px";
-#else
-  const char *sbW = "9px";
-  const char *sbH = "9px";
 #endif
   if (m_fileListView)
     m_fileListView->setAccentColor(m_currentAccentColor);
 
   // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
-  // Scrollbars: slim pill track + draggable handle; accent on hover (Windows + Android).
+  // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
   QString style =
       QString(
           "QMainWindow { background-color: #0D0B14; } "
@@ -1445,57 +1441,54 @@ void MainWindow::applyTheme() {
           "QMenu { background-color: #0D0B14; border: 1px solid #201E2E; "
           "border-radius: 10px; padding: 10px; color: #E0E0E0; } "
           "QMenu::item { padding: 8px 20px; border-radius: 5px; } "
-          "QMenu::item:selected { background-color: %2; color: white; } "
-
-          "QScrollBar:vertical {"
-          "  border: none;"
-          "  background: rgba(255,255,255,0.05);"
-          "  width: %5;"
-          "  margin: 0px;"
-          "  border-radius: 5px;"
-          "}"
-          "QScrollBar::handle:vertical {"
-          "  background: rgba(255,255,255,0.28);"
-          "  min-height: 48px;"
-          "  border-radius: 5px;"
-          "  margin: 2px 1px;"
-          "}"
-          "QScrollBar::handle:vertical:hover { background: %3; }"
-          "QScrollBar::handle:vertical:pressed { background: %4; }"
-          "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
-          "  border: none; background: none; height: 0px; width: 0px;"
-          "}"
-          "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
-          "  background: transparent;"
-          "}"
-
-          "QScrollBar:horizontal {"
-          "  border: none;"
-          "  background: rgba(255,255,255,0.05);"
-          "  height: %6;"
-          "  margin: 0px;"
-          "  border-radius: 5px;"
-          "}"
-          "QScrollBar::handle:horizontal {"
-          "  background: rgba(255,255,255,0.28);"
-          "  min-width: 48px;"
-          "  border-radius: 5px;"
-          "  margin: 1px 2px;"
-          "}"
-          "QScrollBar::handle:horizontal:hover { background: %3; }"
-          "QScrollBar::handle:horizontal:pressed { background: %4; }"
-          "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {"
-          "  border: none; background: none; width: 0px; height: 0px;"
-          "}"
-          "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {"
-          "  background: transparent;"
-          "}")
-          .arg(c)
-          .arg(c_light)
-          .arg(c_light)
-          .arg(c_scrollPress)
-          .arg(QLatin1String(sbW))
-          .arg(QLatin1String(sbH));
+          "QMenu::item:selected { background-color: %2; color: white; } ")
+          .arg(c, c_light);
+#ifdef Q_OS_ANDROID
+  style += QString(
+      "QScrollBar:vertical {"
+      "  border: none;"
+      "  background: rgba(255,255,255,0.05);"
+      "  width: %3;"
+      "  margin: 0px;"
+      "  border-radius: 5px;"
+      "}"
+      "QScrollBar::handle:vertical {"
+      "  background: rgba(255,255,255,0.28);"
+      "  min-height: 48px;"
+      "  border-radius: 5px;"
+      "  margin: 2px 1px;"
+      "}"
+      "QScrollBar::handle:vertical:hover { background: %1; }"
+      "QScrollBar::handle:vertical:pressed { background: %2; }"
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+      "  border: none; background: none; height: 0px; width: 0px;"
+      "}"
+      "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+      "  background: transparent;"
+      "}"
+      "QScrollBar:horizontal {"
+      "  border: none;"
+      "  background: rgba(255,255,255,0.05);"
+      "  height: %4;"
+      "  margin: 0px;"
+      "  border-radius: 5px;"
+      "}"
+      "QScrollBar::handle:horizontal {"
+      "  background: rgba(255,255,255,0.28);"
+      "  min-width: 48px;"
+      "  border-radius: 5px;"
+      "  margin: 1px 2px;"
+      "}"
+      "QScrollBar::handle:horizontal:hover { background: %1; }"
+      "QScrollBar::handle:horizontal:pressed { background: %2; }"
+      "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {"
+      "  border: none; background: none; width: 0px; height: 0px;"
+      "}"
+      "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {"
+      "  background: transparent;"
+      "}")
+      .arg(c_light, c_scrollPress, QLatin1String(sbW), QLatin1String(sbH));
+#endif
   this->setStyleSheet(style);
 
   if (m_sidebarContainer)

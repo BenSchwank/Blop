@@ -27,6 +27,12 @@
 #include <cmath>
 #include <QtGlobal>
 
+#ifdef Q_OS_ANDROID
+#define BLOP_TOOLBAR_LONGPRESS 1
+#else
+#define BLOP_TOOLBAR_LONGPRESS 0
+#endif
+
 // =============================================================================
 // 1. ToolbarBtn Implementation
 // =============================================================================
@@ -35,6 +41,7 @@ ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
   setBtnSize(40);
   setCursor(Qt::PointingHandCursor);
   setAttribute(Qt::WA_AcceptTouchEvents, true);
+#if BLOP_TOOLBAR_LONGPRESS
   m_holdTimer.setInterval(16);
   connect(&m_holdTimer, &QTimer::timeout, this, [this]() {
     if (!m_pressing)
@@ -48,6 +55,7 @@ ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
     }
     update();
   });
+#endif
 }
 void ToolbarBtn::setBtnSize(int s) {
   if (m_size != s) {
@@ -69,6 +77,7 @@ void ToolbarBtn::setActive(bool active) {
   update();
 }
 void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
+#if BLOP_TOOLBAR_LONGPRESS
   if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton) {
     m_pressing = true;
     m_longPressTriggered = false;
@@ -79,8 +88,15 @@ void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
     return;
   }
   QWidget::mousePressEvent(e);
+#else
+  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton)
+    emit clicked();
+  else
+    QWidget::mousePressEvent(e);
+#endif
 }
 void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
+#if BLOP_TOOLBAR_LONGPRESS
   const bool inside = rect().contains(e->pos());
   const bool shouldClick = m_pressing && !m_longPressTriggered && inside &&
                            (e->button() == Qt::LeftButton ||
@@ -96,6 +112,9 @@ void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
     return;
   }
   QWidget::mouseReleaseEvent(e);
+#else
+  QWidget::mouseReleaseEvent(e);
+#endif
 }
 void ToolbarBtn::enterEvent(QEnterEvent *) {
   m_hover = true;
@@ -793,6 +812,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   connect(btnImage, &ToolbarBtn::clicked,
           [=]() { handleToolClick(ToolMode::Image); });
 
+#if BLOP_TOOLBAR_LONGPRESS
   auto connectLongPressClose = [this](ToolbarBtn *btn, ToolMode mode) {
     connect(btn, &ToolbarBtn::longPressed, this, [this, mode]() {
       if (mode_ != mode)
@@ -800,7 +820,6 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
       if (m_style == Radial && m_showRadialSettings) {
         toggleRadialSettings();
       }
-      // Long-press closes current tool selection with a short fill animation.
       if (mode != ToolMode::Pen) {
         ToolManager::instance().selectTool(ToolMode::Pen);
         setToolMode(ToolMode::Pen);
@@ -818,6 +837,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   connectLongPressClose(btnText, ToolMode::Text);
   connectLongPressClose(btnHand, ToolMode::Hand);
   connectLongPressClose(btnImage, ToolMode::Image);
+#endif
   connect(btnUndo, &ToolbarBtn::clicked,
           [this]() { emit undoRequested(); });
   connect(btnRedo, &ToolbarBtn::clicked,

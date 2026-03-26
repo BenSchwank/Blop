@@ -23,6 +23,7 @@
 #endif
 #include <algorithm>
 #include <cmath>
+#include <QtGlobal>
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QFrame>
@@ -128,6 +129,7 @@ static constexpr int A4W = 793;
 static constexpr int A4H = 1122;
 static constexpr int PageSpacing = 60;
 
+#ifdef Q_OS_ANDROID
 static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
   if (!view)
     return;
@@ -143,20 +145,29 @@ static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
     vp->setPalette(pal);
   }
 }
+#endif
 
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_undoStack = new QUndoStack(this);
 
   setScene(&scene_);
   scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
+#ifdef Q_OS_ANDROID
   applyGraphicsViewCanvasBackground(this);
+#else
+  setBackgroundBrush(UIStyles::SceneBackground);
+#endif
 
   // Gesten auf dem Viewport registrieren
   viewport()->grabGesture(Qt::PinchGesture);
 
   setOptimizationFlags(QGraphicsView::DontSavePainterState |
                        QGraphicsView::DontAdjustForAntialiasing);
+#ifdef Q_OS_ANDROID
   setRenderHints(QPainter::Antialiasing);
+#else
+  setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
+#endif
   setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
 
   setDragMode(QGraphicsView::NoDrag);
@@ -368,6 +379,7 @@ void MultiPageNoteView::addNewPage() {
 }
 
 void MultiPageNoteView::ensureSceneRectCoversViewport() {
+#ifdef Q_OS_ANDROID
   if (!viewport() || viewport()->width() <= 0 || viewport()->height() <= 0)
     return;
   const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
@@ -375,16 +387,21 @@ void MultiPageNoteView::ensureSceneRectCoversViewport() {
     return;
   QRectF sr = scene_.sceneRect();
   scene_.setSceneRect(sr.united(vis.adjusted(-80, -80, 80, 80)));
+#endif
 }
 
 void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   QGraphicsView::resizeEvent(e);
+#ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
+#endif
 }
 
 void MultiPageNoteView::showEvent(QShowEvent *e) {
   QGraphicsView::showEvent(e);
+#ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
+#endif
 }
 
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
@@ -412,7 +429,9 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
     qreal factor = (delta > 0) ? 1.1 : 0.9;
     scale(factor, factor);
     zoom_ *= factor;
+#ifdef Q_OS_ANDROID
     ensureSceneRectCoversViewport();
+#endif
     e->accept();
   } else {
     QScrollBar *vb = verticalScrollBar();
@@ -486,7 +505,9 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
           (currentScale > 4.0 && factor > 1.0))) {
       scale(factor, factor);
       zoom_ *= factor;
+#ifdef Q_OS_ANDROID
       ensureSceneRectCoversViewport();
+#endif
     }
   }
 

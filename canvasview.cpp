@@ -86,6 +86,7 @@ private:
 #include <QPdfWriter>
 #include <QUndoCommand>
 #include <QtMath>
+#include <QtGlobal>
 #include <cmath>
 #include <utility>
 
@@ -94,8 +95,8 @@ static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
 static constexpr float PAGE_GAP = 60.0f;
 static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
 
-/// Solid canvas color via palette (no viewport stylesheet overlay). Stylesheets
-/// caused a "black bar" that only refreshed after scroll; CacheBackground made it worse.
+#ifdef Q_OS_ANDROID
+/// Solid canvas color via palette (no viewport stylesheet overlay). Android only.
 static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
   if (!view)
     return;
@@ -111,6 +112,7 @@ static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
     vp->setPalette(pal);
   }
 }
+#endif
 
 // =============================================================================
 // HELPER: BAKING TRANSFORM & CURSOR
@@ -367,14 +369,20 @@ CanvasView::CanvasView(QWidget *parent)
   m_undoStack = new QUndoStack(this);
 
   setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
+#ifdef Q_OS_ANDROID
   setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing |
                        QGraphicsView::DontSavePainterState);
+#else
+  setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
+#endif
   setRenderHint(QPainter::Antialiasing);
   setRenderHint(QPainter::SmoothPixmapTransform, false);
   setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
   setResizeAnchor(QGraphicsView::AnchorUnderMouse);
 
+#ifdef Q_OS_ANDROID
   applyGraphicsViewCanvasBackground(this);
+#endif
 
   grabGesture(Qt::PinchGesture);
   viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
@@ -547,12 +555,16 @@ void CanvasView::updateBackgroundTile() {
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
-  // Infinite canvas: full area uses page color.
-  // Paged mode: outside-page area should stay dark to avoid white side panels.
+#ifndef Q_OS_ANDROID
+  // Desktop: single light/neutral fill (legacy behavior; avoids full blackscreen).
+  painter->fillRect(rect, m_pageColor);
+#else
+  // Android: infinite uses page color; paged uses dark outside the sheet.
   if (m_isInfinite)
     painter->fillRect(rect, m_pageColor);
   else
     painter->fillRect(rect, UIStyles::SceneBackground);
+#endif
 
   if (m_isInfinite && !m_bgTile.isNull() && m_pageStyle != PageStyle::Blank) {
     double zoomLevel = transform().m11();
@@ -1153,21 +1165,24 @@ void CanvasView::wheelEvent(QWheelEvent *event) {
 
 void CanvasView::resizeEvent(QResizeEvent *event) {
   QGraphicsView::resizeEvent(event);
+#ifdef Q_OS_ANDROID
   if (m_isInfinite) {
     updateSceneRect();
   } else if (viewport() && viewport()->width() > 0 && viewport()->height() > 0) {
-    // Letterboxing: visible scene area can extend past m_a4Rect; include it so
-    // drawBackground paints dark there immediately (no fake black strip).
     const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
     if (!vis.isEmpty()) {
       QRectF sr = m_scene->sceneRect();
       m_scene->setSceneRect(sr.united(vis.adjusted(-100, -100, 100, 100)));
     }
   }
+#else
+  updateSceneRect();
+#endif
 }
 
 void CanvasView::showEvent(QShowEvent *event) {
   QGraphicsView::showEvent(event);
+#ifdef Q_OS_ANDROID
   if (m_isInfinite) {
     updateSceneRect();
   } else if (viewport() && viewport()->width() > 0 && viewport()->height() > 0) {
@@ -1177,6 +1192,7 @@ void CanvasView::showEvent(QShowEvent *event) {
       m_scene->setSceneRect(sr.united(vis.adjusted(-100, -100, 100, 100)));
     }
   }
+#endif
 }
 
 // === WICHTIG: EVENT DELEGATION AN TOOL MANAGER ===
