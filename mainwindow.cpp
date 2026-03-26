@@ -2601,6 +2601,8 @@ void MainWindow::setupWebBrowser() {
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
+  const QString kStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
+
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
   m_studyWebView = view;
   view->setStyleSheet("background: transparent;");
@@ -2648,6 +2650,43 @@ void MainWindow::setupWebBrowser() {
   view->setPage(customPage);
   customPage->setBackgroundColor(QColor(30, 30, 30));
 
+  {
+    QString weRoot = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                     + QStringLiteral("/BlopWebEngine");
+    QDir().mkpath(weRoot);
+    QWebEngineProfile *pf = customPage->profile();
+    pf->setPersistentStoragePath(weRoot + QStringLiteral("/storage"));
+    pf->setCachePath(weRoot + QStringLiteral("/cache"));
+    pf->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
+  }
+
+  // Always-visible fallback: packaged WebEngine often renders black; browser still works.
+  QWidget *studyHelp = new QWidget(m_studyContainer);
+  studyHelp->setObjectName(QStringLiteral("StudyHelpBar"));
+  studyHelp->setStyleSheet(
+      "QWidget#StudyHelpBar { background: #2d2b42; border-bottom: 1px solid rgba(124,92,252,0.35); }"
+      "QLabel { color: #e8e4ff; font-size: 12px; }"
+      "QPushButton { background: rgba(124,92,252,0.35); color: #fff; border: none; "
+      "border-radius: 6px; padding: 8px 14px; font-weight: 600; }"
+      "QPushButton:hover { background: rgba(124,92,252,0.55); }");
+  auto *helpLay = new QHBoxLayout(studyHelp);
+  helpLay->setContentsMargins(12, 8, 12, 8);
+  helpLay->setSpacing(10);
+  auto *helpTxt = new QLabel(tr(
+      "Falls die Anmeldung schwarz oder leer bleibt: Seite neu laden oder im Browser anmelden."));
+  helpTxt->setWordWrap(true);
+  auto *btnOpenBrowser = new QPushButton(tr("Im Browser anmelden"));
+  auto *btnReloadPage = new QPushButton(tr("Neu laden"));
+  helpLay->addWidget(helpTxt, 1);
+  helpLay->addWidget(btnOpenBrowser, 0);
+  helpLay->addWidget(btnReloadPage, 0);
+  connect(btnOpenBrowser, &QPushButton::clicked, this, [kStudyUrl]() {
+    QDesktopServices::openUrl(QUrl(kStudyUrl));
+  });
+  connect(btnReloadPage, &QPushButton::clicked, view, [view]() { view->reload(); });
+  layout->addWidget(studyHelp);
+  layout->addWidget(view, 1);
+
   // Renderer/GPU crash leaves a black view; reload recovers (common in release-only setups).
   connect(customPage, &QWebEnginePage::renderProcessTerminated, m_studyContainer,
           [view](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
@@ -2658,10 +2697,7 @@ void MainWindow::setupWebBrowser() {
 
   // Defer first navigation until after the window is shown so the native surface exists
   // (helps some Windows + frameless + WebEngine combinations that stay black).
-  QTimer::singleShot(250, view, [view]() {
-    view->load(QUrl("https://blop-six.vercel.app"));
-  });
-  layout->addWidget(view);
+  QTimer::singleShot(250, view, [view, kStudyUrl]() { view->load(QUrl(kStudyUrl)); });
 
   // --- SSO Bridge: Poll localStorage to support SPA Routing ---
   // In Next.js, navigating to Dashboard after login doesn't trigger

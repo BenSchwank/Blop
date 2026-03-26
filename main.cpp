@@ -44,6 +44,7 @@ int main(int argc, char *argv[]) {
   if (qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").isEmpty()) {
     QByteArray flags =
         "--disable-gpu --disable-gpu-compositing "
+        "--ignore-gpu-blocklist "
         "--disable-features=Vulkan "
         "--disable-backgrounding-occluded-windows "
         "--disable-renderer-backgrounding";
