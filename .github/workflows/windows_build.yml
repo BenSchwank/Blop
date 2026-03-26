@@ -68,10 +68,11 @@ jobs:
           copy build\Blop.exe deployment\Blop.exe
 
       # windeployqt muss ebenfalls den korrekten Pfad nutzen (ist aber durch PATH bereits verfügbar)
+      # Kein --no-opengl-sw: SW-OpenGL-Fallback fehlt sonst und WebEngine kann schwarz bleiben.
       - name: Run windeployqt
         shell: cmd
         run: |
-          windeployqt --dir deployment deployment\Blop.exe --release --compiler-runtime --no-translations --no-opengl-sw
+          windeployqt --dir deployment deployment\Blop.exe --release --compiler-runtime --no-translations
 
       - name: Check WebEngine Deployment
         shell: pwsh

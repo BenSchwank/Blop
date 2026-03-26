@@ -33,6 +33,12 @@ int main(int argc, char *argv[]) {
   // Chromium sandbox can fail under some AV / locked-down installs; WebView stays black.
   if (qgetenv("QTWEBENGINE_DISABLE_SANDBOX").isEmpty())
     qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
+  // Packaged Release builds often show a black WebView on some GPUs/drivers (Vulkan/ANGLE).
+  // Debug in Qt Creator usually works; allow override via QTWEBENGINE_CHROMIUM_FLAGS.
+#  ifndef QT_DEBUG
+  if (qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").isEmpty())
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+#  endif
 #endif
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
