@@ -2668,39 +2668,6 @@ void MainWindow::setupWebBrowser() {
     pf->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
   }
 
-  // Always-visible fallback: packaged WebEngine often renders black; browser still works.
-  QWidget *studyHelp = new QWidget(m_studyContainer);
-  studyHelp->setObjectName(QStringLiteral("StudyHelpBar"));
-  studyHelp->setStyleSheet(
-      "QWidget#StudyHelpBar { background: #2d2b42; border-bottom: 1px solid rgba(124,92,252,0.35); }"
-      "QLabel { color: #e8e4ff; font-size: 12px; }"
-      "QPushButton { background: rgba(124,92,252,0.35); color: #fff; border: none; "
-      "border-radius: 6px; padding: 8px 14px; font-weight: 600; }"
-      "QPushButton:hover { background: rgba(124,92,252,0.55); }");
-  auto *helpLay = new QHBoxLayout(studyHelp);
-  helpLay->setContentsMargins(12, 8, 12, 8);
-  helpLay->setSpacing(10);
-  auto *helpTxt = new QLabel(tr(
-      "Anmeldung: „Mit Google anmelden“ öffnet den Browser (funktioniert auch wenn die "
-      "Seite unten schwarz bleibt). Danach wechselt Blop zu den Notizen."));
-  helpTxt->setWordWrap(true);
-  auto *btnGoogle = new QPushButton(tr("Mit Google anmelden"));
-  btnGoogle->setStyleSheet(
-      "QPushButton { background: #4285F4; color: #fff; border: none; "
-      "border-radius: 6px; padding: 8px 16px; font-weight: 700; }"
-      "QPushButton:hover { background: #3367d6; }");
-  auto *btnOpenBrowser = new QPushButton(tr("Study im Browser"));
-  auto *btnReloadPage = new QPushButton(tr("Neu laden"));
-  helpLay->addWidget(helpTxt, 1);
-  helpLay->addWidget(btnGoogle, 0);
-  helpLay->addWidget(btnOpenBrowser, 0);
-  helpLay->addWidget(btnReloadPage, 0);
-  connect(btnGoogle, &QPushButton::clicked, this, &MainWindow::requestGoogleLogin);
-  connect(btnOpenBrowser, &QPushButton::clicked, this, [kStudyUrl]() {
-    QDesktopServices::openUrl(QUrl(kStudyUrl));
-  });
-  connect(btnReloadPage, &QPushButton::clicked, view, [view]() { view->reload(); });
-  layout->addWidget(studyHelp);
   layout->addWidget(view, 1);
 
   // Renderer/GPU crash leaves a black view; reload recovers (common in release-only setups).
