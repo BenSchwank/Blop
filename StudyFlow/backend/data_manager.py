@@ -163,8 +163,10 @@ class DataManager:
             "name": file_data.get("name", "Unbenannt"),
             "type": file_data.get("type", "unknown"),
             "content": json.dumps(file_data.get("content")) if isinstance(file_data.get("content"), (dict, list)) else file_data.get("content"),
-            "created_at": file_data.get("created_at", datetime.now().isoformat())
+            "created_at": file_data.get("created_at", datetime.now().isoformat()),
         }
+        if file_data.get("file_url") is not None:
+            record["file_url"] = file_data["file_url"]
         
         # Upsert
         db.table('files').upsert(record).execute()
@@ -221,7 +223,7 @@ class DataManager:
         for f in res.data:
             # Parse content back if json
             content = f.get("content")
-            if content and content.startswith("[") or content.startswith("{"):
+            if content and (content.startswith("[") or content.startswith("{")):
                 try: content = json.loads(content)
                 except: pass
             
