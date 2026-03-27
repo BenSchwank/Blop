@@ -711,10 +711,16 @@ void MainWindow::checkForUpdates() {
       return;
     QJsonObject root = doc.object();
 
-    // Parse tag name, e.g. "v3.5.3.9" → "3.5.3.9"
-    QString tagName = root.value("tag_name").toString();
-    if (tagName.startsWith('v') || tagName.startsWith('V'))
-      tagName = tagName.mid(1);
+    auto normalizeVersion = [](QString v) -> QString {
+      v = v.trimmed();
+      if (v.startsWith('v', Qt::CaseInsensitive))
+        v = v.mid(1);
+      return v;
+    };
+
+    // Parse tag name, e.g. "v3.5.3.9" -> "3.5.3.9"
+    QString tagName = normalizeVersion(root.value("tag_name").toString());
+    const QString localVersion = normalizeVersion(QString(BLOP_VERSION));
 
     // Numeric version comparison: "3.5.3.9" vs BLOP_VERSION "3.3.3"
     auto parseVersion = [](const QString &v) -> QList<int> {
@@ -726,7 +732,7 @@ void MainWindow::checkForUpdates() {
       return parts;
     };
     QList<int> remote = parseVersion(tagName);
-    QList<int> local = parseVersion(QString(BLOP_VERSION));
+    QList<int> local = parseVersion(localVersion);
 
     bool isNewer = false;
     for (int i = 0; i < 4; ++i) {
@@ -776,7 +782,7 @@ void MainWindow::checkForUpdates() {
       downloadUrl = releasePageUrl; // Fallback: open release page
 
     // Show update dialog
-    QString currentVer = QString(BLOP_VERSION);
+    QString currentVer = localVersion;
     QMessageBox *box = new QMessageBox(this);
     box->setWindowTitle("Update verfügbar");
     box->setText(QString("<b>Blop %1 ist verfügbar!</b><br>"
