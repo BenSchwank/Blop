@@ -538,6 +538,12 @@ MainWindow::MainWindow(QWidget *parent)
   if (!savedUser.trimmed().isEmpty()) {
     animateSidebar(true);
   }
+#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
+  // On Windows release, always show a visible login helper at startup when logged out.
+  if (savedUser.trimmed().isEmpty()) {
+    QTimer::singleShot(250, this, [this]() { showWindowsStudyNoticeOnce(); });
+  }
+#endif
 
   // Connect GoogleAuthManager's browser prompts to custom overlay logic
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::requireBrowser,
@@ -2917,13 +2923,13 @@ void MainWindow::showWindowsStudyNoticeOnce() {
   lay->setContentsMargins(18, 18, 18, 18);
   lay->setSpacing(10);
 
-  QLabel *title = new QLabel(tr("Study-Hinweis"), dlg);
+  QLabel *title = new QLabel(tr("Anmeldung"), dlg);
   title->setStyleSheet("font-size: 18px; font-weight: 700; color: #E8E4FF;");
   lay->addWidget(title);
 
   QLabel *info = new QLabel(
-      tr("Falls die eingebettete Study-Ansicht auf deinem System schwarz bleibt,\n"
-         "kannst du dich hier direkt per Google anmelden oder Study im Browser öffnen."),
+      tr("Bitte melde dich an, um Blop zu starten.\n"
+         "Wenn die eingebettete Ansicht schwarz bleibt, nutze Anmeldung im Browser."),
       dlg);
   info->setWordWrap(true);
   info->setStyleSheet("font-size: 13px; color: #C8C4E8;");
@@ -2957,6 +2963,19 @@ void MainWindow::showWindowsStudyNoticeOnce() {
     dlg->close();
   });
   btnRow->addWidget(btnBrowser);
+
+  QPushButton *btnRegister = new QPushButton(tr("Registrieren"), dlg);
+  btnRegister->setCursor(Qt::PointingHandCursor);
+  btnRegister->setMinimumHeight(36);
+  btnRegister->setStyleSheet(
+      "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
+      "border-radius: 8px; padding: 0 14px; font-weight: 600; }"
+      "QPushButton:hover { background: #3a3754; }");
+  QObject::connect(btnRegister, &QPushButton::clicked, dlg, [dlg]() {
+    QDesktopServices::openUrl(QUrl(QStringLiteral("https://blop-six.vercel.app/login")));
+    dlg->close();
+  });
+  btnRow->addWidget(btnRegister);
 
   QPushButton *btnContinue = new QPushButton(tr("Weiter"), dlg);
   btnContinue->setCursor(Qt::PointingHandCursor);
