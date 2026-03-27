@@ -82,6 +82,8 @@
 #include <QVBoxLayout>
 #include <QWidgetAction>
 #include <algorithm>
+#include <functional>
+#include <memory>
 #include <utility>
 #include <QCloseEvent>
 #include <QShowEvent>
@@ -538,12 +540,6 @@ MainWindow::MainWindow(QWidget *parent)
   if (!savedUser.trimmed().isEmpty()) {
     animateSidebar(true);
   }
-#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
-  // On Windows release, always show a visible login helper at startup when logged out.
-  if (savedUser.trimmed().isEmpty()) {
-    QTimer::singleShot(250, this, [this]() { showWindowsStudyNoticeOnce(); });
-  }
-#endif
 
   // Connect GoogleAuthManager's browser prompts to custom overlay logic
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::requireBrowser,
@@ -574,31 +570,54 @@ MainWindow::MainWindow(QWidget *parent)
   // Verify the Google access token via our own backend and inject session into the WebView
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this](const QString &token) {
       qDebug() << "Received Google token in MainWindow, posting to backend for verification...";
+      auto attemptVerify = std::make_shared<std::function<void(int)>>();
+      *attemptVerify = [this, token, attemptVerify](int attempt) {
+        QNetworkAccessManager *nam = new QNetworkAccessManager(this);
+        QNetworkRequest req(QUrl("https://blop-study.com/api/auth/google/verify"));
+        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-      QNetworkAccessManager *nam = new QNetworkAccessManager(this);
-      QNetworkRequest req(QUrl("https://blop-study.com/api/auth/google/verify"));
-      req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        QJsonObject body;
+        body["token"] = token;
+        QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
-      QJsonObject body;
-      body["token"] = token;
-      QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        QNetworkReply *reply = nam->post(req, postData);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, nam, attempt, attemptVerify]() {
+          const QString errorText = reply->errorString();
+          const QByteArray raw = reply->readAll();
+          const QString rawText = QString::fromUtf8(raw);
+          const int statusCode =
+              reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+          const bool transientErr11 =
+              errorText.contains("Resource temporarily unavailable", Qt::CaseInsensitive) ||
+              rawText.contains("Errno 11", Qt::CaseInsensitive);
 
-      QNetworkReply *reply = nam->post(req, postData);
-      connect(reply, &QNetworkReply::finished, this, [this, reply, nam]() {
           reply->deleteLater();
           nam->deleteLater();
-          if (reply->error() != QNetworkReply::NoError) {
-              qWarning() << "Backend Google verify failed:" << reply->errorString();
-              return;
+
+          if (transientErr11 && attempt < 3) {
+            qWarning() << "Google verify transient Errno11, retrying attempt"
+                       << (attempt + 1);
+            QTimer::singleShot(400 * attempt, this, [attemptVerify, attempt]() {
+              (*attemptVerify)(attempt + 1);
+            });
+            return;
           }
-          QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-          if (doc.isNull() || !doc.isObject()) return;
+
+          if (reply->error() != QNetworkReply::NoError || statusCode >= 400) {
+            qWarning() << "Backend Google verify failed:" << errorText
+                       << "status:" << statusCode << "body:" << rawText;
+            return;
+          }
+
+          QJsonDocument doc = QJsonDocument::fromJson(raw);
+          if (doc.isNull() || !doc.isObject())
+            return;
           QJsonObject obj = doc.object();
           QString sessionId = obj.value("session_id").toString();
-          QString username  = obj.value("username").toString();
+          QString username = obj.value("username").toString();
           if (sessionId.isEmpty() || username.isEmpty()) {
-              qWarning() << "Backend returned empty session_id or username!";
-              return;
+            qWarning() << "Backend returned empty session_id or username!";
+            return;
           }
           qDebug() << "Backend verified Google login! username:" << username;
 
@@ -610,10 +629,10 @@ MainWindow::MainWindow(QWidget *parent)
 
           // Sync Study WebView localStorage when the embedded view works (optional).
           QString js = QString(
-              "localStorage.setItem('session_id', '%1');"
-              "localStorage.setItem('username', '%2');"
-              "window.location.href = '/';")
-              .arg(sessionId, username);
+                           "localStorage.setItem('session_id', '%1');"
+                           "localStorage.setItem('username', '%2');"
+                           "window.location.href = '/';")
+                           .arg(sessionId, username);
 
 #ifdef Q_OS_ANDROID
           emit injectToken(js); // We reuse injectToken to pass raw JS to the QML WebView
@@ -623,7 +642,9 @@ MainWindow::MainWindow(QWidget *parent)
               wv->page()->runJavaScript(js);
           }
 #endif
-      });
+        });
+      };
+      (*attemptVerify)(1);
   });
 
   // Warn user if OAuth fails locally or via server
@@ -2895,103 +2916,10 @@ void MainWindow::onModeChanged(int index) {
     m_titleBarWidget->raise();
 #endif
 
-#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
-  if (index == 1)
-    showWindowsStudyNoticeOnce();
-#endif
-
   // Ensure toolbar/mode selector visibility is correct for the selected mode.
   // Without this, the UI can remain in an "editor" state while the Study
   // WebView is shown, which may block switching back.
   updateSidebarState();
-}
-
-void MainWindow::showWindowsStudyNoticeOnce() {
-#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
-  if (m_windowsStudyNoticeShown)
-    return;
-  m_windowsStudyNoticeShown = true;
-
-  QDialog *dlg = new QDialog(this);
-  dlg->setAttribute(Qt::WA_DeleteOnClose, true);
-  dlg->setWindowTitle(tr("Anmeldung"));
-  dlg->setModal(false);
-  dlg->resize(560, 230);
-  dlg->setStyleSheet("QDialog { background: #1e1e1e; color: #E8E4FF; }");
-
-  QVBoxLayout *lay = new QVBoxLayout(dlg);
-  lay->setContentsMargins(18, 18, 18, 18);
-  lay->setSpacing(10);
-
-  QLabel *title = new QLabel(tr("Anmeldung"), dlg);
-  title->setStyleSheet("font-size: 18px; font-weight: 700; color: #E8E4FF;");
-  lay->addWidget(title);
-
-  QLabel *info = new QLabel(
-      tr("Bitte melde dich an, um Blop zu starten.\n"
-         "Wenn die eingebettete Ansicht schwarz bleibt, nutze Anmeldung im Browser."),
-      dlg);
-  info->setWordWrap(true);
-  info->setStyleSheet("font-size: 13px; color: #C8C4E8;");
-  lay->addWidget(info);
-
-  QHBoxLayout *btnRow = new QHBoxLayout();
-  btnRow->setSpacing(8);
-
-  QPushButton *btnGoogle = new QPushButton(tr("Mit Google anmelden"), dlg);
-  btnGoogle->setCursor(Qt::PointingHandCursor);
-  btnGoogle->setMinimumHeight(36);
-  btnGoogle->setStyleSheet(
-      "QPushButton { background: #4285F4; color: white; border: none; border-radius: 8px; "
-      "padding: 0 14px; font-weight: 700; }"
-      "QPushButton:hover { background: #3367d6; }");
-  QObject::connect(btnGoogle, &QPushButton::clicked, this, [this, dlg]() {
-    requestGoogleLogin();
-    dlg->close();
-  });
-  btnRow->addWidget(btnGoogle);
-
-  QPushButton *btnBrowser = new QPushButton(tr("Study im Browser öffnen"), dlg);
-  btnBrowser->setCursor(Qt::PointingHandCursor);
-  btnBrowser->setMinimumHeight(36);
-  btnBrowser->setStyleSheet(
-      "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
-      "border-radius: 8px; padding: 0 14px; font-weight: 600; }"
-      "QPushButton:hover { background: #3a3754; }");
-  QObject::connect(btnBrowser, &QPushButton::clicked, dlg, [dlg]() {
-    QDesktopServices::openUrl(QUrl(QStringLiteral("https://blop-six.vercel.app")));
-    dlg->close();
-  });
-  btnRow->addWidget(btnBrowser);
-
-  QPushButton *btnRegister = new QPushButton(tr("Registrieren"), dlg);
-  btnRegister->setCursor(Qt::PointingHandCursor);
-  btnRegister->setMinimumHeight(36);
-  btnRegister->setStyleSheet(
-      "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
-      "border-radius: 8px; padding: 0 14px; font-weight: 600; }"
-      "QPushButton:hover { background: #3a3754; }");
-  QObject::connect(btnRegister, &QPushButton::clicked, dlg, [dlg]() {
-    QDesktopServices::openUrl(QUrl(QStringLiteral("https://blop-six.vercel.app/login")));
-    dlg->close();
-  });
-  btnRow->addWidget(btnRegister);
-
-  QPushButton *btnContinue = new QPushButton(tr("Weiter"), dlg);
-  btnContinue->setCursor(Qt::PointingHandCursor);
-  btnContinue->setMinimumHeight(36);
-  btnContinue->setStyleSheet(
-      "QPushButton { background: #3a3754; color: #E8E4FF; border: 1px solid #4d4a6c; "
-      "border-radius: 8px; padding: 0 14px; font-weight: 600; }"
-      "QPushButton:hover { background: #474367; }");
-  QObject::connect(btnContinue, &QPushButton::clicked, dlg, &QDialog::close);
-  btnRow->addWidget(btnContinue);
-
-  lay->addLayout(btnRow);
-  dlg->show();
-  dlg->raise();
-  dlg->activateWindow();
-#endif
 }
 
 void MainWindow::requestGoogleLogin() {
