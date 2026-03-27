@@ -20,7 +20,7 @@ export default function DatenschutzPage() {
                     </div>
                     <div>
                         <h1 className="text-lg font-semibold text-white">Datenschutzerklärung</h1>
-                        <p className="text-xs text-gray-400">Blop &amp; Blop Study · Stand: Februar 2026</p>
+                        <p className="text-xs text-gray-400">Blop &amp; Blop Study · Stand: März 2026</p>
                     </div>
                 </div>
             </div>
@@ -32,8 +32,8 @@ export default function DatenschutzPage() {
                 <section>
                     <p className="text-gray-300 leading-relaxed">
                         Diese Datenschutzerklärung gilt für die Desktop-Applikation <strong className="text-white">Blop</strong> sowie
-                        für die Webanwendung <strong className="text-white">Blop Study</strong> (erreichbar unter{' '}
-                        <span className="text-[#5E5CE6]">blop-six.vercel.app</span>). Wir nehmen den Schutz Ihrer
+                        für die Webanwendung <strong className="text-white">Blop Study</strong> (u. a. unter{' '}
+                        <span className="text-[#5E5CE6]">blop-study.com</span> und weiteren bereitgestellten Domains). Wir nehmen den Schutz Ihrer
                         persönlichen Daten sehr ernst und halten uns an die Datenschutz-Grundverordnung (DSGVO) der
                         Europäischen Union.
                     </p>
@@ -62,12 +62,15 @@ export default function DatenschutzPage() {
                             <div className="space-y-4 text-gray-300">
                                 <p className="font-medium text-white">Blop Study (Webanwendung):</p>
                                 <ul className="list-disc list-inside space-y-1.5 text-gray-300 ml-2">
-                                    <li><strong className="text-gray-200">Accountdaten:</strong> Benutzername und verschlüsseltes Passwort (Hashing)</li>
-                                    <li><strong className="text-gray-200">API-Schlüssel:</strong> Ihr Google Gemini API-Key (lokal in Ihrem Account gespeichert, nicht weitergegeben)</li>
-                                    <li><strong className="text-gray-200">Uploaded Dateien:</strong> PDFs und Audiodateien, die Sie zur Verarbeitung hochladen</li>
-                                    <li><strong className="text-gray-200">KI-generierte Inhalte:</strong> Lernpläne, Zusammenfassungen, Karteikarten, Wiederholungsbögen</li>
-                                    <li><strong className="text-gray-200">Sitzungsdaten:</strong> Session-Token zur Authentifizierung (im <code className="text-[#5E5CE6]">localStorage</code> des Browsers gespeichert)</li>
+                                    <li><strong className="text-gray-200">Accountdaten:</strong> Benutzername und Passwort-Hash; ggf. E-Mail je nach Registrierung; Nutzungskontingente wie Token, XP oder Abo-Stufe, sofern die App diese führt</li>
+                                    <li><strong className="text-gray-200">Lerninhalte und Dateien:</strong> Ordner, Metadaten zu Dateien sowie hochgeladene Dateien (z. B. PDFs, Audio) in der Cloud-Speicherung</li>
+                                    <li><strong className="text-gray-200">KI-generierte Inhalte:</strong> z. B. Lernpläne, Zusammenfassungen, Karteikarten, Quiz, Wiederholungsbögen, Chatverläufe in der Anwendung</li>
+                                    <li><strong className="text-gray-200">Technische Nutzung der KI:</strong> Die Verarbeitung durch Google Gemini erfolgt über einen auf dem Server hinterlegten API-Schlüssel; es ist kein persönlicher Gemini-API-Schlüssel pro Nutzer in der Datenbank vorgesehen</li>
+                                    <li><strong className="text-gray-200">Browser:</strong> Benutzername und Sitzungskennung (<code className="text-[#5E5CE6]">session_id</code>) im <code className="text-[#5E5CE6]">localStorage</code> zur Anmeldung</li>
                                 </ul>
+                                <p className="text-sm text-gray-400 mt-3">
+                                    Der Betreiber kann im Rahmen des technischen Betriebs (z. B. Datenbank- und Speicher-Verwaltung) auf gespeicherte Inhalte zugreifen, soweit dies zur Erbringung des Dienstes, zur Fehleranalyse oder zur Erfüllung gesetzlicher Pflichten erforderlich ist.
+                                </p>
                                 <p className="font-medium text-white mt-4">Blop (Desktop-Applikation):</p>
                                 <ul className="list-disc list-inside space-y-1.5 text-gray-300 ml-2">
                                     <li>Die Desktop-App ist eine native Qt-Anwendung, die intern die Blop-Study-Webanwendung anzeigt. Es werden keine zusätzlichen Daten lokal gesammelt.</li>
@@ -95,11 +98,11 @@ export default function DatenschutzPage() {
                             <div className="space-y-4 text-gray-300">
                                 <div className="bg-[#252526] border border-[#333] rounded-xl p-4 space-y-3">
                                     {[
-                                        { name: "Google Gemini AI (Google LLC)", purpose: "KI-Textgenerierung (Lernpläne, Zusammenfassungen, Karteikarten)", privacy: "https://policies.google.com/privacy" },
-                                        { name: "Firebase / Google Firestore (Google LLC)", purpose: "Speicherung von Nutzerdaten, Ordnern, Dateien und generierten Inhalten in der Cloud", privacy: "https://firebase.google.com/support/privacy" },
+                                        { name: "Google Gemini AI (Google LLC)", purpose: "KI-gestützte Verarbeitung (Textgenerierung, Analyse von hochgeladenen Dokumenten auf Serverseite)", privacy: "https://policies.google.com/privacy" },
+                                        { name: "Supabase Inc.", purpose: "Datenbank (PostgreSQL), Metadaten zu Ordnern/Dateien sowie Dateispeicher (Object Storage) für Uploads", privacy: "https://supabase.com/privacy" },
                                         { name: "Vercel Inc.", purpose: "Hosting der Webanwendung (Frontend)", privacy: "https://vercel.com/legal/privacy-policy" },
-                                        { name: "Render Services Inc.", purpose: "Hosting des Backends (API-Server)", privacy: "https://render.com/privacy" },
-                                        { name: "YouTube Data API (Google LLC)", purpose: "Abrufen von Transkripten öffentlicher YouTube-Videos auf Nutzerwunsch", privacy: "https://policies.google.com/privacy" },
+                                        { name: "Render Services Inc.", purpose: "Hosting des Backends (API-Server, u. a. Anbindung an Gemini und Supabase)", privacy: "https://render.com/privacy" },
+                                        { name: "YouTube / Google (Google LLC)", purpose: "Abruf von Transkripten öffentlicher YouTube-Videos auf Nutzerwunsch", privacy: "https://policies.google.com/privacy" },
                                     ].map((p) => (
                                         <div key={p.name} className="pb-3 border-b border-[#333] last:border-0 last:pb-0">
                                             <p className="font-medium text-white text-sm">{p.name}</p>
@@ -109,7 +112,7 @@ export default function DatenschutzPage() {
                                     ))}
                                 </div>
                                 <p className="text-sm text-gray-400">
-                                    Die Weiterleitung Ihrer Upload-Inhalte an Google Gemini erfolgt ausschließlich auf Ihre aktive Anfrage hin (z.B. beim Klick auf „Lernplan erstellen"). Die Datenschutzbestimmungen von Google gelten für die dort verarbeiteten Inhalte.
+                                    Die Übersendung von Inhalten (z. B. Texte aus Materialien oder hochgeladene Dokumente) an Google Gemini erfolgt über den Server, wenn Sie eine entsprechende Funktion in der App auslösen (z. B. Lernplan, Zusammenfassung, Chat). Die Datenschutzbestimmungen von Google gelten für die dort verarbeiteten Inhalte. Ein Transfer in die USA bzw. zu US-Anbietern kann im Rahmen der EU-Standardvertragsklauseln oder anderer zulässiger Garantien erfolgen.
                                 </p>
                             </div>
                         )
@@ -119,10 +122,10 @@ export default function DatenschutzPage() {
                         title: "Datenspeicherung & Aufbewahrungsdauer",
                         content: (
                             <div className="space-y-2 text-gray-300">
-                                <p>Ihre Daten werden in Google Firebase Firestore gespeichert, solange Ihr Account existiert.</p>
-                                <p>Hochgeladene PDFs werden temporär für die KI-Verarbeitung verwendet und anschließend als Metadaten in Ihrem Account gespeichert.</p>
-                                <p>Sitzungsdaten (<code className="text-[#5E5CE6]">localStorage</code>) verbleiben in Ihrem Browser, bis Sie sich abmelden oder den Browser-Speicher leeren.</p>
-                                <p>Es erfolgt keine automatische Datenlöschung nach einem festen Zeitraum. Sie können Ihren Account und alle Daten jederzeit löschen lassen (siehe Abschnitt 7).</p>
+                                <p>Ihre Daten werden in der Datenbank und im Dateispeicher bei <strong className="text-gray-200">Supabase</strong> gespeichert, solange Ihr Account besteht oder bis Sie Löschung verlangen.</p>
+                                <p>Hochgeladene Dateien (z. B. PDFs, Audio) bleiben im Speicher bestehen, damit Sie sie in der App weiter nutzen können; sie werden für KI-Funktionen zusätzlich an Gemini übermittelt, wenn Sie eine entsprechende Aktion ausführen.</p>
+                                <p>Einträge im <code className="text-[#5E5CE6]">localStorage</code> (Benutzername, <code className="text-[#5E5CE6]">session_id</code>) verbleiben in Ihrem Browser, bis Sie sich abmelden oder den Speicher leeren.</p>
+                                <p>Es erfolgt keine automatische Datenlöschung nach einem festen Zeitraum, sofern die App nichts anderes vorsieht. Sie können die Löschung Ihres Accounts und Ihrer Daten verlangen (siehe Abschnitt 7).</p>
                             </div>
                         )
                     },
@@ -156,9 +159,9 @@ export default function DatenschutzPage() {
                         title: "Sicherheit",
                         content: (
                             <p className="text-gray-300 leading-relaxed">
-                                Passwörter werden gehasht gespeichert. Die Datenübertragung erfolgt verschlüsselt über HTTPS.
-                                Ihr Google API-Key wird lokal in Ihrem Account gespeichert und nicht an Dritte weitergegeben.
-                                Es werden keine Passwörter oder API-Keys im Klartext gespeichert.
+                                Passwörter werden gehasht gespeichert. Die Datenübertragung zwischen Browser und Server erfolgt verschlüsselt über HTTPS.
+                                Der für Gemini genutzte API-Schlüssel liegt auf dem Server (Hosting bei Render) und wird nicht an Endnutzer als persönlicher Schlüssel ausgegeben.
+                                Zugriffe auf die Verwaltungsoberflächen der genannten Anbieter sollten nur über sichere Zugänge erfolgen.
                             </p>
                         )
                     },
@@ -198,7 +201,7 @@ export default function DatenschutzPage() {
 
                 {/* Footer note */}
                 <div className="border-t border-[#333] pt-6 text-center text-xs text-gray-500">
-                    <p>Blop &amp; Blop Study · Privates, nicht-kommerzielles Projekt · Stand Februar 2026</p>
+                    <p>Blop &amp; Blop Study · Stand März 2026</p>
                     <Link href="/" className="text-[#5E5CE6] hover:underline mt-1 block">← Zurück zur App</Link>
                 </div>
             </div>

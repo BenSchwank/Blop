@@ -111,7 +111,9 @@ def read_root():
 @app.get("/api/health")
 @app.head("/api/health")
 def health_check():
-    return {"status": "ok", "database": "firebase" if DataManager._init_firestore() else "local"}
+    """Lightweight check for load balancers / UptimeRobot; must not fail if DB is misconfigured."""
+    db = DataManager._init_supabase()
+    return {"status": "ok", "database": "supabase" if db else "unconfigured"}
 
 @app.get("/api/ping")
 def ping():
