@@ -2641,51 +2641,55 @@ void MainWindow::setupWebBrowser() {
   }
 #endif
 
-#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
-  // Windows release fallback: avoid embedded WebEngine for login because some
-  // systems render a permanent black surface although input logic is alive.
-  QWidget *fallback = new QWidget(m_studyContainer);
-  fallback->setStyleSheet("background: #1e1e1e;");
-  QVBoxLayout *fallbackLayout = new QVBoxLayout(fallback);
-  fallbackLayout->setContentsMargins(28, 28, 28, 28);
-  fallbackLayout->setSpacing(14);
+#ifdef Q_OS_WIN
+  // Optional Windows fallback for machines where embedded WebEngine still stays black.
+  // Default behavior now uses embedded Study (same as Qt Creator / Debug).
+  const bool forceBrowserFallback =
+      (qEnvironmentVariableIntValue("BLOP_FORCE_BROWSER_LOGIN") == 1);
+  if (forceBrowserFallback) {
+    QWidget *fallback = new QWidget(m_studyContainer);
+    fallback->setStyleSheet("background: #1e1e1e;");
+    QVBoxLayout *fallbackLayout = new QVBoxLayout(fallback);
+    fallbackLayout->setContentsMargins(28, 28, 28, 28);
+    fallbackLayout->setSpacing(14);
 
-  QLabel *title = new QLabel(tr("Anmeldung"), fallback);
-  title->setStyleSheet("color: #E8E4FF; font-size: 22px; font-weight: 700;");
-  fallbackLayout->addWidget(title, 0, Qt::AlignLeft);
+    QLabel *title = new QLabel(tr("Anmeldung"), fallback);
+    title->setStyleSheet("color: #E8E4FF; font-size: 22px; font-weight: 700;");
+    fallbackLayout->addWidget(title, 0, Qt::AlignLeft);
 
-  QLabel *info = new QLabel(
-      tr("Die eingebettete Study-Ansicht bleibt auf manchen Windows-Systemen schwarz.\n"
-         "Bitte melde dich hier per Browser an. Danach wechselt Blop automatisch zu den Notizen."),
-      fallback);
-  info->setWordWrap(true);
-  info->setStyleSheet("color: #C8C4E8; font-size: 13px;");
-  fallbackLayout->addWidget(info);
+    QLabel *info = new QLabel(
+        tr("Die eingebettete Study-Ansicht bleibt auf manchen Windows-Systemen schwarz.\n"
+           "Bitte melde dich hier per Browser an. Danach wechselt Blop automatisch zu den Notizen."),
+        fallback);
+    info->setWordWrap(true);
+    info->setStyleSheet("color: #C8C4E8; font-size: 13px;");
+    fallbackLayout->addWidget(info);
 
-  QPushButton *btnGoogle = new QPushButton(tr("Mit Google anmelden"), fallback);
-  btnGoogle->setCursor(Qt::PointingHandCursor);
-  btnGoogle->setMinimumHeight(42);
-  btnGoogle->setStyleSheet(
-      "QPushButton { background: #4285F4; color: white; border: none; border-radius: 8px; "
-      "padding: 0 18px; font-weight: 700; font-size: 14px; }"
-      "QPushButton:hover { background: #3367d6; }");
-  connect(btnGoogle, &QPushButton::clicked, this, &MainWindow::requestGoogleLogin);
-  fallbackLayout->addWidget(btnGoogle, 0, Qt::AlignLeft);
+    QPushButton *btnGoogle = new QPushButton(tr("Mit Google anmelden"), fallback);
+    btnGoogle->setCursor(Qt::PointingHandCursor);
+    btnGoogle->setMinimumHeight(42);
+    btnGoogle->setStyleSheet(
+        "QPushButton { background: #4285F4; color: white; border: none; border-radius: 8px; "
+        "padding: 0 18px; font-weight: 700; font-size: 14px; }"
+        "QPushButton:hover { background: #3367d6; }");
+    connect(btnGoogle, &QPushButton::clicked, this, &MainWindow::requestGoogleLogin);
+    fallbackLayout->addWidget(btnGoogle, 0, Qt::AlignLeft);
 
-  QPushButton *btnBrowser = new QPushButton(tr("Study im Browser öffnen"), fallback);
-  btnBrowser->setCursor(Qt::PointingHandCursor);
-  btnBrowser->setMinimumHeight(38);
-  btnBrowser->setStyleSheet(
-      "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
-      "border-radius: 8px; padding: 0 16px; font-weight: 600; font-size: 13px; }"
-      "QPushButton:hover { background: #3a3754; }");
-  connect(btnBrowser, &QPushButton::clicked, this,
-          [kStudyUrl]() { QDesktopServices::openUrl(QUrl(kStudyUrl)); });
-  fallbackLayout->addWidget(btnBrowser, 0, Qt::AlignLeft);
+    QPushButton *btnBrowser = new QPushButton(tr("Study im Browser öffnen"), fallback);
+    btnBrowser->setCursor(Qt::PointingHandCursor);
+    btnBrowser->setMinimumHeight(38);
+    btnBrowser->setStyleSheet(
+        "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
+        "border-radius: 8px; padding: 0 16px; font-weight: 600; font-size: 13px; }"
+        "QPushButton:hover { background: #3a3754; }");
+    connect(btnBrowser, &QPushButton::clicked, this,
+            [kStudyUrl]() { QDesktopServices::openUrl(QUrl(kStudyUrl)); });
+    fallbackLayout->addWidget(btnBrowser, 0, Qt::AlignLeft);
 
-  fallbackLayout->addStretch(1);
-  layout->addWidget(fallback, 1);
-  return;
+    fallbackLayout->addStretch(1);
+    layout->addWidget(fallback, 1);
+    return;
+  }
 #endif
 
   QWebEngineView *view = new QWebEngineView(m_studyContainer);

@@ -29,6 +29,18 @@ Section "Install"
   nsExec::ExecToStack 'taskkill /F /IM Blop.exe'
   Sleep 1000
 
+  ; Preflight: fail-fast wenn kritische Deployment-Dateien fehlen
+  IfFileExists "deployment\Blop.exe" +2 0
+    Abort "deployment\\Blop.exe missing"
+  IfFileExists "deployment\QtWebEngineProcess.exe" +2 0
+    Abort "deployment\\QtWebEngineProcess.exe missing"
+  IfFileExists "deployment\resources\icudtl.dat" +2 0
+    Abort "deployment\\resources\\icudtl.dat missing"
+  IfFileExists "deployment\resources\qtwebengine_resources.pak" +2 0
+    Abort "deployment\\resources\\qtwebengine_resources.pak missing"
+  IfFileExists "deployment\qtwebengine_locales\en-US.pak" +2 0
+    Abort "deployment\\qtwebengine_locales\\en-US.pak missing"
+
   SetOutPath "$INSTDIR"
   
   ; Kopiere alle Dateien aus deployment (inkl. Unterordner)

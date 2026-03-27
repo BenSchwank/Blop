@@ -74,16 +74,56 @@ jobs:
         run: |
           windeployqt --dir deployment deployment\Blop.exe --release --compiler-runtime --no-translations
 
+      - name: Fallback copy critical WebEngine runtime files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $qt = "${{ env.QT_ROOT }}"
+
+          if (!(Test-Path "deployment\QtWebEngineProcess.exe")) {
+            Copy-Item "$qt\bin\QtWebEngineProcess.exe" "deployment\QtWebEngineProcess.exe" -Force
+          }
+
+          if (!(Test-Path "deployment\resources")) {
+            New-Item -ItemType Directory -Path "deployment\resources" | Out-Null
+          }
+          if (!(Test-Path "deployment\resources\icudtl.dat")) {
+            Copy-Item "$qt\resources\icudtl.dat" "deployment\resources\icudtl.dat" -Force
+          }
+          $qtPaks = Get-ChildItem "$qt\resources" -Filter "qtwebengine_resources*.pak" -File -ErrorAction SilentlyContinue
+          if ($qtPaks.Count -gt 0) {
+            Copy-Item "$qt\resources\qtwebengine_resources*.pak" "deployment\resources\" -Force
+          }
+
+          if (!(Test-Path "deployment\qtwebengine_locales")) {
+            Copy-Item "$qt\translations\qtwebengine_locales" "deployment\qtwebengine_locales" -Recurse -Force
+          }
+
       - name: Check WebEngine Deployment
         shell: pwsh
         run: |
-          if (!(Test-Path "deployment\Qt6WebEngineCore.dll")) { Write-Error "CRITICAL: Qt6WebEngineCore.dll missing!" }
-          if (!(Test-Path "deployment\QtWebEngineProcess.exe")) { Write-Error "CRITICAL: QtWebEngineProcess.exe missing!" }
-          if (!(Test-Path "deployment\resources")) { Write-Error "CRITICAL: Resources folder missing!" }
-          $icu = Get-ChildItem deployment -Recurse -Filter icudtl.dat -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $icu) { Write-Error "CRITICAL: icudtl.dat missing under deployment (WebEngine will not render)!" }
-          $locales = Get-ChildItem deployment -Recurse -Directory -Filter qtwebengine_locales -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $locales) { Write-Error "CRITICAL: qtwebengine_locales folder missing (WebEngine text/resources may fail)!" }
+          $ErrorActionPreference = "Stop"
+          if (!(Test-Path "deployment\Qt6WebEngineCore.dll")) { throw "CRITICAL: Qt6WebEngineCore.dll missing!" }
+          if (!(Test-Path "deployment\QtWebEngineProcess.exe")) { throw "CRITICAL: QtWebEngineProcess.exe missing!" }
+          if (!(Test-Path "deployment\resources")) { throw "CRITICAL: resources folder missing!" }
+
+          if (!(Test-Path "deployment\resources\icudtl.dat")) {
+            throw "CRITICAL: deployment\resources\icudtl.dat missing!"
+          }
+
+          $pakCount = (Get-ChildItem "deployment\resources" -Filter "qtwebengine_resources*.pak" -File -ErrorAction SilentlyContinue | Measure-Object).Count
+          if ($pakCount -lt 1) {
+            throw "CRITICAL: no qtwebengine_resources*.pak found in deployment\resources!"
+          }
+
+          if (!(Test-Path "deployment\qtwebengine_locales")) {
+            throw "CRITICAL: qtwebengine_locales folder missing (WebEngine text/resources may fail)!"
+          }
+          $localePakCount = (Get-ChildItem "deployment\qtwebengine_locales" -Filter "*.pak" -File -ErrorAction SilentlyContinue | Measure-Object).Count
+          if ($localePakCount -lt 1) {
+            throw "CRITICAL: qtwebengine_locales exists but contains no .pak files!"
+          }
+
           if (!(Test-Path "deployment\opengl32sw.dll")) { Write-Warning "opengl32sw.dll missing; software GL fallback unavailable on some GPUs." }
 
       - name: Zip Release
