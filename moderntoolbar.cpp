@@ -139,13 +139,15 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   
   if (m_drawFloatingBg) {
     p.setBrush(QColor(30, 28, 52, 245));
-    p.setPen(QPen(QColor(124, 92, 252, 60), 1));
+    QColor ring = m_accentColor;
+    ring.setAlpha(60);
+    p.setPen(QPen(ring, 1));
     p.drawEllipse(rect().adjusted(2, 2, -2, -2));
   }
 
   int r = m_size / 2 - 4;
   if (m_active) {
-    p.setBrush(UIStyles::Accent);
+    p.setBrush(m_accentColor);
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   } else if (m_hover) {
@@ -738,6 +740,11 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
 
+  for (auto *b : m_buttons) {
+    if (b)
+      b->setAccentColor(m_accentColor);
+  }
+
   auto handleToolClick = [this](ToolMode m) {
     if (mode_ == m) {
       if (m_style == Radial) {
@@ -877,7 +884,9 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
         // Subtler bottom border for "leichte Hervorhebung"
         p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(QColor(124, 92, 252, 100), 2));
+        QColor accentBorder = m_accentColor;
+        accentBorder.setAlpha(100);
+        p.setPen(QPen(accentBorder, 2));
         p.drawRoundedRect(1, -r, w - 2, h + r - 1, r, r);
         
         // Separators for docked mode
@@ -898,7 +907,9 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
         grad.setColorAt(0, QColor(30, 28, 52, 248));
         grad.setColorAt(1, QColor(20, 18, 40, 248));
         p.setBrush(grad);
-        p.setPen(QPen(QColor(124, 92, 252, 60), 1));
+        QColor floatingBorder = m_accentColor;
+        floatingBorder.setAlpha(60);
+        p.setPen(QPen(floatingBorder, 1));
         p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), radius, radius);
 
         // Drag grip
@@ -930,7 +941,9 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
       bgGrad.setColorAt(0.0, QColor(35, 33, 58, 245));
       bgGrad.setColorAt(1.0, QColor(20, 18, 40, 245));
       p.setBrush(bgGrad);
-      p.setPen(QPen(QColor(124, 92, 252, 90), 1));
+      QColor radialBorder = m_accentColor;
+      radialBorder.setAlpha(90);
+      p.setPen(QPen(radialBorder, 1));
       p.drawPie(box, (m_isDockedLeft ? -90 : 90) * 16, 180 * 16);
     } else {
       p.setPen(Qt::NoPen);
@@ -941,7 +954,9 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
       bgGrad.setColorAt(0.0, QColor(35, 33, 58, 245));
       bgGrad.setColorAt(1.0, QColor(20, 18, 40, 245));
       p.setBrush(bgGrad);
-      p.setPen(QPen(QColor(124, 92, 252, 90), 1));
+      QColor radialBorder = m_accentColor;
+      radialBorder.setAlpha(90);
+      p.setPen(QPen(radialBorder, 1));
       p.drawEllipse(QPoint(cx, cy), rMain, rMain);
 
       int hole = static_cast<int>(55 * m_scale);
@@ -1150,22 +1165,26 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
       if (newY <= 50) {
         // Top Snap: Centered width 
         m_snapPreview->setGeometry((parentW - idealL) / 2, 10, idealL, 52);
-        m_snapPreview->setStyleSheet(
+        m_snapPreview->setStyleSheet(QString(
             "background-color: transparent;"
-            "border: 2px dashed #5E5CE6;"
-            "border-radius: 20px;");
+            "border: 2px dashed %1;"
+            "border-radius: 20px;").arg(m_accentColor.name()));
         m_snapPreview->show();
         m_snapPreview->raise();
       } else if (newX <= 50) {
         // Left Snap (Vertical Pill)
         m_snapPreview->setGeometry(15, (parentH - idealL) / 2, 65, idealL);
-        m_snapPreview->setStyleSheet("background-color: transparent; border: 2px dashed #5E5CE6; border-radius: 20px;");
+        m_snapPreview->setStyleSheet(QString(
+            "background-color: transparent; border: 2px dashed %1; border-radius: 20px;")
+            .arg(m_accentColor.name()));
         m_snapPreview->show();
         m_snapPreview->raise();
       } else if (newX >= parentW - 100) {
         // Right Snap (Vertical Pill)
         m_snapPreview->setGeometry(parentW - 80, (parentH - idealL) / 2, 65, idealL);
-        m_snapPreview->setStyleSheet("background-color: transparent; border: 2px dashed #5E5CE6; border-radius: 20px;");
+        m_snapPreview->setStyleSheet(QString(
+            "background-color: transparent; border: 2px dashed %1; border-radius: 20px;")
+            .arg(m_accentColor.name()));
         m_snapPreview->show();
         m_snapPreview->raise();
       } else {
@@ -1374,6 +1393,17 @@ void ModernToolbar::setScale(double s) {
     if (!m_isPreview)
       constrainToParent();
   }
+}
+
+void ModernToolbar::setAccentColor(const QColor &color) {
+  if (!color.isValid() || m_accentColor == color)
+    return;
+  m_accentColor = color;
+  for (auto *b : m_buttons) {
+    if (b)
+      b->setAccentColor(m_accentColor);
+  }
+  update();
 }
 void ModernToolbar::constrainToParent() {
   if (!parentWidget() || m_isPreview)

@@ -6,6 +6,9 @@
     <file>assets/win_min.svg</file>
     <file>assets/win_max.svg</file>
     <file>assets/win_close.svg</file>
+    <file>assets/android_btn_menu.png</file>
+    <file>assets/android_btn_settings.png</file>
+    <file>assets/android_btn_pages.png</file>
     <file>AndroidWebView.qml</file>
     <file>AuthOverlay.qml</file>
 </qresource>

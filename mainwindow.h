@@ -80,6 +80,7 @@ public:
   void setButtonScale(double s);
 
   void setAccentColor(QColor c);
+  void setHoverScaleEnabled(bool enabled) { m_hoverScaleEnabled = enabled; }
 
 protected:
   void enterEvent(QEnterEvent *event) override;
@@ -90,6 +91,7 @@ private:
   double m_scale;
   QPropertyAnimation *m_anim;
   QColor m_accentColor;
+  bool m_hoverScaleEnabled{true};
 };
 
 // --- ModernItemDelegate ---
@@ -260,6 +262,8 @@ private:
   // the native surface can stay above Qt and block taps (e.g. header tabs).
   QQuickView *m_studyQQuickView{nullptr};
   QWidget *m_androidHeader{nullptr};
+  /// In-note top search for Android header (hidden outside editor mode).
+  QLineEdit *m_androidTopSearchBar{nullptr};
   QVBoxLayout *m_studyVBoxLayout{nullptr};
   QWidget *m_studyWindowContainer{nullptr}; // QWidget::createWindowContainer(QQuickView)
   QPushButton *m_btnAndroidNotes{nullptr};

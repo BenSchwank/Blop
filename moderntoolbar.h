@@ -22,6 +22,7 @@ public:
     void setIcon(const QString& name);
     void setActive(bool active);
     void setBtnSize(int s);
+    void setAccentColor(const QColor& c) { m_accentColor = c; update(); }
     QString iconName() const { return m_iconName; }
 
     void animateSelect();
@@ -55,6 +56,7 @@ private:
     bool m_pressing{false};
     bool m_longPressTriggered{false};
     double m_holdProgress{0.0};
+    QColor m_accentColor{QColor("#7C5CFC")};
 };
 
 // --- Main Toolbar Class ---
@@ -88,6 +90,7 @@ public:
 
     void setScale(double scale);
     double scale() const { return m_scale; }
+    void setAccentColor(const QColor& color);
 
     void constrainToParent();
     void setTopBound(int top);
@@ -194,6 +197,7 @@ private:
     void toggleRadialSettings();
     bool m_showRadialSettings{false};
     QList<QPushButton*> m_radialSettingsBtns;
+    QColor m_accentColor{QColor("#7C5CFC")};
 
     QWidget* m_snapPreview{nullptr};
     QList<int> m_separatorXPositions;  // x-coords of section dividers in horizontal mode

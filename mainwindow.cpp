@@ -437,12 +437,20 @@ void ModernButton::setAccentColor(QColor c) {
   update();
 }
 void ModernButton::enterEvent(QEnterEvent *event) {
+  if (!m_hoverScaleEnabled) {
+    QToolButton::enterEvent(event);
+    return;
+  }
   m_anim->stop();
   m_anim->setEndValue(1.2);
   m_anim->start();
   QToolButton::enterEvent(event);
 }
 void ModernButton::leaveEvent(QEvent *event) {
+  if (!m_hoverScaleEnabled) {
+    QToolButton::leaveEvent(event);
+    return;
+  }
   m_anim->stop();
   m_anim->setEndValue(1.0);
   m_anim->start();
@@ -525,7 +533,8 @@ MainWindow::MainWindow(QWidget *parent)
   m_isSidebarOpen = false;
   m_sidebarContainer->hide();
   m_sidebarStrip->hide();
-  btnEditorMenu->show();
+  // Let mode-aware visibility decide which hamburger is shown.
+  updateSidebarState();
   m_mainSplitter->setHandleWidth(0);
 #else
   qDebug() << "MainWindow: updateSidebarState davor";
@@ -1488,6 +1497,8 @@ void MainWindow::applyTheme() {
 #endif
   if (m_fileListView)
     m_fileListView->setAccentColor(m_currentAccentColor);
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+    tb->setAccentColor(m_currentAccentColor);
 
   // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
   // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
@@ -1640,33 +1651,104 @@ void MainWindow::applyTheme() {
             .arg(r));
   }
 #ifdef Q_OS_ANDROID
+  auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
+                          const QColor &tint) -> QIcon {
+    QPixmap pm(resourcePath);
+    if (pm.isNull())
+      return fallback;
+    QImage img = pm.toImage().convertToFormat(QImage::Format_ARGB32);
+    int minX = img.width(), minY = img.height(), maxX = -1, maxY = -1;
+    for (int y = 0; y < img.height(); ++y) {
+      const QRgb *row = reinterpret_cast<const QRgb *>(img.scanLine(y));
+      for (int x = 0; x < img.width(); ++x) {
+        if (qAlpha(row[x]) > 8) {
+          minX = qMin(minX, x);
+          minY = qMin(minY, y);
+          maxX = qMax(maxX, x);
+          maxY = qMax(maxY, y);
+        }
+      }
+    }
+    if (maxX < minX || maxY < minY)
+      return QIcon(pm);
+    QRect crop(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    const int pad = 2;
+    crop.adjust(-pad, -pad, pad, pad);
+    crop = crop.intersected(QRect(0, 0, img.width(), img.height()));
+    QImage out = img.copy(crop).convertToFormat(QImage::Format_ARGB32);
+    if (tint.isValid()) {
+      // Accent filter for PNG buttons: bias brighter pixels toward accent.
+      for (int y = 0; y < out.height(); ++y) {
+        QRgb *row = reinterpret_cast<QRgb *>(out.scanLine(y));
+        for (int x = 0; x < out.width(); ++x) {
+          QColor px = QColor::fromRgba(row[x]);
+          if (px.alpha() == 0)
+            continue;
+          const int light = qGray(px.red(), px.green(), px.blue());
+          if (light >= 70) {
+            const qreal mix = (light >= 130) ? 0.60 : 0.28;
+            const int r = int(px.red() * (1.0 - mix) + tint.red() * mix);
+            const int g = int(px.green() * (1.0 - mix) + tint.green() * mix);
+            const int b = int(px.blue() * (1.0 - mix) + tint.blue() * mix);
+            row[x] = qRgba(r, g, b, px.alpha());
+          }
+        }
+      }
+    }
+    return QIcon(QPixmap::fromImage(out));
+  };
   if (m_btnAndroidToolbarMenu) {
     m_btnAndroidToolbarMenu->setStyleSheet(
         QString(
-            "QToolButton { background: transparent; border: none; "
-            "border-radius: 12px; padding: 0; }"
-            "QToolButton:pressed { background-color: %1; }")
-            .arg(m_currentAccentColor.darker(130).name()));
-    m_btnAndroidToolbarMenu->setIcon(
-        createModernIcon("menu", m_currentAccentColor));
+            "QToolButton { background: transparent; border: none; padding: 0; border-radius: 16px; }"
+            "QToolButton:hover { background: %1; }"
+            "QToolButton:pressed { background: %2; }")
+            .arg(m_currentAccentColor.lighter(110).name(QColor::HexArgb),
+                 m_currentAccentColor.darker(110).name(QColor::HexArgb)));
+    QIcon menuIcon = loadTightIcon(":/assets/android_btn_menu.png",
+                                   createModernIcon("menu_pill", QColor("#C8CDDC")),
+                                   m_currentAccentColor);
+    m_btnAndroidToolbarMenu->setIcon(menuIcon);
   }
   if (m_btnAndroidToolbarSettings) {
     m_btnAndroidToolbarSettings->setStyleSheet(
         QString(
-            "QToolButton { background: transparent; border: none; "
-            "border-radius: 12px; padding: 0; }"
-            "QToolButton:pressed { background-color: %1; }")
-            .arg(m_currentAccentColor.darker(130).name()));
-    m_btnAndroidToolbarSettings->setIcon(
-        createModernIcon("settings", m_currentAccentColor));
+            "QToolButton { background: transparent; border: none; padding: 0; border-radius: 16px; }"
+            "QToolButton:hover { background: %1; }"
+            "QToolButton:pressed { background: %2; }")
+            .arg(m_currentAccentColor.lighter(110).name(QColor::HexArgb),
+                 m_currentAccentColor.darker(110).name(QColor::HexArgb)));
+    QIcon settingsIcon = loadTightIcon(":/assets/android_btn_settings.png",
+                                       createModernIcon("settings_pill", QColor("#C8CDDC")),
+                                       m_currentAccentColor);
+    m_btnAndroidToolbarSettings->setIcon(settingsIcon);
   }
   if (m_btnAndroidToolbarExport) {
+    m_btnAndroidToolbarExport->setHoverScaleEnabled(false);
+    m_btnAndroidToolbarExport->setStyleSheet(
+        QString(
+            "QToolButton { background: transparent; border: none; padding: 0; border-radius: 16px; }"
+            "QToolButton:hover { background: %1; }"
+            "QToolButton:pressed { background: %2; }")
+            .arg(m_currentAccentColor.lighter(110).name(QColor::HexArgb),
+                 m_currentAccentColor.darker(110).name(QColor::HexArgb)));
+    m_btnAndroidToolbarExport->setFixedSize(56, 32);
+    m_btnAndroidToolbarExport->setIconSize(QSize(56, 32));
     m_btnAndroidToolbarExport->setIcon(
-        createModernIcon("more_vert", m_currentAccentColor));
+        createModernIcon("more_pill", QColor("#C8CDDC")));
   }
   if (m_btnAndroidToolbarPageManager) {
-    m_btnAndroidToolbarPageManager->setIcon(
-        createModernIcon("pages", m_currentAccentColor));
+    m_btnAndroidToolbarPageManager->setStyleSheet(
+        QString(
+            "QToolButton { background: transparent; border: none; padding: 0; border-radius: 16px; }"
+            "QToolButton:hover { background: %1; }"
+            "QToolButton:pressed { background: %2; }")
+            .arg(m_currentAccentColor.lighter(110).name(QColor::HexArgb),
+                 m_currentAccentColor.darker(110).name(QColor::HexArgb)));
+    QIcon pagesIcon = loadTightIcon(":/assets/android_btn_pages.png",
+                                    createModernIcon("pages_pill", QColor("#C8CDDC")),
+                                    m_currentAccentColor);
+    m_btnAndroidToolbarPageManager->setIcon(pagesIcon);
   }
   if (m_mainContentStack)
     applyAndroidTabStyles(m_mainContentStack->currentIndex());
@@ -1766,6 +1848,13 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 
   const auto buttons = this->findChildren<ModernButton *>();
   for (ModernButton *btn : buttons) {
+#ifdef Q_OS_ANDROID
+    // Keep custom Android top-bar pill buttons at their dedicated size.
+    if (btn == m_btnAndroidToolbarMenu || btn == m_btnAndroidToolbarSettings ||
+        btn == m_btnAndroidToolbarPageManager || btn == m_btnAndroidToolbarExport) {
+      continue;
+    }
+#endif
     btn->setFixedSize(btnSize, btnSize);
     btn->setIconSize(QSize(iconSize, iconSize));
   }
@@ -1796,6 +1885,48 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
   pixmap.fill(Qt::transparent);
   QPainter p(&pixmap);
   p.setRenderHint(QPainter::Antialiasing);
+  if (name == "menu_pill" || name == "settings_pill" || name == "pages_pill" || name == "more_pill") {
+    // Strictly flat/dark capsule to match the lower buttons in the reference.
+    const QRectF capsule(3, 14, 58, 36);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(27, 30, 58, 228));
+    p.drawRoundedRect(capsule, 18, 18);
+
+    const QColor glyph("#8E84FF");
+    p.setPen(QPen(glyph, 2.9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+
+    if (name == "menu_pill") {
+      p.drawLine(22, 26, 42, 26);
+      p.drawLine(22, 32, 39, 32);
+      p.drawLine(22, 38, 42, 38);
+    } else if (name == "settings_pill") {
+      const QPointF c(32, 32);
+      p.drawEllipse(c, 7.8, 7.8);
+      p.drawEllipse(c, 3.8, 3.8);
+      const double pi = 3.14159265358979323846;
+      for (int i = 0; i < 8; ++i) {
+        const double a = (i * pi) / 4.0;
+        const double cs = qCos(a);
+        const double sn = qSin(a);
+        QPointF p1(c.x() + cs * 9.5, c.y() + sn * 9.5);
+        QPointF p2(c.x() + cs * 12.8, c.y() + sn * 12.8);
+        p.drawLine(p1, p2);
+      }
+    } else if (name == "pages_pill") {
+      p.drawRoundedRect(24, 28, 10, 10, 1.8, 1.8);
+      p.drawRoundedRect(28, 24, 10, 10, 1.8, 1.8);
+      p.drawRoundedRect(32, 20, 10, 10, 1.8, 1.8);
+    } else {
+      // more_pill
+      p.setPen(Qt::NoPen);
+      p.setBrush(glyph);
+      p.drawEllipse(29, 24, 5, 5);
+      p.drawEllipse(29, 30, 5, 5);
+      p.drawEllipse(29, 36, 5, 5);
+    }
+    return QIcon(pixmap);
+  }
   p.setPen(QPen(color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   p.setBrush(Qt::NoBrush);
   if (name == "folder") {
@@ -1837,34 +1968,28 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     path.lineTo(42, 52);
     p.drawPath(path);
   } else if (name == "menu") {
-    p.drawLine(12, 20, 52, 20);
-    p.drawLine(12, 32, 52, 32);
-    p.drawLine(12, 44, 52, 44);
+    // Compact toolbar-like menu icon (short rounded lines)
+    p.setPen(QPen(color, 5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawLine(18, 20, 46, 20);
+    p.drawLine(18, 32, 42, 32);
+    p.drawLine(18, 44, 46, 44);
   } else if (name == "settings") {
-    // Gear-like settings icon
+    // Minimal gear icon inspired by provided reference.
     const QPointF c(32, 32);
-    const qreal outerR = 20;
-    const qreal innerR = 14;
-    const qreal toothR = 23;
-    // Teeth
+    const qreal ringOuter = 14.0;
+    const qreal ringInner = 7.0;
+    p.setPen(QPen(color, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawEllipse(c, ringOuter, ringOuter);
+    p.drawEllipse(c, ringInner, ringInner);
     const double pi = 3.14159265358979323846;
     for (int i = 0; i < 8; ++i) {
       const double a = (i * pi) / 4.0;
       const double cs = qCos(a);
       const double sn = qSin(a);
-      QPointF p1(c.x() + cs * toothR, c.y() + sn * toothR);
-      QPointF p2(c.x() + cs * outerR, c.y() + sn * outerR);
+      QPointF p1(c.x() + cs * 17.0, c.y() + sn * 17.0);
+      QPointF p2(c.x() + cs * 21.5, c.y() + sn * 21.5);
       p.drawLine(p1, p2);
     }
-    // Ring
-    p.drawEllipse(c, outerR, outerR);
-    // Inner circle
-    p.drawEllipse(c, innerR, innerR);
-    // Cross spokes
-    p.drawLine(QPointF(c.x() - 9, c.y()), QPointF(c.x() + 9, c.y()));
-    p.drawLine(QPointF(c.x(), c.y() - 9), QPointF(c.x(), c.y() + 9));
-    // Center dot
-    p.drawEllipse(QPointF(c.x(), c.y()), 3.5, 3.5);
   } else if (name == "search") {
     // Magnifier
     p.setPen(QPen(color, 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -1892,14 +2017,11 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawEllipse(20, 24, 16, 14);
     p.drawEllipse(36, 20, 14, 14);
   } else if (name == "pages") {
-    // Stacked pages / A4 icon
-    p.drawRoundedRect(14, 16, 34, 34, 5, 5); // back
-    p.drawRoundedRect(20, 12, 34, 34, 5, 5); // front offset
-    // Lines
-    p.setPen(QPen(color, 3, Qt::SolidLine, Qt::RoundCap));
-    p.drawLine(28, 26, 44, 26);
-    p.drawLine(28, 34, 46, 34);
-    p.drawLine(28, 42, 42, 42);
+    // Cleaner stacked-page icon (no inner lines, like reference style).
+    p.setPen(QPen(color, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawRoundedRect(16, 20, 24, 24, 3, 3);
+    p.drawRoundedRect(22, 15, 24, 24, 3, 3);
+    p.drawRoundedRect(28, 10, 24, 24, 3, 3);
   } else if (name == "note_bnote") {
     // A4 Portrait with lines
     p.drawRect(16, 12, 32, 40);
@@ -1967,51 +2089,85 @@ void MainWindow::setupUi() {
       "QToolBar { background-color: #0F111A; border: none; "
       "spacing: 0; padding: 0px; }"
       "QToolButton { background: transparent; border: none; }");
-  topBar->setFixedHeight(48);
+  topBar->setFixedHeight(52);
 
   QWidget *androidHeader = new QWidget(topBar);
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  androidHeader->setFixedHeight(48);
+  androidHeader->setFixedHeight(52);
   androidHeader->setStyleSheet("background-color: #0F111A;");
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
   headerLay->setContentsMargins(10, 2, 10, 2);
   headerLay->setSpacing(8);
 
+  auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
+                          const QColor &tint) -> QIcon {
+    QPixmap pm(resourcePath);
+    if (pm.isNull())
+      return fallback;
+    QImage img = pm.toImage().convertToFormat(QImage::Format_ARGB32);
+    int minX = img.width(), minY = img.height(), maxX = -1, maxY = -1;
+    for (int y = 0; y < img.height(); ++y) {
+      const QRgb *row = reinterpret_cast<const QRgb *>(img.scanLine(y));
+      for (int x = 0; x < img.width(); ++x) {
+        if (qAlpha(row[x]) > 8) {
+          minX = qMin(minX, x);
+          minY = qMin(minY, y);
+          maxX = qMax(maxX, x);
+          maxY = qMax(maxY, y);
+        }
+      }
+    }
+    if (maxX < minX || maxY < minY)
+      return QIcon(pm);
+    QRect crop(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    const int pad = 2;
+    crop.adjust(-pad, -pad, pad, pad);
+    crop = crop.intersected(QRect(0, 0, img.width(), img.height()));
+    QImage out = img.copy(crop).convertToFormat(QImage::Format_ARGB32);
+    if (tint.isValid()) {
+      for (int y = 0; y < out.height(); ++y) {
+        QRgb *row = reinterpret_cast<QRgb *>(out.scanLine(y));
+        for (int x = 0; x < out.width(); ++x) {
+          QColor px = QColor::fromRgba(row[x]);
+          if (px.alpha() == 0)
+            continue;
+          const int light = qGray(px.red(), px.green(), px.blue());
+          if (light >= 70) {
+            const qreal mix = (light >= 130) ? 0.60 : 0.28;
+            const int r = int(px.red() * (1.0 - mix) + tint.red() * mix);
+            const int g = int(px.green() * (1.0 - mix) + tint.green() * mix);
+            const int b = int(px.blue() * (1.0 - mix) + tint.blue() * mix);
+            row[x] = qRgba(r, g, b, px.alpha());
+          }
+        }
+      }
+    }
+    return QIcon(QPixmap::fromImage(out));
+  };
+
   // Hamburger only while a note is open (overview uses floating menu next to welcome)
   m_btnAndroidToolbarMenu = new ModernButton(androidHeader);
-  m_btnAndroidToolbarMenu->setIcon(createModernIcon("menu", QColor("#A0A0C8")));
-  m_btnAndroidToolbarMenu->setFixedSize(22, 22);
-  m_btnAndroidToolbarMenu->setIconSize(QSize(14, 14));
+  {
+    QIcon menuIcon = loadTightIcon(":/assets/android_btn_menu.png",
+                                   createModernIcon("menu_pill", QColor("#A0A0C8")),
+                                   m_currentAccentColor);
+    m_btnAndroidToolbarMenu->setIcon(menuIcon);
+  }
+  m_btnAndroidToolbarMenu->setFixedSize(56, 32);
+  m_btnAndroidToolbarMenu->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarMenu->setHoverScaleEnabled(false);
   m_btnAndroidToolbarMenu->setStyleSheet(
-      "QToolButton {"
-      "  background: transparent; border: none; border-radius: 8px;"
-      "}"
+      "QToolButton { background: transparent; border: none; padding: 0; }"
+      "QToolButton:hover { background: transparent; }"
+      "QToolButton:pressed { background: transparent; }"
   );
   m_btnAndroidToolbarMenu->hide();
   connect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
-  headerLay->addWidget(m_btnAndroidToolbarMenu);
+  headerLay->addWidget(m_btnAndroidToolbarMenu, 0, Qt::AlignVCenter);
 
-  QLabel *lblLogoIcon = new QLabel(androidHeader);
-  QPixmap blopLogo(":/assets/logo.jpg");
-  if (!blopLogo.isNull()) {
-    lblLogoIcon->setPixmap(
-        blopLogo.scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-  } else {
-    // Fallback if resource is missing on a build target.
-    lblLogoIcon->setPixmap(createModernIcon("note_blop", QColor("#A8A6FF")).pixmap(30, 30));
-  }
-  lblLogoIcon->setFixedSize(30, 30);
-  lblLogoIcon->setStyleSheet("background: transparent; border: none;");
-  headerLay->addWidget(lblLogoIcon);
-  headerLay->addSpacing(6);
-
-  QLabel *lblLogo = new QLabel("Blop", androidHeader);
-  lblLogo->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-  lblLogo->setStyleSheet(
-      "color: white; font-weight: bold; font-size: 17px; margin: 0px; padding: 0px; border: none;");
-  headerLay->addWidget(lblLogo);
-  headerLay->addSpacing(4);
+  // Keep mode switch directly next to the main menu icon on Android.
+  headerLay->addSpacing(2);
 
   // Keep m_modeSelector QComboBox as the logic controller (hidden, 0x0)
   // Use visible tab buttons instead — QComboBox popups dismiss immediately on Android touch
@@ -2030,13 +2186,28 @@ void MainWindow::setupUi() {
 
   // Visible tab-style toggle buttons
   QString tabActiveStyle =
-      "QPushButton { background: #5E5CE6; color: white; border-radius: 13px;"
-      "  padding: 3px 12px; font-weight: bold; font-size: 12px; border: none; }";
+      "QPushButton {"
+      "  background: rgba(255,255,255,0.08);"
+      "  color: #F4F5FB;"
+      "  border-radius: 13px;"
+      "  padding: 3px 12px;"
+      "  font-weight: 600;"
+      "  font-size: 12px;"
+      "  border: 1px solid rgba(255,255,255,0.16);"
+      "}"
+      "QPushButton:pressed { background: rgba(255,255,255,0.14); }";
   QString tabInactiveStyle =
-      "QPushButton { background: transparent; color: #AAA; border-radius: 13px;"
-      "  padding: 3px 12px; font-weight: bold; font-size: 12px;"
-      "  border: 1px solid #333; }"
-      "QPushButton:pressed { background: rgba(94,92,230,0.2); }";
+      "QPushButton {"
+      "  background: transparent;"
+      "  color: #A7ACBB;"
+      "  border-radius: 13px;"
+      "  padding: 3px 12px;"
+      "  font-weight: 600;"
+      "  font-size: 12px;"
+      "  border: 1px solid rgba(255,255,255,0.08);"
+      "}"
+      "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
+      "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
 
   m_btnAndroidNotes = new QPushButton("Notizen", androidHeader);
   m_btnAndroidNotes->setFixedHeight(28);
@@ -2064,43 +2235,115 @@ void MainWindow::setupUi() {
 
   headerLay->addWidget(m_modeSelector); // hidden 0x0, logic only
 
-  // Centered search bar (Android top bar), visually similar to overview search.
-  headerLay->addStretch(); // tabs stay left; icons stay right
+  // Slightly right-centered in-note search bar for Android top header.
+  headerLay->addSpacing(10);
+  headerLay->addStretch(8);
+  m_androidTopSearchBar = new QLineEdit(androidHeader);
+  m_androidTopSearchBar->setObjectName("androidTopSearchBar");
+  m_androidTopSearchBar->setPlaceholderText("Notiz suchen...");
+  m_androidTopSearchBar->setFrame(false);
+  m_androidTopSearchBar->setAttribute(Qt::WA_StyledBackground, true);
+  m_androidTopSearchBar->setFixedHeight(32);
+  m_androidTopSearchBar->setMinimumWidth(170);
+  m_androidTopSearchBar->setMaximumWidth(290);
+  m_androidTopSearchBar->setStyleSheet(
+      "QLineEdit#androidTopSearchBar {"
+      "  background: rgba(255,255,255,0.08);"
+      "  color: #F2F1FF;"
+      "  border: 1px solid rgba(255,255,255,0.12);"
+      "  border-radius: 16px;"
+      "  padding: 0 14px;"
+      "  font-size: 12px;"
+      "  selection-background-color: rgba(124,92,252,0.55);"
+      "}"
+      "QLineEdit#androidTopSearchBar:focus {"
+      "  background: rgba(124,92,252,0.14);"
+      "  border: 1px solid rgba(124,92,252,0.66);"
+      "}"
+      "QLineEdit#androidTopSearchBar::placeholder {"
+      "  color: rgba(255,255,255,0.48);"
+      "}");
+  m_androidTopSearchBar->hide();
+  headerLay->addWidget(m_androidTopSearchBar, 0, Qt::AlignVCenter);
+  headerLay->addStretch(1);
+
+  auto jumpToMatchingEditorTab = [this]() {
+    if (!m_androidTopSearchBar || !m_editorTabs)
+      return;
+    const QString needle = m_androidTopSearchBar->text().trimmed();
+    if (needle.isEmpty())
+      return;
+    const int tabCount = m_editorTabs->count();
+    if (tabCount <= 0)
+      return;
+    const int start = qMax(0, m_editorTabs->currentIndex());
+    for (int step = 0; step < tabCount; ++step) {
+      const int idx = (start + step) % tabCount;
+      if (m_editorTabs->tabText(idx).contains(needle, Qt::CaseInsensitive)) {
+        m_editorTabs->setCurrentIndex(idx);
+        return;
+      }
+    }
+  };
+  connect(m_androidTopSearchBar, &QLineEdit::textChanged, this,
+          [jumpToMatchingEditorTab](const QString &) { jumpToMatchingEditorTab(); });
+  connect(m_androidTopSearchBar, &QLineEdit::returnPressed, this,
+          jumpToMatchingEditorTab);
 
   m_btnAndroidToolbarSettings = new ModernButton(androidHeader);
-  m_btnAndroidToolbarSettings->setIcon(
-      createModernIcon("settings", m_currentAccentColor));
-  m_btnAndroidToolbarSettings->setFixedSize(22, 22);
-  m_btnAndroidToolbarSettings->setIconSize(QSize(14, 14));
+  {
+    QIcon settingsIcon = loadTightIcon(":/assets/android_btn_settings.png",
+                                       createModernIcon("settings_pill", QColor("#C8CDDC")),
+                                       m_currentAccentColor);
+    m_btnAndroidToolbarSettings->setIcon(settingsIcon);
+  }
+  m_btnAndroidToolbarSettings->setFixedSize(56, 32);
+  m_btnAndroidToolbarSettings->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarSettings->setHoverScaleEnabled(false);
   m_btnAndroidToolbarSettings->setStyleSheet(
-      "QToolButton {"
-      "  background: transparent; border: none; border-radius: 8px;"
-      "}"
-      "QToolButton:pressed { background: rgba(124,92,252,0.20); }");
+      "QToolButton { background: transparent; border: none; padding: 0; }"
+      "QToolButton:hover { background: transparent; }"
+      "QToolButton:pressed { background: transparent; }");
   m_btnAndroidToolbarSettings->hide();
   connect(m_btnAndroidToolbarSettings, &QAbstractButton::clicked, this,
           &MainWindow::onToggleRightSidebar);
-  headerLay->addWidget(m_btnAndroidToolbarSettings);
+  headerLay->addWidget(m_btnAndroidToolbarSettings, 0, Qt::AlignVCenter);
 
 #ifdef Q_OS_ANDROID
   // Page manager (only for A4 notes) - orange button.
   m_btnAndroidToolbarPageManager = new ModernButton(androidHeader);
-  m_btnAndroidToolbarPageManager->setIcon(
-      createModernIcon("pages", m_currentAccentColor));
-  m_btnAndroidToolbarPageManager->setFixedSize(22, 22);
-  m_btnAndroidToolbarPageManager->setIconSize(QSize(14, 14));
+  {
+    QIcon pagesIcon = loadTightIcon(":/assets/android_btn_pages.png",
+                                    createModernIcon("pages_pill", QColor("#C8CDDC")),
+                                    m_currentAccentColor);
+    m_btnAndroidToolbarPageManager->setIcon(pagesIcon);
+  }
+  m_btnAndroidToolbarPageManager->setFixedSize(56, 32);
+  m_btnAndroidToolbarPageManager->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarPageManager->setHoverScaleEnabled(false);
   m_btnAndroidToolbarPageManager->setStyleSheet(
-      "QToolButton { background: rgba(255,140,0,0.10); border: none; border-radius: 8px; }"
-      "QToolButton:pressed { background: rgba(255,140,0,0.22); }");
+      "QToolButton { background: transparent; border: none; padding: 0; }"
+      "QToolButton:hover { background: transparent; }"
+      "QToolButton:pressed { background: transparent; }");
   m_btnAndroidToolbarPageManager->hide();
   connect(m_btnAndroidToolbarPageManager, &QAbstractButton::clicked, this,
           &MainWindow::onTogglePageManager);
-  headerLay->addWidget(m_btnAndroidToolbarPageManager);
+  headerLay->addWidget(m_btnAndroidToolbarPageManager, 0, Qt::AlignVCenter);
 #endif
 #ifdef Q_OS_ANDROID
   // Put the export (3-dot) button next to the settings icon.
-  if (m_btnAndroidToolbarExport)
-    headerLay->addWidget(m_btnAndroidToolbarExport);
+  if (m_btnAndroidToolbarExport) {
+    m_btnAndroidToolbarExport->setHoverScaleEnabled(false);
+    m_btnAndroidToolbarExport->setStyleSheet(
+        "QToolButton { background: transparent; border: none; padding: 0; }"
+        "QToolButton:hover { background: transparent; }"
+        "QToolButton:pressed { background: transparent; }");
+    m_btnAndroidToolbarExport->setFixedSize(56, 32);
+    m_btnAndroidToolbarExport->setIconSize(QSize(56, 32));
+    m_btnAndroidToolbarExport->setIcon(
+        createModernIcon("more_pill", QColor("#C8CDDC")));
+    headerLay->addWidget(m_btnAndroidToolbarExport, 0, Qt::AlignVCenter);
+  }
 #endif
 
   topBar->addWidget(androidHeader);
@@ -2418,7 +2661,12 @@ void MainWindow::setupUi() {
   // ── Floating Toolbar ─────────────────────────────────────────────────────
   ModernToolbar *topToolbar = new ModernToolbar(m_editorCenterWidget);
   topToolbar->setOrientation(ModernToolbar::Horizontal);
+#ifdef Q_OS_ANDROID
+  // Android: keep toolbar behavior deterministic (fixed/docked).
+  topToolbar->setDraggable(false);
+#else
   topToolbar->setDraggable(true);
+#endif
   topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
   int idealW = topToolbar->calculateMinLength();
   topToolbar->resize(idealW, 52);
@@ -2855,18 +3103,33 @@ void MainWindow::setupWebBrowser() {
 void MainWindow::applyAndroidTabStyles(int index) {
   if (!m_btnAndroidNotes || !m_btnAndroidStudy)
     return;
-  QString c = m_currentAccentColor.name();
-  QString c_light = m_currentAccentColor.lighter(130).name();
+  const QString accentSoft = m_currentAccentColor.lighter(130).name(QColor::HexArgb);
   const QString tabActive =
-      QString("QPushButton { background: %1; color: white; border-radius: 13px;"
-              "  padding: 3px 12px; font-weight: bold; font-size: 12px; border: none; }")
-          .arg(c);
+      QString("QPushButton {"
+      "  background: %1;"
+      "  color: #F4F5FB;"
+      "  border-radius: 13px;"
+      "  padding: 3px 12px;"
+      "  font-weight: 600;"
+      "  font-size: 12px;"
+      "  border: 1px solid %2;"
+      "}"
+      "QPushButton:pressed { background: %3; }")
+          .arg(m_currentAccentColor.darker(150).name(QColor::HexArgb),
+               accentSoft,
+               m_currentAccentColor.darker(120).name(QColor::HexArgb));
   const QString tabInactive =
-      QString("QPushButton { background: transparent; color: #AAA; border-radius: 13px;"
-              "  padding: 3px 12px; font-weight: bold; font-size: 12px;"
-              "  border: 1px solid #333; }"
-              "QPushButton:pressed { background: %1; border-color: %2; }")
-          .arg(m_currentAccentColor.darker(170).name(), c_light);
+      "QPushButton {"
+      "  background: transparent;"
+      "  color: #A7ACBB;"
+      "  border-radius: 13px;"
+      "  padding: 3px 12px;"
+      "  font-weight: 600;"
+      "  font-size: 12px;"
+      "  border: 1px solid rgba(255,255,255,0.08);"
+      "}"
+      "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
+      "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index == 1 ? tabActive : tabInactive);
 }
@@ -2980,7 +3243,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (btnStripMenu)
       btnStripMenu->show();
     if (btnEditorMenu)
-        btnEditorMenu->show(); // Show the Android Header menu when logged in
+      btnEditorMenu->hide(); // Mode-specific logic in updateSidebarState decides visibility
 
     // Ensure sidebar is closed (not double-visible)
     if (m_isSidebarOpen) {
@@ -4164,6 +4427,11 @@ void MainWindow::updateSidebarState() {
 #ifdef Q_OS_ANDROID
   // Overview: floating menu next to welcome; Editor: compact hamburger in top bar
   if (isEditor) {
+    if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+      // Avoid random floating state on Android.
+      tb->setDockMode(true);
+      tb->setDraggable(false);
+    }
     m_sidebarStrip->hide();
     if (btnEditorMenu)
       btnEditorMenu->hide();
@@ -4184,6 +4452,8 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnAndroidToolbarExport)
       m_btnAndroidToolbarExport->show();
+    if (m_androidTopSearchBar)
+      m_androidTopSearchBar->show();
 
     if (shouldMorphTopButtons) {
       auto animateScale = [](ModernButton *btn) {
@@ -4216,6 +4486,10 @@ void MainWindow::updateSidebarState() {
       m_btnAndroidToolbarPageManager->hide();
     if (m_btnAndroidToolbarExport)
       m_btnAndroidToolbarExport->hide();
+    if (m_androidTopSearchBar) {
+      m_androidTopSearchBar->clear();
+      m_androidTopSearchBar->hide();
+    }
     if (m_rightSidebar && m_rightSidebar->isVisible())
       animateRightSidebar(false);
   }
