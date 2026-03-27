@@ -2889,10 +2889,90 @@ void MainWindow::onModeChanged(int index) {
     m_titleBarWidget->raise();
 #endif
 
+#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
+  if (index == 1)
+    showWindowsStudyNoticeOnce();
+#endif
+
   // Ensure toolbar/mode selector visibility is correct for the selected mode.
   // Without this, the UI can remain in an "editor" state while the Study
   // WebView is shown, which may block switching back.
   updateSidebarState();
+}
+
+void MainWindow::showWindowsStudyNoticeOnce() {
+#if defined(Q_OS_WIN) && !defined(QT_DEBUG)
+  if (m_windowsStudyNoticeShown)
+    return;
+  m_windowsStudyNoticeShown = true;
+
+  QDialog *dlg = new QDialog(this);
+  dlg->setAttribute(Qt::WA_DeleteOnClose, true);
+  dlg->setWindowTitle(tr("Anmeldung"));
+  dlg->setModal(false);
+  dlg->resize(560, 230);
+  dlg->setStyleSheet("QDialog { background: #1e1e1e; color: #E8E4FF; }");
+
+  QVBoxLayout *lay = new QVBoxLayout(dlg);
+  lay->setContentsMargins(18, 18, 18, 18);
+  lay->setSpacing(10);
+
+  QLabel *title = new QLabel(tr("Study-Hinweis"), dlg);
+  title->setStyleSheet("font-size: 18px; font-weight: 700; color: #E8E4FF;");
+  lay->addWidget(title);
+
+  QLabel *info = new QLabel(
+      tr("Falls die eingebettete Study-Ansicht auf deinem System schwarz bleibt,\n"
+         "kannst du dich hier direkt per Google anmelden oder Study im Browser öffnen."),
+      dlg);
+  info->setWordWrap(true);
+  info->setStyleSheet("font-size: 13px; color: #C8C4E8;");
+  lay->addWidget(info);
+
+  QHBoxLayout *btnRow = new QHBoxLayout();
+  btnRow->setSpacing(8);
+
+  QPushButton *btnGoogle = new QPushButton(tr("Mit Google anmelden"), dlg);
+  btnGoogle->setCursor(Qt::PointingHandCursor);
+  btnGoogle->setMinimumHeight(36);
+  btnGoogle->setStyleSheet(
+      "QPushButton { background: #4285F4; color: white; border: none; border-radius: 8px; "
+      "padding: 0 14px; font-weight: 700; }"
+      "QPushButton:hover { background: #3367d6; }");
+  QObject::connect(btnGoogle, &QPushButton::clicked, this, [this, dlg]() {
+    requestGoogleLogin();
+    dlg->close();
+  });
+  btnRow->addWidget(btnGoogle);
+
+  QPushButton *btnBrowser = new QPushButton(tr("Study im Browser öffnen"), dlg);
+  btnBrowser->setCursor(Qt::PointingHandCursor);
+  btnBrowser->setMinimumHeight(36);
+  btnBrowser->setStyleSheet(
+      "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
+      "border-radius: 8px; padding: 0 14px; font-weight: 600; }"
+      "QPushButton:hover { background: #3a3754; }");
+  QObject::connect(btnBrowser, &QPushButton::clicked, dlg, [dlg]() {
+    QDesktopServices::openUrl(QUrl(QStringLiteral("https://blop-six.vercel.app")));
+    dlg->close();
+  });
+  btnRow->addWidget(btnBrowser);
+
+  QPushButton *btnContinue = new QPushButton(tr("Weiter"), dlg);
+  btnContinue->setCursor(Qt::PointingHandCursor);
+  btnContinue->setMinimumHeight(36);
+  btnContinue->setStyleSheet(
+      "QPushButton { background: #3a3754; color: #E8E4FF; border: 1px solid #4d4a6c; "
+      "border-radius: 8px; padding: 0 14px; font-weight: 600; }"
+      "QPushButton:hover { background: #474367; }");
+  QObject::connect(btnContinue, &QPushButton::clicked, dlg, &QDialog::close);
+  btnRow->addWidget(btnContinue);
+
+  lay->addLayout(btnRow);
+  dlg->show();
+  dlg->raise();
+  dlg->activateWindow();
+#endif
 }
 
 void MainWindow::requestGoogleLogin() {

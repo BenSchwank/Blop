@@ -253,6 +253,7 @@ private:
 
   // --- Web Integration ---
   void setupWebBrowser();
+  void showWindowsStudyNoticeOnce();
   void updateSidebarUser(const QString &username); // syncs login from webview
   QWidget *m_studyContainer{nullptr};
 #ifdef Q_OS_ANDROID
@@ -281,6 +282,7 @@ private:
 #if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
   QWebEngineView *m_studyWebView{nullptr};
 #endif
+  bool m_windowsStudyNoticeShown{false};
   // ----------------------------
 
   // --- Sidebar user section labels (updated on webview login) ---
