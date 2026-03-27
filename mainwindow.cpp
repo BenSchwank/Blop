@@ -2613,7 +2613,11 @@ void MainWindow::setupWebBrowser() {
 
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
   m_studyWebView = view;
-  view->setStyleSheet("background: transparent;");
+  // Keep viewport fully opaque on Windows release builds. Transparent composition
+  // can show as an all-black layer although hit testing still works.
+  view->setStyleSheet("background: #1e1e1e;");
+  view->setAutoFillBackground(true);
+  view->setAttribute(Qt::WA_OpaquePaintEvent, true);
   // FIX: FramelessWindowHint + QWebEngineView auf Windows braucht WA_NativeWindow,
   // damit der interne Chromium-HWND korrekte Mouse-Events bekommt (sonst Glasscheibe).
   view->setAttribute(Qt::WA_NativeWindow);
@@ -2657,6 +2661,8 @@ void MainWindow::setupWebBrowser() {
   });
   view->setPage(customPage);
   customPage->setBackgroundColor(QColor(30, 30, 30));
+  if (QWebEnginePage *p = view->page())
+    p->setBackgroundColor(QColor(30, 30, 30));
 
   {
     QString weRoot = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)

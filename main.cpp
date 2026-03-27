@@ -33,6 +33,12 @@ int main(int argc, char *argv[]) {
   // Last resort for stubborn black WebView: set BLOP_FORCE_SOFTWARE_OPENGL=1 before launch.
   if (qgetenv("BLOP_FORCE_SOFTWARE_OPENGL") == "1")
     QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
+#  ifndef QT_DEBUG
+  // Release default: prefer software GL on Windows unless explicitly overridden.
+  // Symptom fixed by this path: Web content receives mouse/keyboard input but paints as black.
+  if (qgetenv("BLOP_ALLOW_HARDWARE_GL") != "1")
+    QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
+#  endif
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
   // Chromium sandbox can fail under some AV / locked-down installs; WebView stays black.
   if (qgetenv("QTWEBENGINE_DISABLE_SANDBOX").isEmpty())
