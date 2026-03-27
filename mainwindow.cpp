@@ -596,7 +596,13 @@ MainWindow::MainWindow(QWidget *parent)
           }
           qDebug() << "Backend verified Google login! username:" << username;
 
-          // Inject directly into WebView localStorage — works on both Android (QML) and Desktop (WebEngine)
+          QSettings st("Blop", "BlopApp");
+          st.setValue("session_id", sessionId);
+          st.sync();
+          // Unlock native UI even when Study WebView is black / runJavaScript fails.
+          updateSidebarUser(username);
+
+          // Sync Study WebView localStorage when the embedded view works (optional).
           QString js = QString(
               "localStorage.setItem('session_id', '%1');"
               "localStorage.setItem('username', '%2');"
@@ -606,8 +612,10 @@ MainWindow::MainWindow(QWidget *parent)
 #ifdef Q_OS_ANDROID
           emit injectToken(js); // We reuse injectToken to pass raw JS to the QML WebView
 #else
-          QWebEngineView *view = m_studyContainer->findChild<QWebEngineView*>();
-          if (view) view->page()->runJavaScript(js);
+          if (QWebEngineView *wv = m_studyContainer->findChild<QWebEngineView *>()) {
+            if (wv->page())
+              wv->page()->runJavaScript(js);
+          }
 #endif
       });
   });
@@ -2673,13 +2681,21 @@ void MainWindow::setupWebBrowser() {
   helpLay->setContentsMargins(12, 8, 12, 8);
   helpLay->setSpacing(10);
   auto *helpTxt = new QLabel(tr(
-      "Falls die Anmeldung schwarz oder leer bleibt: Seite neu laden oder im Browser anmelden."));
+      "Anmeldung: „Mit Google anmelden“ öffnet den Browser (funktioniert auch wenn die "
+      "Seite unten schwarz bleibt). Danach wechselt Blop zu den Notizen."));
   helpTxt->setWordWrap(true);
-  auto *btnOpenBrowser = new QPushButton(tr("Im Browser anmelden"));
+  auto *btnGoogle = new QPushButton(tr("Mit Google anmelden"));
+  btnGoogle->setStyleSheet(
+      "QPushButton { background: #4285F4; color: #fff; border: none; "
+      "border-radius: 6px; padding: 8px 16px; font-weight: 700; }"
+      "QPushButton:hover { background: #3367d6; }");
+  auto *btnOpenBrowser = new QPushButton(tr("Study im Browser"));
   auto *btnReloadPage = new QPushButton(tr("Neu laden"));
   helpLay->addWidget(helpTxt, 1);
+  helpLay->addWidget(btnGoogle, 0);
   helpLay->addWidget(btnOpenBrowser, 0);
   helpLay->addWidget(btnReloadPage, 0);
+  connect(btnGoogle, &QPushButton::clicked, this, &MainWindow::requestGoogleLogin);
   connect(btnOpenBrowser, &QPushButton::clicked, this, [kStudyUrl]() {
     QDesktopServices::openUrl(QUrl(kStudyUrl));
   });
@@ -4812,33 +4828,8 @@ void MainWindow::onShareClicked() {
 }
 
 void MainWindow::showAuthOverlay(const QUrl &url) {
-#ifdef Q_OS_ANDROID
-    // Google blocks OAuth2 login from any embedded WebView on Android (403 disallowed_useragent).
-    // Spoofing the User-Agent is not supported in QML QtWebView without complex JNI hooks.
-    // The only authorized way to log in on Android is via the system browser (Chrome/Custom Tabs).
-    QDesktopServices::openUrl(url);
-#else
-    if (m_authOverlay) {
-        m_authOverlay->deleteLater();
-    }
-    m_authOverlay = new QDialog(this);
-    m_authOverlay->setWindowTitle("Google Login");
-    
-    // Setting up the basic Overlay layout
-    m_authOverlay->setModal(true);
-    m_authOverlay->resize(450, 650);
-
-    QVBoxLayout *lay = new QVBoxLayout(m_authOverlay);
-    lay->setContentsMargins(0, 0, 0, 0);
-
-    // Windows/Desktop uses QWebEngineView natively
-    QWebEngineView *wv = new QWebEngineView(m_authOverlay);
-    QWebEngineProfile *prof = wv->page()->profile();
-    // Spoofing User-Agent is necessary to bypass Google's "403 disallowed_useragent" error for Desktop Embedded Browsers
-    prof->setHttpUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
-    wv->load(url);
-    lay->addWidget(wv);
-
-    m_authOverlay->show();
-#endif
+  // Always use the system browser for OAuth. Embedded QWebEngineView in a dialog used the same
+  // Chromium stack as Study — on many Windows installs it stays black; the redirect to
+  // http://127.0.0.1:8080/ is still handled by QOAuthHttpServerReplyHandler.
+  QDesktopServices::openUrl(url);
 }
