@@ -152,23 +152,52 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         from google.oauth2 import id_token
         from google.auth.transport import requests as google_requests
         import requests as py_requests
-        import uuid
         import string
         import random
+        import errno
+        import time
+
+        if not req.token or not req.token.strip():
+            raise HTTPException(status_code=400, detail="Leerer Google Token")
+
+        token = req.token.strip()
+
+        def _fetch_userinfo_with_retry(access_token: str):
+            last_exc = None
+            for attempt in range(3):
+                try:
+                    resp = py_requests.get(
+                        "https://www.googleapis.com/oauth2/v3/userinfo",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                        timeout=10
+                    )
+                    return resp
+                except OSError as oe:
+                    # Transient socket/resource issue on host side (e.g. Errno 11).
+                    if getattr(oe, "errno", None) == errno.EAGAIN and attempt < 2:
+                        time.sleep(0.25 * (attempt + 1))
+                        last_exc = oe
+                        continue
+                    raise
+                except Exception as ex:
+                    if attempt < 2:
+                        time.sleep(0.25 * (attempt + 1))
+                        last_exc = ex
+                        continue
+                    raise
+            if last_exc:
+                raise last_exc
 
         # Check if the token is a JWT (id_token) or a plain access_token.
         # JWTs start with 'eyJ'
-        if req.token.startswith("eyJ") or req.token.startswith("ey"):
+        if token.startswith("eyJ") or token.startswith("ey"):
             idinfo = id_token.verify_oauth2_token(
-                req.token, 
+                token,
                 google_requests.Request()
             )
         else:
             # Verifying an OAuth Access Token by fetching the user profile
-            resp = py_requests.get(
-                "https://www.googleapis.com/oauth2/v3/userinfo",
-                headers={"Authorization": f"Bearer {req.token}"}
-            )
+            resp = _fetch_userinfo_with_retry(token)
             if resp.status_code != 200:
                 raise ValueError(f"Invalid Google Access Token. Status: {resp.status_code}, Response: {resp.text}")
             idinfo = resp.json()
@@ -181,21 +210,27 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         username = email.split('@')[0]
         name = idinfo.get('name', username)
         
-        # Ensure user exists in our DB
-        user = AuthManager.get_user(email)
+        # Ensure user exists in our DB (lookup by e-mail first)
+        user = AuthManager.get_user_by_email(email)
         if not user:
             # Maybe the username from email is taken?
             existing = AuthManager.get_user(username)
             if existing: # Append numeric suffix if username exists
                 username = f"{username}_{random.randint(100,999)}"
             
-            # Register them automatically with a random impossible password
+            # Register automatically with generated password + real e-mail
             random_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-            try:
-                AuthManager.register(username, random_pw)
-                # Note: We should ideally update the email column if it existed, but we just use username as primary key
-            except Exception as e:
-                pass # User might already exist in some edge case
+            ok, msg = AuthManager.register(username, email, random_pw)
+            if not ok:
+                # If the email already exists, resolve canonical user and continue.
+                if "bereits registriert" in str(msg).lower():
+                    existing_email_user = AuthManager.get_user_by_email(email)
+                    if existing_email_user:
+                        username = existing_email_user["username"]
+                    else:
+                        raise HTTPException(status_code=409, detail=f"Google-Login Konflikt: {msg}")
+                else:
+                    raise HTTPException(status_code=400, detail=f"Google-Registrierung fehlgeschlagen: {msg}")
         else:
             username = user['username']
 
@@ -208,6 +243,8 @@ def verify_google_oauth(req: GoogleVerifyRequest):
 
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=f"Ungültiges Google Auth Token: {str(ve)}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Server Fehler: {str(e)}")
 
