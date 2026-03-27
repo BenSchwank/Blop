@@ -2611,6 +2611,36 @@ void MainWindow::setupWebBrowser() {
 #ifdef BLOP_HAS_WEBENGINE
   const QString kStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
 
+#ifdef Q_OS_WIN
+  // Ensure packaged builds can resolve WebEngine helpers/resources even when
+  // started from unusual working directories (installer shortcuts, etc.).
+  {
+    const QString appDir = QCoreApplication::applicationDirPath();
+
+    if (qgetenv("QTWEBENGINEPROCESS_PATH").isEmpty()) {
+      const QString procPath = appDir + QStringLiteral("/QtWebEngineProcess.exe");
+      if (QFile::exists(procPath))
+        qputenv("QTWEBENGINEPROCESS_PATH",
+                QDir::toNativeSeparators(procPath).toUtf8());
+    }
+    if (qgetenv("QTWEBENGINE_RESOURCES_PATH").isEmpty()) {
+      const QString resPath = appDir + QStringLiteral("/resources");
+      if (QDir(resPath).exists())
+        qputenv("QTWEBENGINE_RESOURCES_PATH",
+                QDir::toNativeSeparators(resPath).toUtf8());
+    }
+    if (qgetenv("QTWEBENGINE_LOCALES_PATH").isEmpty()) {
+      const QString locPath1 =
+          appDir + QStringLiteral("/translations/qtwebengine_locales");
+      const QString locPath2 = appDir + QStringLiteral("/qtwebengine_locales");
+      const QString pick = QDir(locPath1).exists() ? locPath1 : locPath2;
+      if (QDir(pick).exists())
+        qputenv("QTWEBENGINE_LOCALES_PATH",
+                QDir::toNativeSeparators(pick).toUtf8());
+    }
+  }
+#endif
+
 #if defined(Q_OS_WIN) && !defined(QT_DEBUG)
   // Windows release fallback: avoid embedded WebEngine for login because some
   // systems render a permanent black surface although input logic is alive.

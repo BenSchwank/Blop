@@ -82,6 +82,9 @@ jobs:
           if (!(Test-Path "deployment\resources")) { Write-Error "CRITICAL: Resources folder missing!" }
           $icu = Get-ChildItem deployment -Recurse -Filter icudtl.dat -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $icu) { Write-Error "CRITICAL: icudtl.dat missing under deployment (WebEngine will not render)!" }
+          $locales = Get-ChildItem deployment -Recurse -Directory -Filter qtwebengine_locales -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $locales) { Write-Error "CRITICAL: qtwebengine_locales folder missing (WebEngine text/resources may fail)!" }
+          if (!(Test-Path "deployment\opengl32sw.dll")) { Write-Warning "opengl32sw.dll missing; software GL fallback unavailable on some GPUs." }
 
       - name: Zip Release
         uses: TheDoctor0/zip-release@0.7.1
