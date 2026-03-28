@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -48,6 +48,16 @@ interface FlashcardRow {
     front: string;
     back: string;
 }
+
+/** Keys used in isGenerating + API paths for quiz/flashcards/plan */
+const AI_JOB_LABELS: Record<string, string> = {
+    plan: 'Lernplan',
+    quiz: 'Quiz',
+    flashcards: 'Karteikarten',
+    summary: 'Zusammenfassung',
+    elaboration: 'Ausarbeitung',
+    repetition: 'Wiederholung',
+};
 
 type DraggableFileProps = {
     file: FileData;
@@ -254,8 +264,10 @@ export default function FolderPage() {
     const audioTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
-    // AI Generation States
-    const [isGenerating, setIsGenerating] = useState<string[]>([]); // Array to support concurrent calls: 'plan', 'quiz', 'cards', 'summary', 'elaboration', 'repetition'
+    // AI Generation States (parallel: each job type may run once at a time; different types in parallel)
+    const [isGenerating, setIsGenerating] = useState<string[]>([]);
+    const [completedAiJobs, setCompletedAiJobs] = useState<{ id: string; jobKey: string; label: string; ok: boolean }[]>([]);
+    const [aiJobsPanelExpanded, setAiJobsPanelExpanded] = useState(true);
     const [isEditingFile, setIsEditingFile] = useState(false);
 
     // Toast notification (replaces all showToast() calls)
@@ -264,6 +276,31 @@ export default function FolderPage() {
         setToast({ msg, type });
         setTimeout(() => setToast(null), 6000);
     };
+
+    const registerAiJobFinished = useCallback((jobKey: string, ok: boolean) => {
+        const label = AI_JOB_LABELS[jobKey] || jobKey;
+        const id = `${jobKey}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        setCompletedAiJobs((prev) => [{ id, jobKey, label, ok }, ...prev].slice(0, 12));
+        window.setTimeout(() => {
+            setCompletedAiJobs((prev) => prev.filter((j) => j.id !== id));
+        }, 12000);
+    }, []);
+
+    const prevGeneratingCountRef = useRef(0);
+    useEffect(() => {
+        if (isGenerating.length > prevGeneratingCountRef.current) {
+            setAiJobsPanelExpanded(true);
+        }
+        prevGeneratingCountRef.current = isGenerating.length;
+    }, [isGenerating.length]);
+
+    const prevProcessingRef = useRef(false);
+    useEffect(() => {
+        if (isProcessing && !prevProcessingRef.current) {
+            setAiJobsPanelExpanded(true);
+        }
+        prevProcessingRef.current = isProcessing;
+    }, [isProcessing]);
 
     // Plan Config Modal State
     const [isPlanConfigOpen, setIsPlanConfigOpen] = useState(false);
@@ -686,10 +723,10 @@ export default function FolderPage() {
     };
     // ----------------------------
 
-    // Helper for AI Actions using the concurrent state array
+    // Helper for AI Actions — jobs of different types may run in parallel
     const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string[]>>) => {
-        stateSetter(prev => [...prev, endpoint]);
-
+        stateSetter((prev) => (prev.includes(endpoint) ? prev : [...prev, endpoint]));
+        let ok = false;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
@@ -699,6 +736,7 @@ export default function FolderPage() {
             });
 
             if (res.ok) {
+                ok = true;
                 const data = await res.json();
 
                 // Open the result immediately from the response (no race condition)
@@ -738,7 +776,8 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            stateSetter(prev => prev.filter(t => t !== endpoint)); // Remove specific action from processing array
+            stateSetter((prev) => prev.filter((t) => t !== endpoint));
+            registerAiJobFinished(endpoint, ok);
         }
     };
 
@@ -768,8 +807,8 @@ export default function FolderPage() {
 
     const handleSummaryGenerate = async () => {
         setIsSummaryConfigOpen(false);
-        setIsGenerating(prev => [...prev, 'summary']);
-
+        setIsGenerating((prev) => (prev.includes('summary') ? prev : [...prev, 'summary']));
+        let ok = false;
         // Pass detailLevel to backend (Need to update ai/summary endpoint to accept this optionally, 
         // or just append it to a prompt. If backend doesn't accept it yet, we just generate standard for now.
         // I will add `detail_level` to the POST body.)
@@ -788,6 +827,7 @@ export default function FolderPage() {
             });
 
             if (res.ok) {
+                ok = true;
                 const data = await res.json();
                 setSelectedFile({
                     id: `summary_${Date.now()}`, // Temporary ID for immediate viewing
@@ -814,14 +854,15 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            setIsGenerating(prev => prev.filter(t => t !== 'summary'));
+            setIsGenerating((prev) => prev.filter((t) => t !== 'summary'));
+            registerAiJobFinished('summary', ok);
         }
     };
 
     const handleElaborationGenerate = async () => {
         setIsElaborationConfigOpen(false);
-        setIsGenerating(prev => [...prev, 'elaboration']);
-
+        setIsGenerating((prev) => (prev.includes('elaboration') ? prev : [...prev, 'elaboration']));
+        let ok = false;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/elaboration`, {
@@ -837,6 +878,7 @@ export default function FolderPage() {
             });
 
             if (res.ok) {
+                ok = true;
                 const data = await res.json();
                 setSelectedFile({
                     id: `elaboration_${Date.now()}`,
@@ -863,14 +905,15 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            setIsGenerating(prev => prev.filter(t => t !== 'elaboration'));
+            setIsGenerating((prev) => prev.filter((t) => t !== 'elaboration'));
+            registerAiJobFinished('elaboration', ok);
         }
     };
 
     const handleRepetitionGenerate = async () => {
         setIsRepetitionConfigOpen(false);
-        setIsGenerating(prev => [...prev, 'repetition']);
-
+        setIsGenerating((prev) => (prev.includes('repetition') ? prev : [...prev, 'repetition']));
+        let ok = false;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/repetition`, {
@@ -886,6 +929,7 @@ export default function FolderPage() {
             });
 
             if (res.ok) {
+                ok = true;
                 const data = await res.json();
                 setSelectedFile({
                     id: `repetition_${Date.now()}`,
@@ -912,14 +956,15 @@ export default function FolderPage() {
             console.error(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
-            setIsGenerating(prev => prev.filter(t => t !== 'repetition'));
+            setIsGenerating((prev) => prev.filter((t) => t !== 'repetition'));
+            registerAiJobFinished('repetition', ok);
         }
     };
 
     const handlePlanGenerate = async () => {
         setIsPlanConfigOpen(false);
-        setIsGenerating(prev => [...prev, 'plan']);
-
+        setIsGenerating((prev) => (prev.includes('plan') ? prev : [...prev, 'plan']));
+        let ok = false;
         // Calculate duration from end date if selected
         let days = planDays;
         if (planUseDate && planEndDate) {
@@ -949,6 +994,7 @@ export default function FolderPage() {
             if (res.ok) {
                 const data = await res.json();
                 if (data.plan && data.plan.length > 0) {
+                    ok = true;
                     setSelectedFile({
                         id: 'plan_main',
                         name: 'Aktueller Lernplan',
@@ -972,7 +1018,8 @@ export default function FolderPage() {
             console.error("Plan error:", error);
             showToast(`Netzwerk-Fehler: ${String(error)}`);
         } finally {
-            setIsGenerating(prev => prev.filter(t => t !== 'plan'));
+            setIsGenerating((prev) => prev.filter((t) => t !== 'plan'));
+            registerAiJobFinished('plan', ok);
         }
     };
 
@@ -1361,12 +1408,13 @@ export default function FolderPage() {
                         {/* Generate Quiz Shortcut */}
                         <div className="max-w-4xl mx-auto mt-8 flex justify-center pb-12">
                             <button
+                                disabled={isGenerating.includes('quiz')}
                                 onClick={() => {
                                     // Make sure we close the selected file so they can see the generation
                                     setSelectedFile(null);
                                     handleGenerate('quiz');
                                 }}
-                                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group"
+                                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 disabled:pointer-events-none text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group"
                             >
                                 <BrainCircuit className="group-hover:rotate-12 transition-transform duration-300" size={18} />
                                 Quiz aus Lernplan generieren
@@ -1573,22 +1621,22 @@ export default function FolderPage() {
                     <div className="flex flex-wrap gap-2">
                         {/* AI Actions */}
                         <div className="flex gap-2 mr-2 border-r border-[#2A2A40] pr-4">
-                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.length > 0} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
+                            <button onClick={() => handleGenerate('plan')} disabled={isGenerating.includes('plan')} className="p-2.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernplan erstellen">
                                 {isGenerating.includes('plan') ? <Loader2 size={20} className="animate-spin" /> : <BrainCircuit size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.length > 0} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
+                            <button onClick={() => handleGenerate('quiz')} disabled={isGenerating.includes('quiz')} className="p-2.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-xl transition-all disabled:opacity-50" title="Quiz erstellen">
                                 {isGenerating.includes('quiz') ? <Loader2 size={20} className="animate-spin" /> : <HelpCircle size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.length > 0} className="p-2.5 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50" title="Karteikarten erstellen">
+                            <button onClick={() => handleGenerate('flashcards')} disabled={isGenerating.includes('flashcards')} className="p-2.5 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-xl transition-all disabled:opacity-50" title="Karteikarten erstellen">
                                 {isGenerating.includes('flashcards') ? <Loader2 size={20} className="animate-spin" /> : <Layers size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.length > 0} className="p-2.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50" title="Zusammenfassung erstellen">
+                            <button onClick={() => handleGenerate('summary')} disabled={isGenerating.includes('summary')} className="p-2.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50" title="Zusammenfassung erstellen">
                                 {isGenerating.includes('summary') ? <Loader2 size={20} className="animate-spin" /> : <FileOutput size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.length > 0} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Ausarbeitung erstellen">
+                            <button onClick={() => handleGenerate('elaboration')} disabled={isGenerating.includes('elaboration')} className="p-2.5 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 rounded-xl transition-all disabled:opacity-50" title="Ausarbeitung erstellen">
                                 {isGenerating.includes('elaboration') ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
                             </button>
-                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.length > 0} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
+                            <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
                                 {isGenerating.includes('repetition') ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
                             </button>
                         </div>
@@ -2615,6 +2663,77 @@ export default function FolderPage() {
                 )}
 
                 {/* Global Chat Bubble */}
+                {/* KI-Aufgaben: parallel laufende Generierungen + zuletzt fertig */}
+                <AnimatePresence>
+                    {(isGenerating.length > 0 || completedAiJobs.length > 0 || isProcessing) && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 16 }}
+                            className="no-print fixed bottom-20 right-3 left-3 sm:left-auto md:bottom-6 z-[85] w-auto sm:w-[min(100vw-1.5rem,20rem)] max-h-[min(55vh,22rem)] flex flex-col rounded-2xl border border-[#2A2A40] bg-[#0B0B1A]/95 shadow-2xl backdrop-blur-md overflow-hidden"
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setAiJobsPanelExpanded((e) => !e)}
+                                className="flex items-center justify-between gap-2 px-3 py-2.5 bg-[#151525] border-b border-[#2A2A40] text-left w-full hover:bg-[#1C1C33] transition-colors"
+                            >
+                                <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                                    <ListTodo size={16} className="text-[#5E5CE6] shrink-0" />
+                                    KI &amp; Verarbeitung
+                                    <span className="text-xs font-normal text-gray-400">
+                                        ({isGenerating.length + (isProcessing ? 1 : 0)} aktiv
+                                        {completedAiJobs.length > 0 ? ` · ${completedAiJobs.length} fertig` : ''})
+                                    </span>
+                                </span>
+                                {aiJobsPanelExpanded ? <ChevronUp size={18} className="text-gray-400 shrink-0" /> : <ChevronDown size={18} className="text-gray-400 shrink-0" />}
+                            </button>
+                            {aiJobsPanelExpanded && (
+                                <div className="p-3 space-y-3 overflow-y-auto text-sm custom-scrollbar">
+                                    {(isGenerating.length > 0 || isProcessing) && (
+                                        <div>
+                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Läuft gerade</div>
+                                            <ul className="space-y-1.5">
+                                                {isProcessing && (
+                                                    <li className="flex items-center gap-2 text-gray-300 bg-[#151525] rounded-lg px-2.5 py-2 border border-[#2A2A40]">
+                                                        <Loader2 size={14} className="animate-spin text-[#5E5CE6] shrink-0" />
+                                                        <span>Material wird hochgeladen / verarbeitet</span>
+                                                    </li>
+                                                )}
+                                                {isGenerating.map((key) => (
+                                                    <li key={key} className="flex items-center gap-2 text-gray-200 bg-[#151525] rounded-lg px-2.5 py-2 border border-[#2A2A40]">
+                                                        <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
+                                                        <span>{AI_JOB_LABELS[key] || key}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                            <p className="text-[11px] text-gray-500 mt-2 leading-snug">
+                                                Mehrere Aktionen gleichzeitig sind möglich — jede läuft unabhängig, solange sie nicht schon für dieselbe Funktion aktiv ist.
+                                            </p>
+                                        </div>
+                                    )}
+                                    {completedAiJobs.length > 0 && (
+                                        <div>
+                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Zuletzt abgeschlossen</div>
+                                            <ul className="space-y-1.5">
+                                                {completedAiJobs.map((j) => (
+                                                    <li
+                                                        key={j.id}
+                                                        className={`flex items-center gap-2 rounded-lg px-2.5 py-2 border ${j.ok ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200' : 'bg-red-500/10 border-red-500/25 text-red-200'}`}
+                                                    >
+                                                        {j.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
+                                                        <span>{j.label}</span>
+                                                        <span className="text-[10px] opacity-80 ml-auto">{j.ok ? 'Fertig' : 'Fehler'}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 <FloatingChat
                     folderId={folderId}
                     username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
