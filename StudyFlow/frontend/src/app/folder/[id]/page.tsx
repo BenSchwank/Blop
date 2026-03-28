@@ -2351,7 +2351,7 @@ export default function FolderPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-white">Wiederholung erstellen</h3>
-                                        <p className="text-xs text-gray-400">Lass dich gezielt abfragen</p>
+                                        <p className="text-xs text-gray-400">Ausführliche Prüfungs- oder Themenwiederholung</p>
                                     </div>
                                 </div>
                                 <button onClick={() => setIsRepetitionConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
@@ -2380,7 +2380,10 @@ export default function FolderPage() {
                                         </button>
                                     </div>
                                     {learningMode === 'exercise' && (
-                                        <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> Wiederholung zu den Konzepten — nicht zu den Aufgaben selbst</p>
+                                        <p className="text-xs text-amber-400 mt-1.5"><span>💡</span> Fokus auf Konzepte und Lösungsmethoden — trotzdem alle Aufgabenbereiche aus dem Material abdecken</p>
+                                    )}
+                                    {learningMode === 'normal' && (
+                                        <p className="text-xs text-gray-500 mt-1.5"><span>💡</span> Ohne Schwerpunkte: die KI geht die gesamte Prüfung bzw. alle Aufgaben der Reihe nach durch (Musterlösungsniveau).</p>
                                     )}
                                 </div>
 
@@ -2388,7 +2391,7 @@ export default function FolderPage() {
                                 <textarea
                                     value={repetitionRules}
                                     onChange={(e) => setRepetitionRules(e.target.value)}
-                                    placeholder="Welche Themen bereiten dir am meisten Schwierigkeiten? (Lass leer für einen automatischen Komplett-Mix)"
+                                    placeholder="z. B. „nur Vektorrechnung“ oder „Aufgabe 3 überspringen“. Leer lassen = gesamtes Material, jede Teilaufgabe ausführlich."
                                     className="w-full h-28 bg-[#151525] border border-[#2A2A40] text-white rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 outline-none resize-none placeholder:text-gray-600"
                                 />
 

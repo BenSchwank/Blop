@@ -519,38 +519,77 @@ Hier ist das Quellenmaterial:
     def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None, learning_mode: str = "normal") -> Any:
         """Generates targeted spaced-repetition / review material."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference))
+            # Lange, exam-taugliche Ausgaben (Default-Modell-Limit sonst oft zu knapp)
+            repetition_generation_config = {
+                "max_output_tokens": 16384,
+                "temperature": 0.45,
+            }
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config=repetition_generation_config,
+            )
 
             # --- Learning Mode Preamble ---
             if learning_mode == "exercise":
                 mode_note = """KONZEPTLERNEN-MODUS:
-Das Material enthält Übungsaufgaben. Erstelle die Wiederholung zu den KONZEPTEN und METHODEN
-die man braucht um diese Aufgaben zu lösen – NICHT zu den Aufgaben selbst.
-Die Wiederholungsfragen sollen das Verständnis der Lösungsmethoden prüfen, nicht die Lösungen abfragen."""
+Das Material enthält Übungs- oder Prüfungsaufgaben. Erkläre NICHT nur stichpunktartig, sondern UMFANGREICH die KONZEPTE, METHODEN und STANDARD-VERFAHREN,
+die man braucht, um diese Aufgabentypen zu lösen.
+- Beziehe dich auf ALLE erkennbaren Aufgabenbereiche/Themenblöcke aus dem Material (nicht nur ein paar Highlights). Pro größerem Abschnitt oder Aufgabentyp: eigener Unterabschnitt mit tiefer Erklärung, typischen Mustern und Merksätzen.
+- Die Active-Recall-Fragen am Ende prüfen Verständnis der Methoden (nicht reines Auswendiglernen von Endzahlen einer konkreten Aufgabe)."""
+                if custom_rules.strip():
+                    mode_note += f"\n\nZusätzliche Wünsche des Nutzers:\n{custom_rules.strip()}"
             else:
-                mode_note = custom_rules if custom_rules else "Extrahiere die wichtigsten Konzepte, die ein Schüler typischerweise vor der Prüfung vergessen könnte."
+                if custom_rules.strip():
+                    mode_note = f"""Nutzer-Schwerpunkte (gewichte diese stärker, bleibe aber gründlich):
+{custom_rules.strip()}
+Decke nach Möglichkeit weiterhin das gesamte Material sinnvoll ab. Nur wenn der Nutzer explizit nur ein einzelnes Thema will (z. B. „nur Aufgabe 3“), darfst du den Rest weglassen."""
+                else:
+                    mode_note = """STANDARD (keine Schwerpunkte vom Nutzer):
+- Gehe das gesamte Quellenmaterial systematisch durch. Keine willkürliche Kurzfassung und keine Auswahl „nur der wichtigsten“ Aufgaben, wenn das Material eine Prüfung, Klausur oder Aufgabensammlung ist.
+- Bei Prüfungen/Klausuren: arbeite JEDE erkennbare Aufgabe und Teilaufgabe in der Reihenfolge des Dokuments ab (z. B. Teil A/B, 1a, 1b, 2.1, 2.2 …). Überspringe nichts.
+- Pro Aufgabe/Teilaufgabe: (1) Aufgabenidee kurz in eigenen Worten, (2) vollständiger Lösungsweg mit Begründungen — Schritt für Schritt, so ausführlich wie eine gute Musterlösung, (3) optional: typische Fehler oder Alternativweg.
+- Gesamtlänge: Die Wiederholung soll DEUTLICH ausführlich sein (mindestens Umfang mehrerer DIN-A4-Seiten Fließtext). Kurz-TL;DR allein reicht nicht."""
 
             prompt = f"""
-Du bist ein Lernexperte. Erstelle ein intensives Wiederholungsblatt (Review Sheet) basierend auf dem Lernmaterial.
-Der Fokus liegt auf aktivem Abruf (Active Recall) und dem Schließen von Wissenslücken.
+Du bist ein erfahrener Mathe-/Naturwissenschafts-Tutor. Erstelle eine SEHR AUSFÜHRLICHE Wiederholung (Review / Prüfungsvorbereitung) auf Deutsch.
+Ziel: Ein Lernender soll mit diesem Dokument die Inhalte und Lösungswege wirklich vertiefen können — nicht nur oberflächlich wiederholen.
 
-{"Spezifische Anweisungen/Schwerpunkte des Nutzers:" if custom_rules and learning_mode != "exercise" else "Fokus:"}
+Fokus / Modus:
 {mode_note}
 
+UMFANG (verbindlich):
+- Schreibe lang und detailliert. Lieber zu ausführlich als zu kurz.
+- Der mittlere Hauptteil (siehe Struktur unten) soll mindestens etwa 60–70 % der Gesamtlänge ausmachen.
+
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
-Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
-- Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
-- Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
-- Jede $$-Umgebung muss korrekt geöffnet und geschlossen werden. Keine einzelnen $ im normalen Text (z. B. Währung — stattdessen Wort "Euro" schreiben).
+Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
+- Inline: $E = mc^2$
+- Block: $$E = mc^2$$
+- Jede $$-Umgebung korrekt schließen. Keine einzelnen $ im normalen Text (Währung als Wort „Euro“ o. Ä.).
 
-Bitte gliedere die Wiederholung in folgende Abschnitte (nutze sauberes Markdown):
-1. **🎯 Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse prägnant zusammengefasst.
-2. **❓ Active Recall Fragen:** 5-10 anspruchsvolle Prüfungsfragen mit direkt darunter stehenden ausführlichen detaillierten Lösungen.
-3. **🧠 Häufige Stolpersteine:** Welche Details verwechselt man leicht? Worauf muss man besonders achten?
-4. **🧮 Lösungsansätze & Formeln (falls relevant):** Wenn es sich um Mathe/Naturwissenschaften handelt, erkläre detailliert den Lösungsansatz und liste benötigte Formeln auf. Sonst weglassen.
-5. **🔗 Kontext-Check:** Wie hängt das Hauptthema in das größere Ganze (Themenübergreifend)?
+Struktur (sauberes Markdown, in dieser Reihenfolge):
 
-Schreibe auf Deutsch im Fließtext mit Absätzen und Listen, sodass es wie ein schönes direkt lesbares Handout aussieht.
+## Kurzüberblick
+8–12 prägnante, aber inhaltlich substanzielle Kernpunkte (nicht nur drei Sätze).
+
+## Detaillierte Durcharbeitung
+Hauptteil — hier die meiste Länge und Tiefe.
+- **Normaler Modus:** Wie oben beschrieben: bei Klausur/Prüfung jede Teilaufgabe nacheinander; sonst das Material thematisch vollständig und tiefgehend durchgehen.
+- **Konzepte-lernen-Modus:** Statt Einzelaufgaben „abzuschreiben“, pro Aufgabenblock/Thema die zugrundeliegenden Ideen, Standardalgorithmen und Beweis-/Rechenmuster sehr ausführlich erklären — aber so, dass alles Material abgedeckt ist.
+
+## Active Recall
+Mindestens 15 anspruchsvolle Fragen. Zu jeder Frage direkt darunter eine ausführliche Musterantwort (mit Rechenweg/LaTeX wo nötig).
+
+## Häufige Stolpersteine
+Konkrete typische Fehler, Missverständnisse und wie man sie vermeidet (ausführlich, nicht nur drei Bulletpoints).
+
+## Lösungsstrategien & Formeln
+Wo relevant (Mathe/NW): Sätze/Formeln und wann man welche Strategie wählt — als nachschlagbare Zusammenfassung zum obigen Hauptteil.
+
+## Fazit & Themenzusammenhänge
+Kurze Einordnung, wie die Teile zusammenhängen; optional Prüfungstipps.
+
+Schreibe durchgehend verständlich, mit Absätzen und klarer Markdown-Gliederung (Zwischenüberschriften pro Aufgabe o. Ä.).
 
 Hier ist das Quellenmaterial:
 """
