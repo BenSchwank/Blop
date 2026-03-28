@@ -125,9 +125,18 @@ def read_root():
 @app.get("/api/health")
 @app.head("/api/health")
 def health_check():
-    """Lightweight check for load balancers / UptimeRobot; must not fail if DB is misconfigured."""
-    db = DataManager._init_supabase()
-    return {"status": "ok", "database": "supabase" if db else "unconfigured"}
+    """Schneller Liveness-Check für UptimeRobot/Render — ohne Netzwerk zu Supabase (vermeidet Timeouts/502 durch langsamen Ping)."""
+    return {"status": "ok"}
+
+
+@app.get("/api/health/ready")
+def health_ready():
+    """Optional: prüft Supabase-Konfiguration (kann langsamer sein; nicht als einziger Uptime-Ping nutzen)."""
+    try:
+        db = DataManager._init_supabase()
+        return {"status": "ok", "database": "supabase" if db else "unconfigured"}
+    except Exception as e:
+        return {"status": "ok", "database": "error", "detail": str(e)[:200]}
 
 @app.get("/api/ping")
 def ping():
