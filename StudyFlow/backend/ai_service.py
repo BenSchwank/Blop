@@ -70,6 +70,40 @@ NUMERISCHE GENAUIGKEIT UND PLAUSIBILITÄT (verbindlich, sobald Zahlen, Funktione
 """
 
 class AIService:
+    _REPETITION_CONTINUATION_PROMPT = """Die Ausgabe wurde wegen des Ausgabe-Tokenslimits abgebrochen.
+
+Setze NAHTLOS im selben Dokument fort (keine Begrüßung; keine Wiederholung von „## Kurzüberblick“ oder bereits vollständig ausgearbeiteten Aufgaben).
+
+Als Nächstes ausdrücklich den REST bearbeiten: fast immer fehlen dann noch Aufgaben, Teilaufgaben oder Projektphasen am **Ende** des Quellen-PDFs — diese jetzt vollständig und ausführlich (Konzepte/Lösungswege wie zuvor).
+
+Wenn Hauptteil und Aufgaben komplett sind, aber die Struktur noch fehlt: ergänze nur die noch fehlenden Abschnitte „## Active Recall“, „## Häufige Stolpersteine“, „## Lösungsstrategien & Formeln“, „## Fazit & Themenzusammenhänge“ — jeweils nur soweit nach deiner bisherigen Ausgabe noch nicht vorhanden."""
+
+    @staticmethod
+    def _generate_repetition_with_continuation(model, input_parts: List[Any], max_followups: int = 6) -> str:
+        """Chat-based generation so we can continue after MAX_TOKENS (long repetitions)."""
+        chat = model.start_chat(history=[])
+        response = chat.send_message(input_parts, safety_settings=SAFETY_SETTINGS)
+        if not response.candidates:
+            raise Exception("Leere Kandidaten-Antwort vom Modell.")
+        chunks: List[str] = []
+        if response.text:
+            chunks.append(response.text)
+        fr = response.candidates[0].finish_reason
+        follow = 0
+        while fr == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
+            follow += 1
+            print(f"Repetition: finish_reason=MAX_TOKENS, continuation {follow}/{max_followups}")
+            response = chat.send_message(
+                AIService._REPETITION_CONTINUATION_PROMPT,
+                safety_settings=SAFETY_SETTINGS,
+            )
+            if not response.candidates:
+                break
+            if response.text:
+                chunks.append(response.text)
+            fr = response.candidates[0].finish_reason
+        return "\n\n".join(chunks) if chunks else ""
+
     @staticmethod
     def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal") -> str:
         """Generates a comprehensive summary from text or multimodal content."""
@@ -562,6 +596,8 @@ Hier ist das Quellenmaterial:
 Das Material enthält Übungs- oder Prüfungsaufgaben. Erkläre NICHT nur stichpunktartig, sondern UMFANGREICH die KONZEPTE, METHODEN und STANDARD-VERFAHREN,
 die man braucht, um diese Aufgabentypen zu lösen.
 - Beziehe dich auf ALLE erkennbaren Aufgabenbereiche/Themenblöcke aus dem Material (nicht nur ein paar Highlights). Pro größerem Abschnitt oder Aufgabentyp: eigener Unterabschnitt mit tiefer Erklärung, typischen Mustern und Merksätzen.
+- Pflicht: Auch die **letzten** Aufgabenblöcke, Projektphasen oder Teilaufgaben am **Dokumentende** müssen in eigenen Unterabschnitten vorkommen. Viele Modelle lassen den Schluss weg — das ist hier unzulässig.
+- Wenn es nummerierte Aufgaben oder „Teil A/B/C“ gibt: stelle sicher, dass die **höchsten Nummern** und der **Schlussteil** inhaltlich abgedeckt sind, nicht nur der Anfang.
 - Die Active-Recall-Fragen am Ende prüfen Verständnis der Methoden (nicht reines Auswendiglernen von Endzahlen einer konkreten Aufgabe)."""
                 if custom_rules.strip():
                     mode_note += f"\n\nZusätzliche Wünsche des Nutzers:\n{custom_rules.strip()}"
@@ -574,6 +610,7 @@ Decke nach Möglichkeit weiterhin das gesamte Material sinnvoll ab. Nur wenn der
                     mode_note = """STANDARD (keine Schwerpunkte vom Nutzer):
 - Gehe das gesamte Quellenmaterial systematisch durch. Keine willkürliche Kurzfassung und keine Auswahl „nur der wichtigsten“ Aufgaben, wenn das Material eine Prüfung, Klausur oder Aufgabensammlung ist.
 - Bei Prüfungen/Klausuren: arbeite JEDE erkennbare Aufgabe und Teilaufgabe in der Reihenfolge des Dokuments ab (z. B. Teil A/B, 1a, 1b, 2.1, 2.2 …). Überspringe nichts.
+- Besonders oft fehlen die **letzten drei bis fünf** Aufgaben oder **Projekt-/Pflichtaufgaben am Ende** — diese sind genauso verpflichtend wie der Anfang. Arbeite das PDF/Heft **von der ersten bis zur letzten Seite** inhaltlich ab.
 - Pro Aufgabe/Teilaufgabe: (1) Aufgabenidee kurz in eigenen Worten, (2) vollständiger Lösungsweg mit Begründungen — Schritt für Schritt, so ausführlich wie eine gute Musterlösung, (3) optional: typische Fehler oder Alternativweg.
 - Gesamtlänge: Die Wiederholung soll DEUTLICH ausführlich sein (mindestens Umfang mehrerer DIN-A4-Seiten Fließtext). Kurz-TL;DR allein reicht nicht."""
 
@@ -587,6 +624,10 @@ Fokus / Modus:
 UMFANG (verbindlich):
 - Schreibe lang und detailliert. Lieber zu ausführlich als zu kurz.
 - Der mittlere Hauptteil (siehe Struktur unten) soll mindestens etwa 60–70 % der Gesamtlänge ausmachen.
+
+VOLLSTÄNDIGKEIT (kritisch, häufiger Modellfehler):
+- Nicht nur den Anfang des Materials ausarbeiten und dann „fertig“ wirken: **Dokumentende und letzte Aufgaben/Projektphasen** müssen inhaltlich behandelt sein.
+- Wenn du merkst, dass der Platz knapp wird: kürze lieber Zwischenwiederholungen in der Mitte, aber **nicht** den Schluss des Quelldokuments.
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
@@ -630,10 +671,17 @@ Hier ist das Quellenmaterial:
             else:
                 input_parts.append(content)
 
-            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-            if not response.text:
+            try:
+                full_text = AIService._generate_repetition_with_continuation(model, input_parts)
+            except Exception as mt_err:
+                print(f"Repetition multiturn failed ({mt_err}), falling back to single-shot generate_content")
+                response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+                if not response.text:
+                    raise Exception("Leere Antwort vom Modell erhalten.")
+                full_text = response.text
+            if not (full_text or "").strip():
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return response.text
+            return full_text
         except Exception as e:
             print(f"Repetition Error: {e}")
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")

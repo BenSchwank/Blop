@@ -16,6 +16,11 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [isNativeApp, setIsNativeApp] = useState(false);
+    const [showForgot, setShowForgot] = useState(false);
+    const [forgotEmail, setForgotEmail] = useState('');
+    const [forgotLoading, setForgotLoading] = useState(false);
+    const [forgotMessage, setForgotMessage] = useState('');
+    const [forgotSuccess, setForgotSuccess] = useState(false);
 
     const API_BASE = '/api';
 
@@ -107,6 +112,41 @@ export default function LoginPage() {
         }
     };
 
+    const handleForgotSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setForgotMessage('');
+        setForgotSuccess(false);
+        setForgotLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: forgotEmail.trim() }),
+            });
+            const text = await res.text();
+            let data: { message?: string; detail?: string };
+            try {
+                data = JSON.parse(text);
+            } catch {
+                data = { detail: text || 'Serverfehler' };
+            }
+            if (!res.ok) {
+                throw new Error(data.detail || 'Anfrage fehlgeschlagen');
+            }
+            setForgotSuccess(true);
+            setForgotMessage(
+                data.message ||
+                    'Wenn diese E-Mail bei uns registriert ist, erhältst du gleich eine Nachricht mit einem Link zum Zurücksetzen.'
+            );
+            setForgotEmail('');
+        } catch (err: unknown) {
+            setForgotSuccess(false);
+            setForgotMessage(err instanceof Error ? err.message : 'Ein Fehler ist aufgetreten');
+        } finally {
+            setForgotLoading(false);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-md">
@@ -120,6 +160,57 @@ export default function LoginPage() {
 
                 {/* Form Card */}
                 <div className="blop-card p-8">
+                    {showForgot ? (
+                        <>
+                            <h2 className="text-lg font-semibold text-white mb-2">Passwort vergessen</h2>
+                            <p className="text-sm text-[#888] mb-6">
+                                Gib die E-Mail-Adresse deines Kontos ein. Du erhältst einen Link zum Zurücksetzen.
+                            </p>
+                            <form onSubmit={handleForgotSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-[#DDD] mb-2">E-Mail</label>
+                                    <input
+                                        type="email"
+                                        value={forgotEmail}
+                                        onChange={(e) => setForgotEmail(e.target.value)}
+                                        required
+                                        className="w-full px-4 py-3 bg-[#252526] border border-[#444] rounded-lg text-white placeholder-[#888] focus:outline-none focus:border-[#5E5CE6] focus:ring-2 focus:ring-[#5E5CE6]/20"
+                                        placeholder="deine@email.de"
+                                    />
+                                </div>
+                                {forgotMessage && (
+                                    <div
+                                        className={`p-3 rounded-lg text-sm ${
+                                            forgotSuccess
+                                                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                        }`}
+                                    >
+                                        {forgotMessage}
+                                    </div>
+                                )}
+                                <button
+                                    type="submit"
+                                    disabled={forgotLoading}
+                                    className="w-full py-3.5 bg-[#5E5CE6] rounded-lg text-white font-semibold hover:bg-[#7D7AFF] disabled:opacity-50"
+                                >
+                                    {forgotLoading ? 'Wird gesendet …' : 'Link anfordern'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowForgot(false);
+                                        setForgotMessage('');
+                                        setForgotSuccess(false);
+                                    }}
+                                    className="w-full py-2 text-sm text-[#888] hover:text-white"
+                                >
+                                    Zurück zur Anmeldung
+                                </button>
+                            </form>
+                        </>
+                    ) : (
+                        <>
                     <div className="flex gap-2 mb-6">
                         <button
                             onClick={() => setIsLogin(true)}
@@ -185,6 +276,22 @@ export default function LoginPage() {
                                 placeholder="Dein Passwort"
                             />
                         </div>
+
+                        {isLogin && (
+                            <div className="text-right -mt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowForgot(true);
+                                        setError('');
+                                        if (username.includes('@')) setForgotEmail(username.trim());
+                                    }}
+                                    className="text-sm text-[#5E5CE6] hover:text-[#7D7AFF] underline underline-offset-2"
+                                >
+                                    Passwort vergessen?
+                                </button>
+                            </div>
+                        )}
 
                         {error && (
                             <div className={`p-3 rounded-lg text-sm ${error.includes('erfolgreich')
@@ -256,6 +363,8 @@ export default function LoginPage() {
                             </>
                         )}
                     </form>
+                        </>
+                    )}
                 </div>
 
                 {/* Privacy footer */}

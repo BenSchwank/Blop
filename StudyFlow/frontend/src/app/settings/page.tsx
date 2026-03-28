@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 export default function Settings() {
     const router = useRouter();
     const [username, setUsername] = useState("");
+    const [accountEmail, setAccountEmail] = useState<string>("");
     const [loading, setLoading] = useState(false);
 
     // Delete State
@@ -37,6 +38,7 @@ export default function Settings() {
                 const data = await res.json();
                 setTokens(data.tokens);
                 setTier(data.subscription_tier);
+                if (typeof data.email === "string") setAccountEmail(data.email);
             }
         } catch (error) {
             console.error("Error fetching user info:", error);
@@ -122,6 +124,15 @@ export default function Settings() {
                             <div>
                                 <p className="text-white font-medium">{username}</p>
                                 <p className="text-sm text-gray-500">Angemeldet</p>
+                                {accountEmail ? (
+                                    <p className="text-sm text-gray-400 mt-2">
+                                        <span className="text-gray-500">E-Mail:</span> {accountEmail}
+                                    </p>
+                                ) : null}
+                                <p className="text-xs text-gray-600 mt-2 max-w-md leading-relaxed">
+                                    Ist auf dem Server E-Mail (SMTP) eingerichtet, schicken wir an diese Adresse eine kurze Benachrichtigung,
+                                    sobald ein KI-Dokument fertig ist (z.&nbsp;B. Lernplan, Quiz, Zusammenfassung, Wiederholung).
+                                </p>
                             </div>
                         </div>
                         <button

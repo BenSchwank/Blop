@@ -9,7 +9,12 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         // Skip auth check for public pages
-        if (pathname === '/login' || pathname === '/datenschutz') return;
+        if (
+            pathname === '/login' ||
+            pathname === '/datenschutz' ||
+            pathname === '/auth/reset-password'
+        )
+            return;
 
 
         // Only run on client side

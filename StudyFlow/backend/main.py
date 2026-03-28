@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -7,10 +7,17 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
+
 # Import local modules
 # Import local modules
 from data_manager import DataManager
 from auth_manager import AuthManager
+from email_notify import try_notify_document_ready
 import google.generativeai as genai
 
 # Configure GenAI (Global for main.py usage like upload_file)
@@ -48,6 +55,13 @@ class RegisterRequest(BaseModel):
     username: str
     email: str
     password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordConfirmRequest(BaseModel):
+    access_token: str
+    new_password: str
 
 class ChatMessage(BaseModel):
     role: str
@@ -140,6 +154,23 @@ def register(request: RegisterRequest):
     if success:
         return {"success": True, "message": message}
     raise HTTPException(status_code=400, detail=message)
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(request: ForgotPasswordRequest):
+    """Sends Supabase recovery email. Same response whether the address exists (no enumeration)."""
+    AuthManager.request_password_reset(request.email)
+    return {
+        "success": True,
+        "message": "Wenn diese E-Mail bei uns registriert ist, erhältst du gleich eine Nachricht mit einem Link zum Zurücksetzen.",
+    }
+
+@app.post("/api/auth/reset-password-confirm")
+def reset_password_confirm(request: ResetPasswordConfirmRequest):
+    """Completes recovery: GoTrue updates password; local users.password_hash is synced."""
+    ok, msg = AuthManager.complete_password_reset(request.access_token, request.new_password)
+    if ok:
+        return {"success": True, "message": msg}
+    raise HTTPException(status_code=400, detail=msg)
 
 @app.post("/api/auth/logout")
 def logout(session_id: str = Body(..., embed=True)):
@@ -786,7 +817,7 @@ def create_study_plan(request: PlanRequest):
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)
-        
+        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Lernplan")
         return {"status": "success", "plan": plan}
     
     except HTTPException:
@@ -869,7 +900,7 @@ def _get_folder_context(username: str, folder_id: str):
     return content_parts, debug_log
 
 @app.post("/api/ai/quiz")
-def create_quiz(request: GenRequest):
+def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     from datetime import datetime
     try:
@@ -908,6 +939,7 @@ def create_flashcards(request: GenRequest):
             "content": cards,
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
+        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Karteikarten")
         return {"status": "success", "flashcards": cards}
     except HTTPException:
         raise
@@ -916,7 +948,7 @@ def create_flashcards(request: GenRequest):
         raise HTTPException(status_code=500, detail=f"Karteikarten-Fehler: {str(e)}")
 
 @app.post("/api/ai/summary")
-def create_summary(request: SummaryRequest):
+def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     try:
         check_and_deduct_tokens(request.username, 10)
@@ -953,7 +985,7 @@ def create_elaboration(request: ElaborationRequest):
             "content": elaboration_text,
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
-        
+        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Ausarbeitung")
         return {"status": "success", "elaboration": elaboration_text}
     except HTTPException:
         raise
@@ -962,7 +994,7 @@ def create_elaboration(request: ElaborationRequest):
         raise HTTPException(status_code=500, detail=f"Ausarbeitungs-Fehler: {str(e)}")
 
 @app.post("/api/ai/repetition")
-def create_repetition(request: RepetitionRequest):
+def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     from datetime import datetime
     try:
@@ -981,7 +1013,7 @@ def create_repetition(request: RepetitionRequest):
             "content": repetition_text,
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
-        
+        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Wiederholungsbogen")
         return {"status": "success", "repetition": repetition_text}
     except HTTPException:
         raise

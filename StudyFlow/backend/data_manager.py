@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 import uuid
 import tempfile
+from typing import Optional
 
 # Supabase Imports
 try:
@@ -212,6 +213,26 @@ class DataManager:
         if not db: return False
         res = db.table('files').update({"folder_id": target_folder_id}).eq('id', file_id).eq('username', username).execute()
         return len(res.data) > 0
+
+    @staticmethod
+    def get_folder_name(username, folder_id) -> Optional[str]:
+        """Ordner-Anzeigename für E-Mails / UI; None wenn nicht gefunden."""
+        db = DataManager._init_supabase()
+        if not db:
+            return None
+        try:
+            res = (
+                db.table("folders")
+                .select("name")
+                .eq("id", str(folder_id))
+                .eq("username", username)
+                .execute()
+            )
+            if res.data and len(res.data) > 0:
+                return res.data[0].get("name") or None
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def list_files(username, folder_id):

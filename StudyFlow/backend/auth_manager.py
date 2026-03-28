@@ -1,8 +1,11 @@
+import base64
 import hashlib
 import json
 import os
 from datetime import datetime
 import uuid
+
+import requests
 
 SESSION_DB_FILE = "user_data/sessions.json"
 
@@ -84,6 +87,19 @@ class AuthManager:
     @staticmethod
     def _hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
+
+    @staticmethod
+    def _email_from_jwt_unverified(jwt_token: str) -> str:
+        try:
+            parts = jwt_token.split(".")
+            if len(parts) < 2:
+                return ""
+            payload_b64 = parts[1]
+            pad = "=" * (-len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64 + pad))
+            return (payload.get("email") or "").strip().lower()
+        except Exception:
+            return ""
 
     @staticmethod
     def get_user(username):
@@ -268,6 +284,99 @@ class AuthManager:
         db = AuthManager._get_db()
         db.table('users').update({"password_hash": AuthManager._hash_password(new_password)}).eq('username', username).execute()
         return True, "Passwort erfolgreich geändert!"
+
+    @staticmethod
+    def _password_reset_redirect_url():
+        explicit = os.environ.get("PASSWORD_RESET_REDIRECT_URL", "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+        base = os.environ.get("BLOP_APP_PUBLIC_URL", "").strip().rstrip("/")
+        if base:
+            return f"{base}/auth/reset-password"
+        return "http://localhost:3000/auth/reset-password"
+
+    @staticmethod
+    def request_password_reset(email: str) -> None:
+        """Triggers Supabase recovery email. Swallows errors (caller returns generic message)."""
+        email = (email or "").strip().lower()
+        if not email or "@" not in email:
+            return
+        db = AuthManager._get_db()
+        if not db:
+            return
+        supabase_url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+        supabase_key = os.environ.get("SUPABASE_KEY") or ""
+        if not supabase_url or not supabase_key:
+            return
+        redirect = AuthManager._password_reset_redirect_url()
+        try:
+            db.auth.reset_password_for_email(email, {"redirect_to": redirect})
+        except Exception as e:
+            # Fallback if method name/signature differs — raw GoTrue recover
+            try:
+                r = requests.post(
+                    f"{supabase_url}/auth/v1/recover",
+                    params={"redirect_to": redirect},
+                    headers={
+                        "apikey": supabase_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={"email": email},
+                    timeout=30,
+                )
+                if r.status_code >= 400:
+                    print(f"password reset recover HTTP {r.status_code}: {r.text[:200]}")
+            except Exception as e2:
+                print(f"password reset failed: {e} | fallback: {e2}")
+
+    @staticmethod
+    def complete_password_reset(access_token: str, new_password: str) -> tuple[bool, str]:
+        """Sets new password via GoTrue using recovery JWT; syncs public.users.password_hash."""
+        token = (access_token or "").strip()
+        if not token:
+            return False, "Ungültiger Link. Bitte fordere eine neue E-Mail an."
+        if len(new_password) < 8:
+            return False, "Passwort muss mindestens 8 Zeichen haben."
+        supabase_url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+        supabase_key = os.environ.get("SUPABASE_KEY") or ""
+        if not supabase_url or not supabase_key:
+            return False, "Serverfehler: Supabase nicht konfiguriert."
+        try:
+            r = requests.put(
+                f"{supabase_url}/auth/v1/user",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "apikey": supabase_key,
+                    "Content-Type": "application/json",
+                },
+                json={"password": new_password},
+                timeout=30,
+            )
+        except Exception as e:
+            print(f"complete_password_reset request error: {e}")
+            return False, "Verbindungsfehler. Bitte später erneut versuchen."
+        if r.status_code not in (200, 201):
+            detail = (r.text or "")[:300]
+            print(f"complete_password_reset HTTP {r.status_code}: {detail}")
+            return False, "Link abgelaufen oder ungültig. Bitte fordere eine neue E-Mail an."
+        email = ""
+        try:
+            body = r.json()
+            email = (body.get("email") or body.get("user", {}).get("email") or "").strip().lower()
+        except Exception:
+            pass
+        if not email:
+            email = AuthManager._email_from_jwt_unverified(token)
+        if not email:
+            return False, "Antwort der Anmeldung unvollständig."
+        row = AuthManager.get_user_by_email(email)
+        if row:
+            db = AuthManager._get_db()
+            if db:
+                db.table("users").update(
+                    {"password_hash": AuthManager._hash_password(new_password)}
+                ).eq("username", row["username"]).execute()
+        return True, "Passwort wurde geändert. Du kannst dich jetzt anmelden."
 
     @staticmethod
     def ensure_admin():

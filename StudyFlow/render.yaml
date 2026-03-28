@@ -14,3 +14,16 @@ services:
         sync: false
       - key: FIREBASE_CREDENTIALS
         sync: false
+      # E-Mail „Dokument fertig“: Empfänger = users.email pro Account (DB). Hier nur der SMTP-Versand:
+      - key: BLOP_SMTP_PORT
+        value: "587"
+      - key: BLOP_SMTP_HOST
+        sync: false
+      - key: BLOP_SMTP_USER
+        sync: false
+      - key: BLOP_SMTP_PASSWORD
+        sync: false
+      - key: BLOP_SMTP_FROM
+        sync: false
+      - key: BLOP_APP_PUBLIC_URL
+        sync: false
