@@ -1,4 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Heading from '@tiptap/extension-heading';
@@ -6,6 +12,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Heading3, Quote, Code, ImageIcon, Save, X, Loader2, Check } from 'lucide-react';
 import { marked } from 'marked';
+import { htmlToMarkdownForPdfExport } from '@/lib/htmlToMarkdownExport';
 
 interface RichTextEditorProps {
     initialContent: string;
@@ -14,7 +21,7 @@ interface RichTextEditorProps {
     onClose: () => void;
 }
 
-const MenuBar = ({ editor, onSave, onClose, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
+const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, onExportPdf: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
     if (!editor) {
         return null;
     }
@@ -23,70 +30,6 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title, saveStatus }: { edi
         const url = window.prompt('URL des Bildes eingeben (z.B. von Imgur oder einem anderen Host):');
         if (url) {
             editor.chain().focus().setImage({ src: url }).run();
-        }
-    };
-
-    // --- Full Document PDF Export (JPEG + mm: smaller files than PNG @ scale 2) ---
-    const handleExportPdf = async () => {
-        const html2canvas = (await import('html2canvas')).default;
-        const { jsPDF } = await import('jspdf');
-
-        const htmlContent = editor.getHTML();
-
-        const container = document.createElement('div');
-        const contentWidthPx = 720;
-        container.style.cssText = [
-            'position:fixed',
-            'top:-9999px',
-            'left:-9999px',
-            `width:${contentWidthPx}px`,
-            'padding:32px 40px',
-            'background:#ffffff',
-            'color:#111111',
-            "font-family:system-ui,-apple-system,'Segoe UI',Roboto,Georgia,serif",
-            'font-size:13px',
-            'line-height:1.55',
-            'box-sizing:border-box',
-        ].join(';');
-        container.innerHTML = htmlContent;
-        document.body.appendChild(container);
-
-        try {
-            const scale = 1.35;
-            const canvas = await html2canvas(container, {
-                scale,
-                useCORS: true,
-                logging: false,
-                backgroundColor: '#ffffff',
-                width: container.offsetWidth,
-                height: container.scrollHeight,
-                windowWidth: container.offsetWidth,
-                windowHeight: container.scrollHeight,
-            });
-
-            const imgData = canvas.toDataURL('image/jpeg', 0.9);
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-            const pageWmm = pdf.internal.pageSize.getWidth();
-            const pageHmm = pdf.internal.pageSize.getHeight();
-            const marginMm = 12;
-            const innerW = pageWmm - 2 * marginMm;
-            const innerH = pageHmm - 2 * marginMm;
-            const imgWmm = innerW;
-            const imgHmm = (canvas.height * imgWmm) / canvas.width;
-
-            let page = 0;
-            let offsetMm = 0;
-            while (offsetMm < imgHmm) {
-                if (page > 0) pdf.addPage();
-                pdf.addImage(imgData, 'JPEG', marginMm, marginMm - offsetMm, imgWmm, imgHmm);
-                offsetMm += innerH;
-                page++;
-            }
-
-            const safeName = (title || 'Dokument').replace(/[^a-zA-Z0-9_-]/g, '_');
-            pdf.save(`${safeName}.pdf`);
-        } finally {
-            document.body.removeChild(container);
         }
     };
 
@@ -185,9 +128,10 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title, saveStatus }: { edi
                 </div>
 
                 <button
-                    onClick={handleExportPdf}
+                    type="button"
+                    onClick={onExportPdf}
                     className="flex items-center gap-2 bg-[#252526] hover:bg-[#333] border border-[#444] text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
-                    title="Als PDF exportieren"
+                    title="Als PDF exportieren (Druckdialog – „Als PDF speichern“)"
                 >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                     <span className="hidden sm:inline">PDF Export</span>
@@ -223,6 +167,7 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title, saveStatus }: { edi
 export default function RichTextEditor({ initialContent, title, onSave, onClose }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
@@ -296,21 +241,93 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
         setTimeout(() => setSaveStatus('idle'), 2000);
     };
 
+    const runPdfExport = useCallback(() => {
+        if (!editor) return;
+        const md = htmlToMarkdownForPdfExport(editor.getHTML());
+        setPrintMarkdown(md);
+    }, [editor]);
+
+    /* Same pipeline as read-only viewer: Markdown → KaTeX → system print / „Als PDF speichern“. */
+    useEffect(() => {
+        if (printMarkdown === null) return;
+
+        document.body.classList.add('blop-printing-markdown');
+
+        let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+        let printDelay: ReturnType<typeof setTimeout> | undefined;
+        let raf1 = 0;
+        let raf2 = 0;
+
+        const finish = () => {
+            if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
+            fallbackTimer = undefined;
+            window.removeEventListener('afterprint', finish);
+            document.body.classList.remove('blop-printing-markdown');
+            setPrintMarkdown(null);
+        };
+
+        raf1 = requestAnimationFrame(() => {
+            raf2 = requestAnimationFrame(() => {
+                printDelay = setTimeout(() => {
+                    window.addEventListener('afterprint', finish, { once: true });
+                    fallbackTimer = setTimeout(finish, 120000);
+                    window.print();
+                }, 450);
+            });
+        });
+
+        return () => {
+            cancelAnimationFrame(raf1);
+            cancelAnimationFrame(raf2);
+            if (printDelay !== undefined) clearTimeout(printDelay);
+            if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
+            window.removeEventListener('afterprint', finish);
+            document.body.classList.remove('blop-printing-markdown');
+            setPrintMarkdown(null);
+        };
+    }, [printMarkdown]);
+
     // Cleanup timeout on unmount
     useEffect(() => {
         return () => {
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
+            document.body.classList.remove('blop-printing-markdown');
         };
     }, []);
 
+    const printPortal =
+        printMarkdown !== null &&
+        typeof document !== 'undefined' &&
+        createPortal(
+            <div
+                id="blop-markdown-print-mount"
+                className="fixed inset-0 z-[200000] overflow-auto bg-white text-gray-900 print:static print:overflow-visible"
+            >
+                <div className="no-print sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-4 py-3 text-sm text-gray-600 backdrop-blur">
+                    Druckdialog öffnet sich gleich. Wähle <strong>Als PDF speichern</strong> als Ziel – gleiche Darstellung wie in der Leseansicht (inkl. Formeln).
+                </div>
+                <div className="blop-markdown-export-prose mx-auto max-w-3xl px-6 py-8 prose prose-slate max-w-none [&_.katex-display]:max-w-full">
+                    <h1 className="not-prose text-2xl font-bold text-gray-900 mb-6 print:mb-4">{title}</h1>
+                    <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
+                    >
+                        {printMarkdown}
+                    </ReactMarkdown>
+                </div>
+            </div>,
+            document.body
+        );
+
     return (
         <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <MenuBar editor={editor} onSave={handleSave} onClose={onClose} isSaving={isSaving} title={title} saveStatus={saveStatus} />
+            <MenuBar editor={editor} onSave={handleSave} onClose={onClose} onExportPdf={runPdfExport} isSaving={isSaving} title={title} saveStatus={saveStatus} />
             <div className="flex-1 overflow-y-auto bg-[#1e1e1e]">
                 <EditorContent editor={editor} />
             </div>
+            {printPortal}
 
             <style jsx global>{`
                 .ProseMirror p.is-editor-empty:first-child::before {

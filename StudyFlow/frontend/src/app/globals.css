@@ -300,11 +300,50 @@ input:focus-visible {
    These styles apply ONLY when window.print() is called.
    They override the dark theme to create clean, sharp, black-text-on-white-bg documents.
 */
+/* Editor „PDF Export“: hide app shell while printing markdown+KaTeX surface */
+@media print {
+  body.blop-printing-markdown {
+    background: #ffffff !important;
+  }
+
+  body.blop-printing-markdown > *:not(#blop-markdown-print-mount) {
+    display: none !important;
+  }
+
+  #blop-markdown-print-mount {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  #blop-markdown-print-mount .blop-markdown-export-prose .katex,
+  #blop-markdown-print-mount .blop-markdown-export-prose .katex * {
+    color: #000000 !important;
+    fill: #000000 !important;
+    stroke: #000000 !important;
+  }
+}
+
+.blop-markdown-export-prose {
+  --tw-prose-body: #334155;
+  --tw-prose-headings: #0f172a;
+  --tw-prose-bold: #0f172a;
+  --tw-prose-links: #4f46e5;
+}
+
 @media print {
   /* Reset Backgrounds & Text Colors */
   body, html {
     background: #ffffff !important;
     color: #000000 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   /* Fullscreen file viewer: must not use position:fixed (prints blank / one page) */
