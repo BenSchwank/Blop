@@ -26,56 +26,60 @@ const MenuBar = ({ editor, onSave, onClose, isSaving, title, saveStatus }: { edi
         }
     };
 
-    // --- Full Document PDF Export ---
+    // --- Full Document PDF Export (JPEG + mm: smaller files than PNG @ scale 2) ---
     const handleExportPdf = async () => {
-        // Dynamically import to avoid SSR issues
         const html2canvas = (await import('html2canvas')).default;
         const { jsPDF } = await import('jspdf');
 
-        // Get the full editor HTML content
         const htmlContent = editor.getHTML();
 
-        // Create a hidden off-screen container with full width/height (no scroll clipping)
         const container = document.createElement('div');
+        const contentWidthPx = 720;
         container.style.cssText = [
-            'position:fixed', 'top:-9999px', 'left:-9999px',
-            'width:794px',  // A4 width in px at 96dpi
-            'padding:40px 48px',
+            'position:fixed',
+            'top:-9999px',
+            'left:-9999px',
+            `width:${contentWidthPx}px`,
+            'padding:32px 40px',
             'background:#ffffff',
-            'color:#000000',
-            'font-family:Georgia,serif',
-            'font-size:14px',
-            'line-height:1.7',
+            'color:#111111',
+            "font-family:system-ui,-apple-system,'Segoe UI',Roboto,Georgia,serif",
+            'font-size:13px',
+            'line-height:1.55',
             'box-sizing:border-box',
         ].join(';');
         container.innerHTML = htmlContent;
         document.body.appendChild(container);
 
         try {
+            const scale = 1.35;
             const canvas = await html2canvas(container, {
-                scale: 2,
+                scale,
                 useCORS: true,
                 logging: false,
+                backgroundColor: '#ffffff',
                 width: container.offsetWidth,
                 height: container.scrollHeight,
                 windowWidth: container.offsetWidth,
                 windowHeight: container.scrollHeight,
             });
 
-            const imgData = canvas.toDataURL('image/png');
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
-            const pageW = pdf.internal.pageSize.getWidth();
-            const pageH = pdf.internal.pageSize.getHeight();
-            const imgW = pageW;
-            const imgH = (canvas.height * pageW) / canvas.width;
+            const imgData = canvas.toDataURL('image/jpeg', 0.9);
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const pageWmm = pdf.internal.pageSize.getWidth();
+            const pageHmm = pdf.internal.pageSize.getHeight();
+            const marginMm = 12;
+            const innerW = pageWmm - 2 * marginMm;
+            const innerH = pageHmm - 2 * marginMm;
+            const imgWmm = innerW;
+            const imgHmm = (canvas.height * imgWmm) / canvas.width;
 
-            let yPos = 0;
-            let remaining = imgH;
             let page = 0;
-            while (remaining > 0) {
+            let offsetMm = 0;
+            while (offsetMm < imgHmm) {
                 if (page > 0) pdf.addPage();
-                pdf.addImage(imgData, 'PNG', 0, -page * pageH, imgW, imgH);
-                remaining -= pageH;
+                pdf.addImage(imgData, 'JPEG', marginMm, marginMm - offsetMm, imgWmm, imgHmm);
+                offsetMm += innerH;
                 page++;
             }
 
@@ -302,7 +306,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
     }, []);
 
     return (
-        <div className="fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
             <MenuBar editor={editor} onSave={handleSave} onClose={onClose} isSaving={isSaving} title={title} saveStatus={saveStatus} />
             <div className="flex-1 overflow-y-auto bg-[#1e1e1e]">
                 <EditorContent editor={editor} />

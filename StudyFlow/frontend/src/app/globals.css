@@ -277,6 +277,25 @@ input:focus-visible {
   margin-bottom: 2rem;
 }
 
+/* KaTeX (markdown math) — Wiederholung / Ausarbeitung / Chat */
+.prose-blop .katex {
+  font-size: 1.06em;
+  color: inherit;
+}
+
+.prose-blop .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 0.6rem 0;
+  margin: 0.75rem 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prose-blop .katex-display > .katex {
+  white-space: normal;
+}
+
 /* --- PDF Export & Print Styles ---
    These styles apply ONLY when window.print() is called.
    They override the dark theme to create clean, sharp, black-text-on-white-bg documents.
@@ -286,6 +305,45 @@ input:focus-visible {
   body, html {
     background: #ffffff !important;
     color: #000000 !important;
+  }
+
+  /* Fullscreen file viewer: must not use position:fixed (prints blank / one page) */
+  .print-friendly-viewer {
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+    z-index: auto !important;
+    box-shadow: none !important;
+  }
+
+  .print-friendly-viewer .flex-1.overflow-y-auto,
+  .print-friendly-viewer .overflow-y-auto {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* TipTap editor body when printing from Vollbild-Editor */
+  .print-friendly-viewer .ProseMirror {
+    color: #111111 !important;
+    min-height: auto !important;
+  }
+
+  .print-friendly-viewer .ProseMirror h1,
+  .print-friendly-viewer .ProseMirror h2,
+  .print-friendly-viewer .ProseMirror h3,
+  .print-friendly-viewer .ProseMirror p,
+  .print-friendly-viewer .ProseMirror li {
+    color: #111111 !important;
   }
 
   /* Hide all UI elements that shouldn't be printed (Sidebars, Navs, Floating Buttons, etc) */
@@ -310,16 +368,34 @@ input:focus-visible {
   }
 
   /* Override the Prose formatting for print */
-  .prose-blop {
+  .prose-blop,
+  .prose-invert {
+    color: #000000 !important;
+    --tw-prose-body: #333333 !important;
+    --tw-prose-headings: #000000 !important;
+  }
+
+  .prose-blop h1, .prose-blop h2, .prose-blop h3, .prose-blop h4, .prose-blop strong,
+  .prose-invert h1, .prose-invert h2, .prose-invert h3, .prose-invert h4, .prose-invert strong {
     color: #000000 !important;
   }
 
-  .prose-blop h1, .prose-blop h2, .prose-blop h3, .prose-blop h4, .prose-blop strong {
-    color: #000000 !important;
-  }
-
-  .prose-blop p, .prose-blop li {
+  .prose-blop p, .prose-blop li,
+  .prose-invert p, .prose-invert li {
     color: #333333 !important;
+    page-break-inside: avoid;
+  }
+
+  /* KaTeX in PDF / print */
+  .katex,
+  .katex * {
+    color: #000000 !important;
+    fill: #000000 !important;
+    stroke: #000000 !important;
+  }
+
+  .katex-display {
+    overflow: visible !important;
     page-break-inside: avoid;
   }
 
@@ -388,12 +464,13 @@ input:focus-visible {
     width: 100% !important;
   }
 
-  /* Force headers to start at the top of the page if needed */
-  h1 {
-    page-break-before: always;
+  /* Avoid an extra blank first page (old rule: h1 { page-break-before: always } ) */
+  .print-friendly-viewer h1:first-child,
+  .prose-blop > h1:first-child {
+    page-break-before: avoid;
   }
-  
-  /* Never break after a heading */
+
+  /* Never break right after a heading */
   h1, h2, h3, h4, h5 {
     page-break-after: avoid;
   }

@@ -167,7 +167,12 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                     >
                                         {msg.role === 'model' ? (
                                             <div className="prose prose-invert max-w-none text-sm leading-relaxed">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{msg.content}</ReactMarkdown>
+                                                <ReactMarkdown
+                                                remarkPlugins={[remarkGfm, remarkMath]}
+                                                rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
+                                            >
+                                                {msg.content}
+                                            </ReactMarkdown>
                                             </div>
                                         ) : (
                                             <p className="text-sm">{msg.content}</p>

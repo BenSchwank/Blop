@@ -541,6 +541,7 @@ WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+- Jede $$-Umgebung muss korrekt geöffnet und geschlossen werden. Keine einzelnen $ im normalen Text (z. B. Währung — stattdessen Wort "Euro" schreiben).
 
 Bitte gliedere die Wiederholung in folgende Abschnitte (nutze sauberes Markdown):
 1. **🎯 Kernkonzepte (TL;DR):** Die 3-5 allerwichtigsten Erkenntnisse prägnant zusammengefasst.

@@ -1138,7 +1138,7 @@ export default function FolderPage() {
             }
 
             return (
-                <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => { setSelectedFile(null); setIsEditingFile(false); }} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -1191,8 +1191,13 @@ export default function FolderPage() {
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-8">
-                        <div className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40]">
-                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{contentStr}</ReactMarkdown>
+                        <div className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40] [&_.katex-display]:max-w-full">
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm, remarkMath]}
+                                rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
+                            >
+                                {contentStr}
+                            </ReactMarkdown>
                         </div>
                     </div>
                 </div>
@@ -1213,7 +1218,7 @@ export default function FolderPage() {
             }
 
             return (
-                <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                         <div className="flex items-center gap-3">
                             <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
@@ -1373,7 +1378,7 @@ export default function FolderPage() {
         }
 
         return (
-            <div className="fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
                     <div className="flex items-center gap-3">
                         <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
