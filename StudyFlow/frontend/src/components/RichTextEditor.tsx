@@ -272,7 +272,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
                     window.addEventListener('afterprint', finish, { once: true });
                     fallbackTimer = setTimeout(finish, 120000);
                     window.print();
-                }, 450);
+                }, 750);
             });
         });
 

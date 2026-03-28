@@ -57,6 +57,18 @@ SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
+# In alle mathematisch/naturwissenschaftlich relevanten Prompts einfügen (Rechenfehler in Musterlösungen vermeiden).
+MATH_ACCURACY_INSTRUCTIONS = """
+NUMERISCHE GENAUIGKEIT UND PLAUSIBILITÄT (verbindlich, sobald Zahlen, Funktionen, Ableitungen, Integrale oder Modelle vorkommen):
+- Leite jede behauptete Zahl und jedes Näherungsergebnis Schritt für Schritt aus den gegebenen Formeln ab. Zeige explizite Zwischenergebnisse (z. B. Potenzen von $e$, Produkte, Summen im Nenner), bevor du dividierst oder rundest. Keine Endwerte raten oder „aus dem Gedächtnis“ erfinden.
+- Wenn sich ein Zwischenwert ändert, müssen alle folgenden Werte (Differenzenquotient, Gleichungen, Lösungen von CAS-Aufgaben) konsistent neu berechnet werden — keine inkonsistente Kette.
+- Nach dem Lösen von Gleichungen oder beim Nennen einer konkreten Stelle $x$: immer eine kurze PROBE — setze den Wert in die passende Originalfunktion, die Ableitung oder die Ausgangsgleichung ein und zeige, dass das Ergebnis (bis auf Rundung) stimmt. Beispiel: Bei „$f'(x) = k$“ das gefundene $x$ in $f'(x)$ einsetzen und mit $k$ vergleichen.
+- Unterscheide streng: durchschnittliche Änderungsrate / Differenzenquotient über ein Intervall vs. momentane Änderungsrate / Ableitung an einem Punkt — nicht verwechseln und nicht dieselbe Zahl ohne Begründung für beides verwenden.
+- Rundung transparent machen (Zwischenergebnisse mit ausreichend Stellen); wo sinnvoll, exakte Brüche oder algebraische Ausdrücke angeben.
+- Wenn du dir bei einer komplexen Zahl nicht sicher bist: den exakten Ausdruck angeben und ausdrücklich zur Nachrechnung mit dem Taschenrechner auffordern — lieber ehrlich als falsch.
+- Vor dem Abschluss: kurze Plausibilitätsprüfung (Größenordnung, Monotonie, Randwerte, ob das Ergebnis zum Modell passt).
+"""
+
 class AIService:
     @staticmethod
     def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal") -> str:
@@ -86,6 +98,8 @@ WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+
+{MATH_ACCURACY_INSTRUCTIONS}
 
 WICHTIGE ANFORDERUNGEN:
 - Die Zusammenfassung muss VOLLSTÄNDIG sein – decke ALLE wichtigen Themen, Konzepte und Details ab
@@ -163,6 +177,9 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in d
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
+""" + MATH_ACCURACY_INSTRUCTIONS + """
+- Die als richtig markierte Antwort und die Erklärung müssen rechnerisch stimmig sein; falsche Zahlen in Erklärungen sind inakzeptabel.
+
 Anforderungen:
 - Decke ALLE wichtigen Themen des Materials ab
 - Mische verschiedene Schwierigkeitsgrade (leicht, mittel, schwer)
@@ -209,6 +226,9 @@ WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
+
+""" + MATH_ACCURACY_INSTRUCTIONS + """
+- Auf der Rückseite bei Rechenaufgaben: nur Ergebnisse mit nachvollziehbarer Kette und Probe angeben.
 
 Anforderungen:
 - Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab
@@ -282,6 +302,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in d
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
+{MATH_ACCURACY_INSTRUCTIONS}
+
 ANCORDERUNGEN AN DEN LERNPLAN:
 1. Teile den gesamten Stoff GLEICHMÄSSIG und SINNVOLL auf {duration_days} Tage auf. ACHTUNG: Plane NUR an den "Aktiven Lerntagen" Aufgaben ein. Wenn der Tag der Woche KEIN aktiver Lerntag ist, weise dem Tag KEINE Aufgaben zu und setze als Ziel/Summary "Ruhetag" oder "Pause".
    WICHTIGE REGEL: Tag 1 (der ERSTE Tag des Plans) darf unter keinen Umständen ein Ruhetag sein. Beginne den Plan IMMER an einem aktiven Lerntag.
@@ -353,6 +375,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 - Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$
 
+{MATH_ACCURACY_INSTRUCTIONS}
+
 Analysiere dazu folgendes Material aus dem Ordner des Studenten:
 """
             input_parts = [prompt]
@@ -413,6 +437,7 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
+""" + MATH_ACCURACY_INSTRUCTIONS + """
 WICHTIGE ANWEISUNG ZUR LÄNGE:
 - Bei einem kurzen Audio (< 5 Min): Mindestens 300 Wörter Mitschrift.
 - Bei einem mittleren Audio (5-20 Min): Mindestens 800 Wörter Mitschrift.
@@ -491,6 +516,8 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 - Für Inline-Formeln (im Textfluss) verwende ein einzelnes Dollarzeichen: $E = mc^2$
 - Für Block-Formeln (eigene Zeile) verwende doppelte Dollarzeichen: $$E = mc^2$$
 
+{MATH_ACCURACY_INSTRUCTIONS}
+
 Achte auf eine klare Struktur:
 1. Einleitung (Heranführung ans Thema)
 2. Hauptteil (Logische, detaillierte Abhandlung mit Argumenten/Konzepten aus dem Material)
@@ -567,6 +594,9 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 - Block: $$E = mc^2$$
 - Jede $$-Umgebung korrekt schließen. Keine einzelnen $ im normalen Text (Währung als Wort „Euro“ o. Ä.).
 
+{MATH_ACCURACY_INSTRUCTIONS}
+- In Musterlösungen zu Prüfungsaufgaben sind falsche Zahlen besonders schädlich: jede Teilaufgabe mindestens einmal logisch gegenprüfen (Zwischenwerte, Probe).
+
 Struktur (sauberes Markdown, in dieser Reihenfolge):
 
 ## Kurzüberblick
@@ -622,6 +652,8 @@ Hier ist das Quellenmaterial:
                 "- Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$ \n"
                 "- Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$ \n"
                 "Verwende niemals andere Notationen für Mathematik.\n\n"
+                + MATH_ACCURACY_INSTRUCTIONS
+                + "\n"
             )
 
             if active_file:
