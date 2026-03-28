@@ -150,6 +150,43 @@ static const char *BLOP_VERSION = BLOP_VERSION_STR;
 /// Embedded Blop Study (keep in sync with AndroidWebView.qml studyUrl).
 static const QString kBlopStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
 
+namespace {
+
+QString blopWebMenuStyleSheet() {
+  return QString::fromUtf8(
+      R"(QMenu { background-color: #14121F; border: 1px solid rgba(124, 92, 252, 0.42); border-radius: 12px; padding: 6px; }
+QMenu::separator { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 12px; }
+QMenu::item { color: #E8E4FF; padding: 10px 22px; border-radius: 8px; font-size: 13px; font-weight: 500; }
+QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })");
+}
+
+void applyBlopWebSheetStyle(QDialog *dlg) {
+  dlg->setStyleSheet(QString::fromUtf8(
+      R"(QDialog { background-color: #14121F; }
+QLabel { color: #E8E4FF; font-size: 13px; background: transparent; }
+QLineEdit { background-color: #1A1829; color: #F2F1FF; border: 1px solid #2C2940; border-radius: 10px; padding: 10px 14px; font-size: 13px; min-height: 20px; selection-background-color: rgba(124,92,252,0.45); }
+QLineEdit:focus { border: 1px solid rgba(124,92,252,0.75); }
+QListWidget { background-color: #1A1829; color: #E8E4FF; border: 1px solid #2C2940; border-radius: 10px; padding: 4px; outline: none; font-size: 13px; }
+QListWidget::item { padding: 10px 12px; border-radius: 6px; }
+QListWidget::item:selected { background: rgba(124,92,252,0.38); color: #FFFFFF; }
+QListWidget::item:hover { background: rgba(255,255,255,0.06); })"));
+}
+
+QString blopPrimaryButtonStyle() {
+  return QString::fromUtf8(
+      R"(QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #9B79FF, stop:1 #5E5CE6); color: #FFFFFF; border: none; border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; min-width: 104px; }
+QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #B198FF, stop:1 #7A6AFF); }
+QPushButton:pressed { background: #4E4ACC; })");
+}
+
+QString blopGhostButtonStyle() {
+  return QString::fromUtf8(
+      R"(QPushButton { background: transparent; color: #C8C4E8; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; min-width: 92px; }
+QPushButton:hover { background: rgba(255,255,255,0.08); color: #F0EEFF; border-color: rgba(124,92,252,0.45); })");
+}
+
+} // namespace
+
 // ============================================================================
 // 1. DELEGATES & BUTTONS
 // ============================================================================
@@ -967,11 +1004,7 @@ void MainWindow::openModeMenuAtButton() {
   if (!m_btnMode || !m_modeSelector)
     return;
   QMenu menu(this);
-  menu.setStyleSheet(
-      "QMenu { background: #1E1E2E; border: 1px solid rgba(255,255,255,0.12); "
-      "border-radius: 8px; padding: 4px; }"
-      "QMenu::item { color: #E0DEFF; padding: 8px 28px; }"
-      "QMenu::item:selected { background: rgba(124,92,252,0.35); }");
+  menu.setStyleSheet(blopWebMenuStyleSheet());
   QAction *aNotes = menu.addAction(tr("Notizen"));
   aNotes->setData(0);
   QAction *aStudy = menu.addAction(tr("Study"));
@@ -1008,24 +1041,73 @@ void MainWindow::showAddWebBookmarkDialog() {
   QDialog dlg(this);
   dlg.setWindowTitle(tr("Webseite hinzufügen"));
   dlg.setModal(true);
-  QFormLayout *form = new QFormLayout(&dlg);
-  QLineEdit *edUrl = new QLineEdit(&dlg);
+  dlg.setMinimumWidth(420);
+  applyBlopWebSheetStyle(&dlg);
+
+  auto *rootLay = new QVBoxLayout(&dlg);
+  rootLay->setContentsMargins(24, 20, 24, 20);
+  rootLay->setSpacing(16);
+
+  auto *lblHead = new QLabel(tr("Neue Webseite"), &dlg);
+  lblHead->setStyleSheet(
+      QStringLiteral("color: #F4F2FF; font-size: 20px; font-weight: 700; "
+                     "letter-spacing: 0.3px;"));
+  rootLay->addWidget(lblHead);
+
+  auto *lblSub = new QLabel(
+      tr("Speichere eine Seite als Lesezeichen — du wechselst später über das "
+         "Menü neben „Notizen“."),
+      &dlg);
+  lblSub->setWordWrap(true);
+  lblSub->setStyleSheet(
+      QStringLiteral("color: rgba(232,228,255,0.72); font-size: 12px;"));
+  rootLay->addWidget(lblSub);
+
+  auto *lblUrl = new QLabel(tr("Adresse"), &dlg);
+  lblUrl->setStyleSheet(QStringLiteral("font-weight: 600; color: #D8D4F5;"));
+  rootLay->addWidget(lblUrl);
+  auto *edUrl = new QLineEdit(&dlg);
   edUrl->setPlaceholderText(QStringLiteral("https://…"));
-  QLineEdit *edTitle = new QLineEdit(&dlg);
-  edTitle->setPlaceholderText(tr("optional"));
-  form->addRow(tr("URL:"), edUrl);
-  form->addRow(tr("Titel:"), edTitle);
-  QDialogButtonBox *box =
-      new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-  form->addRow(box);
-  connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-  connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  rootLay->addWidget(edUrl);
+
+  auto *lblTit = new QLabel(tr("Anzeigename (optional)"), &dlg);
+  lblTit->setStyleSheet(QStringLiteral("font-weight: 600; color: #D8D4F5;"));
+  rootLay->addWidget(lblTit);
+  auto *edTitle = new QLineEdit(&dlg);
+  edTitle->setPlaceholderText(tr("z. B. GeoGebra"));
+  rootLay->addWidget(edTitle);
+
+  auto *btnRow = new QHBoxLayout();
+  btnRow->addStretch(1);
+  auto *btnCancel = new QPushButton(tr("Abbrechen"), &dlg);
+  btnCancel->setCursor(Qt::PointingHandCursor);
+  btnCancel->setStyleSheet(blopGhostButtonStyle());
+  auto *btnAdd = new QPushButton(tr("Hinzufügen"), &dlg);
+  btnAdd->setDefault(true);
+  btnAdd->setCursor(Qt::PointingHandCursor);
+  btnAdd->setStyleSheet(blopPrimaryButtonStyle());
+  btnRow->addWidget(btnCancel);
+  btnRow->addWidget(btnAdd);
+  rootLay->addLayout(btnRow);
+
+  connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+  connect(btnAdd, &QPushButton::clicked, &dlg, &QDialog::accept);
+  connect(edUrl, &QLineEdit::returnPressed, &dlg, &QDialog::accept);
+
   if (dlg.exec() != QDialog::Accepted)
     return;
   const QUrl url = normalizedUserWebUrl(edUrl->text());
   if (!url.isValid()) {
-    QMessageBox::warning(this, tr("Ungültige URL"),
-                         tr("Bitte eine gültige http(s)-Adresse eingeben."));
+    QMessageBox warn(this);
+    warn.setIcon(QMessageBox::Warning);
+    warn.setWindowTitle(tr("Ungültige Adresse"));
+    warn.setText(tr("Bitte eine gültige http- oder https-Adresse eingeben."));
+    warn.setStyleSheet(QString::fromUtf8(
+        R"(QMessageBox { background-color: #14121F; }
+QLabel { color: #E8E4FF; font-size: 13px; min-width: 280px; }
+QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 8px; padding: 8px 20px; font-weight: 600; min-width: 88px; }
+QPushButton:hover { background: #7D7AFF; })"));
+    warn.exec();
     return;
   }
   QString title = edTitle->text().trimmed();
@@ -1046,14 +1128,33 @@ void MainWindow::showAddWebBookmarkDialog() {
 
 void MainWindow::showManageWebBookmarksDialog() {
   if (m_webBookmarks.isEmpty()) {
-    QMessageBox::information(this, tr("Web-Lesezeichen"),
-                             tr("Noch keine gespeicherten Seiten."));
+    QMessageBox info(this);
+    info.setIcon(QMessageBox::Information);
+    info.setWindowTitle(tr("Web-Lesezeichen"));
+    info.setText(tr("Noch keine gespeicherten Seiten."));
+    info.setStyleSheet(QString::fromUtf8(
+        R"(QMessageBox { background-color: #14121F; }
+QLabel { color: #E8E4FF; font-size: 13px; }
+QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 8px; padding: 8px 20px; font-weight: 600; min-width: 88px; }
+QPushButton:hover { background: #7D7AFF; })"));
+    info.exec();
     return;
   }
   QDialog dlg(this);
-  dlg.setWindowTitle(tr("Web-Lesezeichen verwalten"));
-  dlg.resize(420, 320);
+  dlg.setWindowTitle(tr("Web-Lesezeichen"));
+  dlg.resize(440, 360);
+  applyBlopWebSheetStyle(&dlg);
   auto *lay = new QVBoxLayout(&dlg);
+  lay->setContentsMargins(22, 18, 22, 18);
+  lay->setSpacing(14);
+  auto *hdr = new QLabel(tr("Gespeicherte Seiten"), &dlg);
+  hdr->setStyleSheet(
+      QStringLiteral("color: #F4F2FF; font-size: 18px; font-weight: 700;"));
+  lay->addWidget(hdr);
+  auto *sub = new QLabel(tr("Auswahl markieren und entfernen."), &dlg);
+  sub->setStyleSheet(
+      QStringLiteral("color: rgba(232,228,255,0.65); font-size: 12px;"));
+  lay->addWidget(sub);
   auto *list = new QListWidget(&dlg);
   const auto refillList = [&]() {
     list->clear();
@@ -1066,10 +1167,17 @@ void MainWindow::showManageWebBookmarksDialog() {
     }
   };
   refillList();
-  lay->addWidget(list);
+  lay->addWidget(list, 1);
   auto *btnRow = new QHBoxLayout();
   QPushButton *btnDel = new QPushButton(tr("Entfernen"), &dlg);
-  QPushButton *btnClose = new QPushButton(tr("Schließen"), &dlg);
+  btnDel->setCursor(Qt::PointingHandCursor);
+  btnDel->setStyleSheet(
+      QString::fromUtf8(
+          R"(QPushButton { background: rgba(232, 72, 85, 0.18); color: #FFB4B8; border: 1px solid rgba(232,72,85,0.45); border-radius: 10px; padding: 10px 20px; font-size: 13px; font-weight: 600; }
+QPushButton:hover { background: rgba(232, 72, 85, 0.28); color: #FFFFFF; })"));
+  QPushButton *btnClose = new QPushButton(tr("Fertig"), &dlg);
+  btnClose->setCursor(Qt::PointingHandCursor);
+  btnClose->setStyleSheet(blopPrimaryButtonStyle());
   btnRow->addWidget(btnDel);
   btnRow->addStretch(1);
   btnRow->addWidget(btnClose);
@@ -1096,11 +1204,7 @@ void MainWindow::openWebBookmarkOverflowMenuFromWidget(QWidget *anchor) {
   if (!anchor || !m_modeSelector)
     return;
   QMenu menu(this);
-  menu.setStyleSheet(
-      "QMenu { background: #1E1E2E; border: 1px solid rgba(255,255,255,0.12); "
-      "border-radius: 8px; padding: 4px; }"
-      "QMenu::item { color: #E0DEFF; padding: 8px 28px; }"
-      "QMenu::item:selected { background: rgba(124,92,252,0.35); }");
+  menu.setStyleSheet(blopWebMenuStyleSheet());
   for (int i = 0; i < m_webBookmarks.size(); ++i) {
     QAction *a = menu.addAction(m_webBookmarks[i].title);
     a->setData(2 + i);
@@ -1302,13 +1406,15 @@ void MainWindow::setupTitleBar() {
   connect(m_btnAddWebBookmark, &QPushButton::clicked, this,
           &MainWindow::showAddWebBookmarkDialog);
   navLayout->addWidget(m_btnAddWebBookmark);
-
-  navLayout->addWidget(m_modeSelector);
-  navLayout->addSpacing(12);
+  navLayout->addSpacing(10);
+  // Absorb extra width here so Notizen/Study + Lesezeichen links fix bleiben
+  // (sonst drücken viele Tabs / WebView-Compositing die Leiste optisch weg).
+  navLayout->addStretch(1);
 
   // ── TABS ──────────────────────────────────────────────────────────────────
   // Container for dynamic tabs
   QWidget *tabsContainer = new QWidget(m_topNavControls);
+  m_noteTabsChrome = tabsContainer;
   tabsContainer->setStyleSheet("background: transparent; border: none;");
   m_tabBarLayout = new QHBoxLayout(tabsContainer);
   m_tabBarLayout->setContentsMargins(0, 0, 0, 0);
@@ -1376,7 +1482,7 @@ void MainWindow::setupTitleBar() {
           &MainWindow::onShowNewTabPopup);
   m_tabBarLayout->addWidget(btnNewTab);
 
-  navLayout->addStretch(); // Push everything else to the right
+  navLayout->addSpacing(12);
 
   // ── Suchleiste ─────────────────────────────────────────────────────────────
   m_titleSearchBar = new QLineEdit(m_topNavControls);
@@ -1437,6 +1543,8 @@ void MainWindow::setupTitleBar() {
   connect(m_btnPages, &QAbstractButton::clicked, this,
           &MainWindow::onShareClicked);
   navLayout->addWidget(m_btnPages);
+
+  navLayout->addWidget(m_modeSelector); // hidden 0×0 — am Ende, kein Layout-Zwang
 
   // === INJECT TOP NAV CONTAINER ===
   mainLayout->addWidget(m_topNavControls, 1); // Expand to fill middle space
@@ -3568,11 +3676,17 @@ void MainWindow::onModeChanged(int index) {
     applyDesktopWebSubviewForModeIndex(index);
   else
     applyDesktopWebSubviewForModeIndex(0);
-#endif
-
-#ifndef Q_OS_ANDROID
-  if (m_titleBarWidget)
+  if (m_titleBarWidget) {
     m_titleBarWidget->raise();
+    QTimer::singleShot(0, this, [this]() {
+      if (m_titleBarWidget)
+        m_titleBarWidget->raise();
+    });
+    QTimer::singleShot(100, this, [this]() {
+      if (m_titleBarWidget)
+        m_titleBarWidget->raise();
+    });
+  }
 #endif
 
   // Ensure toolbar/mode selector visibility is correct for the selected mode.
@@ -4812,6 +4926,16 @@ void MainWindow::updateSidebarState() {
 #ifndef Q_OS_ANDROID
   if (m_btnMode)
     m_btnMode->setVisible(!isEditor);
+  if (m_btnAddWebBookmark)
+    m_btnAddWebBookmark->setVisible(!isEditor);
+  if (m_noteTabsChrome)
+    m_noteTabsChrome->setVisible(inNotesMode);
+  if (m_titleSearchBar)
+    m_titleSearchBar->setVisible(inNotesMode);
+  if (btnEditorSettings)
+    btnEditorSettings->setVisible(inNotesMode);
+  if (m_btnPages)
+    m_btnPages->setVisible(isEditor);
 #endif
   
   if (m_isSidebarOpen) {

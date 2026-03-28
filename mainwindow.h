@@ -327,6 +327,8 @@ private:
 
   QWidget *m_titleBarWidget{nullptr};
   QWidget *m_topNavControls{nullptr};
+  /// Home + note tabs row in title bar (hidden in Study / web bookmarks).
+  QWidget *m_noteTabsChrome{nullptr};
   QWidget *m_tabBarWidget{nullptr};
   QHBoxLayout *m_tabBarLayout{nullptr};
   QWidget *m_tabScrollArea{nullptr};
