@@ -7,10 +7,31 @@ Item {
     property bool oauthPending: false
     property string studyUrl: "https://blop-six.vercel.app"
     property bool firstLoadDone: false
+    // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
+    property bool ssoPollingEnabled: true
     // Slight zoom-out so auth forms fit better without vertical scrolling.
     property real authUiScale: 0.86
 
+    // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
+    function setWebDestination(kind, urlStr) {
+        var k = Number(kind)
+        if (k === 0) {
+            ssoPollingEnabled = true
+            oauthPending = false
+            firstLoadDone = true
+            webView.url = studyUrl
+            applyAuthUiScale()
+        } else {
+            ssoPollingEnabled = false
+            oauthPending = false
+            if (urlStr && String(urlStr).length > 0)
+                webView.url = urlStr
+        }
+    }
+
     function applyAuthUiScale() {
+        if (!ssoPollingEnabled)
+            return
         var jsCode = "(function() {" +
                      "  try {" +
                      "    var bodyText = (document.body && document.body.innerText ? document.body.innerText : '').toLowerCase();" +
@@ -30,6 +51,8 @@ Item {
     }
 
     function ensureStudyLoaded() {
+        if (!ssoPollingEnabled)
+            return
         if (!firstLoadDone || webView.url.toString() === "" || webView.url.toString() === "about:blank") {
             webView.url = studyUrl
             firstLoadDone = true
@@ -43,7 +66,7 @@ Item {
 
         // Qt 6: declare loadRequest explicitly (injected implicit parameter is deprecated)
         onLoadingChanged: function(loadRequest) {
-            if (loadRequest.url.toString().indexOf("blop://google-login") === 0) {
+            if (ssoPollingEnabled && loadRequest.url.toString().indexOf("blop://google-login") === 0) {
                 webView.stop()
                 if (typeof blopAppBridge !== "undefined") {
                     blopAppBridge.requestGoogleLogin()
@@ -80,7 +103,7 @@ Item {
         id: oauthOverlay
         anchors.fill: parent
         color: "#CC0B0B1A"
-        visible: oauthPending
+        visible: oauthPending && ssoPollingEnabled
         z: 10
 
         Column {
@@ -148,9 +171,11 @@ Item {
 
     Timer {
         interval: 1000
-        running: true
+        running: ssoPollingEnabled
         repeat: true
         onTriggered: {
+            if (!ssoPollingEnabled)
+                return
             var jsCode = "(function() { \n" +
                          "  window.isBlopNativeApp = true;\n" +
                          "  if (localStorage.getItem('trigger_google_login') === '1') {\n" +
@@ -163,6 +188,8 @@ Item {
                          "})();"
 
             webView.runJavaScript(jsCode, function(result) {
+                if (!ssoPollingEnabled)
+                    return
                 if (typeof blopAppBridge !== "undefined" && result !== undefined) {
                     var resStr = result.toString().trim();
                     if (resStr === "TRIGGER_GOOGLE_LOGIN") {

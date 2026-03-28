@@ -87,6 +87,13 @@
 #include <utility>
 #include <QCloseEvent>
 #include <QShowEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QUrl>
+#include <QMetaObject>
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
@@ -138,6 +145,9 @@ static const int FONT_SIZE_HEADER = 18;
 #define BLOP_VERSION_STR "3.13.5.6"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
+
+/// Embedded Blop Study (keep in sync with AndroidWebView.qml studyUrl).
+static const QString kBlopStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
 
 // ============================================================================
 // 1. DELEGATES & BUTTONS
@@ -519,6 +529,8 @@ MainWindow::MainWindow(QWidget *parent)
 
   createDefaultFolder();
 
+  loadWebBookmarksFromSettings();
+
   setupTools(); // <-- WICHTIG: ToolManager Initialisierung hat gefehlt!
   qDebug() << "MainWindow: setupTools beendet";
   setupUi();
@@ -646,10 +658,10 @@ MainWindow::MainWindow(QWidget *parent)
 #ifdef Q_OS_ANDROID
           emit injectToken(js); // We reuse injectToken to pass raw JS to the QML WebView
 #else
-          if (QWebEngineView *wv = m_studyContainer->findChild<QWebEngineView *>()) {
-            if (wv->page())
-              wv->page()->runJavaScript(js);
-          }
+#ifdef BLOP_HAS_WEBENGINE
+          if (m_studyWebView && m_studyWebView->page())
+            m_studyWebView->page()->runJavaScript(js);
+#endif
 #endif
         });
       };
@@ -887,6 +899,303 @@ void MainWindow::checkForUpdates() {
   });
 }
 
+void MainWindow::loadWebBookmarksFromSettings() {
+  m_webBookmarks.clear();
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const int n = s.beginReadArray(QStringLiteral("webBookmarks"));
+  for (int i = 0; i < n; ++i) {
+    s.setArrayIndex(i);
+    QString title = s.value(QStringLiteral("title")).toString();
+    const QUrl url = s.value(QStringLiteral("url")).toUrl();
+    if (url.isValid() && (url.scheme() == QLatin1String("http") ||
+                          url.scheme() == QLatin1String("https"))) {
+      if (title.isEmpty())
+        title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+      m_webBookmarks.push_back({title, url});
+    }
+  }
+  s.endArray();
+}
+
+void MainWindow::saveWebBookmarksToSettings() const {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.beginWriteArray(QStringLiteral("webBookmarks"));
+  for (int i = 0; i < m_webBookmarks.size(); ++i) {
+    s.setArrayIndex(i);
+    s.setValue(QStringLiteral("title"), m_webBookmarks[i].title);
+    s.setValue(QStringLiteral("url"), m_webBookmarks[i].url);
+  }
+  s.endArray();
+  s.sync();
+}
+
+void MainWindow::rebuildModeSelectorItems() {
+  if (!m_modeSelector)
+    return;
+  const int prev = m_modeSelector->currentIndex();
+  QSignalBlocker blocker(m_modeSelector);
+  m_modeSelector->clear();
+  m_modeSelector->addItem(tr("Notizen"));
+  m_modeSelector->addItem(tr("Study"));
+  for (const WebBookmark &bm : m_webBookmarks) {
+    const int idx = m_modeSelector->count();
+    m_modeSelector->addItem(bm.title);
+    m_modeSelector->setItemData(idx, bm.url, Qt::UserRole);
+  }
+  const int maxIdx = qMax(0, m_modeSelector->count() - 1);
+  const int newIdx = qBound(0, prev, maxIdx);
+  m_modeSelector->setCurrentIndex(newIdx);
+  if (m_btnMode)
+    m_btnMode->setText(m_modeSelector->itemText(newIdx) + QStringLiteral("  \u25be"));
+}
+
+QUrl MainWindow::normalizedUserWebUrl(QString input) const {
+  input = input.trimmed();
+  if (input.isEmpty())
+    return {};
+  if (!input.contains(QLatin1String("://")))
+    input = QStringLiteral("https://") + input;
+  const QUrl u = QUrl::fromUserInput(input);
+  if (!u.isValid() || (u.scheme() != QLatin1String("http") &&
+                       u.scheme() != QLatin1String("https")))
+    return {};
+  return u;
+}
+
+void MainWindow::openModeMenuAtButton() {
+  if (!m_btnMode || !m_modeSelector)
+    return;
+  QMenu menu(this);
+  menu.setStyleSheet(
+      "QMenu { background: #1E1E2E; border: 1px solid rgba(255,255,255,0.12); "
+      "border-radius: 8px; padding: 4px; }"
+      "QMenu::item { color: #E0DEFF; padding: 8px 28px; }"
+      "QMenu::item:selected { background: rgba(124,92,252,0.35); }");
+  QAction *aNotes = menu.addAction(tr("Notizen"));
+  aNotes->setData(0);
+  QAction *aStudy = menu.addAction(tr("Study"));
+  aStudy->setData(1);
+  if (!m_webBookmarks.isEmpty())
+    menu.addSeparator();
+  for (int i = 0; i < m_webBookmarks.size(); ++i) {
+    QAction *a = menu.addAction(m_webBookmarks[i].title);
+    a->setData(2 + i);
+  }
+  menu.addSeparator();
+  QAction *aAdd = menu.addAction(tr("URL hinzufügen…"));
+  aAdd->setData(-1);
+  QAction *aManage = menu.addAction(tr("Web-Lesezeichen verwalten…"));
+  aManage->setData(-2);
+  QAction *chosen =
+      menu.exec(m_btnMode->mapToGlobal(QPoint(0, m_btnMode->height())));
+  if (!chosen)
+    return;
+  const int tag = chosen->data().toInt();
+  if (tag == -1) {
+    showAddWebBookmarkDialog();
+    return;
+  }
+  if (tag == -2) {
+    showManageWebBookmarksDialog();
+    return;
+  }
+  if (tag >= 0 && tag < m_modeSelector->count())
+    m_modeSelector->setCurrentIndex(tag);
+}
+
+void MainWindow::showAddWebBookmarkDialog() {
+  QDialog dlg(this);
+  dlg.setWindowTitle(tr("Webseite hinzufügen"));
+  dlg.setModal(true);
+  QFormLayout *form = new QFormLayout(&dlg);
+  QLineEdit *edUrl = new QLineEdit(&dlg);
+  edUrl->setPlaceholderText(QStringLiteral("https://…"));
+  QLineEdit *edTitle = new QLineEdit(&dlg);
+  edTitle->setPlaceholderText(tr("optional"));
+  form->addRow(tr("URL:"), edUrl);
+  form->addRow(tr("Titel:"), edTitle);
+  QDialogButtonBox *box =
+      new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+  form->addRow(box);
+  connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QUrl url = normalizedUserWebUrl(edUrl->text());
+  if (!url.isValid()) {
+    QMessageBox::warning(this, tr("Ungültige URL"),
+                         tr("Bitte eine gültige http(s)-Adresse eingeben."));
+    return;
+  }
+  QString title = edTitle->text().trimmed();
+  if (title.isEmpty())
+    title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+  m_webBookmarks.push_back({title, url});
+  saveWebBookmarksToSettings();
+  rebuildModeSelectorItems();
+  const int newIdx = m_modeSelector->count() - 1;
+#ifdef Q_OS_ANDROID
+  QSignalBlocker b(m_modeSelector);
+  m_modeSelector->setCurrentIndex(newIdx);
+  onModeChanged(newIdx);
+#else
+  m_modeSelector->setCurrentIndex(newIdx);
+#endif
+}
+
+void MainWindow::showManageWebBookmarksDialog() {
+  if (m_webBookmarks.isEmpty()) {
+    QMessageBox::information(this, tr("Web-Lesezeichen"),
+                             tr("Noch keine gespeicherten Seiten."));
+    return;
+  }
+  QDialog dlg(this);
+  dlg.setWindowTitle(tr("Web-Lesezeichen verwalten"));
+  dlg.resize(420, 320);
+  auto *lay = new QVBoxLayout(&dlg);
+  auto *list = new QListWidget(&dlg);
+  const auto refillList = [&]() {
+    list->clear();
+    for (int i = 0; i < m_webBookmarks.size(); ++i) {
+      QListWidgetItem *it =
+          new QListWidgetItem(m_webBookmarks[i].title + QStringLiteral(" — ") +
+                              m_webBookmarks[i].url.toDisplayString());
+      it->setData(Qt::UserRole, i);
+      list->addItem(it);
+    }
+  };
+  refillList();
+  lay->addWidget(list);
+  auto *btnRow = new QHBoxLayout();
+  QPushButton *btnDel = new QPushButton(tr("Entfernen"), &dlg);
+  QPushButton *btnClose = new QPushButton(tr("Schließen"), &dlg);
+  btnRow->addWidget(btnDel);
+  btnRow->addStretch(1);
+  btnRow->addWidget(btnClose);
+  lay->addLayout(btnRow);
+  connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+  connect(btnDel, &QPushButton::clicked, this, [&]() {
+    const QList<QListWidgetItem *> sel = list->selectedItems();
+    if (sel.isEmpty())
+      return;
+    const int bmIdx = sel.front()->data(Qt::UserRole).toInt();
+    if (bmIdx < 0 || bmIdx >= m_webBookmarks.size())
+      return;
+    m_webBookmarks.removeAt(bmIdx);
+    saveWebBookmarksToSettings();
+    rebuildModeSelectorItems();
+    const int cur = m_modeSelector ? m_modeSelector->currentIndex() : 0;
+    onModeChanged(cur);
+    refillList();
+  });
+  dlg.exec();
+}
+
+void MainWindow::openWebBookmarkOverflowMenuFromWidget(QWidget *anchor) {
+  if (!anchor || !m_modeSelector)
+    return;
+  QMenu menu(this);
+  menu.setStyleSheet(
+      "QMenu { background: #1E1E2E; border: 1px solid rgba(255,255,255,0.12); "
+      "border-radius: 8px; padding: 4px; }"
+      "QMenu::item { color: #E0DEFF; padding: 8px 28px; }"
+      "QMenu::item:selected { background: rgba(124,92,252,0.35); }");
+  for (int i = 0; i < m_webBookmarks.size(); ++i) {
+    QAction *a = menu.addAction(m_webBookmarks[i].title);
+    a->setData(2 + i);
+  }
+  if (!m_webBookmarks.isEmpty())
+    menu.addSeparator();
+  QAction *aAdd = menu.addAction(tr("URL hinzufügen…"));
+  aAdd->setData(-1);
+  QAction *aManage = menu.addAction(tr("Web-Lesezeichen verwalten…"));
+  aManage->setData(-2);
+  QAction *chosen =
+      menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
+  if (!chosen)
+    return;
+  const int tag = chosen->data().toInt();
+  if (tag == -1) {
+    showAddWebBookmarkDialog();
+    return;
+  }
+  if (tag == -2) {
+    showManageWebBookmarksDialog();
+    return;
+  }
+  if (tag >= 2 && tag < m_modeSelector->count()) {
+#ifdef Q_OS_ANDROID
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(tag);
+    onModeChanged(tag);
+#else
+    m_modeSelector->setCurrentIndex(tag);
+#endif
+  }
+}
+
+void MainWindow::applyDesktopWebSubviewForModeIndex(int modeIndex) {
+#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  if (modeIndex <= 0) {
+    if (m_studySsoTimer)
+      m_studySsoTimer->stop();
+    return;
+  }
+  if (!m_webViewStack || !m_studyWebView) {
+    if (modeIndex >= 2 && m_modeSelector) {
+      const QUrl u = m_modeSelector->itemData(modeIndex, Qt::UserRole).toUrl();
+      if (u.isValid())
+        QDesktopServices::openUrl(u);
+    }
+    return;
+  }
+  if (modeIndex == 1) {
+    m_webViewStack->setCurrentWidget(m_studyWebView);
+    if (m_studySsoTimer)
+      m_studySsoTimer->start();
+    return;
+  }
+  if (m_customWebView) {
+    m_webViewStack->setCurrentWidget(m_customWebView);
+    if (m_studySsoTimer)
+      m_studySsoTimer->stop();
+    if (m_modeSelector) {
+      const QUrl u = m_modeSelector->itemData(modeIndex, Qt::UserRole).toUrl();
+      if (u.isValid())
+        m_customWebView->load(u);
+    }
+  }
+#endif
+}
+
+void MainWindow::resetEmbeddedWebToStudy() {
+#ifdef Q_OS_ANDROID
+  invokeAndroidWebDestination(0);
+#else
+#if defined(BLOP_HAS_WEBENGINE)
+  if (m_webViewStack && m_studyWebView)
+    m_webViewStack->setCurrentWidget(m_studyWebView);
+#endif
+#endif
+}
+
+#ifdef Q_OS_ANDROID
+void MainWindow::invokeAndroidWebDestination(int kind, const QString &url) {
+  if (!m_studyQQuickView)
+    return;
+  QObject *root = m_studyQQuickView->rootObject();
+  if (!root)
+    return;
+  const QVariant k(kind);
+  const QVariant u(url);
+  const bool ok = QMetaObject::invokeMethod(
+      root, "setWebDestination", Qt::QueuedConnection, Q_ARG(QVariant, k),
+      Q_ARG(QVariant, u));
+  if (!ok)
+    qWarning() << "QML setWebDestination invoke failed";
+}
+#endif
+
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
   m_titleBarWidget->setFixedHeight(50); // Unified single-row layout
@@ -940,14 +1249,15 @@ void MainWindow::setupTitleBar() {
 
   // ── Mode Selector (Breadcrumb) ─────────────────────────────────────────────
   m_modeSelector = new QComboBox(m_topNavControls);
-  m_modeSelector->addItem("Notizen");
-  m_modeSelector->addItem("Study");
   m_modeSelector->setFixedSize(0, 0);
   m_modeSelector->setMaximumSize(0, 0);
   connect(m_modeSelector, &QComboBox::currentIndexChanged,
           this, &MainWindow::onModeChanged);
+  rebuildModeSelectorItems();
 
-  QPushButton *btnMode = new QPushButton("Notizen  ▾", m_topNavControls);
+  QPushButton *btnMode = new QPushButton(
+      m_modeSelector->itemText(m_modeSelector->currentIndex()) + QStringLiteral("  \u25be"),
+      m_topNavControls);
   btnMode->setFixedHeight(32);
   btnMode->setCursor(Qt::PointingHandCursor);
   btnMode->setStyleSheet(
@@ -965,30 +1275,33 @@ void MainWindow::setupTitleBar() {
       "}");
   connect(m_modeSelector, &QComboBox::currentIndexChanged,
           [btnMode, this](int idx) {
-            btnMode->setText(m_modeSelector->itemText(idx) + "  ▾");
+            btnMode->setText(m_modeSelector->itemText(idx) + QStringLiteral("  \u25be"));
           });
   m_btnMode = btnMode;
   // QComboBox stays hidden; Qt may refuse showPopup() when visible==false — use QMenu instead.
   m_modeSelector->hide();
-  connect(btnMode, &QPushButton::clicked, this, [this, btnMode]() {
-    QMenu menu(this);
-    menu.setStyleSheet(
-        "QMenu { background: #1E1E2E; border: 1px solid rgba(255,255,255,0.12); "
-        "border-radius: 8px; padding: 4px; }"
-        "QMenu::item { color: #E0DEFF; padding: 8px 28px; }"
-        "QMenu::item:selected { background: rgba(124,92,252,0.35); }");
-    QAction *aNotes = menu.addAction(tr("Notizen"));
-    QAction *aStudy = menu.addAction(tr("Study"));
-    QAction *chosen =
-        menu.exec(btnMode->mapToGlobal(QPoint(0, btnMode->height())));
-    if (!m_modeSelector)
-      return;
-    if (chosen == aNotes)
-      m_modeSelector->setCurrentIndex(0);
-    else if (chosen == aStudy)
-      m_modeSelector->setCurrentIndex(1);
-  });
+  connect(btnMode, &QPushButton::clicked, this, &MainWindow::openModeMenuAtButton);
   navLayout->addWidget(btnMode);
+
+  m_btnAddWebBookmark = new QPushButton(QStringLiteral("+"), m_topNavControls);
+  m_btnAddWebBookmark->setFixedSize(32, 32);
+  m_btnAddWebBookmark->setCursor(Qt::PointingHandCursor);
+  m_btnAddWebBookmark->setToolTip(tr("Webseite hinzufügen"));
+  m_btnAddWebBookmark->setStyleSheet(
+      "QPushButton {"
+      "  background: rgba(255,255,255,0.06);"
+      "  border: none;"
+      "  border-radius: 8px;"
+      "  color: rgba(200,196,255,0.95);"
+      "  font-size: 18px; font-weight: 600;"
+      "}"
+      "QPushButton:hover {"
+      "  background: rgba(124,92,252,0.22);"
+      "}");
+  connect(m_btnAddWebBookmark, &QPushButton::clicked, this,
+          &MainWindow::showAddWebBookmarkDialog);
+  navLayout->addWidget(m_btnAddWebBookmark);
+
   navLayout->addWidget(m_modeSelector);
   navLayout->addSpacing(12);
 
@@ -2172,10 +2485,9 @@ void MainWindow::setupUi() {
   // Keep m_modeSelector QComboBox as the logic controller (hidden, 0x0)
   // Use visible tab buttons instead — QComboBox popups dismiss immediately on Android touch
   m_modeSelector = new QComboBox(androidHeader);
-  m_modeSelector->addItem("Notizen");
-  m_modeSelector->addItem("Study");
   m_modeSelector->setFixedSize(0, 0);
   m_modeSelector->setMaximumSize(0, 0);
+  rebuildModeSelectorItems();
   // Desktop: combo drives onModeChanged. Android: only explicit onModeChanged (tabs +
   // updateSidebarUser) — otherwise setCurrentIndex fires onModeChanged twice per tap
   // and updateSidebarState() can leave the UI stuck in Notes.
@@ -2232,6 +2544,25 @@ void MainWindow::setupUi() {
 
   headerLay->addWidget(m_btnAndroidNotes);
   headerLay->addWidget(m_btnAndroidStudy);
+
+  m_btnAndroidAddWebBookmark = new QPushButton(QStringLiteral("+"), androidHeader);
+  m_btnAndroidAddWebBookmark->setFixedSize(30, 28);
+  m_btnAndroidAddWebBookmark->setCursor(Qt::PointingHandCursor);
+  m_btnAndroidAddWebBookmark->setToolTip(tr("Web-Lesezeichen"));
+  m_btnAndroidAddWebBookmark->setStyleSheet(
+      "QPushButton {"
+      "  background: rgba(255,255,255,0.08);"
+      "  color: #F4F5FB;"
+      "  border-radius: 13px;"
+      "  font-size: 16px; font-weight: 700;"
+      "  border: 1px solid rgba(255,255,255,0.16);"
+      "}"
+      "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
+  connect(m_btnAndroidAddWebBookmark, &QPushButton::clicked, this, [this]() {
+    if (m_btnAndroidAddWebBookmark)
+      openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+  });
+  headerLay->addWidget(m_btnAndroidAddWebBookmark);
 
   headerLay->addWidget(m_modeSelector); // hidden 0x0, logic only
 
@@ -2890,7 +3221,6 @@ void MainWindow::setupWebBrowser() {
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
-  const QString kStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
 
 #ifdef Q_OS_WIN
   // Ensure packaged builds can resolve WebEngine helpers/resources even when
@@ -2963,8 +3293,9 @@ void MainWindow::setupWebBrowser() {
         "QPushButton { background: #2d2b42; color: #E8E4FF; border: 1px solid rgba(124,92,252,0.45); "
         "border-radius: 8px; padding: 0 16px; font-weight: 600; font-size: 13px; }"
         "QPushButton:hover { background: #3a3754; }");
-    connect(btnBrowser, &QPushButton::clicked, this,
-            [kStudyUrl]() { QDesktopServices::openUrl(QUrl(kStudyUrl)); });
+    connect(btnBrowser, &QPushButton::clicked, this, []() {
+      QDesktopServices::openUrl(QUrl(kBlopStudyUrl));
+    });
     fallbackLayout->addWidget(btnBrowser, 0, Qt::AlignLeft);
 
     fallbackLayout->addStretch(1);
@@ -2972,6 +3303,8 @@ void MainWindow::setupWebBrowser() {
     return;
   }
 #endif
+
+  m_webViewStack = new QStackedWidget(m_studyContainer);
 
   QWebEngineView *view = new QWebEngineView(m_studyContainer);
   m_studyWebView = view;
@@ -3026,17 +3359,49 @@ void MainWindow::setupWebBrowser() {
   if (QWebEnginePage *p = view->page())
     p->setBackgroundColor(QColor(30, 30, 30));
 
+  QString weRoot = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                   + QStringLiteral("/BlopWebEngine");
+  QDir().mkpath(weRoot);
   {
-    QString weRoot = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                     + QStringLiteral("/BlopWebEngine");
-    QDir().mkpath(weRoot);
     QWebEngineProfile *pf = customPage->profile();
     pf->setPersistentStoragePath(weRoot + QStringLiteral("/storage"));
     pf->setCachePath(weRoot + QStringLiteral("/cache"));
     pf->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
   }
 
-  layout->addWidget(view, 1);
+  m_customWebView = new QWebEngineView(m_studyContainer);
+  m_customWebView->setStyleSheet(QStringLiteral("background: #1e1e1e;"));
+  m_customWebView->setAutoFillBackground(true);
+  m_customWebView->setAttribute(Qt::WA_OpaquePaintEvent, true);
+  m_customWebView->setAttribute(Qt::WA_NativeWindow);
+  if (QWebEngineSettings *ws = m_customWebView->settings()) {
+    ws->setAttribute(QWebEngineSettings::WebGLEnabled, false);
+    ws->setAttribute(QWebEngineSettings::Accelerated2dCanvasEnabled, false);
+    ws->setAttribute(QWebEngineSettings::PluginsEnabled, false);
+  }
+  auto *customPlainPage = new QWebEnginePage(m_customWebView);
+  m_customWebView->setPage(customPlainPage);
+  customPlainPage->setBackgroundColor(QColor(30, 30, 30));
+  {
+    QWebEngineProfile *pf = customPlainPage->profile();
+    const QString sub = weRoot + QStringLiteral("/custom");
+    QDir().mkpath(sub);
+    pf->setPersistentStoragePath(sub + QStringLiteral("/storage"));
+    pf->setCachePath(sub + QStringLiteral("/cache"));
+    pf->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
+  }
+  connect(customPlainPage, &QWebEnginePage::renderProcessTerminated, m_studyContainer,
+          [this](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
+            Q_UNUSED(exitCode);
+            if (status != QWebEnginePage::RenderProcessTerminationStatus::NormalTerminationStatus)
+              QTimer::singleShot(400, m_customWebView,
+                                 [this]() { m_customWebView->reload(); });
+          });
+
+  m_webViewStack->addWidget(view);
+  m_webViewStack->addWidget(m_customWebView);
+  m_webViewStack->setCurrentWidget(view);
+  layout->addWidget(m_webViewStack, 1);
 
   // Renderer/GPU crash leaves a black view; reload recovers (common in release-only setups).
   connect(customPage, &QWebEnginePage::renderProcessTerminated, m_studyContainer,
@@ -3048,13 +3413,18 @@ void MainWindow::setupWebBrowser() {
 
   // Defer first navigation until after the window is shown so the native surface exists
   // (helps some Windows + frameless + WebEngine combinations that stay black).
-  QTimer::singleShot(250, view, [view, kStudyUrl]() { view->load(QUrl(kStudyUrl)); });
+  QTimer::singleShot(250, view, [view]() { view->load(QUrl(kBlopStudyUrl)); });
 
   // --- SSO Bridge: Poll localStorage to support SPA Routing ---
   // In Next.js, navigating to Dashboard after login doesn't trigger
   // loadFinished, so we must poll localStorage to detect login state changes.
-  QTimer *ssoTimer = new QTimer(m_studyContainer);
-  connect(ssoTimer, &QTimer::timeout, this, [this, view]() {
+  m_studySsoTimer = new QTimer(m_studyContainer);
+  m_studySsoTimer->setInterval(1000);
+  connect(m_studySsoTimer, &QTimer::timeout, this, [this, view]() {
+    if (!m_webViewStack || m_webViewStack->currentWidget() != view)
+      return;
+    if (!view->page())
+      return;
     view->page()->runJavaScript(
         R"js(
           (function() {
@@ -3071,22 +3441,24 @@ void MainWindow::setupWebBrowser() {
         [this](const QVariant &result) {
           QString resStr = result.toString().trimmed();
           if (resStr == "TRIGGER_GOOGLE_LOGIN") {
-              GoogleAuthManager::instance().login();
+            GoogleAuthManager::instance().login();
           } else if (!resStr.isEmpty()) {
-              QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
-              if (resStr != currentUser) {
-                  updateSidebarUser(resStr);
-              }
+            QString currentUser =
+                QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                    .value(QStringLiteral("username"))
+                    .toString();
+            if (resStr != currentUser)
+              updateSidebarUser(resStr);
           } else {
-              // Keep native UI in sync when web session/logged-in state was cleared.
-              QString currentUser =
-                  QSettings("Blop", "BlopApp").value("username").toString();
-              if (!currentUser.isEmpty())
-                updateSidebarUser("");
+            QString currentUser =
+                QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                    .value(QStringLiteral("username"))
+                    .toString();
+            if (!currentUser.isEmpty())
+              updateSidebarUser("");
           }
         });
   });
-  ssoTimer->start(1000); // Check every second
 
 #else
   QLabel *lblInfo = new QLabel(
@@ -3131,15 +3503,17 @@ void MainWindow::applyAndroidTabStyles(int index) {
       "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
       "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
-  m_btnAndroidStudy->setStyleSheet(index == 1 ? tabActive : tabInactive);
+  m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
 }
 #endif
 
 void MainWindow::onModeChanged(int index) {
+  const int mainStackIdx = (index <= 0) ? 0 : 1;
+
 #ifdef Q_OS_ANDROID
   // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
   // broke re-entering Study on some devices).
-  if (index == 0) {
+  if (mainStackIdx == 0) {
     if (m_studyWindowContainer) {
       m_studyWindowContainer->setEnabled(false);
       m_studyWindowContainer->clearFocus();
@@ -3150,14 +3524,14 @@ void MainWindow::onModeChanged(int index) {
   }
 #endif
   if (m_mainContentStack) {
-    m_mainContentStack->setCurrentIndex(index);
+    m_mainContentStack->setCurrentIndex(mainStackIdx);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader)
       m_androidHeader->raise();
 #endif
   }
 #ifdef Q_OS_ANDROID
-  if (index == 1 && m_studyWindowContainer && m_studyVBoxLayout) {
+  if (mainStackIdx == 1 && m_studyWindowContainer && m_studyVBoxLayout) {
     m_studyWindowContainer->setEnabled(true);
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
@@ -3178,6 +3552,21 @@ void MainWindow::onModeChanged(int index) {
 
 #ifdef Q_OS_ANDROID
   applyAndroidTabStyles(index);
+  if (index == 1)
+    invokeAndroidWebDestination(0);
+  else if (index >= 2)
+    invokeAndroidWebDestination(1, m_modeSelector
+                                         ? m_modeSelector->itemData(index, Qt::UserRole)
+                                               .toUrl()
+                                               .toString()
+                                         : QString());
+#endif
+
+#ifndef Q_OS_ANDROID
+  if (mainStackIdx == 1)
+    applyDesktopWebSubviewForModeIndex(index);
+  else
+    applyDesktopWebSubviewForModeIndex(0);
 #endif
 
 #ifndef Q_OS_ANDROID
@@ -3239,6 +3628,10 @@ void MainWindow::updateSidebarUser(const QString &username) {
       m_btnAndroidStudy->setVisible(true);
       m_btnAndroidStudy->setEnabled(true);
     }
+    if (m_btnAndroidAddWebBookmark) {
+      m_btnAndroidAddWebBookmark->setVisible(true);
+      m_btnAndroidAddWebBookmark->setEnabled(true);
+    }
 #endif
     if (btnStripMenu)
       btnStripMenu->show();
@@ -3270,6 +3663,10 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_btnAndroidStudy) {
       m_btnAndroidStudy->setVisible(false);
       m_btnAndroidStudy->setEnabled(false);
+    }
+    if (m_btnAndroidAddWebBookmark) {
+      m_btnAndroidAddWebBookmark->setVisible(false);
+      m_btnAndroidAddWebBookmark->setEnabled(false);
     }
 #endif
     if (btnStripMenu)

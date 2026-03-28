@@ -23,6 +23,8 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QTreeView>
+#include <QUrl>
+#include <QVector>
 
 #include "canvasview.h"
 #include "freegridview.h"
@@ -33,6 +35,10 @@
 class MainWindow;
 class PageManager;
 class QShowEvent;
+struct WebBookmark {
+  QString title;
+  QUrl url;
+};
 #ifdef Q_OS_ANDROID
 class QQuickView;
 class QVBoxLayout;
@@ -256,6 +262,19 @@ private:
   // --- Web Integration ---
   void setupWebBrowser();
   void updateSidebarUser(const QString &username); // syncs login from webview
+  void loadWebBookmarksFromSettings();
+  void saveWebBookmarksToSettings() const;
+  void rebuildModeSelectorItems();
+  QUrl normalizedUserWebUrl(QString input) const;
+  void showAddWebBookmarkDialog();
+  void showManageWebBookmarksDialog();
+  void openModeMenuAtButton();
+  void openWebBookmarkOverflowMenuFromWidget(QWidget *anchor);
+  void applyDesktopWebSubviewForModeIndex(int modeIndex);
+#ifdef Q_OS_ANDROID
+  void invokeAndroidWebDestination(int kind, const QString &url = QString());
+#endif
+  void resetEmbeddedWebToStudy();
   QWidget *m_studyContainer{nullptr};
 #ifdef Q_OS_ANDROID
   // Embedded Study UI (QML + QtWebView). Must be hidden when leaving Study or
@@ -268,6 +287,7 @@ private:
   QWidget *m_studyWindowContainer{nullptr}; // QWidget::createWindowContainer(QQuickView)
   QPushButton *m_btnAndroidNotes{nullptr};
   QPushButton *m_btnAndroidStudy{nullptr};
+  QPushButton *m_btnAndroidAddWebBookmark{nullptr};
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};
   /// Opens right note settings while editing on Android.
@@ -282,9 +302,14 @@ private:
   QComboBox *m_modeSelector{nullptr};
   /// Desktop title bar: visible Notizen/Study control (logic in m_modeSelector).
   QPushButton *m_btnMode{nullptr};
+  QPushButton *m_btnAddWebBookmark{nullptr};
 #if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  QStackedWidget *m_webViewStack{nullptr};
   QWebEngineView *m_studyWebView{nullptr};
+  QWebEngineView *m_customWebView{nullptr};
+  QTimer *m_studySsoTimer{nullptr};
 #endif
+  QVector<WebBookmark> m_webBookmarks;
   // ----------------------------
 
   // --- Sidebar user section labels (updated on webview login) ---
