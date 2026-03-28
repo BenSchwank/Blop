@@ -98,6 +98,7 @@
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQuickItem>
 #include <QQuickView>
 #include <QSslSocket>
 #include <QTemporaryFile>
