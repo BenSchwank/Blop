@@ -128,7 +128,7 @@ export default function CommandMenu() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={() => setIsOpen(false)}
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
+                        className="no-print fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
                     />
 
                     {/* Modal */}
@@ -137,7 +137,7 @@ export default function CommandMenu() {
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: -20 }}
                         transition={{ duration: 0.15, ease: "easeOut" }}
-                        className="fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-xl bg-[#151525] border border-[#333] rounded-2xl shadow-2xl z-[10000] overflow-hidden flex flex-col"
+                        className="no-print fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-xl bg-[#151525] border border-[#333] rounded-2xl shadow-2xl z-[10000] overflow-hidden flex flex-col"
                     >
                         {/* Search Input Area */}
                         <div className="flex items-center gap-3 px-4 py-4 border-b border-[#2A2A40]">

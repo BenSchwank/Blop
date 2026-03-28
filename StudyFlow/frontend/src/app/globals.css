@@ -327,6 +327,17 @@ input:focus-visible {
     fill: #000000 !important;
     stroke: #000000 !important;
   }
+
+  #blop-markdown-print-mount .blop-markdown-export-prose {
+    padding-bottom: 1.25rem !important;
+    line-height: 1.55 !important;
+  }
+
+  #blop-markdown-print-mount .blop-markdown-export-prose p,
+  #blop-markdown-print-mount .blop-markdown-export-prose li {
+    orphans: 3;
+    widows: 3;
+  }
 }
 
 .blop-markdown-export-prose {
@@ -422,7 +433,10 @@ input:focus-visible {
   .prose-blop p, .prose-blop li,
   .prose-invert p, .prose-invert li {
     color: #333333 !important;
-    page-break-inside: avoid;
+    /* avoid on every paragraph forces huge blank areas and mid-line cuts at page end */
+    page-break-inside: auto;
+    orphans: 2;
+    widows: 2;
   }
 
   /* KaTeX in PDF / print */
@@ -515,6 +529,7 @@ input:focus-visible {
   }
 
   @page {
-    margin: 2cm;
+    /* Extra bottom margin so the last line is not tight against the sheet edge */
+    margin: 1.6cm 2cm 2.4cm;
   }
 }

@@ -53,7 +53,7 @@ export default function ClientLayout({
 
             {/* Main content */}
             <main
-                className="flex-1 min-h-screen overflow-x-hidden pb-20 md:pb-0 transition-all duration-300 relative"
+                className="flex-1 min-h-screen overflow-x-hidden pb-20 md:pb-0 print:pb-0 transition-all duration-300 relative"
             >
                 {children}
             </main>

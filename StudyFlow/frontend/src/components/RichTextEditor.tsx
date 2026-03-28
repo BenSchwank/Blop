@@ -307,6 +307,9 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
             >
                 <div className="no-print sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-4 py-3 text-sm text-gray-600 backdrop-blur">
                     Druckdialog öffnet sich gleich. Wähle <strong>Als PDF speichern</strong> als Ziel – gleiche Darstellung wie in der Leseansicht (inkl. Formeln).
+                    <span className="mt-2 block text-xs text-gray-500">
+                        In Chrome: unter <strong>Weitere Einstellungen</strong> die Option <strong>Kopf- und Fußzeilen</strong> deaktivieren, damit Datum, Titel und URL nicht im PDF erscheinen.
+                    </span>
                 </div>
                 <div className="blop-markdown-export-prose mx-auto max-w-3xl px-6 py-8 prose prose-slate max-w-none [&_.katex-display]:max-w-full">
                     <h1 className="not-prose text-2xl font-bold text-gray-900 mb-6 print:mb-4">{title}</h1>
