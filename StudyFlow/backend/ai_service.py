@@ -141,6 +141,47 @@ Setze NAHTLOS fort:
         return "\n\n".join(chunks).strip()
 
     @staticmethod
+    def _pick_available_model(preferred: Optional[str] = None, fast_only: bool = False) -> str:
+        """Return a model that exists for this API key; fallback safely."""
+        if preferred:
+            try:
+                available = []
+                for m in genai.list_models():
+                    name = m.name.replace("models/", "")
+                    if hasattr(m, "supported_generation_methods") and "generateContent" in m.supported_generation_methods:
+                        available.append(name)
+                if preferred in available:
+                    return preferred
+                print(f"Preferred model '{preferred}' not available. Available: {available}")
+            except Exception as e:
+                print(f"Could not validate preferred model '{preferred}': {e}")
+
+        if fast_only:
+            for candidate in ("gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"):
+                picked = get_best_model(candidate)
+                if picked == candidate:
+                    return candidate
+        return get_best_model(None)
+
+    @staticmethod
+    def _pick_strong_model(preferred: Optional[str] = None) -> str:
+        """Prefer high-quality models first, then fallback to fast models."""
+        if preferred:
+            picked = AIService._pick_available_model(preferred=preferred, fast_only=False)
+            if picked == preferred:
+                return picked
+        strong_candidates = (
+            "gemini-2.5-pro",
+            "gemini-2.0-pro-exp",
+            "gemini-1.5-pro",
+        )
+        for candidate in strong_candidates:
+            picked = AIService._pick_available_model(preferred=candidate, fast_only=False)
+            if picked == candidate:
+                return candidate
+        return AIService._pick_available_model(preferred=None, fast_only=True)
+
+    @staticmethod
     def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal") -> str:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
@@ -667,8 +708,9 @@ Hier ist das Quellenmaterial:
     ) -> Dict[str, Any]:
         """Return a patch proposal for interactive document editing."""
         try:
+            selected_model = AIService._pick_strong_model(model_preference)
             model = genai.GenerativeModel(
-                model_name=get_best_model(model_preference or "gemini-2.0-flash"),
+                model_name=selected_model,
                 generation_config={
                     "response_mime_type": "application/json",
                     "max_output_tokens": 2500,
@@ -703,7 +745,32 @@ Antworte nur als JSON im Format:
   "confidence": 0.0
 }}
 """
-            response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+            try:
+                response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+            except Exception as first_err:
+                err_msg = str(first_err)
+                if "model is not found" in err_msg.lower() or "404" in err_msg:
+                    fallback_model = AIService._pick_strong_model(None)
+                    print(f"Document chat model fallback: '{selected_model}' -> '{fallback_model}'")
+                    model = genai.GenerativeModel(
+                        model_name=fallback_model,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "max_output_tokens": 2500,
+                            "temperature": 0.25,
+                        },
+                        system_instruction=(
+                            "Du bist ein Dokument-Editor für Blop. "
+                            "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
+                            "Du antwortest IMMER als JSON.\n"
+                            "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
+                            "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
+                        ),
+                    )
+                    chat = model.start_chat(history=compact_history)
+                    response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+                else:
+                    raise
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
             parsed = json.loads(response.text)
