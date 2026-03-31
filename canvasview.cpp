@@ -75,6 +75,7 @@ private:
 #include <QFile>
 #include <QFileDialog>
 #include <QGestureEvent>
+#include <QGuiApplication>
 #include <QGraphicsSceneMouseEvent>
 #include <QInputDevice>
 #include <QTabletEvent>
