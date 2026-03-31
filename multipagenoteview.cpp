@@ -1,6 +1,7 @@
 #include "multipagenoteview.h"
+#include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
-#include "TransformOverlay.h"
+#include "editoroverlays.h"
 #include "UIStyles.h"
 #include "tools/AbstractTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
@@ -14,9 +15,9 @@
 #include <QPdfWriter>
 #include <QPen>
 #include <QPointingDevice>
+#include <QPolygonF>
 #include <QScrollBar>
 #include <QClipboard>
-#include <QColorDialog>
 #include <QGuiApplication>
 #ifdef BLOP_HAS_PDF
 #include <QPdfDocument>
@@ -25,8 +26,20 @@
 #include <cmath>
 #include <QtGlobal>
 #include <QPushButton>
+#include <QSizePolicy>
+#include <QToolButton>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QGridLayout>
+#include <QLabel>
 #include <QFrame>
+#include <QStackedWidget>
+#include <QButtonGroup>
+#include <QFileDialog>
+#include <QMenu>
+#include <QMessageBox>
+#include <QAction>
+#include <QEvent>
 #include <QPalette>
 #include <QShowEvent>
 #include <QUndoCommand>
@@ -93,21 +106,34 @@ public:
     QHBoxLayout *layout = new QHBoxLayout(this);
     layout->setContentsMargins(5, 5, 5, 5);
     layout->setSpacing(2);
-    auto addBtn = [&](QString text, auto signal) {
-      QPushButton *btn = new QPushButton(text, this);
+    auto addIconBtn = [&](const QIcon &ico, const QString &tip, auto signal) {
+      auto *btn = new QPushButton(this);
+      btn->setIcon(ico);
+      btn->setIconSize(QSize(22, 22));
+      btn->setToolTip(tip);
+      btn->setFlat(true);
       connect(btn, &QPushButton::clicked, this, signal);
       layout->addWidget(btn);
     };
-    addBtn("✂️", &NoteSelectionMenu::cutRequested);
-    addBtn("📋", &NoteSelectionMenu::copyRequested);
-    addBtn("🎨", &NoteSelectionMenu::colorRequested);
-    addBtn("📐", &NoteSelectionMenu::cropRequested);
-    addBtn("📸", &NoteSelectionMenu::screenshotRequested);
+    addIconBtn(SelectionMenuIcons::cutIcon(), QStringLiteral("Ausschneiden"),
+               &NoteSelectionMenu::cutRequested);
+    addIconBtn(SelectionMenuIcons::copyIcon(), QStringLiteral("Kopieren"),
+               &NoteSelectionMenu::copyRequested);
+    addIconBtn(SelectionMenuIcons::colorIcon(), QStringLiteral("Farbe"),
+               &NoteSelectionMenu::colorRequested);
+    addIconBtn(SelectionMenuIcons::cropIcon(), QStringLiteral("Zuschneiden"),
+               &NoteSelectionMenu::cropRequested);
+    addIconBtn(SelectionMenuIcons::screenshotIcon(), QStringLiteral("Screenshot"),
+               &NoteSelectionMenu::screenshotRequested);
     QFrame *line = new QFrame;
     line->setFrameShape(QFrame::VLine);
     line->setStyleSheet("color: #555;");
     layout->addWidget(line);
-    QPushButton *btnDel = new QPushButton("🗑️", this);
+    QPushButton *btnDel = new QPushButton(this);
+    btnDel->setIcon(SelectionMenuIcons::trashIcon());
+    btnDel->setIconSize(QSize(22, 22));
+    btnDel->setToolTip(QStringLiteral("Löschen"));
+    btnDel->setFlat(true);
     btnDel->setStyleSheet("color: #FF5555;");
     connect(btnDel, &QPushButton::clicked, this,
             &NoteSelectionMenu::deleteRequested);
@@ -128,6 +154,25 @@ signals:
 static constexpr int A4W = 793;
 static constexpr int A4H = 1122;
 static constexpr int PageSpacing = 60;
+static constexpr float kBottomRevealPull = 100.0f;
+/// Abstand Seitenunterkante → Panel (Szenenkoordinaten)
+static constexpr qreal kSheetGapBelowPage = 40;
+/// Zusätzlicher Scrollbereich unter dem Inhalt (~eine A4-Höhe)
+static constexpr qreal kExtraScrollBelowPages = static_cast<qreal>(A4H);
+/// Szene: Leiste unter letzter Seite — schmaler als A4, zur Seite zentriert
+static constexpr int kPagesBarStripHeight = 380;
+/// Anteil der A4-Breite (Rest links/rechts frei = optisch zentriert zur Seite)
+static constexpr qreal kPagesBarStripWidthRatio = 0.86;
+/// Platz unter der Leiste zum bequemen Scrollen
+static constexpr qreal kSceneReserveBelowPagesBar = 200;
+/// Abstand Panel → untere Viewport-Kante (sonst wirkt es mit Taskbar/Fensterrand „verschmolzen“)
+static constexpr int kBottomSheetViewportBottomInset = 18;
+/// Leichter seitlicher Luftabstand zum Viewport-Rand (schwebende Karte)
+static constexpr int kBottomSheetViewportSideInset = 10;
+/// Zielhöhe des Panels (wirkt beim Scrollen stabil, nicht „zusammengedrückt“)
+static constexpr int kBottomSheetPreferredHeight = 300;
+/// Unter dieser Höhe zwischen letzter Seite und unterem Rand lieber ausblenden
+static constexpr int kBottomSheetMinVisibleHeight = 208;
 
 #ifdef Q_OS_ANDROID
 static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
@@ -203,6 +248,142 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   connect(m_selectionMenu, &NoteSelectionMenu::colorRequested, this, &MultiPageNoteView::changeSelectionColor);
   connect(m_selectionMenu, &NoteSelectionMenu::screenshotRequested, this, &MultiPageNoteView::screenshotSelection);
 
+  connect(verticalScrollBar(), &QScrollBar::valueChanged, this,
+          [this]() { syncPagesBarVisibility(); });
+  connect(horizontalScrollBar(), &QScrollBar::valueChanged, this,
+          [this]() { syncPagesBarVisibility(); });
+  // Overlay über der Skeleton-Fläche — muss Maus-Events fangen (kein
+  // WA_TransparentForMouseEvents, sonst gehen Klicks zur QGraphicsView durch).
+  m_bottomSheet = new QWidget(this);
+
+  m_pagesBarCard = new QFrame(m_bottomSheet);
+  m_pagesBarCard->setObjectName(QStringLiteral("PagesBarStrip"));
+  m_pagesBarCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  m_pagesBarCard->setStyleSheet(QStringLiteral(
+      "#PagesBarStrip {"
+      "  background-color: rgba(38, 40, 52, 0.96);"
+      "  border: 1px solid rgba(120, 130, 160, 0.28);"
+      "  border-radius: 20px;"
+      "}"
+      "#PagesBarStrip QPushButton#PagesBarPrimary {"
+      "  background-color: rgba(58, 60, 72, 0.98);"
+      "  border: 1px solid rgba(120, 130, 160, 0.35);"
+      "  border-radius: 22px;"
+      "  padding: 18px 16px;"
+      "  min-height: 148px;"
+      "  max-height: 196px;"
+      "  text-align: center;"
+      "}"
+      "#PagesBarStrip QPushButton#PagesBarPrimary:hover {"
+      "  background-color: rgba(68, 70, 86, 0.98);"
+      "  border-color: rgba(140, 150, 185, 0.5);"
+      "}"
+      "#PagesBarStrip QLabel#PagesBarPrimaryIcon {"
+      "  color: #6BA3F5;"
+      "  font-size: 40px; font-weight: 500;"
+      "  background: transparent;"
+      "}"
+      "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
+      "  color: #6BA3F5;"
+      "  font-size: 15px; font-weight: 600; letter-spacing: 0.15px;"
+      "  background: transparent;"
+      "}"
+      "#PagesBarStrip QPushButton {"
+      "  background-color: rgba(52, 54, 64, 0.98);"
+      "  border: 1px solid rgba(110, 115, 140, 0.4);"
+      "  border-radius: 16px;"
+      "  color: rgba(220, 222, 232, 0.95);"
+      "  font-size: 12px; font-weight: 600;"
+      "  padding: 10px 8px; min-height: 48px; max-height: 56px;"
+      "}"
+      "#PagesBarStrip QPushButton:hover {"
+      "  background-color: rgba(52, 54, 68, 0.98);"
+      "  border-color: rgba(130, 115, 185, 0.45);"
+      "}"
+      "#PagesBarStrip QToolButton {"
+      "  background-color: rgba(52, 54, 64, 0.98);"
+      "  border: 1px solid rgba(110, 115, 140, 0.4);"
+      "  border-radius: 16px;"
+      "  color: rgba(220, 222, 232, 0.95);"
+      "  font-size: 12px; font-weight: 600;"
+      "  padding: 10px 8px; min-height: 48px; max-height: 56px;"
+      "}"
+      "#PagesBarStrip QToolButton:hover {"
+      "  background-color: rgba(52, 54, 68, 0.98);"
+      "  border-color: rgba(130, 115, 185, 0.45);"
+      "}"));
+
+  auto *outerLay = new QVBoxLayout(m_bottomSheet);
+  outerLay->setContentsMargins(0, 0, 0, 0);
+  outerLay->setSpacing(0);
+  outerLay->addWidget(m_pagesBarCard, 1);
+
+  auto *stripLay = new QVBoxLayout(m_pagesBarCard);
+  stripLay->setContentsMargins(18, 16, 18, 16);
+  stripLay->setSpacing(14);
+
+  auto *primaryBtn = new QPushButton(m_pagesBarCard);
+  primaryBtn->setObjectName(QStringLiteral("PagesBarPrimary"));
+  primaryBtn->setCursor(Qt::PointingHandCursor);
+  primaryBtn->setToolTip(QStringLiteral("Neue Seite"));
+  primaryBtn->setAutoDefault(false);
+  primaryBtn->setDefault(false);
+  primaryBtn->setFocusPolicy(Qt::NoFocus);
+  primaryBtn->setMinimumHeight(148);
+  primaryBtn->setMaximumHeight(196);
+  primaryBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  auto *primaryLay = new QVBoxLayout(primaryBtn);
+  primaryLay->setContentsMargins(0, 0, 0, 0);
+  primaryLay->setSpacing(6);
+  primaryLay->setAlignment(Qt::AlignCenter);
+
+  auto *lblPlus = new QLabel(QStringLiteral("＋"), primaryBtn);
+  lblPlus->setObjectName(QStringLiteral("PagesBarPrimaryIcon"));
+  lblPlus->setAlignment(Qt::AlignCenter);
+  lblPlus->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  auto *lblCaption = new QLabel(QStringLiteral("Neue Seite"), primaryBtn);
+  lblCaption->setObjectName(QStringLiteral("PagesBarPrimaryCaption"));
+  lblCaption->setAlignment(Qt::AlignCenter);
+  lblCaption->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  primaryLay->addWidget(lblPlus, 0, Qt::AlignHCenter);
+  primaryLay->addWidget(lblCaption, 0, Qt::AlignHCenter);
+  stripLay->addStretch(1);
+  stripLay->addWidget(primaryBtn, 0);
+
+  auto *bottomRow = new QHBoxLayout();
+  bottomRow->setSpacing(10);
+  auto *btnTpl = new QPushButton(QStringLiteral("Vorlagen"), m_pagesBarCard);
+  btnTpl->setToolTip(QStringLiteral("Vorlagen"));
+  auto *btnImport = new QToolButton(m_pagesBarCard);
+  btnImport->setText(QStringLiteral("Importieren"));
+  btnImport->setToolTip(QStringLiteral("PDF oder Bild importieren"));
+  btnImport->setPopupMode(QToolButton::InstantPopup);
+  btnImport->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  auto *importMenu = new QMenu(btnImport);
+  QAction *actPdf = importMenu->addAction(QStringLiteral("PDF …"));
+  QAction *actImg = importMenu->addAction(QStringLiteral("Bild …"));
+  connect(actPdf, &QAction::triggered, this,
+          [this]() { pickAndImportPdf(); });
+  connect(actImg, &QAction::triggered, this,
+          [this]() { pickAndAddImagePage(); });
+  btnImport->setMenu(importMenu);
+  auto *btnMore = new QPushButton(QStringLiteral("Mehr"), m_pagesBarCard);
+  btnMore->setToolTip(QStringLiteral("Mehr"));
+  btnTpl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnMore->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  bottomRow->addWidget(btnTpl, 1);
+  bottomRow->addWidget(btnImport, 1);
+  bottomRow->addWidget(btnMore, 1);
+  stripLay->addLayout(bottomRow);
+
+  connect(primaryBtn, &QPushButton::clicked, this, [this]() {
+    addNewPage();
+    if (note_)
+      scrollToPage(note_->pages.size() - 1);
+  });
+  connect(btnTpl, &QPushButton::clicked, this, [this]() { openTemplatePageDialog(); });
+  connect(btnMore, &QPushButton::clicked, this, [this]() { showBottomMoreMenu(); });
+  m_bottomSheet->hide();
 }
 
 void MultiPageNoteView::setNote(Note *note) {
@@ -211,6 +392,7 @@ void MultiPageNoteView::setNote(Note *note) {
     m_undoStack->clear();
   scene_.clear();
   pageItems_.clear();
+  m_pagesBarAnchorStrip = nullptr;
 
   layoutPages();
 
@@ -226,10 +408,6 @@ void MultiPageNoteView::setNote(Note *note) {
   bool wasBlocked = scene_.blockSignals(true);
 
   for (int i = 0; i < note_->pages.size(); ++i) {
-    // Restore background image on the PageItem if present
-    if (i < pageItems_.size() && !note_->pages[i].backgroundImage.isNull()) {
-      pageItems_[i]->setBackgroundImage(note_->pages[i].backgroundImage);
-    }
     for (const auto &s : note_->pages[i].strokes) {
       StrokeItem::StrokeStyle type = StrokeItem::Normal;
       QPen pen;
@@ -261,6 +439,7 @@ void MultiPageNoteView::setNote(Note *note) {
     }
   }
   scene_.blockSignals(wasBlocked);
+  syncPagesBarVisibility();
 }
 
 QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) {
@@ -306,18 +485,25 @@ bool MultiPageNoteView::canRedo() const {
 void MultiPageNoteView::layoutPages() {
   if (m_undoStack)
     m_undoStack->clear();
+  if (m_pagesBarAnchorStrip) {
+    scene_.removeItem(m_pagesBarAnchorStrip);
+    delete m_pagesBarAnchorStrip;
+    m_pagesBarAnchorStrip = nullptr;
+  }
   // Vorhandene Seiten-Items entfernen
   for (auto *item : pageItems_) {
-    // Sicherstellen, dass wir nicht versehentlich das Lineal oder andere Tools
-    // löschen, falls diese in der scene_ liegen (RulerItem hat eigenen Type,
-    // sollte sicher sein)
+    const QList<QGraphicsItem *> kids = item->childItems();
+    for (QGraphicsItem *c : kids)
+      c->setParentItem(nullptr);
     scene_.removeItem(item);
     delete item;
   }
   pageItems_.clear();
 
-  if (!note_)
+  if (!note_) {
+    syncPagesBarVisibility();
     return;
+  }
   int n = std::max(1, (int)note_->pages.size());
   qreal y = 0;
 
@@ -325,13 +511,34 @@ void MultiPageNoteView::layoutPages() {
     auto pageItem = new PageItem(0, 0, A4W, A4H);
     // Seiten ganz unten (Z=0 oder negativ), damit Lineal drüber ist
     pageItem->setZValue(0);
+    if (i < note_->pages.size()) {
+      const NotePage &pg = note_->pages[i];
+      const int bt = qBound(0, pg.backgroundType,
+                            static_cast<int>(PageBackgroundType::Legal));
+      pageItem->setType(static_cast<PageBackgroundType>(bt));
+      pageItem->setPaperColor(pg.paperColor.isValid() ? pg.paperColor
+                                                       : QColor(Qt::white));
+      if (!pg.backgroundImage.isNull())
+        pageItem->setBackgroundImage(pg.backgroundImage);
+    }
     scene_.addItem(pageItem);
     pageItem->setPos(0, y);
     pageItems_.push_back(pageItem);
     y += A4H + PageSpacing;
   }
-  scene_.setSceneRect(QRectF(-100, -100, A4W + 200, y + 200));
+  const qreal stripW =
+      qMax(320.0, static_cast<qreal>(qRound(A4W * kPagesBarStripWidthRatio)));
+  const qreal stripX = (A4W - stripW) / 2.0;
+  m_pagesBarAnchorStrip =
+      new SkeletonPageItem(stripX, y, stripW, kPagesBarStripHeight);
+  scene_.addItem(m_pagesBarAnchorStrip);
+
+  const qreal stripBottom = y + kPagesBarStripHeight;
+  const qreal sceneBottom =
+      stripBottom + kSheetGapBelowPage + kSceneReserveBelowPagesBar;
+  scene_.setSceneRect(QRectF(-100, -100, A4W + 200, sceneBottom));
   ensureSceneRectCoversViewport();
+  syncPagesBarVisibility();
 }
 
 void MultiPageNoteView::toggleRuler(bool active) {
@@ -378,6 +585,255 @@ void MultiPageNoteView::addNewPage() {
     onSaveRequested(note_);
 }
 
+void MultiPageNoteView::addNewPageWithLayout(int backgroundType,
+                                             const QColor &paperColor) {
+  if (!note_)
+    return;
+  int idx = note_->pages.size();
+  note_->ensurePage(idx);
+  note_->pages[idx].backgroundType =
+      qBound(0, backgroundType, static_cast<int>(PageBackgroundType::Legal));
+  note_->pages[idx].paperColor =
+      paperColor.isValid() ? paperColor : QColor(Qt::white);
+  note_->pages[idx].backgroundImage = QImage();
+  layoutPages();
+  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+    RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+  }
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::showBottomSheetFromPull() {
+  m_pullDistance = 0.f;
+  syncPagesBarVisibility();
+  if (m_pagesBarAnchorStrip) {
+    QRectF r = m_pagesBarAnchorStrip->sceneBoundingRect();
+    r.adjust(-40, -100, 40, kSceneReserveBelowPagesBar + 160);
+    ensureVisible(r, 32, 32);
+  } else if (note_ && !pageItems_.isEmpty()) {
+    const qreal lb = lastPageBottomSceneY();
+    const QRectF reveal(0, lb - A4H * 0.35, A4W,
+                        A4H * 0.65 + kSheetGapBelowPage);
+    ensureVisible(reveal, 24, 24);
+  }
+  syncPagesBarVisibility();
+}
+
+void MultiPageNoteView::hideBottomSheet() {
+  if (m_bottomSheet)
+    m_bottomSheet->hide();
+  if (m_pagesBarAnchorStrip)
+    m_pagesBarAnchorStrip->setVisible(true);
+  m_pullDistance = 0.f;
+}
+
+void MultiPageNoteView::syncPagesBarVisibility() {
+  if (!m_bottomSheet)
+    return;
+  if (!note_ || pageItems_.isEmpty() ||
+      !isSkeletonStripIntersectingViewport()) {
+    m_bottomSheet->hide();
+    if (m_pagesBarAnchorStrip)
+      m_pagesBarAnchorStrip->setVisible(true);
+    m_pullDistance = 0.f;
+    return;
+  }
+  if (m_pagesBarAnchorStrip)
+    m_pagesBarAnchorStrip->setVisible(false);
+  m_bottomSheet->show();
+  m_bottomSheet->raise();
+  updateBottomSheetGeometry();
+}
+
+qreal MultiPageNoteView::lastPageBottomSceneY() const {
+  if (!pageItems_.isEmpty())
+    return pageItems_.last()->sceneBoundingRect().bottom();
+  return A4H;
+}
+
+bool MultiPageNoteView::isSkeletonStripIntersectingViewport() const {
+  if (!viewport() || !m_pagesBarAnchorStrip)
+    return false;
+  const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
+  return vis.intersects(m_pagesBarAnchorStrip->sceneBoundingRect());
+}
+
+void MultiPageNoteView::updateBottomSheetGeometry() {
+  if (!m_bottomSheet || !m_bottomSheet->isVisible())
+    return;
+  if (!m_pagesBarAnchorStrip || !viewport()) {
+    m_bottomSheet->hide();
+    return;
+  }
+  const QRectF sr = m_pagesBarAnchorStrip->sceneBoundingRect();
+  const QRect skView =
+      mapFromScene(QPolygonF(sr)).boundingRect();
+
+  if (m_pagesBarCard && m_pagesBarCard->layout())
+    m_pagesBarCard->layout()->activate();
+  if (QLayout *lay = m_bottomSheet->layout())
+    lay->activate();
+  m_bottomSheet->adjustSize();
+
+  const int floorY = QGraphicsView::mapFromScene(
+                         QPointF(A4W * 0.5, lastPageBottomSceneY()))
+                         .y();
+
+  int x = skView.left() + kBottomSheetViewportSideInset;
+  int w = skView.width() - 2 * kBottomSheetViewportSideInset;
+  x = qBound(0, x, qMax(0, width() - 1));
+  w = qMin(qMax(w, 0), width() - x);
+
+  const int maxBottomY = height() - kBottomSheetViewportBottomInset;
+  const int bottom = qMin(skView.bottom(), maxBottomY);
+  const int floorYBound = qMax(floorY, 0);
+  const int availableBelowPage = bottom - floorYBound;
+  if (availableBelowPage < kBottomSheetMinVisibleHeight || w < 120) {
+    m_bottomSheet->hide();
+    if (m_pagesBarAnchorStrip)
+      m_pagesBarAnchorStrip->setVisible(true);
+    return;
+  }
+
+  const int h = qMin(kBottomSheetPreferredHeight, availableBelowPage);
+  int y = bottom - h;
+  y = qMax(y, floorY);
+  y = qMax(y, 0);
+  const int hClamped = bottom - y;
+  if (hClamped < kBottomSheetMinVisibleHeight) {
+    m_bottomSheet->hide();
+    if (m_pagesBarAnchorStrip)
+      m_pagesBarAnchorStrip->setVisible(true);
+    return;
+  }
+
+  m_bottomSheet->setGeometry(x, y, w, hClamped);
+  m_bottomSheet->raise();
+}
+
+void MultiPageNoteView::openTemplatePageDialog() {
+  A4LayoutDialogResult r;
+  if (!showA4LayoutOverlay(this, QStringLiteral("Neue Seite von Vorlage"),
+                           QString(), static_cast<int>(PageBackgroundType::Grid),
+                           QColor(Qt::white), &r))
+    return;
+  addNewPageWithLayout(r.backgroundType, r.paperColor);
+  if (note_)
+    scrollToPage(note_->pages.size() - 1);
+}
+
+int MultiPageNoteView::visiblePageIndex() const {
+  if (!note_ || note_->pages.isEmpty() || !viewport())
+    return 0;
+  const QPoint center(viewport()->width() / 2, viewport()->height() / 2);
+  const QPointF scenePt = mapToScene(center);
+  int p = pageAt(scenePt);
+  if (p < 0)
+    p = 0;
+  return qBound(0, p, note_->pages.size() - 1);
+}
+
+void MultiPageNoteView::applyLayoutToPage(int pageIndex, int backgroundType,
+                                          const QColor &paperColor) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return;
+  NotePage &pg = note_->pages[pageIndex];
+  pg.backgroundType =
+      qBound(0, backgroundType, static_cast<int>(PageBackgroundType::Legal));
+  pg.paperColor = paperColor.isValid() ? paperColor : QColor(Qt::white);
+  pg.backgroundImage = QImage();
+  if (pageIndex >= 0 && pageIndex < pageItems_.size() && pageItems_[pageIndex]) {
+    PageItem *pi = pageItems_[pageIndex];
+    pi->setType(static_cast<PageBackgroundType>(pg.backgroundType));
+    pi->setPaperColor(pg.paperColor);
+    pi->setBackgroundImage(QImage());
+  }
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::openPageLayoutForVisiblePage() {
+  if (!note_ || note_->pages.isEmpty())
+    return;
+  const int idx = visiblePageIndex();
+  const NotePage &pg = note_->pages[idx];
+  const int bt = qBound(0, pg.backgroundType,
+                        static_cast<int>(PageBackgroundType::Legal));
+  const QColor pc =
+      pg.paperColor.isValid() ? pg.paperColor : QColor(Qt::white);
+  const QString sub = QStringLiteral("Seite: %1").arg(pg.title);
+  A4LayoutDialogResult r;
+  if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), sub, bt, pc,
+                           &r))
+    return;
+  applyLayoutToPage(idx, r.backgroundType, r.paperColor);
+}
+
+void MultiPageNoteView::pickAndAddImagePage() {
+  if (!note_)
+    return;
+  const QString path = QFileDialog::getOpenFileName(
+      this, QStringLiteral("Bild wählen"), QString(),
+      QStringLiteral("Bilder (*.png *.jpg *.jpeg *.webp *.bmp);;Alle Dateien (*)"));
+  if (path.isEmpty())
+    return;
+  QImage img(path);
+  if (img.isNull()) {
+    QMessageBox::warning(this, QStringLiteral("Blop"),
+                         QStringLiteral("Bild konnte nicht geladen werden."));
+    return;
+  }
+  QImage scaled =
+      img.scaled(A4W, A4H, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  QImage canvas(A4W, A4H, QImage::Format_ARGB32_Premultiplied);
+  canvas.fill(Qt::white);
+  {
+    QPainter p(&canvas);
+    p.drawImage((A4W - scaled.width()) / 2, (A4H - scaled.height()) / 2,
+                scaled);
+  }
+  int idx = note_->pages.size();
+  note_->ensurePage(idx);
+  note_->pages[idx].backgroundImage = canvas;
+  note_->pages[idx].backgroundType = static_cast<int>(PageBackgroundType::Blank);
+  note_->pages[idx].paperColor = QColor(Qt::white);
+  layoutPages();
+  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+    RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
+  }
+  scrollToPage(idx);
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::pickAndImportPdf() {
+  const QString path = QFileDialog::getOpenFileName(
+      this, QStringLiteral("PDF importieren"), QString(),
+      QStringLiteral("PDF (*.pdf);;Alle Dateien (*)"));
+  if (path.isEmpty())
+    return;
+  if (!importPdfPages(path)) {
+    QMessageBox::information(
+        this, QStringLiteral("PDF"),
+        QStringLiteral(
+            "PDF konnte nicht importiert werden (Datei ungültig oder PDF-Unterstützung "
+            "nicht verfügbar)."));
+  } else if (note_) {
+    scrollToPage(note_->pages.size() - 1);
+  }
+}
+
+void MultiPageNoteView::showBottomMoreMenu() {
+  QMenu menu(this);
+  if (note_ && !note_->pages.isEmpty()) {
+    menu.addAction(QStringLiteral("Letzte Seite duplizieren"), [this]() {
+      duplicatePage(note_->pages.size() - 1);
+    });
+  }
+  menu.exec(QCursor::pos());
+}
+
 void MultiPageNoteView::ensureSceneRectCoversViewport() {
 #ifdef Q_OS_ANDROID
   if (!viewport() || viewport()->width() <= 0 || viewport()->height() <= 0)
@@ -392,6 +848,7 @@ void MultiPageNoteView::ensureSceneRectCoversViewport() {
 
 void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   QGraphicsView::resizeEvent(e);
+  syncPagesBarVisibility();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
 #endif
@@ -399,6 +856,7 @@ void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
 
 void MultiPageNoteView::showEvent(QShowEvent *e) {
   QGraphicsView::showEvent(e);
+  syncPagesBarVisibility();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
 #endif
@@ -406,22 +864,20 @@ void MultiPageNoteView::showEvent(QShowEvent *e) {
 
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
-      RulerItem* ruler = nullptr;
-      for (QGraphicsItem* item : scene_.items()) {
-          if (item->type() == RulerItem::Type) {
-              ruler = static_cast<RulerItem*>(item);
-              break;
-          }
+    const QPointF scenePos = mapToScene(e->position().toPoint());
+    RulerItem *ruler = nullptr;
+    for (QGraphicsItem *item : scene_.items()) {
+      if (item->type() == RulerItem::Type) {
+        ruler = static_cast<RulerItem *>(item);
+        break;
       }
-      if (ruler && ruler->isVisible()) {
-          qreal delta = e->angleDelta().y();
-          qreal step = (e->modifiers() & Qt::ShiftModifier) ? 1.0 : 15.0;
-          if (delta > 0) ruler->setRotation(ruler->rotation() - step);
-          else if (delta < 0) ruler->setRotation(ruler->rotation() + step);
-          ruler->update();
-          e->accept();
-          return;
-      }
+    }
+    if (ruler && ruler->isVisible() &&
+        ruler->canStartInteractionAtScenePos(scenePos)) {
+      ruler->applyWheelDelta(e->angleDelta().y(), e->modifiers());
+      e->accept();
+      return;
+    }
   }
 
   if (e->modifiers() & Qt::ControlModifier) {
@@ -432,25 +888,21 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
 #ifdef Q_OS_ANDROID
     ensureSceneRectCoversViewport();
 #endif
+    syncPagesBarVisibility();
     e->accept();
   } else {
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && e->angleDelta().y() < 0) {
-      m_pullDistance += std::abs(e->angleDelta().y()) * 0.5;
-      viewport()->update();
-
-      if (m_pullDistance > 250.0f) {
-        addNewPage();
-        m_pullDistance = 0;
+      m_pullDistance += std::abs(e->angleDelta().y()) * 0.5f;
+      if (m_pullDistance >= kBottomRevealPull) {
+        showBottomSheetFromPull();
       }
       e->accept();
       return;
     }
 
-    if (m_pullDistance > 0 && e->angleDelta().y() > 0) {
-      m_pullDistance = 0;
-      viewport()->update();
-    }
+    if (m_pullDistance > 0.f && e->angleDelta().y() > 0)
+      m_pullDistance = 0.f;
 
     QGraphicsView::wheelEvent(e);
   }
@@ -465,6 +917,28 @@ bool MultiPageNoteView::viewportEvent(QEvent *ev) {
 }
 
 void MultiPageNoteView::gestureEvent(QGestureEvent *event) {
+  bool handledByRuler = false;
+  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+    if (QGesture *pinch = event->gesture(Qt::PinchGesture)) {
+      auto *pg = static_cast<QPinchGesture *>(pinch);
+      const QPointF cScene = mapToScene(pg->centerPoint().toPoint());
+      RulerItem *ruler = nullptr;
+      for (QGraphicsItem *item : scene_.items()) {
+        if (item->type() == RulerItem::Type) {
+          ruler = static_cast<RulerItem *>(item);
+          break;
+        }
+      }
+      if (ruler && ruler->isVisible() && ruler->canStartInteractionAtScenePos(cScene)) {
+        event->accept(pinch);
+        event->accept();
+        pinchTriggered(pg);
+        handledByRuler = true;
+      }
+    }
+  }
+  if (handledByRuler)
+    return;
   if (QGesture *pinch = event->gesture(Qt::PinchGesture)) {
     event->accept(pinch);
     pinchTriggered(static_cast<QPinchGesture *>(pinch));
@@ -473,19 +947,29 @@ void MultiPageNoteView::gestureEvent(QGestureEvent *event) {
 
 void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
   QPointF scenePos = mapToScene(gesture->centerPoint().toPoint());
-  QGraphicsItem *hoveredItem = scene()->itemAt(scenePos, transform());
-  while (hoveredItem && hoveredItem->type() != QGraphicsItem::UserType + 100) {
-    hoveredItem = hoveredItem->parentItem();
-  }
 
-  if (hoveredItem && hoveredItem->type() == QGraphicsItem::UserType + 100) {
-    qreal rotationDelta = gesture->rotationAngle() - gesture->lastRotationAngle();
-    hoveredItem->setRotation(hoveredItem->rotation() + rotationDelta);
+  // Wenn das Ruler-Tool aktiv ist, sollen Pinch/Rotate-Gesten ausschließlich
+  // das Lineal beeinflussen – die Seite selbst soll nicht zoomen oder scrollen.
+  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+    RulerItem *ruler = nullptr;
+    for (QGraphicsItem *item : scene()->items()) {
+      if (item->type() == RulerItem::Type) {
+        ruler = static_cast<RulerItem *>(item);
+        break;
+      }
+    }
+    if (ruler && ruler->isVisible() &&
+        ruler->canStartInteractionAtScenePos(scenePos)) {
+      qreal rotationDelta =
+          gesture->rotationAngle() - gesture->lastRotationAngle();
+      ruler->applyRotationDelta(rotationDelta * 0.6);
 
-    QPointF diff = mapToScene(gesture->centerPoint().toPoint()) -
-                   mapToScene(gesture->lastCenterPoint().toPoint());
-    hoveredItem->moveBy(diff.x(), diff.y());
-    return;
+      // Ruler leicht der Geste folgen lassen, ohne die Seite zu bewegen.
+      QPointF diff = mapToScene(gesture->centerPoint().toPoint()) -
+                     mapToScene(gesture->lastCenterPoint().toPoint());
+      ruler->moveBy(diff.x(), diff.y());
+      return;
+    }
   }
 
   QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
@@ -508,6 +992,7 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
 #ifdef Q_OS_ANDROID
       ensureSceneRectCoversViewport();
 #endif
+      syncPagesBarVisibility();
     }
   }
 
@@ -534,8 +1019,22 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
   if (!isTouch && e->source() == Qt::MouseEventSynthesizedBySystem)
     isTouch = true;
 
+  const bool rulerMode =
+      (ToolManager::instance().activeToolMode() == ToolMode::Ruler);
+
   if (isTouch) {
-    if (m_penOnlyMode) {
+    if (rulerMode) {
+      const QPointF scenePos = mapToScene(e->pos());
+      RulerItem *ruler = nullptr;
+      for (QGraphicsItem *item : scene_.items()) {
+        if (item->type() == RulerItem::Type) {
+          ruler = static_cast<RulerItem *>(item);
+          break;
+        }
+      }
+      m_isPanning = !(ruler && ruler->isVisible() &&
+                      ruler->canStartInteractionAtScenePos(scenePos));
+    } else if (m_penOnlyMode) {
       m_isPanning = true;
       m_lastPanPos = e->pos();
       setCursor(Qt::ClosedHandCursor);
@@ -599,21 +1098,15 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && delta.y() < 0) {
-      m_pullDistance += std::abs(delta.y()) * 0.5;
-      viewport()->update();
-
-      if (m_pullDistance > 250.0f) {
-        addNewPage();
-        m_pullDistance = 0;
-      }
+      m_pullDistance += std::abs(delta.y()) * 0.5f;
+      if (m_pullDistance >= kBottomRevealPull)
+        showBottomSheetFromPull();
     } else {
       horizontalScrollBar()->setValue(horizontalScrollBar()->value() -
                                       delta.x());
       verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-      if (m_pullDistance > 0) {
-        m_pullDistance = 0;
-        viewport()->update();
-      }
+      if (m_pullDistance > 0.f)
+        m_pullDistance = 0.f;
     }
 
     e->accept();
@@ -657,10 +1150,8 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
-  if (m_pullDistance > 0) {
-    m_pullDistance = 0;
-    viewport()->update();
-  }
+  if (m_pullDistance > 0.f)
+    m_pullDistance = 0.f;
 
   if (m_isPanning) {
     m_isPanning = false;
@@ -910,60 +1401,12 @@ void MultiPageNoteView::scrollToPage(int pageIndex) {
 void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
   QGraphicsView::drawForeground(painter, rect);
 
-  if (m_pullDistance > 1.0f) {
-    drawPullIndicator(painter);
-  }
-
   AbstractTool *tool = ToolManager::instance().activeTool();
   if (tool) {
     painter->save();
     tool->drawOverlay(painter, rect);
     painter->restore();
   }
-}
-
-void MultiPageNoteView::drawPullIndicator(QPainter *painter) {
-  painter->save();
-  painter->resetTransform();
-  painter->setClipping(false);
-
-  int w = viewport()->width();
-  int h = viewport()->height();
-  float maxPull = 250.0f;
-  float progress = qMin(m_pullDistance / maxPull, 1.0f);
-
-  int size = 60;
-  int yPos = h - size - 50 - (progress * 20);
-  int xPos = (w - size) / 2;
-  QRect circleRect(xPos, yPos, size, size);
-
-  painter->setRenderHint(QPainter::Antialiasing, true);
-
-  painter->setBrush(QColor(40, 40, 40, 200));
-  painter->setPen(Qt::NoPen);
-  painter->drawEllipse(circleRect);
-
-  if (progress > 0.05f) {
-    QPen arcPen(QColor(0x6c5ce7));
-    arcPen.setWidth(4);
-    arcPen.setCapStyle(Qt::RoundCap);
-    painter->setPen(arcPen);
-    painter->setBrush(Qt::NoBrush);
-    int spanAngle = -progress * 360 * 16;
-    painter->drawArc(circleRect.adjusted(8, 8, -8, -8), 90 * 16, spanAngle);
-  }
-
-  if (progress > 0.15f) {
-    painter->setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap));
-    int center = size / 2;
-    float growFactor = (progress - 0.15f) / 0.85f;
-    int pSize = 12 * qMin(growFactor, 1.0f);
-    QPoint c = circleRect.center();
-
-    painter->drawLine(c.x(), c.y() - pSize, c.x(), c.y() + pSize);
-    painter->drawLine(c.x() - pSize, c.y(), c.x() + pSize, c.y());
-  }
-  painter->restore();
 }
 
 // ─── PDF Import ─────────────────────────────────────────────────────────────
@@ -1062,17 +1505,23 @@ void MultiPageNoteView::cutSelection() {
 void MultiPageNoteView::duplicateSelection() {}
 
 void MultiPageNoteView::changeSelectionColor() {
-    QColor c = QColorDialog::getColor(Qt::black, this, "Farbe ändern");
-    if (c.isValid()) {
-        for (auto *item : scene_.selectedItems()) {
-            if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
-                QPen p = pi->pen();
-                p.setColor(c);
-                pi->setPen(p);
-            }
-        }
-        scene_.update();
+    QColor c = Qt::black;
+    for (auto *item : scene_.selectedItems()) {
+      if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
+        c = pi->pen().color();
+        break;
+      }
     }
+    if (!showColorPickerOverlay(this, &c, QStringLiteral("Farbe ändern")))
+      return;
+    for (auto *item : scene_.selectedItems()) {
+      if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
+        QPen p = pi->pen();
+        p.setColor(c);
+        pi->setPen(p);
+      }
+    }
+    scene_.update();
     if (m_selectionMenu) m_selectionMenu->hide();
     if (onSaveRequested) onSaveRequested(note_);
 }

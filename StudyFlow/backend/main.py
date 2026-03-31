@@ -782,6 +782,15 @@ class ElaborationRequest(BaseModel):
     custom_rules: str = ""
     model_preference: str = None
 
+class ElaborationRefineRequest(BaseModel):
+    username: str
+    folder_id: str
+    file_id: str
+    prompt: str
+    detail_level: str = "Sehr detailliert"
+    save_mode: str = "new_file"  # new_file | replace
+    model_preference: str = None
+
 class RepetitionRequest(BaseModel):
     username: str
     folder_id: str
@@ -803,6 +812,14 @@ class TaskHelpRequest(BaseModel):
     folder_id: str
     task_description: str
     model_preference: str = None
+
+class DocumentChatPatchRequest(BaseModel):
+    username: str
+    folder_id: str
+    file_id: str
+    message: str
+    history: List[ChatMessage]
+    model_preference: Optional[str] = None
 
 @app.post("/api/ai/plan")
 def create_study_plan(request: PlanRequest):
@@ -1002,6 +1019,67 @@ def create_elaboration(request: ElaborationRequest):
         print(f"Elaboration error: {e}")
         raise HTTPException(status_code=500, detail=f"Ausarbeitungs-Fehler: {str(e)}")
 
+@app.post("/api/ai/elaboration/refine")
+def refine_elaboration(request: ElaborationRefineRequest):
+    from ai_service import AIService
+    from datetime import datetime
+    try:
+        check_and_deduct_tokens(request.username, 8)
+        _configure_genai()
+        all_files = DataManager.list_files(request.username, request.folder_id)
+        target = next((f for f in all_files if f.get("id") == request.file_id), None)
+        if not target:
+            raise HTTPException(status_code=404, detail="Datei für Anpassung nicht gefunden.")
+        base_content = target.get("content")
+        if isinstance(base_content, (dict, list)):
+            base_content = json.dumps(base_content, ensure_ascii=False, indent=2)
+        base_content = str(base_content or "")
+        if not base_content.strip():
+            raise HTTPException(status_code=400, detail="Die ausgewählte Datei hat keinen Inhalt.")
+        combined_rules = (
+            "Passe das bestehende Dokument gezielt an.\n"
+            "Behalte den vorhandenen Stil bei, verbessere Struktur/Tiefe, "
+            "und setze den Nutzerwunsch konkret um.\n\n"
+            f"Nutzerwunsch:\n{request.prompt.strip()}\n\n"
+            "Bestehendes Dokument:\n"
+            f"{base_content}"
+        )
+        refined_text = AIService.generate_elaboration(
+            content=[base_content],
+            detail_level=request.detail_level,
+            custom_rules=combined_rules,
+            model_preference=request.model_preference,
+        )
+        save_mode = (request.save_mode or "new_file").lower()
+        if save_mode == "replace":
+            if not DataManager.update_file_content(
+                request.username,
+                request.folder_id,
+                request.file_id,
+                refined_text,
+            ):
+                raise HTTPException(status_code=404, detail="Datei konnte nicht überschrieben werden.")
+            return {"status": "success", "saved_as": "replace", "content": refined_text}
+        new_id = f"elaboration_refined_{int(datetime.now().timestamp())}"
+        base_name = target.get("name") or "Ausarbeitung"
+        DataManager.save_file_metadata(
+            {
+                "id": new_id,
+                "name": f"{base_name} (überarbeitet)",
+                "type": target.get("type", "summary"),
+                "content": refined_text,
+                "created_at": datetime.now().strftime("%Y-%m-%d"),
+            },
+            request.username,
+            request.folder_id,
+        )
+        return {"status": "success", "saved_as": "new_file", "new_file_id": new_id, "content": refined_text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Elaboration refine error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ausarbeitung-Anpassung fehlgeschlagen: {str(e)}")
+
 @app.post("/api/ai/repetition")
 def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
@@ -1075,6 +1153,34 @@ def chat_endpoint(request: ChatRequest):
     except Exception as e:
         print(f"Chat error: {e}")
         raise HTTPException(status_code=500, detail=f"Chatbot-Fehler: {str(e)}")
+
+@app.post("/api/ai/document-chat")
+def document_chat_patch(request: DocumentChatPatchRequest):
+    from ai_service import AIService
+    try:
+        check_and_deduct_tokens(request.username, 2)
+        _configure_genai()
+        all_files = DataManager.list_files(request.username, request.folder_id)
+        target = next((f for f in all_files if f.get("id") == request.file_id), None)
+        if not target:
+            raise HTTPException(status_code=404, detail="Datei nicht gefunden.")
+        content = target.get("content")
+        if isinstance(content, (dict, list)):
+            content = json.dumps(content, ensure_ascii=False, indent=2)
+        content = str(content or "")
+        history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
+        patch = AIService.refine_document_with_chat(
+            document_content=content,
+            user_message=request.message,
+            history=history_dicts,
+            model_preference=request.model_preference,
+        )
+        return {"status": "success", "patch": patch}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Document chat error: {e}")
+        raise HTTPException(status_code=500, detail=f"Dokument-Chat-Fehler: {str(e)}")
 
 
 if __name__ == "__main__":

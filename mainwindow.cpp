@@ -34,6 +34,7 @@
 #include <QComboBox>
 #include <QDataStream>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QDesktopServices>
 #include <QDir>
 #include <QQmlContext>
@@ -55,6 +56,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QEnterEvent>
 #include <QNetworkRequest>
 #include <QPainter>
 #include <QPainterPath>
@@ -439,11 +441,13 @@ void ModernItemDelegate::paint(QPainter *painter,
     }
   }
 
-  QIcon menuIcon = m_window->createModernIcon("more_vert", Qt::gray);
-  int dotSize = 24;
-  QRect menuRect(rect.right() - dotSize - 4, rect.top() + 4, dotSize, dotSize);
+  QIcon menuIcon = m_window->createModernIcon(
+      QStringLiteral("more_pill"), QColor(QStringLiteral("#C8CDDC")));
+  const int pillW = 30;
+  const int pillH = 20;
+  QRect menuRect(rect.right() - pillW - 4, rect.top() + 4, pillW, pillH);
   if (isWideList)
-    menuRect.moveTop(rect.center().y() - dotSize / 2);
+    menuRect.moveTop(rect.center().y() - pillH / 2);
   menuIcon.paint(painter, menuRect, Qt::AlignCenter);
 
   painter->restore();
@@ -513,12 +517,13 @@ void ModernButton::paintEvent(QPaintEvent *) {
     return;
   int w = width();
   int h = height();
-  int iconS = iconSize().width();
+  const int iw = qMax(1, iconSize().width());
+  const int ih = qMax(1, iconSize().height());
   p.translate(w / 2, h / 2);
   p.scale(m_scale, m_scale);
-  p.translate(-iconS / 2, -iconS / 2);
+  p.translate(-iw / 2, -ih / 2);
   QIcon::Mode mode = isChecked() ? QIcon::Active : QIcon::Normal;
-  ic.paint(&p, 0, 0, iconS, iconS, Qt::AlignCenter, mode);
+  ic.paint(&p, 0, 0, iw, ih, Qt::AlignCenter, mode);
 }
 
 // ============================================================================
@@ -1406,28 +1411,25 @@ void MainWindow::setupTitleBar() {
   connect(m_btnAddWebBookmark, &QPushButton::clicked, this,
           &MainWindow::showAddWebBookmarkDialog);
   navLayout->addWidget(m_btnAddWebBookmark);
-  navLayout->addSpacing(10);
-  // Absorb extra width here so Notizen/Study + Lesezeichen links fix bleiben
-  // (sonst drücken viele Tabs / WebView-Compositing die Leiste optisch weg).
-  navLayout->addStretch(1);
+  navLayout->addSpacing(8);
 
   // ── TABS ──────────────────────────────────────────────────────────────────
-  // Container for dynamic tabs
+  // Direkt links (nach Modus / +): Home, offene Notizen, neuer Tab — nicht hinter der Suche.
   QWidget *tabsContainer = new QWidget(m_topNavControls);
   m_noteTabsChrome = tabsContainer;
   tabsContainer->setStyleSheet("background: transparent; border: none;");
   m_tabBarLayout = new QHBoxLayout(tabsContainer);
   m_tabBarLayout->setContentsMargins(0, 0, 0, 0);
   m_tabBarLayout->setSpacing(4);
-  navLayout->addWidget(tabsContainer);
 
-  // Tab Styles
+  // Tab Styles (größere Schrift + Icons — besser lesbar in der Titelleiste)
+  const int kTabIconPx = 22;
   auto tabActiveStyle = []() -> QString {
     return "QPushButton {"
            "  background: rgba(124,92,252,0.25);"
            "  border: none;"
            "  border-radius: 8px;"
-           "  color: #E8E4FF; font-size: 12px; font-weight: 600;"
+           "  color: #E8E4FF; font-size: 14px; font-weight: 600;"
            "  padding: 0 16px;"
            "}"
            "QPushButton:hover { background: rgba(124,92,252,0.35); }";
@@ -1437,7 +1439,7 @@ void MainWindow::setupTitleBar() {
            "  background: transparent;"
            "  border: none;"
            "  border-radius: 8px;"
-           "  color: rgba(255,255,255,0.45); font-size: 12px; font-weight: 500;"
+           "  color: rgba(255,255,255,0.45); font-size: 14px; font-weight: 500;"
            "  padding: 0 14px;"
            "}"
            "QPushButton:hover {"
@@ -1448,13 +1450,18 @@ void MainWindow::setupTitleBar() {
 
   // Home Tab
   m_btnHomeTab = new QPushButton(tabsContainer);
-  m_btnHomeTab->setText("⌂  Home");
-  m_btnHomeTab->setFixedHeight(32);
+  m_btnHomeTab->setIcon(
+      createModernIcon(QStringLiteral("home"), QColor(QStringLiteral("#E8E4FF"))));
+  m_btnHomeTab->setText(QStringLiteral(" Home"));
+  m_btnHomeTab->setIconSize(QSize(kTabIconPx, kTabIconPx));
+  m_btnHomeTab->setFixedHeight(36);
   m_btnHomeTab->setCursor(Qt::PointingHandCursor);
   m_btnHomeTab->setStyleSheet(tabActiveStyle());
   connect(m_btnHomeTab, &QPushButton::clicked, this,
           [this, tabActiveStyle, tabInactiveStyle]() {
             m_activeTabIndex = -1;
+            m_btnHomeTab->setIcon(createModernIcon(
+                QStringLiteral("home"), QColor(QStringLiteral("#E8E4FF"))));
             m_btnHomeTab->setStyleSheet(tabActiveStyle());
             for (auto *btn : m_noteTabButtons)
               btn->setStyleSheet(tabInactiveStyle());
@@ -1464,7 +1471,7 @@ void MainWindow::setupTitleBar() {
 
   // "+ Tab" Button
   QPushButton *btnNewTab = new QPushButton("+", tabsContainer);
-  btnNewTab->setFixedSize(32, 32);
+  btnNewTab->setFixedSize(36, 36);
   btnNewTab->setCursor(Qt::PointingHandCursor);
   btnNewTab->setToolTip("Neue Notiz öffnen");
   btnNewTab->setStyleSheet(
@@ -1472,7 +1479,7 @@ void MainWindow::setupTitleBar() {
       "  background: transparent;"
       "  border: none;"
       "  border-radius: 8px;"
-      "  color: rgba(255,255,255,0.45); font-size: 16px; font-weight: 400;"
+      "  color: rgba(255,255,255,0.45); font-size: 20px; font-weight: 500;"
       "}"
       "QPushButton:hover {"
       "  background: rgba(124,92,252,0.18);"
@@ -1482,7 +1489,10 @@ void MainWindow::setupTitleBar() {
           &MainWindow::onShowNewTabPopup);
   m_tabBarLayout->addWidget(btnNewTab);
 
-  navLayout->addSpacing(12);
+  navLayout->addWidget(tabsContainer);
+  navLayout->addSpacing(10);
+  // Rest der Leiste nach rechts: Suche und Aktions-Icons
+  navLayout->addStretch(1);
 
   // ── Suchleiste ─────────────────────────────────────────────────────────────
   m_titleSearchBar = new QLineEdit(m_topNavControls);
@@ -1505,44 +1515,63 @@ void MainWindow::setupTitleBar() {
   navLayout->addWidget(m_titleSearchBar);
   navLayout->addSpacing(8);
 
-  // ── Einstellungen (Tags & Optionen) ────────────────────────────────────────
-  btnEditorSettings = new ModernButton(m_topNavControls);
-  btnEditorSettings->setIcon(createModernIcon("settings", QColor("#A0A0C8")));
-  btnEditorSettings->setFixedSize(32, 32);
-  btnEditorSettings->setToolTip("Tags & Optionen");
-  btnEditorSettings->setStyleSheet(
+  // Tags & Seiten-Optionen nur noch über Notiz-Menü (⋯) → „Optionen & Tags…“
+  // Höhe = ROW_HEIGHT_ITEM (wie Sidebar-Nav-Zeilen „All / Blop Notes / …“).
+  const int kTitleBarNavH = ROW_HEIGHT_ITEM;
+
+  m_btnEditorNoteOverflow = new ModernButton(m_topNavControls);
+  m_btnEditorNoteOverflow->setIcon(
+      createModernIcon(QStringLiteral("more_pill"), QColor(QStringLiteral("#C8CDDC"))));
+  m_btnEditorNoteOverflow->setText(QString());
+  m_btnEditorNoteOverflow->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  m_btnEditorNoteOverflow->setFixedSize(kTitleBarNavH, kTitleBarNavH);
+  m_btnEditorNoteOverflow->setIconSize(
+      QSize(kTitleBarNavH - 4, kTitleBarNavH - 4));
+  m_btnEditorNoteOverflow->setToolTip(QStringLiteral("Notiz-Menü"));
+  m_btnEditorNoteOverflow->setCursor(Qt::PointingHandCursor);
+  m_btnEditorNoteOverflow->setStyleSheet(
       "QToolButton {"
       "  background: transparent; border: none; border-radius: 8px;"
       "}"
       "QToolButton:hover {"
-      "  background: rgba(124,92,252,0.18);"
+      "  background: rgba(124,92,252,0.22);"
       "}");
-  connect(btnEditorSettings, &QAbstractButton::clicked, this,
-          &MainWindow::onToggleRightSidebar);
-  navLayout->addWidget(btnEditorSettings);
+  connect(m_btnEditorNoteOverflow, &QAbstractButton::clicked, this,
+          &MainWindow::onEditorNoteOverflowMenu);
+  m_btnEditorNoteOverflow->hide();
+  navLayout->addWidget(m_btnEditorNoteOverflow);
   navLayout->addSpacing(4);
 
-  // ── Teilen ─────────────────────────────────────────────────────────────────
-  m_btnPages = new ModernButton(m_topNavControls);
-  m_btnPages->setFixedHeight(32);
-  m_btnPages->setText("  Teilen");
-  m_btnPages->setIcon(createModernIcon("share", Qt::white));
-  m_btnPages->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  m_btnPages->setStyleSheet(
-      "QToolButton {"
-      "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-      "    stop:0 #7C5CFC, stop:1 #5E3DCC);"
-      "  border: none; border-radius: 8px;"
-      "  color: white; font-size: 12px; font-weight: 600;"
-      "  padding: 0 16px 0 10px;"
-      "}"
-      "QToolButton:hover {"
-      "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-      "    stop:0 #9B79FF, stop:1 #7050EE);"
-      "}");
-  connect(m_btnPages, &QAbstractButton::clicked, this,
-          &MainWindow::onShareClicked);
-  navLayout->addWidget(m_btnPages);
+#ifndef Q_OS_ANDROID
+  m_btnTitleBarPageManager = new ModernButton(m_topNavControls);
+  m_btnTitleBarPageManager->setToolTip(QStringLiteral("Seitenmanager"));
+  m_btnTitleBarPageManager->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  {
+    QPixmap pm(QStringLiteral(":/assets/android_btn_pages.png"));
+    if (!pm.isNull())
+      m_btnTitleBarPageManager->setIcon(QIcon(pm));
+    else
+      m_btnTitleBarPageManager->setIcon(createModernIcon(
+          QStringLiteral("pages_pill"), QColor(QStringLiteral("#C8CDDC"))));
+  }
+  {
+    const int pmW = qRound(kTitleBarNavH * 1.72);
+    m_btnTitleBarPageManager->setFixedSize(pmW, kTitleBarNavH);
+    m_btnTitleBarPageManager->setIconSize(QSize(pmW - 8, kTitleBarNavH - 4));
+  }
+  m_btnTitleBarPageManager->setHoverScaleEnabled(false);
+  m_btnTitleBarPageManager->setStyleSheet(
+      QStringLiteral(
+          "QToolButton { background: transparent; border: none; border-radius: 8px; "
+          "padding: 0; }"
+          "QToolButton:hover { background: rgba(124,92,252,0.22); }"
+          "QToolButton:pressed { background: rgba(124,92,252,0.32); }"));
+  connect(m_btnTitleBarPageManager, &QAbstractButton::clicked, this,
+          &MainWindow::onTogglePageManager);
+  m_btnTitleBarPageManager->hide();
+  navLayout->addWidget(m_btnTitleBarPageManager);
+  navLayout->addSpacing(4);
+#endif
 
   navLayout->addWidget(m_modeSelector); // hidden 0×0 — am Ende, kein Layout-Zwang
 
@@ -1551,35 +1580,39 @@ void MainWindow::setupTitleBar() {
   mainLayout->addSpacing(16); // Gap before window controls
 
   // ── Window Controls ────────────────────────────────────────────────────────
-  struct WinBtn { QPushButton **ptr; QString sym; bool isClose; };
+  struct WinBtn {
+    QPushButton **ptr;
+    QString sym;
+    bool isClose;
+  };
   QList<WinBtn> winBtns = {
-    { &m_btnWinMin,   "\u2212", false },  // −
-    { &m_btnWinMax,   "\u25A1", false },  // □
-    { &m_btnWinClose, "\u00D7", true  },  // ×
+      {&m_btnWinMin, QStringLiteral("\u2212"), false},   // −
+      {&m_btnWinMax, QStringLiteral("\u25A1"), false},   // □
+      {&m_btnWinClose, QStringLiteral("\u00D7"), true},   // ×
   };
   for (auto &wb : winBtns) {
     *wb.ptr = new QPushButton(wb.sym, m_titleBarWidget);
-    (*wb.ptr)->setFixedSize(46, 50); // Full height of titlebar
+    (*wb.ptr)->setFixedSize(46, 50);
     (*wb.ptr)->setCursor(Qt::PointingHandCursor);
     (*wb.ptr)->setStyleSheet(wb.isClose
-        ? "QPushButton {"
-          "  background: transparent; border: none;"
-          "  color: rgba(255,255,255,0.50);"
-          "  font-size: 14px; font-weight: 400;"
-          "}"
-          "QPushButton:hover { background: #E81123; color: white; }"
-        : "QPushButton {"
-          "  background: transparent; border: none;"
-          "  color: rgba(255,255,255,0.50);"
-          "  font-size: 14px; font-weight: 400;"
-          "}"
-          "QPushButton:hover {"
-          "  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.90);"
-          "}");
+                                 ? "QPushButton {"
+                                   "  background: transparent; border: none;"
+                                   "  color: rgba(255,255,255,0.50);"
+                                   "  font-size: 14px; font-weight: 400;"
+                                   "}"
+                                   "QPushButton:hover { background: #E81123; color: white; }"
+                                 : "QPushButton {"
+                                   "  background: transparent; border: none;"
+                                   "  color: rgba(255,255,255,0.50);"
+                                   "  font-size: 14px; font-weight: 400;"
+                                   "}"
+                                   "QPushButton:hover {"
+                                   "  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.90);"
+                                   "}");
     mainLayout->addWidget(*wb.ptr);
   }
-  connect(m_btnWinMin,   &QPushButton::clicked, this, &MainWindow::onWinMinimize);
-  connect(m_btnWinMax,   &QPushButton::clicked, this, &MainWindow::onWinMaximize);
+  connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
+  connect(m_btnWinMax, &QPushButton::clicked, this, &MainWindow::onWinMaximize);
   connect(m_btnWinClose, &QPushButton::clicked, this, &MainWindow::onWinClose);
 }
 
@@ -1606,6 +1639,23 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       }
       tb->raise();
     }
+    if (m_pageSettingsOverlay && m_editorCenterWidget) {
+      m_pageSettingsOverlay->setGeometry(
+          0, 0, m_editorCenterWidget->width(), m_editorCenterWidget->height());
+      if (m_pageSettingsCard)
+        m_pageSettingsCard->setMaximumHeight(
+            qMax(200, m_editorCenterWidget->height() - 64));
+      if (m_pageSettingsOverlay->isVisible())
+        m_pageSettingsOverlay->raise();
+    }
+  } else if (obj == m_pageSettingsOverlay &&
+             event->type() == QEvent::MouseButtonPress) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (m_pageSettingsCard &&
+        !m_pageSettingsCard->geometry().contains(me->pos())) {
+      setPageSettingsOverlayVisible(false);
+      return true;
+    }
   } else if (obj == m_floatingTools && event->type() == QEvent::Move) {
     // Re-dock when floating toolbar is dragged to the top (y <= 10)
     if (m_floatingTools->y() <= 10) {
@@ -1626,11 +1676,13 @@ void MainWindow::addNoteTab(const QString &title) {
     return;
 
   // Deactivate Home tab visually (inaktiver Stil)
+  m_btnHomeTab->setIcon(createModernIcon(
+      QStringLiteral("home"), QColor(255, 255, 255, 130)));
   m_btnHomeTab->setStyleSheet(
       "QPushButton {"
       "  background: rgba(255,255,255,0.04);"
       "  border: 1px solid rgba(255,255,255,0.08);"
-      "  color: rgba(255,255,255,0.45); font-size: 12px; font-weight: 500;"
+      "  color: rgba(255,255,255,0.45); font-size: 14px; font-weight: 500;"
       "  padding: 0 14px; border-radius: 14px;"
       "}"
       "QPushButton:hover {"
@@ -1641,39 +1693,42 @@ void MainWindow::addNoteTab(const QString &title) {
 
   int tabIndex = m_noteTabButtons.size();
 
-  // Container widget: [title btn][× btn] – kompakte Pill (Höhe 30px)
+  // Container widget: [icon+title][×] – Pill mit größeren Klickflächen
   QWidget *tabWidget = new QWidget;
-  tabWidget->setFixedHeight(30);
+  tabWidget->setFixedHeight(34);
   tabWidget->setStyleSheet(
       "QWidget {"
       "  background-color: rgba(124,92,252,0.22);"
       "  border: 1px solid rgba(124,92,252,0.55);"
-      "  border-radius: 14px;"
+      "  border-radius: 16px;"
       "}");
   QHBoxLayout *tabLay = new QHBoxLayout(tabWidget);
-  tabLay->setContentsMargins(6, 0, 4, 0);
-  tabLay->setSpacing(2);
+  tabLay->setContentsMargins(8, 0, 6, 0);
+  tabLay->setSpacing(4);
 
   QPushButton *tabBtn = new QPushButton(title, tabWidget);
-  tabBtn->setFixedHeight(22);
+  tabBtn->setIcon(
+      createModernIcon(QStringLiteral("note_bnote"), QColor(QStringLiteral("#E8E8FF"))));
+  tabBtn->setIconSize(QSize(22, 22));
+  tabBtn->setFixedHeight(26);
   tabBtn->setCursor(Qt::PointingHandCursor);
   tabBtn->setStyleSheet(
       "QPushButton {"
       "  background-color: transparent;"
-      "  border: none; color: #E8E8FF; font-size: 12px; font-weight: 600;"
-      "  padding: 0 2px 0 6px;"
+      "  border: none; color: #E8E8FF; font-size: 14px; font-weight: 600;"
+      "  padding: 0 2px 0 4px;"
       "}");
   m_noteTabButtons.append(tabBtn);
   tabLay->addWidget(tabBtn);
 
   QPushButton *closeBtn = new QPushButton("\u2715", tabWidget);
-  closeBtn->setFixedSize(20, 20);
+  closeBtn->setFixedSize(24, 24);
   closeBtn->setCursor(Qt::PointingHandCursor);
   closeBtn->setStyleSheet(
       "QPushButton {"
       "  background-color: transparent;"
-      "  border: none; color: rgba(255,255,255,0.50); font-size: 10px;"
-      "  border-radius: 10px;"
+      "  border: none; color: rgba(255,255,255,0.50); font-size: 12px;"
+      "  border-radius: 12px;"
       "}"
       "QPushButton:hover { background-color: rgba(255,255,255,0.15); color: white; }");
   connect(closeBtn, &QPushButton::clicked, this,
@@ -1807,12 +1862,14 @@ void MainWindow::closeNoteTab(int index) {
 
   if (m_noteTabButtons.isEmpty() && m_btnHomeTab) {
     m_activeTabIndex = -1;
+    m_btnHomeTab->setIcon(createModernIcon(
+        QStringLiteral("home"), QColor(QStringLiteral("#E8E4FF"))));
     // Aktiver Stil wieder herstellen (neue Farben)
     m_btnHomeTab->setStyleSheet(
         "QPushButton {"
         "  background: rgba(124,92,252,0.22);"
         "  border: 1px solid rgba(124,92,252,0.55);"
-        "  color: #DDD8FF; font-size: 12px; font-weight: 600;"
+        "  color: #DDD8FF; font-size: 14px; font-weight: 600;"
         "  padding: 0 14px; border-radius: 14px;"
         "}"
         "QPushButton:hover { background: rgba(124,92,252,0.30); }");
@@ -2005,9 +2062,13 @@ void MainWindow::applyTheme() {
         "none; }");
 #endif
 
-  if (m_rightSidebar)
-    m_rightSidebar->setStyleSheet(
-        "background-color: #0D0B14; border-left: 1px solid #201E2E;");
+  if (m_pageSettingsCard)
+    m_pageSettingsCard->setStyleSheet(
+        QStringLiteral(
+            "QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
+            "border-radius: 18px; }")
+            .arg(UIStyles::PageBackground.name(),
+                 QColor(124, 92, 252, 90).name(QColor::HexArgb)));
 
   if (m_titleBarWidget)
     m_titleBarWidget->setStyleSheet(
@@ -2039,23 +2100,6 @@ void MainWindow::applyTheme() {
             .arg(c, c_light));
   }
 
-  // Accent propagation for frequently used controls/widgets.
-  if (m_btnPages) {
-    m_btnPages->setStyleSheet(
-        QString(
-            "QToolButton {"
-            "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "    stop:0 %1, stop:1 %2);"
-            "  border: none; border-radius: 8px;"
-            "  color: white; font-size: 12px; font-weight: 600;"
-            "  padding: 0 16px 0 10px;"
-            "}"
-            "QToolButton:hover {"
-            "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "    stop:0 %3, stop:1 %1);"
-            "}")
-            .arg(c_light, c, m_currentAccentColor.lighter(150).name()));
-  }
   if (m_btnSidebarSettings) {
     m_btnSidebarSettings->setStyleSheet(
         QString(
@@ -2131,19 +2175,6 @@ void MainWindow::applyTheme() {
                                    createModernIcon("menu_pill", QColor("#C8CDDC")),
                                    m_currentAccentColor);
     m_btnAndroidToolbarMenu->setIcon(menuIcon);
-  }
-  if (m_btnAndroidToolbarSettings) {
-    m_btnAndroidToolbarSettings->setStyleSheet(
-        QString(
-            "QToolButton { background: transparent; border: none; padding: 0; border-radius: 16px; }"
-            "QToolButton:hover { background: %1; }"
-            "QToolButton:pressed { background: %2; }")
-            .arg(m_currentAccentColor.lighter(110).name(QColor::HexArgb),
-                 m_currentAccentColor.darker(110).name(QColor::HexArgb)));
-    QIcon settingsIcon = loadTightIcon(":/assets/android_btn_settings.png",
-                                       createModernIcon("settings_pill", QColor("#C8CDDC")),
-                                       m_currentAccentColor);
-    m_btnAndroidToolbarSettings->setIcon(settingsIcon);
   }
   if (m_btnAndroidToolbarExport) {
     m_btnAndroidToolbarExport->setHoverScaleEnabled(false);
@@ -2272,8 +2303,15 @@ void MainWindow::applyProfile(const UiProfile &profile) {
   for (ModernButton *btn : buttons) {
 #ifdef Q_OS_ANDROID
     // Keep custom Android top-bar pill buttons at their dedicated size.
-    if (btn == m_btnAndroidToolbarMenu || btn == m_btnAndroidToolbarSettings ||
-        btn == m_btnAndroidToolbarPageManager || btn == m_btnAndroidToolbarExport) {
+    if (btn == m_btnAndroidToolbarMenu || btn == m_btnAndroidToolbarPageManager ||
+        btn == m_btnAndroidToolbarExport) {
+      continue;
+    }
+#endif
+#ifndef Q_OS_ANDROID
+    // Desktop-Titelleiste: ⋯ + Seitenmanager — feste Maße aus setupTitleBar(),
+    // nicht durch Profil-„Button-Größe“ überschreiben (war immer wieder winzig).
+    if (btn == m_btnEditorNoteOverflow || btn == m_btnTitleBarPageManager) {
       continue;
     }
 #endif
@@ -2308,13 +2346,13 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
   QPainter p(&pixmap);
   p.setRenderHint(QPainter::Antialiasing);
   if (name == "menu_pill" || name == "settings_pill" || name == "pages_pill" || name == "more_pill") {
-    // Strictly flat/dark capsule to match the lower buttons in the reference.
+    // Capsule matches Android top-bar assets; glyph tint follows `color` (same on Win/Android).
     const QRectF capsule(3, 14, 58, 36);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(27, 30, 58, 228));
+    const QColor glyph = color.isValid() ? color : QColor(QStringLiteral("#C8CDDC"));
+    p.setPen(QPen(QColor(255, 255, 255, 48), 1.0));
+    p.setBrush(QColor(27, 30, 58, 235));
     p.drawRoundedRect(capsule, 18, 18);
 
-    const QColor glyph("#8E84FF");
     p.setPen(QPen(glyph, 2.9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.setBrush(Qt::NoBrush);
 
@@ -2340,12 +2378,12 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
       p.drawRoundedRect(28, 24, 10, 10, 1.8, 1.8);
       p.drawRoundedRect(32, 20, 10, 10, 1.8, 1.8);
     } else {
-      // more_pill
+      // more_pill — vertical ⋮ (same graphic as Android overflow)
       p.setPen(Qt::NoPen);
       p.setBrush(glyph);
-      p.drawEllipse(29, 24, 5, 5);
-      p.drawEllipse(29, 30, 5, 5);
-      p.drawEllipse(29, 36, 5, 5);
+      p.drawEllipse(29, 23, 6, 6);
+      p.drawEllipse(29, 29, 6, 6);
+      p.drawEllipse(29, 35, 6, 6);
     }
     return QIcon(pixmap);
   }
@@ -2371,12 +2409,12 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.setPen(QPen(color, 2));
     p.drawPoint(32, 46);
   } else if (name == "more_vert") {
-    // Vertical 3-dot menu
+    // Vertical 3-dot menu (dots sized for ~18px toolbar icons after downscale)
     p.setBrush(color);
     p.setPen(Qt::NoPen);
-    p.drawEllipse(30, 16, 4, 4);
-    p.drawEllipse(30, 30, 4, 4);
-    p.drawEllipse(30, 44, 4, 4);
+    p.drawEllipse(27, 14, 10, 10);
+    p.drawEllipse(27, 27, 10, 10);
+    p.drawEllipse(27, 40, 10, 10);
   } else if (name == "export") {
     // Box with arrow (export)
     p.drawRect(16, 20, 32, 26);
@@ -2389,6 +2427,16 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     path.lineTo(20, 32);
     path.lineTo(42, 52);
     p.drawPath(path);
+  } else if (name == "home") {
+    // Haus-Symbol (Titelleisten-Tabs)
+    p.setPen(QPen(color, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    QPainterPath roof;
+    roof.moveTo(32, 14);
+    roof.lineTo(18, 28);
+    roof.lineTo(46, 28);
+    roof.closeSubpath();
+    p.drawPath(roof);
+    p.drawRoundedRect(22, 28, 20, 18, 2.5, 2.5);
   } else if (name == "menu") {
     // Compact toolbar-like menu icon (short rounded lines)
     p.setPen(QPen(color, 5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -2730,25 +2778,6 @@ void MainWindow::setupUi() {
   connect(m_androidTopSearchBar, &QLineEdit::returnPressed, this,
           jumpToMatchingEditorTab);
 
-  m_btnAndroidToolbarSettings = new ModernButton(androidHeader);
-  {
-    QIcon settingsIcon = loadTightIcon(":/assets/android_btn_settings.png",
-                                       createModernIcon("settings_pill", QColor("#C8CDDC")),
-                                       m_currentAccentColor);
-    m_btnAndroidToolbarSettings->setIcon(settingsIcon);
-  }
-  m_btnAndroidToolbarSettings->setFixedSize(56, 32);
-  m_btnAndroidToolbarSettings->setIconSize(QSize(56, 32));
-  m_btnAndroidToolbarSettings->setHoverScaleEnabled(false);
-  m_btnAndroidToolbarSettings->setStyleSheet(
-      "QToolButton { background: transparent; border: none; padding: 0; }"
-      "QToolButton:hover { background: transparent; }"
-      "QToolButton:pressed { background: transparent; }");
-  m_btnAndroidToolbarSettings->hide();
-  connect(m_btnAndroidToolbarSettings, &QAbstractButton::clicked, this,
-          &MainWindow::onToggleRightSidebar);
-  headerLay->addWidget(m_btnAndroidToolbarSettings, 0, Qt::AlignVCenter);
-
 #ifdef Q_OS_ANDROID
   // Page manager (only for A4 notes) - orange button.
   m_btnAndroidToolbarPageManager = new ModernButton(androidHeader);
@@ -2769,21 +2798,22 @@ void MainWindow::setupUi() {
   connect(m_btnAndroidToolbarPageManager, &QAbstractButton::clicked, this,
           &MainWindow::onTogglePageManager);
   headerLay->addWidget(m_btnAndroidToolbarPageManager, 0, Qt::AlignVCenter);
-#endif
-#ifdef Q_OS_ANDROID
-  // Put the export (3-dot) button next to the settings icon.
-  if (m_btnAndroidToolbarExport) {
-    m_btnAndroidToolbarExport->setHoverScaleEnabled(false);
-    m_btnAndroidToolbarExport->setStyleSheet(
-        "QToolButton { background: transparent; border: none; padding: 0; }"
-        "QToolButton:hover { background: transparent; }"
-        "QToolButton:pressed { background: transparent; }");
-    m_btnAndroidToolbarExport->setFixedSize(56, 32);
-    m_btnAndroidToolbarExport->setIconSize(QSize(56, 32));
-    m_btnAndroidToolbarExport->setIcon(
-        createModernIcon("more_pill", QColor("#C8CDDC")));
-    headerLay->addWidget(m_btnAndroidToolbarExport, 0, Qt::AlignVCenter);
-  }
+
+  m_btnAndroidToolbarExport = new ModernButton(androidHeader);
+  m_btnAndroidToolbarExport->setToolTip(QStringLiteral("Notiz-Menü"));
+  m_btnAndroidToolbarExport->setHoverScaleEnabled(false);
+  m_btnAndroidToolbarExport->setStyleSheet(
+      "QToolButton { background: transparent; border: none; padding: 0; }"
+      "QToolButton:hover { background: transparent; }"
+      "QToolButton:pressed { background: transparent; }");
+  m_btnAndroidToolbarExport->setFixedSize(56, 32);
+  m_btnAndroidToolbarExport->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarExport->setIcon(
+      createModernIcon("more_pill", QColor("#C8CDDC")));
+  m_btnAndroidToolbarExport->hide();
+  connect(m_btnAndroidToolbarExport, &QAbstractButton::clicked, this,
+          &MainWindow::onEditorNoteOverflowMenu);
+  headerLay->addWidget(m_btnAndroidToolbarExport, 0, Qt::AlignVCenter);
 #endif
 
   topBar->addWidget(androidHeader);
@@ -3061,8 +3091,29 @@ void MainWindow::setupUi() {
 #else
   QScroller::grabGesture(m_fileListView, QScroller::LeftMouseButtonGesture);
 #endif
+  // Dateien: ein Tap / ein Klick öffnet (Maus & Touch). Ordner: weiter Doppelklick,
+  // damit versehentliches „Reingehen“ seltener ist. Kurze Entprellung verhindert
+  // doppeltes Öffnen bei schnellem Doppelklick auf dieselbe Notiz.
+  connect(m_fileListView, &QListView::clicked, this,
+          [this](const QModelIndex &index) {
+            if (!m_fileModel || !index.isValid())
+              return;
+            if (m_fileModel->isDir(index))
+              return;
+            static QElapsedTimer debounce;
+            static QModelIndex lastIdx;
+            if (lastIdx == index && debounce.isValid() &&
+                debounce.elapsed() < 450)
+              return;
+            lastIdx = index;
+            debounce.restart();
+            onFileDoubleClicked(index);
+          });
   connect(m_fileListView, &QListView::doubleClicked, this,
-          &MainWindow::onFileDoubleClicked);
+          [this](const QModelIndex &index) {
+            if (m_fileModel && index.isValid() && m_fileModel->isDir(index))
+              onFileDoubleClicked(index);
+          });
   connect(m_fileListView, &FreeGridView::itemDropped, this,
           &MainWindow::onItemDropped);
   m_fileListView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -3197,10 +3248,8 @@ void MainWindow::setupUi() {
   });
   connect(topToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo);
   connect(topToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
-#ifdef Q_OS_ANDROID
   connect(topToolbar, &ModernToolbar::backToOverviewRequested, this,
           &MainWindow::onBackToOverview);
-#endif
 
   connect(topToolbar, &ModernToolbar::penConfigChanged,
           [this](QColor c, int w) {
@@ -3228,7 +3277,6 @@ void MainWindow::setupUi() {
   m_pageManager = new PageManager(m_editorCenterWidget);
 #endif
   m_pageManager->hide();
-  editorMainLayout->addWidget(m_rightSidebar);
 
   m_rightStack->addWidget(m_overviewContainer);
   m_rightStack->addWidget(m_editorContainer);
@@ -3618,6 +3666,10 @@ void MainWindow::applyAndroidTabStyles(int index) {
 
 void MainWindow::onModeChanged(int index) {
   const int mainStackIdx = (index <= 0) ? 0 : 1;
+
+  // Linke Notizen-Sidebar schließen, wenn wir zu Study/Web wechseln — sonst zwei „Sidebars“.
+  if (mainStackIdx != 0 && m_isSidebarOpen)
+    animateSidebar(false);
 
 #ifdef Q_OS_ANDROID
   // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
@@ -4387,30 +4439,47 @@ void MainWindow::updateOverviewBackButton() {
 }
 
 void MainWindow::setupRightSidebar() {
-  m_rightSidebar = new QWidget(this);
-  // Start fully collapsed; open only via explicit toggle.
-  m_rightSidebar->setMinimumWidth(0);
-  m_rightSidebar->setMaximumWidth(0);
-  m_rightSidebar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-  m_rightSidebar->setStyleSheet(
-      "background-color: #0D0B14; border-left: 1px solid #201E2E;");
-  m_rightSidebar->hide();
+  m_pageSettingsOverlay = new QWidget(m_editorCenterWidget);
+  m_pageSettingsOverlay->setObjectName(QStringLiteral("PageSettingsOverlay"));
+  m_pageSettingsOverlay->setAttribute(Qt::WA_StyledBackground, true);
+  m_pageSettingsOverlay->setStyleSheet(
+      QStringLiteral("QWidget#PageSettingsOverlay { background-color: rgba(8, 6, 18, "
+                     "210); }"));
+  m_pageSettingsOverlay->hide();
+  m_pageSettingsOverlay->installEventFilter(this);
 
-  QVBoxLayout *mainLayout = new QVBoxLayout(m_rightSidebar);
+  auto *outerLay = new QVBoxLayout(m_pageSettingsOverlay);
+  outerLay->setContentsMargins(24, 32, 24, 32);
+  outerLay->setSpacing(0);
+  outerLay->addStretch(1);
+  auto *midRow = new QHBoxLayout();
+  midRow->addStretch(1);
+
+  m_pageSettingsCard = new QWidget(m_pageSettingsOverlay);
+  m_pageSettingsCard->setObjectName(QStringLiteral("PageSettingsCard"));
+  m_pageSettingsCard->setFixedWidth(520);
+  m_pageSettingsCard->setMaximumHeight(800);
+  m_pageSettingsCard->setStyleSheet(
+      QStringLiteral("QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
+                     "border-radius: 18px; }")
+          .arg(UIStyles::PageBackground.name(),
+               QColor(124, 92, 252, 100).name(QColor::HexArgb)));
+
+  QVBoxLayout *mainLayout = new QVBoxLayout(m_pageSettingsCard);
   mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(0);
 
   // =========================================================================
-  // HEADER – Sidebar-Titel & Schließen-Button
+  // HEADER
   // =========================================================================
-  QWidget *headerWidget = new QWidget(m_rightSidebar);
+  QWidget *headerWidget = new QWidget(m_pageSettingsCard);
   headerWidget->setStyleSheet(
       "background: transparent;"
       "border-bottom: 1px solid rgba(255,255,255,0.07);");
   headerWidget->setFixedHeight(44);
   QHBoxLayout *header = new QHBoxLayout(headerWidget);
   header->setContentsMargins(16, 0, 8, 0);
-  QLabel *sidebarTitle = new QLabel("Einstellungen", headerWidget);
+  QLabel *sidebarTitle = new QLabel(QStringLiteral("Seite & Notiz"), headerWidget);
   sidebarTitle->setStyleSheet(
       "color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;"
       "background: transparent; border: none;");
@@ -4419,15 +4488,16 @@ void MainWindow::setupRightSidebar() {
   ModernButton *closeBtn = new ModernButton(headerWidget);
   closeBtn->setIcon(createModernIcon("close", QColor("#888")));
   closeBtn->setFixedSize(28, 28);
-  connect(closeBtn, &QAbstractButton::clicked, this,
-          &MainWindow::onToggleRightSidebar);
+  connect(closeBtn, &QAbstractButton::clicked, this, [this]() {
+    setPageSettingsOverlayVisible(false);
+  });
   header->addWidget(closeBtn);
   mainLayout->addWidget(headerWidget);
 
   // =========================================================================
   // NOTIZNAME
   // =========================================================================
-  m_lblActiveNote = new QLabel("", m_rightSidebar);
+  m_lblActiveNote = new QLabel("", m_pageSettingsCard);
   m_lblActiveNote->setStyleSheet(
       "color: rgba(255,255,255,0.80); font-size: 12px; font-weight: 600;"
       "padding: 12px 16px 8px 16px; background: transparent;");
@@ -4437,10 +4507,10 @@ void MainWindow::setupRightSidebar() {
   // =========================================================================
   // TAB WIDGET (Optionen vs Tags)
   // =========================================================================
-  QTabWidget *settingsTabs = new QTabWidget(m_rightSidebar);
+  QTabWidget *settingsTabs = new QTabWidget(m_pageSettingsCard);
   settingsTabs->setStyleSheet(
-      "QTabWidget::pane { border: none; border-top: 1px solid rgba(255,255,255,0.05); background: #0D0B14; }"
-      "QTabWidget > QWidget { background: #0D0B14; }"
+      "QTabWidget::pane { border: none; border-top: 1px solid rgba(255,255,255,0.05); background: #14121f; }"
+      "QTabWidget > QWidget { background: #14121f; }"
       "QTabBar::tab {"
       "  background: transparent;"
       "  color: rgba(255,255,255,0.45);"
@@ -4455,13 +4525,13 @@ void MainWindow::setupRightSidebar() {
       "QTabBar::tab:hover:!selected {"
       "  color: rgba(255,255,255,0.8);"
       "}");
-  mainLayout->addWidget(settingsTabs);
+  mainLayout->addWidget(settingsTabs, 1);
 
   // -------------------------------------------------------------------------
   // TAB 1: OPTIONEN (Formatierung, Input, Profile)
   // -------------------------------------------------------------------------
   QWidget *tabOptions = new QWidget();
-  tabOptions->setStyleSheet("background: #0D0B14;");
+  tabOptions->setStyleSheet("background: #14121f;");
   QVBoxLayout *optLayoutMain = new QVBoxLayout(tabOptions);
   optLayoutMain->setContentsMargins(0, 0, 0, 0);
 
@@ -4480,8 +4550,8 @@ void MainWindow::setupRightSidebar() {
   optLayout->setContentsMargins(16, 12, 16, 20);
   optLayout->setSpacing(15);
 
-  auto sectionLabel = [&](const QString &text) -> QLabel* {
-    QLabel *lbl = new QLabel(text, optContent);
+  auto sectionLabel = [&](const QString &text, QWidget *sectionParent) -> QLabel * {
+    QLabel *lbl = new QLabel(text, sectionParent);
     lbl->setStyleSheet(
         "color: rgba(255,255,255,0.40); font-size: 10px; font-weight: 700;"
         "letter-spacing: 0.5px; background: transparent;");
@@ -4489,7 +4559,7 @@ void MainWindow::setupRightSidebar() {
   };
 
   // --- Seiten-Optionen ---
-  optLayout->addWidget(sectionLabel("SEITE"));
+  optLayout->addWidget(sectionLabel(QStringLiteral("SEITE"), optContent));
 
   m_btnFormatInfinite = new QPushButton("Infinite");
   m_btnFormatInfinite->setCheckable(true);
@@ -4702,13 +4772,13 @@ void MainWindow::setupRightSidebar() {
   // TAB 2: TAGS & META
   // -------------------------------------------------------------------------
   QWidget *tabTags = new QWidget();
-  tabTags->setStyleSheet("background: #0D0B14;");
+  tabTags->setStyleSheet("background: #14121f;");
   QVBoxLayout *tagsLayoutMain = new QVBoxLayout(tabTags);
   tagsLayoutMain->setContentsMargins(16, 16, 16, 20);
   tagsLayoutMain->setSpacing(16);
 
   // Tags Section
-  tagsLayoutMain->addWidget(sectionLabel("QUICK-TAGS"));
+  tagsLayoutMain->addWidget(sectionLabel(QStringLiteral("QUICK-TAGS"), tabTags));
   
   m_tagsContainer = new QWidget(tabTags);
   m_tagsContainer->setStyleSheet("background: transparent;");
@@ -4756,7 +4826,7 @@ void MainWindow::setupRightSidebar() {
 
   // Meta Section
   tagsLayoutMain->addSpacing(12);
-  tagsLayoutMain->addWidget(sectionLabel("NOTIZ INFO"));
+  tagsLayoutMain->addWidget(sectionLabel(QStringLiteral("NOTIZ INFO"), tabTags));
 
   auto makeMetaRow = [&](const QString &label, const QString &value) -> QLabel* {
     QWidget *row = new QWidget(tabTags);
@@ -4778,6 +4848,11 @@ void MainWindow::setupRightSidebar() {
 
   tagsLayoutMain->addStretch();
   settingsTabs->addTab(tabTags, "Tags");
+
+  midRow->addWidget(m_pageSettingsCard, 0, Qt::AlignHCenter | Qt::AlignVCenter);
+  midRow->addStretch(1);
+  outerLay->addLayout(midRow);
+  outerLay->addStretch(1);
 }
 
 void MainWindow::updateInputMode(bool penOnly) {
@@ -4924,18 +4999,35 @@ void MainWindow::updateSidebarState() {
     m_editorTitleControls->setVisible(isEditor);
   }
 #ifndef Q_OS_ANDROID
+  // Modus (Notizen / Study / …) immer sichtbar — auch in der Notiz, damit man wechseln kann.
   if (m_btnMode)
-    m_btnMode->setVisible(!isEditor);
+    m_btnMode->setVisible(true);
+  // „+“ für Web-Lesezeichen: in Study und in der Notiz-Übersicht, nicht während des Schreibens.
   if (m_btnAddWebBookmark)
-    m_btnAddWebBookmark->setVisible(!isEditor);
+    m_btnAddWebBookmark->setVisible((inNotesMode && !isEditor) || !inNotesMode);
   if (m_noteTabsChrome)
     m_noteTabsChrome->setVisible(inNotesMode);
   if (m_titleSearchBar)
     m_titleSearchBar->setVisible(inNotesMode);
-  if (btnEditorSettings)
-    btnEditorSettings->setVisible(inNotesMode);
-  if (m_btnPages)
-    m_btnPages->setVisible(isEditor);
+  {
+    bool showNoteOverflow = false;
+    if (isEditor && m_editorTabs) {
+      if (qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+        showNoteOverflow = true;
+    }
+    if (m_btnEditorNoteOverflow)
+      m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
+    bool showPageManagerBtn = false;
+    if (isEditor && m_editorTabs) {
+      if (auto *editor =
+              qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+        if (editor->view())
+          showPageManagerBtn = true;
+      }
+    }
+    if (m_btnTitleBarPageManager)
+      m_btnTitleBarPageManager->setVisible(inNotesMode && showPageManagerBtn);
+  }
 #endif
   
   if (m_isSidebarOpen) {
@@ -4959,8 +5051,6 @@ void MainWindow::updateSidebarState() {
       btnEditorMenu->hide();
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
-    if (m_btnAndroidToolbarSettings)
-      m_btnAndroidToolbarSettings->show();
     bool showPageManager = false;
     if (m_editorTabs) {
       if (auto *editor =
@@ -4973,7 +5063,7 @@ void MainWindow::updateSidebarState() {
       m_btnAndroidToolbarPageManager->setVisible(showPageManager);
     }
     if (m_btnAndroidToolbarExport)
-      m_btnAndroidToolbarExport->show();
+      m_btnAndroidToolbarExport->setVisible(showPageManager);
     if (m_androidTopSearchBar)
       m_androidTopSearchBar->show();
 
@@ -4991,19 +5081,19 @@ void MainWindow::updateSidebarState() {
         a->setEasingCurve(QEasingCurve::OutBack);
         a->start(QAbstractAnimation::DeleteWhenStopped);
       };
-      animateScale(m_btnAndroidToolbarSettings);
-      animateScale(m_btnAndroidToolbarExport);
-      if (showPageManager)
+      if (showPageManager) {
+        animateScale(m_btnAndroidToolbarExport);
         animateScale(m_btnAndroidToolbarPageManager);
+      }
     }
   } else {
     m_sidebarStrip->show();
+    // Kein zweites Burger-Menü auf der Übersicht: Navigation nur über Top-Leiste + schmalen Strip.
     if (btnEditorMenu)
-      btnEditorMenu->show();
+      btnEditorMenu->hide();
+    // Ein Hamburger: in der Top-Leiste (nicht doppelt neben „Willkommen“).
     if (m_btnAndroidToolbarMenu)
-      m_btnAndroidToolbarMenu->hide();
-    if (m_btnAndroidToolbarSettings)
-      m_btnAndroidToolbarSettings->hide();
+      m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
     if (m_btnAndroidToolbarPageManager)
       m_btnAndroidToolbarPageManager->hide();
     if (m_btnAndroidToolbarExport)
@@ -5012,8 +5102,8 @@ void MainWindow::updateSidebarState() {
       m_androidTopSearchBar->clear();
       m_androidTopSearchBar->hide();
     }
-    if (m_rightSidebar && m_rightSidebar->isVisible())
-      animateRightSidebar(false);
+    if (m_pageSettingsOverlay && m_pageSettingsOverlay->isVisible())
+      setPageSettingsOverlayVisible(false);
   }
 #else
   if (isEditor) {
@@ -5021,7 +5111,9 @@ void MainWindow::updateSidebarState() {
     if (btnEditorMenu)
       btnEditorMenu->show();
   } else {
-    m_sidebarStrip->show();
+    // Übersicht: nur ein Hamburger — in overviewTopRow (btnOverviewMenu). Der schmale
+    // Strip links davon war redundant (zweites identisches Menü neben der Sidebar).
+    m_sidebarStrip->hide();
     if (btnEditorMenu)
       btnEditorMenu->hide();
   }
@@ -5030,79 +5122,84 @@ void MainWindow::updateSidebarState() {
   m_lastIsEditor = isEditor;
 }
 
-void MainWindow::animateRightSidebar(bool show) {
-  const int targetWidth = 280;
-  int start = show ? 0 : targetWidth;
-  int end = show ? targetWidth : 0;
-  m_rightSidebar->setMinimumWidth(0);
-  m_rightSidebar->setMaximumWidth(show ? 0 : targetWidth);
-  m_rightSidebar->setVisible(true);
-  QPropertyAnimation *anim =
-      new QPropertyAnimation(m_rightSidebar, "maximumWidth");
-  anim->setDuration(220);
-  anim->setStartValue(start);
-  anim->setEndValue(end);
-  anim->setEasingCurve(QEasingCurve::OutCubic);
-  connect(anim, &QPropertyAnimation::finished, [this, show]() {
-    if (!show)
-      m_rightSidebar->hide();
-    else
-      m_rightSidebar->setMaximumWidth(targetWidth);
-  });
-  anim->start(QAbstractAnimation::DeleteWhenStopped);
+void MainWindow::setPageSettingsOverlayVisible(bool show) {
+  if (!m_pageSettingsOverlay || !m_editorCenterWidget)
+    return;
+  if (show) {
+    m_pageSettingsOverlay->setGeometry(
+        0, 0, m_editorCenterWidget->width(), m_editorCenterWidget->height());
+    if (m_pageSettingsCard)
+      m_pageSettingsCard->setMaximumHeight(
+          qMax(200, m_editorCenterWidget->height() - 64));
+    syncPageSettingsPanelFromEditor();
+    m_pageSettingsOverlay->show();
+    m_pageSettingsOverlay->raise();
+  } else {
+    m_pageSettingsOverlay->hide();
+  }
 }
 
-void MainWindow::onToggleRightSidebar() {
-  bool isVisible = m_rightSidebar->isVisible() && m_rightSidebar->width() > 0;
-  animateRightSidebar(!isVisible);
-  if (!isVisible) {
-    QWidget *current = m_editorTabs->currentWidget();
-    CanvasView *cv = qobject_cast<CanvasView *>(current);
-    NoteEditor *editor = qobject_cast<NoteEditor *>(current);
-    if (cv) {
-      bool inf = cv->isInfinite();
-      m_btnFormatInfinite->setChecked(inf);
-      m_btnFormatA4->setChecked(!inf);
-      m_btnInputPen->setChecked(m_penOnlyMode);
-      m_btnInputTouch->setChecked(!m_penOnlyMode);
-      bool isDark = (cv->pageColor() == UIStyles::SceneBackground);
-      m_btnColorDark->setChecked(isDark);
-      m_btnColorWhite->setChecked(!isDark);
-      int styleId = (int)cv->pageStyle();
-      QAbstractButton *styleBtn = m_grpPageStyle->button(styleId);
-      if (styleBtn)
-        styleBtn->setChecked(true);
-      m_sliderGridSpacing->blockSignals(true);
-      m_sliderGridSpacing->setValue(cv->gridSize());
-      m_sliderGridSpacing->blockSignals(false);
-    } else if (editor) {
-      m_btnFormatInfinite->setChecked(false);
-      m_btnFormatA4->setChecked(true);
-      m_btnInputPen->setChecked(m_penOnlyMode);
-      m_btnInputTouch->setChecked(!m_penOnlyMode);
-    }
-    ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
-    if (tb) {
-      if (tb->currentStyle() == ModernToolbar::Normal) {
-        m_comboToolbarStyle->setCurrentIndex(0);
-      } else {
-        if (tb->radialType() == ModernToolbar::FullCircle)
-          m_comboToolbarStyle->setCurrentIndex(1);
-        else
-          m_comboToolbarStyle->setCurrentIndex(2);
-      }
-      if (m_sliderToolbarScale)
-        m_sliderToolbarScale->setValue(tb->scale() * 100);
-    }
+void MainWindow::syncPageSettingsPanelFromEditor() {
+  if (!m_editorTabs)
+    return;
+  QWidget *current = m_editorTabs->currentWidget();
+  CanvasView *cv = qobject_cast<CanvasView *>(current);
+  NoteEditor *editor = qobject_cast<NoteEditor *>(current);
+  if (cv) {
+    bool inf = cv->isInfinite();
+    m_btnFormatInfinite->setChecked(inf);
+    m_btnFormatA4->setChecked(!inf);
+    m_btnInputPen->setChecked(m_penOnlyMode);
+    m_btnInputTouch->setChecked(!m_penOnlyMode);
+    bool isDark = (cv->pageColor() == UIStyles::SceneBackground);
+    m_btnColorDark->setChecked(isDark);
+    m_btnColorWhite->setChecked(!isDark);
+    int styleId = (int)cv->pageStyle();
+    QAbstractButton *styleBtn = m_grpPageStyle->button(styleId);
+    if (styleBtn)
+      styleBtn->setChecked(true);
+    m_sliderGridSpacing->blockSignals(true);
+    m_sliderGridSpacing->setValue(cv->gridSize());
+    m_sliderGridSpacing->blockSignals(false);
+  } else if (editor) {
+    m_btnFormatInfinite->setChecked(false);
+    m_btnFormatA4->setChecked(true);
+    m_btnInputPen->setChecked(m_penOnlyMode);
+    m_btnInputTouch->setChecked(!m_penOnlyMode);
   }
+  ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
+  if (tb) {
+    if (tb->currentStyle() == ModernToolbar::Normal) {
+      m_comboToolbarStyle->setCurrentIndex(0);
+    } else {
+      if (tb->radialType() == ModernToolbar::FullCircle)
+        m_comboToolbarStyle->setCurrentIndex(1);
+      else
+        m_comboToolbarStyle->setCurrentIndex(2);
+    }
+    if (m_sliderToolbarScale)
+      m_sliderToolbarScale->setValue(tb->scale() * 100);
+  }
+}
+
+void MainWindow::onEditorNoteOverflowMenu() {
+  if (!m_editorTabs)
+    return;
+  auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget());
+  if (!editor)
+    return;
+#ifdef Q_OS_ANDROID
+  QWidget *anchor = m_btnAndroidToolbarExport;
+#else
+  QWidget *anchor = m_btnEditorNoteOverflow;
+#endif
+  editor->showOverflowMenuFromAnchor(anchor);
 }
 
 void MainWindow::onTogglePageManager() {
   if (m_pageManager->isVisible()) {
     m_pageManager->hide();
   } else {
-    m_pageManager->resize(240, m_editorCenterWidget->height());
-    m_pageManager->move(m_editorCenterWidget->width() - 240, 0);
     m_pageManager->raise();
     QWidget *current = m_editorTabs->currentWidget();
     MultiPageNoteView *mpv = nullptr;
@@ -5114,7 +5211,9 @@ void MainWindow::onTogglePageManager() {
     if (mpv) {
       m_pageManager->setNoteView(mpv);
       connect(m_pageManager, &PageManager::pageSelected, mpv,
-              &MultiPageNoteView::scrollToPage);
+              &MultiPageNoteView::scrollToPage, Qt::UniqueConnection);
+      QObject::disconnect(m_pageManager, &PageManager::pageOrderChanged, nullptr,
+                          nullptr);
       connect(m_pageManager, &PageManager::pageOrderChanged, [mpv, this]() {
         if (mpv->onSaveRequested && mpv->note())
           mpv->onSaveRequested(mpv->note());
@@ -5271,6 +5370,12 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
           editor->onSaveRequested = [path](Note *n) {
             NoteManager::saveNote(*n, path);
           };
+          editor->onOpenNoteOptionsRequested = [this]() {
+            if (!m_pageSettingsOverlay)
+              return;
+            if (!m_pageSettingsOverlay->isVisible())
+              setPageSettingsOverlayVisible(true);
+          };
           m_editorTabs->addTab(editor, fileName);
           m_editorTabs->setCurrentWidget(editor);
           addNoteTab(QFileInfo(fileName).baseName());
@@ -5370,8 +5475,9 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     }
   }
   if (m_pageManager && m_pageManager->isVisible()) {
-    m_pageManager->resize(240, m_editorCenterWidget->height());
-    m_pageManager->move(m_editorCenterWidget->width() - 240, 0);
+    if (QWidget *pw = m_pageManager->parentWidget()) {
+      m_pageManager->setGeometry(0, 0, pw->width(), pw->height());
+    }
   }
 }
 
@@ -5616,23 +5722,15 @@ void MainWindow::onTabChanged(int index) {
     }
   }
 
-  // Sidebar verbergen, wenn keine Notiz geöffnet ist
-  if (index < 0 && m_rightSidebar && m_rightSidebar->isVisible()) {
-    m_rightSidebar->hide();
-    m_rightSidebar->setMinimumWidth(0);
-    m_rightSidebar->setMaximumWidth(0);
-  }
+  // Seiten-Overlay schließen, wenn keine Notiz geöffnet ist
+  if (index < 0 && m_pageSettingsOverlay && m_pageSettingsOverlay->isVisible())
+    setPageSettingsOverlayVisible(false);
 
 #ifdef Q_OS_ANDROID
-  // Keep Android editor clean by default; user opens settings explicitly.
-  if (m_rightSidebar && m_rightSidebar->isVisible()) {
-    animateRightSidebar(false);
-  }
+  if (m_pageSettingsOverlay && m_pageSettingsOverlay->isVisible())
+    setPageSettingsOverlayVisible(false);
 #endif
 
-  if (m_btnPages) {
-    m_btnPages->setVisible(editor != nullptr);
-  }
   if (editor == nullptr && m_pageManager && m_pageManager->isVisible()) {
     m_pageManager->hide();
   }
@@ -5662,52 +5760,6 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   settings.setValue("geometry", saveGeometry());
   settings.setValue("windowState", saveState());
   QMainWindow::closeEvent(event);
-}
-
-void MainWindow::onShareClicked() {
-  CanvasView *cv = getCurrentCanvas();
-  if (!cv) {
-    QMessageBox::information(this, "Export", "Bitte öffne zuerst eine Notiz.");
-    return;
-  }
-
-  QMenu menu(this);
-  menu.setStyleSheet(
-      "QMenu { background: #1E1E1E; border: 1px solid #444; border-radius: 6px; padding: 4px; }"
-      "QMenu::item { color: #DDD; padding: 8px 16px; border-radius: 4px; font-weight: 500; font-size: 13px; }"
-      "QMenu::item:selected { background: #5E5CE6; color: white; }");
-
-  QAction *actPdf = menu.addAction(" Als PDF exportieren");
-  QAction *actImg = menu.addAction(" Als Bild exportieren");
-
-  QPoint showPos = QCursor::pos();
-  if (m_btnPages) {
-    showPos = m_btnPages->mapToGlobal(QPoint(0, m_btnPages->height() + 4));
-  }
-
-  QAction *selected = menu.exec(showPos);
-  if (!selected) return;
-
-  QString defaultName = "Neue Notiz";
-  if (m_lblActiveNote && !m_lblActiveNote->text().isEmpty()) {
-    defaultName = m_lblActiveNote->text();
-  }
-
-  if (selected == actPdf) {
-    QString path = QFileDialog::getSaveFileName(this, "Als PDF exportieren", defaultName + ".pdf", "PDF Dokument (*.pdf)");
-    if (!path.isEmpty()) {
-      bool ok = cv->exportToPDF(path);
-      if (ok) QMessageBox::information(this, "Erfolg", "Erfolgreich als PDF exportiert!");
-      else QMessageBox::warning(this, "Fehler", "PDF konnte nicht gespeichert werden.");
-    }
-  } else if (selected == actImg) {
-    QString path = QFileDialog::getSaveFileName(this, "Als Bild exportieren", defaultName + ".png", "Bilder (*.png *.jpg)");
-    if (!path.isEmpty()) {
-      bool ok = cv->exportToImage(path);
-      if (ok) QMessageBox::information(this, "Erfolg", "Erfolgreich als Bild exportiert!");
-      else QMessageBox::warning(this, "Fehler", "Bild konnte nicht gespeichert werden.");
-    }
-  }
 }
 
 void MainWindow::showAuthOverlay(const QUrl &url) {

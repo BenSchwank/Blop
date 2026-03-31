@@ -20,6 +20,10 @@ struct NotePage {
     QString title;        // Seitenname
     QVector<Stroke> strokes;
     QImage backgroundImage; // PDF-Import: Hintergrundbild (leer = nicht gesetzt)
+    /// PageBackgroundType als int (0 Blank … 4 Legal); Standard = Grid (2)
+    int backgroundType{2};
+    /// Papierfarbe (Linien/Karo passen sich automatisch an)
+    QColor paperColor{Qt::white};
 };
 
 struct Note {

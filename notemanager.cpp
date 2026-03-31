@@ -1,5 +1,6 @@
 #include "notemanager.h"
 #include "util/Async.h"
+#include <QBuffer>
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonArray>
@@ -73,6 +74,16 @@ QJsonDocument NoteManager::toJson(const Note &note) {
     }
     QJsonObject pageObj;
     pageObj["strokes"] = strokesArr;
+    pageObj["bg"] = p.backgroundType;
+    if (p.paperColor.isValid())
+      pageObj["paper"] = p.paperColor.name(QColor::HexRgb);
+    if (!p.backgroundImage.isNull()) {
+      QByteArray bytes;
+      QBuffer buf(&bytes);
+      if (buf.open(QIODevice::WriteOnly) &&
+          p.backgroundImage.save(&buf, "PNG"))
+        pageObj["bgImg"] = QString::fromLatin1(bytes.toBase64());
+    }
     pagesArr.append(pageObj);
   }
   root["pages"] = pagesArr;
@@ -90,6 +101,21 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
   out.pages.resize(pagesArr.size());
   for (int i = 0; i < pagesArr.size(); ++i) {
     auto pageObj = pagesArr[i].toObject();
+    out.pages[i].backgroundType = pageObj.value("bg").toInt(2);
+    {
+      const QString pc = pageObj.value("paper").toString();
+      if (!pc.isEmpty()) {
+        QColor c(pc);
+        if (c.isValid())
+          out.pages[i].paperColor = c;
+      }
+    }
+    if (pageObj.contains("bgImg")) {
+      QByteArray raw =
+          QByteArray::fromBase64(pageObj.value("bgImg").toString().toLatin1());
+      if (!raw.isEmpty())
+        out.pages[i].backgroundImage.loadFromData(raw, "PNG");
+    }
     auto strokesArr = pageObj.value("strokes").toArray();
     for (const auto &sv : strokesArr) {
       auto so = sv.toObject();

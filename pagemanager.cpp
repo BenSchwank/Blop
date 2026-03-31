@@ -1,16 +1,28 @@
 #include "pagemanager.h"
-#include "UIStyles.h"
+#include <QAbstractItemModel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPainter>
 #include <QScroller>
-#include <QGraphicsDropShadowEffect>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QInputDialog>
-#include <QMessageBox>
-#include <QApplication>
 #include <QEvent>
+#include <QKeyEvent>
+#include <QShowEvent>
+#include <QListWidgetItem>
+
+namespace {
+constexpr int kPanelWidth = 320;
+
+// Aligned with MultiPageNoteView #PagesBarStrip — modern neutral + accent
+static const QColor kCardIdle(52, 54, 64, 249);
+static const QColor kCardSelected(62, 64, 78, 252);
+static const QColor kBorderSubtle(110, 115, 140, 102);
+static const QColor kAccent(107, 163, 245);
+static const QColor kTextPrimary(220, 222, 232, 242);
+static const QColor kTextMuted(160, 165, 185);
+} // namespace
 
 // ============================================================================
 // PageListDelegate
@@ -19,11 +31,13 @@
 PageListDelegate::PageListDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
 
 QSize PageListDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const {
+    Q_UNUSED(index);
     return QSize(option.rect.width(), 120);
 }
 
 static QRect getMenuButtonRect(const QRect& itemRect) {
-    return QRect(itemRect.right() - 35, itemRect.top() + 10, 30, 30);
+    const int side = 44;
+    return QRect(itemRect.right() - side - 6, itemRect.top() + 6, side, side);
 }
 
 void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const {
@@ -32,24 +46,23 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     QRect cardRect = option.rect.adjusted(10, 5, -10, -5);
 
-    QColor bgColor("#252526");
+    QColor bgColor = kCardIdle;
     if (option.state & QStyle::State_Selected) {
-        bgColor = QColor("#2D2D30");
-        painter->setPen(QPen(QColor("#5E5CE6"), 2));
+        bgColor = kCardSelected;
+        painter->setPen(QPen(kAccent, 2));
     } else {
-        painter->setPen(Qt::NoPen);
+        painter->setPen(QPen(QColor(kBorderSubtle.red(), kBorderSubtle.green(), kBorderSubtle.blue(), 90), 1));
     }
     painter->setBrush(bgColor);
-    painter->drawRoundedRect(cardRect, 12, 12);
+    painter->drawRoundedRect(cardRect, 14, 14);
 
-    // Thumbnail
     int thumbW = 60;
     int thumbH = 80;
-    QRect thumbRect(cardRect.left() + 15, cardRect.center().y() - thumbH/2, thumbW, thumbH);
+    QRect thumbRect(cardRect.left() + 14, cardRect.center().y() - thumbH / 2, thumbW, thumbH);
 
     painter->setPen(Qt::NoPen);
-    painter->setBrush(Qt::white);
-    painter->drawRoundedRect(thumbRect, 4, 4);
+    painter->setBrush(QColor(28, 30, 40));
+    painter->drawRoundedRect(thumbRect, 6, 6);
 
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
     QPixmap thumb = icon.pixmap(120, 160);
@@ -57,15 +70,14 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->drawPixmap(thumbRect, thumb.scaled(thumbRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     }
 
-    // Text
-    int textLeft = thumbRect.right() + 15;
-    int textRight = cardRect.right() - 40;
+    int textLeft = thumbRect.right() + 14;
+    int textRight = cardRect.right() - 44;
 
     QString title = index.data(Qt::UserRole + 1).toString();
     if (title.isEmpty()) title = index.data(Qt::DisplayRole).toString();
 
     QRect titleRect(textLeft, thumbRect.top() + 5, textRight - textLeft, 25);
-    painter->setPen(Qt::white);
+    painter->setPen(QColor(kTextPrimary.red(), kTextPrimary.green(), kTextPrimary.blue()));
     QFont titleFont = painter->font();
     titleFont.setBold(true);
     titleFont.setPointSize(11);
@@ -74,23 +86,25 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     QString subTitle = index.data(Qt::DisplayRole).toString();
     QRect subRect(textLeft, titleRect.bottom() + 2, textRight - textLeft, 20);
-    painter->setPen(QColor("#888"));
+    painter->setPen(kTextMuted);
     QFont subFont = painter->font();
     subFont.setBold(false);
     subFont.setPointSize(9);
     painter->setFont(subFont);
     painter->drawText(subRect, Qt::AlignLeft | Qt::AlignVCenter, subTitle);
 
-    // Menü Punkte
     QRect menuRect = getMenuButtonRect(cardRect);
-    painter->setBrush(Qt::white);
+    painter->setBrush(QColor(255, 255, 255, 38));
     painter->setPen(Qt::NoPen);
-    int dotSize = 4;
-    int cx = menuRect.center().x();
-    int cy = menuRect.center().y();
-    painter->drawEllipse(QPoint(cx - 6, cy), dotSize/2, dotSize/2);
-    painter->drawEllipse(QPoint(cx, cy), dotSize/2, dotSize/2);
-    painter->drawEllipse(QPoint(cx + 6, cy), dotSize/2, dotSize/2);
+    painter->drawRoundedRect(menuRect, 10, 10);
+    const qreal cx = menuRect.center().x();
+    const qreal cy = menuRect.center().y();
+    const qreal dotR = 3.5;
+    const qreal gap = 8.0;
+    painter->setBrush(QColor(kTextPrimary.red(), kTextPrimary.green(), kTextPrimary.blue()));
+    painter->drawEllipse(QPointF(cx - gap, cy), dotR, dotR);
+    painter->drawEllipse(QPointF(cx, cy), dotR, dotR);
+    painter->drawEllipse(QPointF(cx + gap, cy), dotR, dotR);
 
     painter->restore();
 }
@@ -108,135 +122,172 @@ bool PageListDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, con
 }
 
 // ============================================================================
-// PageManager Dialog
+// PageManager overlay (in-editor, not a separate window)
 // ============================================================================
 
-PageManager::PageManager(QWidget* parent) : QDialog(parent) {
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
+PageManager::PageManager(QWidget* parent) : QWidget(parent) {
+    setWindowFlags(Qt::Widget);
     setAttribute(Qt::WA_TranslucentBackground);
-
-    setFixedWidth(320);
-
-    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(this);
-    shadow->setBlurRadius(40);
-    shadow->setOffset(-5, 0);
-    shadow->setColor(QColor(0, 0, 0, 150));
-    setGraphicsEffect(shadow);
+    setFocusPolicy(Qt::StrongFocus);
+    hide();
 
     setupUi();
 
-    // Parent Resize überwachen, um Position zu halten
-    if (parent) parent->installEventFilter(this);
+    if (parent)
+        parent->installEventFilter(this);
 }
 
 void PageManager::setupUi() {
-    QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    auto *root = new QHBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QWidget* container = new QWidget(this);
-    container->setStyleSheet("background-color: #1E1E1E; border-left: 1px solid #333;");
-    layout->addWidget(container);
+    m_scrim = new QPushButton(this);
+    m_scrim->setFlat(true);
+    m_scrim->setCursor(Qt::PointingHandCursor);
+    m_scrim->setFocusPolicy(Qt::NoFocus);
+    m_scrim->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_scrim->setStyleSheet(
+        "QPushButton { background-color: rgba(12, 14, 22, 0.52); border: none; }"
+        "QPushButton:hover { background-color: rgba(12, 14, 22, 0.58); }");
+    connect(m_scrim, &QPushButton::clicked, this, &QWidget::hide);
 
-    QVBoxLayout* contentLay = new QVBoxLayout(container);
+    m_panel = new QWidget(this);
+    m_panel->setFixedWidth(kPanelWidth);
+    m_panel->setObjectName(QStringLiteral("PageManagerPanel"));
+    m_panel->setStyleSheet(
+        "#PageManagerPanel {"
+        "  background-color: rgba(30, 32, 44, 0.98);"
+        "  border-left: 1px solid rgba(120, 130, 160, 0.22);"
+        "  border-top-left-radius: 16px;"
+        "  border-bottom-left-radius: 16px;"
+        "}");
+
+    auto *contentLay = new QVBoxLayout(m_panel);
     contentLay->setContentsMargins(0, 0, 0, 0);
     contentLay->setSpacing(0);
 
-    // Header
-    QWidget* header = new QWidget(container);
-    header->setFixedHeight(60);
-    header->setStyleSheet("border-bottom: 1px solid #333;");
-    QHBoxLayout* headLay = new QHBoxLayout(header);
-    headLay->setContentsMargins(20, 0, 15, 0);
+    auto *header = new QWidget(m_panel);
+    header->setFixedHeight(72);
+    header->setStyleSheet("background: transparent; border-bottom: 1px solid rgba(120, 130, 160, 0.18);");
+    auto *headLay = new QVBoxLayout(header);
+    headLay->setContentsMargins(20, 14, 16, 12);
+    headLay->setSpacing(2);
 
-    m_lblTitle = new QLabel("Page Manager", header);
-    m_lblTitle->setStyleSheet("color: white; font-weight: bold; font-size: 18px;");
+    auto *titleRow = new QHBoxLayout();
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(8);
 
-    m_btnClose = new QPushButton("✕", header);
-    m_btnClose->setFixedSize(30, 30);
+    m_lblTitle = new QLabel(QStringLiteral("Seiten"), header);
+    m_lblTitle->setStyleSheet(
+        "color: rgba(235, 237, 245, 0.98); font-weight: 700; font-size: 17px; letter-spacing: 0.2px;");
+
+    m_btnClose = new QPushButton(QStringLiteral("✕"), header);
+    m_btnClose->setFixedSize(36, 36);
     m_btnClose->setCursor(Qt::PointingHandCursor);
-    m_btnClose->setStyleSheet("QPushButton { color: #AAA; border: none; font-size: 16px; } QPushButton:hover { color: white; background: #333; border-radius: 15px; }");
-    connect(m_btnClose, &QPushButton::clicked, this, &QDialog::accept);
+    m_btnClose->setFocusPolicy(Qt::NoFocus);
+    m_btnClose->setStyleSheet(
+        "QPushButton { color: rgba(200, 205, 220, 0.9); border: none; font-size: 16px; "
+        "border-radius: 10px; background: rgba(255,255,255,0.04); }"
+        "QPushButton:hover { color: #fff; background: rgba(255,255,255,0.10); }");
+    connect(m_btnClose, &QPushButton::clicked, this, &QWidget::hide);
 
-    headLay->addWidget(m_lblTitle);
-    headLay->addStretch();
-    headLay->addWidget(m_btnClose);
+    titleRow->addWidget(m_lblTitle, 1);
+    titleRow->addWidget(m_btnClose, 0, Qt::AlignTop);
+
+    m_lblSubtitle = new QLabel(QStringLiteral("Reihenfolge per Drag & Drop"), header);
+    m_lblSubtitle->setStyleSheet("color: rgba(160, 168, 190, 0.85); font-size: 11px;");
+
+    headLay->addLayout(titleRow);
+    headLay->addWidget(m_lblSubtitle);
     contentLay->addWidget(header);
 
-    // Liste
-    m_listWidget = new QListWidget(container);
+    m_listWidget = new QListWidget(m_panel);
     m_listWidget->setFrameShape(QFrame::NoFrame);
-    m_listWidget->setStyleSheet("QListWidget { background: transparent; border: none; outline: 0; }");
+    m_listWidget->setStyleSheet(
+        "QListWidget { background: transparent; border: none; outline: 0; }"
+        "QListWidget::item { background: transparent; }");
     m_listWidget->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_listWidget->setSpacing(0);
 
-    PageListDelegate* delegate = new PageListDelegate(this);
+    auto *delegate = new PageListDelegate(this);
     m_listWidget->setItemDelegate(delegate);
     connect(delegate, &PageListDelegate::menuRequested, this, &PageManager::showContextMenu);
+    connect(m_listWidget, &QListWidget::itemClicked, this, &PageManager::onListItemClicked);
 
     m_listWidget->setDragEnabled(true);
     m_listWidget->setAcceptDrops(true);
     m_listWidget->setDragDropMode(QAbstractItemView::InternalMove);
     m_listWidget->setDefaultDropAction(Qt::MoveAction);
 
+    connect(m_listWidget->model(), &QAbstractItemModel::rowsMoved, this, &PageManager::onRowMoved);
+
     QScroller::grabGesture(m_listWidget, QScroller::LeftMouseButtonGesture);
 
-    contentLay->addWidget(m_listWidget);
+    contentLay->addWidget(m_listWidget, 1);
 
-    // Footer Layout für FAB (Wiederhergestellt, damit Button sichtbar ist!)
-    QHBoxLayout* footerLay = new QHBoxLayout();
-    footerLay->setContentsMargins(0, 10, 20, 20); // Abstand rechts/unten
+    auto *footerLay = new QHBoxLayout();
+    footerLay->setContentsMargins(0, 8, 20, 20);
     footerLay->addStretch();
 
-    m_fabAdd = new QPushButton("+", container);
+    m_fabAdd = new QPushButton(QStringLiteral("＋"), m_panel);
     m_fabAdd->setFixedSize(56, 56);
     m_fabAdd->setCursor(Qt::PointingHandCursor);
+    m_fabAdd->setFocusPolicy(Qt::NoFocus);
     m_fabAdd->setStyleSheet(
-        "QPushButton { "
-        "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5E5CE6, stop:1 #7c7af0); "
-        "color: white; border-radius: 28px; font-size: 30px; border: none; padding-bottom: 4px;"
+        "QPushButton {"
+        "  background-color: rgba(58, 60, 72, 0.98);"
+        "  border: 1px solid rgba(120, 130, 160, 0.35);"
+        "  border-radius: 28px;"
+        "  color: #6BA3F5;"
+        "  font-size: 26px; font-weight: 600;"
+        "  padding-bottom: 2px;"
         "}"
-        "QPushButton:hover { background-color: #4b49c9; }"
-        );
-    QGraphicsDropShadowEffect* fabShadow = new QGraphicsDropShadowEffect(this);
-    fabShadow->setBlurRadius(20);
-    fabShadow->setColor(QColor(0,0,0,100));
-    fabShadow->setOffset(0, 4);
-    m_fabAdd->setGraphicsEffect(fabShadow);
-
+        "QPushButton:hover {"
+        "  background-color: rgba(68, 70, 86, 0.98);"
+        "  border-color: rgba(140, 150, 185, 0.5);"
+        "}");
     connect(m_fabAdd, &QPushButton::clicked, this, &PageManager::onAddPage);
 
     footerLay->addWidget(m_fabAdd);
     contentLay->addLayout(footerLay);
+
+    root->addWidget(m_scrim, 1);
+    root->addWidget(m_panel, 0);
 }
 
-// --- NEU: Automatische Positionierung am rechten Rand ---
-void PageManager::alignToRight() {
-    if (parentWidget()) {
-        // Globale Koordinate der rechten oberen Ecke des Parents
-        QPoint parentTopRight = parentWidget()->mapToGlobal(QPoint(parentWidget()->width(), 0));
-
-        int x = parentTopRight.x() - this->width();
-        int y = parentTopRight.y();
-        int h = parentWidget()->height();
-
-        // Positionieren und Größe anpassen
-        this->setGeometry(x, y, this->width(), h);
-    }
+void PageManager::fillParent() {
+    if (parentWidget())
+        setGeometry(0, 0, parentWidget()->width(), parentWidget()->height());
 }
 
 void PageManager::showEvent(QShowEvent* event) {
-    QDialog::showEvent(event);
-    alignToRight(); // Beim Anzeigen positionieren
+    QWidget::showEvent(event);
+    fillParent();
+    raise();
+    setFocus(Qt::PopupFocusReason);
+}
+
+void PageManager::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape) {
+        hide();
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 bool PageManager::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == parentWidget() && event->type() == QEvent::Resize) {
-        alignToRight(); // Mitbewegen wenn Parent Größe ändert
-    }
-    return QDialog::eventFilter(watched, event);
+    if (watched == parentWidget() && event->type() == QEvent::Resize)
+        fillParent();
+    return QWidget::eventFilter(watched, event);
 }
-// ---------------------------------------------------------
+
+void PageManager::onListItemClicked(QListWidgetItem* item) {
+    if (!item || !m_listWidget)
+        return;
+    emit pageSelected(m_listWidget->row(item));
+}
 
 void PageManager::setNoteView(MultiPageNoteView* view) {
     m_view = view;
@@ -244,20 +295,22 @@ void PageManager::setNoteView(MultiPageNoteView* view) {
 }
 
 void PageManager::refreshThumbnails() {
-    if (!m_view) return;
+    if (!m_view)
+        return;
     m_listWidget->clear();
     Note* note = m_view->note();
-    if (!note) return;
+    if (!note)
+        return;
 
     for (int i = 0; i < note->pages.size(); ++i) {
         QPixmap thumb = m_view->generateThumbnail(i, QSize(60, 80));
-        QListWidgetItem* item = new QListWidgetItem();
+        auto *item = new QListWidgetItem();
 
-        QString displayTitle = QString("Seite %1").arg(i + 1);
+        QString displayTitle = QStringLiteral("Seite %1").arg(i + 1);
         item->setText(displayTitle);
 
         QString realTitle = note->pages[i].title;
-        if(realTitle.isEmpty()) realTitle = displayTitle;
+        if (realTitle.isEmpty()) realTitle = displayTitle;
         item->setData(Qt::UserRole + 1, realTitle);
 
         item->setIcon(QIcon(thumb));
@@ -266,7 +319,7 @@ void PageManager::refreshThumbnails() {
 }
 
 void PageManager::onAddPage() {
-    if(!m_view || !m_view->note()) return;
+    if (!m_view || !m_view->note()) return;
     int idx = m_view->note()->pages.size();
     m_view->note()->ensurePage(idx);
     m_view->setNote(m_view->note());
@@ -286,29 +339,34 @@ void PageManager::onRowMoved(const QModelIndex&, int start, int, const QModelInd
 }
 
 void PageManager::showContextMenu(const QPoint& pos, int index) {
-    if(!m_view) return;
+    if (!m_view) return;
     QMenu menu(this);
-    menu.setStyleSheet("QMenu { background-color: #252526; color: white; border: 1px solid #444; border-radius: 8px; padding: 5px; } QMenu::item { padding: 8px 20px; border-radius: 4px; } QMenu::item:selected { background-color: #5E5CE6; }");
+    menu.setStyleSheet(
+        "QMenu { background-color: rgba(38, 40, 52, 0.98); color: rgba(235, 237, 245, 0.95); "
+        "border: 1px solid rgba(120, 130, 160, 0.35); border-radius: 12px; padding: 6px; font-size: 14px; } "
+        "QMenu::item { padding: 12px 28px; min-height: 22px; border-radius: 8px; } "
+        "QMenu::item:selected { background-color: rgba(107, 163, 245, 0.35); }");
 
-    QAction* ren = menu.addAction("Umbenennen");
-    QAction* dup = menu.addAction("Duplizieren");
+    QAction* ren = menu.addAction(QStringLiteral("Umbenennen"));
+    QAction* dup = menu.addAction(QStringLiteral("Duplizieren"));
     menu.addSeparator();
-    QAction* del = menu.addAction("Löschen");
+    QAction* del = menu.addAction(QStringLiteral("Löschen"));
 
     QAction* res = menu.exec(pos);
-    if(res == ren) {
+    if (res == ren) {
         QString oldName = m_view->note()->pages[index].title;
         bool ok;
-        QString newName = QInputDialog::getText(this, "Seite umbenennen", "Name:", QLineEdit::Normal, oldName, &ok);
-        if(ok && !newName.isEmpty()) {
+        QString newName = QInputDialog::getText(this, QStringLiteral("Seite umbenennen"), QStringLiteral("Name:"),
+                                                   QLineEdit::Normal, oldName, &ok);
+        if (ok && !newName.isEmpty()) {
             m_view->note()->pages[index].title = newName;
             refreshThumbnails();
         }
-    } else if(res == dup) {
+    } else if (res == dup) {
         m_view->duplicatePage(index);
         refreshThumbnails();
-    } else if(res == del) {
-        if(m_view->note()->pages.size() > 1) {
+    } else if (res == del) {
+        if (m_view->note()->pages.size() > 1) {
             m_view->deletePage(index);
             refreshThumbnails();
         }

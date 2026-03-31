@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -19,6 +19,26 @@ interface FileData {
     type: string;
     created_at: string;
     content?: unknown;
+    file_url?: string;
+}
+
+function openYoutubeVideoInNewTab(videoId: string) {
+    window.open(
+        `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+        "_blank",
+        "noopener,noreferrer"
+    );
+}
+
+/** YouTube imports are saved with display name `YouTube: {videoId}` (see backend main.py). */
+function youtubeVideoIdFromTranscriptFile(file: Pick<FileData, "name" | "type">): string | null {
+    if (file.type !== "transcript") return null;
+    const name = (file.name || "").trim();
+    const colon = /^YouTube:\s*([a-zA-Z0-9_-]{11})\s*$/i.exec(name);
+    if (colon) return colon[1];
+    const underscored = /^YouTube_([a-zA-Z0-9_-]{11})(?:\.txt)?$/i.exec(name);
+    if (underscored) return underscored[1];
+    return null;
 }
 
 interface QuizQuestion {
@@ -49,6 +69,13 @@ interface FlashcardRow {
     back: string;
 }
 
+interface DocumentPatch {
+    patch_description: string;
+    apply_mode: 'append' | 'replace_section';
+    section_hint?: string;
+    new_text: string;
+}
+
 /** Keys used in isGenerating + API paths for quiz/flashcards/plan */
 const AI_JOB_LABELS: Record<string, string> = {
     plan: 'Lernplan',
@@ -69,6 +96,7 @@ type DraggableFileProps = {
     setRenameFileValue: React.Dispatch<React.SetStateAction<string>>;
     setIsRenameFileOpen: React.Dispatch<React.SetStateAction<boolean>>;
     handleDelete: (file: FileData) => void;
+    onRefineFile: (file: FileData) => void;
 };
 
 // Sub-component for interactive Quiz viewing
@@ -153,7 +181,7 @@ const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: SubfolderRow, o
 };
 
 // Draggable File Wrapper
-const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete }: DraggableFileProps) => {
+const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile }: DraggableFileProps) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `drag-${file.id}`,
         data: { type: 'file', file }
@@ -170,6 +198,10 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
             {...attributes}
             {...listeners}
             onClick={() => { if (!openMenuFileId) setSelectedFile(file); }}
+            onContextMenu={(e) => {
+                e.preventDefault();
+                setOpenMenuFileId(openMenuFileId === file.id ? null : file.id);
+            }}
             className={`bg-[#151525] hover:bg-[#1C1C33] border border-[#2A2A40] p-4 rounded-xl flex items-center justify-between group transition-colors cursor-pointer relative ${isDragging ? 'z-50 shadow-2xl border-[#5E5CE6]' : ''}`}
         >
             <div className="flex items-center gap-4">
@@ -207,6 +239,24 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                             Öffnen
                         </button>
 
+                        {youtubeVideoIdFromTranscriptFile(file) && (
+                            <>
+                                <div className="h-px bg-[#1C1C33]" />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const vid = youtubeVideoIdFromTranscriptFile(file);
+                                        setOpenMenuFileId(null);
+                                        if (vid) openYoutubeVideoInNewTab(vid);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                >
+                                    <ExternalLink size={15} />
+                                    Video auf YouTube öffnen
+                                </button>
+                            </>
+                        )}
+
                         {file.type !== 'pdf' && (
                             <>
                                 <div className="h-px bg-[#1C1C33]" />
@@ -221,6 +271,22 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                 >
                                     <Edit size={15} />
                                     Umbenennen
+                                </button>
+                            </>
+                        )}
+
+                        {(file.type === 'summary' || file.type === 'repetition' || file.type === 'elaboration') && (
+                            <>
+                                <div className="h-px bg-[#1C1C33]" />
+                                <button
+                                    onClick={() => {
+                                        onRefineFile(file);
+                                        setOpenMenuFileId(null);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                >
+                                    <Edit size={15} />
+                                    Mit Prompt anpassen
                                 </button>
                             </>
                         )}
@@ -261,7 +327,7 @@ export default function FolderPage() {
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingTime, setRecordingTime] = useState(0);
-    const audioTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const audioTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
     // AI Generation States (parallel: each job type may run once at a time; different types in parallel)
@@ -354,6 +420,11 @@ export default function FolderPage() {
     const [isElaborationConfigOpen, setIsElaborationConfigOpen] = useState(false);
     const [elaborationDetailLevel, setElaborationDetailLevel] = useState('Normal');
     const [elaborationRules, setElaborationRules] = useState('');
+    const [isRefineModalOpen, setIsRefineModalOpen] = useState(false);
+    const [fileToRefine, setFileToRefine] = useState<FileData | null>(null);
+    const [refinePrompt, setRefinePrompt] = useState('');
+    const [refineSaveMode, setRefineSaveMode] = useState<'new_file' | 'replace'>('new_file');
+    const [isRefining, setIsRefining] = useState(false);
 
     // Repetition (Wiederholung) Config Modal State
     const [isRepetitionConfigOpen, setIsRepetitionConfigOpen] = useState(false);
@@ -407,6 +478,7 @@ export default function FolderPage() {
 
     // Viewer State
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+    const [documentUndoStack, setDocumentUndoStack] = useState<Record<string, string[]>>({});
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
 
     const API_BASE = '/api';
@@ -1138,6 +1210,128 @@ export default function FolderPage() {
         }
     };
 
+    const persistFileContent = async (fileId: string, newContent: string) => {
+        const username = localStorage.getItem("username");
+        const res = await fetch(`${API_BASE}/files/update`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username,
+                folder_id: folderId,
+                file_id: fileId,
+                content: newContent
+            })
+        });
+        if (!res.ok) {
+            let detail = 'Unbekannt';
+            try {
+                const err = await res.json();
+                detail = err.detail || detail;
+            } catch {
+                // ignored
+            }
+            throw new Error(`Fehler beim Speichern: ${detail}`);
+        }
+    };
+
+    const applyPatchToContent = (baseContent: string, patch: DocumentPatch): string => {
+        if (patch.apply_mode === 'append') {
+            return `${baseContent.trimEnd()}\n\n${patch.new_text.trim()}\n`;
+        }
+        const hint = (patch.section_hint || '').trim();
+        if (!hint) {
+            return `${baseContent.trimEnd()}\n\n${patch.new_text.trim()}\n`;
+        }
+        const escapedHint = hint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const sectionRegex = new RegExp(`(${escapedHint}[\\s\\S]*?)(\\n##\\s|\\n#\\s|$)`, 'm');
+        const match = baseContent.match(sectionRegex);
+        if (!match) {
+            return `${baseContent.trimEnd()}\n\n${patch.new_text.trim()}\n`;
+        }
+        const replacement = `${hint}\n\n${patch.new_text.trim()}\n\n`;
+        return baseContent.replace(sectionRegex, `${replacement}$2`);
+    };
+
+    const handleApplyChatPatch = async (patch: DocumentPatch) => {
+        if (!selectedFile || typeof selectedFile.content !== 'string') {
+            throw new Error("Kein bearbeitbares Textdokument geöffnet.");
+        }
+        const currentContent = selectedFile.content;
+        const nextContent = applyPatchToContent(currentContent, patch);
+        setDocumentUndoStack((prev) => {
+            const stack = prev[selectedFile.id] || [];
+            return {
+                ...prev,
+                [selectedFile.id]: [...stack, currentContent].slice(-20),
+            };
+        });
+        await persistFileContent(selectedFile.id, nextContent);
+        const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: nextContent } : f);
+        setFiles(updatedFiles);
+        setSelectedFile({ ...selectedFile, content: nextContent });
+        showToast("Änderung angewendet.", "success");
+    };
+
+    const handleUndoLastPatch = async () => {
+        if (!selectedFile || typeof selectedFile.content !== 'string') {
+            throw new Error("Kein bearbeitbares Textdokument geöffnet.");
+        }
+        const stack = documentUndoStack[selectedFile.id] || [];
+        if (stack.length === 0) {
+            throw new Error("Keine Änderung zum Rückgängig machen vorhanden.");
+        }
+        const previousContent = stack[stack.length - 1];
+        await persistFileContent(selectedFile.id, previousContent);
+        setDocumentUndoStack((prev) => ({
+            ...prev,
+            [selectedFile.id]: (prev[selectedFile.id] || []).slice(0, -1),
+        }));
+        const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: previousContent } : f);
+        setFiles(updatedFiles);
+        setSelectedFile({ ...selectedFile, content: previousContent });
+        showToast("Letzte Änderung rückgängig gemacht.", "info");
+    };
+
+    const handleRefineFile = (file: FileData) => {
+        setFileToRefine(file);
+        setRefinePrompt('');
+        setRefineSaveMode('new_file');
+        setIsRefineModalOpen(true);
+    };
+
+    const submitRefineFile = async () => {
+        if (!fileToRefine || !refinePrompt.trim()) return;
+        setIsRefining(true);
+        try {
+            const username = localStorage.getItem('username') || '';
+            const res = await fetch(`${API_BASE}/ai/elaboration/refine`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    file_id: fileToRefine.id,
+                    prompt: refinePrompt.trim(),
+                    save_mode: refineSaveMode,
+                    detail_level: "Sehr detailliert",
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || 'Anpassung fehlgeschlagen');
+            }
+            setIsRefineModalOpen(false);
+            setFileToRefine(null);
+            setRefinePrompt('');
+            await fetchFiles();
+            showToast(refineSaveMode === 'replace' ? 'Datei wurde angepasst.' : 'Neue überarbeitete Datei wurde erstellt.', 'success');
+        } catch (e: any) {
+            showToast(e?.message || 'Fehler bei der Anpassung.');
+        } finally {
+            setIsRefining(false);
+        }
+    };
+
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
         if (!selectedFile) return null;
@@ -1145,12 +1339,14 @@ export default function FolderPage() {
         if (selectedFile.type === 'summary' || selectedFile.type === 'repetition' || selectedFile.type === 'elaboration' || selectedFile.type === 'transcript') {
             const contentStr = typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '');
             const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote|<img/i.test(contentStr);
+            const ytId = youtubeVideoIdFromTranscriptFile(selectedFile);
 
             if (isEditingFile || isHtml) {
                 return (
                     <RichTextEditor
                         initialContent={contentStr}
                         title={selectedFile.name}
+                        youtubeVideoId={selectedFile.type === 'transcript' ? ytId : null}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
                         onSave={async (newContent) => {
                             try {
@@ -1202,7 +1398,18 @@ export default function FolderPage() {
                                 <Edit size={14} />
                                 <span className="hidden sm:inline">Bearbeiten</span>
                             </button>
-                            {selectedFile.type === 'transcript' && (
+                            {selectedFile.type === 'transcript' && ytId && (
+                                <button
+                                    type="button"
+                                    onClick={() => openYoutubeVideoInNewTab(ytId)}
+                                    className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                    title="Video auf YouTube im Browser öffnen"
+                                >
+                                    <ExternalLink size={14} />
+                                    <span className="hidden sm:inline">YouTube</span>
+                                </button>
+                            )}
+                            {selectedFile.type === 'transcript' && /<!--\s*AUDIO_FILE:/.test(contentStr) && (
                                 <button
                                     onClick={async () => {
                                         const username = localStorage.getItem("username") || "";
@@ -1239,6 +1446,17 @@ export default function FolderPage() {
                     </div>
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-8">
                         <div className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40] [&_.katex-display]:max-w-full">
+                            {ytId ? (
+                                <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#2A2A40] bg-black shadow-lg">
+                                    <iframe
+                                        title="YouTube"
+                                        className="h-full w-full"
+                                        src={`https://www.youtube-nocookie.com/embed/${ytId}`}
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                        allowFullScreen
+                                    />
+                                </div>
+                            ) : null}
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm, remarkMath]}
                                 rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
@@ -1425,6 +1643,12 @@ export default function FolderPage() {
             );
         }
 
+        const contentStrGeneric =
+            typeof selectedFile.content === "string"
+                ? selectedFile.content
+                : JSON.stringify(selectedFile.content ?? "");
+        const ytIdGeneric = youtubeVideoIdFromTranscriptFile(selectedFile);
+
         return (
             <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -1443,21 +1667,25 @@ export default function FolderPage() {
                         <h3 className="text-lg font-semibold text-white">{selectedFile.name}</h3>
                     </div>
                     <div className="flex items-center gap-2 no-print">
-                        {selectedFile.type === 'transcript' && (
+                        {selectedFile.type === 'transcript' && ytIdGeneric && (
+                            <button
+                                type="button"
+                                onClick={() => openYoutubeVideoInNewTab(ytIdGeneric)}
+                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors h-full"
+                                title="Video auf YouTube im Browser öffnen"
+                            >
+                                <ExternalLink size={14} />
+                                <span className="hidden sm:inline">YouTube</span>
+                            </button>
+                        )}
+                        {selectedFile.type === 'transcript' && /<!--\s*AUDIO_FILE:/.test(contentStrGeneric) && (
                             <button
                                 onClick={async () => {
                                     const username = localStorage.getItem("username") || "";
-                                    // The audio filename was embedded via <!-- AUDIO_FILE:filename -->
-                                    const contentStr =
-                                        typeof selectedFile.content === "string"
-                                            ? selectedFile.content
-                                            : JSON.stringify(selectedFile.content ?? "");
-                                    const match = contentStr.match(/<!-- AUDIO_FILE:(.*?) -->/);
+                                    const match = contentStrGeneric.match(/<!-- AUDIO_FILE:(.*?) -->/);
                                     if (match && match[1]) {
                                         const filename = match[1];
                                         const url = `${API_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
-
-                                        // Trigger download
                                         const a = document.createElement('a');
                                         a.href = url;
                                         a.download = filename;
@@ -1744,6 +1972,7 @@ export default function FolderPage() {
                                                 setRenameFileValue={setRenameFileValue}
                                                 setIsRenameFileOpen={setIsRenameFileOpen}
                                                 handleDelete={handleDeleteFile}
+                                                onRefineFile={handleRefineFile}
                                             />
                                         ))}
                                     </AnimatePresence>
@@ -2662,6 +2891,61 @@ export default function FolderPage() {
                     </div>
                 )}
 
+                {isRefineModalOpen && fileToRefine && (
+                    <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="w-full max-w-2xl bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl shadow-2xl overflow-hidden">
+                            <div className="p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-lg font-semibold text-white">Dokument mit Prompt anpassen</h3>
+                                <p className="text-xs text-gray-400 mt-1">{fileToRefine.name}</p>
+                            </div>
+                            <div className="p-5 space-y-4">
+                                <textarea
+                                    value={refinePrompt}
+                                    onChange={(e) => setRefinePrompt(e.target.value)}
+                                    placeholder="z.B. Abschnitt 3 ausführlicher erklären, mehr Beispiele ergänzen, Sprache klarer machen ..."
+                                    className="w-full min-h-[140px] bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRefineSaveMode('new_file')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs border ${refineSaveMode === 'new_file' ? 'bg-[#5E5CE6] text-white border-[#5E5CE6]' : 'border-[#2A2A40] text-gray-300 hover:bg-[#1C1C33]'}`}
+                                    >
+                                        Als neue Datei speichern
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRefineSaveMode('replace')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs border ${refineSaveMode === 'replace' ? 'bg-amber-600 text-white border-amber-500' : 'border-[#2A2A40] text-gray-300 hover:bg-[#1C1C33]'}`}
+                                    >
+                                        Bestehende Datei überschreiben
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="p-5 border-t border-[#2A2A40] flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        setIsRefineModalOpen(false);
+                                        setFileToRefine(null);
+                                        setRefinePrompt('');
+                                    }}
+                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium"
+                                >
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={submitRefineFile}
+                                    disabled={!refinePrompt.trim() || isRefining}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {isRefining ? <Loader2 size={15} className="animate-spin" /> : null}
+                                    Anpassung starten
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Global Chat Bubble */}
                 {/* KI-Aufgaben: parallel laufende Generierungen + zuletzt fertig */}
                 <AnimatePresence>
@@ -2743,32 +3027,18 @@ export default function FolderPage() {
                         if (!selectedFile) return;
 
                         try {
-                            const username = localStorage.getItem("username");
-                            const res = await fetch(`${API_BASE}/files/update`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    username,
-                                    folder_id: folderId,
-                                    file_id: selectedFile.id,
-                                    content: newContent
-                                })
-                            });
-
-                            if (res.ok) {
-                                // Update local state
-                                const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: newContent } : f);
-                                setFiles(updatedFiles);
-                                setSelectedFile({ ...selectedFile, content: newContent });
-                                showToast("Dokument wurde durch die KI aktualisiert und gespeichert! ✨", "success");
-                            } else {
-                                const err = await res.json();
-                                showToast(`Fehler beim Speichern der KI-Änderung: ${err.detail || 'Unbekannt'}`);
-                            }
+                            await persistFileContent(selectedFile.id, String(newContent ?? ""));
+                            const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: String(newContent ?? "") } : f);
+                            setFiles(updatedFiles);
+                            setSelectedFile({ ...selectedFile, content: String(newContent ?? "") });
+                            showToast("Dokument wurde durch die KI aktualisiert und gespeichert! ✨", "success");
                         } catch {
-                            showToast("Netzwerkfehler beim Speichern der KI-Änderung.");
+                            showToast("Fehler beim Speichern der KI-Änderung.");
                         }
                     }}
+                    onApplyPatch={handleApplyChatPatch}
+                    onUndoLastPatch={handleUndoLastPatch}
+                    canUndo={Boolean(selectedFile && (documentUndoStack[selectedFile.id] || []).length > 0)}
                 />
 
                 {/* Global OS file drop overlay */}

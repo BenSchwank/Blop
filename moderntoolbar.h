@@ -102,7 +102,6 @@ signals:
     void redoRequested();
     void penConfigChanged(QColor c, int w);
     void scaleChanged(double newScale);
-    void settingsRequested();
     void rulerToggled(bool active); // NEU: Globaler Toggle für das Lineal
     void backToOverviewRequested();
 
@@ -167,12 +166,11 @@ private:
 
     ToolbarBtn* btnUndo;
     ToolbarBtn* btnRedo;
-    ToolbarBtn* btnBackOverview{nullptr};
+    ToolbarBtn *btnBackOverview{nullptr};
 
     ToolbarBtn* btnDockToggle; // New button for detach/dock
 
-    // Extra features for docked mode
-    ToolbarBtn *btnSettings;
+    // Extra features for docked mode (Seite/Notiz-Optionen nur über Notiz-⋯-Menü)
     ToolbarBtn *btnSave;
     ToolbarBtn *btnPalette;
     ToolbarBtn *btnBrushSize;

@@ -1,7 +1,7 @@
 import os
 import google.generativeai as genai
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 
 # Configure GenAI
 api_key = os.environ.get("GOOGLE_API_KEY")
@@ -77,6 +77,13 @@ Setze NAHTLOS im selben Dokument fort (keine Begrüßung; keine Wiederholung von
 Als Nächstes ausdrücklich den REST bearbeiten: fast immer fehlen dann noch Aufgaben, Teilaufgaben oder Projektphasen am **Ende** des Quellen-PDFs — diese jetzt vollständig und ausführlich (Konzepte/Lösungswege wie zuvor).
 
 Wenn Hauptteil und Aufgaben komplett sind, aber die Struktur noch fehlt: ergänze nur die noch fehlenden Abschnitte „## Active Recall“, „## Häufige Stolpersteine“, „## Lösungsstrategien & Formeln“, „## Fazit & Themenzusammenhänge“ — jeweils nur soweit nach deiner bisherigen Ausgabe noch nicht vorhanden."""
+    _ELABORATION_CONTINUATION_PROMPT = """Die Ausarbeitung wurde wegen Ausgabe-Tokenlimit abgeschnitten.
+
+Setze NAHTLOS fort:
+- keine neue Einleitung, keine Wiederholung bereits fertiger Abschnitte
+- zuerst fehlende Themen/Teilaufgaben/Projektphasen am Dokumentende ergänzen
+- danach ggf. noch fehlende Abschnitte (Praxisbeispiele, Transfer, Fazit) ergänzen
+- bleibe in derselben Struktur und im gleichen Stil"""
 
     @staticmethod
     def _generate_repetition_with_continuation(model, input_parts: List[Any], max_followups: int = 6) -> str:
@@ -103,6 +110,35 @@ Wenn Hauptteil und Aufgaben komplett sind, aber die Struktur noch fehlt: ergänz
                 chunks.append(response.text)
             fr = response.candidates[0].finish_reason
         return "\n\n".join(chunks) if chunks else ""
+
+    @staticmethod
+    def _generate_with_continuation(
+        model,
+        input_parts: List[Any],
+        continuation_prompt: str,
+        max_followups: int = 4,
+        log_prefix: str = "Generation",
+    ) -> str:
+        """Generic chat-based generation that continues when MAX_TOKENS is hit."""
+        chat = model.start_chat(history=[])
+        response = chat.send_message(input_parts, safety_settings=SAFETY_SETTINGS)
+        if not response.candidates:
+            raise Exception("Leere Kandidaten-Antwort vom Modell.")
+        chunks: List[str] = []
+        if response.text:
+            chunks.append(response.text)
+        finish_reason = response.candidates[0].finish_reason
+        follow = 0
+        while finish_reason == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
+            follow += 1
+            print(f"{log_prefix}: finish_reason=MAX_TOKENS, continuation {follow}/{max_followups}")
+            response = chat.send_message(continuation_prompt, safety_settings=SAFETY_SETTINGS)
+            if not response.candidates:
+                break
+            if response.text:
+                chunks.append(response.text)
+            finish_reason = response.candidates[0].finish_reason
+        return "\n\n".join(chunks).strip()
 
     @staticmethod
     def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal") -> str:
@@ -535,15 +571,38 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
     def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "", model_preference: str = None) -> str:
         """Generates a detailed elaboration/essay based on the material and user instructions."""
         try:
-            model = genai.GenerativeModel(get_best_model(model_preference))
+            elaboration_generation_config = {
+                "max_output_tokens": 16384,
+                "temperature": 0.4,
+            }
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config=elaboration_generation_config,
+            )
+            detail_hint = {
+                "Kurz": "Kompakt, aber immer noch substanziell.",
+                "Normal": "Ausführlich und tiefgehend.",
+                "Detailliert": "Sehr detailliert mit vielen Erklärungen, Beispielen und Transfer.",
+                "Sehr detailliert": "Maximal ausführlich, mehrseitig und didaktisch aufgebaut.",
+            }.get(detail_level, f"Vom Nutzer gewünscht: {detail_level}. Interpretiere dies als hohe Detailtiefe.")
 
             prompt = f"""
-Du bist ein akademischer Assistent. Erstelle eine fundierte Ausarbeitung (Essay, Textentwurf, Hausaufgabe) basierend auf dem folgenden Material.
+Du bist ein akademischer Autor und Tutor. Erstelle eine LANGFORM-AUSARBEITUNG (Essay/Hausarbeit-Entwurf) auf Deutsch, die als vollständiges Lern- und Arbeitsdokument taugt.
 
-Gewünschter Detailgrad / Länge: {detail_level}
+Detailgrad-Vorgabe: {detail_level}
+Interpretation: {detail_hint}
 
 {"Spezifische Anweisungen des Nutzers:" if custom_rules else "Generelle Anweisung:"}
 {custom_rules if custom_rules else "Fasse die wichtigsten Aspekte des Materials in einem gut strukturierten Text zusammen."}
+
+VOLLSTÄNDIGKEIT (kritisch):
+- Arbeite das Material vollständig durch, nicht nur den Anfang.
+- Typischer Fehler: letzte Aufgaben/Projektteile werden ausgelassen. Das ist hier NICHT erlaubt.
+- Decke ausdrücklich auch Schlussabschnitte, hohe Aufgabennummern und Anhänge ab, sofern relevant.
+
+UMFANG (verbindlich):
+- Schreibe eine lange, substanzielle Ausarbeitung (mindestens Umfang mehrerer DIN-A4-Seiten, wenn das Material groß ist).
+- Hauptteil soll den größten Anteil haben und in mehrere Unterkapitel gegliedert sein.
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
@@ -552,10 +611,20 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 
 {MATH_ACCURACY_INSTRUCTIONS}
 
-Achte auf eine klare Struktur:
-1. Einleitung (Heranführung ans Thema)
-2. Hauptteil (Logische, detaillierte Abhandlung mit Argumenten/Konzepten aus dem Material)
-3. Fazit (Zusammenfassung und Schlussfolgerung)
+Erforderliche Struktur (Markdown):
+## Einleitung
+- Kontext, Problemstellung, Ziel der Ausarbeitung.
+
+## Systematische Durcharbeitung
+- Pro Thema/Aufgabenblock eigener Unterabschnitt.
+- Bei aufgabenlastigem Material: Aufgabenlogik, Lösungsstrategie, Begründungen, typische Fehler.
+- Bei Theorie-Material: Definitionen, Zusammenhänge, Argumentationslinien, Beispiele.
+
+## Vertiefung & Transfer
+- Vertiefte Beispiele, alternative Lösungsansätze, Transfer auf ähnliche Aufgaben.
+
+## Fazit
+- Kernergebnisse, Zusammenhänge, Lern-/Prüfungshinweise.
 
 Schreibe im Fließtext auf Deutsch, verwende Absätze zur besseren Lesbarkeit und formatiere Zwischenüberschriften mit Markdown.
 
@@ -567,14 +636,91 @@ Hier ist das Quellenmaterial:
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
-
-            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-            if not response.text:
+            try:
+                full_text = AIService._generate_with_continuation(
+                    model=model,
+                    input_parts=input_parts,
+                    continuation_prompt=AIService._ELABORATION_CONTINUATION_PROMPT,
+                    max_followups=6,
+                    log_prefix="Elaboration",
+                )
+            except Exception as mt_err:
+                print(f"Elaboration multiturn failed ({mt_err}), falling back to single-shot generate_content")
+                response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+                if not response.text:
+                    raise Exception("Leere Antwort vom Modell erhalten.")
+                full_text = response.text
+            if not full_text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return response.text
+            return full_text
         except Exception as e:
             print(f"Elaboration Error: {e}")
             raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
+
+    @staticmethod
+    def refine_document_with_chat(
+        *,
+        document_content: str,
+        user_message: str,
+        history: List[Dict[str, str]],
+        model_preference: str = None,
+    ) -> Dict[str, Any]:
+        """Return a patch proposal for interactive document editing."""
+        try:
+            model = genai.GenerativeModel(
+                model_name=get_best_model(model_preference or "gemini-2.0-flash"),
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "max_output_tokens": 2500,
+                    "temperature": 0.25,
+                },
+                system_instruction=(
+                    "Du bist ein Dokument-Editor für Blop. "
+                    "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
+                    "Du antwortest IMMER als JSON.\n"
+                    "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
+                    "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
+                ),
+            )
+            compact_history = []
+            for msg in history[-8:]:
+                role = "user" if msg.get("role") == "user" else "model"
+                compact_history.append({"role": role, "parts": [msg.get("content", "")]})
+            chat = model.start_chat(history=compact_history)
+            prompt = f"""
+Aktuelles Dokument (Ausschnitt):
+{document_content[:12000]}
+
+Nutzerwunsch:
+{user_message}
+
+Antworte nur als JSON im Format:
+{{
+  "patch_description": "kurze Beschreibung",
+  "apply_mode": "append" | "replace_section",
+  "section_hint": "## Abschnittstitel oder leer",
+  "new_text": "neuer Markdown-Text",
+  "confidence": 0.0
+}}
+"""
+            response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+            parsed = json.loads(response.text)
+            if not isinstance(parsed, dict):
+                raise Exception("Patch-Antwort ist kein JSON-Objekt.")
+            apply_mode = parsed.get("apply_mode")
+            if apply_mode not in ("append", "replace_section"):
+                parsed["apply_mode"] = "append"
+            parsed["patch_description"] = str(parsed.get("patch_description", "Dokumentänderung"))
+            parsed["section_hint"] = str(parsed.get("section_hint", "") or "")
+            parsed["new_text"] = str(parsed.get("new_text", "") or "")
+            if not parsed["new_text"].strip():
+                raise Exception("Patch enthält keinen neuen Text.")
+            return parsed
+        except Exception as e:
+            print(f"Document Chat Patch Error: {e}")
+            raise Exception(f"Fehler bei der interaktiven Dokument-Bearbeitung: {str(e)}")
 
     @staticmethod
     def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None, learning_mode: str = "normal") -> Any:

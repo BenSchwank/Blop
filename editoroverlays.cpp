@@ -1,0 +1,831 @@
+#include "editoroverlays.h"
+
+#include "PageItem.h"
+
+#include <QButtonGroup>
+#include <QDialogButtonBox>
+#include <QEvent>
+#include <QEventLoop>
+#include <QFrame>
+#include <QIcon>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPixmap>
+#include <QPushButton>
+#include <QGuiApplication>
+#include <QResizeEvent>
+#include <QScreen>
+#include <QScrollArea>
+#include <QShortcut>
+#include <QShowEvent>
+#include <QSizePolicy>
+#include <QSlider>
+#include <QStackedWidget>
+#include <QToolButton>
+#include <QVBoxLayout>
+
+#include <functional>
+#include <QVector>
+
+namespace {
+
+/// Kuratierte Blop-Palette (Productive Dark + Akzente), ergänzt um Zeichenfarben
+static const QColor kBlopSwatches[] = {
+    QColor("#0C0D17"), QColor("#1A1B2E"), QColor("#13141F"), QColor("#1C1D32"),
+    QColor("#E6E4FF"), QColor("#FFFFFF"), QColor("#94A3B8"), QColor("#64748B"),
+    QColor("#7C5CFC"), QColor("#6BA3F5"), QColor("#38BDF8"), QColor("#34D399"),
+    QColor("#FBBF24"), QColor("#F97316"), QColor("#FB7185"), QColor("#A78BFA"),
+    QColor("#000000"), QColor("#1E293B"), QColor("#F43F5E"), QColor("#22C55E"),
+    QColor("#3B82F6"), QColor("#EAB308"), QColor("#C084FC"), QColor("#06B6D4"),
+};
+
+static QString blopSliderStyleSheet() {
+  return QStringLiteral(
+      "QSlider::groove:horizontal {"
+      "  height: 7px; border-radius: 4px;"
+      "  background: rgba(55, 58, 78, 0.95);"
+      "  border: 1px solid rgba(120, 130, 160, 0.25);"
+      "}"
+      "QSlider::handle:horizontal {"
+      "  width: 20px; height: 20px; margin: -7px 0;"
+      "  border-radius: 10px;"
+      "  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+      "    stop:0 #8EB8F8, stop:1 #6BA3F5);"
+      "  border: 2px solid rgba(255,255,255,0.22);"
+      "}"
+      "QSlider::handle:horizontal:hover {"
+      "  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+      "    stop:0 #A8C8FF, stop:1 #7EB0F7);"
+      "}"
+      "QSlider::sub-page:horizontal {"
+      "  height: 7px; border-radius: 4px;"
+      "  background: rgba(107, 163, 245, 0.35);"
+      "}");
+}
+
+static QLabel *makeRgbLabel(const QString &text, QWidget *parent) {
+  auto *l = new QLabel(text, parent);
+  l->setFixedWidth(22);
+  l->setStyleSheet(QStringLiteral(
+      "color: rgba(200, 205, 225, 0.9); font-weight: 700; font-size: 12px;"));
+  return l;
+}
+
+class OverlayHost : public QWidget {
+public:
+  explicit OverlayHost(QWidget *anchor);
+  void setCard(QWidget *c) { m_card = c; }
+  std::function<void()> onDismiss;
+
+protected:
+  bool eventFilter(QObject *watched, QEvent *event) override;
+  void mousePressEvent(QMouseEvent *e) override;
+  void showEvent(QShowEvent *e) override;
+  void keyPressEvent(QKeyEvent *e) override;
+
+private:
+  QWidget *m_anchor{nullptr};
+  QWidget *m_card{nullptr};
+};
+
+OverlayHost::OverlayHost(QWidget *anchor) : QWidget(anchor), m_anchor(anchor) {
+  setObjectName(QStringLiteral("EditorOverlayHost"));
+  setWindowFlags(Qt::Widget);
+  setAttribute(Qt::WA_TranslucentBackground, true);
+  setFocusPolicy(Qt::StrongFocus);
+  setStyleSheet(QStringLiteral(
+      "#EditorOverlayHost { background-color: rgba(10, 12, 20, 0.52); }"));
+  setGeometry(anchor->rect());
+  anchor->installEventFilter(this);
+}
+
+bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_anchor && event->type() == QEvent::Resize)
+    setGeometry(m_anchor->rect());
+  return false;
+}
+
+void OverlayHost::mousePressEvent(QMouseEvent *e) {
+  if (m_card && !m_card->geometry().contains(e->pos())) {
+    if (onDismiss)
+      onDismiss();
+    e->accept();
+    return;
+  }
+  QWidget::mousePressEvent(e);
+}
+
+void OverlayHost::showEvent(QShowEvent *e) {
+  QWidget::showEvent(e);
+  if (m_anchor)
+    setGeometry(m_anchor->rect());
+  raise();
+  setFocus(Qt::PopupFocusReason);
+}
+
+void OverlayHost::keyPressEvent(QKeyEvent *e) {
+  if (e->key() == Qt::Key_Escape) {
+    if (onDismiss)
+      onDismiss();
+    e->accept();
+    return;
+  }
+  QWidget::keyPressEvent(e);
+}
+
+} // namespace
+
+static void centerCardInOverlay(OverlayHost *overlay, QWidget *card, int w, int h) {
+  auto *root = new QVBoxLayout(overlay);
+  root->setContentsMargins(0, 0, 0, 0);
+  root->addStretch(1);
+  auto *row = new QHBoxLayout();
+  row->addStretch(1);
+  card->setFixedSize(w, h);
+  row->addWidget(card, 0, Qt::AlignCenter);
+  row->addStretch(1);
+  root->addLayout(row);
+  root->addStretch(1);
+}
+
+/// Kleine Top-Level-Fenster (z. B. Qt::Popup-Toolsettings) liefern mit window()
+/// sich selbst — OverlayHost würde nur diese Mini-Fläche füllen. Dann zum
+/// QObject-Elternfenster (z. B. QMainWindow) wechseln.
+static QWidget *overlayAnchorForColorPicker(QWidget *parent) {
+  if (!parent)
+    return nullptr;
+  QWidget *w = parent->window();
+  if (!w)
+    w = parent;
+  if (w->isWindow() && (w->width() < 420 || w->height() < 380)) {
+    if (QWidget *pw = w->parentWidget()) {
+      QWidget *outer = pw->window();
+      if (outer && outer != w)
+        w = outer;
+    }
+  }
+  return w;
+}
+
+bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title) {
+  if (!parent || !color)
+    return false;
+
+  QWidget *anchor = overlayAnchorForColorPicker(parent);
+  if (!anchor)
+    return false;
+
+  const int keepAlpha = color->alpha();
+
+  auto *overlay = new OverlayHost(anchor);
+
+  auto *card = new QFrame(overlay);
+  card->setObjectName(QStringLiteral("ColorPickerCard"));
+  card->setStyleSheet(QStringLiteral(
+      "#ColorPickerCard {"
+      "  background-color: rgba(30, 32, 44, 0.98);"
+      "  border: 1px solid rgba(120, 130, 160, 0.35);"
+      "  border-radius: 20px;"
+      "}"
+      "QLabel { color: rgba(235, 237, 245, 0.95); }"
+      "QLineEdit {"
+      "  background: rgba(22, 24, 36, 0.95);"
+      "  border: 1px solid rgba(120, 130, 160, 0.35);"
+      "  border-radius: 10px;"
+      "  padding: 8px 12px;"
+      "  color: #E8EAFF;"
+      "  font-family: monospace;"
+      "  font-size: 13px;"
+      "  font-weight: 600;"
+      "}"
+      "QLineEdit:focus {"
+      "  border: 1px solid rgba(107, 163, 245, 0.65);"
+      "}"));
+
+  QScreen *screen = nullptr;
+  if (QWidget *ws = anchor->window())
+    screen = ws->screen();
+  if (!screen)
+    screen = QGuiApplication::primaryScreen();
+  QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1280, 800);
+  const int maxW = qMax(300, avail.width() * 90 / 100);
+  const int maxH = qMax(320, avail.height() * 88 / 100);
+  int cardW = qMin(400, maxW);
+  int cardH = qMin(500, maxH);
+  QWidget *win = anchor->window();
+  if (win) {
+    cardW = qMin(cardW, qMax(280, win->width() - 40));
+    cardH = qMin(cardH, qMax(300, win->height() - 40));
+  }
+
+  centerCardInOverlay(overlay, card, cardW, cardH);
+
+  constexpr int kPreviewH = 72;
+  constexpr int kSwatch = 32;
+
+  auto *cardLay = new QVBoxLayout(card);
+  cardLay->setContentsMargins(22, 18, 22, 18);
+  cardLay->setSpacing(8);
+
+  if (!title.isEmpty()) {
+    auto *lbl = new QLabel(title, card);
+    lbl->setStyleSheet(QStringLiteral(
+        "font-weight: 700; font-size: 16px; letter-spacing: 0.2px;"));
+    cardLay->addWidget(lbl);
+  }
+
+  auto *hint = new QLabel(QStringLiteral("Blop-Palette oder RGB"), card);
+  hint->setStyleSheet(QStringLiteral(
+      "color: rgba(160, 168, 195, 0.88); font-size: 12px; font-weight: 500;"));
+  cardLay->addWidget(hint);
+
+  QColor cur = color->isValid() ? color->toRgb() : QColor(Qt::white);
+  if (!cur.isValid())
+    cur = Qt::white;
+
+  auto *scroll = new QScrollArea(card);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setWidgetResizable(true);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  scroll->setStyleSheet(QStringLiteral(
+      "QScrollArea { background: transparent; border: none; }"));
+
+  auto *inner = new QWidget(scroll);
+  scroll->setWidget(inner);
+  auto *lay = new QVBoxLayout(inner);
+  lay->setContentsMargins(2, 0, 6, 0);
+  lay->setSpacing(10);
+
+  auto *preview = new QLabel(inner);
+  preview->setMinimumHeight(kPreviewH);
+  preview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+  auto *hexRow = new QHBoxLayout();
+  hexRow->setSpacing(10);
+  auto *hexLbl = new QLabel(QStringLiteral("HEX"), inner);
+  hexLbl->setStyleSheet(QStringLiteral(
+      "color: rgba(180, 186, 210, 0.9); font-size: 11px; font-weight: 700;"));
+  auto *hexEdit = new QLineEdit(inner);
+  hexEdit->setMaxLength(7);
+  hexEdit->setPlaceholderText(QStringLiteral("#RRGGBB"));
+  hexRow->addWidget(hexLbl);
+  hexRow->addWidget(hexEdit, 1);
+
+  auto *swatchGrid = new QGridLayout();
+  swatchGrid->setHorizontalSpacing(8);
+  swatchGrid->setVerticalSpacing(8);
+  constexpr int kCols = 6;
+  const int n = static_cast<int>(sizeof(kBlopSwatches) / sizeof(kBlopSwatches[0]));
+  QVector<QPushButton *> swatchBtns;
+  swatchBtns.reserve(n);
+  for (int i = 0; i < n; ++i) {
+    const QColor sc = kBlopSwatches[i];
+    auto *sw = new QPushButton(inner);
+    sw->setFixedSize(kSwatch, kSwatch);
+    sw->setCursor(Qt::PointingHandCursor);
+    sw->setToolTip(sc.name(QColor::HexRgb));
+    sw->setStyleSheet(QStringLiteral(
+        "QPushButton { background-color: %1; border-radius: 8px;"
+        "  border: 1px solid rgba(255,255,255,0.18); }"
+        "QPushButton:hover { border: 2px solid #6BA3F5; }"
+        "QPushButton:pressed { border: 2px solid #7C5CFC; }")
+                          .arg(sc.name()));
+    swatchGrid->addWidget(sw, i / kCols, i % kCols);
+    swatchBtns.append(sw);
+  }
+
+  auto *sr = new QSlider(Qt::Horizontal, inner);
+  auto *sg = new QSlider(Qt::Horizontal, inner);
+  auto *sb = new QSlider(Qt::Horizontal, inner);
+  for (auto *s : {sr, sg, sb}) {
+    s->setRange(0, 255);
+    s->setFixedHeight(26);
+    s->setStyleSheet(blopSliderStyleSheet());
+  }
+
+  auto updatePreviewHex = [&]() {
+    cur.setRgb(sr->value(), sg->value(), sb->value());
+    preview->setStyleSheet(QStringLiteral(
+        "background-color: %1; border-radius: 12px;"
+        "border: 2px solid rgba(255,255,255,0.2); min-height: %2px;")
+                               .arg(cur.name())
+                               .arg(kPreviewH));
+    hexEdit->blockSignals(true);
+    hexEdit->setText(cur.name(QColor::HexRgb).toUpper());
+    hexEdit->blockSignals(false);
+  };
+
+  sr->setValue(cur.red());
+  sg->setValue(cur.green());
+  sb->setValue(cur.blue());
+  updatePreviewHex();
+
+  QObject::connect(sr, &QSlider::valueChanged, card, [&](int) { updatePreviewHex(); });
+  QObject::connect(sg, &QSlider::valueChanged, card, [&](int) { updatePreviewHex(); });
+  QObject::connect(sb, &QSlider::valueChanged, card, [&](int) { updatePreviewHex(); });
+
+  QObject::connect(hexEdit, &QLineEdit::editingFinished, card, [&]() {
+    QString t = hexEdit->text().trimmed();
+    if (t.startsWith(QLatin1Char('#')))
+      t = t.mid(1);
+    if (t.length() == 6) {
+      bool ok = false;
+      const int v = t.toInt(&ok, 16);
+      if (ok) {
+        cur.setRgb((v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
+        sr->blockSignals(true);
+        sg->blockSignals(true);
+        sb->blockSignals(true);
+        sr->setValue(cur.red());
+        sg->setValue(cur.green());
+        sb->setValue(cur.blue());
+        sr->blockSignals(false);
+        sg->blockSignals(false);
+        sb->blockSignals(false);
+        updatePreviewHex();
+      }
+    }
+  });
+
+  for (int i = 0; i < swatchBtns.size(); ++i) {
+    const QColor sc = kBlopSwatches[i];
+    QObject::connect(swatchBtns[i], &QPushButton::clicked, card, [&, sc]() {
+      cur = sc;
+      sr->blockSignals(true);
+      sg->blockSignals(true);
+      sb->blockSignals(true);
+      sr->setValue(cur.red());
+      sg->setValue(cur.green());
+      sb->setValue(cur.blue());
+      sr->blockSignals(false);
+      sg->blockSignals(false);
+      sb->blockSignals(false);
+      updatePreviewHex();
+    });
+  }
+
+  lay->addWidget(preview);
+  lay->addLayout(hexRow);
+
+  auto *sep = new QFrame(inner);
+  sep->setFrameShape(QFrame::HLine);
+  sep->setFixedHeight(1);
+  sep->setStyleSheet(QStringLiteral(
+      "background: rgba(120, 130, 160, 0.22); border: none; max-height: 1px;"));
+  lay->addWidget(sep);
+
+  lay->addLayout(swatchGrid);
+
+  auto *sep2 = new QFrame(inner);
+  sep2->setFrameShape(QFrame::HLine);
+  sep2->setFixedHeight(1);
+  sep2->setStyleSheet(QStringLiteral(
+      "background: rgba(120, 130, 160, 0.22); border: none; max-height: 1px;"));
+  lay->addWidget(sep2);
+
+  auto *rgbHead = new QLabel(QStringLiteral("RGB mischen"), inner);
+  rgbHead->setStyleSheet(QStringLiteral(
+      "color: rgba(160, 168, 195, 0.88); font-size: 12px; font-weight: 600;"));
+  lay->addWidget(rgbHead);
+  lay->addSpacing(4);
+
+  auto addRgb = [&](const QString &letter, QSlider *s) {
+    auto *row = new QHBoxLayout();
+    row->setSpacing(10);
+    row->addWidget(makeRgbLabel(letter, inner));
+    row->addWidget(s, 1);
+    lay->addLayout(row);
+  };
+  addRgb(QStringLiteral("R"), sr);
+  addRgb(QStringLiteral("G"), sg);
+  addRgb(QStringLiteral("B"), sb);
+
+  lay->addStretch(0);
+
+  cardLay->addWidget(scroll, 1);
+
+  QEventLoop loop;
+  bool accepted = false;
+
+  auto finish = [&](bool ok) {
+    accepted = ok;
+    if (ok) {
+      cur.setRgb(sr->value(), sg->value(), sb->value());
+      *color = QColor(cur.red(), cur.green(), cur.blue(), keepAlpha);
+    }
+    loop.quit();
+  };
+
+  overlay->setCard(card);
+  overlay->onDismiss = [&]() { finish(false); };
+
+  auto *bbox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok,
+                                     card);
+  bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
+  bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Übernehmen"));
+  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(QStringLiteral(
+      "QPushButton { color: #8EB8F8; border: none; background: transparent; "
+      "font-weight:600; padding:10px 18px; }"
+      "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
+      "border-radius: 10px; }"));
+  bbox->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
+      "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+      "  stop:0 #8EB8F8, stop:1 #6BA3F5); color: #0f172a; border: none; "
+      "border-radius: 10px; padding: 12px 24px; font-weight: 600; }"
+      "QPushButton:hover { background: #7EB0F7; }"
+      "QPushButton:pressed { background: #5A94E8; }"));
+  cardLay->addWidget(bbox, 0, Qt::AlignRight);
+
+  QObject::connect(bbox, &QDialogButtonBox::accepted, overlay,
+                     [&]() { finish(true); });
+  QObject::connect(bbox, &QDialogButtonBox::rejected, overlay,
+                     [&]() { finish(false); });
+
+  overlay->show();
+  overlay->raise();
+  loop.exec();
+
+  overlay->deleteLater();
+  return accepted;
+}
+
+/// Miniatur der Seitenmuster (an PageItem::paint angelehnt) für die Vorlagenwahl.
+static QIcon makePageTemplateIcon(PageBackgroundType t, int w, int h) {
+  QPixmap pm(w, h);
+  pm.fill(Qt::transparent);
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing, true);
+  const QRectF rr(0.5, 0.5, w - 1.0, h - 1.0);
+  const QColor paper(252, 252, 254);
+  const QColor lineCol(165, 168, 190, 150);
+  p.setPen(Qt::NoPen);
+  p.setBrush(paper);
+  p.drawRoundedRect(rr, 5, 5);
+  const qreal left = 3, right = w - 3.0, top = 3, bottom = h - 3.0;
+  switch (t) {
+  case PageBackgroundType::Blank:
+    break;
+  case PageBackgroundType::Lined: {
+    p.setPen(QPen(lineCol, 1));
+    const int n = 5;
+    const qreal dy = (bottom - top) / static_cast<qreal>(n + 1);
+    for (int i = 1; i <= n; ++i) {
+      const qreal y = top + dy * i;
+      p.drawLine(QPointF(left, y), QPointF(right, y));
+    }
+    break;
+  }
+  case PageBackgroundType::Legal: {
+    p.setPen(QPen(lineCol, 1));
+    const int n = 5;
+    const qreal dy = (bottom - top) / static_cast<qreal>(n + 1);
+    for (int i = 1; i <= n; ++i) {
+      const qreal y = top + dy * i;
+      p.drawLine(QPointF(left, y), QPointF(right, y));
+    }
+    const qreal marginX = left + (right - left) * 0.22;
+    p.setPen(QPen(QColor(218, 72, 72), 2));
+    p.drawLine(QPointF(marginX, top), QPointF(marginX, bottom));
+    break;
+  }
+  case PageBackgroundType::Grid: {
+    p.setPen(QPen(lineCol, 1));
+    const int n = 5;
+    const qreal dx = (right - left) / static_cast<qreal>(n);
+    const qreal dy = (bottom - top) / static_cast<qreal>(n);
+    for (int i = 1; i < n; ++i) {
+      const qreal x = left + dx * i;
+      p.drawLine(QPointF(x, top), QPointF(x, bottom));
+    }
+    for (int i = 1; i < n; ++i) {
+      const qreal y = top + dy * i;
+      p.drawLine(QPointF(left, y), QPointF(right, y));
+    }
+    break;
+  }
+  case PageBackgroundType::Dotted: {
+    const qreal step = (right - left) / 5.5;
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(lineCol));
+    for (qreal x = left + step * 0.5; x < right; x += step)
+      for (qreal y = top + step * 0.5; y < bottom; y += step)
+        p.drawEllipse(QPointF(x, y), 1.4, 1.4);
+    break;
+  }
+  }
+  return QIcon(pm);
+}
+
+bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
+                        const QString &subtitle, int initialType,
+                        const QColor &initialPaper, A4LayoutDialogResult *out) {
+  if (!parent || !out)
+    return false;
+
+  out->accepted = false;
+
+  auto *overlay = new OverlayHost(parent);
+
+  auto *card = new QFrame(overlay);
+  card->setObjectName(QStringLiteral("A4LayoutCard"));
+  card->setStyleSheet(QStringLiteral(
+      "#A4LayoutCard {"
+      "  background-color: rgba(30, 32, 44, 0.98);"
+      "  border: 1px solid rgba(120, 130, 160, 0.35);"
+      "  border-radius: 20px;"
+      "}"
+      "QLabel { color: rgba(235, 237, 245, 0.95); }"
+      "QStackedWidget { background: transparent; }"
+      "QPushButton#segTab {"
+      "  background: transparent; border: none;"
+      "  border-radius: 10px; padding: 12px 20px;"
+      "  color: rgba(200, 198, 220, 0.75); font-weight: 600;"
+      "}"
+      "QPushButton#segTab:checked {"
+      "  background: rgba(107, 163, 245, 0.18);"
+      "  color: #E8F0FF;"
+      "}"
+      "QPushButton#segTab:hover {"
+      "  background: rgba(255,255,255,0.06);"
+      "}"
+      "QToolButton {"
+      "  border-radius: 14px;"
+      "  border: 1px solid rgba(110, 115, 140, 0.45);"
+      "  background: rgba(52, 54, 64, 0.95);"
+      "  color: rgba(230, 228, 242, 0.95);"
+      "  font-size: 11px; font-weight: 600; padding: 14px 12px;"
+      "}"
+      "QToolButton:hover {"
+      "  background: rgba(68, 70, 86, 0.98);"
+      "  border-color: rgba(140, 150, 185, 0.5);"
+      "}"
+      "QToolButton:checked {"
+      "  border: 2px solid #6BA3F5;"
+      "  background: rgba(107, 163, 245, 0.12);"
+      "}"
+      "QDialogButtonBox QPushButton {"
+      "  min-height: 36px; min-width: 88px; border-radius: 10px; font-weight: 600;"
+      "}"));
+
+  centerCardInOverlay(overlay, card, 720, 760);
+
+  auto *root = new QVBoxLayout(card);
+  root->setContentsMargins(40, 34, 40, 30);
+  root->setSpacing(26);
+
+  auto *titleLbl = new QLabel(windowTitle, card);
+  titleLbl->setStyleSheet(QStringLiteral(
+      "font-weight: 700; font-size: 19px; letter-spacing: 0.2px;"));
+  root->addWidget(titleLbl);
+
+  if (!subtitle.isEmpty()) {
+    auto *sub = new QLabel(subtitle, card);
+    sub->setWordWrap(true);
+    sub->setStyleSheet(
+        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;"));
+    root->addWidget(sub);
+  }
+
+  root->addSpacing(10);
+
+  auto *segRow = new QHBoxLayout();
+  segRow->setSpacing(16);
+  auto *segGroup = new QButtonGroup(card);
+  segGroup->setExclusive(true);
+  auto makeSeg = [&](const QString &text) {
+    auto *b = new QPushButton(text, card);
+    b->setObjectName(QStringLiteral("segTab"));
+    b->setCheckable(true);
+    segGroup->addButton(b);
+    segRow->addWidget(b);
+    return b;
+  };
+  QPushButton *segBasic = makeSeg(QStringLiteral("Grundlegendes"));
+  QPushButton *segLib = makeSeg(QStringLiteral("Bibliothek"));
+  QPushButton *segCust = makeSeg(QStringLiteral("Benutzerdefiniert"));
+  segBasic->setChecked(true);
+  segRow->addStretch();
+
+  auto *stack = new QStackedWidget(card);
+  stack->setMinimumHeight(520);
+
+  auto *basics = new QWidget(card);
+  auto *basicsRoot = new QVBoxLayout(basics);
+  basicsRoot->setContentsMargins(4, 12, 4, 14);
+  basicsRoot->setSpacing(30);
+
+  auto *colorRow = new QHBoxLayout();
+  colorRow->setSpacing(16);
+  auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe:"), basics);
+  lblColor->setStyleSheet(QStringLiteral("font-size: 14px;"));
+  colorRow->addWidget(lblColor);
+  QColor paperColor = initialPaper.isValid() ? initialPaper : QColor(Qt::white);
+  auto *colorBtn = new QPushButton(basics);
+  colorBtn->setFixedHeight(50);
+  colorBtn->setMinimumWidth(220);
+  colorBtn->setCursor(Qt::PointingHandCursor);
+  auto refreshColorBtn = [colorBtn, &paperColor]() {
+    colorBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { background-color: %1; border: 1px solid rgba(180,180,200,0.45); "
+        "border-radius: 12px; min-height: 48px; }")
+                                .arg(paperColor.name()));
+  };
+  refreshColorBtn();
+  QObject::connect(colorBtn, &QPushButton::clicked, card, [&, overlay]() {
+    QWidget *cpHost = parent->window();
+    if (!cpHost)
+      cpHost = parent;
+    // Seitenlayout ausblenden, sonst liegen zwei Modale übereinander (Fertig + Farbe).
+    overlay->hide();
+    const bool ok = showColorPickerOverlay(cpHost, &paperColor,
+                                           QStringLiteral("Seitenfarbe wählen"));
+    overlay->show();
+    overlay->raise();
+    if (ok)
+      refreshColorBtn();
+  });
+  colorRow->addWidget(colorBtn);
+  colorRow->addStretch();
+  basicsRoot->addLayout(colorRow);
+
+  basicsRoot->addSpacing(6);
+
+  auto *g = new QGridLayout();
+  g->setHorizontalSpacing(28);
+  g->setVerticalSpacing(28);
+  g->setColumnStretch(0, 1);
+  g->setColumnStretch(1, 1);
+  g->setColumnStretch(2, 1);
+  int chosen = qBound(0, initialType, static_cast<int>(PageBackgroundType::Legal));
+  auto *tplGroup = new QButtonGroup(card);
+  tplGroup->setExclusive(true);
+
+  constexpr int kTplIconW = 118;
+  constexpr int kTplIconH = 100;
+  auto addTplBtn = [&](int row, int col, const QString &name, PageBackgroundType t) {
+    auto *tb = new QToolButton(basics);
+    tb->setText(name);
+    tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH));
+    tb->setIconSize(QSize(kTplIconW, kTplIconH));
+    tb->setCheckable(true);
+    tb->setFixedSize(152, 188);
+    tb->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    const int ti = static_cast<int>(t);
+    QObject::connect(tb, &QToolButton::toggled, card, [ti, &chosen](bool on) {
+      if (on)
+        chosen = ti;
+    });
+    tplGroup->addButton(tb);
+    g->addWidget(tb, row, col);
+    return tb;
+  };
+
+  QToolButton *bBlank =
+      addTplBtn(0, 0, QStringLiteral("Weiß / leer"), PageBackgroundType::Blank);
+  QToolButton *bLined =
+      addTplBtn(0, 1, QStringLiteral("Liniert"), PageBackgroundType::Lined);
+  QToolButton *bGrid =
+      addTplBtn(0, 2, QStringLiteral("Kariert"), PageBackgroundType::Grid);
+  QToolButton *bDot =
+      addTplBtn(1, 0, QStringLiteral("Punktiert"), PageBackgroundType::Dotted);
+  QToolButton *bLeg =
+      addTplBtn(1, 1, QStringLiteral("Legal"), PageBackgroundType::Legal);
+
+  QToolButton *initialTpl = bGrid;
+  switch (chosen) {
+  case static_cast<int>(PageBackgroundType::Blank):
+    initialTpl = bBlank;
+    break;
+  case static_cast<int>(PageBackgroundType::Lined):
+    initialTpl = bLined;
+    break;
+  case static_cast<int>(PageBackgroundType::Grid):
+    initialTpl = bGrid;
+    break;
+  case static_cast<int>(PageBackgroundType::Dotted):
+    initialTpl = bDot;
+    break;
+  case static_cast<int>(PageBackgroundType::Legal):
+    initialTpl = bLeg;
+    break;
+  default:
+    break;
+  }
+  initialTpl->setChecked(true);
+
+  basicsRoot->addLayout(g);
+
+  auto *libPage = new QWidget(card);
+  auto *libLay = new QVBoxLayout(libPage);
+  libLay->addStretch();
+  auto *libIcon = new QLabel(QStringLiteral("☆"), card);
+  libIcon->setAlignment(Qt::AlignCenter);
+  QFont f = libIcon->font();
+  f.setPointSize(28);
+  libIcon->setFont(f);
+  libIcon->setStyleSheet(QStringLiteral("color:#94a3b8;"));
+  libLay->addWidget(libIcon);
+  auto *libTitle =
+      new QLabel(QStringLiteral("Bibliothek ist leer"), card);
+  libTitle->setAlignment(Qt::AlignCenter);
+  libTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+  libLay->addWidget(libTitle);
+  auto *libSub = new QLabel(
+      QStringLiteral("Fügen Sie Vorlagen später über den Vorlagenbereich hinzu."),
+      card);
+  libSub->setWordWrap(true);
+  libSub->setAlignment(Qt::AlignCenter);
+  libSub->setStyleSheet(QStringLiteral("color:#64748b;font-size:12px;"));
+  libLay->addWidget(libSub);
+  libLay->addStretch();
+
+  auto *custPage = new QWidget(card);
+  auto *custLay = new QVBoxLayout(custPage);
+  custLay->addStretch();
+  auto *custTitle =
+      new QLabel(QStringLiteral("Benutzerdefinierte Vorlagen"), card);
+  custTitle->setAlignment(Qt::AlignCenter);
+  custTitle->setStyleSheet(QStringLiteral(
+      "font-weight:600;font-size:14px;color:#E6E4F0;"));
+  custLay->addWidget(custTitle);
+  auto *custSub = new QLabel(
+      QStringLiteral("Importieren Sie PDFs und Bilder über „Importieren“ oder "
+                     "„Bild“, um sie als Seitenhintergrund zu nutzen."),
+      card);
+  custSub->setWordWrap(true);
+  custSub->setAlignment(Qt::AlignCenter);
+  custSub->setStyleSheet(QStringLiteral(
+      "color: rgba(180,178,200,0.85); font-size: 12px;"));
+  custLay->addWidget(custSub);
+  custLay->addStretch();
+
+  stack->addWidget(basics);
+  stack->addWidget(libPage);
+  stack->addWidget(custPage);
+
+  QObject::connect(segBasic, &QPushButton::clicked, stack,
+                   [stack]() { stack->setCurrentIndex(0); });
+  QObject::connect(segLib, &QPushButton::clicked, stack,
+                   [stack]() { stack->setCurrentIndex(1); });
+  QObject::connect(segCust, &QPushButton::clicked, stack,
+                   [stack]() { stack->setCurrentIndex(2); });
+
+  root->addLayout(segRow);
+  root->addSpacing(8);
+  root->addWidget(stack, 1);
+
+  auto *bbox =
+      new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);
+  bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
+  bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
+  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(QStringLiteral(
+      "QPushButton { color: #8EB8F8; border: none; background: transparent; "
+      "font-weight:600; padding:10px 18px; }"
+      "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
+      "border-radius: 10px; }"));
+  bbox->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #6BA3F5; color: #0f172a; border: none; "
+      "border-radius: 10px; padding: 12px 28px; font-weight: 600; }"
+      "QPushButton:hover { background: #7EB0F7; }"
+      "QPushButton:pressed { background: #5A94E8; }"));
+  root->addSpacing(14);
+  root->addWidget(bbox, 0, Qt::AlignRight);
+
+  QEventLoop loop;
+  bool accepted = false;
+
+  auto finish = [&](bool ok) {
+    accepted = ok;
+    loop.quit();
+  };
+
+  overlay->setCard(card);
+  overlay->onDismiss = [&]() { finish(false); };
+
+  QObject::connect(bbox, &QDialogButtonBox::accepted, overlay,
+                     [&]() { finish(true); });
+  QObject::connect(bbox, &QDialogButtonBox::rejected, overlay,
+                     [&]() { finish(false); });
+
+  overlay->show();
+  overlay->raise();
+  loop.exec();
+
+  if (accepted) {
+    out->accepted = true;
+    out->backgroundType =
+        qBound(0, chosen, static_cast<int>(PageBackgroundType::Legal));
+    out->paperColor = paperColor;
+  }
+
+  overlay->deleteLater();
+  return out->accepted;
+}
+

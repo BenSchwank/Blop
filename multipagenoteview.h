@@ -13,6 +13,8 @@
 #include "Note.h"
 #include "ToolMode.h"
 #include "PageItem.h"
+
+class QFrame;
 #include "TransformOverlay.h"
 
 class NoteSelectionMenu;
@@ -56,6 +58,9 @@ public:
     // PDF Import: renders each PDF page as a note page background image
     bool importPdfPages(const QString &pdfPath);
 
+    /// Dialog wie „Neue Seite von Vorlage“ für die aktuell sichtbare Seite (Farbe + Muster)
+    void openPageLayoutForVisiblePage();
+
 public slots:
     void onSelectionChanged();
     void deleteSelection();
@@ -80,7 +85,6 @@ protected:
     // WICHTIG: Gesten kommen hier an
     bool viewportEvent(QEvent* e) override;
 
-    // NEU: Zum Zeichnen des Pull-Indikators
     void drawForeground(QPainter* painter, const QRectF& rect) override;
 
 private:
@@ -103,8 +107,11 @@ private:
     bool m_isZooming{false};
     QPoint m_lastPanPos;
 
-    // NEU: Pull-to-Add Variablen
+    /// Kumuliertes „Überziehen“ am unteren Rand (Rad / Pan), bis das Blob-Overlay erscheint
     float m_pullDistance{0.0f};
+    QWidget* m_bottomSheet{nullptr};
+    QFrame* m_pagesBarCard{nullptr};
+    SkeletonPageItem* m_pagesBarAnchorStrip{nullptr};
 
     QColor penColor_{Qt::black};
     qreal penWidth_{2.0};
@@ -130,9 +137,22 @@ private:
     int pageAt(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
 
-    // NEU: Helper
     void addNewPage();
-    void drawPullIndicator(QPainter* painter);
+    void addNewPageWithLayout(int backgroundType, const QColor &paperColor);
+    void applyLayoutToPage(int pageIndex, int backgroundType, const QColor &paperColor);
+    int visiblePageIndex() const;
+    void showBottomSheetFromPull();
+    void hideBottomSheet();
+    void updateBottomSheetGeometry();
+    void syncPagesBarVisibility();
+    /// Unterkante der letzten Seite in Szenenkoordinaten (für Panel-Position).
+    qreal lastPageBottomSceneY() const;
+    /// Sichtbarkeit: nur wenn die Skeleton-Leiste (unter der letzten Seite) im Viewport liegt.
+    bool isSkeletonStripIntersectingViewport() const;
+    void pickAndAddImagePage();
+    void pickAndImportPdf();
+    void showBottomMoreMenu();
+    void openTemplatePageDialog();
 
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);

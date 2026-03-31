@@ -68,6 +68,8 @@ qt_add_executable(Blop
     freegridview.cpp
     multipagenoteview.cpp
     multipagenoteview.h
+    editoroverlays.cpp
+    editoroverlays.h
     settingsdialog.cpp
     settingsdialog.h
     SettingsDialog.ui
@@ -117,6 +119,7 @@ qt_add_executable(Blop
     ToolSettings.h
     TransformOverlay.h
     UIStyles.h
+    SelectionMenuIcons.h
     uiprofile.h
 
     # Intro Animation

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <QColor>
 #include <QString>
 
@@ -47,4 +48,9 @@ struct ToolConfig {
     bool rulerSnap = true;      // Einrasten aktiv?
     bool compassMode = false;   // Rundes Lineal
     bool infiniteRuler = false; // Über die ganze Seite
+
+    // 8. Schnellauswahl-Farben (persistente Slots für Tool-Settings)
+    std::array<QColor, 5> quickColors{
+        QColor(Qt::black), QColor(Qt::white), QColor(Qt::red),
+        QColor(Qt::blue), QColor(0, 200, 0)};
 };

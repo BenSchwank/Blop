@@ -1,4 +1,5 @@
 #include "canvasview.h"
+#include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
 #include "UIStyles.h"
 #include "mainwindow.h"
@@ -64,12 +65,11 @@ private:
     bool m_firstRedo{true};
 };
 
-#include <QApplication>
 #include <QBitmap>
 #include <QPalette>
 #include <QShowEvent>
 #include <QClipboard>
-#include <QColorDialog>
+#include "editoroverlays.h"
 #include <QCursor>
 #include <QDataStream>
 #include <QFile>
@@ -136,21 +136,34 @@ public:
     QHBoxLayout *layout = new QHBoxLayout(this);
     layout->setContentsMargins(5, 5, 5, 5);
     layout->setSpacing(2);
-    auto addBtn = [&](QString text, auto signal) {
-      QPushButton *btn = new QPushButton(text, this);
+    auto addIconBtn = [&](const QIcon &ico, const QString &tip, auto signal) {
+      auto *btn = new QPushButton(this);
+      btn->setIcon(ico);
+      btn->setIconSize(QSize(22, 22));
+      btn->setToolTip(tip);
+      btn->setFlat(true);
       connect(btn, &QPushButton::clicked, this, signal);
       layout->addWidget(btn);
     };
-    addBtn("✂️", &SelectionMenu::cutRequested);
-    addBtn("📋", &SelectionMenu::copyRequested);
-    addBtn("🎨", &SelectionMenu::colorRequested);
-    addBtn("📐", &SelectionMenu::cropRequested);
-    addBtn("📸", &SelectionMenu::screenshotRequested);
+    addIconBtn(SelectionMenuIcons::cutIcon(), QStringLiteral("Ausschneiden"),
+               &SelectionMenu::cutRequested);
+    addIconBtn(SelectionMenuIcons::copyIcon(), QStringLiteral("Kopieren"),
+               &SelectionMenu::copyRequested);
+    addIconBtn(SelectionMenuIcons::colorIcon(), QStringLiteral("Farbe"),
+               &SelectionMenu::colorRequested);
+    addIconBtn(SelectionMenuIcons::cropIcon(), QStringLiteral("Zuschneiden"),
+               &SelectionMenu::cropRequested);
+    addIconBtn(SelectionMenuIcons::screenshotIcon(), QStringLiteral("Screenshot"),
+               &SelectionMenu::screenshotRequested);
     QFrame *line = new QFrame;
     line->setFrameShape(QFrame::VLine);
     line->setStyleSheet("color: #555;");
     layout->addWidget(line);
-    QPushButton *btnDel = new QPushButton("🗑️", this);
+    QPushButton *btnDel = new QPushButton(this);
+    btnDel->setIcon(SelectionMenuIcons::trashIcon());
+    btnDel->setIconSize(QSize(22, 22));
+    btnDel->setToolTip(QStringLiteral("Löschen"));
+    btnDel->setFlat(true);
     btnDel->setStyleSheet("color: #FF5555;");
     connect(btnDel, &QPushButton::clicked, this,
             &SelectionMenu::deleteRequested);
@@ -889,17 +902,25 @@ void CanvasView::cutSelection() {
 }
 
 void CanvasView::changeSelectionColor() {
-  QColor c = QColorDialog::getColor(Qt::black, this, "Farbe ändern");
-  if (c.isValid()) {
-    for (auto *item : m_scene->selectedItems()) {
-      if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
-        QPen p = pi->pen();
-        p.setColor(c);
-        pi->setPen(p);
-      }
+  QColor c = Qt::black;
+  for (auto *item : m_scene->selectedItems()) {
+    if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
+      c = pi->pen().color();
+      break;
     }
-    m_scene->update();
   }
+  if (!showColorPickerOverlay(this, &c, QStringLiteral("Farbe ändern"))) {
+    m_selectionMenu->hide();
+    return;
+  }
+  for (auto *item : m_scene->selectedItems()) {
+    if (auto *pi = dynamic_cast<QGraphicsPathItem *>(item)) {
+      QPen p = pi->pen();
+      p.setColor(c);
+      pi->setPen(p);
+    }
+  }
+  m_scene->update();
   m_selectionMenu->hide();
 }
 
@@ -1587,7 +1608,7 @@ bool CanvasView::exportToPDF(const QString &path) {
     painter.scale(scale, scale);
     painter.translate(-bounds.center());
     
-    // Draw background grid
+    // Draw back    ground grid
     drawBackground(&painter, bounds);
     // Draw scene items
     m_scene->render(&painter, bounds, bounds);

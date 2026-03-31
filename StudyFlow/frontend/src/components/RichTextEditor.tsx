@@ -19,6 +19,8 @@ interface RichTextEditorProps {
     title: string;
     onSave: (content: string) => Promise<void>;
     onClose: () => void;
+    /** When set (e.g. YouTube import), show embedded player above the editor. */
+    youtubeVideoId?: string | null;
 }
 
 const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, onExportPdf: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
@@ -164,7 +166,7 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
     );
 };
 
-export default function RichTextEditor({ initialContent, title, onSave, onClose }: RichTextEditorProps) {
+export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
@@ -327,7 +329,20 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose 
     return (
         <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#1e1e1e] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
             <MenuBar editor={editor} onSave={handleSave} onClose={onClose} onExportPdf={runPdfExport} isSaving={isSaving} title={title} saveStatus={saveStatus} />
-            <div className="flex-1 overflow-y-auto bg-[#1e1e1e]">
+            {youtubeVideoId ? (
+                <div className="shrink-0 border-b border-[#333] bg-[#14141f] px-4 py-4">
+                    <div className="max-w-4xl mx-auto aspect-video max-h-[min(40vh,360px)] rounded-xl overflow-hidden border border-[#2A2A40] bg-black shadow-lg">
+                        <iframe
+                            title="YouTube"
+                            className="w-full h-full"
+                            src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}`}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                        />
+                    </div>
+                </div>
+            ) : null}
+            <div className="flex-1 overflow-y-auto bg-[#1e1e1e] min-h-0">
                 <EditorContent editor={editor} />
             </div>
             {printPortal}

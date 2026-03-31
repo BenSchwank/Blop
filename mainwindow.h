@@ -201,9 +201,10 @@ private slots:
 
   void onTabChanged(int index);
 
-  void onToggleRightSidebar();
+  void setPageSettingsOverlayVisible(bool show);
+  void syncPageSettingsPanelFromEditor();
   void onTogglePageManager();
-  void onShareClicked();
+  void onEditorNoteOverflowMenu();
 
   void setPageColor(bool dark);
 
@@ -248,7 +249,6 @@ private:
   void showRenameOverlay(const QString &currentName);
 
   void animateSidebar(bool show);
-  void animateRightSidebar(bool show);
 
   void performCopy(const QModelIndex &index);
   bool copyRecursive(const QString &src, const QString &dst);
@@ -290,8 +290,6 @@ private:
   QPushButton *m_btnAndroidAddWebBookmark{nullptr};
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};
-  /// Opens right note settings while editing on Android.
-  ModernButton *m_btnAndroidToolbarSettings{nullptr};
   /// Orange page manager button (only for A4 notes).
   ModernButton *m_btnAndroidToolbarPageManager{nullptr};
   /// Export current note while editing on Android.
@@ -373,7 +371,8 @@ private:
   QWidget *m_editorCenterWidget{nullptr};
   QTabWidget *m_editorTabs{nullptr};
 
-  QWidget *m_rightSidebar{nullptr};
+  QWidget *m_pageSettingsOverlay{nullptr};
+  QWidget *m_pageSettingsCard{nullptr};
   QLabel *m_lblActiveNote{nullptr};
 
   // Quick-Tags Sidebar
@@ -405,8 +404,10 @@ private:
 
   PageManager *m_pageManager{nullptr};
 
-  ModernButton *btnEditorSettings{nullptr};
-  ModernButton *m_btnPages{nullptr};
+  /// A4-Notiz: ⋯-Menü in der Desktop-Titelleiste (kein Floating-Button)
+  ModernButton *m_btnEditorNoteOverflow{nullptr};
+  /// A4-Notiz: Seitenmanager (gleiche Rolle wie Android-Topbar-Button)
+  ModernButton *m_btnTitleBarPageManager{nullptr};
   ModernButton *btnBackOverview{nullptr};
 
   QString m_rootPath;

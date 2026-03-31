@@ -18,9 +18,24 @@ interface FloatingChatProps {
     modelPreference?: string;
     activeFile?: any | null;
     onUpdateActiveFile?: (newContent: any) => Promise<void>;
+    onApplyPatch?: (patch: DocumentPatch) => Promise<void>;
+    onUndoLastPatch?: () => Promise<void>;
+    canUndo?: boolean;
 }
 
-export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile }: FloatingChatProps) {
+interface DocumentPatch {
+    patch_description: string;
+    apply_mode: 'append' | 'replace_section';
+    section_hint?: string;
+    new_text: string;
+    confidence?: number;
+}
+
+function isPatchResponse(obj: any): obj is DocumentPatch {
+    return obj && typeof obj === 'object' && typeof obj.new_text === 'string' && typeof obj.apply_mode === 'string';
+}
+
+export default function FloatingChat({ folderId, username, modelPreference, activeFile, onUpdateActiveFile, onApplyPatch, onUndoLastPatch, canUndo = false }: FloatingChatProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
@@ -28,6 +43,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [pendingPatch, setPendingPatch] = useState<DocumentPatch | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -48,7 +64,9 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         setIsLoading(true);
 
         try {
-            const res = await fetch('/api/ai/chat', {
+            const hasTextDocument = activeFile && typeof activeFile.content === 'string';
+            const endpoint = hasTextDocument ? '/api/ai/document-chat' : '/api/ai/chat';
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -56,6 +74,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                 body: JSON.stringify({
                     username,
                     folder_id: folderId,
+                    file_id: activeFile?.id,
                     message: userMsg,
                     history: messages.filter(m => m.role !== 'model' || m.content !== 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?'), // Don't send the default greeting
                     model_preference: modelPreference || null,
@@ -79,6 +98,17 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             }
 
             const data = await res.json();
+            if (data?.patch && isPatchResponse(data.patch)) {
+                setPendingPatch(data.patch);
+                setMessages([
+                    ...newMessages,
+                    {
+                        role: 'model',
+                        content: `Vorschlag: **${data.patch.patch_description || 'Dokumentänderung'}**\n\n${data.patch.new_text.substring(0, 1400)}${data.patch.new_text.length > 1400 ? '\n\n…(gekürzt)' : ''}`,
+                    },
+                ]);
+                return;
+            }
             const replyText = data.reply;
 
             // Try to parse JSON to see if it's an action rather than a chat message
@@ -108,6 +138,26 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleApplyPatch = async () => {
+        if (!pendingPatch || !onApplyPatch) return;
+        setIsLoading(true);
+        try {
+            await onApplyPatch(pendingPatch);
+            setMessages((prev) => [...prev, { role: 'model', content: 'Änderung übernommen und gespeichert. ✅' }]);
+            setPendingPatch(null);
+        } catch (error: any) {
+            setMessages((prev) => [...prev, { role: 'model', content: error?.message || 'Patch konnte nicht angewendet werden.' }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleRejectPatch = () => {
+        if (!pendingPatch) return;
+        setPendingPatch(null);
+        setMessages((prev) => [...prev, { role: 'model', content: 'Änderung verworfen.' }]);
     };
 
     return (
@@ -153,6 +203,27 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                     <X size={18} />
                                 </button>
                             </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    disabled={!canUndo || isLoading}
+                                    onClick={async () => {
+                                        if (!onUndoLastPatch) return;
+                                        setIsLoading(true);
+                                        try {
+                                            await onUndoLastPatch();
+                                            setMessages((prev) => [...prev, { role: 'model', content: 'Letzte Änderung rückgängig gemacht. ↩️' }]);
+                                        } catch (e: any) {
+                                            setMessages((prev) => [...prev, { role: 'model', content: e?.message || 'Rückgängig fehlgeschlagen.' }]);
+                                        } finally {
+                                            setIsLoading(false);
+                                        }
+                                    }}
+                                    className="px-2 py-1 text-xs rounded-lg border border-[#3d3d3d] text-gray-300 hover:text-white hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Rückgängig
+                                </button>
+                            </div>
                         </div>
 
                         {/* Chat History */}
@@ -185,6 +256,29 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                     <div className="bg-[#2d2d2d] text-gray-400 rounded-2xl rounded-tl-sm p-4 border border-[#3d3d3d] flex items-center gap-2">
                                         <Loader2 size={16} className="animate-spin" />
                                         <span className="text-sm">Denkt nach...</span>
+                                    </div>
+                                </div>
+                            )}
+                            {pendingPatch && (
+                                <div className="bg-[#202032] border border-[#3f3f60] rounded-xl p-3">
+                                    <p className="text-xs text-gray-300 mb-2">Vorgeschlagene Änderung bereit.</p>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleApplyPatch}
+                                            disabled={isLoading}
+                                            className="px-3 py-1.5 text-xs rounded-lg bg-green-600 hover:bg-green-500 text-white disabled:opacity-50"
+                                        >
+                                            Übernehmen
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleRejectPatch}
+                                            disabled={isLoading}
+                                            className="px-3 py-1.5 text-xs rounded-lg bg-[#333] hover:bg-[#444] text-gray-200 disabled:opacity-50"
+                                        >
+                                            Verwerfen
+                                        </button>
                                     </div>
                                 </div>
                             )}

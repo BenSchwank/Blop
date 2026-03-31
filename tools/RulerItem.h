@@ -6,6 +6,9 @@
 #include "../UIStyles.h"
 #include <QGraphicsSceneWheelEvent>
 #include <QGraphicsSceneMouseEvent>
+#include <QEvent>
+#include <QTouchEvent>
+#include <QPainterPath>
 #include <QVector2D>
 #include <QElapsedTimer>
 
@@ -19,8 +22,7 @@ public:
         setFlags(ItemIsSelectable | ItemIsMovable | ItemSendsGeometryChanges);
         setAcceptHoverEvents(true);
         setAcceptedMouseButtons(Qt::LeftButton);
-        // Let the view translate touch to mouse events for consistent drag/resize.
-        setAcceptTouchEvents(false);
+        setAcceptTouchEvents(true);
         m_width = 1200; // Längeres Standard-Lineal
         m_height = 80;
         setTransformOriginPoint(m_width/2, m_height/2); // Drehung um die Mitte
@@ -35,6 +37,43 @@ public:
             return QRectF(c.x() - r - 28, c.y() - r - 28, (r + 28) * 2, (r + 28) * 2);
         }
         return QRectF(-20, -20, m_width + 40, m_height + 40);
+    }
+
+    QPainterPath shape() const override {
+        QPainterPath path;
+        if (m_config.compassMode) {
+            const QPointF c = transformOriginPoint();
+            const qreal rOuter = qMin(m_width, m_height) * 0.42 + 10.0;
+            const qreal rInner = qMin(m_width, m_height) * 0.42 - 26.0;
+            path.addEllipse(c, rOuter, rOuter);
+            QPainterPath inner;
+            inner.addEllipse(c, rInner, rInner);
+            path = path.subtracted(inner);
+            return path;
+        }
+        // Enge Hitbox: sichtbarer Körper + kleine Endgriffe.
+        path.addRoundedRect(QRectF(0, 0, m_width, m_height), 6, 6);
+        path.addRect(QRectF(-10, 6, 20, m_height - 12));
+        path.addRect(QRectF(m_width - 10, 6, 20, m_height - 12));
+        return path;
+    }
+
+    bool canStartInteractionAtScenePos(const QPointF &scenePos) const {
+        const QPointF local = sceneTransform().inverted().map(scenePos);
+        return isLocalPointInteractive(local);
+    }
+
+    void applyRotationDelta(qreal deltaDeg) {
+        qreal a = rotation() + deltaDeg;
+        if (m_config.rulerSnap)
+            a = snapToLocalGrid(a, 45.0);
+        setRotation(normalizeAngle(a));
+    }
+
+    void applyWheelDelta(int wheelDeltaY, Qt::KeyboardModifiers modifiers) {
+        const qreal baseStep = (modifiers & Qt::ShiftModifier) ? 1.0 : 5.0;
+        const qreal dir = (wheelDeltaY > 0) ? -1.0 : 1.0;
+        applyRotationDelta(dir * baseStep);
     }
 
     void setConfig(const ToolConfig& c) {
@@ -130,21 +169,14 @@ public:
     }
 
     void wheelEvent(QGraphicsSceneWheelEvent* event) override {
+        // Mausrad dreht das Lineal in sinnvollen Schritten und snapt auf 15°.
         double currentAngle = rotation();
-        // Optionale Modifikation durch Shift-Taste
-        double step = (event->modifiers() & Qt::ShiftModifier) ? 15.0 : 1.0;
-        
-        if (event->delta() > 0) {
-            currentAngle -= step;
-        } else {
-            currentAngle += step;
-        }
-        
-        // Winkel normalisieren (0-360)
-        while (currentAngle >= 360) currentAngle -= 360;
-        while (currentAngle < 0) currentAngle += 360;
-        
-        setRotation(currentAngle);
+        const double baseStep = (event->modifiers() & Qt::ShiftModifier) ? 1.0 : 5.0;
+        const double dir = (event->delta() > 0) ? -1.0 : 1.0;
+        currentAngle += dir * baseStep;
+        if (m_config.rulerSnap)
+            currentAngle = snapToLocalGrid(currentAngle, 45.0);
+        setRotation(normalizeAngle(currentAngle));
         event->accept();
     }
 
@@ -162,10 +194,20 @@ public:
         }
 
         const QPointF local = sceneTransform().inverted().map(event->scenePos());
+        if (isLocalPointOnResetButton(local)) {
+            m_zeroAngleReference = normalizeAngle(rotation());
+            update();
+            event->accept();
+            return;
+        }
+        if (!isLocalPointInteractive(local)) {
+            QGraphicsObject::mousePressEvent(event);
+            return;
+        }
         if (!m_config.compassMode) {
-            const qreal handlePad = 44.0; // easier touch hitbox on tablets
-            const bool onLeft = (local.x() <= handlePad && local.y() >= -20 && local.y() <= m_height + 20);
-            const bool onRight = (local.x() >= m_width - handlePad && local.y() >= -20 && local.y() <= m_height + 20);
+            const qreal handlePad = 18.0;
+            const bool onLeft = (local.x() <= handlePad && local.y() >= -8 && local.y() <= m_height + 8);
+            const bool onRight = (local.x() >= m_width - handlePad && local.y() >= -8 && local.y() <= m_height + 8);
             if (onLeft || onRight) {
                 m_resizingLeft = onLeft;
                 m_resizingRight = onRight;
@@ -179,21 +221,13 @@ public:
             }
         }
 
-        // Double-tap to move: either native double-click or touch fallback.
-        const qint64 elapsedMs = m_tapTimer.isValid() ? m_tapTimer.elapsed() : 100000;
-        const bool nearTap = QLineF(event->scenePos(), m_lastTapScenePos).length() <= 48.0;
-        if (elapsedMs <= 420 && nearTap) {
-            m_dragReady = true;
-        }
-        m_lastTapScenePos = event->scenePos();
-        m_tapTimer.restart();
-
-        if (m_dragReady) {
-            m_draggingBody = true;
-            m_dragOffsetScene = event->scenePos() - pos();
-            event->accept();
-            return;
-        }
+        // Im Körperbereich immer direkt Drag starten – so verhalten sich
+        // Linksklick und Fingertap identisch und die Seite scrollt nicht mit.
+        m_dragReady = true;
+        m_draggingBody = true;
+        m_dragOffsetScene = event->scenePos() - pos();
+        event->accept();
+        return;
 
         QGraphicsObject::mousePressEvent(event);
     }
@@ -224,6 +258,71 @@ public:
         update();
         QGraphicsObject::mouseReleaseEvent(event);
     }
+    bool sceneEvent(QEvent *event) override {
+        if (event->type() == QEvent::TouchBegin ||
+            event->type() == QEvent::TouchUpdate ||
+            event->type() == QEvent::TouchEnd ||
+            event->type() == QEvent::TouchCancel) {
+            auto *te = static_cast<QTouchEvent *>(event);
+            const auto points = te->points();
+
+            if (event->type() == QEvent::TouchEnd ||
+                event->type() == QEvent::TouchCancel || points.isEmpty()) {
+                m_touchActive = false;
+                m_prevTouchCount = 0;
+                event->accept();
+                return true;
+            }
+
+            QPointF centerNow;
+            if (points.size() == 1) {
+                centerNow = points.first().scenePosition();
+            } else {
+                centerNow = (points.at(0).scenePosition() + points.at(1).scenePosition()) * 0.5;
+            }
+
+            const QPointF centerLocal = sceneTransform().inverted().map(centerNow);
+
+            if (!m_touchActive || m_prevTouchCount != points.size()) {
+                if (!isLocalPointInteractive(centerLocal)) {
+                    return QGraphicsObject::sceneEvent(event);
+                }
+                m_touchActive = true;
+                m_prevTouchCount = points.size();
+                m_prevTouchCenter = centerNow;
+                if (points.size() >= 2) {
+                    QLineF l(points.at(0).scenePosition(), points.at(1).scenePosition());
+                    m_prevTouchAngle = l.angle();
+                }
+                event->accept();
+                return true;
+            }
+
+            const QPointF dc = centerNow - m_prevTouchCenter;
+            if (!dc.isNull())
+                setPos(pos() + dc);
+            m_prevTouchCenter = centerNow;
+
+            if (points.size() >= 2) {
+                QLineF lineNow(points.at(0).scenePosition(), points.at(1).scenePosition());
+                if (lineNow.length() > 0.001) {
+                    qreal rotDelta = m_prevTouchAngle - lineNow.angle();
+                    m_prevTouchAngle = lineNow.angle();
+
+                    // Weniger empfindlich und mit 15° Snap.
+                    rotDelta *= 0.6;
+                    double a = rotation() - rotDelta;
+                    if (m_config.rulerSnap)
+                        a = snapToLocalGrid(a, 45.0);
+                    setRotation(a);
+                }
+            }
+
+            event->accept();
+            return true;
+        }
+        return QGraphicsObject::sceneEvent(event);
+    }
 
 private:
     qreal m_width;
@@ -237,6 +336,48 @@ private:
     QPointF m_anchorScene;
     QElapsedTimer m_tapTimer;
     QPointF m_lastTapScenePos;
+    bool m_touchActive{false};
+    int m_prevTouchCount{0};
+    QPointF m_prevTouchCenter;
+    qreal m_prevTouchAngle{0.0};
+    qreal m_zeroAngleReference{0.0};
+
+    qreal normalizeAngle(qreal a) const {
+        while (a >= 360.0) a -= 360.0;
+        while (a < 0.0) a += 360.0;
+        return a;
+    }
+
+    qreal snapToLocalGrid(qreal absoluteAngle, qreal gridDeg) const {
+        const qreal ref = m_zeroAngleReference;
+        const qreal rel = absoluteAngle - ref;
+        const qreal snappedRel = std::round(rel / gridDeg) * gridDeg;
+        return normalizeAngle(ref + snappedRel);
+    }
+
+    QRectF resetButtonRectLocal() const {
+        return QRectF(m_width * 0.5 - 10.0, m_height * 0.5 - 10.0, 20.0, 20.0);
+    }
+
+    bool isLocalPointOnResetButton(const QPointF &local) const {
+        return resetButtonRectLocal().contains(local);
+    }
+
+    bool isLocalPointInteractive(const QPointF &local) const {
+        if (m_config.compassMode) {
+            const QPointF c = transformOriginPoint();
+            const qreal r = QLineF(c, local).length();
+            const qreal rOuter = qMin(m_width, m_height) * 0.42 + 10.0;
+            const qreal rInner = qMin(m_width, m_height) * 0.42 - 26.0;
+            return (r >= rInner && r <= rOuter);
+        }
+        if (isLocalPointOnResetButton(local))
+            return true;
+        const QRectF body(0, 0, m_width, m_height);
+        const QRectF leftHandle(-10, 6, 20, m_height - 12);
+        const QRectF rightHandle(m_width - 10, 6, 20, m_height - 12);
+        return body.contains(local) || leftHandle.contains(local) || rightHandle.contains(local);
+    }
 
     void resizeFromHandle(const QPointF& scenePos) {
         // Axis direction of the ruler in scene space.
@@ -338,8 +479,6 @@ private:
     void paintOverlayInfo(QPainter* p) {
         p->save();
         p->translate(m_width/2, m_height/2);
-
-        // Text soll immer horizontal lesbar sein, also Gegenrotation
         p->rotate(-rotation());
 
         // Hintergrund Kapsel
@@ -347,15 +486,22 @@ private:
         p->setPen(Qt::NoPen);
         p->drawRoundedRect(-35, -12, 70, 24, 12, 12);
 
-        // Text (Winkel)
+        // Text relativ zum lokalen Nullgradpunkt
         p->setPen(Qt::white);
         p->setFont(QFont("Segoe UI", 9, QFont::Bold));
-
-        int deg = (int)rotation() % 360;
-        if (deg < 0) deg += 360;
-
+        int deg = static_cast<int>(normalizeAngle(rotation() - m_zeroAngleReference));
         p->drawText(QRectF(-35, -12, 70, 24), Qt::AlignCenter, QString("%1°").arg(deg));
         p->restore();
+
+        // Kleiner Reset-Button in der Mitte (setzt aktuellen Winkel als 0°).
+        const QRectF rr = resetButtonRectLocal();
+        p->setBrush(QColor(20, 22, 30, 210));
+        p->setPen(QPen(QColor(130, 160, 210), 1.2));
+        p->drawEllipse(rr);
+        p->setPen(QPen(QColor(200, 220, 255), 1.4, Qt::SolidLine, Qt::RoundCap));
+        const QPointF c = rr.center();
+        p->drawArc(QRectF(c.x()-5, c.y()-5, 10, 10), 30 * 16, 270 * 16);
+        p->drawLine(QPointF(c.x()+2.5, c.y()-5.2), QPointF(c.x()+6.5, c.y()-6.5));
     }
 
     void drawTicks(QPainter* p, qreal y, double pxPerUnit, int subs, bool isTop) {

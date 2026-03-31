@@ -6,7 +6,7 @@
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCheckBox>
-#include <QColorDialog>
+#include "editoroverlays.h"
 #include <QDialog>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsItem>
@@ -26,12 +26,214 @@
 #include <QWheelEvent>
 #include <cmath>
 #include <QtGlobal>
+#include <QtMath>
 
 #ifdef Q_OS_ANDROID
 #define BLOP_TOOLBAR_LONGPRESS 1
 #else
 #define BLOP_TOOLBAR_LONGPRESS 0
 #endif
+
+namespace {
+
+// 64×64 logical coords (same convention as MainWindow::createModernIcon) — identical on all platforms.
+void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
+  p->setRenderHint(QPainter::Antialiasing);
+  const QPen pen(color, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  p->setPen(pen);
+  p->setBrush(Qt::NoBrush);
+
+  if (name == QLatin1String("settings")) {
+    const QPointF c(32, 32);
+    const qreal ringOuter = 14.0;
+    const qreal ringInner = 7.0;
+    p->drawEllipse(c, ringOuter, ringOuter);
+    p->drawEllipse(c, ringInner, ringInner);
+    constexpr double pi = 3.14159265358979323846;
+    for (int i = 0; i < 8; ++i) {
+      const double a = (i * pi) / 4.0;
+      const double cs = qCos(a);
+      const double sn = qSin(a);
+      QPointF p1(c.x() + cs * 17.0, c.y() + sn * 17.0);
+      QPointF p2(c.x() + cs * 21.5, c.y() + sn * 21.5);
+      p->drawLine(p1, p2);
+    }
+    return;
+  }
+  if (name == QLatin1String("save")) {
+    p->setBrush(Qt::NoBrush);
+    p->setPen(pen);
+    p->drawRoundedRect(17, 14, 30, 36, 3, 3);
+    p->drawLine(21, 22, 43, 22);
+    p->drawLine(25, 14, 25, 20);
+    p->drawLine(39, 14, 39, 20);
+    p->drawLine(24, 30, 40, 30);
+    p->drawLine(24, 36, 36, 36);
+    return;
+  }
+  if (name == QLatin1String("palette")) {
+    QPainterPath blob;
+    blob.moveTo(18, 38);
+    blob.cubicTo(12, 32, 14, 22, 22, 18);
+    blob.cubicTo(30, 14, 42, 18, 46, 28);
+    blob.cubicTo(48, 36, 40, 44, 28, 46);
+    blob.cubicTo(22, 46, 18, 42, 18, 38);
+    p->setBrush(QColor(color.red(), color.green(), color.blue(), 55));
+    p->setPen(pen);
+    p->drawPath(blob);
+    p->setPen(Qt::NoPen);
+    p->setBrush(color);
+    p->drawEllipse(22, 24, 6, 6);
+    p->drawEllipse(30, 21, 6, 6);
+    p->drawEllipse(33, 31, 6, 6);
+    return;
+  }
+  if (name == QLatin1String("brush_size")) {
+    p->drawLine(20, 44, 44, 20);
+    p->setPen(QPen(color, 5, Qt::SolidLine, Qt::RoundCap));
+    p->drawEllipse(41, 17, 7, 7);
+    p->setPen(pen);
+    p->drawEllipse(15, 37, 11, 11);
+    return;
+  }
+  if (name == QLatin1String("dock_float")) {
+    p->drawRoundedRect(14, 22, 36, 26, 4, 4);
+    p->drawLine(32, 22, 32, 12);
+    p->drawLine(26, 16, 32, 12);
+    p->drawLine(38, 16, 32, 12);
+    return;
+  }
+  if (name == QLatin1String("dock_fixed")) {
+    p->drawRoundedRect(12, 20, 18, 26, 3, 3);
+    p->drawRoundedRect(34, 20, 18, 26, 3, 3);
+    p->drawLine(30, 28, 34, 28);
+    p->drawLine(30, 34, 34, 34);
+    return;
+  }
+  if (name == QLatin1String("overview")) {
+    QPainterPath home;
+    home.moveTo(12, 28);
+    home.lineTo(32, 12);
+    home.lineTo(52, 28);
+    home.lineTo(52, 44);
+    home.lineTo(12, 44);
+    home.closeSubpath();
+    p->drawPath(home);
+    p->drawLine(22, 44, 22, 32);
+    p->drawLine(42, 44, 42, 32);
+    return;
+  }
+  if (name == QLatin1String("pen")) {
+    p->drawLine(18, 46, 46, 18);
+    p->drawLine(44, 16, 48, 14);
+    return;
+  }
+  if (name == QLatin1String("pencil")) {
+    p->drawLine(20, 44, 44, 20);
+    p->drawLine(42, 18, 46, 16);
+    return;
+  }
+  if (name == QLatin1String("highlighter")) {
+    QPen hlPen(color, 6, Qt::SolidLine, Qt::FlatCap, Qt::RoundJoin);
+    p->setPen(hlPen);
+    p->drawLine(16, 42, 48, 14);
+    return;
+  }
+  if (name == QLatin1String("eraser")) {
+    p->setBrush(QColor(color.red(), color.green(), color.blue(), 90));
+    p->setPen(pen);
+    p->drawRoundedRect(16, 20, 32, 24, 4, 4);
+    return;
+  }
+  if (name == QLatin1String("lasso")) {
+    QPainterPath path;
+    path.moveTo(18, 30);
+    path.cubicTo(18, 18, 30, 14, 40, 22);
+    path.cubicTo(48, 30, 44, 42, 32, 44);
+    path.cubicTo(22, 46, 16, 40, 18, 30);
+    p->drawPath(path);
+    return;
+  }
+  if (name == QLatin1String("ruler")) {
+    p->drawLine(14, 36, 50, 36);
+    int i = 0;
+    for (int x = 18; x <= 46; x += 4) {
+      p->drawLine(x, 36, x, (i % 2) ? 30 : 26);
+      ++i;
+    }
+    return;
+  }
+  if (name == QLatin1String("shape")) {
+    p->drawRoundedRect(16, 16, 32, 32, 4, 4);
+    return;
+  }
+  if (name == QLatin1String("stickynote")) {
+    p->drawRoundedRect(18, 14, 28, 36, 3, 3);
+    p->drawLine(40, 14, 40, 22);
+    p->drawLine(34, 22, 40, 22);
+    return;
+  }
+  if (name == QLatin1String("text")) {
+    QFont f = p->font();
+    f.setPixelSize(34);
+    f.setBold(true);
+    p->setFont(f);
+    p->drawText(QRect(0, 0, 64, 64), Qt::AlignCenter, QStringLiteral("T"));
+    return;
+  }
+  if (name == QLatin1String("image")) {
+    p->drawRoundedRect(14, 20, 36, 28, 3, 3);
+    QPainterPath hill;
+    hill.moveTo(16, 42);
+    hill.lineTo(28, 28);
+    hill.lineTo(38, 36);
+    hill.lineTo(48, 26);
+    hill.lineTo(48, 42);
+    p->drawPath(hill);
+    p->setBrush(color);
+    p->setPen(Qt::NoPen);
+    p->drawEllipse(40, 22, 6, 6);
+    return;
+  }
+  if (name == QLatin1String("hand")) {
+    QPainterPath h;
+    h.moveTo(28, 38);
+    h.cubicTo(22, 36, 20, 30, 22, 24);
+    h.cubicTo(24, 18, 30, 16, 34, 20);
+    h.lineTo(36, 14);
+    h.cubicTo(40, 12, 44, 16, 44, 22);
+    h.lineTo(44, 28);
+    h.cubicTo(46, 34, 40, 42, 32, 44);
+    h.cubicTo(26, 44, 24, 40, 28, 38);
+    p->drawPath(h);
+    return;
+  }
+  if (name == QLatin1String("undo")) {
+    QPainterPath arc;
+    arc.moveTo(46, 24);
+    arc.cubicTo(30, 12, 12, 20, 16, 36);
+    p->drawPath(arc);
+    p->drawLine(16, 36, 10, 30);
+    p->drawLine(10, 30, 20, 28);
+    return;
+  }
+  if (name == QLatin1String("redo")) {
+    QPainterPath arc;
+    arc.moveTo(18, 24);
+    arc.cubicTo(34, 12, 52, 20, 48, 36);
+    p->drawPath(arc);
+    p->drawLine(48, 36, 54, 30);
+    p->drawLine(54, 30, 44, 28);
+    return;
+  }
+  // Fallback: single-character / unknown (legacy)
+  QFont f = p->font();
+  f.setPixelSize(28);
+  p->setFont(f);
+  p->drawText(QRect(0, 0, 64, 64), Qt::AlignCenter, name);
+}
+
+} // namespace
 
 // =============================================================================
 // 1. ToolbarBtn Implementation
@@ -136,7 +338,7 @@ void ToolbarBtn::animateSelect() {
 void ToolbarBtn::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
-  
+
   if (m_drawFloatingBg) {
     p.setBrush(QColor(30, 28, 52, 245));
     QColor ring = m_accentColor;
@@ -145,7 +347,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.drawEllipse(rect().adjusted(2, 2, -2, -2));
   }
 
-  int r = m_size / 2 - 4;
+  const int r = m_size / 2 - 4;
   if (m_active) {
     p.setBrush(m_accentColor);
     p.setPen(Qt::NoPen);
@@ -155,48 +357,17 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   }
-  p.setPen(QPen(Qt::white, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.setBrush(Qt::NoBrush);
-  int w = width();
-  int h = height();
-  p.translate(w / 2, h / 2);
-  double scale = (double)w / 110.0;
-  scale *= m_animScale;
-  p.scale(scale, scale);
-  p.translate(-32, -32);
 
-  QString emoji = m_iconName;
-  if (m_iconName == "pen") emoji = "✏️";
-  else if (m_iconName == "pencil") emoji = "✒️";
-  else if (m_iconName == "highlighter") emoji = "🖊";
-  else if (m_iconName == "eraser") emoji = "⬜";
-  else if (m_iconName == "lasso") emoji = "⬭";
-  else if (m_iconName == "ruler") emoji = "📏";
-  else if (m_iconName == "shape") emoji = "◻";
-  else if (m_iconName == "stickynote") emoji = "🗒";
-  else if (m_iconName == "text") emoji = "T";
-  else if (m_iconName == "image") emoji = "🖼";
-  else if (m_iconName == "hand") emoji = "✋";
-  else if (m_iconName == "undo") emoji = "↩";
-  else if (m_iconName == "redo") emoji = "↪";
-  else if (m_iconName == "overview") emoji = "\u2302";
-  // Fallback for dock_toggle or other dynamically set emojis
-  
-  // Custom font size for the emoji
-  p.restore(); // Undo the 110.0 scaling and translations done previously in the method because text draws differently
-  
-  // We need to redo the scale because we restored
+  const int w = width();
+  const int h = height();
+  const QColor fg(255, 255, 255, 220);
   p.save();
-  p.translate(w / 2, h / 2);
+  p.translate(w / 2.0, h / 2.0);
   p.scale(m_animScale, m_animScale);
-  
-  QFont f = p.font();
-  f.setPixelSize(static_cast<int>(34 * (w / 40.0))); // Much bigger base size
-  p.setFont(f);
-  p.setPen(QPen(QColor(255, 255, 255, 220)));
-  
-  // Da Text aus der Baseline gerendert wird, nutzen wir Text flags zum genauen zentrieren
-  p.drawText(QRectF(-w/2.0, -h/2.0, w, h), Qt::AlignCenter, emoji);
+  const qreal g = qMin(w, h) / 64.0;
+  p.scale(g, g);
+  p.translate(-32, -32);
+  drawToolbarGlyph64(&p, m_iconName, fg);
   p.restore();
 
   if (m_active && m_holdProgress > 0.0) {
@@ -460,28 +631,106 @@ public:
       layout->addWidget(new QLabel("Farbe:"));
       QHBoxLayout *colors = new QHBoxLayout;
       colors->setSpacing(8);
-      QList<QColor> presets = {Qt::black, Qt::white, Qt::red, Qt::blue,
-                               QColor(0, 200, 0)};
-      for (auto c : presets) {
+      auto swatchStyle = [](const QColor &c, bool selected) {
+        if (selected) {
+          return QStringLiteral(
+                     "QPushButton { background-color: %1; border-radius: 12px; "
+                     "border: 2px solid #6BA3F5; }"
+                     "QPushButton:hover { border-color: #8EB8F8; }")
+              .arg(c.name());
+        }
+        return QStringLiteral(
+                   "QPushButton { background-color: %1; border-radius: 12px; "
+                   "border: 1px solid rgba(15,23,42,180); }"
+                   "QPushButton:hover { border-color: rgba(55,65,81,220); }")
+            .arg(c.name());
+      };
+      QList<QPushButton *> quickButtons;
+      auto refreshQuickButtons = [this, &quickButtons, swatchStyle]() {
+        for (auto *qb : quickButtons) {
+          const int qIdx = qb->property("quickIndex").toInt();
+          QColor qc = qb->property("quickColor").value<QColor>();
+          if (!qc.isValid() && qIdx >= 0 &&
+              qIdx < static_cast<int>(m_config.quickColors.size())) {
+            qc = m_config.quickColors[qIdx];
+          }
+          if (!qc.isValid())
+            qc = QColor(Qt::black);
+          qb->setStyleSheet(swatchStyle(qc, qIdx == m_selectedQuickIndex));
+        }
+      };
+      for (int i = 0; i < static_cast<int>(m_config.quickColors.size()); ++i) {
+        const QColor c = m_config.quickColors[i].isValid()
+                             ? m_config.quickColors[i]
+                             : QColor(Qt::black);
         QPushButton *b = new QPushButton;
         b->setFixedSize(24, 24);
-        b->setStyleSheet(QString("background-color: %1; border-radius: 12px; "
-                                 "border: 1px solid #666;")
-                             .arg(c.name()));
-        connect(b, &QPushButton::clicked, [this, c]() {
-          m_config.penColor = c;
-          updatePreview();
-          apply();
-        });
+        b->setCursor(Qt::PointingHandCursor);
+        b->setProperty("quickIndex", i);
+        b->setProperty("quickColor", c);
+        quickButtons.append(b);
         colors->addWidget(b);
+        connect(b, &QPushButton::clicked, this, [this, b, &refreshQuickButtons]() {
+          const int idx = b->property("quickIndex").toInt();
+          QColor c = b->property("quickColor").value<QColor>();
+          if (!c.isValid() && idx >= 0 &&
+              idx < static_cast<int>(m_config.quickColors.size())) {
+            c = m_config.quickColors[idx];
+          }
+          if (!c.isValid())
+            c = QColor(Qt::black);
+
+          // 1. Tap/Klick: nur auswählen (mit Highlight), 2. Tap/Klick: bearbeiten.
+          if (m_selectedQuickIndex != idx) {
+            m_selectedQuickIndex = idx;
+            m_config.penColor = c;
+            refreshQuickButtons();
+            updatePreview();
+            apply();
+            return;
+          }
+
+          QWidget *overlayHost = parentWidget();
+          if (!overlayHost)
+            overlayHost = this->window();
+          hide();
+          const bool ok = showColorPickerOverlay(
+              overlayHost, &c, QStringLiteral("Schnellfarbe bearbeiten"));
+          show();
+          raise();
+          activateWindow();
+          if (ok) {
+            b->setProperty("quickColor", c);
+            if (idx >= 0 && idx < static_cast<int>(m_config.quickColors.size()))
+              m_config.quickColors[idx] = c;
+            m_config.penColor = c;
+            refreshQuickButtons();
+            updatePreview();
+            apply();
+          }
+        });
       }
+      refreshQuickButtons();
       QPushButton *btnWheel = new QPushButton("...");
       btnWheel->setFixedSize(24, 24);
       btnWheel->setStyleSheet("background-color: #333; color: white; "
                               "border-radius: 12px; border: 1px solid #666;");
       connect(btnWheel, &QPushButton::clicked, [this]() {
-        QColor c = QColorDialog::getColor(m_config.penColor, this);
-        if (c.isValid()) {
+        QColor c = m_config.penColor;
+        // Nicht this->window(): Das wäre das kleine Popup selbst; Hauptfenster
+        // (bei ToolSettingsPopup der QObject-Parent) für Vollbild-Overlay.
+        QWidget *overlayHost = parentWidget();
+        if (!overlayHost)
+          overlayHost = this->window();
+        // Qt::Popup liegt immer über Kind-Widgets des Hauptfensters — Overlay
+        // würde sonst hinter den Tool-Einstellungen hängen.
+        hide();
+        const bool ok =
+            showColorPickerOverlay(overlayHost, &c, QStringLiteral("Stiftfarbe"));
+        show();
+        raise();
+        activateWindow();
+        if (ok) {
           m_config.penColor = c;
           updatePreview();
           apply();
@@ -659,7 +908,6 @@ public:
     }
   }
 
-protected:
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
@@ -677,6 +925,7 @@ private:
   ToolConfig m_config;
   ToolMode m_mode;
   ToolPreviewWidget *m_previewWidget;
+  int m_selectedQuickIndex{-1};
 };
 
 // =============================================================================
@@ -704,38 +953,23 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnHand = new ToolbarBtn("hand", this);
   btnUndo = new ToolbarBtn("undo", this);
   btnRedo = new ToolbarBtn("redo", this);
-#ifdef Q_OS_ANDROID
   btnBackOverview = new ToolbarBtn("overview", this);
   btnBackOverview->setToolTip(tr("Zur Übersicht"));
   connect(btnBackOverview, &ToolbarBtn::clicked, this,
           [this]() { emit backToOverviewRequested(); });
-#endif
-  btnDockToggle = new ToolbarBtn("↥", this); // Default detach/dock icon
 
-  btnSettings = new ToolbarBtn("⚙️", this);
-#ifdef Q_OS_ANDROID
-  // Settings lives in the fixed Android top bar – hide duplicate in the notch.
-  btnSettings->hide();
-#endif
-  btnSave = new ToolbarBtn("💾", this);
-  btnPalette = new ToolbarBtn("🎨", this);
-  btnBrushSize = new ToolbarBtn("🖌️", this);
-  
-  m_dockedOnlyButtons = {btnSettings, btnSave, btnPalette, btnBrushSize};
+  btnDockToggle = new ToolbarBtn("dock_float", this);
 
-#ifdef Q_OS_ANDROID
-  // On Android the global settings live in the fixed top bar, so we do not
-  // show a duplicate settings button in the docked toolbar.
-  m_buttons = {btnSave,   btnPen,   btnPencil,   btnHighlighter, btnEraser,
-               btnLasso,  btnRuler, btnShape,    btnStickyNote,
-               btnText,   btnImage, btnHand,     btnBackOverview,
-               btnUndo,   btnRedo,  btnPalette,  btnBrushSize,   btnDockToggle};
-#else
-  m_buttons = {btnSettings, btnSave, btnPen,      btnPencil, btnHighlighter, btnEraser,
-               btnLasso,    btnRuler,  btnShape,       btnStickyNote,
-               btnText,     btnImage,  btnHand,        btnUndo,
-               btnRedo,     btnPalette, btnBrushSize,  btnDockToggle};
-#endif
+  btnSave = new ToolbarBtn("save", this);
+  btnPalette = new ToolbarBtn("palette", this);
+  btnBrushSize = new ToolbarBtn("brush_size", this);
+
+  m_dockedOnlyButtons = {btnSave, btnPalette, btnBrushSize};
+
+  m_buttons = {btnSave,     btnPen,      btnPencil, btnHighlighter,
+                 btnEraser,    btnLasso,    btnRuler,    btnShape,  btnStickyNote,
+                 btnText,      btnImage,    btnHand,     btnBackOverview,
+                 btnUndo,      btnRedo,     btnPalette,  btnBrushSize, btnDockToggle};
 
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
@@ -851,6 +1085,11 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           [this]() { emit redoRequested(); });
   connect(btnDockToggle, &ToolbarBtn::clicked,
           [this]() { setDockMode(!m_isDockedMode); });
+
+  connect(btnPalette, &ToolbarBtn::clicked, this,
+          [this]() { toggleRadialSettings(); });
+  connect(btnBrushSize, &ToolbarBtn::clicked, this,
+          [this]() { toggleRadialSettings(); });
 
   setStyle(Normal);
   setToolMode(ToolMode::Pen);
@@ -1631,7 +1870,9 @@ void ModernToolbar::setOrientation(Orientation o, bool animate) {
 void ModernToolbar::setDockMode(bool docked) {
   if (m_isDockedMode == docked) return;
   m_isDockedMode = docked;
-  if (btnDockToggle) btnDockToggle->setIcon(docked ? "⊞" : "↥");
+  if (btnDockToggle)
+    btnDockToggle->setIcon(docked ? QStringLiteral("dock_fixed")
+                                  : QStringLiteral("dock_float"));
   m_draggable = !docked;
 
   // Clear any size constraints set by edge snapping
@@ -1668,10 +1909,8 @@ void ModernToolbar::setDockMode(bool docked) {
 
 QList<ToolbarBtn *> ModernToolbar::leftChromeButtons() const {
   QList<ToolbarBtn *> out;
-#ifdef Q_OS_ANDROID
   if (btnBackOverview)
     out.append(btnBackOverview);
-#endif
   out.append(btnUndo);
   out.append(btnRedo);
   return out;
@@ -1682,13 +1921,9 @@ int ModernToolbar::calculateMinLength() {
   int minGap = 6;
   
   if (m_isDockedMode) {
-    QList<ToolbarBtn*> leftGroup = leftChromeButtons();
-    QList<ToolbarBtn*> rightGroup =
-#ifdef Q_OS_ANDROID
-        QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnDockToggle};
-#else
-        QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
-#endif
+    QList<ToolbarBtn *> leftGroup = leftChromeButtons();
+    QList<ToolbarBtn *> rightGroup = {btnPalette, btnBrushSize, btnSave,
+                                      btnDockToggle};
     int centerGroupSize = m_buttons.size() - leftGroup.size() - rightGroup.size();
     
     int leftW = leftGroup.size() * btnS + (leftGroup.size() - 1) * minGap;
@@ -1749,14 +1984,10 @@ void ModernToolbar::updateLayout(bool animate) {
         }
       }
 
-      QList<ToolbarBtn*> leftGroup = leftChromeButtons();
-      QList<ToolbarBtn*> rightGroup =
-#ifdef Q_OS_ANDROID
-          QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnDockToggle};
-#else
-          QList<ToolbarBtn*>{btnPalette, btnBrushSize, btnSave, btnSettings, btnDockToggle};
-#endif
-      QList<ToolbarBtn*> centerGroup;
+      QList<ToolbarBtn *> leftGroup = leftChromeButtons();
+      QList<ToolbarBtn *> rightGroup = {btnPalette, btnBrushSize, btnSave,
+                                        btnDockToggle};
+      QList<ToolbarBtn *> centerGroup;
       for (auto *b : m_buttons) {
           if (!leftGroup.contains(b) && !rightGroup.contains(b)) {
               centerGroup.append(b);

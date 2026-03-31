@@ -2,7 +2,6 @@
 #include "Note.h"
 #include "multipagenoteview.h"
 #include <QWidget>
-#include <QPushButton>
 #include <QResizeEvent>
 #include <functional>
 
@@ -15,9 +14,14 @@ public:
     Note *note() const { return note_; }
 
     // Zugriff auf die View für MainWindow
-    MultiPageNoteView* view() const { return canvas_; }
+    MultiPageNoteView *view() const { return canvas_; }
+
+    /// Menü von der Titelleiste / Android-Topbar (Anchor = Button unten am Menü)
+    void showOverflowMenuFromAnchor(QWidget *anchor);
 
     std::function<void(Note *)> onSaveRequested;
+    /// Rechte Notiz-Leiste (Tags, Optionen) — nicht die globalen App-Einstellungen
+    std::function<void()> onOpenNoteOptionsRequested;
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -25,9 +29,7 @@ protected:
 private:
     Note *note_{nullptr};
 
-    // Nur noch der Canvas, keine eigene Toolbar
     MultiPageNoteView *canvas_{nullptr};
-    QPushButton *m_menuBtn{nullptr};
 
     void setupUi();
     void setupShortcuts();
