@@ -457,6 +457,10 @@ class SubscriptionUpgradeRequest(BaseModel):
     username: str
     tier: str
 
+class UserModelPreferenceRequest(BaseModel):
+    username: str
+    preferred_model: str = ""
+
 @app.get("/api/user/{username}")
 def get_user_info(username: str):
     """Returns user profile info including tokens and subscription tier."""
@@ -474,9 +478,20 @@ def get_user_info(username: str):
         "email": user.get("email", ""),
         "tokens": tokens,
         "subscription_tier": user.get("subscription_tier", "free"),
+        "preferred_model": user.get("preferred_model", ""),
         "xp": user.get("xp", 0),
         "is_admin": user.get("is_admin", False)
     }
+
+@app.put("/api/user/model-preference")
+def update_user_model_preference(body: UserModelPreferenceRequest):
+    user = AuthManager.get_user(body.username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ok = AuthManager.set_preferred_model(body.username, body.preferred_model)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Model preference could not be saved")
+    return {"status": "success", "preferred_model": (body.preferred_model or "").strip()}
 
 @app.post("/api/subscription/upgrade")
 def upgrade_subscription(request: SubscriptionUpgradeRequest):
@@ -516,12 +531,82 @@ def upgrade_subscription(request: SubscriptionUpgradeRequest):
         "subscription_tier": tier_lower
     }
 
-def check_and_deduct_tokens(username: str, cost: int):
+MODEL_TOKEN_RATES_PER_1K = {
+    "gemini-2.5-pro": {"in": 7.0, "out": 21.0},
+    "gemini-2.0-pro-exp": {"in": 5.0, "out": 12.0},
+    "gemini-1.5-pro": {"in": 3.5, "out": 10.0},
+    "gemini-2.0-flash": {"in": 1.4, "out": 4.0},
+    "gemini-1.5-flash": {"in": 1.0, "out": 3.0},
+    "gemini-2.0-flash-lite": {"in": 0.7, "out": 2.0},
+    "gemini-1.5-flash-8b": {"in": 0.6, "out": 1.5},
+    "gemini-pro": {"in": 2.0, "out": 5.0},
+}
+
+FEATURE_MULTIPLIER = {
+    "plan": 1.3,
+    "quiz": 1.0,
+    "flashcards": 1.1,
+    "summary": 1.0,
+    "elaboration": 1.4,
+    "elaboration_refine": 1.2,
+    "repetition": 1.5,
+    "task_help": 0.7,
+    "chat": 0.6,
+    "document_chat": 0.8,
+    "audio_transcribe": 1.0,
+}
+
+def ensure_minimum_tokens(username: str, reserve: int = 1):
     tokens = AuthManager.get_tokens(username)
-    if tokens < cost:
-        raise HTTPException(status_code=402, detail=f"Nicht genügend Tokens. Du hast {tokens}, {cost} werden benötigt.")
-    AuthManager.deduct_tokens(username, cost)
-    return True
+    if tokens < reserve:
+        raise HTTPException(status_code=402, detail=f"Nicht genügend Tokens. Du hast {tokens}, mindestens {reserve} werden benötigt.")
+    return tokens
+
+def resolve_model_preference(username: str, request_model: Optional[str]) -> Optional[str]:
+    requested = (request_model or "").strip()
+    if requested:
+        return requested
+    stored = (AuthManager.get_preferred_model(username) or "").strip()
+    return stored or None
+
+def _rates_for_model(model_name: str):
+    model_name = (model_name or "").strip()
+    if model_name in MODEL_TOKEN_RATES_PER_1K:
+        return MODEL_TOKEN_RATES_PER_1K[model_name]
+    # Prefix fallback for versioned model ids
+    for key, rates in MODEL_TOKEN_RATES_PER_1K.items():
+        if model_name.startswith(key):
+            return rates
+    return {"in": 1.0, "out": 3.0}
+
+def deduct_tokens_by_usage(username: str, feature_key: str, used_model: str, usage: dict):
+    usage = usage or {}
+    prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+    output_tokens = int(usage.get("output_tokens", 0) or 0)
+    total_tokens = int(usage.get("total_tokens", 0) or 0)
+    usage_estimated = False
+    if prompt_tokens <= 0 and output_tokens <= 0:
+        usage_estimated = True
+        # conservative fallback when provider usage is absent
+        total_tokens = total_tokens or 700
+        prompt_tokens = int(total_tokens * 0.5)
+        output_tokens = total_tokens - prompt_tokens
+    rates = _rates_for_model(used_model)
+    multiplier = float(FEATURE_MULTIPLIER.get(feature_key, 1.0))
+    raw_cost = ((prompt_tokens / 1000.0) * rates["in"] + (output_tokens / 1000.0) * rates["out"]) * multiplier
+    tokens_charged = max(1, int(round(raw_cost)))
+    before = AuthManager.get_tokens(username)
+    if before < tokens_charged:
+        raise HTTPException(status_code=402, detail=f"Nicht genügend Tokens. Benötigt: {tokens_charged}, verfügbar: {before}.")
+    ok = AuthManager.deduct_tokens(username, tokens_charged)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Token-Abzug fehlgeschlagen.")
+    remaining = AuthManager.get_tokens(username)
+    return {
+        "tokens_charged": tokens_charged,
+        "remaining_tokens": remaining,
+        "usage_estimated": usage_estimated,
+    }
 
 def _configure_genai(username: str = None):
     """Configures GenAI with Central Env Key."""
@@ -618,8 +703,9 @@ async def upload_audio(
         if not file.filename.lower().endswith(('.webm', '.wav', '.mp3', '.m4a')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Audioformate (.webm, .wav, .mp3, .m4a)")
              
-        check_and_deduct_tokens(username, 5)
+        ensure_minimum_tokens(username, 1)
         _configure_genai(username)
+        model_pref = resolve_model_preference(username, None)
         
         # Read the file content
         content = await file.read()
@@ -631,7 +717,8 @@ async def upload_audio(
             
         try:
             # Transcribe via Gemini
-            result_dict = AIService.transcribe_audio(temp_audio_path)
+            transcribe_result = AIService.transcribe_audio(temp_audio_path, model_preference=model_pref, return_meta=True)
+            result_dict = transcribe_result["data"]
             
             transcript_text = result_dict.get("content", "")
             audio_title = result_dict.get("title", f"Audio Notiz {datetime.now().strftime('%d.%m.%Y %H:%M')}")
@@ -646,7 +733,19 @@ async def upload_audio(
             
             DataManager.save_transcript(audio_title, transcript_text, username, folder_id)
             
-            return {"status": "success", "message": "Audio transkribiert und als Notiz gespeichert"}
+            charge = deduct_tokens_by_usage(
+                username,
+                "audio_transcribe",
+                transcribe_result.get("used_model", model_pref or ""),
+                transcribe_result.get("usage"),
+            )
+            return {
+                "status": "success",
+                "message": "Audio transkribiert und als Notiz gespeichert",
+                "used_model": transcribe_result.get("used_model", model_pref or ""),
+                "usage": transcribe_result.get("usage", {}),
+                **charge,
+            }
         finally:
              if os.path.exists(temp_audio_path):
                  os.remove(temp_audio_path)
@@ -669,7 +768,7 @@ async def upload_image(
         if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Bildformate (.jpg, .jpeg, .png, .webp)")
              
-        check_and_deduct_tokens(username, 5)
+        ensure_minimum_tokens(username, 1)
         _configure_genai(username)
         
         content = await file.read()
@@ -694,7 +793,17 @@ async def upload_image(
             
             DataManager.save_transcript(image_title, extracted_text, username, folder_id)
             
-            return {"status": "success", "message": "Bild verarbeitet und als Text notiert"}
+            charge = deduct_tokens_by_usage(
+                username,
+                "summary",
+                "gemini-1.5-pro",
+                {
+                    "prompt_tokens": int(getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0) or 0),
+                    "output_tokens": int(getattr(getattr(response, "usage_metadata", None), "candidates_token_count", 0) or 0),
+                    "total_tokens": int(getattr(getattr(response, "usage_metadata", None), "total_token_count", 0) or 0),
+                },
+            )
+            return {"status": "success", "message": "Bild verarbeitet und als Text notiert", **charge}
         finally:
              if os.path.exists(temp_img_path):
                  os.remove(temp_img_path)
@@ -827,9 +936,9 @@ def create_study_plan(request: PlanRequest):
     from ai_service import AIService
     
     try:
-        # Check Tokens & Configure API Key
-        check_and_deduct_tokens(request.username, 20)
+        ensure_minimum_tokens(request.username, 2)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         
         context, debug_log = _get_folder_context(request.username, request.folder_id)
 
@@ -839,12 +948,33 @@ def create_study_plan(request: PlanRequest):
             raise HTTPException(status_code=400, detail=error_msg)
 
         # Generate Plan
-        plan = AIService.generate_study_plan(context, request.duration_days, request.hours_per_day, model_preference=request.model_preference, active_days=request.active_days, learning_mode=request.learning_mode)
+        plan_result = AIService.generate_study_plan(
+            context,
+            request.duration_days,
+            request.hours_per_day,
+            model_preference=model_pref,
+            active_days=request.active_days,
+            learning_mode=request.learning_mode,
+            return_meta=True,
+        )
+        plan = plan_result["data"]
         
         # Save Plan
         DataManager.save_plan(plan, request.username, request.folder_id)
         background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Lernplan")
-        return {"status": "success", "plan": plan}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "plan",
+            plan_result.get("used_model", model_pref or ""),
+            plan_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "plan": plan,
+            "used_model": plan_result.get("used_model", model_pref or ""),
+            "usage": plan_result.get("usage", {}),
+            **charge,
+        }
     
     except HTTPException:
         raise  # Re-raise HTTP exceptions as-is
@@ -930,17 +1060,31 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     from datetime import datetime
     try:
-        check_and_deduct_tokens(request.username, 10)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        quiz = AIService.generate_quiz(context, model_preference=request.model_preference)
+        quiz_result = AIService.generate_quiz(context, model_preference=model_pref, return_meta=True)
+        quiz = quiz_result["data"]
         file_id = f"quiz_main_{request.folder_id}"
         DataManager.save_file_metadata({
             "id": file_id, "name": "AI Quiz", "type": "quiz", "content": quiz, "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
-        return {"status": "success", "quiz": quiz}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "quiz",
+            quiz_result.get("used_model", model_pref or ""),
+            quiz_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "quiz": quiz,
+            "used_model": quiz_result.get("used_model", model_pref or ""),
+            "usage": quiz_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -952,12 +1096,14 @@ def create_flashcards(request: GenRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        check_and_deduct_tokens(request.username, 15)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        cards = AIService.generate_flashcards(context, model_preference=request.model_preference)
+        cards_result = AIService.generate_flashcards(context, model_preference=model_pref, return_meta=True)
+        cards = cards_result["data"]
         DataManager.save_file_metadata({
             "id": f"cards_main_{request.folder_id}",
             "name": "Generierte Karteikarten",
@@ -966,7 +1112,19 @@ def create_flashcards(request: GenRequest):
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
         background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Karteikarten")
-        return {"status": "success", "flashcards": cards}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "flashcards",
+            cards_result.get("used_model", model_pref or ""),
+            cards_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "flashcards": cards,
+            "used_model": cards_result.get("used_model", model_pref or ""),
+            "usage": cards_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -977,14 +1135,34 @@ def create_flashcards(request: GenRequest):
 def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     try:
-        check_and_deduct_tokens(request.username, 10)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        summary = AIService.generate_summary(context, detail_level=request.detail_level, model_preference=request.model_preference, learning_mode=request.learning_mode)
+        summary_result = AIService.generate_summary(
+            context,
+            detail_level=request.detail_level,
+            model_preference=model_pref,
+            learning_mode=request.learning_mode,
+            return_meta=True,
+        )
+        summary = summary_result["text"]
         DataManager.save_generated_summary(summary, request.username, request.folder_id)
-        return {"status": "success", "summary": summary}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "summary",
+            summary_result.get("used_model", model_pref or ""),
+            summary_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "summary": summary,
+            "used_model": summary_result.get("used_model", model_pref or ""),
+            "usage": summary_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -996,13 +1174,21 @@ def create_elaboration(request: ElaborationRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        check_and_deduct_tokens(request.username, 10)
+        ensure_minimum_tokens(request.username, 2)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
-        elaboration_text = AIService.generate_elaboration(context, detail_level=request.detail_level, custom_rules=request.custom_rules, model_preference=request.model_preference)
+        elaboration_result = AIService.generate_elaboration(
+            context,
+            detail_level=request.detail_level,
+            custom_rules=request.custom_rules,
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        elaboration_text = elaboration_result["text"]
         
         DataManager.save_file_metadata({
             "id": f"elaboration_{int(datetime.now().timestamp())}",
@@ -1012,7 +1198,19 @@ def create_elaboration(request: ElaborationRequest):
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
         background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Ausarbeitung")
-        return {"status": "success", "elaboration": elaboration_text}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "elaboration",
+            elaboration_result.get("used_model", model_pref or ""),
+            elaboration_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "elaboration": elaboration_text,
+            "used_model": elaboration_result.get("used_model", model_pref or ""),
+            "usage": elaboration_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1024,8 +1222,9 @@ def refine_elaboration(request: ElaborationRefineRequest):
     from ai_service import AIService
     from datetime import datetime
     try:
-        check_and_deduct_tokens(request.username, 8)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         all_files = DataManager.list_files(request.username, request.folder_id)
         target = next((f for f in all_files if f.get("id") == request.file_id), None)
         if not target:
@@ -1044,12 +1243,14 @@ def refine_elaboration(request: ElaborationRefineRequest):
             "Bestehendes Dokument:\n"
             f"{base_content}"
         )
-        refined_text = AIService.generate_elaboration(
+        refined_result = AIService.generate_elaboration(
             content=[base_content],
             detail_level=request.detail_level,
             custom_rules=combined_rules,
-            model_preference=request.model_preference,
+            model_preference=model_pref,
+            return_meta=True,
         )
+        refined_text = refined_result["text"]
         save_mode = (request.save_mode or "new_file").lower()
         if save_mode == "replace":
             if not DataManager.update_file_content(
@@ -1059,7 +1260,20 @@ def refine_elaboration(request: ElaborationRefineRequest):
                 refined_text,
             ):
                 raise HTTPException(status_code=404, detail="Datei konnte nicht überschrieben werden.")
-            return {"status": "success", "saved_as": "replace", "content": refined_text}
+            charge = deduct_tokens_by_usage(
+                request.username,
+                "elaboration_refine",
+                refined_result.get("used_model", model_pref or ""),
+                refined_result.get("usage"),
+            )
+            return {
+                "status": "success",
+                "saved_as": "replace",
+                "content": refined_text,
+                "used_model": refined_result.get("used_model", model_pref or ""),
+                "usage": refined_result.get("usage", {}),
+                **charge,
+            }
         new_id = f"elaboration_refined_{int(datetime.now().timestamp())}"
         base_name = target.get("name") or "Ausarbeitung"
         DataManager.save_file_metadata(
@@ -1073,7 +1287,21 @@ def refine_elaboration(request: ElaborationRefineRequest):
             request.username,
             request.folder_id,
         )
-        return {"status": "success", "saved_as": "new_file", "new_file_id": new_id, "content": refined_text}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "elaboration_refine",
+            refined_result.get("used_model", model_pref or ""),
+            refined_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "saved_as": "new_file",
+            "new_file_id": new_id,
+            "content": refined_text,
+            "used_model": refined_result.get("used_model", model_pref or ""),
+            "usage": refined_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1085,13 +1313,21 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
     from ai_service import AIService
     from datetime import datetime
     try:
-        check_and_deduct_tokens(request.username, 15)
+        ensure_minimum_tokens(request.username, 2)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
-        repetition_text = AIService.generate_repetition(context, custom_rules=request.custom_rules, model_preference=request.model_preference, learning_mode=request.learning_mode)
+        repetition_result = AIService.generate_repetition(
+            context,
+            custom_rules=request.custom_rules,
+            model_preference=model_pref,
+            learning_mode=request.learning_mode,
+            return_meta=True,
+        )
+        repetition_text = repetition_result["text"]
         
         DataManager.save_file_metadata({
             "id": f"repetition_{int(datetime.now().timestamp())}",
@@ -1101,7 +1337,19 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
             "created_at": datetime.now().strftime("%Y-%m-%d")
         }, request.username, request.folder_id)
         background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Wiederholungsbogen")
-        return {"status": "success", "repetition": repetition_text}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "repetition",
+            repetition_result.get("used_model", model_pref or ""),
+            repetition_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "repetition": repetition_text,
+            "used_model": repetition_result.get("used_model", model_pref or ""),
+            "usage": repetition_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1112,14 +1360,27 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
 def get_task_help(request: TaskHelpRequest):
     from ai_service import AIService
     try:
-        check_and_deduct_tokens(request.username, 3)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
         
-        help_text = AIService.generate_task_help(context, request.task_description, request.model_preference)
-        return {"status": "success", "help_text": help_text}
+        help_result = AIService.generate_task_help(context, request.task_description, model_pref, return_meta=True)
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "task_help",
+            help_result.get("used_model", model_pref or ""),
+            help_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "help_text": help_result["text"],
+            "used_model": help_result.get("used_model", model_pref or ""),
+            "usage": help_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1130,8 +1391,9 @@ def get_task_help(request: TaskHelpRequest):
 def chat_endpoint(request: ChatRequest):
     from ai_service import AIService
     try:
-        check_and_deduct_tokens(request.username, 2)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             # Fallback to general chat if no context is found, but pass empty list
@@ -1140,14 +1402,27 @@ def chat_endpoint(request: ChatRequest):
         # Convert history
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
         
-        reply = AIService.chat(
+        reply_result = AIService.chat(
             content=context, 
             user_message=request.message, 
             history=history_dicts, 
-            model_preference=request.model_preference,
-            active_file=request.active_file
+            model_preference=model_pref,
+            active_file=request.active_file,
+            return_meta=True,
         )
-        return {"status": "success", "reply": reply}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "chat",
+            reply_result.get("used_model", model_pref or ""),
+            reply_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "reply": reply_result["text"],
+            "used_model": reply_result.get("used_model", model_pref or ""),
+            "usage": reply_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1158,8 +1433,9 @@ def chat_endpoint(request: ChatRequest):
 def document_chat_patch(request: DocumentChatPatchRequest):
     from ai_service import AIService
     try:
-        check_and_deduct_tokens(request.username, 2)
+        ensure_minimum_tokens(request.username, 1)
         _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
         all_files = DataManager.list_files(request.username, request.folder_id)
         target = next((f for f in all_files if f.get("id") == request.file_id), None)
         if not target:
@@ -1169,13 +1445,26 @@ def document_chat_patch(request: DocumentChatPatchRequest):
             content = json.dumps(content, ensure_ascii=False, indent=2)
         content = str(content or "")
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
-        patch = AIService.refine_document_with_chat(
+        patch_result = AIService.refine_document_with_chat(
             document_content=content,
             user_message=request.message,
             history=history_dicts,
-            model_preference=request.model_preference,
+            model_preference=model_pref,
+            return_meta=True,
         )
-        return {"status": "success", "patch": patch}
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "document_chat",
+            patch_result.get("used_model", model_pref or ""),
+            patch_result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "patch": patch_result["patch"],
+            "used_model": patch_result.get("used_model", model_pref or ""),
+            "usage": patch_result.get("usage", {}),
+            **charge,
+        }
     except HTTPException:
         raise
     except Exception as e:

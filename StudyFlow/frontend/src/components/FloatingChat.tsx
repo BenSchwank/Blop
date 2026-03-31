@@ -44,6 +44,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [pendingPatch, setPendingPatch] = useState<DocumentPatch | null>(null);
+    const [lastUsageInfo, setLastUsageInfo] = useState<string>('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -98,6 +99,13 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             }
 
             const data = await res.json();
+            if (typeof data?.tokens_charged === 'number') {
+                const modelLabel = data?.used_model || 'auto';
+                setLastUsageInfo(`Modell: ${modelLabel} · -${data.tokens_charged} Tokens`);
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new Event('blop_tokens_updated'));
+                }
+            }
             if (data?.patch && isPatchResponse(data.patch)) {
                 setPendingPatch(data.patch);
                 setMessages([
@@ -313,7 +321,9 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
                                 </button>
                             </form>
                             <div className="text-center mt-2">
-                                <span className="text-[10px] text-gray-500">Du kannst die Chat-Bubble auf dem Bildschirm verschieben.</span>
+                                <span className="text-[10px] text-gray-500">
+                                    {lastUsageInfo || 'Du kannst die Chat-Bubble auf dem Bildschirm verschieben.'}
+                                </span>
                             </div>
                         </div>
                     </motion.div>

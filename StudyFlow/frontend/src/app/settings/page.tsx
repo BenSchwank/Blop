@@ -20,6 +20,8 @@ export default function Settings() {
     const [tier, setTier] = useState<string>("free");
     const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
     const [upgradeStatus, setUpgradeStatus] = useState<{message: string, isError: boolean} | null>(null);
+    const [preferredModel, setPreferredModel] = useState<string>("");
+    const [savingModel, setSavingModel] = useState(false);
 
     const API_BASE = '/api';
 
@@ -38,10 +40,33 @@ export default function Settings() {
                 const data = await res.json();
                 setTokens(data.tokens);
                 setTier(data.subscription_tier);
+                setPreferredModel(data.preferred_model || "");
                 if (typeof data.email === "string") setAccountEmail(data.email);
             }
         } catch (error) {
             console.error("Error fetching user info:", error);
+        }
+    };
+
+    const savePreferredModel = async () => {
+        if (!username) return;
+        setSavingModel(true);
+        try {
+            const res = await fetch(`${API_BASE}/user/model-preference`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, preferred_model: preferredModel })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setUpgradeStatus({ message: data.detail || "Modell konnte nicht gespeichert werden.", isError: true });
+                return;
+            }
+            setUpgradeStatus({ message: "Standardmodell gespeichert.", isError: false });
+        } catch {
+            setUpgradeStatus({ message: "Verbindungsfehler beim Speichern des Modells.", isError: true });
+        } finally {
+            setSavingModel(false);
         }
     };
 
@@ -197,6 +222,38 @@ export default function Settings() {
                                 {upgradeStatus.message}
                             </div>
                         )}
+                    </div>
+                </section>
+
+                <section>
+                    <h2 className="text-xl font-semibold text-white mb-4">KI-Modell (Standard)</h2>
+                    <div className="bg-[#252526] border border-[#333] rounded-2xl p-6 space-y-4">
+                        <p className="text-sm text-gray-400">
+                            Dieses Modell wird verwendet, wenn du in einer Funktion kein Modell explizit auswählst.
+                        </p>
+                        <select
+                            value={preferredModel}
+                            onChange={(e) => setPreferredModel(e.target.value)}
+                            className="w-full bg-[#151525] border border-[#2A2A40] text-gray-200 rounded-xl px-4 py-2.5"
+                        >
+                            <option value="">Global: Automatisch (Backend-Auswahl)</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (sehr stark, teurer)</option>
+                            <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro (stark)</option>
+                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (stark)</option>
+                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (schnell)</option>
+                            <option value="gemini-1.5-flash">Gemini 1.5 Flash (günstig)</option>
+                            <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite (sehr günstig)</option>
+                        </select>
+                        <p className="text-xs text-gray-500">
+                            Tokenabzug erfolgt dynamisch nach Nutzung. Pro-Modelle ziehen in der Regel mehr Tokens ab als Flash-Modelle.
+                        </p>
+                        <button
+                            onClick={savePreferredModel}
+                            disabled={savingModel}
+                            className="px-4 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                        >
+                            {savingModel ? "Speichert..." : "Standardmodell speichern"}
+                        </button>
                     </div>
                 </section>
 

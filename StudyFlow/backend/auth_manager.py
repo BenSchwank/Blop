@@ -190,6 +190,7 @@ class AuthManager:
             "auth_id": auth_res.user.id,
             "password_hash": AuthManager._hash_password(password),
             "tokens": 500, # Initial tokens
+            "preferred_model": "",
             "xp": 0,
             "streak_days": 1,
             "is_admin": False,
@@ -226,6 +227,22 @@ class AuthManager:
         new_balance = current_tokens - amount
         db.table('users').update({"tokens": new_balance}).eq('username', username).execute()
         return True
+
+    @staticmethod
+    def get_preferred_model(username: str) -> str:
+        user = AuthManager.get_user(username)
+        if not user:
+            return ""
+        return str(user.get("preferred_model") or "").strip()
+
+    @staticmethod
+    def set_preferred_model(username: str, model_name: str) -> bool:
+        db = AuthManager._get_db()
+        if not db:
+            return False
+        cleaned = (model_name or "").strip()
+        res = db.table("users").update({"preferred_model": cleaned}).eq("username", username).execute()
+        return bool(res.data)
 
     @staticmethod
     def add_xp(username, amount):

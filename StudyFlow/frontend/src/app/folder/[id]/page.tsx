@@ -464,6 +464,7 @@ export default function FolderPage() {
 
     // Global AI Model Override State (for all AI generation overlays)
     const [aiModelPreference, setAiModelPreference] = useState<string>('');
+    const [globalPreferredModel, setGlobalPreferredModel] = useState<string>('');
 
     // Drag & Drop State
     const [activeDragFile, setActiveDragFile] = useState<FileData | null>(null);
@@ -482,6 +483,18 @@ export default function FolderPage() {
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
 
     const API_BASE = '/api';
+    const effectiveModelPreference = aiModelPreference || globalPreferredModel || undefined;
+
+    const announceUsage = (data: any) => {
+        if (!data) return;
+        if (typeof data.tokens_charged === 'number') {
+            const model = data.used_model || 'auto';
+            showToast(`Modell: ${model} · -${data.tokens_charged} Tokens`, 'info');
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new Event('blop_tokens_updated'));
+            }
+        }
+    };
 
     const fetchFiles = useCallback(async () => {
         try {
@@ -504,6 +517,22 @@ export default function FolderPage() {
     useEffect(() => {
         void fetchFiles();
     }, [fetchFiles]);
+
+    useEffect(() => {
+        const username = localStorage.getItem("username");
+        if (!username) return;
+        const fetchModel = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/user/${username}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                setGlobalPreferredModel(data.preferred_model || '');
+            } catch {
+                // ignore
+            }
+        };
+        void fetchModel();
+    }, []);
 
     // Setup global drag and drop event listeners
     useEffect(() => {
@@ -772,6 +801,8 @@ export default function FolderPage() {
             });
 
             if (res.ok) {
+                const data = await res.json();
+                announceUsage(data);
                 setAudioBlob(null);
                 setRecordingTime(0);
                 setIsUploadOpen(false);
@@ -804,12 +835,13 @@ export default function FolderPage() {
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7, model_preference: aiModelPreference || undefined })
+                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7, model_preference: effectiveModelPreference })
             });
 
             if (res.ok) {
                 ok = true;
                 const data = await res.json();
+                announceUsage(data);
 
                 // Open the result immediately from the response (no race condition)
                 if (endpoint === 'plan' && data.plan) {
@@ -893,7 +925,7 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     detail_level: summaryDetailLevel,
-                    model_preference: aiModelPreference || undefined,
+                    model_preference: effectiveModelPreference,
                     learning_mode: learningMode
                 })
             });
@@ -901,6 +933,7 @@ export default function FolderPage() {
             if (res.ok) {
                 ok = true;
                 const data = await res.json();
+                announceUsage(data);
                 setSelectedFile({
                     id: `summary_${Date.now()}`, // Temporary ID for immediate viewing
                     name: 'Automatische Zusammenfassung',
@@ -945,13 +978,14 @@ export default function FolderPage() {
                     folder_id: folderId,
                     detail_level: elaborationDetailLevel,
                     custom_rules: elaborationRules,
-                    model_preference: aiModelPreference || undefined
+                    model_preference: effectiveModelPreference
                 })
             });
 
             if (res.ok) {
                 ok = true;
                 const data = await res.json();
+                announceUsage(data);
                 setSelectedFile({
                     id: `elaboration_${Date.now()}`,
                     name: 'Ausarbeitung',
@@ -995,7 +1029,7 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     custom_rules: repetitionRules,
-                    model_preference: aiModelPreference || undefined,
+                    model_preference: effectiveModelPreference,
                     learning_mode: learningMode
                 })
             });
@@ -1003,6 +1037,7 @@ export default function FolderPage() {
             if (res.ok) {
                 ok = true;
                 const data = await res.json();
+                announceUsage(data);
                 setSelectedFile({
                     id: `repetition_${Date.now()}`,
                     name: 'Wiederholungsbogen',
@@ -1058,13 +1093,14 @@ export default function FolderPage() {
                     duration_days: days,
                     hours_per_day: planHoursPerDay,
                     active_days: planActiveDays.length < 7 ? planActiveDays : undefined,
-                    model_preference: aiModelPreference || undefined,
+                    model_preference: effectiveModelPreference,
                     learning_mode: learningMode
                 })
             });
 
             if (res.ok) {
                 const data = await res.json();
+                announceUsage(data);
                 if (data.plan && data.plan.length > 0) {
                     ok = true;
                     setSelectedFile({
@@ -1110,12 +1146,13 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     task_description: taskDescription,
-                    model_preference: aiModelPreference || undefined
+                    model_preference: effectiveModelPreference
                 })
             });
 
             if (res.ok) {
                 const data = await res.json();
+                announceUsage(data);
                 setTaskHelpContent(data.help_text || "Keine Erklärung generiert.");
             } else {
                 let errorMsg = `HTTP ${res.status}`;
@@ -2404,11 +2441,13 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">🚀 Automatisch (Empfohlen)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
+                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
+                                        <option value="gemini-2.0-flash">⚡ Gemini 2.0 Flash (schnell)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
+                                        <option value="gemini-2.0-flash-lite">⚡ Gemini 2.0 Flash Lite (sehr günstig)</option>
                                     </select>
                                     <p className="text-xs text-gray-500 mt-2">Wenn du Fehler wegen &apos;Quota Exceeded&apos; bekommst, wähle hier ein kleineres Modell (z.B. Flash).</p>
                                 </div>
@@ -2507,11 +2546,13 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">🚀 Automatisch (Empfohlen)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
+                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
+                                        <option value="gemini-2.0-flash">⚡ Gemini 2.0 Flash (schnell)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
+                                        <option value="gemini-2.0-flash-lite">⚡ Gemini 2.0 Flash Lite (sehr günstig)</option>
                                     </select>
                                 </div>
                             </div>
@@ -2590,11 +2631,13 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">🚀 Automatisch (Empfohlen)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
+                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
+                                        <option value="gemini-2.0-flash">⚡ Gemini 2.0 Flash (schnell)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
+                                        <option value="gemini-2.0-flash-lite">⚡ Gemini 2.0 Flash Lite (sehr günstig)</option>
                                     </select>
                                 </div>
                             </div>
@@ -2684,11 +2727,13 @@ export default function FolderPage() {
                                         value={aiModelPreference}
                                         onChange={(e) => setAiModelPreference(e.target.value)}
                                     >
-                                        <option value="">🚀 Automatisch (Empfohlen)</option>
-                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (Schnell & Günstig)</option>
-                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (Sehr Stark, Höheres Quota)</option>
-                                        <option value="gemini-2.0-flash">🔥 Gemini 2.0 Flash</option>
-                                        <option value="gemini-pro">🤖 Gemini Pro (Legacy)</option>
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (sehr stark, teuer)</option>
+                                        <option value="gemini-2.0-pro-exp">🧠 Gemini 2.0 Pro (stark)</option>
+                                        <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro (stark)</option>
+                                        <option value="gemini-2.0-flash">⚡ Gemini 2.0 Flash (schnell)</option>
+                                        <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (günstig)</option>
+                                        <option value="gemini-2.0-flash-lite">⚡ Gemini 2.0 Flash Lite (sehr günstig)</option>
                                     </select>
                                 </div>
                             </div>
@@ -3021,7 +3066,7 @@ export default function FolderPage() {
                 <FloatingChat
                     folderId={folderId}
                     username={typeof window !== 'undefined' ? localStorage.getItem('username') || 'Gast' : 'Gast'}
-                    modelPreference={aiModelPreference}
+                    modelPreference={effectiveModelPreference}
                     activeFile={selectedFile}
                     onUpdateActiveFile={async (newContent) => {
                         if (!selectedFile) return;

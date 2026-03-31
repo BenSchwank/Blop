@@ -23,21 +23,32 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const [tier, setTier] = useState<string>('free');
     const [mounted, setMounted] = useState(false);
 
+    const refreshUserInfo = async (user: string) => {
+        if (!user) return;
+        try {
+            const res = await fetch(`/api/user/${user}`);
+            const data = await res.json();
+            if (data && data.tokens !== undefined) setTokens(data.tokens);
+            if (data && data.subscription_tier) setTier(data.subscription_tier);
+        } catch (err) {
+            console.error("Error fetching user info:", err);
+        }
+    };
+
     useEffect(() => {
         setMounted(true);
         const user = localStorage.getItem('username') || '';
         setUsername(user);
         setIsAdmin(user.startsWith('admin_'));
-        
-        if (user) {
-            fetch(`/api/user/${user}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && data.tokens !== undefined) setTokens(data.tokens);
-                    if (data && data.subscription_tier) setTier(data.subscription_tier);
-                })
-                .catch(err => console.error("Error fetching user info:", err));
-        }
+
+        if (user) void refreshUserInfo(user);
+
+        const onTokensUpdated = () => {
+            const current = localStorage.getItem('username') || '';
+            if (current) void refreshUserInfo(current);
+        };
+        window.addEventListener('blop_tokens_updated', onTokensUpdated);
+        return () => window.removeEventListener('blop_tokens_updated', onTokensUpdated);
     }, [pathname]);
 
     const handleLogout = () => {

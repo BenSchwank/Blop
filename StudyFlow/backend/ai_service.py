@@ -118,8 +118,19 @@ Setze NAHTLOS fort:
         continuation_prompt: str,
         max_followups: int = 4,
         log_prefix: str = "Generation",
-    ) -> str:
+        return_meta: bool = False,
+    ) -> Any:
         """Generic chat-based generation that continues when MAX_TOKENS is hit."""
+        def _usage_to_dict(usage_obj: Any) -> Dict[str, int]:
+            if not usage_obj:
+                return {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+            return {
+                "prompt_tokens": int(getattr(usage_obj, "prompt_token_count", 0) or 0),
+                "output_tokens": int(getattr(usage_obj, "candidates_token_count", 0) or 0),
+                "total_tokens": int(getattr(usage_obj, "total_token_count", 0) or 0),
+            }
+
+        usage_sum = {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         chat = model.start_chat(history=[])
         response = chat.send_message(input_parts, safety_settings=SAFETY_SETTINGS)
         if not response.candidates:
@@ -127,6 +138,10 @@ Setze NAHTLOS fort:
         chunks: List[str] = []
         if response.text:
             chunks.append(response.text)
+        first_usage = _usage_to_dict(getattr(response, "usage_metadata", None))
+        usage_sum["prompt_tokens"] += first_usage["prompt_tokens"]
+        usage_sum["output_tokens"] += first_usage["output_tokens"]
+        usage_sum["total_tokens"] += first_usage["total_tokens"]
         finish_reason = response.candidates[0].finish_reason
         follow = 0
         while finish_reason == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
@@ -137,8 +152,28 @@ Setze NAHTLOS fort:
                 break
             if response.text:
                 chunks.append(response.text)
+            step_usage = _usage_to_dict(getattr(response, "usage_metadata", None))
+            usage_sum["prompt_tokens"] += step_usage["prompt_tokens"]
+            usage_sum["output_tokens"] += step_usage["output_tokens"]
+            usage_sum["total_tokens"] += step_usage["total_tokens"]
             finish_reason = response.candidates[0].finish_reason
-        return "\n\n".join(chunks).strip()
+        text = "\n\n".join(chunks).strip()
+        if not return_meta:
+            return text
+        return {
+            "text": text,
+            "usage": usage_sum,
+            "used_model": str(getattr(model, "model_name", "") or ""),
+        }
+
+    @staticmethod
+    def _extract_usage(response: Any) -> Dict[str, int]:
+        usage_obj = getattr(response, "usage_metadata", None)
+        return {
+            "prompt_tokens": int(getattr(usage_obj, "prompt_token_count", 0) or 0),
+            "output_tokens": int(getattr(usage_obj, "candidates_token_count", 0) or 0),
+            "total_tokens": int(getattr(usage_obj, "total_token_count", 0) or 0),
+        }
 
     @staticmethod
     def _pick_available_model(preferred: Optional[str] = None, fast_only: bool = False) -> str:
@@ -182,7 +217,7 @@ Setze NAHTLOS fort:
         return AIService._pick_available_model(preferred=None, fast_only=True)
 
     @staticmethod
-    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal") -> str:
+    def generate_summary(content: List[Any], detail_level: str = "Normal", model_preference: str = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
         """Generates a comprehensive summary from text or multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference))
@@ -270,13 +305,19 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return response.text
+            if not return_meta:
+                return response.text
+            return {
+                "text": response.text,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Summary Error: {e}")
             raise Exception(f"Fehler bei der Zusammenfassung: {str(e)}")
 
     @staticmethod
-    def generate_quiz(content: List[Any], model_preference: str = None) -> List[Dict[str, Any]]:
+    def generate_quiz(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates a comprehensive quiz from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
@@ -320,13 +361,20 @@ Erstelle das Quiz für das folgende Material:
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return json.loads(response.text)
+            parsed = json.loads(response.text)
+            if not return_meta:
+                return parsed
+            return {
+                "data": parsed,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Quiz Error: {e}")
             raise Exception(f"Fehler beim Quiz-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_flashcards(content: List[Any], model_preference: str = None) -> List[Dict[str, str]]:
+    def generate_flashcards(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates comprehensive flashcards from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
@@ -367,13 +415,20 @@ Erstelle die Karteikarten für das folgende Material:
             response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return json.loads(response.text)
+            parsed = json.loads(response.text)
+            if not return_meta:
+                return parsed
+            return {
+                "data": parsed,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Flashcard Error: {e}")
             raise Exception(f"Fehler beim Karteikarten-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal") -> List[Dict[str, Any]]:
+    def generate_study_plan(content: List[Any], duration_days: int, hours_per_day: float = 2.0, model_preference: str = None, active_days: list[int] = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
         """Generates a detailed, actionable study plan from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
@@ -462,13 +517,19 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
 
             result = json.loads(response.text)
             print(f"Parsed plan: {len(result)} days")
-            return result
+            if not return_meta:
+                return result
+            return {
+                "data": result,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Plan Error: {e}")
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_task_help(content: List[Any], task_description: str, model_preference: str = None) -> str:
+    def generate_task_help(content: List[Any], task_description: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates a concise, context-aware explanation/help text for a specific study plan task."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference))
@@ -502,13 +563,19 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
                 
-            return response.text
+            if not return_meta:
+                return response.text
+            return {
+                "text": response.text,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Task Help Error: {e}")
             raise Exception(f"Fehler bei der Aufgaben-Hilfe: {str(e)}")
 
     @staticmethod
-    def transcribe_audio(audio_file_path: str, model_preference: str = None) -> str:
+    def transcribe_audio(audio_file_path: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
@@ -603,13 +670,19 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
                 raise Exception("Leeres Transkript vom Modell erhalten.")
                 
             result = json.loads(response.text)
-            return result
+            if not return_meta:
+                return result
+            return {
+                "data": result,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Audio Transcription Error: {e}")
             raise Exception(f"Fehler bei der Audio-Transkription: {str(e)}")
 
     @staticmethod
-    def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "", model_preference: str = None) -> str:
+    def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "", model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates a detailed elaboration/essay based on the material and user instructions."""
         try:
             elaboration_generation_config = {
@@ -678,22 +751,32 @@ Hier ist das Quellenmaterial:
             else:
                 input_parts.append(content)
             try:
-                full_text = AIService._generate_with_continuation(
+                full_result = AIService._generate_with_continuation(
                     model=model,
                     input_parts=input_parts,
                     continuation_prompt=AIService._ELABORATION_CONTINUATION_PROMPT,
                     max_followups=6,
                     log_prefix="Elaboration",
+                    return_meta=return_meta,
                 )
             except Exception as mt_err:
                 print(f"Elaboration multiturn failed ({mt_err}), falling back to single-shot generate_content")
                 response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
                 if not response.text:
                     raise Exception("Leere Antwort vom Modell erhalten.")
-                full_text = response.text
+                if not return_meta:
+                    full_text = response.text
+                    full_result = full_text
+                else:
+                    full_result = {
+                        "text": response.text,
+                        "usage": AIService._extract_usage(response),
+                        "used_model": str(getattr(model, "model_name", "") or ""),
+                    }
+            full_text = full_result["text"] if return_meta else full_result
             if not full_text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return full_text
+            return full_result
         except Exception as e:
             print(f"Elaboration Error: {e}")
             raise Exception(f"Fehler bei der Ausarbeitung: {str(e)}")
@@ -705,6 +788,7 @@ Hier ist das Quellenmaterial:
         user_message: str,
         history: List[Dict[str, str]],
         model_preference: str = None,
+        return_meta: bool = False,
     ) -> Dict[str, Any]:
         """Return a patch proposal for interactive document editing."""
         try:
@@ -784,13 +868,19 @@ Antworte nur als JSON im Format:
             parsed["new_text"] = str(parsed.get("new_text", "") or "")
             if not parsed["new_text"].strip():
                 raise Exception("Patch enthält keinen neuen Text.")
-            return parsed
+            if not return_meta:
+                return parsed
+            return {
+                "patch": parsed,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
         except Exception as e:
             print(f"Document Chat Patch Error: {e}")
             raise Exception(f"Fehler bei der interaktiven Dokument-Bearbeitung: {str(e)}")
 
     @staticmethod
-    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None, learning_mode: str = "normal") -> Any:
+    def generate_repetition(content: List[Any], custom_rules: str = "", model_preference: str = None, learning_mode: str = "normal", return_meta: bool = False) -> Any:
         """Generates targeted spaced-repetition / review material."""
         try:
             # Lange, exam-taugliche Ausgaben (Default-Modell-Limit sonst oft zu knapp)
@@ -885,22 +975,41 @@ Hier ist das Quellenmaterial:
                 input_parts.append(content)
 
             try:
-                full_text = AIService._generate_repetition_with_continuation(model, input_parts)
+                if return_meta:
+                    full_result = AIService._generate_with_continuation(
+                        model=model,
+                        input_parts=input_parts,
+                        continuation_prompt=AIService._REPETITION_CONTINUATION_PROMPT,
+                        max_followups=6,
+                        log_prefix="Repetition",
+                        return_meta=True,
+                    )
+                else:
+                    full_text = AIService._generate_repetition_with_continuation(model, input_parts)
+                    full_result = full_text
             except Exception as mt_err:
                 print(f"Repetition multiturn failed ({mt_err}), falling back to single-shot generate_content")
                 response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
                 if not response.text:
                     raise Exception("Leere Antwort vom Modell erhalten.")
-                full_text = response.text
+                if return_meta:
+                    full_result = {
+                        "text": response.text,
+                        "usage": AIService._extract_usage(response),
+                        "used_model": str(getattr(model, "model_name", "") or ""),
+                    }
+                else:
+                    full_result = response.text
+            full_text = full_result["text"] if return_meta else full_result
             if not (full_text or "").strip():
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            return full_text
+            return full_result
         except Exception as e:
             print(f"Repetition Error: {e}")
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
 
     @staticmethod
-    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None) -> str:
+    def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None, return_meta: bool = False) -> Any:
         """Handles a conversational chat with the AI, given the folder content context and optionally the currently active file."""
         try:
             system_instruction = (
@@ -990,8 +1099,13 @@ Hier ist das Quellenmaterial:
             
             if not response.text:
                 raise Exception("Keine Antwort vom Modell erhalten.")
-                
-            return response.text
+            if not return_meta:
+                return response.text
+            return {
+                "text": response.text,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
             
         except Exception as e:
             import traceback
