@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, ListTodo, Loader2, XCircle } from "lucide-react";
-
-type ActiveJob = { id: string; label: string; folderId: string; startedAt: number };
-type RecentJob = { id: string; label: string; folderId: string; ok: boolean; finishedAt: number; errorMessage?: string };
-type QueueSnapshot = { updatedAt: number; active: ActiveJob[]; recent: RecentJob[] };
+import { CheckCircle2, ChevronDown, ChevronUp, ListTodo, Loader2, XCircle, ArrowUp, ArrowDown, X } from "lucide-react";
+import { abortAiJob } from "@/lib/aiJobAbortRegistry";
+import {
+    readQueueSnapshot,
+    reorderActiveJobs,
+    removeActiveJobById,
+    dismissRecentJobById,
+    type QueueSnapshot,
+} from "@/lib/globalQueueStorage";
 
 const EMPTY_QUEUE: QueueSnapshot = { updatedAt: 0, active: [], recent: [] };
 
@@ -15,18 +19,14 @@ export default function GlobalQueueStatus() {
 
     useEffect(() => {
         const readQueue = () => {
-            try {
-                const parsed = JSON.parse(localStorage.getItem("blop_global_queue") || "null");
-                if (parsed && Array.isArray(parsed.active) && Array.isArray(parsed.recent)) {
-                    setQueue({
-                        updatedAt: Number(parsed.updatedAt || Date.now()),
-                        active: parsed.active,
-                        recent: parsed.recent.slice(0, 15),
-                    });
-                    return;
-                }
-            } catch {
-                // ignore malformed localStorage values
+            const parsed = readQueueSnapshot();
+            if (parsed) {
+                setQueue({
+                    updatedAt: parsed.updatedAt,
+                    active: parsed.active,
+                    recent: parsed.recent.slice(0, 15),
+                });
+                return;
             }
             setQueue(EMPTY_QUEUE);
         };
@@ -39,6 +39,15 @@ export default function GlobalQueueStatus() {
             window.removeEventListener("blop_global_queue_updated", readQueue as EventListener);
         };
     }, []);
+
+    const handleCancelActive = (jobId: string) => {
+        const aborted = abortAiJob(jobId);
+        if (!aborted) removeActiveJobById(jobId);
+    };
+
+    const handleMoveActive = (fromIndex: number, delta: number) => {
+        reorderActiveJobs(fromIndex, fromIndex + delta);
+    };
 
     if (queue.active.length === 0 && queue.recent.length === 0) return null;
 
@@ -58,13 +67,50 @@ export default function GlobalQueueStatus() {
                 {expanded && (
                     <div className="mt-2 w-[min(92vw,24rem)] rounded-2xl border border-[#2A2A40] bg-[#0B0B1A]/95 p-3 shadow-2xl backdrop-blur-md">
                         <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Globale Warteschlange</div>
+                        <p className="text-[10px] text-gray-600 mb-2 leading-snug">
+                            Reihenfolge nur Anzeige; laufende Anfragen werden nicht automatisch umgestellt.
+                        </p>
                         {queue.active.length > 0 && (
                             <ul className="space-y-1.5 mb-2">
-                                {queue.active.map((job) => (
-                                    <li key={job.id} className="flex items-center gap-2 rounded-lg border border-[#2A2A40] bg-[#151525] px-2.5 py-2 text-sm text-gray-200">
+                                {queue.active.map((job, index) => (
+                                    <li
+                                        key={job.id}
+                                        className="flex items-center gap-1 rounded-lg border border-[#2A2A40] bg-[#151525] px-2 py-2 text-sm text-gray-200"
+                                    >
                                         <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
-                                        <span className="truncate">{job.label}</span>
-                                        <span className="ml-auto text-[10px] text-gray-500">#{job.folderId.slice(-6)}</span>
+                                        <span className="truncate flex-1 min-w-0">{job.label}</span>
+                                        <span className="text-[10px] text-gray-500 shrink-0">#{job.folderId.slice(-6)}</span>
+                                        <div className="flex items-center gap-0.5 shrink-0">
+                                            <button
+                                                type="button"
+                                                aria-label="Nach oben"
+                                                title="Nach oben"
+                                                disabled={index === 0}
+                                                onClick={() => handleMoveActive(index, -1)}
+                                                className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                                            >
+                                                <ArrowUp size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                aria-label="Nach unten"
+                                                title="Nach unten"
+                                                disabled={index >= queue.active.length - 1}
+                                                onClick={() => handleMoveActive(index, 1)}
+                                                className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                                            >
+                                                <ArrowDown size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                aria-label="Abbrechen"
+                                                title="Abbrechen"
+                                                onClick={() => handleCancelActive(job.id)}
+                                                className="p-1 rounded text-red-400 hover:bg-red-500/15 hover:text-red-300"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </div>
                                     </li>
                                 ))}
                             </ul>
@@ -79,8 +125,17 @@ export default function GlobalQueueStatus() {
                                     >
                                         <div className="flex items-center gap-2 min-w-0">
                                             {job.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
-                                            <span className="truncate">{job.label}</span>
-                                            <span className="ml-auto shrink-0 text-[10px] opacity-80">{job.ok ? "Fertig" : "Fehler"}</span>
+                                            <span className="truncate flex-1">{job.label}</span>
+                                            <span className="shrink-0 text-[10px] opacity-80">{job.ok ? "Fertig" : "Fehler"}</span>
+                                            <button
+                                                type="button"
+                                                aria-label="Eintrag entfernen"
+                                                title="Entfernen"
+                                                onClick={() => dismissRecentJobById(job.id)}
+                                                className="p-1 rounded text-gray-500 hover:bg-[#1C1C33] hover:text-gray-300 shrink-0"
+                                            >
+                                                <X size={12} />
+                                            </button>
                                         </div>
                                         {!job.ok && job.errorMessage && (
                                             <p className="text-[10px] leading-snug text-red-300/90 break-words line-clamp-3 pl-[22px]">
@@ -107,4 +162,3 @@ export default function GlobalQueueStatus() {
         </>
     );
 }
-

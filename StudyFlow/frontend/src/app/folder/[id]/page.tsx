@@ -9,6 +9,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
+import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/aiJobAbortRegistry";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
@@ -951,6 +952,9 @@ export default function FolderPage() {
     const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string[]>>) => {
         stateSetter((prev) => (prev.includes(endpoint) ? prev : [...prev, endpoint]));
         queueStart(endpoint);
+        const jobId = `${folderId}:${endpoint}`;
+        const ac = new AbortController();
+        registerAiJobAbort(jobId, ac);
         let ok = false;
         let lastError: string | undefined;
         try {
@@ -958,7 +962,8 @@ export default function FolderPage() {
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7, model_preference: effectiveModelPreference })
+                body: JSON.stringify({ username, folder_id: folderId, duration_days: 7, model_preference: effectiveModelPreference }),
+                signal: ac.signal,
             });
 
             if (res.ok) {
@@ -1008,10 +1013,16 @@ export default function FolderPage() {
                 showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error(error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast("Ein Fehler ist aufgetreten.");
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
         } finally {
+            unregisterAiJobAbort(jobId, ac);
             stateSetter((prev) => prev.filter((t) => t !== endpoint));
             registerAiJobFinished(endpoint, ok);
             queueFinish(endpoint, ok, ok ? undefined : lastError);
@@ -1056,6 +1067,9 @@ export default function FolderPage() {
         setIsQuizConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('quiz') ? prev : [...prev, 'quiz']));
         queueStart('quiz');
+        const jobId = `${folderId}:quiz`;
+        const ac = new AbortController();
+        registerAiJobAbort(jobId, ac);
         let ok = false;
         let lastError: string | undefined;
         try {
@@ -1069,7 +1083,8 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     quiz_question_count: quizQuestionCount,
                     quiz_difficulty: quizDifficulty,
-                })
+                }),
+                signal: ac.signal,
             });
 
             if (res.ok) {
@@ -1099,10 +1114,16 @@ export default function FolderPage() {
                 showToast(`Quiz-Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error(error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast("Ein Fehler ist aufgetreten.");
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
         } finally {
+            unregisterAiJobAbort(jobId, ac);
             setIsGenerating((prev) => prev.filter((t) => t !== 'quiz'));
             registerAiJobFinished('quiz', ok);
             queueFinish('quiz', ok, ok ? undefined : lastError);
@@ -1113,6 +1134,9 @@ export default function FolderPage() {
         setIsFlashcardsConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('flashcards') ? prev : [...prev, 'flashcards']));
         queueStart('flashcards');
+        const jobIdFc = `${folderId}:flashcards`;
+        const acFc = new AbortController();
+        registerAiJobAbort(jobIdFc, acFc);
         let ok = false;
         let lastError: string | undefined;
         try {
@@ -1126,7 +1150,8 @@ export default function FolderPage() {
                     model_preference: effectiveModelPreference,
                     flashcards_count: flashcardsCount,
                     flashcards_max_text: flashcardsMaxText,
-                })
+                }),
+                signal: acFc.signal,
             });
 
             if (res.ok) {
@@ -1156,10 +1181,16 @@ export default function FolderPage() {
                 showToast(`Karteikarten-Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error(error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast("Ein Fehler ist aufgetreten.");
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
         } finally {
+            unregisterAiJobAbort(jobIdFc, acFc);
             setIsGenerating((prev) => prev.filter((t) => t !== 'flashcards'));
             registerAiJobFinished('flashcards', ok);
             queueFinish('flashcards', ok, ok ? undefined : lastError);
@@ -1170,6 +1201,9 @@ export default function FolderPage() {
         setIsSummaryConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('summary') ? prev : [...prev, 'summary']));
         queueStart('summary');
+        const jobIdSum = `${folderId}:summary`;
+        const acSum = new AbortController();
+        registerAiJobAbort(jobIdSum, acSum);
         let ok = false;
         let lastError: string | undefined;
         // Pass detailLevel to backend (Need to update ai/summary endpoint to accept this optionally, 
@@ -1186,7 +1220,8 @@ export default function FolderPage() {
                     detail_level: summaryDetailLevel,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode
-                })
+                }),
+                signal: acSum.signal,
             });
 
             if (res.ok) {
@@ -1217,10 +1252,16 @@ export default function FolderPage() {
                 showToast(`Zusammenfassungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error(error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast("Ein Fehler ist aufgetreten.");
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
         } finally {
+            unregisterAiJobAbort(jobIdSum, acSum);
             setIsGenerating((prev) => prev.filter((t) => t !== 'summary'));
             registerAiJobFinished('summary', ok);
             queueFinish('summary', ok, ok ? undefined : lastError);
@@ -1231,6 +1272,9 @@ export default function FolderPage() {
         setIsElaborationConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('elaboration') ? prev : [...prev, 'elaboration']));
         queueStart('elaboration');
+        const jobIdElab = `${folderId}:elaboration`;
+        const acElab = new AbortController();
+        registerAiJobAbort(jobIdElab, acElab);
         let ok = false;
         let lastError: string | undefined;
         try {
@@ -1244,7 +1288,8 @@ export default function FolderPage() {
                     detail_level: elaborationDetailLevel,
                     custom_rules: elaborationRules,
                     model_preference: effectiveModelPreference
-                })
+                }),
+                signal: acElab.signal,
             });
 
             if (res.ok) {
@@ -1275,10 +1320,16 @@ export default function FolderPage() {
                 showToast(`Ausarbeitungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error(error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast("Ein Fehler ist aufgetreten.");
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
         } finally {
+            unregisterAiJobAbort(jobIdElab, acElab);
             setIsGenerating((prev) => prev.filter((t) => t !== 'elaboration'));
             registerAiJobFinished('elaboration', ok);
             queueFinish('elaboration', ok, ok ? undefined : lastError);
@@ -1289,6 +1340,9 @@ export default function FolderPage() {
         setIsRepetitionConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('repetition') ? prev : [...prev, 'repetition']));
         queueStart('repetition');
+        const jobIdRep = `${folderId}:repetition`;
+        const acRep = new AbortController();
+        registerAiJobAbort(jobIdRep, acRep);
         let ok = false;
         let lastError: string | undefined;
         try {
@@ -1302,7 +1356,8 @@ export default function FolderPage() {
                     custom_rules: repetitionRules,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode
-                })
+                }),
+                signal: acRep.signal,
             });
 
             if (res.ok) {
@@ -1333,10 +1388,16 @@ export default function FolderPage() {
                 showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error(error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast("Ein Fehler ist aufgetreten.");
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Ein Fehler ist aufgetreten.");
+            }
         } finally {
+            unregisterAiJobAbort(jobIdRep, acRep);
             setIsGenerating((prev) => prev.filter((t) => t !== 'repetition'));
             registerAiJobFinished('repetition', ok);
             queueFinish('repetition', ok, ok ? undefined : lastError);
@@ -1347,6 +1408,9 @@ export default function FolderPage() {
         setIsPlanConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('plan') ? prev : [...prev, 'plan']));
         queueStart('plan');
+        const jobIdPlan = `${folderId}:plan`;
+        const acPlan = new AbortController();
+        registerAiJobAbort(jobIdPlan, acPlan);
         let ok = false;
         let lastError: string | undefined;
         // Calculate duration from end date if selected
@@ -1372,7 +1436,8 @@ export default function FolderPage() {
                     active_days: planActiveDays.length < 7 ? planActiveDays : undefined,
                     model_preference: effectiveModelPreference,
                     learning_mode: learningMode
-                })
+                }),
+                signal: acPlan.signal,
             });
 
             if (res.ok) {
@@ -1401,10 +1466,16 @@ export default function FolderPage() {
                 showToast(`Lernplan-Fehler: ${errorMsg}`);
             }
         } catch (error) {
-            console.error("Plan error:", error);
-            lastError = error instanceof Error ? error.message : String(error);
-            showToast(`Netzwerk-Fehler: ${String(error)}`);
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error("Plan error:", error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast(`Netzwerk-Fehler: ${String(error)}`);
+            }
         } finally {
+            unregisterAiJobAbort(jobIdPlan, acPlan);
             setIsGenerating((prev) => prev.filter((t) => t !== 'plan'));
             registerAiJobFinished('plan', ok);
             queueFinish('plan', ok, ok ? undefined : lastError);
