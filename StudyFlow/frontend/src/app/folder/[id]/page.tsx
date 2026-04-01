@@ -1977,9 +1977,9 @@ export default function FolderPage() {
                                         <p className="text-gray-300 whitespace-pre-wrap">{currentLearnCard.back}</p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        <button onClick={() => applyLearnRating(currentLearnIndex, 'leicht')} className="px-3 py-2 rounded-lg text-sm bg-green-500/20 border border-green-500/40 text-green-300 hover:bg-green-500/30">Leicht</button>
-                                        <button onClick={() => applyLearnRating(currentLearnIndex, 'mittel')} className="px-3 py-2 rounded-lg text-sm bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30">Mittel</button>
-                                        <button onClick={() => applyLearnRating(currentLearnIndex, 'schwer')} className="px-3 py-2 rounded-lg text-sm bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30">Schwer</button>
+                                        <button onClick={() => { if (currentLearnIndex !== null) applyLearnRating(currentLearnIndex, 'leicht'); }} className="px-3 py-2 rounded-lg text-sm bg-green-500/20 border border-green-500/40 text-green-300 hover:bg-green-500/30">Leicht</button>
+                                        <button onClick={() => { if (currentLearnIndex !== null) applyLearnRating(currentLearnIndex, 'mittel'); }} className="px-3 py-2 rounded-lg text-sm bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30">Mittel</button>
+                                        <button onClick={() => { if (currentLearnIndex !== null) applyLearnRating(currentLearnIndex, 'schwer'); }} className="px-3 py-2 rounded-lg text-sm bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30">Schwer</button>
                                     </div>
                                     <p className="text-xs text-gray-500">Bewertungen: {learnProgress} · Verbleibend in Queue: {learnQueue.length}</p>
                                 </div>
