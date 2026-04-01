@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronUp, ListTodo, Loader2, XCircle } from "lucide-react";
 
 type ActiveJob = { id: string; label: string; folderId: string; startedAt: number };
-type RecentJob = { id: string; label: string; folderId: string; ok: boolean; finishedAt: number };
+type RecentJob = { id: string; label: string; folderId: string; ok: boolean; finishedAt: number; errorMessage?: string };
 type QueueSnapshot = { updatedAt: number; active: ActiveJob[]; recent: RecentJob[] };
 
 const EMPTY_QUEUE: QueueSnapshot = { updatedAt: 0, active: [], recent: [] };
@@ -72,10 +72,21 @@ export default function GlobalQueueStatus() {
                         {queue.recent.length > 0 && (
                             <ul className="space-y-1.5">
                                 {queue.recent.slice(0, 8).map((job) => (
-                                    <li key={job.id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-sm ${job.ok ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200" : "border-red-500/25 bg-red-500/10 text-red-200"}`}>
-                                        {job.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
-                                        <span className="truncate">{job.label}</span>
-                                        <span className="ml-auto text-[10px] opacity-80">{job.ok ? "Fertig" : "Fehler"}</span>
+                                    <li
+                                        key={job.id}
+                                        title={!job.ok && job.errorMessage ? job.errorMessage : undefined}
+                                        className={`flex flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-sm ${job.ok ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200" : "border-red-500/25 bg-red-500/10 text-red-200"}`}
+                                    >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            {job.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
+                                            <span className="truncate">{job.label}</span>
+                                            <span className="ml-auto shrink-0 text-[10px] opacity-80">{job.ok ? "Fertig" : "Fehler"}</span>
+                                        </div>
+                                        {!job.ok && job.errorMessage && (
+                                            <p className="text-[10px] leading-snug text-red-300/90 break-words line-clamp-3 pl-[22px]">
+                                                {job.errorMessage}
+                                            </p>
+                                        )}
                                     </li>
                                 ))}
                             </ul>

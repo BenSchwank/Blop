@@ -78,6 +78,14 @@ interface DocumentPatch {
     new_text: string;
 }
 
+/** Normalizes FastAPI `detail` (string | object | array) for toasts and queue error text. */
+function formatFastApiDetail(detail: unknown): string {
+    if (detail == null) return '';
+    if (typeof detail === 'string') return detail;
+    if (typeof detail === 'object') return JSON.stringify(detail);
+    return String(detail);
+}
+
 /** Keys used in isGenerating + API paths for quiz/flashcards/plan */
 const AI_JOB_LABELS: Record<string, string> = {
     plan: 'Lernplan',
@@ -375,7 +383,7 @@ export default function FolderPage() {
 
     const publishGlobalQueueSnapshot = (
         activeJobs: { id: string; label: string; folderId: string; startedAt: number }[],
-        recentJobs: { id: string; label: string; folderId: string; ok: boolean; finishedAt: number }[]
+        recentJobs: { id: string; label: string; folderId: string; ok: boolean; finishedAt: number; errorMessage?: string }[]
     ) => {
         if (typeof window === 'undefined') return;
         const snapshot = {
@@ -398,10 +406,13 @@ export default function FolderPage() {
         }
         const active = (snapshot.active || []).filter((j: any) => j.id !== id);
         active.push({ id, label: AI_JOB_LABELS[jobKey] || jobKey, folderId, startedAt: Date.now() });
-        publishGlobalQueueSnapshot(active, snapshot.recent || []);
+        const recentFiltered = (snapshot.recent || []).filter(
+            (j: any) => typeof j?.id === 'string' && !j.id.startsWith(`${id}:`)
+        );
+        publishGlobalQueueSnapshot(active, recentFiltered);
     };
 
-    const queueFinish = (jobKey: string, ok: boolean) => {
+    const queueFinish = (jobKey: string, ok: boolean, errorMessage?: string) => {
         if (typeof window === 'undefined') return;
         const id = `${folderId}:${jobKey}`;
         let snapshot: any = { active: [], recent: [] };
@@ -411,7 +422,28 @@ export default function FolderPage() {
             snapshot = { active: [], recent: [] };
         }
         const active = (snapshot.active || []).filter((j: any) => j.id !== id);
-        const recent = [{ id: `${id}:${Date.now()}`, label: AI_JOB_LABELS[jobKey] || jobKey, folderId, ok, finishedAt: Date.now() }, ...(snapshot.recent || [])];
+        const trimmed =
+            ok || !errorMessage
+                ? undefined
+                : errorMessage.length > 280
+                  ? `${errorMessage.slice(0, 277)}...`
+                  : errorMessage;
+        const entry: {
+            id: string;
+            label: string;
+            folderId: string;
+            ok: boolean;
+            finishedAt: number;
+            errorMessage?: string;
+        } = {
+            id: `${id}:${Date.now()}`,
+            label: AI_JOB_LABELS[jobKey] || jobKey,
+            folderId,
+            ok,
+            finishedAt: Date.now(),
+        };
+        if (trimmed) entry.errorMessage = trimmed;
+        const recent = [entry, ...(snapshot.recent || [])];
         publishGlobalQueueSnapshot(active, recent);
     };
 
@@ -920,6 +952,7 @@ export default function FolderPage() {
         stateSetter((prev) => (prev.includes(endpoint) ? prev : [...prev, endpoint]));
         queueStart(endpoint);
         let ok = false;
+        let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/${endpoint}`, {
@@ -956,27 +989,32 @@ export default function FolderPage() {
                     const err = await res.json();
                     
                     if (res.status === 402 || (typeof err.detail === 'string' && err.detail.includes("Nicht genügend Tokens"))) {
+                        lastError = formatFastApiDetail(err.detail) || errorMsg;
                         showToast(err.detail || "Nicht genügend Tokens. Bitte lade dein Abo in den Einstellungen auf!");
                         return;
                     }
 
                     if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        lastError = formatFastApiDetail(err.detail) || "NO_API_KEY_FOUND";
                         showToast("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
                         return;
                     }
-                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
                 } catch {
                     // Response not JSON — use status code
+                    lastError = errorMsg;
                 }
                 showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
             stateSetter((prev) => prev.filter((t) => t !== endpoint));
             registerAiJobFinished(endpoint, ok);
-            queueFinish(endpoint, ok);
+            queueFinish(endpoint, ok, ok ? undefined : lastError);
         }
     };
 
@@ -1019,6 +1057,7 @@ export default function FolderPage() {
         setIsGenerating((prev) => (prev.includes('quiz') ? prev : [...prev, 'quiz']));
         queueStart('quiz');
         let ok = false;
+        let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/quiz`, {
@@ -1051,19 +1090,22 @@ export default function FolderPage() {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
                     const err = await res.json();
-                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
                 } catch {
                     // ignore parse errors
+                    lastError = errorMsg;
                 }
                 showToast(`Quiz-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'quiz'));
             registerAiJobFinished('quiz', ok);
-            queueFinish('quiz', ok);
+            queueFinish('quiz', ok, ok ? undefined : lastError);
         }
     };
 
@@ -1072,6 +1114,7 @@ export default function FolderPage() {
         setIsGenerating((prev) => (prev.includes('flashcards') ? prev : [...prev, 'flashcards']));
         queueStart('flashcards');
         let ok = false;
+        let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/flashcards`, {
@@ -1104,19 +1147,22 @@ export default function FolderPage() {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
                     const err = await res.json();
-                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
                 } catch {
                     // ignore parse errors
+                    lastError = errorMsg;
                 }
                 showToast(`Karteikarten-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'flashcards'));
             registerAiJobFinished('flashcards', ok);
-            queueFinish('flashcards', ok);
+            queueFinish('flashcards', ok, ok ? undefined : lastError);
         }
     };
 
@@ -1125,6 +1171,7 @@ export default function FolderPage() {
         setIsGenerating((prev) => (prev.includes('summary') ? prev : [...prev, 'summary']));
         queueStart('summary');
         let ok = false;
+        let lastError: string | undefined;
         // Pass detailLevel to backend (Need to update ai/summary endpoint to accept this optionally, 
         // or just append it to a prompt. If backend doesn't accept it yet, we just generate standard for now.
         // I will add `detail_level` to the POST body.)
@@ -1159,21 +1206,24 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        lastError = formatFastApiDetail(err.detail) || "NO_API_KEY_FOUND";
                         const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nDu musst erst deinen Google Gemini API Key in den Einstellungen hinterlegen, um AI-Features zu nutzen.\n\nJetzt zu den Einstellungen?");
                         if (goToSettings) router.push("/settings");
                         return;
                     }
-                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
-                } catch { /* not JSON */ }
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch { /* not JSON */ lastError = errorMsg; }
                 showToast(`Zusammenfassungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'summary'));
             registerAiJobFinished('summary', ok);
-            queueFinish('summary', ok);
+            queueFinish('summary', ok, ok ? undefined : lastError);
         }
     };
 
@@ -1182,6 +1232,7 @@ export default function FolderPage() {
         setIsGenerating((prev) => (prev.includes('elaboration') ? prev : [...prev, 'elaboration']));
         queueStart('elaboration');
         let ok = false;
+        let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/elaboration`, {
@@ -1213,21 +1264,24 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        lastError = formatFastApiDetail(err.detail) || "NO_API_KEY_FOUND";
                         const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nJetzt zu den Einstellungen?");
                         if (goToSettings) router.push("/settings");
                         return;
                     }
-                    errorMsg = err.detail || errorMsg;
-                } catch { /* ignore */ }
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch { /* ignore */ lastError = errorMsg; }
                 showToast(`Ausarbeitungs-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'elaboration'));
             registerAiJobFinished('elaboration', ok);
-            queueFinish('elaboration', ok);
+            queueFinish('elaboration', ok, ok ? undefined : lastError);
         }
     };
 
@@ -1236,6 +1290,7 @@ export default function FolderPage() {
         setIsGenerating((prev) => (prev.includes('repetition') ? prev : [...prev, 'repetition']));
         queueStart('repetition');
         let ok = false;
+        let lastError: string | undefined;
         try {
             const username = localStorage.getItem("username");
             const res = await fetch(`${API_BASE}/ai/repetition`, {
@@ -1267,21 +1322,24 @@ export default function FolderPage() {
                 try {
                     const err = await res.json();
                     if (err.detail === "NO_API_KEY_FOUND" || (typeof err.detail === 'string' && err.detail.includes("API Key"))) {
+                        lastError = formatFastApiDetail(err.detail) || "NO_API_KEY_FOUND";
                         const goToSettings = confirm("⚠️ Kein AI Key gefunden!\n\nJetzt zu den Einstellungen?");
                         if (goToSettings) router.push("/settings");
                         return;
                     }
-                    errorMsg = err.detail || errorMsg;
-                } catch { /* ignore */ }
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch { /* ignore */ lastError = errorMsg; }
                 showToast(`Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast("Ein Fehler ist aufgetreten.");
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'repetition'));
             registerAiJobFinished('repetition', ok);
-            queueFinish('repetition', ok);
+            queueFinish('repetition', ok, ok ? undefined : lastError);
         }
     };
 
@@ -1290,6 +1348,7 @@ export default function FolderPage() {
         setIsGenerating((prev) => (prev.includes('plan') ? prev : [...prev, 'plan']));
         queueStart('plan');
         let ok = false;
+        let lastError: string | undefined;
         // Calculate duration from end date if selected
         let days = planDays;
         if (planUseDate && planEndDate) {
@@ -1336,17 +1395,19 @@ export default function FolderPage() {
                 let errorMsg = `HTTP ${res.status}`;
                 try {
                     const err = await res.json();
-                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
-                } catch { /* ignore */ }
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch { /* ignore */ lastError = errorMsg; }
                 showToast(`Lernplan-Fehler: ${errorMsg}`);
             }
         } catch (error) {
             console.error("Plan error:", error);
+            lastError = error instanceof Error ? error.message : String(error);
             showToast(`Netzwerk-Fehler: ${String(error)}`);
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'plan'));
             registerAiJobFinished('plan', ok);
-            queueFinish('plan', ok);
+            queueFinish('plan', ok, ok ? undefined : lastError);
         }
     };
 

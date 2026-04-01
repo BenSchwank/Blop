@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Any, List, Optional
 import uvicorn
 import os
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -1060,6 +1061,23 @@ def _get_folder_context(username: str, folder_id: str):
                  debug_log.append(f"Added transcript {f_name}")
              else:
                  debug_log.append(f"Transcript {f_name} has no content")
+
+        # 1b. Text-based generated / stored documents (summary, plans, quiz JSON, etc.)
+        elif f_type in ("summary", "repetition", "plan", "quiz", "flashcards"):
+            raw = f.get("content")
+            if raw is None:
+                debug_log.append(f"{f_name} ({f_type}) has no content field")
+                continue
+            if isinstance(raw, (dict, list)):
+                text = json.dumps(raw, ensure_ascii=False, indent=2)
+            else:
+                text = str(raw)
+            if not text.strip():
+                debug_log.append(f"{f_name} ({f_type}) empty content")
+                continue
+            content_parts.append(f"--- {f_name} ({f_type}) ---\n{text}\n\n")
+            has_content = True
+            debug_log.append(f"Added text context from {f_type} {f_name}")
         
         # 2. PDFs (Upload to Gemini for OCR/Vision)
         elif f_type == "pdf":
