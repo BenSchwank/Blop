@@ -4,6 +4,9 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
+#include <QComboBox>
+#include <QSet>
 #include <QStyledItemDelegate>
 #include "multipagenoteview.h"
 
@@ -46,10 +49,25 @@ private slots:
     void onRowMoved(const QModelIndex&, int start, int, const QModelIndex&, int row);
     void onAddPage();
     void onListItemClicked(QListWidgetItem* item);
+    void onSearchChanged(const QString &text);
+    void onToggleSelectMode();
+    void onSelectAll();
+    void onClearSelection();
+    void onDeleteSelected();
+    void onDuplicateSelected();
+    void onMoveSelectedUp();
+    void onMoveSelectedDown();
+    void onApplyTemplateColor();
+    void onGroupFilterChanged(int index);
 
 private:
     void setupUi();
     void fillParent();
+    void rebuildList(bool keepSelection = true);
+    QList<int> selectedPageIndices() const;
+    void setCardSelectedStyle(QListWidgetItem *item, bool selected);
+    QString pageGroupKey(int pageIndex) const;
+    void updateSubtitle();
 
     MultiPageNoteView* m_view{nullptr};
     QPushButton* m_scrim{nullptr};
@@ -59,4 +77,17 @@ private:
     QLabel* m_lblSubtitle{nullptr};
     QPushButton* m_btnClose{nullptr};
     QPushButton* m_fabAdd{nullptr};
+    QLineEdit *m_search{nullptr};
+    QPushButton *m_btnSelectMode{nullptr};
+    QPushButton *m_btnSelectAll{nullptr};
+    QPushButton *m_btnClearSelection{nullptr};
+    QPushButton *m_btnDeleteSelection{nullptr};
+    QPushButton *m_btnDuplicateSelection{nullptr};
+    QPushButton *m_btnMoveUp{nullptr};
+    QPushButton *m_btnMoveDown{nullptr};
+    QPushButton *m_btnApplyLayout{nullptr};
+    QComboBox *m_groupFilter{nullptr};
+    bool m_multiSelectMode{false};
+    QString m_searchText;
+    QSet<int> m_selectedPages;
 };

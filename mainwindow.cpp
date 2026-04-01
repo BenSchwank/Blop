@@ -5200,6 +5200,8 @@ void MainWindow::onTogglePageManager() {
   if (m_pageManager->isVisible()) {
     m_pageManager->hide();
   } else {
+    if (m_isSidebarOpen)
+      animateSidebar(false);
     m_pageManager->raise();
     QWidget *current = m_editorTabs->currentWidget();
     MultiPageNoteView *mpv = nullptr;

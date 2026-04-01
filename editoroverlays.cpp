@@ -536,44 +536,57 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   card->setObjectName(QStringLiteral("A4LayoutCard"));
   card->setStyleSheet(QStringLiteral(
       "#A4LayoutCard {"
-      "  background-color: rgba(30, 32, 44, 0.98);"
-      "  border: 1px solid rgba(120, 130, 160, 0.35);"
+      "  background-color: rgba(24, 26, 38, 0.985);"
+      "  border: 1px solid rgba(135, 145, 175, 0.38);"
       "  border-radius: 20px;"
+      "}"
+      "#LayoutPanel {"
+      "  background: rgba(18, 21, 32, 0.72);"
+      "  border: 1px solid rgba(120, 132, 165, 0.22);"
+      "  border-radius: 16px;"
       "}"
       "QLabel { color: rgba(235, 237, 245, 0.95); }"
       "QStackedWidget { background: transparent; }"
       "QPushButton#segTab {"
       "  background: transparent; border: none;"
-      "  border-radius: 10px; padding: 12px 20px;"
-      "  color: rgba(200, 198, 220, 0.75); font-weight: 600;"
+      "  border-radius: 10px; padding: 10px 16px;"
+      "  color: rgba(196, 202, 224, 0.72); font-weight: 600; font-size: 13px;"
       "}"
       "QPushButton#segTab:checked {"
-      "  background: rgba(107, 163, 245, 0.18);"
-      "  color: #E8F0FF;"
+      "  background: rgba(107, 163, 245, 0.22);"
+      "  color: #EEF4FF;"
       "}"
       "QPushButton#segTab:hover {"
-      "  background: rgba(255,255,255,0.06);"
+      "  background: rgba(255,255,255,0.08);"
       "}"
       "QToolButton {"
-      "  border-radius: 14px;"
-      "  border: 1px solid rgba(110, 115, 140, 0.45);"
-      "  background: rgba(52, 54, 64, 0.95);"
-      "  color: rgba(230, 228, 242, 0.95);"
-      "  font-size: 11px; font-weight: 600; padding: 14px 12px;"
+      "  border-radius: 12px;"
+      "  border: 1px solid rgba(132, 144, 182, 0.36);"
+      "  background: rgba(30, 34, 50, 0.92);"
+      "  color: rgba(236, 239, 248, 0.96);"
+      "  font-size: 11px; font-weight: 600; padding: 8px 8px;"
       "}"
       "QToolButton:hover {"
-      "  background: rgba(68, 70, 86, 0.98);"
-      "  border-color: rgba(140, 150, 185, 0.5);"
+      "  background: rgba(44, 49, 72, 0.95);"
+      "  border-color: rgba(156, 174, 226, 0.62);"
       "}"
       "QToolButton:checked {"
       "  border: 2px solid #6BA3F5;"
-      "  background: rgba(107, 163, 245, 0.12);"
+      "  background: rgba(107, 163, 245, 0.18);"
       "}"
       "QDialogButtonBox QPushButton {"
       "  min-height: 36px; min-width: 88px; border-radius: 10px; font-weight: 600;"
       "}"));
 
-  centerCardInOverlay(overlay, card, 720, 760);
+  QScreen *screen = nullptr;
+  if (QWidget *w = parent->window())
+    screen = w->screen();
+  if (!screen)
+    screen = QGuiApplication::primaryScreen();
+  const QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1280, 800);
+  const int cardW = qMin(780, qMax(620, avail.width() * 86 / 100));
+  const int cardH = qMin(830, qMax(620, avail.height() * 88 / 100));
+  centerCardInOverlay(overlay, card, cardW, cardH);
 
   auto *root = new QVBoxLayout(card);
   root->setContentsMargins(40, 34, 40, 30);
@@ -581,7 +594,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 
   auto *titleLbl = new QLabel(windowTitle, card);
   titleLbl->setStyleSheet(QStringLiteral(
-      "font-weight: 700; font-size: 19px; letter-spacing: 0.2px;"));
+      "font-weight: 700; font-size: 20px; letter-spacing: 0.2px;"));
   root->addWidget(titleLbl);
 
   if (!subtitle.isEmpty()) {
@@ -613,7 +626,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   segRow->addStretch();
 
   auto *stack = new QStackedWidget(card);
-  stack->setMinimumHeight(520);
+  stack->setMinimumHeight(470);
 
   auto *basics = new QWidget(card);
   auto *basicsRoot = new QVBoxLayout(basics);
@@ -623,7 +636,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *colorRow = new QHBoxLayout();
   colorRow->setSpacing(16);
   auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe:"), basics);
-  lblColor->setStyleSheet(QStringLiteral("font-size: 14px;"));
+  lblColor->setStyleSheet(QStringLiteral(
+      "font-size: 15px; color: rgba(225, 230, 246, 0.92);"));
   colorRow->addWidget(lblColor);
   QColor paperColor = initialPaper.isValid() ? initialPaper : QColor(Qt::white);
   auto *colorBtn = new QPushButton(basics);
@@ -657,8 +671,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   basicsRoot->addSpacing(6);
 
   auto *g = new QGridLayout();
-  g->setHorizontalSpacing(28);
-  g->setVerticalSpacing(28);
+  g->setHorizontalSpacing(20);
+  g->setVerticalSpacing(20);
   g->setColumnStretch(0, 1);
   g->setColumnStretch(1, 1);
   g->setColumnStretch(2, 1);
@@ -666,15 +680,15 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *tplGroup = new QButtonGroup(card);
   tplGroup->setExclusive(true);
 
-  constexpr int kTplIconW = 118;
-  constexpr int kTplIconH = 100;
+  constexpr int kTplIconW = 104;
+  constexpr int kTplIconH = 84;
   auto addTplBtn = [&](int row, int col, const QString &name, PageBackgroundType t) {
     auto *tb = new QToolButton(basics);
     tb->setText(name);
     tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH));
     tb->setIconSize(QSize(kTplIconW, kTplIconH));
     tb->setCheckable(true);
-    tb->setFixedSize(152, 188);
+    tb->setFixedSize(132, 154);
     tb->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     const int ti = static_cast<int>(t);
@@ -777,9 +791,28 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   QObject::connect(segCust, &QPushButton::clicked, stack,
                    [stack]() { stack->setCurrentIndex(2); });
 
-  root->addLayout(segRow);
-  root->addSpacing(8);
-  root->addWidget(stack, 1);
+  auto *content = new QWidget(card);
+  auto *contentLay = new QVBoxLayout(content);
+  contentLay->setContentsMargins(0, 0, 0, 0);
+  contentLay->setSpacing(0);
+
+  auto *panel = new QFrame(content);
+  panel->setObjectName(QStringLiteral("LayoutPanel"));
+  auto *panelLay = new QVBoxLayout(panel);
+  panelLay->setContentsMargins(18, 14, 18, 16);
+  panelLay->setSpacing(10);
+  panelLay->addLayout(segRow);
+  panelLay->addWidget(stack, 1);
+  contentLay->addWidget(panel, 1);
+
+  auto *scroll = new QScrollArea(card);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setWidgetResizable(true);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setWidget(content);
+  scroll->setStyleSheet(QStringLiteral(
+      "QScrollArea { background: transparent; border: none; }"));
+  root->addWidget(scroll, 1);
 
   auto *bbox =
       new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);

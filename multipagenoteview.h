@@ -52,6 +52,13 @@ public:
     void duplicatePage(int pageIndex);
     void deletePage(int pageIndex);
     void scrollToPage(int pageIndex);
+    int pageCount() const;
+    QString pageTitle(int pageIndex) const;
+    void renamePage(int pageIndex, const QString &title);
+    void duplicatePages(const QList<int> &pageIndices);
+    void deletePages(const QList<int> &pageIndices);
+    void applyLayoutToPages(const QList<int> &pageIndices, int backgroundType,
+                            const QColor &paperColor);
 
     std::function<void(Note*)> onSaveRequested;
 

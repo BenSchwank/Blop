@@ -1,4 +1,5 @@
 #include "pagemanager.h"
+#include "editoroverlays.h"
 #include <QAbstractItemModel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -11,6 +12,7 @@
 #include <QKeyEvent>
 #include <QShowEvent>
 #include <QListWidgetItem>
+#include <QCheckBox>
 
 namespace {
 constexpr int kPanelWidth = 320;
@@ -31,8 +33,8 @@ static const QColor kTextMuted(160, 165, 185);
 PageListDelegate::PageListDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
 
 QSize PageListDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const {
-    Q_UNUSED(index);
-    return QSize(option.rect.width(), 120);
+    const int h = index.data(Qt::UserRole + 2).toInt();
+    return QSize(option.rect.width(), h > 0 ? h : 120);
 }
 
 static QRect getMenuButtonRect(const QRect& itemRect) {
@@ -168,11 +170,11 @@ void PageManager::setupUi() {
     contentLay->setSpacing(0);
 
     auto *header = new QWidget(m_panel);
-    header->setFixedHeight(72);
+    header->setFixedHeight(140);
     header->setStyleSheet("background: transparent; border-bottom: 1px solid rgba(120, 130, 160, 0.18);");
     auto *headLay = new QVBoxLayout(header);
-    headLay->setContentsMargins(20, 14, 16, 12);
-    headLay->setSpacing(2);
+    headLay->setContentsMargins(16, 12, 16, 10);
+    headLay->setSpacing(8);
 
     auto *titleRow = new QHBoxLayout();
     titleRow->setContentsMargins(0, 0, 0, 0);
@@ -195,11 +197,46 @@ void PageManager::setupUi() {
     titleRow->addWidget(m_lblTitle, 1);
     titleRow->addWidget(m_btnClose, 0, Qt::AlignTop);
 
-    m_lblSubtitle = new QLabel(QStringLiteral("Reihenfolge per Drag & Drop"), header);
+    m_lblSubtitle = new QLabel(QStringLiteral("Drag & Drop · Mehrfachauswahl · Vorlagen"), header);
     m_lblSubtitle->setStyleSheet("color: rgba(160, 168, 190, 0.85); font-size: 11px;");
 
     headLay->addLayout(titleRow);
     headLay->addWidget(m_lblSubtitle);
+
+    m_search = new QLineEdit(header);
+    m_search->setPlaceholderText(QStringLiteral("Seiten suchen..."));
+    m_search->setStyleSheet(
+        "QLineEdit { background: rgba(22,24,34,0.92); color: #E8EAFF; border: 1px solid rgba(120,130,160,0.35);"
+        "border-radius: 10px; padding: 8px 10px; }"
+        "QLineEdit:focus { border-color: rgba(107,163,245,0.68); }");
+    connect(m_search, &QLineEdit::textChanged, this, &PageManager::onSearchChanged);
+    headLay->addWidget(m_search);
+
+    auto *filterRow = new QHBoxLayout();
+    filterRow->setContentsMargins(0, 0, 0, 0);
+    filterRow->setSpacing(8);
+    m_groupFilter = new QComboBox(header);
+    m_groupFilter->addItem(QStringLiteral("Alle Gruppen"), QStringLiteral("all"));
+    m_groupFilter->addItem(QStringLiteral("Leer"), QStringLiteral("blank"));
+    m_groupFilter->addItem(QStringLiteral("Liniert"), QStringLiteral("lined"));
+    m_groupFilter->addItem(QStringLiteral("Kariert"), QStringLiteral("grid"));
+    m_groupFilter->addItem(QStringLiteral("Punktiert"), QStringLiteral("dotted"));
+    m_groupFilter->addItem(QStringLiteral("Legal"), QStringLiteral("legal"));
+    m_groupFilter->setStyleSheet(
+        "QComboBox { background: rgba(22,24,34,0.9); color: #E8EAFF; border: 1px solid rgba(120,130,160,0.35);"
+        "border-radius: 9px; padding: 6px 10px; }");
+    connect(m_groupFilter, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &PageManager::onGroupFilterChanged);
+    m_btnSelectMode = new QPushButton(QStringLiteral("Auswahl"), header);
+    m_btnSelectMode->setCheckable(true);
+    m_btnSelectMode->setStyleSheet(
+        "QPushButton { background: rgba(255,255,255,0.06); color: #D8DEF2; border: 1px solid rgba(120,130,160,0.35);"
+        "border-radius: 9px; padding: 6px 10px; }"
+        "QPushButton:checked { background: rgba(107,163,245,0.22); border-color: rgba(107,163,245,0.62); color: #EEF4FF; }");
+    connect(m_btnSelectMode, &QPushButton::clicked, this, &PageManager::onToggleSelectMode);
+    filterRow->addWidget(m_groupFilter, 1);
+    filterRow->addWidget(m_btnSelectMode);
+    headLay->addLayout(filterRow);
     contentLay->addWidget(header);
 
     m_listWidget = new QListWidget(m_panel);
@@ -215,6 +252,7 @@ void PageManager::setupUi() {
     connect(delegate, &PageListDelegate::menuRequested, this, &PageManager::showContextMenu);
     connect(m_listWidget, &QListWidget::itemClicked, this, &PageManager::onListItemClicked);
 
+    m_listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
     m_listWidget->setDragEnabled(true);
     m_listWidget->setAcceptDrops(true);
     m_listWidget->setDragDropMode(QAbstractItemView::InternalMove);
@@ -226,9 +264,47 @@ void PageManager::setupUi() {
 
     contentLay->addWidget(m_listWidget, 1);
 
-    auto *footerLay = new QHBoxLayout();
-    footerLay->setContentsMargins(0, 8, 20, 20);
-    footerLay->addStretch();
+    auto *footerLay = new QVBoxLayout();
+    footerLay->setContentsMargins(12, 8, 12, 12);
+    footerLay->setSpacing(8);
+
+    auto *batchRow = new QHBoxLayout();
+    batchRow->setContentsMargins(0, 0, 0, 0);
+    batchRow->setSpacing(6);
+    auto mkBtn = [this](const QString &txt) {
+      auto *b = new QPushButton(txt, m_panel);
+      b->setStyleSheet(
+          "QPushButton { background: rgba(255,255,255,0.06); color: #D6DDF4; border: 1px solid rgba(120,130,160,0.3);"
+          "border-radius: 8px; padding: 6px 10px; font-size: 12px; }"
+          "QPushButton:hover { background: rgba(255,255,255,0.10); }");
+      return b;
+    };
+    m_btnSelectAll = mkBtn(QStringLiteral("Alle"));
+    m_btnClearSelection = mkBtn(QStringLiteral("Keine"));
+    m_btnDuplicateSelection = mkBtn(QStringLiteral("Duplizieren"));
+    m_btnDeleteSelection = mkBtn(QStringLiteral("Löschen"));
+    m_btnMoveUp = mkBtn(QStringLiteral("Hoch"));
+    m_btnMoveDown = mkBtn(QStringLiteral("Runter"));
+    m_btnApplyLayout = mkBtn(QStringLiteral("Vorlage/Farbe"));
+    batchRow->addWidget(m_btnSelectAll);
+    batchRow->addWidget(m_btnClearSelection);
+    batchRow->addWidget(m_btnDuplicateSelection);
+    batchRow->addWidget(m_btnDeleteSelection);
+    batchRow->addWidget(m_btnMoveUp);
+    batchRow->addWidget(m_btnMoveDown);
+    batchRow->addWidget(m_btnApplyLayout);
+    connect(m_btnSelectAll, &QPushButton::clicked, this, &PageManager::onSelectAll);
+    connect(m_btnClearSelection, &QPushButton::clicked, this, &PageManager::onClearSelection);
+    connect(m_btnDuplicateSelection, &QPushButton::clicked, this, &PageManager::onDuplicateSelected);
+    connect(m_btnDeleteSelection, &QPushButton::clicked, this, &PageManager::onDeleteSelected);
+    connect(m_btnMoveUp, &QPushButton::clicked, this, &PageManager::onMoveSelectedUp);
+    connect(m_btnMoveDown, &QPushButton::clicked, this, &PageManager::onMoveSelectedDown);
+    connect(m_btnApplyLayout, &QPushButton::clicked, this, &PageManager::onApplyTemplateColor);
+    footerLay->addLayout(batchRow);
+
+    auto *addRow = new QHBoxLayout();
+    addRow->setContentsMargins(0, 0, 0, 0);
+    addRow->addStretch();
 
     m_fabAdd = new QPushButton(QStringLiteral("＋"), m_panel);
     m_fabAdd->setFixedSize(56, 56);
@@ -249,7 +325,8 @@ void PageManager::setupUi() {
         "}");
     connect(m_fabAdd, &QPushButton::clicked, this, &PageManager::onAddPage);
 
-    footerLay->addWidget(m_fabAdd);
+    addRow->addWidget(m_fabAdd);
+    footerLay->addLayout(addRow);
     contentLay->addLayout(footerLay);
 
     root->addWidget(m_scrim, 1);
@@ -257,8 +334,15 @@ void PageManager::setupUi() {
 }
 
 void PageManager::fillParent() {
-    if (parentWidget())
+    if (parentWidget()) {
         setGeometry(0, 0, parentWidget()->width(), parentWidget()->height());
+        const int pw = parentWidget()->width();
+#ifdef Q_OS_ANDROID
+        m_panel->setFixedWidth(qMin(pw - 12, 420));
+#else
+        m_panel->setFixedWidth(qMin(420, qMax(320, pw / 3)));
+#endif
+    }
 }
 
 void PageManager::showEvent(QShowEvent* event) {
@@ -286,36 +370,25 @@ bool PageManager::eventFilter(QObject* watched, QEvent* event) {
 void PageManager::onListItemClicked(QListWidgetItem* item) {
     if (!item || !m_listWidget)
         return;
-    emit pageSelected(m_listWidget->row(item));
+    const int pageIdx = item->data(Qt::UserRole).toInt();
+    if (m_multiSelectMode) {
+        if (item->checkState() == Qt::Checked)
+            m_selectedPages.insert(pageIdx);
+        else
+            m_selectedPages.remove(pageIdx);
+        updateSubtitle();
+        return;
+    }
+    emit pageSelected(pageIdx);
 }
 
 void PageManager::setNoteView(MultiPageNoteView* view) {
     m_view = view;
-    refreshThumbnails();
+    rebuildList(false);
 }
 
 void PageManager::refreshThumbnails() {
-    if (!m_view)
-        return;
-    m_listWidget->clear();
-    Note* note = m_view->note();
-    if (!note)
-        return;
-
-    for (int i = 0; i < note->pages.size(); ++i) {
-        QPixmap thumb = m_view->generateThumbnail(i, QSize(60, 80));
-        auto *item = new QListWidgetItem();
-
-        QString displayTitle = QStringLiteral("Seite %1").arg(i + 1);
-        item->setText(displayTitle);
-
-        QString realTitle = note->pages[i].title;
-        if (realTitle.isEmpty()) realTitle = displayTitle;
-        item->setData(Qt::UserRole + 1, realTitle);
-
-        item->setIcon(QIcon(thumb));
-        m_listWidget->addItem(item);
-    }
+    rebuildList();
 }
 
 void PageManager::onAddPage() {
@@ -323,7 +396,7 @@ void PageManager::onAddPage() {
     int idx = m_view->note()->pages.size();
     m_view->note()->ensurePage(idx);
     m_view->setNote(m_view->note());
-    refreshThumbnails();
+    rebuildList(false);
     m_listWidget->scrollToBottom();
 }
 
@@ -333,7 +406,7 @@ void PageManager::onRowMoved(const QModelIndex&, int start, int, const QModelInd
     if (start < row) dest = row - 1;
     if (start != dest) {
         m_view->movePage(start, dest);
-        refreshThumbnails();
+        rebuildList(false);
         emit pageOrderChanged();
     }
 }
@@ -359,16 +432,186 @@ void PageManager::showContextMenu(const QPoint& pos, int index) {
         QString newName = QInputDialog::getText(this, QStringLiteral("Seite umbenennen"), QStringLiteral("Name:"),
                                                    QLineEdit::Normal, oldName, &ok);
         if (ok && !newName.isEmpty()) {
-            m_view->note()->pages[index].title = newName;
-            refreshThumbnails();
+            m_view->renamePage(index, newName);
+            rebuildList();
         }
     } else if (res == dup) {
         m_view->duplicatePage(index);
-        refreshThumbnails();
+        rebuildList(false);
     } else if (res == del) {
-        if (m_view->note()->pages.size() > 1) {
+        if (m_view->pageCount() > 1) {
             m_view->deletePage(index);
-            refreshThumbnails();
+            rebuildList(false);
         }
     }
+}
+
+void PageManager::onSearchChanged(const QString &text) {
+    m_searchText = text.trimmed();
+    rebuildList(false);
+}
+
+void PageManager::onToggleSelectMode() {
+    m_multiSelectMode = m_btnSelectMode->isChecked();
+    m_selectedPages.clear();
+    m_listWidget->setSelectionMode(m_multiSelectMode ? QAbstractItemView::MultiSelection
+                                                     : QAbstractItemView::SingleSelection);
+    rebuildList(false);
+}
+
+void PageManager::onSelectAll() {
+    if (!m_view)
+        return;
+    m_selectedPages.clear();
+    for (int i = 0; i < m_view->pageCount(); ++i)
+        m_selectedPages.insert(i);
+    rebuildList(false);
+}
+
+void PageManager::onClearSelection() {
+    m_selectedPages.clear();
+    rebuildList(false);
+}
+
+QList<int> PageManager::selectedPageIndices() const {
+    QList<int> out = m_selectedPages.values();
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+void PageManager::onDeleteSelected() {
+    if (!m_view)
+        return;
+    const QList<int> idxs = selectedPageIndices();
+    if (idxs.isEmpty())
+        return;
+    m_view->deletePages(idxs);
+    m_selectedPages.clear();
+    rebuildList(false);
+}
+
+void PageManager::onDuplicateSelected() {
+    if (!m_view)
+        return;
+    const QList<int> idxs = selectedPageIndices();
+    if (idxs.isEmpty())
+        return;
+    m_view->duplicatePages(idxs);
+    rebuildList(false);
+}
+
+void PageManager::onMoveSelectedUp() {
+    if (!m_view)
+        return;
+    QList<int> idxs = selectedPageIndices();
+    std::sort(idxs.begin(), idxs.end());
+    for (int i : idxs) {
+      if (i > 0)
+        m_view->movePage(i, i - 1);
+    }
+    rebuildList(false);
+}
+
+void PageManager::onMoveSelectedDown() {
+    if (!m_view)
+        return;
+    QList<int> idxs = selectedPageIndices();
+    std::sort(idxs.begin(), idxs.end(), std::greater<int>());
+    for (int i : idxs) {
+      if (i < m_view->pageCount() - 1)
+        m_view->movePage(i, i + 1);
+    }
+    rebuildList(false);
+}
+
+QString PageManager::pageGroupKey(int pageIndex) const {
+    if (!m_view || !m_view->note() || pageIndex < 0 || pageIndex >= m_view->note()->pages.size())
+        return QStringLiteral("all");
+    const int t = m_view->note()->pages[pageIndex].backgroundType;
+    switch (t) {
+      case 0: return QStringLiteral("blank");
+      case 1: return QStringLiteral("lined");
+      case 2: return QStringLiteral("grid");
+      case 3: return QStringLiteral("dotted");
+      case 4: return QStringLiteral("legal");
+      default: return QStringLiteral("all");
+    }
+}
+
+void PageManager::onGroupFilterChanged(int) {
+    rebuildList(false);
+}
+
+void PageManager::onApplyTemplateColor() {
+    if (!m_view || !m_view->note())
+        return;
+    QList<int> idxs = selectedPageIndices();
+    if (idxs.isEmpty() && m_listWidget->currentItem())
+        idxs << m_listWidget->currentItem()->data(Qt::UserRole).toInt();
+    if (idxs.isEmpty())
+        return;
+    const int seed = idxs.first();
+    const NotePage &pg = m_view->note()->pages[seed];
+    A4LayoutDialogResult r;
+    if (!showA4LayoutOverlay(this, QStringLiteral("Layout auf Seiten anwenden"),
+                             QStringLiteral("Ausgewählt: %1 Seite(n)").arg(idxs.size()),
+                             pg.backgroundType, pg.paperColor, &r))
+        return;
+    m_view->applyLayoutToPages(idxs, r.backgroundType, r.paperColor);
+    rebuildList(false);
+}
+
+void PageManager::setCardSelectedStyle(QListWidgetItem *item, bool selected) {
+    if (!item)
+        return;
+    item->setCheckState(selected ? Qt::Checked : Qt::Unchecked);
+}
+
+void PageManager::updateSubtitle() {
+    if (!m_view) {
+      m_lblSubtitle->setText(QStringLiteral("Keine Notiz"));
+      return;
+    }
+    const int total = m_view->pageCount();
+    const int sel = m_selectedPages.size();
+    if (m_multiSelectMode)
+      m_lblSubtitle->setText(QStringLiteral("%1 Seiten · %2 ausgewählt").arg(total).arg(sel));
+    else
+      m_lblSubtitle->setText(QStringLiteral("%1 Seiten · Drag & Drop aktiv").arg(total));
+}
+
+void PageManager::rebuildList(bool keepSelection) {
+    if (!m_view) {
+      m_listWidget->clear();
+      updateSubtitle();
+      return;
+    }
+    const QString grp = m_groupFilter ? m_groupFilter->currentData().toString() : QStringLiteral("all");
+    const QSet<int> oldSel = m_selectedPages;
+    m_listWidget->clear();
+    for (int i = 0; i < m_view->pageCount(); ++i) {
+      const QString title = m_view->pageTitle(i).isEmpty() ? QStringLiteral("Seite %1").arg(i + 1)
+                                                            : m_view->pageTitle(i);
+      if (!m_searchText.isEmpty() &&
+          !title.contains(m_searchText, Qt::CaseInsensitive) &&
+          !QString::number(i + 1).contains(m_searchText))
+        continue;
+      const QString g = pageGroupKey(i);
+      if (grp != QStringLiteral("all") && g != grp)
+        continue;
+      auto *item = new QListWidgetItem;
+      item->setData(Qt::UserRole, i);
+      item->setData(Qt::DisplayRole, QStringLiteral("Seite %1").arg(i + 1));
+      item->setData(Qt::UserRole + 1, title);
+      item->setData(Qt::UserRole + 2, m_multiSelectMode ? 132 : 120);
+      item->setIcon(QIcon(m_view->generateThumbnail(i, QSize(80, 110))));
+      item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable |
+                     Qt::ItemIsDragEnabled | Qt::ItemIsEnabled);
+      const bool selected = keepSelection ? oldSel.contains(i) : m_selectedPages.contains(i);
+      setCardSelectedStyle(item, selected);
+      if (selected)
+        m_selectedPages.insert(i);
+      m_listWidget->addItem(item);
+    }
+    updateSubtitle();
 }

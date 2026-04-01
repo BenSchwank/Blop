@@ -1398,6 +1398,64 @@ void MultiPageNoteView::scrollToPage(int pageIndex) {
   verticalScrollBar()->setValue(r.top());
 }
 
+int MultiPageNoteView::pageCount() const {
+  return note_ ? note_->pages.size() : 0;
+}
+
+QString MultiPageNoteView::pageTitle(int pageIndex) const {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return QString();
+  return note_->pages[pageIndex].title;
+}
+
+void MultiPageNoteView::renamePage(int pageIndex, const QString &title) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return;
+  note_->pages[pageIndex].title = title;
+  setNote(note_);
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::duplicatePages(const QList<int> &pageIndices) {
+  if (!note_ || pageIndices.isEmpty())
+    return;
+  QList<int> sorted = pageIndices;
+  std::sort(sorted.begin(), sorted.end());
+  for (int i = sorted.size() - 1; i >= 0; --i) {
+    const int idx = sorted[i];
+    if (idx < 0 || idx >= note_->pages.size())
+      continue;
+    note_->pages.insert(idx + 1, note_->pages[idx]);
+  }
+  setNote(note_);
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::deletePages(const QList<int> &pageIndices) {
+  if (!note_ || pageIndices.isEmpty())
+    return;
+  QList<int> sorted = pageIndices;
+  std::sort(sorted.begin(), sorted.end(), std::greater<int>());
+  for (int idx : sorted) {
+    if (idx >= 0 && idx < note_->pages.size() && note_->pages.size() > 1)
+      note_->pages.removeAt(idx);
+  }
+  setNote(note_);
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::applyLayoutToPages(const QList<int> &pageIndices,
+                                           int backgroundType,
+                                           const QColor &paperColor) {
+  if (!note_ || pageIndices.isEmpty())
+    return;
+  for (int idx : pageIndices)
+    applyLayoutToPage(idx, backgroundType, paperColor);
+}
+
 void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
   QGraphicsView::drawForeground(painter, rect);
 
