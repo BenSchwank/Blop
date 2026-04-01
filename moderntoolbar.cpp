@@ -39,191 +39,334 @@ namespace {
 // 64×64 logical coords (same convention as MainWindow::createModernIcon) — identical on all platforms.
 void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   p->setRenderHint(QPainter::Antialiasing);
-  const QPen pen(color, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-  p->setPen(pen);
+  const QColor primary(240, 244, 255, qBound(212, color.alpha(), 255));
+  auto familyAccent = [&](const QString &iconName) -> QColor {
+    // Writing tools: warmer creative family.
+    if (iconName == QLatin1String("pen") || iconName == QLatin1String("pencil") ||
+        iconName == QLatin1String("highlighter") || iconName == QLatin1String("eraser") ||
+        iconName == QLatin1String("lasso") || iconName == QLatin1String("ruler") ||
+        iconName == QLatin1String("shape") || iconName == QLatin1String("stickynote") ||
+        iconName == QLatin1String("text") || iconName == QLatin1String("image")) {
+      if (iconName == QLatin1String("pen"))
+        return QColor(122, 136, 255, qBound(185, color.alpha(), 255));
+      if (iconName == QLatin1String("pencil"))
+        return QColor(102, 170, 255, qBound(185, color.alpha(), 255));
+      if (iconName == QLatin1String("highlighter"))
+        return QColor(132, 206, 255, qBound(185, color.alpha(), 255));
+      if (iconName == QLatin1String("eraser"))
+        return QColor(244, 126, 176, qBound(185, color.alpha(), 255));
+      if (iconName == QLatin1String("ruler"))
+        return QColor(92, 214, 190, qBound(185, color.alpha(), 255));
+      return QColor(132, 140, 255, qBound(185, color.alpha(), 255));
+    }
+    // Navigation tools: cooler utility family.
+    if (iconName == QLatin1String("hand") || iconName == QLatin1String("overview") ||
+        iconName == QLatin1String("dock_float") || iconName == QLatin1String("dock_fixed")) {
+      return QColor(86, 184, 255, qBound(185, color.alpha(), 255));
+    }
+    // Action/system tools.
+    return QColor(110, 166, 255, qBound(185, color.alpha(), 255));
+  };
+  const QColor accent = familyAccent(name);
+  QColor accentSoft = accent;
+  accentSoft.setAlpha(132);
+
+  const QPen primaryPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen primaryThin(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen accentPen(accent, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen accentThick(accent, 5.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+
+  auto drawAccentDot = [&](qreal x, qreal y, qreal r) {
+    p->setPen(Qt::NoPen);
+    p->setBrush(accent);
+    p->drawEllipse(QPointF(x, y), r, r);
+  };
+
+  p->setPen(primaryPen);
   p->setBrush(Qt::NoBrush);
 
   if (name == QLatin1String("settings")) {
-    const QPointF c(32, 32);
-    const qreal ringOuter = 14.0;
-    const qreal ringInner = 7.0;
-    p->drawEllipse(c, ringOuter, ringOuter);
-    p->drawEllipse(c, ringInner, ringInner);
-    constexpr double pi = 3.14159265358979323846;
-    for (int i = 0; i < 8; ++i) {
-      const double a = (i * pi) / 4.0;
-      const double cs = qCos(a);
-      const double sn = qSin(a);
-      QPointF p1(c.x() + cs * 17.0, c.y() + sn * 17.0);
-      QPointF p2(c.x() + cs * 21.5, c.y() + sn * 21.5);
-      p->drawLine(p1, p2);
+    constexpr qreal kPi = 3.14159265358979323846;
+    p->drawEllipse(QPointF(32, 32), 12.5, 12.5);
+    p->setPen(accentPen);
+    p->drawEllipse(QPointF(32, 32), 6.2, 6.2);
+    for (int i = 0; i < 6; ++i) {
+      const qreal a = (i * kPi) / 3.0;
+      const qreal cs = qCos(a);
+      const qreal sn = qSin(a);
+      p->setPen(primaryThin);
+      p->drawLine(QPointF(32 + cs * 15.5, 32 + sn * 15.5),
+                  QPointF(32 + cs * 20.0, 32 + sn * 20.0));
     }
     return;
   }
   if (name == QLatin1String("save")) {
-    p->setBrush(Qt::NoBrush);
-    p->setPen(pen);
-    p->drawRoundedRect(17, 14, 30, 36, 3, 3);
-    p->drawLine(21, 22, 43, 22);
-    p->drawLine(25, 14, 25, 20);
-    p->drawLine(39, 14, 39, 20);
-    p->drawLine(24, 30, 40, 30);
-    p->drawLine(24, 36, 36, 36);
+    p->setPen(primaryPen);
+    p->drawRoundedRect(18, 14, 28, 35, 5, 5);
+    p->fillRect(QRectF(22, 18, 20, 8), accentSoft);
+    p->setPen(accentPen);
+    p->drawLine(24, 33, 40, 33);
+    p->drawLine(24, 39, 36, 39);
     return;
   }
   if (name == QLatin1String("palette")) {
-    QPainterPath blob;
-    blob.moveTo(18, 38);
-    blob.cubicTo(12, 32, 14, 22, 22, 18);
-    blob.cubicTo(30, 14, 42, 18, 46, 28);
-    blob.cubicTo(48, 36, 40, 44, 28, 46);
-    blob.cubicTo(22, 46, 18, 42, 18, 38);
-    p->setBrush(QColor(color.red(), color.green(), color.blue(), 55));
-    p->setPen(pen);
-    p->drawPath(blob);
-    p->setPen(Qt::NoPen);
-    p->setBrush(color);
-    p->drawEllipse(22, 24, 6, 6);
-    p->drawEllipse(30, 21, 6, 6);
-    p->drawEllipse(33, 31, 6, 6);
+    QPainterPath plate;
+    plate.moveTo(18, 36);
+    plate.cubicTo(15, 25, 21, 17, 31, 16);
+    plate.cubicTo(42, 16, 49, 24, 47, 35);
+    plate.cubicTo(45, 44, 37, 48, 28, 47);
+    plate.cubicTo(22, 47, 18, 43, 18, 36);
+    p->setPen(primaryPen);
+    p->setBrush(accentSoft);
+    p->drawPath(plate);
+    drawAccentDot(25, 26, 2.7);
+    drawAccentDot(33, 24, 2.7);
+    drawAccentDot(37, 31, 2.7);
     return;
   }
   if (name == QLatin1String("brush_size")) {
-    p->drawLine(20, 44, 44, 20);
-    p->setPen(QPen(color, 5, Qt::SolidLine, Qt::RoundCap));
-    p->drawEllipse(41, 17, 7, 7);
-    p->setPen(pen);
-    p->drawEllipse(15, 37, 11, 11);
+    p->setPen(primaryPen);
+    p->drawLine(19, 45, 45, 19);
+    p->setPen(accentThick);
+    p->drawLine(29, 35, 37, 27);
+    p->setPen(accentPen);
+    p->drawEllipse(14, 36, 12, 12);
     return;
   }
   if (name == QLatin1String("dock_float")) {
-    p->drawRoundedRect(14, 22, 36, 26, 4, 4);
-    p->drawLine(32, 22, 32, 12);
-    p->drawLine(26, 16, 32, 12);
-    p->drawLine(38, 16, 32, 12);
+    p->setPen(primaryPen);
+    p->drawRoundedRect(15, 24, 34, 24, 5, 5);
+    p->fillRect(QRectF(20, 29, 11, 6), accentSoft);
+    p->setPen(accentPen);
+    p->drawLine(32, 24, 32, 13);
+    p->drawLine(27, 18, 32, 13);
+    p->drawLine(37, 18, 32, 13);
     return;
   }
   if (name == QLatin1String("dock_fixed")) {
-    p->drawRoundedRect(12, 20, 18, 26, 3, 3);
-    p->drawRoundedRect(34, 20, 18, 26, 3, 3);
+    p->setPen(primaryThin);
+    p->drawRoundedRect(13, 20, 17, 26, 4, 4);
+    p->drawRoundedRect(34, 20, 17, 26, 4, 4);
+    p->setPen(accentPen);
     p->drawLine(30, 28, 34, 28);
-    p->drawLine(30, 34, 34, 34);
+    p->drawLine(30, 35, 34, 35);
+    p->setPen(Qt::NoPen);
+    p->setBrush(accentSoft);
+    p->drawRoundedRect(16, 23, 6, 8, 2, 2);
+    p->drawRoundedRect(42, 23, 6, 8, 2, 2);
     return;
   }
   if (name == QLatin1String("overview")) {
     QPainterPath home;
     home.moveTo(12, 28);
-    home.lineTo(32, 12);
+    home.lineTo(32, 13);
     home.lineTo(52, 28);
-    home.lineTo(52, 44);
-    home.lineTo(12, 44);
+    home.lineTo(52, 45);
+    home.lineTo(12, 45);
     home.closeSubpath();
+    p->setPen(primaryPen);
     p->drawPath(home);
-    p->drawLine(22, 44, 22, 32);
-    p->drawLine(42, 44, 42, 32);
+    p->fillRect(QRectF(18, 34, 28, 8), accentSoft);
+    p->setPen(accentPen);
+    p->drawLine(23, 45, 23, 33);
+    p->drawLine(41, 45, 41, 33);
     return;
   }
   if (name == QLatin1String("pen")) {
-    p->drawLine(18, 46, 46, 18);
-    p->drawLine(44, 16, 48, 14);
+    QPainterPath body;
+    body.moveTo(18, 44);
+    body.lineTo(37, 25);
+    body.lineTo(44, 32);
+    body.lineTo(25, 51);
+    body.closeSubpath();
+    p->setPen(Qt::NoPen);
+    p->setBrush(accentSoft);
+    p->drawPath(body);
+    p->setPen(primaryPen);
+    p->drawPath(body);
+    p->setPen(accentPen);
+    p->drawLine(29, 47, 40, 36);
+    QPainterPath nib;
+    nib.moveTo(44, 32);
+    nib.lineTo(49, 27);
+    nib.lineTo(46, 24);
+    nib.lineTo(41, 29);
+    nib.closeSubpath();
+    p->setPen(primaryThin);
+    p->setBrush(QColor(236, 239, 248, 230));
+    p->drawPath(nib);
     return;
   }
   if (name == QLatin1String("pencil")) {
-    p->drawLine(20, 44, 44, 20);
-    p->drawLine(42, 18, 46, 16);
+    QPainterPath shaft;
+    shaft.moveTo(16, 45);
+    shaft.lineTo(39, 22);
+    shaft.lineTo(45, 28);
+    shaft.lineTo(22, 51);
+    shaft.closeSubpath();
+    p->setPen(Qt::NoPen);
+    p->setBrush(accentSoft);
+    p->drawPath(shaft);
+    p->setPen(primaryPen);
+    p->drawPath(shaft);
+    p->setPen(accentPen);
+    p->drawLine(24, 48, 42, 30);
+    QPainterPath woodTip;
+    woodTip.moveTo(45, 28);
+    woodTip.lineTo(50, 23);
+    woodTip.lineTo(46, 19);
+    woodTip.lineTo(41, 24);
+    woodTip.closeSubpath();
+    p->setPen(primaryThin);
+    p->setBrush(QColor(225, 200, 158, 230));
+    p->drawPath(woodTip);
+    p->setPen(QPen(QColor(110, 114, 130, 230), 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(47, 22, 50, 19);
     return;
   }
   if (name == QLatin1String("highlighter")) {
-    QPen hlPen(color, 6, Qt::SolidLine, Qt::FlatCap, Qt::RoundJoin);
-    p->setPen(hlPen);
-    p->drawLine(16, 42, 48, 14);
+    QPainterPath marker;
+    marker.moveTo(16, 44);
+    marker.lineTo(33, 27);
+    marker.lineTo(44, 38);
+    marker.lineTo(27, 55);
+    marker.closeSubpath();
+    p->setPen(Qt::NoPen);
+    p->setBrush(accentSoft);
+    p->drawPath(marker);
+    p->setPen(primaryPen);
+    p->drawPath(marker);
+    p->setPen(accentPen);
+    p->drawLine(20, 45, 39, 26);
+    p->drawLine(25, 50, 44, 31);
+    QPainterPath cap;
+    cap.moveTo(33, 27);
+    cap.lineTo(39, 21);
+    cap.lineTo(50, 32);
+    cap.lineTo(44, 38);
+    cap.closeSubpath();
+    p->setPen(primaryThin);
+    p->setBrush(QColor(231, 236, 248, 232));
+    p->drawPath(cap);
+    p->setPen(accentThick);
+    p->drawLine(46, 35, 51, 30);
     return;
   }
   if (name == QLatin1String("eraser")) {
-    p->setBrush(QColor(color.red(), color.green(), color.blue(), 90));
-    p->setPen(pen);
-    p->drawRoundedRect(16, 20, 32, 24, 4, 4);
+    p->setPen(primaryPen);
+    p->setBrush(accentSoft);
+    p->drawRoundedRect(15, 24, 33, 21, 6, 6);
+    p->setPen(accentPen);
+    p->drawLine(19, 35, 45, 35);
     return;
   }
   if (name == QLatin1String("lasso")) {
-    QPainterPath path;
-    path.moveTo(18, 30);
-    path.cubicTo(18, 18, 30, 14, 40, 22);
-    path.cubicTo(48, 30, 44, 42, 32, 44);
-    path.cubicTo(22, 46, 16, 40, 18, 30);
-    p->drawPath(path);
+    QPainterPath lasso;
+    lasso.moveTo(17, 32);
+    lasso.cubicTo(17, 20, 29, 14, 39, 21);
+    lasso.cubicTo(48, 28, 46, 42, 32, 44);
+    lasso.cubicTo(22, 46, 15, 41, 17, 32);
+    p->setPen(primaryPen);
+    p->drawPath(lasso);
+    p->setPen(accentPen);
+    p->drawArc(QRectF(34, 35, 11, 11), 20 * 16, 280 * 16);
     return;
   }
   if (name == QLatin1String("ruler")) {
-    p->drawLine(14, 36, 50, 36);
-    int i = 0;
-    for (int x = 18; x <= 46; x += 4) {
-      p->drawLine(x, 36, x, (i % 2) ? 30 : 26);
-      ++i;
-    }
+    p->setPen(primaryPen);
+    p->drawRoundedRect(13, 32, 38, 9, 3, 3);
+    p->setBrush(accentSoft);
+    p->setPen(Qt::NoPen);
+    p->drawRect(15, 34, 34, 5);
+    p->setPen(accentPen);
+    for (int x = 18; x <= 46; x += 4)
+      p->drawLine(x, 32, x, (x % 8 == 2) ? 26 : 29);
     return;
   }
   if (name == QLatin1String("shape")) {
-    p->drawRoundedRect(16, 16, 32, 32, 4, 4);
+    p->setPen(Qt::NoPen);
+    p->setBrush(accentSoft);
+    p->drawRoundedRect(19, 19, 10, 10, 4, 4);
+    p->setPen(primaryPen);
+    p->drawRoundedRect(15, 15, 34, 34, 7, 7);
+    p->setPen(accentPen);
+    p->drawEllipse(24, 24, 16, 16);
     return;
   }
   if (name == QLatin1String("stickynote")) {
-    p->drawRoundedRect(18, 14, 28, 36, 3, 3);
-    p->drawLine(40, 14, 40, 22);
-    p->drawLine(34, 22, 40, 22);
+    p->setPen(primaryPen);
+    p->drawRoundedRect(18, 14, 28, 36, 4, 4);
+    p->setPen(Qt::NoPen);
+    p->setBrush(accentSoft);
+    p->drawRect(22, 20, 16, 17);
+    p->setPen(accentPen);
+    p->drawLine(39, 14, 39, 22);
+    p->drawLine(33, 22, 39, 22);
     return;
   }
   if (name == QLatin1String("text")) {
     QFont f = p->font();
-    f.setPixelSize(34);
+    f.setPixelSize(30);
     f.setBold(true);
     p->setFont(f);
-    p->drawText(QRect(0, 0, 64, 64), Qt::AlignCenter, QStringLiteral("T"));
+    p->setPen(primaryPen);
+    p->drawText(QRect(0, 1, 64, 64), Qt::AlignCenter, QStringLiteral("T"));
+    p->setPen(accentPen);
+    p->drawLine(20, 46, 44, 46);
     return;
   }
   if (name == QLatin1String("image")) {
-    p->drawRoundedRect(14, 20, 36, 28, 3, 3);
-    QPainterPath hill;
-    hill.moveTo(16, 42);
-    hill.lineTo(28, 28);
-    hill.lineTo(38, 36);
-    hill.lineTo(48, 26);
-    hill.lineTo(48, 42);
-    p->drawPath(hill);
-    p->setBrush(color);
-    p->setPen(Qt::NoPen);
-    p->drawEllipse(40, 22, 6, 6);
+    p->setPen(primaryPen);
+    p->drawRoundedRect(14, 20, 36, 27, 4, 4);
+    p->setPen(accentPen);
+    QPainterPath mountain;
+    mountain.moveTo(16, 42);
+    mountain.lineTo(27, 30);
+    mountain.lineTo(35, 36);
+    mountain.lineTo(47, 24);
+    mountain.lineTo(48, 42);
+    p->drawPath(mountain);
+    drawAccentDot(41, 24, 3.0);
     return;
   }
   if (name == QLatin1String("hand")) {
-    QPainterPath h;
-    h.moveTo(28, 38);
-    h.cubicTo(22, 36, 20, 30, 22, 24);
-    h.cubicTo(24, 18, 30, 16, 34, 20);
-    h.lineTo(36, 14);
-    h.cubicTo(40, 12, 44, 16, 44, 22);
-    h.lineTo(44, 28);
-    h.cubicTo(46, 34, 40, 42, 32, 44);
-    h.cubicTo(26, 44, 24, 40, 28, 38);
-    p->drawPath(h);
+    QPainterPath hand;
+    hand.moveTo(29, 41);
+    hand.cubicTo(23, 39, 20, 32, 22, 25);
+    hand.cubicTo(23, 19, 29, 16, 33, 20);
+    hand.lineTo(35, 14);
+    hand.cubicTo(39, 12, 43, 16, 43, 22);
+    hand.lineTo(43, 28);
+    hand.cubicTo(46, 34, 40, 42, 32, 44);
+    hand.cubicTo(27, 44, 24, 43, 29, 41);
+    p->setPen(primaryPen);
+    p->setBrush(accentSoft);
+    p->drawPath(hand);
+    p->setPen(accentPen);
+    p->drawLine(29, 23, 29, 32);
+    p->drawLine(34, 21, 34, 31);
     return;
   }
   if (name == QLatin1String("undo")) {
     QPainterPath arc;
-    arc.moveTo(46, 24);
-    arc.cubicTo(30, 12, 12, 20, 16, 36);
+    arc.moveTo(48, 27);
+    arc.cubicTo(34, 13, 12, 20, 17, 38);
+    p->setPen(primaryPen);
     p->drawPath(arc);
-    p->drawLine(16, 36, 10, 30);
-    p->drawLine(10, 30, 20, 28);
+    p->setPen(accentPen);
+    p->drawLine(17, 38, 11, 32);
+    p->drawLine(11, 32, 22, 30);
     return;
   }
   if (name == QLatin1String("redo")) {
     QPainterPath arc;
-    arc.moveTo(18, 24);
-    arc.cubicTo(34, 12, 52, 20, 48, 36);
+    arc.moveTo(16, 27);
+    arc.cubicTo(30, 13, 52, 20, 47, 38);
+    p->setPen(primaryPen);
     p->drawPath(arc);
-    p->drawLine(48, 36, 54, 30);
-    p->drawLine(54, 30, 44, 28);
+    p->setPen(accentPen);
+    p->drawLine(47, 38, 53, 32);
+    p->drawLine(53, 32, 42, 30);
     return;
   }
   // Fallback: single-character / unknown (legacy)
@@ -353,14 +496,15 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   } else if (m_hover) {
-    p.setBrush(QColor(255, 255, 255, 30));
+    p.setBrush(QColor(140, 156, 255, 64));
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   }
 
   const int w = width();
   const int h = height();
-  const QColor fg(255, 255, 255, 220);
+  const QColor fg =
+      m_active ? QColor(255, 255, 255, 255) : QColor(236, 240, 252, 250);
   p.save();
   p.translate(w / 2.0, h / 2.0);
   p.scale(m_animScale, m_animScale);

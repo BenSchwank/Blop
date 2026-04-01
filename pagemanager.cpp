@@ -15,7 +15,8 @@
 #include <QCheckBox>
 
 namespace {
-constexpr int kPanelWidth = 320;
+constexpr int kPanelMinWidth = 420;
+constexpr int kPanelMaxWidth = 860;
 
 // Aligned with MultiPageNoteView #PagesBarStrip — modern neutral + accent
 static const QColor kCardIdle(52, 54, 64, 249);
@@ -58,8 +59,8 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->setBrush(bgColor);
     painter->drawRoundedRect(cardRect, 14, 14);
 
-    int thumbW = 60;
-    int thumbH = 80;
+    int thumbW = 68;
+    int thumbH = 90;
     QRect thumbRect(cardRect.left() + 14, cardRect.center().y() - thumbH / 2, thumbW, thumbH);
 
     painter->setPen(Qt::NoPen);
@@ -73,7 +74,7 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     }
 
     int textLeft = thumbRect.right() + 14;
-    int textRight = cardRect.right() - 44;
+    int textRight = cardRect.right() - 50;
 
     QString title = index.data(Qt::UserRole + 1).toString();
     if (title.isEmpty()) title = index.data(Qt::DisplayRole).toString();
@@ -140,29 +141,25 @@ PageManager::PageManager(QWidget* parent) : QWidget(parent) {
 }
 
 void PageManager::setupUi() {
-    auto *root = new QHBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
-
     m_scrim = new QPushButton(this);
     m_scrim->setFlat(true);
     m_scrim->setCursor(Qt::PointingHandCursor);
     m_scrim->setFocusPolicy(Qt::NoFocus);
-    m_scrim->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_scrim->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_scrim->setStyleSheet(
         "QPushButton { background-color: rgba(12, 14, 22, 0.52); border: none; }"
         "QPushButton:hover { background-color: rgba(12, 14, 22, 0.58); }");
     connect(m_scrim, &QPushButton::clicked, this, &QWidget::hide);
 
     m_panel = new QWidget(this);
-    m_panel->setFixedWidth(kPanelWidth);
+    m_panel->setMinimumWidth(kPanelMinWidth);
+    m_panel->setMaximumWidth(kPanelMaxWidth);
     m_panel->setObjectName(QStringLiteral("PageManagerPanel"));
     m_panel->setStyleSheet(
         "#PageManagerPanel {"
-        "  background-color: rgba(30, 32, 44, 0.98);"
-        "  border-left: 1px solid rgba(120, 130, 160, 0.22);"
-        "  border-top-left-radius: 16px;"
-        "  border-bottom-left-radius: 16px;"
+        "  background-color: rgba(30, 32, 44, 0.985);"
+        "  border: 1px solid rgba(120, 130, 160, 0.30);"
+        "  border-radius: 18px;"
         "}");
 
     auto *contentLay = new QVBoxLayout(m_panel);
@@ -227,11 +224,13 @@ void PageManager::setupUi() {
         "border-radius: 9px; padding: 6px 10px; }");
     connect(m_groupFilter, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &PageManager::onGroupFilterChanged);
-    m_btnSelectMode = new QPushButton(QStringLiteral("Auswahl"), header);
+    m_btnSelectMode = new QPushButton(QStringLiteral("☑"), header);
+    m_btnSelectMode->setToolTip(QStringLiteral("Mehrfachauswahl umschalten"));
     m_btnSelectMode->setCheckable(true);
+    m_btnSelectMode->setFixedSize(36, 32);
     m_btnSelectMode->setStyleSheet(
         "QPushButton { background: rgba(255,255,255,0.06); color: #D8DEF2; border: 1px solid rgba(120,130,160,0.35);"
-        "border-radius: 9px; padding: 6px 10px; }"
+        "border-radius: 9px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
         "QPushButton:checked { background: rgba(107,163,245,0.22); border-color: rgba(107,163,245,0.62); color: #EEF4FF; }");
     connect(m_btnSelectMode, &QPushButton::clicked, this, &PageManager::onToggleSelectMode);
     filterRow->addWidget(m_groupFilter, 1);
@@ -271,21 +270,23 @@ void PageManager::setupUi() {
     auto *batchRow = new QHBoxLayout();
     batchRow->setContentsMargins(0, 0, 0, 0);
     batchRow->setSpacing(6);
-    auto mkBtn = [this](const QString &txt) {
+    auto mkBtn = [this](const QString &txt, const QString &tooltip) {
       auto *b = new QPushButton(txt, m_panel);
+      b->setToolTip(tooltip);
+      b->setFixedSize(34, 30);
       b->setStyleSheet(
           "QPushButton { background: rgba(255,255,255,0.06); color: #D6DDF4; border: 1px solid rgba(120,130,160,0.3);"
-          "border-radius: 8px; padding: 6px 10px; font-size: 12px; }"
+          "border-radius: 8px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
           "QPushButton:hover { background: rgba(255,255,255,0.10); }");
       return b;
     };
-    m_btnSelectAll = mkBtn(QStringLiteral("Alle"));
-    m_btnClearSelection = mkBtn(QStringLiteral("Keine"));
-    m_btnDuplicateSelection = mkBtn(QStringLiteral("Duplizieren"));
-    m_btnDeleteSelection = mkBtn(QStringLiteral("Löschen"));
-    m_btnMoveUp = mkBtn(QStringLiteral("Hoch"));
-    m_btnMoveDown = mkBtn(QStringLiteral("Runter"));
-    m_btnApplyLayout = mkBtn(QStringLiteral("Vorlage/Farbe"));
+    m_btnSelectAll = mkBtn(QStringLiteral("☑"), QStringLiteral("Alle Seiten auswählen"));
+    m_btnClearSelection = mkBtn(QStringLiteral("☐"), QStringLiteral("Auswahl aufheben"));
+    m_btnDuplicateSelection = mkBtn(QStringLiteral("⧉"), QStringLiteral("Ausgewählte Seiten duplizieren"));
+    m_btnDeleteSelection = mkBtn(QStringLiteral("⌫"), QStringLiteral("Ausgewählte Seiten löschen"));
+    m_btnMoveUp = mkBtn(QStringLiteral("↑"), QStringLiteral("Auswahl nach oben verschieben"));
+    m_btnMoveDown = mkBtn(QStringLiteral("↓"), QStringLiteral("Auswahl nach unten verschieben"));
+    m_btnApplyLayout = mkBtn(QStringLiteral("◫"), QStringLiteral("Vorlage/Farbe auf Auswahl anwenden"));
     batchRow->addWidget(m_btnSelectAll);
     batchRow->addWidget(m_btnClearSelection);
     batchRow->addWidget(m_btnDuplicateSelection);
@@ -329,19 +330,29 @@ void PageManager::setupUi() {
     footerLay->addLayout(addRow);
     contentLay->addLayout(footerLay);
 
-    root->addWidget(m_scrim, 1);
-    root->addWidget(m_panel, 0);
+    m_scrim->raise();
+    m_panel->raise();
 }
 
 void PageManager::fillParent() {
     if (parentWidget()) {
-        setGeometry(0, 0, parentWidget()->width(), parentWidget()->height());
         const int pw = parentWidget()->width();
+        const int ph = parentWidget()->height();
+        setGeometry(0, 0, pw, ph);
+        m_scrim->setGeometry(rect());
 #ifdef Q_OS_ANDROID
-        m_panel->setFixedWidth(qMin(pw - 12, 420));
+        const int w = qMin(pw - 16, qMax(360, static_cast<int>(pw * 0.92)));
+        const int h = qMin(ph - 16, 760);
+        const int x = (pw - w) / 2;
+        const int y = qMax(8, ph - h - 8);
 #else
-        m_panel->setFixedWidth(qMin(420, qMax(320, pw / 3)));
+        const int w = qMin(760, qMax(460, static_cast<int>(pw * 0.44)));
+        const int h = qMin(760, qMax(500, ph - 120));
+        const int x = (pw - w) / 2;
+        const int y = (ph - h) / 2;
 #endif
+        m_panel->setGeometry(x, y, w, h);
+        m_panel->raise();
     }
 }
 
@@ -603,8 +614,8 @@ void PageManager::rebuildList(bool keepSelection) {
       item->setData(Qt::UserRole, i);
       item->setData(Qt::DisplayRole, QStringLiteral("Seite %1").arg(i + 1));
       item->setData(Qt::UserRole + 1, title);
-      item->setData(Qt::UserRole + 2, m_multiSelectMode ? 132 : 120);
-      item->setIcon(QIcon(m_view->generateThumbnail(i, QSize(80, 110))));
+      item->setData(Qt::UserRole + 2, m_multiSelectMode ? 136 : 126);
+      item->setIcon(QIcon(m_view->generateThumbnail(i, QSize(92, 126))));
       item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable |
                      Qt::ItemIsDragEnabled | Qt::ItemIsEnabled);
       const bool selected = keepSelection ? oldSel.contains(i) : m_selectedPages.contains(i);
