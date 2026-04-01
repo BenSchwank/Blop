@@ -1680,6 +1680,55 @@ export default function FolderPage() {
             );
         }
 
+        if (selectedFile.type === 'pdf') {
+            const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
+            const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&filename=${encodeURIComponent(selectedFile.name || "")}`;
+            return (
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                                <X size={20} />
+                            </button>
+                            <div className="h-6 w-px bg-[#1C1C33] mx-2"></div>
+                            <div className="p-2 rounded-lg bg-red-500/10 text-red-400">
+                                <FileText size={20} />
+                            </div>
+                            <h3 className="text-lg font-semibold text-white">{selectedFile.name || 'PDF'}</h3>
+                        </div>
+                        <div className="flex items-center gap-2 no-print">
+                            <a
+                                href={pdfUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                title="PDF in neuem Tab öffnen"
+                            >
+                                <ExternalLink size={14} />
+                                <span className="hidden sm:inline">Neuer Tab</span>
+                            </a>
+                            <a
+                                href={pdfUrl}
+                                download={selectedFile.name || "dokument.pdf"}
+                                className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                                title="PDF herunterladen"
+                            >
+                                <Download size={14} />
+                                <span className="hidden sm:inline">Download</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div className="flex-1 bg-[#0B0B1A] p-3">
+                        <iframe
+                            title={selectedFile.name || "PDF"}
+                            src={pdfUrl}
+                            className="w-full h-full rounded-xl border border-[#2A2A40] bg-[#111]"
+                        />
+                    </div>
+                </div>
+            );
+        }
+
         const contentStrGeneric =
             typeof selectedFile.content === "string"
                 ? selectedFile.content

@@ -821,6 +821,15 @@ def download_audio(username: str, folder_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
     return FileResponse(path, media_type="audio/mpeg", filename=filename)
 
+@app.get("/api/files/download_pdf")
+def download_pdf(username: str, folder_id: str, filename: str):
+    """Downloads or displays a PDF file."""
+    from fastapi.responses import FileResponse
+    path = DataManager.get_pdf_path(filename, username, folder_id)
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden")
+    return FileResponse(path, media_type="application/pdf", filename=filename)
+
 @app.delete("/api/files/{file_id}")
 def delete_file(file_id: str, username: str, folder_id: str):
     """Deletes a file from the server and metadata."""
