@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -68,6 +68,8 @@ interface FlashcardRow {
     front: string;
     back: string;
 }
+
+type FlashcardRating = 'leicht' | 'mittel' | 'schwer';
 
 interface DocumentPatch {
     patch_description: string;
@@ -461,6 +463,17 @@ export default function FolderPage() {
     // Fullscreen Flashcard State
     const [fullscreenCard, setFullscreenCard] = useState<{ front: string, back: string } | null>(null);
     const [isFullscreenCardFlipped, setIsFullscreenCardFlipped] = useState(false);
+    const [flashcardFlipMap, setFlashcardFlipMap] = useState<Record<number, boolean>>({});
+    const [isEditFlashcardOpen, setIsEditFlashcardOpen] = useState(false);
+    const [editFlashcardIndex, setEditFlashcardIndex] = useState<number | null>(null);
+    const [editFlashcardFront, setEditFlashcardFront] = useState('');
+    const [editFlashcardBack, setEditFlashcardBack] = useState('');
+    const [isSavingFlashcards, setIsSavingFlashcards] = useState(false);
+    const [isLearnModeActive, setIsLearnModeActive] = useState(false);
+    const [learnQueue, setLearnQueue] = useState<number[]>([]);
+    const [learnProgress, setLearnProgress] = useState(0);
+    const [learnMastery, setLearnMastery] = useState<Record<number, number>>({});
+    const [pdfLoadFailed, setPdfLoadFailed] = useState(false);
 
     // Global AI Model Override State (for all AI generation overlays)
     const [aiModelPreference, setAiModelPreference] = useState<string>('');
@@ -533,6 +546,15 @@ export default function FolderPage() {
         };
         void fetchModel();
     }, []);
+
+    useEffect(() => {
+        setFlashcardFlipMap({});
+        setIsLearnModeActive(false);
+        setLearnQueue([]);
+        setLearnProgress(0);
+        setLearnMastery({});
+        setPdfLoadFailed(false);
+    }, [selectedFile?.id]);
 
     // Setup global drag and drop event listeners
     useEffect(() => {
@@ -1247,7 +1269,27 @@ export default function FolderPage() {
         }
     };
 
-    const persistFileContent = async (fileId: string, newContent: string) => {
+    const normalizeFlashcards = (cards: unknown): FlashcardRow[] => {
+        if (!Array.isArray(cards)) return [];
+        return cards.map((card) => {
+            const row = (card || {}) as Partial<FlashcardRow>;
+            return {
+                front: String(row.front ?? '').trim(),
+                back: String(row.back ?? '').trim(),
+            };
+        });
+    };
+
+    const shuffleIndices = (size: number): number[] => {
+        const arr = Array.from({ length: size }, (_, idx) => idx);
+        for (let i = arr.length - 1; i > 0; i -= 1) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    };
+
+    const persistFileContent = async (fileId: string, newContent: unknown) => {
         const username = localStorage.getItem("username");
         const res = await fetch(`${API_BASE}/files/update`, {
             method: 'PUT',
@@ -1269,6 +1311,62 @@ export default function FolderPage() {
             }
             throw new Error(`Fehler beim Speichern: ${detail}`);
         }
+    };
+
+    const saveFlashcardsForFile = async (file: FileData, nextCards: FlashcardRow[]) => {
+        const normalized = normalizeFlashcards(nextCards);
+        await persistFileContent(file.id, normalized);
+        const updatedFiles = files.map((entry) => entry.id === file.id ? { ...entry, content: normalized } : entry);
+        setFiles(updatedFiles);
+        setSelectedFile({ ...file, content: normalized });
+    };
+
+    const startLearnMode = (cards: FlashcardRow[]) => {
+        const queue = shuffleIndices(cards.length);
+        setIsLearnModeActive(true);
+        setLearnQueue(queue);
+        setLearnProgress(0);
+        setLearnMastery({});
+    };
+
+    const applyLearnRating = (cardIndex: number, rating: FlashcardRating) => {
+        const currentScore = learnMastery[cardIndex] ?? 0;
+        const nextScore = rating === 'leicht'
+            ? Math.min(3, currentScore + 2)
+            : rating === 'mittel'
+                ? Math.min(3, currentScore + 1)
+                : 0;
+        const nextMastery = { ...learnMastery, [cardIndex]: nextScore };
+
+        const rest = learnQueue.slice(1);
+        if (nextScore < 3) {
+            if (rating === 'schwer') {
+                const insertAt = Math.min(1, rest.length);
+                rest.splice(insertAt, 0, cardIndex);
+                rest.push(cardIndex);
+            } else if (rating === 'mittel') {
+                rest.push(cardIndex);
+            }
+        }
+
+        setLearnMastery(nextMastery);
+        setLearnQueue(rest);
+        setLearnProgress((prev) => prev + 1);
+    };
+
+    const exportFlashcardsToCsv = (filename: string, cards: FlashcardRow[]) => {
+        const esc = (value: string) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const rows = cards.map((card) => `${esc(card.front)},${esc(card.back)}`);
+        const csvText = `\uFEFF${rows.join('\r\n')}`;
+        const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `${filename || 'Flashcards'}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const applyPatchToContent = (baseContent: string, patch: DocumentPatch): string => {
@@ -1682,7 +1780,7 @@ export default function FolderPage() {
 
         if (selectedFile.type === 'pdf') {
             const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
-            const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&filename=${encodeURIComponent(selectedFile.name || "")}`;
+            const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -1719,11 +1817,25 @@ export default function FolderPage() {
                         </div>
                     </div>
                     <div className="flex-1 bg-[#0B0B1A] p-3">
-                        <iframe
-                            title={selectedFile.name || "PDF"}
-                            src={pdfUrl}
-                            className="w-full h-full rounded-xl border border-[#2A2A40] bg-[#111]"
-                        />
+                        {pdfLoadFailed ? (
+                            <div className="w-full h-full rounded-xl border border-red-500/30 bg-[#111] flex items-center justify-center p-6">
+                                <div className="max-w-lg text-center">
+                                    <p className="text-red-300 font-semibold mb-2">PDF konnte nicht geladen werden.</p>
+                                    <p className="text-sm text-gray-400 mb-4">Bitte versuche es im neuen Tab oder lade die Datei herunter.</p>
+                                    <div className="flex items-center justify-center gap-2">
+                                        <a href={pdfUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-lg bg-[#1C1C33] hover:bg-[#2A2A40] text-white text-sm">Im neuen Tab öffnen</a>
+                                        <button onClick={() => setPdfLoadFailed(false)} className="px-3 py-2 rounded-lg bg-[#1C1C33] hover:bg-[#2A2A40] text-white text-sm">Erneut versuchen</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <iframe
+                                title={selectedFile.name || "PDF"}
+                                src={pdfUrl}
+                                className="w-full h-full rounded-xl border border-[#2A2A40] bg-[#111]"
+                                onError={() => setPdfLoadFailed(true)}
+                            />
+                        )}
                     </div>
                 </div>
             );
@@ -1814,47 +1926,93 @@ export default function FolderPage() {
             return <QuizViewer questions={questions as QuizQuestion[]} />;
         }
         if (file.type === 'flashcards') {
-            const cards = file.content;
-            if (!Array.isArray(cards)) return <p>Fehlerhaftes Format.</p>;
-            const cardRows = cards as FlashcardRow[];
+            const cardRows = normalizeFlashcards(file.content);
+            if (cardRows.length === 0) return <p>Fehlerhaftes oder leeres Karteikarten-Format.</p>;
+            const currentLearnIndex = learnQueue.length > 0 ? learnQueue[0] : null;
+            const currentLearnCard = currentLearnIndex !== null ? cardRows[currentLearnIndex] : null;
             return (
                 <div className="flex flex-col h-full">
-                    <div className="flex justify-end mb-4">
-                        <button
-                            onClick={() => {
-                                const csvContent = "data:text/csv;charset=utf-8,"
-                                    + cardRows.map(c => `"${c.front.replace(/"/g, '""')}","${c.back.replace(/"/g, '""')}"`).join("\n");
-                                const encodedUri = encodeURI(csvContent);
-                                const link = document.createElement("a");
-                                link.setAttribute("href", encodedUri);
-                                link.setAttribute("download", `${file.name || 'Flashcards'}.csv`);
-                                document.body.appendChild(link);
-                                link.click();
-                                document.body.removeChild(link);
-                            }}
-                            className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
-                            Export to Anki (CSV)
-                        </button>
+                    <div className="flex flex-wrap gap-2 justify-between mb-4">
+                        <div className="text-xs text-gray-400 flex items-center">
+                            Gesamtübersicht: {cardRows.length} Karte{cardRows.length === 1 ? '' : 'n'}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                onClick={() => startLearnMode(cardRows)}
+                                className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                            >
+                                <Shuffle size={16} />
+                                Lernmodus starten
+                            </button>
+                            <button
+                                onClick={() => exportFlashcardsToCsv(file.name, cardRows)}
+                                className="bg-[#151525] hover:bg-[#1C1C33] border border-[#3B3B55] text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                            >
+                                <Download size={16} />
+                                Export to Anki (CSV)
+                            </button>
+                        </div>
                     </div>
+
+                    {isLearnModeActive && (
+                        <div className="mb-5 border border-[#3B3B55] bg-[#111122] rounded-xl p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h4 className="text-white font-semibold">Lernmodus (zufällig + Wiederholung)</h4>
+                                <button
+                                    onClick={() => setIsLearnModeActive(false)}
+                                    className="text-xs text-gray-300 hover:text-white px-2 py-1 rounded-lg hover:bg-[#1C1C33]"
+                                >
+                                    Beenden
+                                </button>
+                            </div>
+                            <p className="text-xs text-gray-400 mb-4">Bewertung steuert die Wiederholung: schwer kommt früher wieder, mittel normal, leicht verschwindet schneller.</p>
+                            {currentLearnCard ? (
+                                <div className="space-y-3">
+                                    <div className="bg-[#151525] border border-[#2A2A40] rounded-xl p-4">
+                                        <p className="text-xs text-gray-400 mb-1">Vorderseite</p>
+                                        <p className="text-white whitespace-pre-wrap">{currentLearnCard.front}</p>
+                                    </div>
+                                    <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-xl p-4">
+                                        <p className="text-xs text-gray-400 mb-1">Rückseite</p>
+                                        <p className="text-gray-300 whitespace-pre-wrap">{currentLearnCard.back}</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button onClick={() => applyLearnRating(currentLearnIndex, 'leicht')} className="px-3 py-2 rounded-lg text-sm bg-green-500/20 border border-green-500/40 text-green-300 hover:bg-green-500/30">Leicht</button>
+                                        <button onClick={() => applyLearnRating(currentLearnIndex, 'mittel')} className="px-3 py-2 rounded-lg text-sm bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30">Mittel</button>
+                                        <button onClick={() => applyLearnRating(currentLearnIndex, 'schwer')} className="px-3 py-2 rounded-lg text-sm bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30">Schwer</button>
+                                    </div>
+                                    <p className="text-xs text-gray-500">Bewertungen: {learnProgress} · Verbleibend in Queue: {learnQueue.length}</p>
+                                </div>
+                            ) : (
+                                <div className="bg-[#151525] border border-[#2A2A40] rounded-xl p-4 text-sm text-gray-300">
+                                    Session beendet. Alle Karten haben aktuell genug Fortschritt.
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
                         {cardRows.map((c: FlashcardRow, i: number) => {
-                            // Using a data attribute or simple react state pattern isn't possible directly inside map without a hook.
-                            // We will use inline script-like behavior by toggling a class on click for the flip.
+                            const isFlipped = !!flashcardFlipMap[i];
                             return (
-                                <div
-                                    key={i}
-                                    className="group relative h-48 w-full [perspective:1000px] cursor-pointer"
-                                    onClick={(e) => {
-                                        const card = e.currentTarget;
-                                        const inner = card.querySelector('.flip-card-inner');
-                                        if (inner) {
-                                            inner.classList.toggle('[transform:rotateY(180deg)]');
-                                        }
-                                    }}
-                                >
-                                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div key={i} className="group relative">
+                                    <div className="absolute top-3 left-3 z-10 text-xs px-2 py-1 rounded-md bg-black/45 text-gray-300">
+                                        Karte {i + 1}
+                                    </div>
+                                    <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditFlashcardIndex(i);
+                                                setEditFlashcardFront(c.front);
+                                                setEditFlashcardBack(c.back);
+                                                setIsEditFlashcardOpen(true);
+                                            }}
+                                            className="p-1.5 bg-black/40 hover:bg-black/80 rounded-lg text-gray-300 hover:text-white transition-colors backdrop-blur-sm"
+                                            title="Karte bearbeiten"
+                                        >
+                                            <Edit size={16} />
+                                        </button>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -1867,16 +2025,20 @@ export default function FolderPage() {
                                             <Maximize2 size={16} />
                                         </button>
                                     </div>
-                                    <div className="flip-card-inner w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#2A2A40] bg-[#151525]">
-                                        {/* Front Face */}
-                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex flex-col items-center justify-center p-6 pb-8 text-center text-white font-medium text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
-                                            {c.front}
-                                            <div className="absolute bottom-3 right-3 text-xs text-gray-500 flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
-                                        </div>
-
-                                        {/* Back Face */}
-                                        <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col items-center justify-center p-6 pb-8 text-center text-gray-300 bg-[#0B0B1A] text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
-                                            {c.back}
+                                    <div
+                                        className="h-48 w-full [perspective:1000px] cursor-pointer"
+                                        onClick={() => {
+                                            setFlashcardFlipMap((prev) => ({ ...prev, [i]: !prev[i] }));
+                                        }}
+                                    >
+                                        <div className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] relative rounded-xl shadow-lg border border-[#2A2A40] bg-[#151525] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                                            <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] flex flex-col items-center justify-center p-6 pb-8 text-center text-white font-medium text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                                {c.front}
+                                                <div className="absolute bottom-3 right-3 text-xs text-gray-500 flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg> Klick zum Drehen</div>
+                                            </div>
+                                            <div className="absolute inset-0 h-full w-full rounded-xl [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col items-center justify-center p-6 pb-8 text-center text-gray-300 bg-[#0B0B1A] text-[15px] sm:text-base leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
+                                                {c.back}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -2879,6 +3041,75 @@ export default function FolderPage() {
                                 <div className="absolute inset-0 h-full w-full rounded-3xl [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[#0B0B1A] flex flex-col items-center justify-center p-12 text-center text-gray-300 text-2xl md:text-4xl leading-relaxed break-words whitespace-pre-wrap overflow-y-auto custom-scrollbar">
                                     {fullscreenCard.back}
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Edit Flashcard Modal */}
+                {isEditFlashcardOpen && selectedFile?.type === 'flashcards' && (
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-2xl shadow-2xl">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-white font-semibold">Karte bearbeiten</h3>
+                                <button
+                                    onClick={() => setIsEditFlashcardOpen(false)}
+                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-4">
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-2">Vorderseite</label>
+                                    <textarea
+                                        value={editFlashcardFront}
+                                        onChange={(e) => setEditFlashcardFront(e.target.value)}
+                                        rows={4}
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-2">Rückseite</label>
+                                    <textarea
+                                        value={editFlashcardBack}
+                                        onChange={(e) => setEditFlashcardBack(e.target.value)}
+                                        rows={6}
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button
+                                    onClick={() => setIsEditFlashcardOpen(false)}
+                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                                >
+                                    Abbrechen
+                                </button>
+                                <button
+                                    disabled={editFlashcardIndex === null || isSavingFlashcards}
+                                    onClick={async () => {
+                                        if (!selectedFile || editFlashcardIndex === null) return;
+                                        try {
+                                            setIsSavingFlashcards(true);
+                                            const cards = normalizeFlashcards(selectedFile.content);
+                                            cards[editFlashcardIndex] = {
+                                                front: editFlashcardFront.trim(),
+                                                back: editFlashcardBack.trim(),
+                                            };
+                                            await saveFlashcardsForFile(selectedFile, cards);
+                                            setIsEditFlashcardOpen(false);
+                                            showToast("Karte gespeichert.", "success");
+                                        } catch (error: any) {
+                                            showToast(error?.message || "Fehler beim Speichern der Karte.");
+                                        } finally {
+                                            setIsSavingFlashcards(false);
+                                        }
+                                    }}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                                >
+                                    {isSavingFlashcards ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Speichern"}
+                                </button>
                             </div>
                         </div>
                     </div>

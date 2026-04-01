@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, List, Optional
 import uvicorn
 import os
 from datetime import datetime
@@ -417,11 +417,28 @@ class FileUpdateRequest(BaseModel):
     username: str
     folder_id: str
     file_id: str
-    content: str
+    content: Any
+
+
+def _is_valid_flashcards_payload(content: Any) -> bool:
+    if not isinstance(content, list):
+        return False
+    for row in content:
+        if not isinstance(row, dict):
+            return False
+        if "front" not in row or "back" not in row:
+            return False
+        if row.get("front") is None or row.get("back") is None:
+            return False
+        if not isinstance(row.get("front"), str) or not isinstance(row.get("back"), str):
+            return False
+    return True
 
 @app.put("/api/files/update")
 def update_file(request: FileUpdateRequest):
     """Updates the content of an existing file."""
+    if isinstance(request.content, list) and not _is_valid_flashcards_payload(request.content):
+        raise HTTPException(status_code=400, detail="Ungültiges Flashcard-Format: erwartet Liste mit {front, back}.")
     if DataManager.update_file_content(request.username, request.folder_id, request.file_id, request.content):
         return {"status": "success", "message": "Datei gespeichert"}
     raise HTTPException(status_code=500, detail="Fehler beim Speichern der Datei")
@@ -822,13 +839,14 @@ def download_audio(username: str, folder_id: str, filename: str):
     return FileResponse(path, media_type="audio/mpeg", filename=filename)
 
 @app.get("/api/files/download_pdf")
-def download_pdf(username: str, folder_id: str, filename: str):
+def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Optional[str] = None):
     """Downloads or displays a PDF file."""
     from fastapi.responses import FileResponse
-    path = DataManager.get_pdf_path(filename, username, folder_id)
+    path = DataManager.get_pdf_path(filename, username, folder_id, file_id=file_id)
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden")
-    return FileResponse(path, media_type="application/pdf", filename=filename)
+    download_name = filename or os.path.basename(path) or "dokument.pdf"
+    return FileResponse(path, media_type="application/pdf", filename=download_name)
 
 @app.delete("/api/files/{file_id}")
 def delete_file(file_id: str, username: str, folder_id: str):
@@ -841,12 +859,14 @@ class UpdateFileRequest(BaseModel):
     username: str
     folder_id: str
     file_id: str
-    content: str
+    content: Any
     
 @app.put("/api/files/update")
 def update_file(request: UpdateFileRequest):
     """Updates the content of an existing file/material."""
     try:
+        if isinstance(request.content, list) and not _is_valid_flashcards_payload(request.content):
+            raise HTTPException(status_code=400, detail="Ungültiges Flashcard-Format: erwartet Liste mit {front, back}.")
         # We need a method in DataManager to update content
         if DataManager.update_file_content(request.username, request.folder_id, request.file_id, request.content):
             return {"status": "success", "message": "Gespeichert"}

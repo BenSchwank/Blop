@@ -330,17 +330,42 @@ class DataManager:
         return [r['name'] for r in res.data]
 
     @staticmethod
-    def get_pdf_path(filename, username, folder_id):
+    def get_pdf_path(filename, username, folder_id, file_id=None):
         db = DataManager._init_supabase()
         if not db: return None
-        
-        path = f"{username}/{folder_id}/{filename}"
+
+        path = None
+        if file_id:
+            try:
+                meta = (
+                    db.table('files')
+                    .select('file_url,name')
+                    .eq('id', file_id)
+                    .eq('folder_id', str(folder_id))
+                    .eq('username', username)
+                    .eq('type', 'pdf')
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data and len(meta.data) > 0:
+                    path = meta.data[0].get('file_url')
+                    if not filename:
+                        filename = meta.data[0].get('name') or "dokument.pdf"
+            except Exception:
+                path = None
+
+        if not path and filename:
+            path = f"{username}/{folder_id}/{filename}"
+        if not path:
+            return None
+
         try:
             res = db.storage.from_("blop_documents").download(path)
             
             tmp_dir = os.path.join(DATA_DIR, "temp")
             if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
-            tmp_path = os.path.join(tmp_dir, filename)
+            safe_filename = os.path.basename(filename or "dokument.pdf")
+            tmp_path = os.path.join(tmp_dir, safe_filename)
             
             with open(tmp_path, "wb") as f:
                 f.write(res)
