@@ -407,7 +407,16 @@ class DataManager:
 
         try:
             payload = db.storage.from_("blop_documents").download(path)
-            return payload, (resolved_name or os.path.basename(path) or "dokument.pdf")
+            # Supabase SDK versions may return raw bytes or a response-like object.
+            if hasattr(payload, "content"):
+                payload = payload.content
+            if hasattr(payload, "read"):
+                payload = payload.read()
+            if isinstance(payload, bytearray):
+                payload = bytes(payload)
+            if not isinstance(payload, (bytes, memoryview)):
+                return None, None
+            return bytes(payload), (resolved_name or os.path.basename(path) or "dokument.pdf")
         except Exception:
             return None, None
 

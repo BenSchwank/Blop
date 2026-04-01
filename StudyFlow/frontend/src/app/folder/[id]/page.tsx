@@ -354,6 +354,67 @@ export default function FolderPage() {
         }, 12000);
     }, []);
 
+    const upsertGeneratedFile = (file: FileData) => {
+        setFiles((prev) => {
+            const next = [...prev];
+            const byId = next.findIndex((f) => f.id === file.id);
+            if (byId >= 0) {
+                next[byId] = file;
+                return next;
+            }
+            if (file.type === 'quiz' || file.type === 'flashcards') {
+                const byType = next.findIndex((f) => f.type === file.type);
+                if (byType >= 0) {
+                    next[byType] = file;
+                    return next;
+                }
+            }
+            return [file, ...next];
+        });
+    };
+
+    const publishGlobalQueueSnapshot = (
+        activeJobs: { id: string; label: string; folderId: string; startedAt: number }[],
+        recentJobs: { id: string; label: string; folderId: string; ok: boolean; finishedAt: number }[]
+    ) => {
+        if (typeof window === 'undefined') return;
+        const snapshot = {
+            updatedAt: Date.now(),
+            active: activeJobs,
+            recent: recentJobs.slice(0, 15),
+        };
+        localStorage.setItem('blop_global_queue', JSON.stringify(snapshot));
+        window.dispatchEvent(new Event('blop_global_queue_updated'));
+    };
+
+    const queueStart = (jobKey: string) => {
+        if (typeof window === 'undefined') return;
+        const id = `${folderId}:${jobKey}`;
+        let snapshot: any = { active: [], recent: [] };
+        try {
+            snapshot = JSON.parse(localStorage.getItem('blop_global_queue') || '{"active":[],"recent":[]}');
+        } catch {
+            snapshot = { active: [], recent: [] };
+        }
+        const active = (snapshot.active || []).filter((j: any) => j.id !== id);
+        active.push({ id, label: AI_JOB_LABELS[jobKey] || jobKey, folderId, startedAt: Date.now() });
+        publishGlobalQueueSnapshot(active, snapshot.recent || []);
+    };
+
+    const queueFinish = (jobKey: string, ok: boolean) => {
+        if (typeof window === 'undefined') return;
+        const id = `${folderId}:${jobKey}`;
+        let snapshot: any = { active: [], recent: [] };
+        try {
+            snapshot = JSON.parse(localStorage.getItem('blop_global_queue') || '{"active":[],"recent":[]}');
+        } catch {
+            snapshot = { active: [], recent: [] };
+        }
+        const active = (snapshot.active || []).filter((j: any) => j.id !== id);
+        const recent = [{ id: `${id}:${Date.now()}`, label: AI_JOB_LABELS[jobKey] || jobKey, folderId, ok, finishedAt: Date.now() }, ...(snapshot.recent || [])];
+        publishGlobalQueueSnapshot(active, recent);
+    };
+
     const prevGeneratingCountRef = useRef(0);
     useEffect(() => {
         if (isGenerating.length > prevGeneratingCountRef.current) {
@@ -431,6 +492,12 @@ export default function FolderPage() {
     // Repetition (Wiederholung) Config Modal State
     const [isRepetitionConfigOpen, setIsRepetitionConfigOpen] = useState(false);
     const [repetitionRules, setRepetitionRules] = useState('');
+    const [isQuizConfigOpen, setIsQuizConfigOpen] = useState(false);
+    const [quizQuestionCount, setQuizQuestionCount] = useState(10);
+    const [quizDifficulty, setQuizDifficulty] = useState<'gemischt' | 'leicht' | 'mittel' | 'schwer'>('gemischt');
+    const [isFlashcardsConfigOpen, setIsFlashcardsConfigOpen] = useState(false);
+    const [flashcardsCount, setFlashcardsCount] = useState(20);
+    const [flashcardsMaxText, setFlashcardsMaxText] = useState(320);
 
     // Learning Mode (shared across plan/summary/repetition modals)
     const [learningMode, setLearningMode] = useState<'normal' | 'exercise'>('normal');
@@ -851,6 +918,7 @@ export default function FolderPage() {
     // Helper for AI Actions — jobs of different types may run in parallel
     const handleAIAction = async (endpoint: string, stateSetter: React.Dispatch<React.SetStateAction<string[]>>) => {
         stateSetter((prev) => (prev.includes(endpoint) ? prev : [...prev, endpoint]));
+        queueStart(endpoint);
         let ok = false;
         try {
             const username = localStorage.getItem("username");
@@ -869,9 +937,13 @@ export default function FolderPage() {
                 if (endpoint === 'plan' && data.plan) {
                     setSelectedFile({ id: 'plan_main', name: 'Aktueller Lernplan', type: 'plan', created_at: new Date().toISOString().split('T')[0], content: data.plan });
                 } else if (endpoint === 'quiz' && data.quiz) {
-                    setSelectedFile({ id: 'quiz_main', name: 'Quiz', type: 'quiz', created_at: new Date().toISOString().split('T')[0], content: data.quiz });
+                    const generated = { id: `quiz_main_${folderId}`, name: 'AI Quiz', type: 'quiz', created_at: new Date().toISOString().split('T')[0], content: data.quiz };
+                    setSelectedFile(generated);
+                    upsertGeneratedFile(generated);
                 } else if (endpoint === 'flashcards' && data.flashcards) {
-                    setSelectedFile({ id: 'cards_main', name: 'Karteikarten', type: 'flashcards', created_at: new Date().toISOString().split('T')[0], content: data.flashcards });
+                    const generated = { id: `cards_main_${folderId}`, name: 'Generierte Karteikarten', type: 'flashcards', created_at: new Date().toISOString().split('T')[0], content: data.flashcards };
+                    setSelectedFile(generated);
+                    upsertGeneratedFile(generated);
                 } else if (endpoint === 'summary' && data.summary) {
                     setSelectedFile({ id: 'summary_main', name: 'Zusammenfassung', type: 'summary', created_at: new Date().toISOString().split('T')[0], content: data.summary });
                 }
@@ -904,12 +976,23 @@ export default function FolderPage() {
         } finally {
             stateSetter((prev) => prev.filter((t) => t !== endpoint));
             registerAiJobFinished(endpoint, ok);
+            queueFinish(endpoint, ok);
         }
     };
 
     const handleGenerate = async (type: 'plan' | 'quiz' | 'flashcards' | 'summary' | 'elaboration' | 'repetition') => {
         if (type === 'plan') {
             setIsPlanConfigOpen(true);
+            return;
+        }
+
+        if (type === 'quiz') {
+            setIsQuizConfigOpen(true);
+            return;
+        }
+
+        if (type === 'flashcards') {
+            setIsFlashcardsConfigOpen(true);
             return;
         }
 
@@ -931,9 +1014,116 @@ export default function FolderPage() {
         await handleAIAction(type, setIsGenerating);
     };
 
+    const handleQuizGenerate = async () => {
+        setIsQuizConfigOpen(false);
+        setIsGenerating((prev) => (prev.includes('quiz') ? prev : [...prev, 'quiz']));
+        queueStart('quiz');
+        let ok = false;
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/quiz`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    model_preference: effectiveModelPreference,
+                    quiz_question_count: quizQuestionCount,
+                    quiz_difficulty: quizDifficulty,
+                })
+            });
+
+            if (res.ok) {
+                ok = true;
+                const data = await res.json();
+                announceUsage(data);
+                const generated: FileData = {
+                    id: `quiz_main_${folderId}`,
+                    name: 'AI Quiz',
+                    type: 'quiz',
+                    created_at: new Date().toISOString().split('T')[0],
+                    content: data.quiz
+                };
+                upsertGeneratedFile(generated);
+                setSelectedFile(generated);
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                } catch {
+                    // ignore parse errors
+                }
+                showToast(`Quiz-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error(error);
+            showToast("Ein Fehler ist aufgetreten.");
+        } finally {
+            setIsGenerating((prev) => prev.filter((t) => t !== 'quiz'));
+            registerAiJobFinished('quiz', ok);
+            queueFinish('quiz', ok);
+        }
+    };
+
+    const handleFlashcardsGenerate = async () => {
+        setIsFlashcardsConfigOpen(false);
+        setIsGenerating((prev) => (prev.includes('flashcards') ? prev : [...prev, 'flashcards']));
+        queueStart('flashcards');
+        let ok = false;
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/flashcards`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    model_preference: effectiveModelPreference,
+                    flashcards_count: flashcardsCount,
+                    flashcards_max_text: flashcardsMaxText,
+                })
+            });
+
+            if (res.ok) {
+                ok = true;
+                const data = await res.json();
+                announceUsage(data);
+                const generated: FileData = {
+                    id: `cards_main_${folderId}`,
+                    name: 'Generierte Karteikarten',
+                    type: 'flashcards',
+                    created_at: new Date().toISOString().split('T')[0],
+                    content: data.flashcards
+                };
+                upsertGeneratedFile(generated);
+                setSelectedFile(generated);
+                fetchFiles();
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    errorMsg = typeof err.detail === 'object' ? JSON.stringify(err.detail) : (err.detail || errorMsg);
+                } catch {
+                    // ignore parse errors
+                }
+                showToast(`Karteikarten-Fehler: ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error(error);
+            showToast("Ein Fehler ist aufgetreten.");
+        } finally {
+            setIsGenerating((prev) => prev.filter((t) => t !== 'flashcards'));
+            registerAiJobFinished('flashcards', ok);
+            queueFinish('flashcards', ok);
+        }
+    };
+
     const handleSummaryGenerate = async () => {
         setIsSummaryConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('summary') ? prev : [...prev, 'summary']));
+        queueStart('summary');
         let ok = false;
         // Pass detailLevel to backend (Need to update ai/summary endpoint to accept this optionally, 
         // or just append it to a prompt. If backend doesn't accept it yet, we just generate standard for now.
@@ -983,12 +1173,14 @@ export default function FolderPage() {
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'summary'));
             registerAiJobFinished('summary', ok);
+            queueFinish('summary', ok);
         }
     };
 
     const handleElaborationGenerate = async () => {
         setIsElaborationConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('elaboration') ? prev : [...prev, 'elaboration']));
+        queueStart('elaboration');
         let ok = false;
         try {
             const username = localStorage.getItem("username");
@@ -1035,12 +1227,14 @@ export default function FolderPage() {
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'elaboration'));
             registerAiJobFinished('elaboration', ok);
+            queueFinish('elaboration', ok);
         }
     };
 
     const handleRepetitionGenerate = async () => {
         setIsRepetitionConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('repetition') ? prev : [...prev, 'repetition']));
+        queueStart('repetition');
         let ok = false;
         try {
             const username = localStorage.getItem("username");
@@ -1087,12 +1281,14 @@ export default function FolderPage() {
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'repetition'));
             registerAiJobFinished('repetition', ok);
+            queueFinish('repetition', ok);
         }
     };
 
     const handlePlanGenerate = async () => {
         setIsPlanConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('plan') ? prev : [...prev, 'plan']));
+        queueStart('plan');
         let ok = false;
         // Calculate duration from end date if selected
         let days = planDays;
@@ -1150,6 +1346,7 @@ export default function FolderPage() {
         } finally {
             setIsGenerating((prev) => prev.filter((t) => t !== 'plan'));
             registerAiJobFinished('plan', ok);
+            queueFinish('plan', ok);
         }
     };
 
@@ -2381,6 +2578,163 @@ export default function FolderPage() {
 
                 {/* File Viewer Modal */}
                 {renderViewer()}
+
+                {/* Quiz Config Modal */}
+                {isQuizConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-400">
+                                        <HelpCircle size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Quiz erstellen</h3>
+                                        <p className="text-xs text-gray-400">Stelle Anzahl und Schwierigkeit ein</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsQuizConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-5">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Fragenanzahl
+                                        <span className="ml-2 text-yellow-400 font-bold">{quizQuestionCount}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={3}
+                                        max={30}
+                                        step={1}
+                                        value={quizQuestionCount}
+                                        onChange={(e) => setQuizQuestionCount(Number(e.target.value))}
+                                        className="w-full accent-yellow-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Schwierigkeit</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {['gemischt', 'leicht', 'mittel', 'schwer'].map((level) => (
+                                            <button
+                                                key={level}
+                                                onClick={() => setQuizDifficulty(level as 'gemischt' | 'leicht' | 'mittel' | 'schwer')}
+                                                className={`py-2 px-3 rounded-lg text-sm border transition-colors ${quizDifficulty === level ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' : 'bg-[#151525] text-gray-300 border-[#2A2A40] hover:border-[#3B3B55]'}`}
+                                            >
+                                                {level[0].toUpperCase() + level.slice(1)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="pt-4 border-t border-[#2A2A40]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                    <select
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
+                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                        <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsQuizConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button onClick={handleQuizGenerate} className="flex-1 py-2.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                                    <HelpCircle size={16} />
+                                    Generieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Flashcards Config Modal */}
+                {isFlashcardsConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-green-500/10 text-green-400">
+                                        <Layers size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Karteikarten erstellen</h3>
+                                        <p className="text-xs text-gray-400">Passe Menge und Antwortlänge an</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsFlashcardsConfigOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-5">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Anzahl Karten
+                                        <span className="ml-2 text-green-400 font-bold">{flashcardsCount}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={5}
+                                        max={60}
+                                        step={1}
+                                        value={flashcardsCount}
+                                        onChange={(e) => setFlashcardsCount(Number(e.target.value))}
+                                        className="w-full accent-green-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Max. Zeichen pro Rückseite
+                                        <span className="ml-2 text-green-400 font-bold">{flashcardsMaxText}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={120}
+                                        max={1200}
+                                        step={20}
+                                        value={flashcardsMaxText}
+                                        onChange={(e) => setFlashcardsMaxText(Number(e.target.value))}
+                                        className="w-full accent-green-500"
+                                    />
+                                </div>
+                                <div className="pt-4 border-t border-[#2A2A40]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (Optional)</label>
+                                    <select
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
+                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                        <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsFlashcardsConfigOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors">
+                                    Abbrechen
+                                </button>
+                                <button onClick={handleFlashcardsGenerate} className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                                    <Layers size={16} />
+                                    Generieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Plan Config Modal */}
                 {isPlanConfigOpen && (

@@ -317,12 +317,18 @@ Erstelle jetzt die vollständige, detaillierte Zusammenfassung basierend auf dem
             raise Exception(f"Fehler bei der Zusammenfassung: {str(e)}")
 
     @staticmethod
-    def generate_quiz(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
+    def generate_quiz(
+        content: List[Any],
+        model_preference: str = None,
+        question_count: int = 10,
+        difficulty: str = "gemischt",
+        return_meta: bool = False
+    ) -> Any:
         """Generates a comprehensive quiz from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
-            prompt = """
-Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit 10 Fragen basierend auf dem Lernmaterial.
+            prompt = f"""
+Du bist ein erfahrener Lehrer. Erstelle ein anspruchsvolles Quiz mit {question_count} Fragen basierend auf dem Lernmaterial.
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in den Fragen und Antworten. 
@@ -334,12 +340,12 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke in d
 
 Anforderungen:
 - Decke ALLE wichtigen Themen des Materials ab
-- Mische verschiedene Schwierigkeitsgrade (leicht, mittel, schwer)
+- Schwierigkeitsprofil: {difficulty}
 - Die Antwortoptionen sollen plausibel aber unterschiedlich sein
 - Achte auf klare, eindeutige Fragestellungen
 - Formuliere auf Deutsch
 
-Ausgabe-Format: JSON Array mit genau 10 Objekten:
+Ausgabe-Format: JSON Array mit genau {question_count} Objekten:
 [
     {
         "question": "Präzise Frage auf Deutsch?",
@@ -350,7 +356,7 @@ Ausgabe-Format: JSON Array mit genau 10 Objekten:
 ]
 
 Erstelle das Quiz für das folgende Material:
-"""
+            """
 
             input_parts = [prompt]
             if isinstance(content, list):
@@ -374,12 +380,18 @@ Erstelle das Quiz für das folgende Material:
             raise Exception(f"Fehler beim Quiz-Generieren: {str(e)}")
 
     @staticmethod
-    def generate_flashcards(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
+    def generate_flashcards(
+        content: List[Any],
+        model_preference: str = None,
+        cards_count: int = 20,
+        max_text_per_card: int = 320,
+        return_meta: bool = False
+    ) -> Any:
         """Generates comprehensive flashcards from multimodal content."""
         try:
             model = genai.GenerativeModel(get_best_model(model_preference), generation_config={"response_mime_type": "application/json"})
-            prompt = """
-Du bist ein erfahrener Tutor. Erstelle 20 hochwertige Karteikarten aus dem Lernmaterial.
+            prompt = f"""
+Du bist ein erfahrener Tutor. Erstelle {cards_count} hochwertige Karteikarten aus dem Lernmaterial.
 
 WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:
 Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. 
@@ -392,11 +404,11 @@ Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke.
 Anforderungen:
 - Decke ALLE wichtigen Konzepte, Begriffe und Fakten ab
 - Vorderseite: präzise Frage oder Begriff
-- Rückseite: ausführliche, vollständige Antwort/Erklärung
+- Rückseite: ausführliche, vollständige Antwort/Erklärung (maximal ca. {max_text_per_card} Zeichen)
 - Variiere zwischen Definitionsfragen, Erklärungsfragen und Anwendungsfragen
 - Deutsch
 
-Format: JSON Array mit genau 20 Objekten:
+Format: JSON Array mit genau {cards_count} Objekten:
 [
     {
         "front": "Präzise Frage oder Begriff?",

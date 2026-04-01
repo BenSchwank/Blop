@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import CommandMenu from "@/components/CommandMenu";
+import GlobalQueueStatus from "@/components/GlobalQueueStatus";
 import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
 
 export default function ClientLayout({
@@ -57,6 +58,8 @@ export default function ClientLayout({
             >
                 {children}
             </main>
+
+            <GlobalQueueStatus />
 
             <MobileNav />
         </div>

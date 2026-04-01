@@ -842,18 +842,23 @@ def download_audio(username: str, folder_id: str, filename: str):
 def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Optional[str] = None):
     """Downloads or displays a PDF file."""
     from fastapi.responses import Response
-    pdf_bytes, download_name = DataManager.get_pdf_bytes(filename, username, folder_id, file_id=file_id)
-    if not pdf_bytes:
-        raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden")
-    safe_name = (download_name or "dokument.pdf").replace('"', '')
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'inline; filename="{safe_name}"',
-            "Cache-Control": "no-store",
-        },
-    )
+    try:
+        pdf_bytes, download_name = DataManager.get_pdf_bytes(filename, username, folder_id, file_id=file_id)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden oder Storage-Pfad ungültig")
+        safe_name = (download_name or "dokument.pdf").replace('"', '')
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{safe_name}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF-Download fehlgeschlagen: {str(e)}")
 
 @app.delete("/api/files/{file_id}")
 def delete_file(file_id: str, username: str, folder_id: str):
@@ -912,6 +917,10 @@ class GenRequest(BaseModel):
     username: str
     folder_id: str
     model_preference: str = None
+    quiz_question_count: Optional[int] = None
+    quiz_difficulty: Optional[str] = None
+    flashcards_count: Optional[int] = None
+    flashcards_max_text: Optional[int] = None
 
 class SummaryRequest(BaseModel):
     username: str
@@ -1102,7 +1111,17 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        quiz_result = AIService.generate_quiz(context, model_preference=model_pref, return_meta=True)
+        quiz_count = max(3, min(30, int(request.quiz_question_count or 10)))
+        quiz_difficulty = (request.quiz_difficulty or "gemischt").strip().lower()
+        if quiz_difficulty not in {"leicht", "mittel", "schwer", "gemischt"}:
+            quiz_difficulty = "gemischt"
+        quiz_result = AIService.generate_quiz(
+            context,
+            model_preference=model_pref,
+            question_count=quiz_count,
+            difficulty=quiz_difficulty,
+            return_meta=True,
+        )
         quiz = quiz_result["data"]
         file_id = f"quiz_main_{request.folder_id}"
         DataManager.save_file_metadata({
@@ -1138,7 +1157,15 @@ def create_flashcards(request: GenRequest):
         context, debug_log = _get_folder_context(request.username, request.folder_id)
         if not context:
             raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        cards_result = AIService.generate_flashcards(context, model_preference=model_pref, return_meta=True)
+        cards_count = max(5, min(60, int(request.flashcards_count or 20)))
+        max_text = max(120, min(1200, int(request.flashcards_max_text or 320)))
+        cards_result = AIService.generate_flashcards(
+            context,
+            model_preference=model_pref,
+            cards_count=cards_count,
+            max_text_per_card=max_text,
+            return_meta=True,
+        )
         cards = cards_result["data"]
         DataManager.save_file_metadata({
             "id": f"cards_main_{request.folder_id}",
