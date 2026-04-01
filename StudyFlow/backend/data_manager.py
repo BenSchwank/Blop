@@ -374,6 +374,44 @@ class DataManager:
             return None
 
     @staticmethod
+    def get_pdf_bytes(filename, username, folder_id, file_id=None):
+        db = DataManager._init_supabase()
+        if not db:
+            return None, None
+
+        path = None
+        resolved_name = filename or None
+        if file_id:
+            try:
+                meta = (
+                    db.table('files')
+                    .select('file_url,name')
+                    .eq('id', file_id)
+                    .eq('folder_id', str(folder_id))
+                    .eq('username', username)
+                    .eq('type', 'pdf')
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data and len(meta.data) > 0:
+                    path = meta.data[0].get('file_url')
+                    if not resolved_name:
+                        resolved_name = meta.data[0].get('name') or "dokument.pdf"
+            except Exception:
+                path = None
+
+        if not path and filename:
+            path = f"{username}/{folder_id}/{filename}"
+        if not path:
+            return None, None
+
+        try:
+            payload = db.storage.from_("blop_documents").download(path)
+            return payload, (resolved_name or os.path.basename(path) or "dokument.pdf")
+        except Exception:
+            return None, None
+
+    @staticmethod
     def save_audio(file_data, filename, username, folder_id):
         db = DataManager._init_supabase()
         if not db: raise Exception("Supabase DB nicht initialisiert")

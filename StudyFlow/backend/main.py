@@ -841,12 +841,19 @@ def download_audio(username: str, folder_id: str, filename: str):
 @app.get("/api/files/download_pdf")
 def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Optional[str] = None):
     """Downloads or displays a PDF file."""
-    from fastapi.responses import FileResponse
-    path = DataManager.get_pdf_path(filename, username, folder_id, file_id=file_id)
-    if not path or not os.path.exists(path):
+    from fastapi.responses import Response
+    pdf_bytes, download_name = DataManager.get_pdf_bytes(filename, username, folder_id, file_id=file_id)
+    if not pdf_bytes:
         raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden")
-    download_name = filename or os.path.basename(path) or "dokument.pdf"
-    return FileResponse(path, media_type="application/pdf", filename=download_name)
+    safe_name = (download_name or "dokument.pdf").replace('"', '')
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_name}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 @app.delete("/api/files/{file_id}")
 def delete_file(file_id: str, username: str, folder_id: str):
