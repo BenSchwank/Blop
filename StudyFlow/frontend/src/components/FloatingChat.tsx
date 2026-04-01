@@ -176,7 +176,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             dragMomentum={false}
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
-            className="no-print fixed bottom-6 right-6 z-[100] flex flex-col items-end"
+            className="no-print fixed bottom-12 right-6 z-[100] flex flex-col items-end"
             style={{ touchAction: 'none' }} // Prevents scrolling while dragging on touch devices
         >
             <AnimatePresence>
