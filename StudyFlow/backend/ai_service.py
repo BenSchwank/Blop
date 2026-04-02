@@ -725,6 +725,102 @@ Analysiere dazu folgendes Material aus dem Ordner des Studenten:
             raise Exception(f"Fehler bei der Aufgaben-Hilfe: {str(e)}")
 
     @staticmethod
+    def generate_podcast_script(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
+        """Plain German narration text for TTS (no markdown headings)."""
+        try:
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config={"temperature": 0.45, "max_output_tokens": 8192},
+            )
+            prompt = """
+Du bist Redakteur für einen Lern-Podcast auf Deutsch.
+Erstelle aus dem folgenden Material einen zusammenhängenden, gut verständlichen **reinen Vorlesetext** (ein Sprecher / Monolog) für die Sprachausgabe.
+
+Regeln:
+- Keine Sprecherlabels wie „Moderator:“ oder „Host:“.
+- Keine Markdown-Überschriften mit #; höchstens einfache Absätze.
+- Struktur: kurze Einleitung, dann thematische Abschnitte in Fließtext.
+- Länge: grob 800 bis 3500 Wörter — kürzer wenn das Material dünn ist, länger wenn sehr viel Stoff da ist.
+- Fokus: Kernkonzepte, Definitionen, Zusammenhänge; keine Meta-Kommentare („im Folgenden…“ sparsam).
+
+Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art „Hier ist der Podcast“.
+"""
+            input_parts = [prompt]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+            text = response.text.strip()
+            if not return_meta:
+                return text
+            return {
+                "text": text,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Podcast script error: {e}")
+            raise Exception(f"Podcast-Skript fehlgeschlagen: {str(e)}")
+
+    @staticmethod
+    def generate_learning_video_storyboard(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
+        """JSON storyboard with scenes for slideshow + narration."""
+        try:
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.4,
+                    "max_output_tokens": 8192,
+                },
+            )
+            schema_hint = """
+Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
+{
+  "title": "Kurztitel des Videos",
+  "scenes": [
+    {
+      "title": "Kurzer Szenentitel",
+      "body": "Stichpunkte oder sehr kurzer Text auf Deutsch (max 500 Zeichen), für Folien",
+      "narration": "Was gesprochen wird: 2-5 Sätze auf Deutsch, klar und didaktisch"
+    }
+  ]
+}
+Genau 4 bis 7 Szenen. Jede Szene muss inhaltlich einen Abschnitt des Materials abdecken.
+"""
+            input_parts = [schema_hint + "\n\nAnalysiere das Material und fülle das JSON sinnvoll."]
+            if isinstance(content, list):
+                input_parts.extend(content)
+            else:
+                input_parts.append(content)
+            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
+            raw = (response.text or "").strip()
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                start = raw.find("{")
+                end = raw.rfind("}") + 1
+                if start >= 0 and end > start:
+                    data = json.loads(raw[start:end])
+                else:
+                    raise Exception("Konnte JSON-Storyboard nicht parsen.")
+            if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
+                raise Exception("Ungültiges Storyboard-Format.")
+            if not return_meta:
+                return data
+            return {
+                "data": data,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Learning video storyboard error: {e}")
+            raise Exception(f"Lernvideo-Storyboard fehlgeschlagen: {str(e)}")
+
+    @staticmethod
     def transcribe_audio(audio_file_path: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Transcribes an audio file using Gemini's multimodal capabilities."""
         try:

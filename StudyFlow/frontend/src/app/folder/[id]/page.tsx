@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -96,7 +96,24 @@ const AI_JOB_LABELS: Record<string, string> = {
     summary: 'Zusammenfassung',
     elaboration: 'Ausarbeitung',
     repetition: 'Wiederholung',
+    podcast: 'Podcast',
+    'learning-video': 'Lernvideo',
 };
+
+/** File types that the backend includes in folder AI context (see _get_folder_context). */
+const AI_CONTEXT_FILE_TYPES = new Set([
+    'transcript',
+    'summary',
+    'repetition',
+    'plan',
+    'quiz',
+    'flashcards',
+    'pdf',
+]);
+
+function isAiContextSourceFile(f: Pick<FileData, 'type'>): boolean {
+    return AI_CONTEXT_FILE_TYPES.has(f.type);
+}
 
 function fileTypeSupportsPromptRefine(t: string): boolean {
     return ['summary', 'repetition', 'elaboration', 'plan', 'quiz', 'flashcards', 'transcript'].includes(t);
@@ -260,7 +277,9 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                         file.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                             file.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
                                 file.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                    'bg-[#1C1C33] text-[#5E5CE6]'
+                                    file.type === 'audio' ? 'bg-pink-500/10 text-pink-300' :
+                                        file.type === 'video' ? 'bg-cyan-500/10 text-cyan-300' :
+                                            'bg-[#1C1C33] text-[#5E5CE6]'
                     }`}>
                     {icon}
                 </div>
@@ -383,6 +402,9 @@ export default function FolderPage() {
 
     // AI Generation States (parallel: each job type may run once at a time; different types in parallel)
     const [isGenerating, setIsGenerating] = useState<string[]>([]);
+    /** null = all context-source files included */
+    const [aiContextIncludedIds, setAiContextIncludedIds] = useState<string[] | null>(null);
+    const [savingAiContext, setSavingAiContext] = useState(false);
     const [completedAiJobs, setCompletedAiJobs] = useState<{ id: string; jobKey: string; label: string; ok: boolean }[]>([]);
     const [aiJobsPanelExpanded, setAiJobsPanelExpanded] = useState(true);
     const [isEditingFile, setIsEditingFile] = useState(false);
@@ -638,6 +660,66 @@ export default function FolderPage() {
     const API_BASE = '/api';
     const effectiveModelPreference = aiModelPreference || globalPreferredModel || undefined;
 
+    const persistAiContext = async (next: string[] | null) => {
+        const username = localStorage.getItem("username");
+        if (!username) return;
+        setSavingAiContext(true);
+        try {
+            const res = await fetch(`${API_BASE}/folders/${folderId}/ai-context`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    included_file_ids: next === null || next.length === 0 ? null : next,
+                }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setAiContextIncludedIds(data.included_file_ids ?? null);
+            } else {
+                try {
+                    const err = await res.json();
+                    showToast(formatFastApiDetail(err.detail) || "Materialauswahl konnte nicht gespeichert werden.");
+                } catch {
+                    showToast("Materialauswahl konnte nicht gespeichert werden.");
+                }
+            }
+        } catch {
+            showToast("Netzwerkfehler beim Speichern der Materialauswahl.");
+        } finally {
+            setSavingAiContext(false);
+        }
+    };
+
+    const toggleAiContextFile = (fileId: string, wantChecked: boolean) => {
+        const contextFiles = files.filter(isAiContextSourceFile);
+        const allIds = contextFiles.map((f) => f.id);
+        if (allIds.length === 0) return;
+
+        if (aiContextIncludedIds === null) {
+            if (!wantChecked) {
+                void persistAiContext(allIds.filter((id) => id !== fileId));
+            }
+            return;
+        }
+        if (wantChecked) {
+            const nu = [...new Set([...aiContextIncludedIds, fileId])];
+            if (nu.length >= allIds.length) {
+                void persistAiContext(null);
+            } else {
+                void persistAiContext(nu);
+            }
+        } else {
+            const nu = aiContextIncludedIds.filter((id) => id !== fileId);
+            void persistAiContext(nu.length === 0 ? null : nu);
+        }
+    };
+
+    const isFileInAiContext = (id: string) => {
+        if (aiContextIncludedIds === null) return true;
+        return aiContextIncludedIds.includes(id);
+    };
+
     const announceUsage = (data: any) => {
         if (!data) return;
         if (typeof data.tokens_charged === 'number') {
@@ -700,6 +782,26 @@ export default function FolderPage() {
     useEffect(() => {
         void fetchFiles();
     }, [fetchFiles]);
+
+    const fetchAiContext = useCallback(async () => {
+        try {
+            const username = localStorage.getItem("username");
+            if (!username) return;
+            const res = await fetch(
+                `/api/folders/${folderId}/ai-context?username=${encodeURIComponent(username)}`
+            );
+            if (res.ok) {
+                const data = await res.json();
+                setAiContextIncludedIds(data.included_file_ids ?? null);
+            }
+        } catch {
+            // ignore
+        }
+    }, [folderId]);
+
+    useEffect(() => {
+        void fetchAiContext();
+    }, [fetchAiContext]);
 
     useEffect(() => {
         const username = localStorage.getItem("username");
@@ -1474,6 +1576,138 @@ export default function FolderPage() {
         }
     };
 
+    const handlePodcastGenerate = async () => {
+        setIsGenerating((prev) => (prev.includes('podcast') ? prev : [...prev, 'podcast']));
+        queueStart('podcast');
+        const jobId = `${folderId}:podcast`;
+        const ac = new AbortController();
+        registerAiJobAbort(jobId, ac);
+        let ok = false;
+        let lastError: string | undefined;
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/podcast`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    model_preference: effectiveModelPreference,
+                }),
+                signal: ac.signal,
+            });
+            if (res.ok) {
+                ok = true;
+                const data = await res.json();
+                announceUsage(data);
+                await fetchFiles();
+                const generated: FileData = {
+                    id: data.file_id,
+                    name: data.filename || "Podcast.mp3",
+                    type: "audio",
+                    created_at: new Date().toISOString().split("T")[0],
+                };
+                upsertGeneratedFile(generated);
+                setSelectedFile(generated);
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (res.status === 503 || (typeof err.detail === "string" && err.detail.includes("OPENAI"))) {
+                        lastError = formatFastApiDetail(err.detail) || errorMsg;
+                        showToast(err.detail || "OpenAI TTS nicht konfiguriert (OPENAI_API_KEY).");
+                        return;
+                    }
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch {
+                    lastError = errorMsg;
+                }
+                showToast(`Podcast: ${errorMsg}`);
+            }
+        } catch (error) {
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Podcast konnte nicht erstellt werden.");
+            }
+        } finally {
+            unregisterAiJobAbort(jobId, ac);
+            setIsGenerating((prev) => prev.filter((t) => t !== "podcast"));
+            registerAiJobFinished("podcast", ok);
+            queueFinish("podcast", ok, ok ? undefined : lastError);
+        }
+    };
+
+    const handleLearningVideoGenerate = async () => {
+        setIsGenerating((prev) => (prev.includes("learning-video") ? prev : [...prev, "learning-video"]));
+        queueStart("learning-video");
+        const jobId = `${folderId}:learning-video`;
+        const ac = new AbortController();
+        registerAiJobAbort(jobId, ac);
+        let ok = false;
+        let lastError: string | undefined;
+        try {
+            const username = localStorage.getItem("username");
+            const res = await fetch(`${API_BASE}/ai/learning-video`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    folder_id: folderId,
+                    model_preference: effectiveModelPreference,
+                }),
+                signal: ac.signal,
+            });
+            if (res.ok) {
+                ok = true;
+                const data = await res.json();
+                announceUsage(data);
+                await fetchFiles();
+                const generated: FileData = {
+                    id: data.file_id,
+                    name: data.title || data.filename || "Lernvideo.mp4",
+                    type: "video",
+                    created_at: new Date().toISOString().split("T")[0],
+                };
+                upsertGeneratedFile(generated);
+                setSelectedFile(generated);
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (res.status === 503 || (typeof err.detail === "string" && err.detail.includes("OPENAI"))) {
+                        lastError = formatFastApiDetail(err.detail) || errorMsg;
+                        showToast(err.detail || "OpenAI TTS nicht konfiguriert (OPENAI_API_KEY).");
+                        return;
+                    }
+                    errorMsg = formatFastApiDetail(err.detail) || errorMsg;
+                    lastError = errorMsg;
+                } catch {
+                    lastError = errorMsg;
+                }
+                showToast(`Lernvideo: ${errorMsg}`);
+            }
+        } catch (error) {
+            if (isAbortError(error)) {
+                lastError = "Abgebrochen";
+                showToast("Vorgang abgebrochen.", "info");
+            } else {
+                console.error(error);
+                lastError = error instanceof Error ? error.message : String(error);
+                showToast("Lernvideo konnte nicht erstellt werden.");
+            }
+        } finally {
+            unregisterAiJobAbort(jobId, ac);
+            setIsGenerating((prev) => prev.filter((t) => t !== "learning-video"));
+            registerAiJobFinished("learning-video", ok);
+            queueFinish("learning-video", ok, ok ? undefined : lastError);
+        }
+    };
+
     const handlePlanGenerate = async () => {
         setIsPlanConfigOpen(false);
         setIsGenerating((prev) => (prev.includes('plan') ? prev : [...prev, 'plan']));
@@ -1869,6 +2103,72 @@ export default function FolderPage() {
     // --- VIEWER COMPONENTS ---
     const renderViewer = () => {
         if (!selectedFile) return null;
+
+        if (selectedFile.type === 'audio') {
+            const username = typeof window !== "undefined" ? localStorage.getItem("username") || "" : "";
+            const audioUrl = `${API_BASE}/files/download_audio?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&filename=${encodeURIComponent(selectedFile.name)}`;
+            return (
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                                <X size={20} />
+                            </button>
+                            <div className="p-2 rounded-lg bg-pink-500/10 text-pink-300">
+                                <Mic size={20} />
+                            </div>
+                            <h3 className="text-lg font-semibold text-white truncate max-w-[min(80vw,28rem)]">{selectedFile.name}</h3>
+                        </div>
+                        <a
+                            href={audioUrl}
+                            download={selectedFile.name}
+                            className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold"
+                        >
+                            <Download size={14} />
+                            Download
+                        </a>
+                    </div>
+                    <div className="flex-1 flex items-center justify-center p-8">
+                        <audio controls className="w-full max-w-xl" src={audioUrl}>
+                            <track kind="captions" />
+                        </audio>
+                    </div>
+                </div>
+            );
+        }
+
+        if (selectedFile.type === 'video') {
+            const username = typeof window !== "undefined" ? localStorage.getItem("username") || "" : "";
+            const videoUrl = `${API_BASE}/files/download_video?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id)}`;
+            return (
+                <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setSelectedFile(null)} className="p-2 text-gray-400 hover:text-white hover:bg-[#1C1C33] rounded-xl transition-colors">
+                                <X size={20} />
+                            </button>
+                            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-300">
+                                <Video size={20} />
+                            </div>
+                            <h3 className="text-lg font-semibold text-white truncate max-w-[min(80vw,28rem)]">{selectedFile.name}</h3>
+                        </div>
+                        <a
+                            href={videoUrl}
+                            download={selectedFile.name.endsWith(".mp4") ? selectedFile.name : `${selectedFile.name}.mp4`}
+                            className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold"
+                        >
+                            <Download size={14} />
+                            Download
+                        </a>
+                    </div>
+                    <div className="flex-1 flex items-center justify-center p-4 bg-black">
+                        <video controls className="w-full max-w-4xl max-h-[min(80vh,720px)] rounded-xl border border-[#2A2A40]" src={videoUrl}>
+                            <track kind="captions" />
+                        </video>
+                    </div>
+                </div>
+            );
+        }
 
         if (selectedFile.type === 'summary' || selectedFile.type === 'repetition' || selectedFile.type === 'elaboration' || selectedFile.type === 'transcript') {
             const contentStr = typeof selectedFile.content === 'string' ? selectedFile.content : JSON.stringify(selectedFile.content || '');
@@ -2461,6 +2761,8 @@ export default function FolderPage() {
             case 'quiz': return <HelpCircle size={20} />;
             case 'flashcards': return <Layers size={20} />;
             case 'summary': return <FileOutput size={20} />;
+            case 'audio': return <Mic size={20} />;
+            case 'video': return <Video size={20} />;
             default: return <FileText size={20} />;
         }
     };
@@ -2513,6 +2815,12 @@ export default function FolderPage() {
                             </button>
                             <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
                                 {isGenerating.includes('repetition') ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
+                            </button>
+                            <button type="button" onClick={() => void handlePodcastGenerate()} disabled={isGenerating.includes('podcast')} className="p-2.5 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50" title="Podcast aus Material (TTS)">
+                                {isGenerating.includes('podcast') ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}
+                            </button>
+                            <button type="button" onClick={() => void handleLearningVideoGenerate()} disabled={isGenerating.includes('learning-video')} className="p-2.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernvideo (Slideshow + KI)">
+                                {isGenerating.includes('learning-video') ? <Loader2 size={20} className="animate-spin" /> : <Video size={20} />}
                             </button>
                         </div>
 
@@ -2569,6 +2877,44 @@ export default function FolderPage() {
                                     >
                                         Erneut laden
                                     </button>
+                                </div>
+                            )}
+                            {!loading && files.some(isAiContextSourceFile) && (
+                                <div className="rounded-2xl border border-[#2A2A40] bg-[#12121f] p-4 space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-white">Material für KI</h3>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                Nur angehakte Dateien fließen in Quiz, Plan, Podcast, Lernvideo &amp; Co. ein. Standard: alle.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {savingAiContext && <Loader2 size={16} className="animate-spin text-gray-400" />}
+                                            <button
+                                                type="button"
+                                                onClick={() => void persistAiContext(null)}
+                                                className="text-xs px-3 py-1.5 rounded-lg bg-[#1C1C33] border border-[#2A2A40] text-gray-300 hover:text-white"
+                                            >
+                                                Alle nutzen
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                        {files.filter(isAiContextSourceFile).map((f) => (
+                                            <li key={f.id} className="flex items-start gap-3 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    className="mt-1 rounded border-[#2A2A40] bg-[#0B0B1A]"
+                                                    checked={isFileInAiContext(f.id)}
+                                                    onChange={(e) => toggleAiContextFile(f.id, e.target.checked)}
+                                                />
+                                                <span className="text-gray-300 truncate flex-1" title={f.name}>
+                                                    {f.name}
+                                                </span>
+                                                <span className="text-[10px] uppercase text-gray-600 shrink-0">{f.type}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
                                 </div>
                             )}
                             {/* Subfolders section */}
@@ -2650,7 +2996,9 @@ export default function FolderPage() {
                                             activeDragFile.type === 'flashcards' ? 'bg-green-500/10 text-green-400' :
                                                 activeDragFile.type === 'summary' ? 'bg-blue-500/10 text-blue-400' :
                                                     activeDragFile.type === 'transcript' ? 'bg-red-500/10 text-red-500' :
-                                                        'bg-[#1C1C33] text-[#5E5CE6]'
+                                                        activeDragFile.type === 'audio' ? 'bg-pink-500/10 text-pink-300' :
+                                                            activeDragFile.type === 'video' ? 'bg-cyan-500/10 text-cyan-300' :
+                                                                'bg-[#1C1C33] text-[#5E5CE6]'
                                         }`}>
                                         {getFileIcon(activeDragFile.type)}
                                     </div>

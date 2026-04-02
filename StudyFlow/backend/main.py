@@ -7,6 +7,8 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
+import shutil
+import tempfile
 
 try:
     from dotenv import load_dotenv
@@ -378,6 +380,36 @@ def move_folder(folder_id: str, body: MoveFolderRequest):
         return {"status": "success", "message": "Ordner verschoben"}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
+
+class FolderAiContextRequest(BaseModel):
+    username: str
+    included_file_ids: Optional[List[str]] = None
+
+
+@app.get("/api/folders/{folder_id}/ai-context")
+def get_folder_ai_context(folder_id: str, username: str):
+    """Returns which file IDs are included for AI; null means all files."""
+    ids = DataManager.get_ai_context_file_ids(username, folder_id)
+    return {"included_file_ids": ids}
+
+
+@app.put("/api/folders/{folder_id}/ai-context")
+def put_folder_ai_context(folder_id: str, body: FolderAiContextRequest):
+    """Sets included file IDs for AI context; null, omitted, or [] clears to 'all materials'."""
+    all_files = DataManager.list_files(body.username, folder_id)
+    valid_ids = {f.get("id") for f in all_files if f.get("id")}
+    if body.included_file_ids is None or len(body.included_file_ids) == 0:
+        if not DataManager.set_ai_context_file_ids(body.username, folder_id, None):
+            raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
+        return {"status": "success", "included_file_ids": None}
+    for fid in body.included_file_ids:
+        if fid not in valid_ids:
+            raise HTTPException(status_code=400, detail=f"Unbekannte Datei-ID: {fid}")
+    if not DataManager.set_ai_context_file_ids(body.username, folder_id, body.included_file_ids):
+        raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
+    return {"status": "success", "included_file_ids": body.included_file_ids}
+
+
 @app.post("/api/folders")
 def create_folder(folder: FolderCreate):
     """Creates a new folder."""
@@ -572,6 +604,8 @@ FEATURE_MULTIPLIER = {
     "chat": 0.6,
     "document_chat": 0.8,
     "audio_transcribe": 1.0,
+    "podcast": 1.2,
+    "learning_video": 1.4,
 }
 
 def ensure_minimum_tokens(username: str, reserve: int = 1):
@@ -839,6 +873,35 @@ def download_audio(username: str, folder_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
     return FileResponse(path, media_type="audio/mpeg", filename=filename)
 
+
+@app.get("/api/files/download_video")
+def download_video(
+    username: str,
+    folder_id: str,
+    filename: str = "",
+    file_id: Optional[str] = None,
+):
+    """Streams an MP4 learning video from storage."""
+    from fastapi.responses import Response
+    try:
+        video_bytes, download_name = DataManager.get_video_bytes(filename, username, folder_id, file_id=file_id)
+        if not video_bytes:
+            raise HTTPException(status_code=404, detail="Video nicht gefunden")
+        safe_name = (download_name or "video.mp4").replace('"', "")
+        return Response(
+            content=video_bytes,
+            media_type="video/mp4",
+            headers={
+                "Content-Disposition": f'inline; filename="{safe_name}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video-Download fehlgeschlagen: {str(e)}")
+
+
 @app.get("/api/files/download_pdf")
 def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Optional[str] = None):
     """Downloads or displays a PDF file."""
@@ -976,8 +1039,21 @@ class DocumentChatPatchRequest(BaseModel):
     history: List[ChatMessage]
     model_preference: Optional[str] = None
 
+
+class PodcastRequest(BaseModel):
+    username: str
+    folder_id: str
+    model_preference: Optional[str] = None
+
+
+class LearningVideoRequest(BaseModel):
+    username: str
+    folder_id: str
+    model_preference: Optional[str] = None
+
+
 @app.post("/api/ai/plan")
-def create_study_plan(request: PlanRequest):
+def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
     """Generates a study plan from folder contents."""
     from ai_service import AIService
     
@@ -1029,9 +1105,10 @@ def create_study_plan(request: PlanRequest):
         raise HTTPException(status_code=500, detail=f"Lernplan-Fehler: {str(e)}")
 
 
-def _get_folder_context(username: str, folder_id: str):
+def _get_folder_context(username: str, folder_id: str, included_file_ids: Optional[List[str]] = None):
     """
     Aggregates material from the folder.
+    If included_file_ids is None, loads saved folder filter from DB; empty/null filter uses all files.
     Returns (content_parts, debug_log)
     """
     # Ensure GenAI is configured (redundant but safe for helper usage)
@@ -1044,6 +1121,16 @@ def _get_folder_context(username: str, folder_id: str):
     except Exception as e:
         debug_log.append(f"ListFiles Error: {str(e)}")
         return [], debug_log
+
+    ids_filter = included_file_ids
+    if ids_filter is None:
+        ids_filter = DataManager.get_ai_context_file_ids(username, folder_id)
+    if ids_filter is not None and len(ids_filter) > 0:
+        idset = set(ids_filter)
+        files = [f for f in files if f.get("id") in idset]
+        debug_log.append(f"Filtered to {len(files)} files by ai_context_file_ids")
+    else:
+        debug_log.append("Using all files (no ai_context filter)")
         
     content_parts = []
     has_content = False
@@ -1616,6 +1703,141 @@ def document_chat_patch(request: DocumentChatPatchRequest):
     except Exception as e:
         print(f"Document chat error: {e}")
         raise HTTPException(status_code=500, detail=f"Dokument-Chat-Fehler: {str(e)}")
+
+
+@app.post("/api/ai/podcast")
+def create_podcast(request: PodcastRequest, background_tasks: BackgroundTasks):
+    from ai_service import AIService
+    from media_pipeline import openai_tts_speech_mp3
+
+    try:
+        ensure_minimum_tokens(request.username, 2)
+        _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
+            )
+        script_result = AIService.generate_podcast_script(
+            context, model_preference=model_pref, return_meta=True
+        )
+        text = script_result["text"]
+        mp3_bytes = openai_tts_speech_mp3(text)
+        fname = f"podcast_{int(datetime.now().timestamp())}.mp3"
+        file_id = DataManager.save_audio(mp3_bytes, fname, request.username, request.folder_id)
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "podcast",
+            script_result.get("used_model", model_pref or ""),
+            script_result.get("usage"),
+        )
+        background_tasks.add_task(
+            try_notify_document_ready, request.username, request.folder_id, "Podcast"
+        )
+        return {
+            "status": "success",
+            "file_id": file_id,
+            "filename": fname,
+            "used_model": script_result.get("used_model", model_pref or ""),
+            "usage": script_result.get("usage", {}),
+            **charge,
+        }
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        print(f"Podcast error: {e}")
+        raise HTTPException(status_code=500, detail=f"Podcast-Fehler: {str(e)}")
+
+
+@app.post("/api/ai/learning-video")
+def create_learning_video(request: LearningVideoRequest, background_tasks: BackgroundTasks):
+    from ai_service import AIService
+    from media_pipeline import openai_tts_speech_mp3, render_scene_slides, ffmpeg_slideshow_with_audio
+
+    slide_root: Optional[str] = None
+    work_tmp: Optional[str] = None
+    try:
+        ensure_minimum_tokens(request.username, 3)
+        _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        context, debug_log = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
+            )
+        sb_result = AIService.generate_learning_video_storyboard(
+            context, model_preference=model_pref, return_meta=True
+        )
+        data = sb_result["data"]
+        scenes = data.get("scenes") or []
+        if not scenes:
+            raise HTTPException(status_code=500, detail="Storyboard ohne Szenen.")
+        full_narration = "\n\n".join(
+            str(s.get("narration") or "").strip()
+            for s in scenes
+            if str(s.get("narration") or "").strip()
+        )
+        if not full_narration.strip():
+            full_narration = str(data.get("title") or "Kurzes Lernvideo zu deinem Material.")
+        mp3_bytes = openai_tts_speech_mp3(full_narration)
+        slide_scenes = []
+        for s in scenes:
+            title = s.get("title") or ""
+            body = s.get("body") or ""
+            if isinstance(body, list):
+                body = "\n".join(str(x) for x in body)
+            slide_scenes.append({"title": str(title), "body": str(body)})
+        img_paths = render_scene_slides(slide_scenes)
+        if img_paths:
+            slide_root = os.path.dirname(img_paths[0])
+        work_tmp = tempfile.mkdtemp(prefix="blop_lv_")
+        audio_path = os.path.join(work_tmp, "narration.mp3")
+        with open(audio_path, "wb") as f:
+            f.write(mp3_bytes)
+        out_mp4 = os.path.join(work_tmp, "out.mp4")
+        ffmpeg_slideshow_with_audio(img_paths, audio_path, out_mp4)
+        with open(out_mp4, "rb") as f:
+            video_bytes = f.read()
+        vfname = f"learning_video_{int(datetime.now().timestamp())}.mp4"
+        vtitle = str(data.get("title") or "KI-Lernvideo")
+        file_id = DataManager.save_video(
+            video_bytes, vfname, request.username, request.folder_id, display_name=vtitle
+        )
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "learning_video",
+            sb_result.get("used_model", model_pref or ""),
+            sb_result.get("usage"),
+        )
+        background_tasks.add_task(
+            try_notify_document_ready, request.username, request.folder_id, "Lernvideo"
+        )
+        return {
+            "status": "success",
+            "file_id": file_id,
+            "filename": vfname,
+            "title": vtitle,
+            "used_model": sb_result.get("used_model", model_pref or ""),
+            "usage": sb_result.get("usage", {}),
+            **charge,
+        }
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        print(f"Learning video error: {e}")
+        raise HTTPException(status_code=500, detail=f"Lernvideo-Fehler: {str(e)}")
+    finally:
+        if slide_root:
+            shutil.rmtree(slide_root, ignore_errors=True)
+        if work_tmp:
+            shutil.rmtree(work_tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

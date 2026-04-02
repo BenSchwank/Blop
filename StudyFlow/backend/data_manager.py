@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime
 import uuid
 import tempfile
-from typing import Optional
+from typing import Optional, List
 
 # Supabase Imports
 try:
@@ -151,6 +151,60 @@ class DataManager:
         
         res = db.table('folders').update({"parent_id": new_parent_id}).eq('id', folder_id).eq('username', username).execute()
         return len(res.data) > 0
+
+    @staticmethod
+    def get_ai_context_file_ids(username: str, folder_id: str) -> Optional[List[str]]:
+        """Returns None or empty to mean 'all files'. Non-empty list restricts AI context to those file ids."""
+        db = DataManager._init_supabase()
+        if not db:
+            return None
+        try:
+            res = (
+                db.table("folders")
+                .select("ai_context_file_ids")
+                .eq("id", str(folder_id))
+                .eq("username", username)
+                .execute()
+            )
+            if not res.data:
+                return None
+            val = res.data[0].get("ai_context_file_ids")
+            if val is None:
+                return None
+            if isinstance(val, str):
+                try:
+                    val = json.loads(val)
+                except Exception:
+                    return None
+            if not isinstance(val, list):
+                return None
+            out = [str(x) for x in val if x is not None and str(x).strip()]
+            return out if len(out) > 0 else None
+        except Exception as e:
+            print(f"get_ai_context_file_ids: {e}")
+            return None
+
+    @staticmethod
+    def set_ai_context_file_ids(username: str, folder_id: str, file_ids: Optional[List[str]]) -> bool:
+        """Pass None or [] to clear filter (all materials)."""
+        db = DataManager._init_supabase()
+        if not db:
+            return False
+        payload = None
+        if file_ids is not None and len(file_ids) > 0:
+            payload = [str(x) for x in file_ids]
+        try:
+            res = (
+                db.table("folders")
+                .update({"ai_context_file_ids": payload})
+                .eq("id", str(folder_id))
+                .eq("username", username)
+                .execute()
+            )
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"set_ai_context_file_ids: {e}")
+            return False
 
     @staticmethod
     def save_file_metadata(file_data, username, folder_id):
@@ -428,7 +482,7 @@ class DataManager:
         path = f"{username}/{folder_id}/audio/{filename}"
         db.storage.from_("blop_documents").upload(path, file_data, {"upsert": "true", "content-type": "audio/mpeg"})
         
-        file_id = f"audio_{int(datetime.now().timestamp())}"
+        file_id = f"audio_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
         DataManager.save_file_metadata({
             "id": file_id,
             "name": filename,
@@ -436,7 +490,72 @@ class DataManager:
             "file_url": path
         }, username, folder_id)
         
-        return filename
+        return file_id
+
+    @staticmethod
+    def save_video(file_data: bytes, filename: str, username: str, folder_id: str, display_name: Optional[str] = None) -> str:
+        db = DataManager._init_supabase()
+        if not db:
+            raise Exception("Supabase DB nicht initialisiert")
+        path = f"{username}/{folder_id}/video/{filename}"
+        db.storage.from_("blop_documents").upload(
+            path, file_data, {"upsert": "true", "content-type": "video/mp4"}
+        )
+        file_id = f"video_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+        DataManager.save_file_metadata(
+            {
+                "id": file_id,
+                "name": display_name or filename,
+                "type": "video",
+                "file_url": path,
+            },
+            username,
+            folder_id,
+        )
+        return file_id
+
+    @staticmethod
+    def get_video_bytes(filename: str, username: str, folder_id: str, file_id: Optional[str] = None):
+        db = DataManager._init_supabase()
+        if not db:
+            return None, None
+        path = None
+        resolved_name = filename or None
+        if file_id:
+            try:
+                meta = (
+                    db.table("files")
+                    .select("file_url,name")
+                    .eq("id", file_id)
+                    .eq("folder_id", str(folder_id))
+                    .eq("username", username)
+                    .eq("type", "video")
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data and len(meta.data) > 0:
+                    path = meta.data[0].get("file_url")
+                    if not resolved_name:
+                        resolved_name = meta.data[0].get("name") or "video.mp4"
+            except Exception:
+                path = None
+        if not path and filename:
+            path = f"{username}/{folder_id}/video/{filename}"
+        if not path:
+            return None, None
+        try:
+            payload = db.storage.from_("blop_documents").download(path)
+            if hasattr(payload, "content"):
+                payload = payload.content
+            if hasattr(payload, "read"):
+                payload = payload.read()
+            if isinstance(payload, bytearray):
+                payload = bytes(payload)
+            if not isinstance(payload, (bytes, memoryview)):
+                return None, None
+            return bytes(payload), (resolved_name or os.path.basename(path) or "video.mp4")
+        except Exception:
+            return None, None
 
     @staticmethod
     def get_audio_path(filename, username, folder_id):
