@@ -1165,7 +1165,7 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=f"Quiz-Fehler: {str(e)}")
 
 @app.post("/api/ai/flashcards")
-def create_flashcards(request: GenRequest):
+def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
     from ai_service import AIService
     from datetime import datetime
     try:
@@ -1310,7 +1310,72 @@ def refine_elaboration(request: ElaborationRefineRequest):
         target = next((f for f in all_files if f.get("id") == request.file_id), None)
         if not target:
             raise HTTPException(status_code=404, detail="Datei für Anpassung nicht gefunden.")
+        ftype = (target.get("type") or "summary").lower()
+        json_types = ("quiz", "flashcards", "plan")
         base_content = target.get("content")
+        if ftype in json_types:
+            if base_content is None:
+                raise HTTPException(status_code=400, detail="Die ausgewählte Datei hat keinen Inhalt.")
+            refined_result = AIService.refine_json_artifact(
+                ftype,
+                base_content,
+                request.prompt.strip(),
+                model_pref,
+                return_meta=True,
+            )
+            refined_payload = refined_result["data"]
+            save_mode = (request.save_mode or "new_file").lower()
+            if save_mode == "replace":
+                if not DataManager.update_file_content(
+                    request.username,
+                    request.folder_id,
+                    request.file_id,
+                    refined_payload,
+                ):
+                    raise HTTPException(status_code=404, detail="Datei konnte nicht überschrieben werden.")
+                charge = deduct_tokens_by_usage(
+                    request.username,
+                    "elaboration_refine",
+                    refined_result.get("used_model", model_pref or ""),
+                    refined_result.get("usage"),
+                )
+                return {
+                    "status": "success",
+                    "saved_as": "replace",
+                    "content": refined_payload,
+                    "used_model": refined_result.get("used_model", model_pref or ""),
+                    "usage": refined_result.get("usage", {}),
+                    **charge,
+                }
+            new_id = f"{ftype}_refined_{int(datetime.now().timestamp())}"
+            base_name = target.get("name") or ftype
+            DataManager.save_file_metadata(
+                {
+                    "id": new_id,
+                    "name": f"{base_name} (überarbeitet)",
+                    "type": ftype,
+                    "content": refined_payload,
+                    "created_at": datetime.now().strftime("%Y-%m-%d"),
+                },
+                request.username,
+                request.folder_id,
+            )
+            charge = deduct_tokens_by_usage(
+                request.username,
+                "elaboration_refine",
+                refined_result.get("used_model", model_pref or ""),
+                refined_result.get("usage"),
+            )
+            return {
+                "status": "success",
+                "saved_as": "new_file",
+                "new_file_id": new_id,
+                "content": refined_payload,
+                "used_model": refined_result.get("used_model", model_pref or ""),
+                "usage": refined_result.get("usage", {}),
+                **charge,
+            }
+
         if isinstance(base_content, (dict, list)):
             base_content = json.dumps(base_content, ensure_ascii=False, indent=2)
         base_content = str(base_content or "")

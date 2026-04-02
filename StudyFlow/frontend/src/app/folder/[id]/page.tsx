@@ -98,6 +98,44 @@ const AI_JOB_LABELS: Record<string, string> = {
     repetition: 'Wiederholung',
 };
 
+function fileTypeSupportsPromptRefine(t: string): boolean {
+    return ['summary', 'repetition', 'elaboration', 'plan', 'quiz', 'flashcards', 'transcript'].includes(t);
+}
+
+function getRefineModalCopy(type: string): { title: string; placeholder: string } {
+    const map: Record<string, { title: string; placeholder: string }> = {
+        quiz: {
+            title: 'Quiz mit Prompt anpassen',
+            placeholder: 'z. B. mehr Rechenaufgaben, andere Schwierigkeit, kürzere Fragen …',
+        },
+        flashcards: {
+            title: 'Karteikarten mit Prompt anpassen',
+            placeholder: 'z. B. mehr Definitionen, kürzere Antworten, anderer Fokus …',
+        },
+        plan: {
+            title: 'Lernplan mit Prompt anpassen',
+            placeholder: 'z. B. mehr Zeit für bestimmte Tage, andere Aufteilung, Ruhetage …',
+        },
+        transcript: {
+            title: 'Transkript mit Prompt anpassen',
+            placeholder: 'z. B. Abschnitte kürzen, Fachbegriffe klären, Struktur verbessern …',
+        },
+        summary: {
+            title: 'Zusammenfassung mit Prompt anpassen',
+            placeholder: 'z. B. mehr Beispiele, klarere Struktur, kürzer fassen …',
+        },
+        repetition: {
+            title: 'Wiederholung mit Prompt anpassen',
+            placeholder: 'z. B. mehr Übungen, anderer Aufbau …',
+        },
+        elaboration: {
+            title: 'Ausarbeitung mit Prompt anpassen',
+            placeholder: 'z. B. Abschnitt ausführlicher, mehr Beispiele, Sprache klarer …',
+        },
+    };
+    return map[type] || { title: 'Inhalt mit Prompt anpassen', placeholder: 'Beschreibe, was geändert werden soll …' };
+}
+
 type DraggableFileProps = {
     file: FileData;
     icon: React.ReactNode;
@@ -287,7 +325,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                             </>
                         )}
 
-                        {(file.type === 'summary' || file.type === 'repetition' || file.type === 'elaboration') && (
+                        {fileTypeSupportsPromptRefine(file.type) && (
                             <>
                                 <div className="h-px bg-[#1C1C33]" />
                                 <button
@@ -327,6 +365,7 @@ export default function FolderPage() {
     const folderId = params?.id as string;
     const [files, setFiles] = useState<FileData[]>([]);
     const [loading, setLoading] = useState(true);
+    const [filesLoadError, setFilesLoadError] = useState<string | null>(null);
 
     // Upload / Action States
     const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -611,21 +650,51 @@ export default function FolderPage() {
     };
 
     const fetchFiles = useCallback(async () => {
+        setFilesLoadError(null);
         try {
             const username = localStorage.getItem("username");
-            if (!username) return;
+            if (!username) {
+                setFilesLoadError("Bitte melde dich an, um Ordnerinhalte zu laden.");
+                return;
+            }
 
             const [filesRes, subfoldersRes] = await Promise.all([
                 fetch(`${API_BASE}/files/${folderId}?username=${username}`),
-                fetch(`${API_BASE}/folders/${folderId}/subfolders?username=${username}`)
+                fetch(`${API_BASE}/folders/${folderId}/subfolders?username=${username}`),
             ]);
-            if (filesRes.ok) setFiles(await filesRes.json());
-            if (subfoldersRes.ok) setSubfolders(await subfoldersRes.json());
+
+            if (filesRes.ok) {
+                setFiles(await filesRes.json());
+            } else {
+                setFilesLoadError(`Dateien konnten nicht geladen werden (HTTP ${filesRes.status}).`);
+                if (filesRes.status >= 500) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    const retry = await fetch(`${API_BASE}/files/${folderId}?username=${username}`);
+                    if (retry.ok) {
+                        setFiles(await retry.json());
+                        setFilesLoadError(null);
+                    }
+                }
+            }
+
+            if (subfoldersRes.ok) {
+                setSubfolders(await subfoldersRes.json());
+            } else {
+                setSubfolders([]);
+            }
         } catch (error) {
             console.error("Failed to fetch files:", error);
+            setFilesLoadError(error instanceof Error ? error.message : "Netzwerkfehler beim Laden.");
         } finally {
             setLoading(false);
         }
+    }, [folderId]);
+
+    useEffect(() => {
+        setFiles([]);
+        setSubfolders([]);
+        setFilesLoadError(null);
+        setLoading(true);
     }, [folderId]);
 
     useEffect(() => {
@@ -2487,6 +2556,21 @@ export default function FolderPage() {
                         collisionDetection={closestCenter}
                     >
                         <div className="space-y-6">
+                            {filesLoadError && (
+                                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <p className="text-sm text-amber-100/90">{filesLoadError}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setLoading(true);
+                                            void fetchFiles();
+                                        }}
+                                        className="shrink-0 px-4 py-2 rounded-xl text-sm font-medium bg-amber-600/80 hover:bg-amber-500 text-white transition-colors"
+                                    >
+                                        Erneut laden
+                                    </button>
+                                </div>
+                            )}
                             {/* Subfolders section */}
                             {(subfolders.length > 0 || true) && (
                                 <div>
@@ -2522,7 +2606,7 @@ export default function FolderPage() {
                             )}
 
                             {/* Files */}
-                            {files.length === 0 ? (
+                            {files.length === 0 && !filesLoadError ? (
                                 <div className="bg-[#151525] border border-[#2A2A40] rounded-2xl p-16 text-center border-dashed">
                                     <div className="flex justify-center mb-6">
                                         <div className="w-16 h-16 bg-[#0B0B1A] rounded-2xl flex items-center justify-center border border-[#2A2A40]">
@@ -3707,14 +3791,14 @@ export default function FolderPage() {
                     <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
                         <div className="w-full max-w-2xl bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl shadow-2xl overflow-hidden">
                             <div className="p-5 border-b border-[#2A2A40]">
-                                <h3 className="text-lg font-semibold text-white">Dokument mit Prompt anpassen</h3>
+                                <h3 className="text-lg font-semibold text-white">{getRefineModalCopy(fileToRefine.type).title}</h3>
                                 <p className="text-xs text-gray-400 mt-1">{fileToRefine.name}</p>
                             </div>
                             <div className="p-5 space-y-4">
                                 <textarea
                                     value={refinePrompt}
                                     onChange={(e) => setRefinePrompt(e.target.value)}
-                                    placeholder="z.B. Abschnitt 3 ausführlicher erklären, mehr Beispiele ergänzen, Sprache klarer machen ..."
+                                    placeholder={getRefineModalCopy(fileToRefine.type).placeholder}
                                     className="w-full min-h-[140px] bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
                                 />
                                 <div className="flex flex-wrap gap-2">

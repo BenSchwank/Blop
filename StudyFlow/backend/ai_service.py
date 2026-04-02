@@ -541,6 +541,144 @@ Analysiere das folgende Material und erstelle den vollständigen, detaillierten 
             raise Exception(f"Fehler beim Lernplan-Generieren: {str(e)}")
 
     @staticmethod
+    def _validate_refined_quiz(obj: Any) -> None:
+        if not isinstance(obj, list) or len(obj) == 0:
+            raise ValueError("Quiz muss ein nicht-leeres JSON-Array sein.")
+        for i, row in enumerate(obj):
+            if not isinstance(row, dict):
+                raise ValueError(f"Quiz-Eintrag {i} ist kein Objekt.")
+            for k in ("question", "options", "answer", "explanation"):
+                if k not in row:
+                    raise ValueError(f"Quiz-Eintrag {i} fehlt Feld '{k}'.")
+            if not isinstance(row.get("options"), list):
+                raise ValueError(f"Quiz-Eintrag {i}: options muss eine Liste sein.")
+
+    @staticmethod
+    def _validate_refined_flashcards(obj: Any) -> None:
+        if not isinstance(obj, list) or len(obj) == 0:
+            raise ValueError("Karteikarten müssen ein nicht-leeres JSON-Array sein.")
+        for i, row in enumerate(obj):
+            if not isinstance(row, dict):
+                raise ValueError(f"Karteikarte {i} ist kein Objekt.")
+            if "front" not in row or "back" not in row:
+                raise ValueError(f"Karteikarte {i} braucht front und back.")
+
+    @staticmethod
+    def _validate_refined_plan(obj: Any) -> None:
+        if not isinstance(obj, list) or len(obj) == 0:
+            raise ValueError("Lernplan muss ein nicht-leeres JSON-Array sein.")
+        for i, day in enumerate(obj):
+            if not isinstance(day, dict):
+                raise ValueError(f"Lernplan-Tag {i} ist kein Objekt.")
+            for k in ("day", "topic", "goal", "summary", "tasks", "focus", "tip"):
+                if k not in day:
+                    raise ValueError(f"Lernplan-Tag {i} fehlt Feld '{k}'.")
+            if not isinstance(day.get("tasks"), list):
+                raise ValueError(f"Lernplan-Tag {i}: tasks muss eine Liste sein.")
+
+    @staticmethod
+    def refine_json_artifact(
+        artifact_type: str,
+        base_content: Any,
+        user_prompt: str,
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Refine quiz / flashcards / plan JSON using the same shapes as generate_*."""
+        try:
+            if isinstance(base_content, str):
+                try:
+                    data = json.loads(base_content)
+                except json.JSONDecodeError as e:
+                    raise Exception(f"Ungültiger JSON-Inhalt: {e}") from e
+            else:
+                data = base_content
+
+            at = (artifact_type or "").lower()
+            if at == "quiz":
+                schema = """
+Ausgabe: JSON-Array von Objekten (gleiche Struktur wie beim Erzeugen):
+[
+  {
+    "question": "...",
+    "options": ["A","B","C","D"],
+    "answer": "exakte Option",
+    "explanation": "..."
+  }
+]
+"""
+                AIService._validate_refined_quiz(data)
+            elif at == "flashcards":
+                schema = """
+Ausgabe: JSON-Array von Objekten:
+[
+  { "front": "...", "back": "..." }
+]
+"""
+                AIService._validate_refined_flashcards(data)
+            elif at == "plan":
+                schema = """
+Ausgabe: JSON-Array von Tag-Objekten (gleiche Struktur wie generate_study_plan):
+[
+  {
+    "day": 1,
+    "topic": "...",
+    "goal": "...",
+    "summary": "...",
+    "tasks": [ { "description": "...", "completed": false } ],
+    "focus": "...",
+    "tip": "..."
+  }
+]
+"""
+                AIService._validate_refined_plan(data)
+            else:
+                raise Exception(f"Unbekannter Artefakt-Typ für JSON-Anpassung: {artifact_type}")
+
+            existing = json.dumps(data, ensure_ascii=False)
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config={"response_mime_type": "application/json"},
+            )
+            prompt = f"""Du passt ein bestehendes Lern-Artefakt (Typ: {at}) an.
+
+Nutzerwunsch (konkret umsetzen):
+{user_prompt.strip()}
+
+Regeln:
+- Antworte NUR mit gültigem JSON (kein Markdown, kein Kommentar).
+- Behalte die gleiche JSON-Struktur wie unten; Inhalte dürfen sich stark ändern.
+- Sprache: Deutsch.
+- Mathematik: LaTeX wie gewohnt ($inline$, $$block$$).
+
+Bestehendes JSON:
+{existing}
+
+{schema}
+"""
+            response = model.generate_content(prompt, safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+            parsed = json.loads(response.text)
+            if at == "quiz":
+                AIService._validate_refined_quiz(parsed)
+            elif at == "flashcards":
+                AIService._validate_refined_flashcards(parsed)
+            elif at == "plan":
+                AIService._validate_refined_plan(parsed)
+
+            if not return_meta:
+                return parsed
+            return {
+                "data": parsed,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Refine JSON artifact error ({artifact_type}): {e}")
+            raise Exception(f"JSON-Anpassung fehlgeschlagen: {str(e)}")
+
+    @staticmethod
     def generate_task_help(content: List[Any], task_description: str, model_preference: str = None, return_meta: bool = False) -> Any:
         """Generates a concise, context-aware explanation/help text for a specific study plan task."""
         try:

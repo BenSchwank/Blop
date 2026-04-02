@@ -77,92 +77,92 @@ export default function GlobalQueueStatus() {
                         className={`text-gray-500 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
                     />
                 </button>
-
-                {expanded && (
-                    <div className={OVERLAY_GLOBAL_QUEUE_PANEL}>
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Globale Warteschlange</div>
-                        <p className="text-[10px] text-gray-600 mb-2 leading-snug">
-                            Reihenfolge nur Anzeige; laufende Anfragen werden nicht automatisch umgestellt.
-                        </p>
-                        {queue.active.length > 0 && (
-                            <ul className="space-y-1.5 mb-2">
-                                {queue.active.map((job, index) => (
-                                    <li
-                                        key={job.id}
-                                        className="flex items-center gap-1 rounded-lg border border-[#2A2A40] bg-[#151525] px-2 py-2 text-sm text-gray-200"
-                                    >
-                                        <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
-                                        <span className="truncate flex-1 min-w-0">{job.label}</span>
-                                        <span className="text-[10px] text-gray-500 shrink-0">#{job.folderId.slice(-6)}</span>
-                                        <div className="flex items-center gap-0.5 shrink-0">
-                                            <button
-                                                type="button"
-                                                aria-label="Nach oben"
-                                                title="Nach oben"
-                                                disabled={index === 0}
-                                                onClick={() => handleMoveActive(index, -1)}
-                                                className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
-                                            >
-                                                <ArrowUp size={14} />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                aria-label="Nach unten"
-                                                title="Nach unten"
-                                                disabled={index >= queue.active.length - 1}
-                                                onClick={() => handleMoveActive(index, 1)}
-                                                className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
-                                            >
-                                                <ArrowDown size={14} />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                aria-label="Abbrechen"
-                                                title="Abbrechen"
-                                                onClick={() => handleCancelActive(job.id)}
-                                                className="p-1 rounded text-red-400 hover:bg-red-500/15 hover:text-red-300"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                        {queue.recent.length > 0 && (
-                            <ul className="space-y-1.5">
-                                {queue.recent.slice(0, 8).map((job) => (
-                                    <li
-                                        key={job.id}
-                                        title={!job.ok && job.errorMessage ? job.errorMessage : undefined}
-                                        className={`flex flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-sm ${job.ok ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200" : "border-red-500/25 bg-red-500/10 text-red-200"}`}
-                                    >
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            {job.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
-                                            <span className="truncate flex-1">{job.label}</span>
-                                            <span className="shrink-0 text-[10px] opacity-80">{job.ok ? "Fertig" : "Fehler"}</span>
-                                            <button
-                                                type="button"
-                                                aria-label="Eintrag entfernen"
-                                                title="Entfernen"
-                                                onClick={() => dismissRecentJobById(job.id)}
-                                                className="p-1 rounded text-gray-500 hover:bg-[#1C1C33] hover:text-gray-300 shrink-0"
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        </div>
-                                        {!job.ok && job.errorMessage && (
-                                            <p className="text-[10px] leading-snug text-red-300/90 break-words line-clamp-3 pl-[22px]">
-                                                {job.errorMessage}
-                                            </p>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </div>
-                )}
             </div>
+
+            {expanded && (
+                <div className={OVERLAY_GLOBAL_QUEUE_PANEL}>
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Globale Warteschlange</div>
+                    <p className="text-[10px] text-gray-600 mb-2 leading-snug">
+                        Reihenfolge nur Anzeige; laufende Anfragen werden nicht automatisch umgestellt.
+                    </p>
+                    {queue.active.length > 0 && (
+                        <ul className="space-y-1.5 mb-2">
+                            {queue.active.map((job, index) => (
+                                <li
+                                    key={job.id}
+                                    className="flex items-center gap-1 rounded-lg border border-[#2A2A40] bg-[#151525] px-2 py-2 text-sm text-gray-200"
+                                >
+                                    <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
+                                    <span className="truncate flex-1 min-w-0">{job.label}</span>
+                                    <span className="text-[10px] text-gray-500 shrink-0">#{job.folderId.slice(-6)}</span>
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                        <button
+                                            type="button"
+                                            aria-label="Nach oben"
+                                            title="Nach oben"
+                                            disabled={index === 0}
+                                            onClick={() => handleMoveActive(index, -1)}
+                                            className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                                        >
+                                            <ArrowUp size={14} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label="Nach unten"
+                                            title="Nach unten"
+                                            disabled={index >= queue.active.length - 1}
+                                            onClick={() => handleMoveActive(index, 1)}
+                                            className="p-1 rounded text-gray-400 hover:bg-[#1C1C33] hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                                        >
+                                            <ArrowDown size={14} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label="Abbrechen"
+                                            title="Abbrechen"
+                                            onClick={() => handleCancelActive(job.id)}
+                                            className="p-1 rounded text-red-400 hover:bg-red-500/15 hover:text-red-300"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {queue.recent.length > 0 && (
+                        <ul className="space-y-1.5">
+                            {queue.recent.slice(0, 8).map((job) => (
+                                <li
+                                    key={job.id}
+                                    title={!job.ok && job.errorMessage ? job.errorMessage : undefined}
+                                    className={`flex flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-sm ${job.ok ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200" : "border-red-500/25 bg-red-500/10 text-red-200"}`}
+                                >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        {job.ok ? <CheckCircle2 size={14} className="shrink-0" /> : <XCircle size={14} className="shrink-0" />}
+                                        <span className="truncate flex-1">{job.label}</span>
+                                        <span className="shrink-0 text-[10px] opacity-80">{job.ok ? "Fertig" : "Fehler"}</span>
+                                        <button
+                                            type="button"
+                                            aria-label="Eintrag entfernen"
+                                            title="Entfernen"
+                                            onClick={() => dismissRecentJobById(job.id)}
+                                            className="p-1 rounded text-gray-500 hover:bg-[#1C1C33] hover:text-gray-300 shrink-0"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                    {!job.ok && job.errorMessage && (
+                                        <p className="text-[10px] leading-snug text-red-300/90 break-words line-clamp-3 pl-[22px]">
+                                            {job.errorMessage}
+                                        </p>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

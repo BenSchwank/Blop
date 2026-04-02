@@ -3,17 +3,17 @@
  * Queue uses a single right-edge dock so it does not overlap viewer toolbars or the chat FAB.
  */
 
-/** Outer fixed anchor: narrow vertical strip on the right (desktop: vertically centered; mobile: above bottom nav). */
+/** Outer fixed anchor: narrow vertical strip bottom-right (mobile: above bottom nav). */
 export const OVERLAY_GLOBAL_QUEUE_DOCK =
-    "fixed right-0 bottom-24 z-[45] no-print max-md:bottom-32";
+    "fixed right-0 bottom-20 z-[45] no-print max-md:bottom-28";
 
 /** Inner strip styling (border opens to the left). */
 export const OVERLAY_GLOBAL_QUEUE_DOCK_INNER =
     "relative flex flex-col items-center gap-1 rounded-l-xl border border-[#2A2A40] border-r-0 bg-[#0B0B1A]/95 py-2 px-1.5 shadow-xl backdrop-blur-md";
 
-/** Expanded panel opens to the left of the dock (no overlap with top-right browser chrome). */
+/** Expanded panel: viewport-centered vertically, opens left of the dock strip (sibling in GlobalQueueStatus). */
 export const OVERLAY_GLOBAL_QUEUE_PANEL =
-    "absolute right-full top-0 mr-2 w-[min(92vw,24rem)] max-h-[min(70vh,28rem)] overflow-y-auto rounded-2xl border border-[#2A2A40] bg-[#0B0B1A]/95 p-3 shadow-2xl backdrop-blur-md custom-scrollbar";
+    "fixed top-1/2 -translate-y-1/2 right-14 z-[46] w-[min(92vw,24rem)] max-h-[min(70vh,28rem)] overflow-y-auto rounded-2xl border border-[#2A2A40] bg-[#0B0B1A]/95 p-3 shadow-2xl backdrop-blur-md custom-scrollbar";
 
 /**
  * Floating chat: inset from right edge so it sits left of the queue dock (~3rem) + gap.
