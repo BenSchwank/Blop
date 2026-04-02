@@ -459,6 +459,11 @@ class FileUpdateRequest(BaseModel):
     content: Any
 
 
+class RenameFileRequest(BaseModel):
+    username: str
+    name: str
+
+
 def _is_valid_flashcards_payload(content: Any) -> bool:
     if not isinstance(content, list):
         return False
@@ -929,59 +934,6 @@ def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Opt
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF-Download fehlgeschlagen: {str(e)}")
-
-@app.delete("/api/files/{file_id}")
-def delete_file(file_id: str, username: str, folder_id: str):
-    """Deletes a file from the server and metadata."""
-    if DataManager.delete_file(username, folder_id, file_id):
-        return {"status": "success", "message": "Datei gelöscht"}
-    raise HTTPException(status_code=404, detail="Datei nicht gefunden oder Fehler beim Löschen")
-
-class UpdateFileRequest(BaseModel):
-    username: str
-    folder_id: str
-    file_id: str
-    content: Any
-    
-@app.put("/api/files/update")
-def update_file(request: UpdateFileRequest):
-    """Updates the content of an existing file/material."""
-    try:
-        if isinstance(request.content, list) and not _is_valid_flashcards_payload(request.content):
-            raise HTTPException(status_code=400, detail="Ungültiges Flashcard-Format: erwartet Liste mit {front, back}.")
-        # We need a method in DataManager to update content
-        if DataManager.update_file_content(request.username, request.folder_id, request.file_id, request.content):
-            return {"status": "success", "message": "Gespeichert"}
-        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
-    except Exception as e:
-        print(f"Update File Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Fehler: {str(e)}")
-
-class RenameFileRequest(BaseModel):
-    username: str
-    name: str
-
-@app.put("/api/files/{folder_id}/{file_id}/rename")
-def rename_file(folder_id: str, file_id: str, request: RenameFileRequest):
-    try:
-        if DataManager.rename_file_metadata(request.username, folder_id, file_id, request.name):
-            return {"status": "success", "message": "Umbenannt"}
-        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fehler beim Umbenennen: {str(e)}")
-
-class MoveFileRequest(BaseModel):
-    username: str
-    target_folder_id: str
-
-@app.put("/api/files/{folder_id}/{file_id}/move")
-def move_file(folder_id: str, file_id: str, request: MoveFileRequest):
-    try:
-        if DataManager.move_file(request.username, folder_id, file_id, request.target_folder_id):
-            return {"status": "success", "message": "Verschoben"}
-        raise HTTPException(status_code=404, detail="Fehler beim Verschieben")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fehler: {str(e)}")
 
 class GenRequest(BaseModel):
     username: str
