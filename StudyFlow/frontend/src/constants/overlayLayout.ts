@@ -5,7 +5,7 @@
 
 /** Outer fixed anchor: narrow vertical strip on the right (desktop: vertically centered; mobile: above bottom nav). */
 export const OVERLAY_GLOBAL_QUEUE_DOCK =
-    "fixed right-0 z-[45] no-print top-1/2 -translate-y-1/2 max-md:top-auto max-md:bottom-36 max-md:translate-y-0";
+    "fixed right-0 bottom-24 z-[45] no-print max-md:bottom-32";
 
 /** Inner strip styling (border opens to the left). */
 export const OVERLAY_GLOBAL_QUEUE_DOCK_INNER =
