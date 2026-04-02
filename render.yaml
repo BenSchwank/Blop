@@ -1,15 +1,14 @@
 services:
   - type: web
     name: blop-study-backend
-    env: python
+    runtime: docker
     plan: free
-    rootDir: StudyFlow/backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    dockerfilePath: ./StudyFlow/backend/Dockerfile
+    dockerContext: ./StudyFlow/backend
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.0
       - key: GOOGLE_API_KEY
         sync: false
       - key: FIREBASE_CREDENTIALS
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
