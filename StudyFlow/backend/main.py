@@ -44,6 +44,12 @@ class FolderCreate(BaseModel):
     name: str
     username: str
 
+
+class RenameFolderRequest(BaseModel):
+    name: str
+    username: str
+
+
 class FileModel(BaseModel):
     id: str
     name: str
