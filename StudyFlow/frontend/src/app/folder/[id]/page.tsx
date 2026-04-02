@@ -10,6 +10,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import RichTextEditor from "@/components/RichTextEditor";
 import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/aiJobAbortRegistry";
+import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
@@ -3765,7 +3766,7 @@ export default function FolderPage() {
                             initial={{ opacity: 0, y: 16 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 16 }}
-                            className="no-print fixed bottom-20 right-3 left-3 sm:left-auto md:bottom-6 z-[85] w-auto sm:w-[min(100vw-1.5rem,20rem)] max-h-[min(55vh,22rem)] flex flex-col rounded-2xl border border-[#2A2A40] bg-[#0B0B1A]/95 shadow-2xl backdrop-blur-md overflow-hidden"
+                            className={OVERLAY_FOLDER_KI_PANEL}
                         >
                             <button
                                 type="button"

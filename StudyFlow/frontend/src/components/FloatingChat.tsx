@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { OVERLAY_FLOATING_CHAT } from '@/constants/overlayLayout';
 
 interface Message {
     role: 'user' | 'model';
@@ -176,7 +177,7 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
             dragMomentum={false}
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
-            className="no-print fixed bottom-12 right-6 z-[100] flex flex-col items-end"
+            className={OVERLAY_FLOATING_CHAT}
             style={{ touchAction: 'none' }} // Prevents scrolling while dragging on touch devices
         >
             <AnimatePresence>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, ListTodo, Loader2, XCircle, ArrowUp, ArrowDown, X } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ListTodo, Loader2, XCircle, ArrowUp, ArrowDown, X } from "lucide-react";
 import { abortAiJob } from "@/lib/aiJobAbortRegistry";
 import {
     readQueueSnapshot,
@@ -10,6 +10,11 @@ import {
     dismissRecentJobById,
     type QueueSnapshot,
 } from "@/lib/globalQueueStorage";
+import {
+    OVERLAY_GLOBAL_QUEUE_DOCK,
+    OVERLAY_GLOBAL_QUEUE_DOCK_INNER,
+    OVERLAY_GLOBAL_QUEUE_PANEL,
+} from "@/constants/overlayLayout";
 
 const EMPTY_QUEUE: QueueSnapshot = { updatedAt: 0, active: [], recent: [] };
 
@@ -52,20 +57,29 @@ export default function GlobalQueueStatus() {
     if (queue.active.length === 0 && queue.recent.length === 0) return null;
 
     return (
-        <>
-            {/* Topbar indicator with expandable panel */}
-            <div className="fixed top-3 right-3 z-[130] no-print">
+        <div className={OVERLAY_GLOBAL_QUEUE_DOCK}>
+            <div className={OVERLAY_GLOBAL_QUEUE_DOCK_INNER}>
                 <button
                     type="button"
                     onClick={() => setExpanded((v) => !v)}
-                    className="flex items-center gap-2 rounded-xl border border-[#2A2A40] bg-[#0B0B1A]/95 px-3 py-2 text-sm text-white shadow-xl backdrop-blur-md hover:bg-[#151525]"
+                    aria-expanded={expanded}
+                    aria-label="Globale Warteschlange"
+                    title={`${queue.active.length} laufend · ${queue.recent.length} zuletzt`}
+                    className="flex flex-col items-center gap-1 rounded-lg px-1.5 py-2 text-white hover:bg-[#151525] transition-colors"
                 >
-                    <ListTodo size={15} className="text-[#5E5CE6]" />
-                    <span>{queue.active.length} aktiv</span>
-                    {expanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                    <ListTodo size={18} className="text-[#5E5CE6] shrink-0" />
+                    <span className="text-[9px] text-gray-300 tabular-nums leading-tight text-center px-0.5">
+                        {queue.active.length} / {queue.recent.length}
+                    </span>
+                    <span className="text-[8px] text-gray-500 leading-tight text-center">lauf · ztz</span>
+                    <ChevronLeft
+                        size={14}
+                        className={`text-gray-500 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+                    />
                 </button>
+
                 {expanded && (
-                    <div className="mt-2 w-[min(92vw,24rem)] rounded-2xl border border-[#2A2A40] bg-[#0B0B1A]/95 p-3 shadow-2xl backdrop-blur-md">
+                    <div className={OVERLAY_GLOBAL_QUEUE_PANEL}>
                         <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Globale Warteschlange</div>
                         <p className="text-[10px] text-gray-600 mb-2 leading-snug">
                             Reihenfolge nur Anzeige; laufende Anfragen werden nicht automatisch umgestellt.
@@ -149,16 +163,6 @@ export default function GlobalQueueStatus() {
                     </div>
                 )}
             </div>
-
-            {/* Floating compact widget */}
-            <div className="fixed bottom-6 right-4 z-[120] no-print rounded-xl border border-[#2A2A40] bg-[#0B0B1A]/95 px-3 py-2 text-xs text-gray-200 shadow-2xl backdrop-blur-md">
-                <div className="flex items-center gap-2">
-                    <Loader2 size={13} className={queue.active.length > 0 ? "animate-spin text-[#5E5CE6]" : "text-gray-500"} />
-                    <span>{queue.active.length} laufend</span>
-                    <span className="text-gray-500">|</span>
-                    <span>{queue.recent.length} zuletzt</span>
-                </div>
-            </div>
-        </>
+        </div>
     );
 }

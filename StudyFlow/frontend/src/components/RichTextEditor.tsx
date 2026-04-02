@@ -36,7 +36,7 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
     };
 
     return (
-        <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-10 w-full overflow-x-auto custom-scrollbar">
+        <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#1e1e1e] sticky top-0 z-50 w-full overflow-x-auto custom-scrollbar">
             <div className="flex items-center gap-4 min-w-max">
                 <button
                     onClick={onClose}
