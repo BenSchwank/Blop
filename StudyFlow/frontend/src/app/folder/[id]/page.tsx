@@ -1662,7 +1662,67 @@ export default function FolderPage() {
                 }),
                 signal: ac.signal,
             });
-            if (res.ok) {
+            if (res.status === 202) {
+                const start = await res.json();
+                const jid = start.job_id as string | undefined;
+                if (!jid) {
+                    lastError = "Keine Job-ID vom Server.";
+                    showToast(`Lernvideo: ${lastError}`);
+                } else {
+                    const pollMs = 2000;
+                    const maxPolls = 600;
+                    let data: Record<string, unknown> | null = null;
+                    for (let i = 0; i < maxPolls; i++) {
+                        if (ac.signal.aborted) break;
+                        await new Promise((r) => setTimeout(r, pollMs));
+                        const st = await fetch(
+                            `${API_BASE}/ai/learning-video/status/${encodeURIComponent(jid)}?username=${encodeURIComponent(username || "")}`,
+                            { signal: ac.signal }
+                        );
+                        if (!st.ok) {
+                            lastError = `HTTP ${st.status}`;
+                            try {
+                                const err = await st.json();
+                                lastError = formatFastApiDetail(err.detail) || lastError;
+                            } catch {
+                                /* ignore */
+                            }
+                            showToast(`Lernvideo: ${lastError}`);
+                            break;
+                        }
+                        const j = (await st.json()) as { status: string; detail?: string };
+                        if (j.status === "done") {
+                            data = j as Record<string, unknown>;
+                            break;
+                        }
+                        if (j.status === "error") {
+                            lastError = j.detail || "Fehler bei der Erstellung.";
+                            if (lastError.includes("OPENAI")) {
+                                showToast(lastError);
+                            } else {
+                                showToast(`Lernvideo: ${lastError}`);
+                            }
+                            break;
+                        }
+                    }
+                    if (data && data.file_id) {
+                        ok = true;
+                        announceUsage(data);
+                        await fetchFiles();
+                        const generated: FileData = {
+                            id: String(data.file_id),
+                            name: (data.title as string) || (data.filename as string) || "Lernvideo.mp4",
+                            type: "video",
+                            created_at: new Date().toISOString().split("T")[0],
+                        };
+                        upsertGeneratedFile(generated);
+                        setSelectedFile(generated);
+                    } else if (!lastError && !ac.signal.aborted) {
+                        lastError = "Zeitüberschreitung — das Lernvideo dauert ungewöhnlich lange. Bitte später in den Dateien prüfen oder erneut versuchen.";
+                        showToast(lastError);
+                    }
+                }
+            } else if (res.ok) {
                 ok = true;
                 const data = await res.json();
                 announceUsage(data);

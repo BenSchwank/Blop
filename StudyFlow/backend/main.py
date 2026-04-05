@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Any, List, Optional
 import uvicorn
@@ -9,6 +10,9 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 import tempfile
+import threading
+import time
+import uuid
 
 try:
     from dotenv import load_dotenv
@@ -38,6 +42,131 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Lernvideo: lange ffmpeg/TTS-Pipeline — synchron würde Render/Proxy-Timeouts (502) auslösen
+_LEARNING_VIDEO_JOBS: dict = {}
+_LEARNING_VIDEO_JOBS_LOCK = threading.Lock()
+_LEARNING_VIDEO_JOB_MAX = 256
+
+
+def _learning_video_prune_jobs_locked() -> None:
+    if len(_LEARNING_VIDEO_JOBS) < _LEARNING_VIDEO_JOB_MAX:
+        return
+    finished = [
+        (jid, j.get("created_at", 0))
+        for jid, j in _LEARNING_VIDEO_JOBS.items()
+        if j.get("status") in ("done", "error")
+    ]
+    finished.sort(key=lambda x: x[1])
+    for jid, _ in finished[: max(32, len(finished) // 2)]:
+        _LEARNING_VIDEO_JOBS.pop(jid, None)
+
+
+def _learning_video_job_fail(job_id: str, detail: str) -> None:
+    with _LEARNING_VIDEO_JOBS_LOCK:
+        if job_id in _LEARNING_VIDEO_JOBS:
+            _LEARNING_VIDEO_JOBS[job_id]["status"] = "error"
+            _LEARNING_VIDEO_JOBS[job_id]["detail"] = detail
+            _LEARNING_VIDEO_JOBS[job_id]["finished_at"] = time.time()
+
+
+def _learning_video_job_worker(
+    job_id: str,
+    username: str,
+    folder_id: str,
+    model_preference: Optional[str],
+) -> None:
+    from ai_service import AIService
+    from media_pipeline import openai_tts_speech_mp3, render_scene_slides, ffmpeg_slideshow_with_audio
+
+    slide_root: Optional[str] = None
+    work_tmp: Optional[str] = None
+    try:
+        _configure_genai()
+        model_pref = resolve_model_preference(username, model_preference)
+        context, debug_log = _get_folder_context(username, folder_id)
+        if not context:
+            _learning_video_job_fail(
+                job_id,
+                f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
+            )
+            return
+        sb_result = AIService.generate_learning_video_storyboard(
+            context, model_preference=model_pref, return_meta=True
+        )
+        data = sb_result["data"]
+        scenes = data.get("scenes") or []
+        if not scenes:
+            _learning_video_job_fail(job_id, "Storyboard ohne Szenen.")
+            return
+        full_narration = "\n\n".join(
+            str(s.get("narration") or "").strip()
+            for s in scenes
+            if str(s.get("narration") or "").strip()
+        )
+        if not full_narration.strip():
+            full_narration = str(data.get("title") or "Kurzes Lernvideo zu deinem Material.")
+        mp3_bytes = openai_tts_speech_mp3(full_narration)
+        slide_scenes = []
+        for s in scenes:
+            title = s.get("title") or ""
+            body = s.get("body") or ""
+            if isinstance(body, list):
+                body = "\n".join(str(x) for x in body)
+            slide_scenes.append({"title": str(title), "body": str(body)})
+        img_paths = render_scene_slides(slide_scenes)
+        if img_paths:
+            slide_root = os.path.dirname(img_paths[0])
+        work_tmp = tempfile.mkdtemp(prefix="blop_lv_")
+        audio_path = os.path.join(work_tmp, "narration.mp3")
+        with open(audio_path, "wb") as f:
+            f.write(mp3_bytes)
+        out_mp4 = os.path.join(work_tmp, "out.mp4")
+        ffmpeg_slideshow_with_audio(img_paths, audio_path, out_mp4)
+        with open(out_mp4, "rb") as f:
+            video_bytes = f.read()
+        vfname = f"learning_video_{int(datetime.now().timestamp())}.mp4"
+        vtitle = str(data.get("title") or "KI-Lernvideo")
+        file_id = DataManager.save_video(
+            video_bytes, vfname, username, folder_id, display_name=vtitle
+        )
+        charge = deduct_tokens_by_usage(
+            username,
+            "learning_video",
+            sb_result.get("used_model", model_pref or ""),
+            sb_result.get("usage"),
+        )
+        try_notify_document_ready(username, folder_id, "Lernvideo")
+        with _LEARNING_VIDEO_JOBS_LOCK:
+            if job_id in _LEARNING_VIDEO_JOBS:
+                _LEARNING_VIDEO_JOBS[job_id].update(
+                    {
+                        "status": "done",
+                        "finished_at": time.time(),
+                        "file_id": file_id,
+                        "filename": vfname,
+                        "title": vtitle,
+                        "used_model": sb_result.get("used_model", model_pref or ""),
+                        "usage": sb_result.get("usage", {}),
+                        **charge,
+                    }
+                )
+    except HTTPException as e:
+        detail = e.detail
+        if not isinstance(detail, str):
+            detail = str(detail)
+        _learning_video_job_fail(job_id, detail)
+    except RuntimeError as e:
+        _learning_video_job_fail(job_id, str(e))
+    except Exception as e:
+        print(f"Learning video error: {e}")
+        _learning_video_job_fail(job_id, f"Lernvideo-Fehler: {str(e)}")
+    finally:
+        if slide_root:
+            shutil.rmtree(slide_root, ignore_errors=True)
+        if work_tmp:
+            shutil.rmtree(work_tmp, ignore_errors=True)
+
 
 # --- MODELS ---
 class FolderCreate(BaseModel):
@@ -1712,90 +1841,59 @@ def create_podcast(request: PodcastRequest, background_tasks: BackgroundTasks):
 
 
 @app.post("/api/ai/learning-video")
-def create_learning_video(request: LearningVideoRequest, background_tasks: BackgroundTasks):
-    from ai_service import AIService
-    from media_pipeline import openai_tts_speech_mp3, render_scene_slides, ffmpeg_slideshow_with_audio
-
-    slide_root: Optional[str] = None
-    work_tmp: Optional[str] = None
+def create_learning_video(request: LearningVideoRequest):
+    """Startet Lernvideo-Erstellung im Hintergrund (vermeidet HTTP-502 durch Proxy-Timeouts)."""
     try:
         ensure_minimum_tokens(request.username, 3)
-        _configure_genai()
-        model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
-        if not context:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
-            )
-        sb_result = AIService.generate_learning_video_storyboard(
-            context, model_preference=model_pref, return_meta=True
-        )
-        data = sb_result["data"]
-        scenes = data.get("scenes") or []
-        if not scenes:
-            raise HTTPException(status_code=500, detail="Storyboard ohne Szenen.")
-        full_narration = "\n\n".join(
-            str(s.get("narration") or "").strip()
-            for s in scenes
-            if str(s.get("narration") or "").strip()
-        )
-        if not full_narration.strip():
-            full_narration = str(data.get("title") or "Kurzes Lernvideo zu deinem Material.")
-        mp3_bytes = openai_tts_speech_mp3(full_narration)
-        slide_scenes = []
-        for s in scenes:
-            title = s.get("title") or ""
-            body = s.get("body") or ""
-            if isinstance(body, list):
-                body = "\n".join(str(x) for x in body)
-            slide_scenes.append({"title": str(title), "body": str(body)})
-        img_paths = render_scene_slides(slide_scenes)
-        if img_paths:
-            slide_root = os.path.dirname(img_paths[0])
-        work_tmp = tempfile.mkdtemp(prefix="blop_lv_")
-        audio_path = os.path.join(work_tmp, "narration.mp3")
-        with open(audio_path, "wb") as f:
-            f.write(mp3_bytes)
-        out_mp4 = os.path.join(work_tmp, "out.mp4")
-        ffmpeg_slideshow_with_audio(img_paths, audio_path, out_mp4)
-        with open(out_mp4, "rb") as f:
-            video_bytes = f.read()
-        vfname = f"learning_video_{int(datetime.now().timestamp())}.mp4"
-        vtitle = str(data.get("title") or "KI-Lernvideo")
-        file_id = DataManager.save_video(
-            video_bytes, vfname, request.username, request.folder_id, display_name=vtitle
-        )
-        charge = deduct_tokens_by_usage(
-            request.username,
-            "learning_video",
-            sb_result.get("used_model", model_pref or ""),
-            sb_result.get("usage"),
-        )
-        background_tasks.add_task(
-            try_notify_document_ready, request.username, request.folder_id, "Lernvideo"
-        )
-        return {
-            "status": "success",
-            "file_id": file_id,
-            "filename": vfname,
-            "title": vtitle,
-            "used_model": sb_result.get("used_model", model_pref or ""),
-            "usage": sb_result.get("usage", {}),
-            **charge,
-        }
     except HTTPException:
         raise
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        print(f"Learning video error: {e}")
-        raise HTTPException(status_code=500, detail=f"Lernvideo-Fehler: {str(e)}")
-    finally:
-        if slide_root:
-            shutil.rmtree(slide_root, ignore_errors=True)
-        if work_tmp:
-            shutil.rmtree(work_tmp, ignore_errors=True)
+    job_id = str(uuid.uuid4())
+    with _LEARNING_VIDEO_JOBS_LOCK:
+        _learning_video_prune_jobs_locked()
+        _LEARNING_VIDEO_JOBS[job_id] = {
+            "status": "pending",
+            "username": request.username,
+            "created_at": time.time(),
+        }
+    thread = threading.Thread(
+        target=_learning_video_job_worker,
+        args=(job_id, request.username, request.folder_id, request.model_preference),
+        daemon=True,
+    )
+    thread.start()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "job_id": job_id,
+        },
+    )
+
+
+@app.get("/api/ai/learning-video/status/{job_id}")
+def learning_video_job_status(job_id: str, username: str):
+    with _LEARNING_VIDEO_JOBS_LOCK:
+        job = _LEARNING_VIDEO_JOBS.get(job_id)
+    if not job or job.get("username") != username:
+        raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
+    status = job.get("status")
+    if status == "pending":
+        return {"status": "pending"}
+    if status == "error":
+        return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
+    if status == "done":
+        return {
+            "status": "done",
+            "file_id": job["file_id"],
+            "filename": job["filename"],
+            "title": job["title"],
+            "used_model": job.get("used_model", ""),
+            "usage": job.get("usage", {}),
+            "tokens_charged": job.get("tokens_charged"),
+            "remaining_tokens": job.get("remaining_tokens"),
+            "usage_estimated": job.get("usage_estimated"),
+        }
+    return {"status": "pending"}
 
 
 if __name__ == "__main__":
