@@ -80,9 +80,9 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
         ts = int(ts)
     except (TypeError, ValueError):
         ts = 6
-    ts = max(4, min(14, ts))
+    ts = max(4, min(22, ts))
     depth = (req.narration_depth or "standard").strip().lower()
-    if depth not in ("compact", "standard", "detailed"):
+    if depth not in ("compact", "standard", "detailed", "deep"):
         depth = "standard"
     visual = (req.visual_style or "clean").strip().lower()
     if visual not in ("clean", "rich"):
@@ -128,6 +128,22 @@ def _learning_video_job_worker(
                 f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
             )
             return
+        try:
+            folder_files = DataManager.list_files(username, folder_id)
+        except Exception:
+            folder_files = []
+        pdf_n = sum(1 for f in folder_files if f.get("type") == "pdf")
+        text_n = sum(
+            1
+            for f in folder_files
+            if f.get("type")
+            in ("transcript", "summary", "repetition", "plan", "quiz", "flashcards")
+        )
+        other_n = max(0, len(folder_files) - pdf_n - text_n)
+        material_summary = (
+            f"Der Ordner enthält {pdf_n} PDF-Datei(en), {text_n} Text-/Lernquelle(n) und {other_n} weitere Einträge. "
+            "Nutze die Szenen so, dass der Stoff breit und ausführlich abgedeckt wird — nicht nur oberflächliche Stichworte."
+        )
         sb_result = AIService.generate_learning_video_storyboard(
             context,
             model_preference=model_pref,
@@ -136,6 +152,7 @@ def _learning_video_job_worker(
                 "target_scenes": opts.get("target_scenes", 6),
                 "narration_depth": opts.get("narration_depth", "standard"),
                 "include_image_queries": bool(opts.get("use_stock_images")),
+                "material_summary": material_summary,
             },
         )
         data = sb_result["data"]
@@ -143,22 +160,39 @@ def _learning_video_job_worker(
         if not scenes:
             _learning_video_job_fail(job_id, "Storyboard ohne Szenen.")
             return
-        full_narration = "\n\n".join(
+        opening = str(data.get("opening_narration") or "").strip()
+        narr_parts: List[str] = []
+        if opening:
+            narr_parts.append(opening)
+        narr_parts.extend(
             str(s.get("narration") or "").strip()
             for s in scenes
             if str(s.get("narration") or "").strip()
         )
+        full_narration = "\n\n".join(narr_parts)
         if not full_narration.strip():
             full_narration = str(data.get("title") or "Kurzes Lernvideo zu deinem Material.")
         mp3_bytes = openai_tts_speech_mp3(full_narration, voice=opts.get("tts_voice") or "alloy")
         use_stock = bool(opts.get("use_stock_images"))
-        slide_scenes = []
-        for s in scenes:
+        vtitle = str(data.get("title") or "KI-Lernvideo")
+        slide_scenes: List[dict] = [
+            {
+                "slide_kind": "title",
+                "title": vtitle,
+                "body": "KI-Lernvideo aus deinem Ordner",
+            }
+        ]
+        n_content = len(scenes)
+        for idx, s in enumerate(scenes):
             title = s.get("title") or ""
             body = s.get("body") or ""
             if isinstance(body, list):
                 body = "\n".join(str(x) for x in body)
-            item = {"title": str(title), "body": str(body)}
+            item = {
+                "title": str(title),
+                "body": str(body),
+                "chapter": f"{idx + 1}/{n_content}",
+            }
             if use_stock:
                 iq = str(s.get("image_query") or "").strip()
                 if iq:
@@ -188,7 +222,6 @@ def _learning_video_job_worker(
             _learning_video_job_fail(job_id, "Lernvideo-Datei ist leer (ffmpeg/Encoding fehlgeschlagen).")
             return
         vfname = f"learning_video_{int(datetime.now().timestamp())}.mp4"
-        vtitle = str(data.get("title") or "KI-Lernvideo")
         file_id = DataManager.save_video(
             video_bytes, vfname, username, folder_id, display_name=vtitle
         )

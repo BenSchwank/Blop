@@ -775,24 +775,32 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
         """JSON storyboard with scenes for slideshow + narration."""
         try:
             opts = storyboard_options or {}
+            lv_max = 22
             target = int(opts.get("target_scenes") or 6)
-            target = max(4, min(14, target))
+            target = max(4, min(lv_max, target))
             lo = max(4, target - 1)
-            hi = min(14, target + 1)
+            hi = min(lv_max, target + 1)
             depth = (opts.get("narration_depth") or "standard").strip().lower()
-            if depth not in ("compact", "standard", "detailed"):
+            if depth not in ("compact", "standard", "detailed", "deep"):
                 depth = "standard"
             want_images = bool(opts.get("include_image_queries"))
+            material_note = (opts.get("material_summary") or "").strip()
 
             if depth == "compact":
                 narr_hint = "narration: 2-3 kurze Sätze auf Deutsch, klar und didaktisch"
                 body_max = "max 400 Zeichen"
+            elif depth == "deep":
+                narr_hint = (
+                    "narration: 12-18 ausführliche Sätze auf Deutsch, didaktisch, mit Definitionen, "
+                    "Beispielen und Zusammenhängen; nicht nur Stichpunkte vorlesen"
+                )
+                body_max = "max 950 Zeichen"
             elif depth == "detailed":
-                narr_hint = "narration: 6-10 ausführliche Sätze auf Deutsch, klar und didaktisch, mit Beispielen wo sinnvoll"
-                body_max = "max 700 Zeichen"
+                narr_hint = "narration: 8-14 ausführliche Sätze auf Deutsch, klar und didaktisch, mit Beispielen wo sinnvoll"
+                body_max = "max 800 Zeichen"
             else:
-                narr_hint = "narration: 3-6 Sätze auf Deutsch, klar und didaktisch"
-                body_max = "max 550 Zeichen"
+                narr_hint = "narration: 4-8 Sätze auf Deutsch, klar und didaktisch"
+                body_max = "max 600 Zeichen"
 
             scene_fields = '''      "title": "Kurzer Szenentitel",
       "body": "Stichpunkte oder Fließtext auf Deutsch (%s), für Folien",
@@ -804,6 +812,7 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
 Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
 {
   "title": "Kurztitel des Videos",
+  "opening_narration": "Genau 3-6 vollständige Sätze auf Deutsch: kurze Begrüßung, worum es geht, wie das Video aufgebaut ist (Roadmap). Wird als Erstes vorgelesen.",
   "scenes": [
     {
 %s
@@ -811,20 +820,22 @@ Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
   ]
 }
 Erzeuge zwischen %d und %d Szenen (Ziel: etwa %d). Jede Szene deckt einen inhaltlichen Abschnitt des Materials ab.
-Die gesprochene Gesamtfassung (alle narration-Felder) soll zusammenhängend wirken.
+Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) soll zusammenhängend wirken.
 """ % (
                 scene_fields,
                 lo,
                 hi,
                 target,
             )
+            if material_note:
+                schema_hint += "\nHinweis zum Umfang des Materials:\n" + material_note + "\n"
 
             model = genai.GenerativeModel(
                 get_best_model(model_preference),
                 generation_config={
                     "response_mime_type": "application/json",
                     "temperature": 0.4,
-                    "max_output_tokens": 8192,
+                    "max_output_tokens": 16384,
                 },
             )
             input_parts = [schema_hint + "\n\nAnalysiere das Material und fülle das JSON sinnvoll."]

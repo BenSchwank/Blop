@@ -142,11 +142,8 @@ def _slide_font_paths() -> List[str]:
     return [p for p in candidates if os.path.isfile(p)]
 
 
-def _load_slide_fonts():
-    from PIL import ImageFont
-
+def _resolve_ttf_paths() -> Tuple[Optional[str], Optional[str]]:
     paths = _slide_font_paths()
-    title_font = body_font = None
     bold_path = None
     regular_path = None
     for p in paths:
@@ -159,6 +156,14 @@ def _load_slide_fonts():
         regular_path = paths[-1]
     if not bold_path:
         bold_path = regular_path
+    return bold_path, regular_path
+
+
+def _load_slide_fonts():
+    from PIL import ImageFont
+
+    bold_path, regular_path = _resolve_ttf_paths()
+    title_font = body_font = None
     try:
         if bold_path:
             title_font = ImageFont.truetype(bold_path, 44)
@@ -219,6 +224,38 @@ def _draw_gradient_background(
         draw.line([(0, y), (width, y)], fill=(r, g, b))
 
 
+def _draw_footer_bar(draw, width: int, height: int, font_small, accent: Tuple[int, int, int]) -> None:
+    fh = 46
+    y0 = height - fh
+    draw.rectangle([0, y0, width, height], fill=(16, 18, 36))
+    draw.rectangle([0, y0, width, y0 + 3], fill=accent)
+    msg = "Blop Study · Lernvideo"
+    if font_small:
+        bbox = draw.textbbox((0, 0), msg, font=font_small)
+        tw = bbox[2] - bbox[0]
+        draw.text(((width - tw) // 2, y0 + 14), msg, fill=(170, 180, 210), font=font_small)
+
+
+def _draw_chapter_badge(
+    draw,
+    width: int,
+    chapter: str,
+    font_badge,
+    accent: Tuple[int, int, int],
+    margin: int,
+) -> None:
+    if not chapter or not font_badge:
+        return
+    label = f"Teil {chapter}"
+    pad_x, pad_y = 14, 8
+    bbox = draw.textbbox((0, 0), label, font=font_badge)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x1, y1 = width - margin - tw - 2 * pad_x, margin
+    x2, y2 = x1 + tw + 2 * pad_x, y1 + th + 2 * pad_y
+    draw.rounded_rectangle([x1, y1, x2, y2], radius=10, fill=(22, 24, 44), outline=accent, width=2)
+    draw.text((x1 + pad_x, y1 + pad_y), label, fill=(230, 235, 255), font=font_badge)
+
+
 def render_scene_slides(
     scenes: List[dict],
     width: int = VIDEO_W,
@@ -228,7 +265,7 @@ def render_scene_slides(
 ) -> List[str]:
     """Writes PNG files per scene; returns paths."""
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image, ImageDraw, ImageFont
     except ImportError as e:
         raise RuntimeError("Pillow (PIL) wird für Lernvideos benötigt.") from e
 
@@ -237,6 +274,15 @@ def render_scene_slides(
         style = "clean"
 
     font_title, font_body = _load_slide_fonts()
+    bold_path, regular_path = _resolve_ttf_paths()
+    font_footer = font_badge = None
+    try:
+        if regular_path:
+            font_footer = ImageFont.truetype(regular_path, 17)
+            font_badge = ImageFont.truetype(regular_path, 18)
+    except OSError:
+        font_footer = font_badge = font_body
+
     paths: List[str] = []
     tmp_root = tempfile.mkdtemp(prefix="blop_video_")
 
@@ -247,26 +293,36 @@ def render_scene_slides(
         ((62, 28, 24), (20, 14, 22), (255, 180, 100)),
     ]
 
+    footer_h = 46
+    margin = 56
+
+    def line_h(line: str, font) -> int:
+        if not font:
+            return 26
+        b = draw.textbbox((0, 0), line or "Ay", font=font)
+        return max(24, b[3] - b[1] + 8)
+
     for i, sc in enumerate(scenes):
-        title = str(sc.get("title") or f"Szene {i+1}")[:120]
+        is_title = str(sc.get("slide_kind") or "") == "title"
+        title = str(sc.get("title") or (f"Szene {i+1}" if not is_title else "Lernvideo"))[:120]
         body = str(sc.get("body") or sc.get("bullets") or "")[:2000]
+        chapter = str(sc.get("chapter") or "").strip()
         top_c, bot_c, accent = palettes[i % len(palettes)]
 
         img = Image.new("RGB", (width, height), color=bot_c)
         draw = ImageDraw.Draw(img)
 
         if style == "rich":
-            _draw_gradient_background(draw, width, height, top_c, bot_c)
-            draw.rectangle([0, 0, 12, height], fill=accent)
+            _draw_gradient_background(draw, width, height - footer_h, top_c, bot_c)
+            draw.rectangle([0, 0, 12, height - footer_h], fill=accent)
         else:
-            draw.rectangle([0, 0, width, height], fill=bot_c)
+            draw.rectangle([0, 0, width, height - footer_h], fill=bot_c)
 
-        margin = 56
-        text_left = margin + (20 if style == "rich" else 0)
-        y = margin + 8
+        text_top_limit = height - footer_h - 24
+        text_left = margin + (22 if style == "rich" else 0)
 
         photo_bytes = None
-        if use_stock_images:
+        if use_stock_images and not is_title:
             q = str(sc.get("image_query") or "").strip()
             if q:
                 photo_bytes = pexels_fetch_image_bytes(q)
@@ -276,14 +332,17 @@ def render_scene_slides(
                 from io import BytesIO
 
                 bg = Image.open(BytesIO(photo_bytes)).convert("RGB")
-                bg = bg.resize((width, height), Image.Resampling.LANCZOS)
+                bg = bg.resize((width, height - footer_h), Image.Resampling.LANCZOS)
                 img.paste(bg, (0, 0))
-                overlay = Image.new("RGBA", (width, height), (12, 14, 35, 200))
+                overlay = Image.new("RGBA", (width, height - footer_h), (12, 14, 35, 200))
                 img = img.convert("RGBA")
-                img = Image.alpha_composite(img, overlay).convert("RGB")
+                sub = img.crop((0, 0, width, height - footer_h))
+                sub = Image.alpha_composite(sub.convert("RGBA"), overlay).convert("RGB")
+                img.paste(sub, (0, 0))
+                img = img.convert("RGB")
                 draw = ImageDraw.Draw(img)
                 if style == "rich":
-                    draw.rectangle([0, 0, 10, height], fill=accent)
+                    draw.rectangle([0, 0, 10, height - footer_h], fill=accent)
             except Exception:
                 draw = ImageDraw.Draw(img)
 
@@ -293,21 +352,76 @@ def render_scene_slides(
             title_fill = (255, 255, 255)
             body_fill = (230, 235, 245)
 
-        def _line_h(line: str, font) -> int:
-            if not font:
-                return 26
-            b = draw.textbbox((0, 0), line or "Ay", font=font)
-            return max(24, b[3] - b[1] + 8)
+        if is_title:
+            ft_big = fb_sub = font_title
+            try:
+                if bold_path:
+                    ft_big = ImageFont.truetype(bold_path, 54)
+                if regular_path:
+                    fb_sub = ImageFont.truetype(regular_path, 28)
+            except OSError:
+                pass
+            # Decorative frame
+            if style == "rich":
+                inset = 48
+                draw.rounded_rectangle(
+                    [inset, inset, width - inset, height - footer_h - inset],
+                    radius=20,
+                    outline=accent,
+                    width=4,
+                )
+                inner = inset + 28
+                draw.rounded_rectangle(
+                    [inner, inner, width - inner, height - footer_h - inner],
+                    radius=14,
+                    fill=(14, 16, 32),
+                )
+            max_w = width - 2 * margin - 80
+            y = (height - footer_h) // 3
+            for line in _wrap_text(draw, title, ft_big, max_w):
+                bbox = draw.textbbox((0, 0), line, font=ft_big)
+                lw = bbox[2] - bbox[0]
+                draw.text(((width - lw) // 2, y), line, fill=title_fill, font=ft_big)
+                y += line_h(line, ft_big)
+            y += 28
+            for line in _wrap_text(draw, body, fb_sub, max_w - 40):
+                bbox = draw.textbbox((0, 0), line, font=fb_sub)
+                lw = bbox[2] - bbox[0]
+                draw.text(((width - lw) // 2, y), line, fill=body_fill, font=fb_sub)
+                y += line_h(line, fb_sub)
+                if y > text_top_limit - 40:
+                    break
+        else:
+            if style == "rich" and chapter:
+                _draw_chapter_badge(draw, width, chapter, font_badge, accent, margin)
+            card_margin = margin
+            card_top = margin + (52 if style == "rich" and chapter else 8)
+            card_w = width - 2 * card_margin - (22 if style == "rich" else 0)
+            # Title card background (rich)
+            if style == "rich" and not photo_bytes:
+                title_lines = _wrap_text(draw, title, font_title, card_w - 40)
+                body_lines = _wrap_text(draw, body, font_body, card_w - 40)
+                est_h = 20 + len(title_lines) * 52 + 20 + min(len(body_lines), 12) * 36
+                card_h = min(max(120, est_h), text_top_limit - card_top + 20)
+                draw.rounded_rectangle(
+                    [text_left - 16, card_top - 12, text_left + card_w, card_top + card_h],
+                    radius=16,
+                    fill=(28, 30, 52),
+                    outline=accent,
+                    width=2,
+                )
+            y = card_top + 8
+            for line in _wrap_text(draw, title, font_title, card_w - 24):
+                draw.text((text_left, y), line, fill=title_fill, font=font_title)
+                y += line_h(line, font_title)
+            y += 16
+            for line in _wrap_text(draw, body, font_body, card_w - 24):
+                draw.text((text_left, y), line, fill=body_fill, font=font_body)
+                y += line_h(line, font_body)
+                if y > text_top_limit:
+                    break
 
-        for line in _wrap_text(draw, title, font_title, width - 2 * margin - 20):
-            draw.text((text_left, y), line, fill=title_fill, font=font_title)
-            y += _line_h(line, font_title)
-        y += 18
-        for line in _wrap_text(draw, body, font_body, width - 2 * margin - 20):
-            draw.text((text_left, y), line, fill=body_fill, font=font_body)
-            y += _line_h(line, font_body)
-            if y > height - 48:
-                break
+        _draw_footer_bar(draw, width, height, font_footer, accent)
 
         p = os.path.join(tmp_root, f"slide_{i:03d}.png")
         img.save(p)

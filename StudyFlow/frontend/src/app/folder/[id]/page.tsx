@@ -598,7 +598,7 @@ export default function FolderPage() {
 
     const [isLearningVideoConfigOpen, setIsLearningVideoConfigOpen] = useState(false);
     const [lvTargetScenes, setLvTargetScenes] = useState(8);
-    const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed">("standard");
+    const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed" | "deep">("standard");
     const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich">("rich");
     const [lvMotion, setLvMotion] = useState<"static" | "ken_burns">("ken_burns");
     const [lvUseStockImages, setLvUseStockImages] = useState(false);
@@ -683,9 +683,14 @@ export default function FolderPage() {
             if (!raw) return;
             const p = JSON.parse(raw) as Record<string, unknown>;
             if (typeof p.targetScenes === "number" && Number.isFinite(p.targetScenes)) {
-                setLvTargetScenes(Math.min(14, Math.max(4, Math.round(p.targetScenes))));
+                setLvTargetScenes(Math.min(22, Math.max(4, Math.round(p.targetScenes))));
             }
-            if (p.narrationDepth === "compact" || p.narrationDepth === "standard" || p.narrationDepth === "detailed") {
+            if (
+                p.narrationDepth === "compact" ||
+                p.narrationDepth === "standard" ||
+                p.narrationDepth === "detailed" ||
+                p.narrationDepth === "deep"
+            ) {
                 setLvNarrationDepth(p.narrationDepth);
             }
             if (p.visualStyle === "clean" || p.visualStyle === "rich") {
@@ -3540,13 +3545,19 @@ export default function FolderPage() {
                                     <input
                                         type="range"
                                         min={4}
-                                        max={14}
+                                        max={22}
                                         step={1}
                                         value={lvTargetScenes}
                                         onChange={(e) => setLvTargetScenes(Number(e.target.value))}
                                         className="w-full accent-cyan-500"
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">Mehr Szenen und ausführlichere Erzählung verlängern das Video (mehr KI- und TTS-Nutzung).</p>
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                        <span>4</span>
+                                        <span>22</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Mehr Szenen und „Sehr ausführlich“ erzeugen deutlich längeres Audio (mehr KI- und OpenAI-TTS-Nutzung).
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Erzähltiefe</label>
@@ -3556,6 +3567,7 @@ export default function FolderPage() {
                                                 ["compact", "Kurz", "Weniger Sätze pro Szene"],
                                                 ["standard", "Standard", "Ausgewogene Länge"],
                                                 ["detailed", "Ausführlich", "Längere gesprochene Erklärung"],
+                                                ["deep", "Sehr ausführlich", "Viele Sätze pro Szene — deutlich längeres Video, höherer TTS-Verbrauch"],
                                             ] as const
                                         ).map(([key, label, hint]) => (
                                             <button
