@@ -5,6 +5,9 @@ const backendUrl = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_BACKEND_ORIGIN: backendUrl,
+  },
   async rewrites() {
     return [
       {

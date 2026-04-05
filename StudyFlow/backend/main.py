@@ -1024,7 +1024,10 @@ def signed_media_url(
     if not url:
         raise HTTPException(
             status_code=404,
-            detail="Signierte Medien-URL konnte nicht erstellt werden.",
+            detail=(
+                "Signierte Medien-URL konnte nicht erstellt werden. "
+                "Auf Render optional SUPABASE_SERVICE_ROLE_KEY setzen (Storage Sign-API)."
+            ),
         )
     return {"url": url, "expires_in": ttl}
 

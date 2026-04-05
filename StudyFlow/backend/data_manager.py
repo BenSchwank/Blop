@@ -16,6 +16,35 @@ DATA_DIR = "user_data"
 
 class DataManager:
     _supabase: Client = None
+    _supabase_signing: Client = None
+
+    @staticmethod
+    def _init_supabase_signing() -> Optional[Client]:
+        """Client für Storage-Signierung; bevorzugt SUPABASE_SERVICE_ROLE_KEY (Sign-API braucht oft Service-Role)."""
+        if DataManager._supabase_signing is not None:
+            return DataManager._supabase_signing
+        url: str = os.environ.get("SUPABASE_URL") or ""
+        key: str = (
+            os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            or os.environ.get("SUPABASE_KEY")
+            or ""
+        ).strip()
+        if not url or not key:
+            return None
+        try:
+            DataManager._supabase_signing = create_client(url, key)
+            return DataManager._supabase_signing
+        except Exception as e:
+            print(f"Supabase signing client init: {e}")
+            return None
+
+    @staticmethod
+    def _normalize_bucket_object_path(path: str, bucket_id: str) -> str:
+        p = (path or "").strip().lstrip("/")
+        prefix = f"{bucket_id}/"
+        if p.startswith(prefix):
+            p = p[len(prefix) :]
+        return p.strip().lstrip("/")
 
     @staticmethod
     def _init_supabase() -> Client:
@@ -619,24 +648,32 @@ class DataManager:
         media_type = (kind or "").strip().lower()
         if media_type not in ("video", "audio"):
             return None
+        bucket_id = "blop_documents"
         try:
-            meta = (
-                db.table("files")
-                .select("file_url")
-                .eq("id", file_id)
-                .eq("folder_id", str(folder_id))
-                .eq("username", username)
-                .eq("type", media_type)
-                .limit(1)
-                .execute()
-            )
-            if not meta.data:
-                return None
-            path = meta.data[0].get("file_url")
+            path = None
+            for fid in (str(folder_id), folder_id):
+                meta = (
+                    db.table("files")
+                    .select("file_url")
+                    .eq("id", file_id)
+                    .eq("folder_id", fid)
+                    .eq("username", username)
+                    .eq("type", media_type)
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data:
+                    path = meta.data[0].get("file_url")
+                    break
             if not path or not isinstance(path, str):
+                print("create_signed_media_url: keine file_url in DB")
+                return None
+            object_path = DataManager._normalize_bucket_object_path(path, bucket_id)
+            if not object_path:
                 return None
             ttl = max(60, min(int(expires_in or 3600), 7200))
-            res = db.storage.from_("blop_documents").create_signed_url(path, ttl)
+            sign_db = DataManager._init_supabase_signing() or db
+            res = sign_db.storage.from_(bucket_id).create_signed_url(object_path, ttl)
             url = None
             if isinstance(res, dict):
                 url = res.get("signedURL") or res.get("signed_url")
@@ -647,6 +684,7 @@ class DataManager:
                 url = getattr(res, "signed_url", None) or getattr(res, "signedURL", None)
             if isinstance(url, str) and url.startswith("http"):
                 return url
+            print(f"create_signed_media_url: unerwartete Signatur-Antwort: {type(res)!r}")
         except Exception as e:
             print(f"create_signed_media_url: {e}")
         return None

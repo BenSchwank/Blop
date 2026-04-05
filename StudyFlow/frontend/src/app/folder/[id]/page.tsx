@@ -660,6 +660,10 @@ export default function FolderPage() {
     const [signedMediaStatus, setSignedMediaStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
     const API_BASE = '/api';
+    const backendOrigin =
+        typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BACKEND_ORIGIN
+            ? String(process.env.NEXT_PUBLIC_BACKEND_ORIGIN).replace(/\/$/, '')
+            : '';
     const effectiveModelPreference = aiModelPreference || globalPreferredModel || undefined;
 
     useEffect(() => {
@@ -680,17 +684,30 @@ export default function FolderPage() {
                     showToast('Nicht angemeldet.', 'error');
                     return;
                 }
-                const res = await fetch(
-                    `${API_BASE}/files/signed-media-url?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}&kind=${kind}`,
-                    { signal: ac.signal }
-                );
-                if (!res.ok) throw new Error('signed-url');
-                const data = (await res.json()) as { url?: string };
-                if (!data.url) throw new Error('empty');
-                if (!ac.signal.aborted) {
-                    setSignedMediaUrl(data.url);
-                    setSignedMediaStatus('ready');
+                const q = `username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}`;
+                const res = await fetch(`${API_BASE}/files/signed-media-url?${q}&kind=${kind}`, {
+                    signal: ac.signal,
+                });
+                if (res.ok) {
+                    const data = (await res.json()) as { url?: string };
+                    if (data.url && !ac.signal.aborted) {
+                        setSignedMediaUrl(data.url);
+                        setSignedMediaStatus('ready');
+                        return;
+                    }
                 }
+                if (backendOrigin) {
+                    const direct =
+                        kind === 'video'
+                            ? `${backendOrigin}/api/files/download_video?${q}`
+                            : `${backendOrigin}/api/files/download_audio?${q}`;
+                    if (!ac.signal.aborted) {
+                        setSignedMediaUrl(direct);
+                        setSignedMediaStatus('ready');
+                        return;
+                    }
+                }
+                throw new Error('no-media-url');
             } catch {
                 if (!ac.signal.aborted) {
                     setSignedMediaStatus('error');
@@ -700,7 +717,7 @@ export default function FolderPage() {
         };
         void run();
         return () => ac.abort();
-    }, [selectedFile?.id, selectedFile?.type, folderId]);
+    }, [selectedFile?.id, selectedFile?.type, folderId, backendOrigin]);
 
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
