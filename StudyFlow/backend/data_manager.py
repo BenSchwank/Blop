@@ -558,21 +558,70 @@ class DataManager:
             return None, None
 
     @staticmethod
+    def get_audio_bytes(
+        filename: str, username: str, folder_id: str, file_id: Optional[str] = None
+    ):
+        """Load audio from storage; prefer file_id so renames (DB name vs object key) stay valid."""
+        db = DataManager._init_supabase()
+        if not db:
+            return None, None
+        path = None
+        resolved_name = filename or None
+        if file_id:
+            try:
+                meta = (
+                    db.table("files")
+                    .select("file_url,name")
+                    .eq("id", file_id)
+                    .eq("folder_id", str(folder_id))
+                    .eq("username", username)
+                    .eq("type", "audio")
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data and len(meta.data) > 0:
+                    path = meta.data[0].get("file_url")
+                    if not resolved_name:
+                        resolved_name = meta.data[0].get("name") or "audio.mp3"
+            except Exception:
+                path = None
+        if not path and filename:
+            path = f"{username}/{folder_id}/audio/{filename}"
+        if not path:
+            return None, None
+        try:
+            payload = db.storage.from_("blop_documents").download(path)
+            if hasattr(payload, "content"):
+                payload = payload.content
+            if hasattr(payload, "read"):
+                payload = payload.read()
+            if isinstance(payload, bytearray):
+                payload = bytes(payload)
+            if not isinstance(payload, (bytes, memoryview)):
+                return None, None
+            base = os.path.basename(path) or "audio.mp3"
+            return bytes(payload), (resolved_name or base)
+        except Exception:
+            return None, None
+
+    @staticmethod
     def get_audio_path(filename, username, folder_id):
         db = DataManager._init_supabase()
-        if not db: return None
-        
+        if not db:
+            return None
+
         path = f"{username}/{folder_id}/audio/{filename}"
         try:
             res = db.storage.from_("blop_documents").download(path)
             tmp_dir = os.path.join(DATA_DIR, "temp")
-            if not os.path.exists(tmp_dir): os.makedirs(tmp_dir)
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
             tmp_path = os.path.join(tmp_dir, filename)
-            
+
             with open(tmp_path, "wb") as f:
                 f.write(res)
             return tmp_path
-        except:
+        except Exception:
             return None
 
     @staticmethod

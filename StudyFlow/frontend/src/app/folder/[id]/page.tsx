@@ -658,6 +658,10 @@ export default function FolderPage() {
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
 
     const API_BASE = '/api';
+    const API_MEDIA_BASE =
+        typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BACKEND_ORIGIN
+            ? `${String(process.env.NEXT_PUBLIC_BACKEND_ORIGIN).replace(/\/$/, '')}/api`
+            : API_BASE;
     const effectiveModelPreference = aiModelPreference || globalPreferredModel || undefined;
 
     const persistAiContext = async (next: string[] | null) => {
@@ -2166,7 +2170,7 @@ export default function FolderPage() {
 
         if (selectedFile.type === 'audio') {
             const username = typeof window !== "undefined" ? localStorage.getItem("username") || "" : "";
-            const audioUrl = `${API_BASE}/files/download_audio?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&filename=${encodeURIComponent(selectedFile.name)}`;
+            const audioUrl = `${API_MEDIA_BASE}/files/download_audio?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id)}`;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -2188,8 +2192,13 @@ export default function FolderPage() {
                             Download
                         </a>
                     </div>
-                    <div className="flex-1 flex items-center justify-center p-8">
-                        <audio controls className="w-full max-w-xl" src={audioUrl}>
+                    <div className="flex-1 flex items-center justify-center p-8 w-full">
+                        <audio
+                            controls
+                            className="w-full max-w-xl min-h-[54px]"
+                            src={audioUrl}
+                            onError={() => showToast("Audio konnte nicht geladen werden.", "error")}
+                        >
                             <track kind="captions" />
                         </audio>
                     </div>
@@ -2199,7 +2208,7 @@ export default function FolderPage() {
 
         if (selectedFile.type === 'video') {
             const username = typeof window !== "undefined" ? localStorage.getItem("username") || "" : "";
-            const videoUrl = `${API_BASE}/files/download_video?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id)}`;
+            const videoUrl = `${API_MEDIA_BASE}/files/download_video?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id)}`;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -2221,10 +2230,18 @@ export default function FolderPage() {
                             Download
                         </a>
                     </div>
-                    <div className="flex-1 flex items-center justify-center p-4 bg-black">
-                        <video controls className="w-full max-w-4xl max-h-[min(80vh,720px)] rounded-xl border border-[#2A2A40]" src={videoUrl}>
-                            <track kind="captions" />
-                        </video>
+                    <div className="flex-1 flex items-center justify-center p-4 bg-black w-full min-h-0">
+                        <div className="w-full max-w-4xl aspect-video min-h-[220px] max-h-[min(80vh,720px)] rounded-xl border border-[#2A2A40] bg-black overflow-hidden flex items-center justify-center">
+                            <video
+                                controls
+                                playsInline
+                                className="h-full w-full max-h-[min(80vh,720px)] object-contain"
+                                onError={() => showToast("Video konnte nicht geladen werden.", "error")}
+                            >
+                                <source src={videoUrl} type="video/mp4" />
+                                <track kind="captions" />
+                            </video>
+                        </div>
                     </div>
                 </div>
             );
@@ -2310,7 +2327,7 @@ export default function FolderPage() {
                                         const match = contentStr.match(/<!-- AUDIO_FILE:(.*?) -->/);
                                         if (match && match[1]) {
                                             const filename = match[1];
-                                            const url = `${API_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
+                                            const url = `${API_MEDIA_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
                                             const a = document.createElement('a');
                                             a.href = url;
                                             a.download = filename;
@@ -2539,7 +2556,7 @@ export default function FolderPage() {
 
         if (selectedFile.type === 'pdf') {
             const username = typeof window !== 'undefined' ? localStorage.getItem("username") || "" : "";
-            const pdfUrl = `${API_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
+            const pdfUrl = `${API_MEDIA_BASE}/files/download_pdf?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id || "")}&filename=${encodeURIComponent(selectedFile.name || "")}`;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -2642,7 +2659,7 @@ export default function FolderPage() {
                                     const match = contentStrGeneric.match(/<!-- AUDIO_FILE:(.*?) -->/);
                                     if (match && match[1]) {
                                         const filename = match[1];
-                                        const url = `${API_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
+                                        const url = `${API_MEDIA_BASE}/files/download_audio?username=${username}&folder_id=${folderId}&filename=${filename}`;
                                         const a = document.createElement('a');
                                         a.href = url;
                                         a.download = filename;

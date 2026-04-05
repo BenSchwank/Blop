@@ -253,6 +253,8 @@ def ffmpeg_slideshow_with_audio(
                 "copy",
                 "-c:a",
                 "aac",
+                "-movflags",
+                "+faststart",
                 "-shortest",
                 output_mp4_path,
             ],

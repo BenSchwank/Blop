@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -1005,36 +1005,84 @@ async def upload_image(
         raise HTTPException(status_code=500, detail=f"Fehler bei der Bildverarbeitung: {str(e)}")
 
 @app.get("/api/files/download_audio")
-def download_audio(username: str, folder_id: str, filename: str):
-    """Downloads an audio file."""
-    from fastapi.responses import FileResponse
-    path = DataManager.get_audio_path(filename, username, folder_id)
-    if not path or not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
-    return FileResponse(path, media_type="audio/mpeg", filename=filename)
-
-
-@app.get("/api/files/download_video")
-def download_video(
+def download_audio(
     username: str,
     folder_id: str,
     filename: str = "",
     file_id: Optional[str] = None,
 ):
-    """Streams an MP4 learning video from storage."""
+    """Streams an audio file (MP3); use file_id after renames — DB file_url stays correct."""
+    from fastapi.responses import Response
+    try:
+        if not file_id and not (filename or "").strip():
+            raise HTTPException(status_code=400, detail="file_id oder filename erforderlich")
+        audio_bytes, download_name = DataManager.get_audio_bytes(
+            filename or "", username, folder_id, file_id=file_id
+        )
+        if not audio_bytes:
+            raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
+        safe_name = (download_name or "audio.mp3").replace('"', "")
+        return Response(
+            content=audio_bytes,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f'inline; filename="{safe_name}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio-Download fehlgeschlagen: {str(e)}")
+
+
+@app.get("/api/files/download_video")
+def download_video(
+    request: Request,
+    username: str,
+    folder_id: str,
+    filename: str = "",
+    file_id: Optional[str] = None,
+):
+    """Streams an MP4 learning video from storage (Range requests for browser players)."""
     from fastapi.responses import Response
     try:
         video_bytes, download_name = DataManager.get_video_bytes(filename, username, folder_id, file_id=file_id)
         if not video_bytes:
             raise HTTPException(status_code=404, detail="Video nicht gefunden")
         safe_name = (download_name or "video.mp4").replace('"', "")
+        total = len(video_bytes)
+        headers_base = {
+            "Content-Disposition": f'inline; filename="{safe_name}"',
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-store",
+        }
+        range_header = (request.headers.get("range") or request.headers.get("Range") or "").strip()
+        if range_header.startswith("bytes="):
+            try:
+                spec = range_header[6:].strip()
+                start_s, end_s = spec.split("-", 1)
+                start = int(start_s) if start_s else 0
+                end = int(end_s) if end_s else total - 1
+                start = max(0, min(start, total - 1))
+                end = max(start, min(end, total - 1))
+                chunk = video_bytes[start : end + 1]
+                return Response(
+                    content=chunk,
+                    status_code=206,
+                    media_type="video/mp4",
+                    headers={
+                        **headers_base,
+                        "Content-Range": f"bytes {start}-{end}/{total}",
+                        "Content-Length": str(len(chunk)),
+                    },
+                )
+            except (ValueError, TypeError):
+                pass
         return Response(
             content=video_bytes,
             media_type="video/mp4",
-            headers={
-                "Content-Disposition": f'inline; filename="{safe_name}"',
-                "Cache-Control": "no-store",
-            },
+            headers={**headers_base, "Content-Length": str(total)},
         )
     except HTTPException:
         raise

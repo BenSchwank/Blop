@@ -1,9 +1,15 @@
 import type { NextConfig } from "next";
 
+const backendUrl = (
+  process.env.BACKEND_URL || "https://blop-study-backend.onrender.com"
+).replace(/\/$/, "");
+
 const nextConfig: NextConfig = {
+  // Für <video>/<audio>: Browser lädt direkt vom API-Host (Vercel-Rewrites können große Binärantworten leeren/failen)
+  env: {
+    NEXT_PUBLIC_BACKEND_ORIGIN: backendUrl,
+  },
   async rewrites() {
-    // BACKEND_URL can override in Vercel env vars if URL changes
-    const backendUrl = process.env.BACKEND_URL || "https://blop-v1s5.onrender.com";
     return [
       {
         source: "/api/:path*",
