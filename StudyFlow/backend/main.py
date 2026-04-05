@@ -71,15 +71,51 @@ def _learning_video_job_fail(job_id: str, detail: str) -> None:
             _LEARNING_VIDEO_JOBS[job_id]["finished_at"] = time.time()
 
 
+def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
+    """Defaults match previous behavior: ~6 scenes, standard narration, clean static slides."""
+    ts = req.target_scenes
+    if ts is None:
+        ts = 6
+    try:
+        ts = int(ts)
+    except (TypeError, ValueError):
+        ts = 6
+    ts = max(4, min(14, ts))
+    depth = (req.narration_depth or "standard").strip().lower()
+    if depth not in ("compact", "standard", "detailed"):
+        depth = "standard"
+    visual = (req.visual_style or "clean").strip().lower()
+    if visual not in ("clean", "rich"):
+        visual = "clean"
+    motion = (req.motion or "static").strip().lower()
+    if motion not in ("static", "ken_burns"):
+        motion = "static"
+    use_stock = bool(req.use_stock_images)
+    if use_stock and not os.environ.get("PEXELS_API_KEY", "").strip():
+        print("Lernvideo: Stock-Bilder gewünscht, aber PEXELS_API_KEY fehlt — Folien ohne Fotos.")
+        use_stock = False
+    voice = (req.tts_voice or "alloy").strip().lower()
+    return {
+        "target_scenes": ts,
+        "narration_depth": depth,
+        "visual_style": visual,
+        "motion": motion,
+        "use_stock_images": use_stock,
+        "tts_voice": voice,
+    }
+
+
 def _learning_video_job_worker(
     job_id: str,
     username: str,
     folder_id: str,
     model_preference: Optional[str],
+    lv_opts: Optional[dict] = None,
 ) -> None:
     from ai_service import AIService
     from media_pipeline import openai_tts_speech_mp3, render_scene_slides, ffmpeg_slideshow_with_audio
 
+    opts = lv_opts or {}
     slide_root: Optional[str] = None
     work_tmp: Optional[str] = None
     try:
@@ -93,7 +129,14 @@ def _learning_video_job_worker(
             )
             return
         sb_result = AIService.generate_learning_video_storyboard(
-            context, model_preference=model_pref, return_meta=True
+            context,
+            model_preference=model_pref,
+            return_meta=True,
+            storyboard_options={
+                "target_scenes": opts.get("target_scenes", 6),
+                "narration_depth": opts.get("narration_depth", "standard"),
+                "include_image_queries": bool(opts.get("use_stock_images")),
+            },
         )
         data = sb_result["data"]
         scenes = data.get("scenes") or []
@@ -107,15 +150,25 @@ def _learning_video_job_worker(
         )
         if not full_narration.strip():
             full_narration = str(data.get("title") or "Kurzes Lernvideo zu deinem Material.")
-        mp3_bytes = openai_tts_speech_mp3(full_narration)
+        mp3_bytes = openai_tts_speech_mp3(full_narration, voice=opts.get("tts_voice") or "alloy")
+        use_stock = bool(opts.get("use_stock_images"))
         slide_scenes = []
         for s in scenes:
             title = s.get("title") or ""
             body = s.get("body") or ""
             if isinstance(body, list):
                 body = "\n".join(str(x) for x in body)
-            slide_scenes.append({"title": str(title), "body": str(body)})
-        img_paths = render_scene_slides(slide_scenes)
+            item = {"title": str(title), "body": str(body)}
+            if use_stock:
+                iq = str(s.get("image_query") or "").strip()
+                if iq:
+                    item["image_query"] = iq
+            slide_scenes.append(item)
+        img_paths = render_scene_slides(
+            slide_scenes,
+            visual_style=opts.get("visual_style", "clean"),
+            use_stock_images=use_stock,
+        )
         if img_paths:
             slide_root = os.path.dirname(img_paths[0])
         work_tmp = tempfile.mkdtemp(prefix="blop_lv_")
@@ -123,7 +176,12 @@ def _learning_video_job_worker(
         with open(audio_path, "wb") as f:
             f.write(mp3_bytes)
         out_mp4 = os.path.join(work_tmp, "out.mp4")
-        ffmpeg_slideshow_with_audio(img_paths, audio_path, out_mp4)
+        ffmpeg_slideshow_with_audio(
+            img_paths,
+            audio_path,
+            out_mp4,
+            motion=opts.get("motion", "static"),
+        )
         with open(out_mp4, "rb") as f:
             video_bytes = f.read()
         if not video_bytes:
@@ -1222,6 +1280,12 @@ class LearningVideoRequest(BaseModel):
     username: str
     folder_id: str
     model_preference: Optional[str] = None
+    target_scenes: Optional[int] = None
+    narration_depth: Optional[str] = None
+    visual_style: Optional[str] = None
+    motion: Optional[str] = None
+    use_stock_images: Optional[bool] = None
+    tts_voice: Optional[str] = None
 
 
 @app.post("/api/ai/plan")
@@ -1933,6 +1997,7 @@ def create_learning_video(request: LearningVideoRequest):
     except HTTPException:
         raise
     job_id = str(uuid.uuid4())
+    lv_opts = _normalize_learning_video_options(request)
     with _LEARNING_VIDEO_JOBS_LOCK:
         _learning_video_prune_jobs_locked()
         _LEARNING_VIDEO_JOBS[job_id] = {
@@ -1942,7 +2007,7 @@ def create_learning_video(request: LearningVideoRequest):
         }
     thread = threading.Thread(
         target=_learning_video_job_worker,
-        args=(job_id, request.username, request.folder_id, request.model_preference),
+        args=(job_id, request.username, request.folder_id, request.model_preference, lv_opts),
         daemon=True,
     )
     thread.start()

@@ -100,6 +100,8 @@ const AI_JOB_LABELS: Record<string, string> = {
     'learning-video': 'Lernvideo',
 };
 
+const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
+
 /** File types that the backend includes in folder AI context (see _get_folder_context). */
 const AI_CONTEXT_FILE_TYPES = new Set([
     'transcript',
@@ -594,6 +596,14 @@ export default function FolderPage() {
     const [flashcardsCount, setFlashcardsCount] = useState(20);
     const [flashcardsMaxText, setFlashcardsMaxText] = useState(320);
 
+    const [isLearningVideoConfigOpen, setIsLearningVideoConfigOpen] = useState(false);
+    const [lvTargetScenes, setLvTargetScenes] = useState(8);
+    const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed">("standard");
+    const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich">("rich");
+    const [lvMotion, setLvMotion] = useState<"static" | "ken_burns">("ken_burns");
+    const [lvUseStockImages, setLvUseStockImages] = useState(false);
+    const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
+
     // Learning Mode (shared across plan/summary/repetition modals)
     const [learningMode, setLearningMode] = useState<'normal' | 'exercise'>('normal');
 
@@ -665,6 +675,35 @@ export default function FolderPage() {
             ? String(process.env.NEXT_PUBLIC_BACKEND_ORIGIN).replace(/\/$/, '')
             : '';
     const effectiveModelPreference = aiModelPreference || globalPreferredModel || undefined;
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        try {
+            const raw = localStorage.getItem(LEARNING_VIDEO_SETTINGS_KEY);
+            if (!raw) return;
+            const p = JSON.parse(raw) as Record<string, unknown>;
+            if (typeof p.targetScenes === "number" && Number.isFinite(p.targetScenes)) {
+                setLvTargetScenes(Math.min(14, Math.max(4, Math.round(p.targetScenes))));
+            }
+            if (p.narrationDepth === "compact" || p.narrationDepth === "standard" || p.narrationDepth === "detailed") {
+                setLvNarrationDepth(p.narrationDepth);
+            }
+            if (p.visualStyle === "clean" || p.visualStyle === "rich") {
+                setLvVisualStyle(p.visualStyle);
+            }
+            if (p.motion === "static" || p.motion === "ken_burns") {
+                setLvMotion(p.motion);
+            }
+            if (typeof p.useStockImages === "boolean") {
+                setLvUseStockImages(p.useStockImages);
+            }
+            if (typeof p.ttsVoice === "string" && p.ttsVoice.trim()) {
+                setLvTtsVoice(p.ttsVoice.trim().toLowerCase());
+            }
+        } catch {
+            /* ignore */
+        }
+    }, []);
 
     useEffect(() => {
         if (!selectedFile || (selectedFile.type !== 'video' && selectedFile.type !== 'audio')) {
@@ -1702,6 +1741,22 @@ export default function FolderPage() {
     };
 
     const handleLearningVideoGenerate = async () => {
+        setIsLearningVideoConfigOpen(false);
+        try {
+            localStorage.setItem(
+                LEARNING_VIDEO_SETTINGS_KEY,
+                JSON.stringify({
+                    targetScenes: lvTargetScenes,
+                    narrationDepth: lvNarrationDepth,
+                    visualStyle: lvVisualStyle,
+                    motion: lvMotion,
+                    useStockImages: lvUseStockImages,
+                    ttsVoice: lvTtsVoice,
+                })
+            );
+        } catch {
+            /* ignore */
+        }
         setIsGenerating((prev) => (prev.includes("learning-video") ? prev : [...prev, "learning-video"]));
         queueStart("learning-video");
         const jobId = `${folderId}:learning-video`;
@@ -1718,6 +1773,12 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     model_preference: effectiveModelPreference,
+                    target_scenes: lvTargetScenes,
+                    narration_depth: lvNarrationDepth,
+                    visual_style: lvVisualStyle,
+                    motion: lvMotion,
+                    use_stock_images: lvUseStockImages,
+                    tts_voice: lvTtsVoice,
                 }),
                 signal: ac.signal,
             });
@@ -2966,7 +3027,7 @@ export default function FolderPage() {
                             <button type="button" onClick={() => void handlePodcastGenerate()} disabled={isGenerating.includes('podcast')} className="p-2.5 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50" title="Podcast aus Material (TTS)">
                                 {isGenerating.includes('podcast') ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}
                             </button>
-                            <button type="button" onClick={() => void handleLearningVideoGenerate()} disabled={isGenerating.includes('learning-video')} className="p-2.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernvideo (Slideshow + KI)">
+                            <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="p-2.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernvideo (Einstellungen & KI)">
                                 {isGenerating.includes('learning-video') ? <Loader2 size={20} className="animate-spin" /> : <Video size={20} />}
                             </button>
                         </div>
@@ -3441,6 +3502,192 @@ export default function FolderPage() {
                                 </button>
                                 <button onClick={handleFlashcardsGenerate} className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
                                     <Layers size={16} />
+                                    Generieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Learning video config */}
+                {isLearningVideoConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40] shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-300">
+                                        <Video size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Lernvideo</h3>
+                                        <p className="text-xs text-gray-400">Szenen, Sprache, Optik und Bewegung</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsLearningVideoConfigOpen(false)}
+                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Anzahl Szenen (ca.)
+                                        <span className="ml-2 text-cyan-400 font-bold">{lvTargetScenes}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min={4}
+                                        max={14}
+                                        step={1}
+                                        value={lvTargetScenes}
+                                        onChange={(e) => setLvTargetScenes(Number(e.target.value))}
+                                        className="w-full accent-cyan-500"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Mehr Szenen und ausführlichere Erzählung verlängern das Video (mehr KI- und TTS-Nutzung).</p>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Erzähltiefe</label>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {(
+                                            [
+                                                ["compact", "Kurz", "Weniger Sätze pro Szene"],
+                                                ["standard", "Standard", "Ausgewogene Länge"],
+                                                ["detailed", "Ausführlich", "Längere gesprochene Erklärung"],
+                                            ] as const
+                                        ).map(([key, label, hint]) => (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                onClick={() => setLvNarrationDepth(key)}
+                                                className={`text-left py-2.5 px-3 rounded-xl text-sm border transition-colors ${
+                                                    lvNarrationDepth === key
+                                                        ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                        : "bg-[#151525] text-gray-300 border-[#2A2A40] hover:border-[#3B3B55]"
+                                                }`}
+                                            >
+                                                <span className="font-medium">{label}</span>
+                                                <span className="block text-xs text-gray-500 mt-0.5">{hint}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Folien-Stil</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setLvVisualStyle("clean")}
+                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                                lvVisualStyle === "clean"
+                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                            }`}
+                                        >
+                                            Schlicht
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLvVisualStyle("rich")}
+                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                                lvVisualStyle === "rich"
+                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                            }`}
+                                        >
+                                            Dekorativ
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Bewegung</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setLvMotion("static")}
+                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                                lvMotion === "static"
+                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                            }`}
+                                        >
+                                            Statisch
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLvMotion("ken_burns")}
+                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                                lvMotion === "ken_burns"
+                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                            }`}
+                                        >
+                                            Zoom &amp; Überblendung
+                                        </button>
+                                    </div>
+                                </div>
+                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
+                                    <input
+                                        type="checkbox"
+                                        className="mt-1 rounded border-[#2A2A40] text-cyan-500 focus:ring-cyan-500/40"
+                                        checked={lvUseStockImages}
+                                        onChange={(e) => setLvUseStockImages(e.target.checked)}
+                                    />
+                                    <span>
+                                        <span className="text-sm font-medium text-gray-200">Stock-Fotos (Pexels)</span>
+                                        <span className="block text-xs text-gray-500 mt-0.5">
+                                            Nur wenn der Server <code className="text-gray-400">PEXELS_API_KEY</code> gesetzt hat. Sonst werden Fotos automatisch übersprungen.
+                                        </span>
+                                    </span>
+                                </label>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">TTS-Stimme (OpenAI)</label>
+                                    <select
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 outline-none transition-all appearance-none"
+                                        value={lvTtsVoice}
+                                        onChange={(e) => setLvTtsVoice(e.target.value)}
+                                    >
+                                        <option value="alloy">Alloy</option>
+                                        <option value="echo">Echo</option>
+                                        <option value="fable">Fable</option>
+                                        <option value="onyx">Onyx</option>
+                                        <option value="nova">Nova</option>
+                                        <option value="shimmer">Shimmer</option>
+                                    </select>
+                                </div>
+                                <div className="pt-2 border-t border-[#2A2A40]">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
+                                    <select
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
+                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                        <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40] shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsLearningVideoConfigOpen(false)}
+                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                                >
+                                    Abbrechen
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void handleLearningVideoGenerate()}
+                                    className="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Video size={16} />
                                     Generieren
                                 </button>
                             </div>

@@ -766,9 +766,59 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
             raise Exception(f"Podcast-Skript fehlgeschlagen: {str(e)}")
 
     @staticmethod
-    def generate_learning_video_storyboard(content: List[Any], model_preference: str = None, return_meta: bool = False) -> Any:
+    def generate_learning_video_storyboard(
+        content: List[Any],
+        model_preference: str = None,
+        return_meta: bool = False,
+        storyboard_options: Optional[dict] = None,
+    ) -> Any:
         """JSON storyboard with scenes for slideshow + narration."""
         try:
+            opts = storyboard_options or {}
+            target = int(opts.get("target_scenes") or 6)
+            target = max(4, min(14, target))
+            lo = max(4, target - 1)
+            hi = min(14, target + 1)
+            depth = (opts.get("narration_depth") or "standard").strip().lower()
+            if depth not in ("compact", "standard", "detailed"):
+                depth = "standard"
+            want_images = bool(opts.get("include_image_queries"))
+
+            if depth == "compact":
+                narr_hint = "narration: 2-3 kurze Sätze auf Deutsch, klar und didaktisch"
+                body_max = "max 400 Zeichen"
+            elif depth == "detailed":
+                narr_hint = "narration: 6-10 ausführliche Sätze auf Deutsch, klar und didaktisch, mit Beispielen wo sinnvoll"
+                body_max = "max 700 Zeichen"
+            else:
+                narr_hint = "narration: 3-6 Sätze auf Deutsch, klar und didaktisch"
+                body_max = "max 550 Zeichen"
+
+            scene_fields = '''      "title": "Kurzer Szenentitel",
+      "body": "Stichpunkte oder Fließtext auf Deutsch (%s), für Folien",
+      "narration": "%s"''' % (body_max, narr_hint.replace('"', "'"))
+            if want_images:
+                scene_fields += ',\n      "image_query": "2-4 English keywords for a stock photo (no people faces if possible), e.g. ancient rome map"'
+
+            schema_hint = """
+Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
+{
+  "title": "Kurztitel des Videos",
+  "scenes": [
+    {
+%s
+    }
+  ]
+}
+Erzeuge zwischen %d und %d Szenen (Ziel: etwa %d). Jede Szene deckt einen inhaltlichen Abschnitt des Materials ab.
+Die gesprochene Gesamtfassung (alle narration-Felder) soll zusammenhängend wirken.
+""" % (
+                scene_fields,
+                lo,
+                hi,
+                target,
+            )
+
             model = genai.GenerativeModel(
                 get_best_model(model_preference),
                 generation_config={
@@ -777,20 +827,6 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
                     "max_output_tokens": 8192,
                 },
             )
-            schema_hint = """
-Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
-{
-  "title": "Kurztitel des Videos",
-  "scenes": [
-    {
-      "title": "Kurzer Szenentitel",
-      "body": "Stichpunkte oder sehr kurzer Text auf Deutsch (max 500 Zeichen), für Folien",
-      "narration": "Was gesprochen wird: 2-5 Sätze auf Deutsch, klar und didaktisch"
-    }
-  ]
-}
-Genau 4 bis 7 Szenen. Jede Szene muss inhaltlich einen Abschnitt des Materials abdecken.
-"""
             input_parts = [schema_hint + "\n\nAnalysiere das Material und fülle das JSON sinnvoll."]
             if isinstance(content, list):
                 input_parts.extend(content)
