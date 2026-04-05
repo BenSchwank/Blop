@@ -1008,6 +1008,27 @@ async def upload_image(
         print(f"Image Upload Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler bei der Bildverarbeitung: {str(e)}")
 
+@app.get("/api/files/signed-media-url")
+def signed_media_url(
+    username: str,
+    folder_id: str,
+    file_id: str,
+    kind: str,
+    expires_in: int = 3600,
+):
+    """Kurzlebige Supabase-URL für Video/Audio — Wiedergabe umgeht Vercel-Rewrite (große MP4)."""
+    ttl = max(60, min(int(expires_in), 7200))
+    url = DataManager.create_signed_media_url(
+        username, folder_id, file_id, kind, expires_in=ttl
+    )
+    if not url:
+        raise HTTPException(
+            status_code=404,
+            detail="Signierte Medien-URL konnte nicht erstellt werden.",
+        )
+    return {"url": url, "expires_in": ttl}
+
+
 @app.get("/api/files/download_audio")
 def download_audio(
     username: str,

@@ -656,9 +656,51 @@ export default function FolderPage() {
     const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
     const [documentUndoStack, setDocumentUndoStack] = useState<Record<string, string[]>>({});
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
+    const [signedMediaUrl, setSignedMediaUrl] = useState<string | null>(null);
+    const [signedMediaStatus, setSignedMediaStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
     const API_BASE = '/api';
     const effectiveModelPreference = aiModelPreference || globalPreferredModel || undefined;
+
+    useEffect(() => {
+        if (!selectedFile || (selectedFile.type !== 'video' && selectedFile.type !== 'audio')) {
+            setSignedMediaUrl(null);
+            setSignedMediaStatus('idle');
+            return;
+        }
+        const ac = new AbortController();
+        const kind = selectedFile.type === 'video' ? 'video' : 'audio';
+        setSignedMediaStatus('loading');
+        setSignedMediaUrl(null);
+        const run = async () => {
+            try {
+                const username = localStorage.getItem('username');
+                if (!username) {
+                    setSignedMediaStatus('error');
+                    showToast('Nicht angemeldet.', 'error');
+                    return;
+                }
+                const res = await fetch(
+                    `${API_BASE}/files/signed-media-url?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(String(folderId))}&file_id=${encodeURIComponent(selectedFile.id)}&kind=${kind}`,
+                    { signal: ac.signal }
+                );
+                if (!res.ok) throw new Error('signed-url');
+                const data = (await res.json()) as { url?: string };
+                if (!data.url) throw new Error('empty');
+                if (!ac.signal.aborted) {
+                    setSignedMediaUrl(data.url);
+                    setSignedMediaStatus('ready');
+                }
+            } catch {
+                if (!ac.signal.aborted) {
+                    setSignedMediaStatus('error');
+                    showToast('Medien konnten nicht geladen werden.', 'error');
+                }
+            }
+        };
+        void run();
+        return () => ac.abort();
+    }, [selectedFile?.id, selectedFile?.type, folderId]);
 
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
@@ -2165,8 +2207,7 @@ export default function FolderPage() {
         if (!selectedFile) return null;
 
         if (selectedFile.type === 'audio') {
-            const username = typeof window !== "undefined" ? localStorage.getItem("username") || "" : "";
-            const audioUrl = `${API_BASE}/files/download_audio?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id)}`;
+            const canPlay = signedMediaStatus === 'ready' && !!signedMediaUrl;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -2180,31 +2221,39 @@ export default function FolderPage() {
                             <h3 className="text-lg font-semibold text-white truncate max-w-[min(80vw,28rem)]">{selectedFile.name}</h3>
                         </div>
                         <a
-                            href={audioUrl}
+                            href={canPlay ? signedMediaUrl! : undefined}
                             download={selectedFile.name}
-                            className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold"
+                            className={`flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold ${!canPlay ? 'pointer-events-none opacity-50' : ''}`}
                         >
                             <Download size={14} />
                             Download
                         </a>
                     </div>
                     <div className="flex-1 flex items-center justify-center p-8 w-full">
-                        <audio
-                            controls
-                            className="w-full max-w-xl min-h-[54px]"
-                            src={audioUrl}
-                            onError={() => showToast("Audio konnte nicht geladen werden.", "error")}
-                        >
-                            <track kind="captions" />
-                        </audio>
+                        {signedMediaStatus === 'loading' && (
+                            <Loader2 className="h-12 w-12 animate-spin text-pink-300" aria-label="Lädt" />
+                        )}
+                        {signedMediaStatus === 'error' && (
+                            <p className="text-gray-400 text-sm text-center px-4">Wiedergabe nicht möglich. Bitte erneut öffnen oder Seite aktualisieren.</p>
+                        )}
+                        {canPlay && (
+                            <audio
+                                controls
+                                className="w-full max-w-xl min-h-[54px]"
+                                src={signedMediaUrl!}
+                                onError={() => showToast("Audio konnte nicht geladen werden.", "error")}
+                            >
+                                <track kind="captions" />
+                            </audio>
+                        )}
                     </div>
                 </div>
             );
         }
 
         if (selectedFile.type === 'video') {
-            const username = typeof window !== "undefined" ? localStorage.getItem("username") || "" : "";
-            const videoUrl = `${API_BASE}/files/download_video?username=${encodeURIComponent(username)}&folder_id=${encodeURIComponent(folderId)}&file_id=${encodeURIComponent(selectedFile.id)}`;
+            const canPlay = signedMediaStatus === 'ready' && !!signedMediaUrl;
+            const dlName = selectedFile.name.endsWith('.mp4') ? selectedFile.name : `${selectedFile.name}.mp4`;
             return (
                 <div className="print-friendly-viewer fixed inset-0 z-[100] bg-[#0B0B1A] flex flex-col w-screen h-screen overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="flex items-center justify-between p-4 border-b border-[#2A2A40] bg-[#0B0B1A] sticky top-0 z-10 w-full">
@@ -2218,9 +2267,9 @@ export default function FolderPage() {
                             <h3 className="text-lg font-semibold text-white truncate max-w-[min(80vw,28rem)]">{selectedFile.name}</h3>
                         </div>
                         <a
-                            href={videoUrl}
-                            download={selectedFile.name.endsWith(".mp4") ? selectedFile.name : `${selectedFile.name}.mp4`}
-                            className="flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold"
+                            href={canPlay ? signedMediaUrl! : undefined}
+                            download={dlName}
+                            className={`flex items-center gap-2 bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#333] text-white px-3 py-1.5 rounded-lg text-sm font-semibold ${!canPlay ? 'pointer-events-none opacity-50' : ''}`}
                         >
                             <Download size={14} />
                             Download
@@ -2228,15 +2277,23 @@ export default function FolderPage() {
                     </div>
                     <div className="flex-1 flex items-center justify-center p-4 bg-black w-full min-h-0">
                         <div className="w-full max-w-4xl aspect-video min-h-[220px] max-h-[min(80vh,720px)] rounded-xl border border-[#2A2A40] bg-black overflow-hidden flex items-center justify-center">
-                            <video
-                                controls
-                                playsInline
-                                className="h-full w-full max-h-[min(80vh,720px)] object-contain"
-                                onError={() => showToast("Video konnte nicht geladen werden.", "error")}
-                            >
-                                <source src={videoUrl} type="video/mp4" />
-                                <track kind="captions" />
-                            </video>
+                            {signedMediaStatus === 'loading' && (
+                                <Loader2 className="h-14 w-14 animate-spin text-cyan-300" aria-label="Lädt" />
+                            )}
+                            {signedMediaStatus === 'error' && (
+                                <p className="text-gray-400 text-sm text-center px-4">Wiedergabe nicht möglich. Bitte erneut öffnen oder Seite aktualisieren.</p>
+                            )}
+                            {canPlay && (
+                                <video
+                                    controls
+                                    playsInline
+                                    className="h-full w-full max-h-[min(80vh,720px)] object-contain"
+                                    onError={() => showToast("Video konnte nicht geladen werden.", "error")}
+                                >
+                                    <source src={signedMediaUrl!} type="video/mp4" />
+                                    <track kind="captions" />
+                                </video>
+                            )}
                         </div>
                     </div>
                 </div>

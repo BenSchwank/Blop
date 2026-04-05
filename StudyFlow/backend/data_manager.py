@@ -605,6 +605,53 @@ class DataManager:
             return None, None
 
     @staticmethod
+    def create_signed_media_url(
+        username: str,
+        folder_id: str,
+        file_id: str,
+        kind: str,
+        expires_in: int = 3600,
+    ) -> Optional[str]:
+        """Time-limited HTTPS URL to blop_documents object; bypasses app proxy for <video>/<audio>."""
+        db = DataManager._init_supabase()
+        if not db or not file_id:
+            return None
+        media_type = (kind or "").strip().lower()
+        if media_type not in ("video", "audio"):
+            return None
+        try:
+            meta = (
+                db.table("files")
+                .select("file_url")
+                .eq("id", file_id)
+                .eq("folder_id", str(folder_id))
+                .eq("username", username)
+                .eq("type", media_type)
+                .limit(1)
+                .execute()
+            )
+            if not meta.data:
+                return None
+            path = meta.data[0].get("file_url")
+            if not path or not isinstance(path, str):
+                return None
+            ttl = max(60, min(int(expires_in or 3600), 7200))
+            res = db.storage.from_("blop_documents").create_signed_url(path, ttl)
+            url = None
+            if isinstance(res, dict):
+                url = res.get("signedURL") or res.get("signed_url")
+                inner = res.get("data")
+                if not url and isinstance(inner, dict):
+                    url = inner.get("signedUrl") or inner.get("signedURL")
+            else:
+                url = getattr(res, "signed_url", None) or getattr(res, "signedURL", None)
+            if isinstance(url, str) and url.startswith("http"):
+                return url
+        except Exception as e:
+            print(f"create_signed_media_url: {e}")
+        return None
+
+    @staticmethod
     def get_audio_path(filename, username, folder_id):
         db = DataManager._init_supabase()
         if not db:
