@@ -579,12 +579,6 @@ def get_subfolders(parent_id: str, username: str):
     return [f for f in folders if f.get("parent_id") == parent_id]
 
 # --- FILE ENDPOINTS ---
-@app.get("/api/files/{folder_id}")
-def get_files(folder_id: str, username: str):
-    """Returns files in a specific folder."""
-    files = DataManager.list_files(username, folder_id)
-    return files
-
 class FileUpdateRequest(BaseModel):
     username: str
     folder_id: str
@@ -1146,6 +1140,14 @@ def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Opt
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF-Download fehlgeschlagen: {str(e)}")
+
+
+@app.get("/api/files/{folder_id}")
+def get_files(folder_id: str, username: str):
+    """Returns files in a specific folder."""
+    files = DataManager.list_files(username, folder_id)
+    return files
+
 
 class GenRequest(BaseModel):
     username: str
