@@ -5,10 +5,6 @@ const backendUrl = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
-  // Für <video>/<audio>: Browser lädt direkt vom API-Host (Vercel-Rewrites können große Binärantworten leeren/failen)
-  env: {
-    NEXT_PUBLIC_BACKEND_ORIGIN: backendUrl,
-  },
   async rewrites() {
     return [
       {

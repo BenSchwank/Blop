@@ -37,8 +37,9 @@ app = FastAPI(title="Blop Study Backend")
 # CORS (Allow Frontend to connect)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now (fix CORS errors)
-    allow_credentials=True,
+    allow_origins=["*"],
+    # True + "*" ist im Browser ungültig; Medien von blop-study.com → Render würden ohne korrektes ACAO scheitern
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -125,6 +126,9 @@ def _learning_video_job_worker(
         ffmpeg_slideshow_with_audio(img_paths, audio_path, out_mp4)
         with open(out_mp4, "rb") as f:
             video_bytes = f.read()
+        if not video_bytes:
+            _learning_video_job_fail(job_id, "Lernvideo-Datei ist leer (ffmpeg/Encoding fehlgeschlagen).")
+            return
         vfname = f"learning_video_{int(datetime.now().timestamp())}.mp4"
         vtitle = str(data.get("title") or "KI-Lernvideo")
         file_id = DataManager.save_video(
@@ -1052,6 +1056,8 @@ def download_video(
             raise HTTPException(status_code=404, detail="Video nicht gefunden")
         safe_name = (download_name or "video.mp4").replace('"', "")
         total = len(video_bytes)
+        if total == 0:
+            raise HTTPException(status_code=404, detail="Video-Datei ist leer")
         headers_base = {
             "Content-Disposition": f'inline; filename="{safe_name}"',
             "Accept-Ranges": "bytes",
@@ -1062,8 +1068,13 @@ def download_video(
             try:
                 spec = range_header[6:].strip()
                 start_s, end_s = spec.split("-", 1)
-                start = int(start_s) if start_s else 0
-                end = int(end_s) if end_s else total - 1
+                if not start_s and end_s:
+                    n = int(end_s)
+                    start = max(0, total - n)
+                    end = total - 1
+                else:
+                    start = int(start_s) if start_s else 0
+                    end = int(end_s) if end_s else total - 1
                 start = max(0, min(start, total - 1))
                 end = max(start, min(end, total - 1))
                 chunk = video_bytes[start : end + 1]
