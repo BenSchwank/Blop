@@ -14,6 +14,26 @@ import requests
 TTS_CHUNK_CHARS = 3800
 
 
+def _openai_tts_failure_message(response: requests.Response) -> str:
+    """German user-facing hint for common OpenAI Speech API failures (Podcast / Lernvideo)."""
+    code = response.status_code
+    snippet = (response.text or "").strip()[:600]
+    if code == 401:
+        return (
+            "OpenAI TTS (401): API-Schlüssel ungültig oder widerrufen. "
+            "Bitte auf dem Server OPENAI_API_KEY prüfen und unter https://platform.openai.com/api-keys "
+            "einen gültigen Secret Key setzen."
+        )
+    if code == 429:
+        return (
+            "OpenAI TTS (429): Kontingent aufgebraucht oder Rate-Limit. "
+            "Unter https://platform.openai.com → Billing Zahlungsmethode und Guthaben prüfen; "
+            "Lernvideos senden mehrere TTS-Anfragen (langer Text) und treffen schneller an Limits. "
+            f"API-Antwort: {snippet}"
+        )
+    return f"OpenAI TTS API Fehler {code}: {snippet}"
+
+
 def openai_tts_speech_mp3(text: str, voice: str = "alloy") -> bytes:
     """Returns MP3 bytes. Requires OPENAI_API_KEY."""
     key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -42,7 +62,7 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy") -> bytes:
             timeout=120,
         )
         if not r.ok:
-            raise RuntimeError(f"TTS API Fehler: {r.status_code} {r.text[:500]}")
+            raise RuntimeError(_openai_tts_failure_message(r))
         mp3_parts.append(r.content)
     if len(mp3_parts) == 1:
         return mp3_parts[0]
