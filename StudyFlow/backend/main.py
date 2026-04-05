@@ -25,6 +25,9 @@ except ImportError:
 from data_manager import DataManager
 from auth_manager import AuthManager
 from email_notify import try_notify_document_ready
+from genai_warnings import suppress_known_google_warnings
+
+suppress_known_google_warnings()
 import google.generativeai as genai
 
 # Configure GenAI (Global for main.py usage like upload_file)

@@ -1,4 +1,7 @@
 import os
+from genai_warnings import suppress_known_google_warnings
+
+suppress_known_google_warnings()
 import google.generativeai as genai
 import json
 from typing import List, Dict, Any, Optional, Tuple
