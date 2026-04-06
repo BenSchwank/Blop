@@ -2,6 +2,7 @@
 
 ## Render Free / günstige Pläne
 
+- **Idle / Cold Start:** Regelmäßiger Ping mit **UptimeRobot** auf `GET`/`HEAD` **`/api/health`** reduziert Einschlafen und träge erste Requests — Anleitung: [`UPTIMEROBOT.md`](UPTIMEROBOT.md).
 - **Instanz-Neustarts** (Deploy, Speicher, Idle): Laufende Jobs im RAM gehen verloren. Mit der Tabelle `ai_background_jobs` (Migration unter `supabase/migrations/`) bleibt der **Status** in Supabase erhalten; Polling liefert weiterhin `pending`/`done`/`error`, sobald die Migration ausgeführt wurde.
 - **Weniger Last / weniger RAM:** In der App weniger Szenen, Erzähltiefe „compact“, kürzeres Material.
 - **ffmpeg / CPU:** Ken-Burns und Crossfade sind standardmäßig schon sparsam bzw. Crossfade aus. Optional per Umgebungsvariablen steuerbar (siehe [`main.py`](main.py) in `_normalize_learning_video_options`):

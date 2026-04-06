@@ -1,3 +1,4 @@
+# Free-Tier: Service schläft bei Inaktivität ein → optional UptimeRobot auf GET/HEAD /api/health (siehe StudyFlow/backend/UPTIMEROBOT.md).
 services:
   - type: web
     name: blop-study-backend
