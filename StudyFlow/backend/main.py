@@ -87,10 +87,13 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
     depth = (req.narration_depth or "standard").strip().lower()
     if depth not in ("compact", "standard", "detailed", "deep"):
         depth = "standard"
-    visual = (req.visual_style or "clean").strip().lower()
+    visual = (req.visual_style or "rich").strip().lower()
     if visual not in ("clean", "rich", "whiteboard"):
-        visual = "clean"
-    use_stock = bool(req.use_stock_images)
+        visual = "rich"
+    if req.use_stock_images is None:
+        use_stock = True
+    else:
+        use_stock = bool(req.use_stock_images)
     if use_stock and not os.environ.get("PEXELS_API_KEY", "").strip():
         print("Lernvideo: Stock-Bilder gewünscht, aber PEXELS_API_KEY fehlt — Folien ohne Fotos.")
         use_stock = False

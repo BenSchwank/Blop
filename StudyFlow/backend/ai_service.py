@@ -947,32 +947,31 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
             material_note = (opts.get("material_summary") or "").strip()
 
             if depth == "compact":
-                narr_hint = "narration: 2-3 kurze Sätze auf Deutsch, klar und didaktisch"
-                body_max = "max 400 Zeichen"
+                narr_hint = "narration: 2-3 kurze Sätze auf Deutsch — nur das Wesentliche; keine Wiederholung der Folien-Stichworte"
+                body_max = "max 180 Zeichen"
             elif depth == "deep":
                 narr_hint = (
-                    "narration: 12-18 ausführliche Sätze auf Deutsch, didaktisch, mit Definitionen, "
-                    "Beispielen und Zusammenhängen; nicht nur Stichpunkte vorlesen"
+                    "narration: 10-16 ausführliche Sätze auf Deutsch, didaktisch; Details hier, NICHT auf der Folie wiederholen"
                 )
-                body_max = "max 950 Zeichen"
+                body_max = "max 620 Zeichen"
             elif depth == "detailed":
-                narr_hint = "narration: 8-14 ausführliche Sätze auf Deutsch, klar und didaktisch, mit Beispielen wo sinnvoll"
-                body_max = "max 800 Zeichen"
+                narr_hint = "narration: 6-12 Sätze auf Deutsch; Beispiele und Zusammenhänge gesprochen, Folie bleibt knapp"
+                body_max = "max 420 Zeichen"
             else:
-                narr_hint = "narration: 4-8 Sätze auf Deutsch, klar und didaktisch"
-                body_max = "max 600 Zeichen"
+                narr_hint = "narration: 4-7 Sätze auf Deutsch; ausführlich gesprochen, Folie nur als Merkhilfe"
+                body_max = "max 300 Zeichen"
 
-            scene_fields = '''      "title": "Kurzer Szenentitel",
-      "body": "Stichpunkte oder Fließtext auf Deutsch (%s), für Folien",
+            scene_fields = '''      "title": "Kurzer Szenentitel (max. 8 Worte)",
+      "body": "NUR knappe Folien-Stütze auf Deutsch (%s): Stichpunkte mit − oder •, keine langen Absätze",
       "narration": "%s"''' % (body_max, narr_hint.replace('"', "'"))
             if want_images:
-                scene_fields += ',\n      "image_query": "2-4 English keywords for a stock photo (no people faces if possible), e.g. ancient rome map"'
+                scene_fields += ',\n      "image_query": "Required: 2-5 English keywords for Pexels stock photo — concrete object, place, or metaphor (no faces); e.g. solar system diagram, library books stack, mountain landscape"'
 
             schema_hint = """
 Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
 {
   "title": "Kurztitel des Videos",
-  "opening_narration": "Genau 3-6 vollständige Sätze auf Deutsch: kurze Begrüßung, worum es geht, wie das Video aufgebaut ist (Roadmap). Wird als Erstes vorgelesen.",
+  "opening_narration": "2-4 Sätze auf Deutsch: Begrüßung + Thema + Aufbau — kompakt; keine langen Abschweifungen.",
   "scenes": [
     {
 %s
@@ -980,6 +979,10 @@ Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
   ]
 }
 Erzeuge zwischen %d und %d Szenen (Ziel: etwa %d). Jede Szene deckt einen inhaltlichen Abschnitt des Materials ab.
+WICHTIG — Lesbarkeit der FOLIEN (body):
+- body ist NUR Stütze für den Zuschauer: höchstens 3-5 kurze Zeilen oder Stichpunkte, KEINE Fließtext-Absätze und keine Romane.
+- Die eigentliche Erklärung, Definitionen und Beispiele gehören in narration; body wiederholt das nicht wortreich.
+- title und body sollen so kurz sein, dass man sie in 5-10 Sekunden erfassen kann.
 Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) soll zusammenhängend wirken.
 """ % (
                 scene_fields,
@@ -989,12 +992,17 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
             )
             if material_note:
                 schema_hint += "\nHinweis zum Umfang des Materials:\n" + material_note + "\n"
+            if want_images:
+                schema_hint += (
+                    "\nSTOCK-FOTOS: Jede Inhalts-Szene MUSS ein ausgefülltes image_query haben (englische Suchbegriffe). "
+                    "Wähle sachlich passende Motive (Objekte, Orte, Natur, abstrakte Symbole), keine Porträts.\n"
+                )
             vis = (opts.get("visual_style") or "").strip().lower()
             if vis == "whiteboard":
                 schema_hint += (
-                    "\nVisueller Stil Whiteboard: body als kurze Liste — ein Hauptgedanke pro Zeile (Strich oder "
-                    "Nummer), Zeilen etwa 60–100 Zeichen; lieber mehr Zeilen als ein langer Absatz. "
-                    "Struktur wie am Brett (z. B. Begriff — Kurzerklärung; Schritt 1 / Schritt 2).\n"
+                    "\nVisueller Stil Whiteboard: body als sehr kurze Liste — ein Gedanke pro Zeile (Strich/Nummer), "
+                    "Zeilen unter 70 Zeichen; wie am Brett. Mit Stock-Fotos (falls aktiv) erscheint ein dezentes "
+                    "Hintergrundmotiv — Text bleibt kurz und lesbar.\n"
                 )
             schema_hint += (
                 "\nWichtig für gültiges JSON: In allen Textfeldern (title, opening_narration, body, narration) "

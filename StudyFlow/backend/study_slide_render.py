@@ -33,26 +33,43 @@ def _render_slide_raster(
 
     is_title = str(sc.get("slide_kind") or "") == "title"
     title = str(sc.get("title") or (f"Szene {i+1}" if not is_title else "Lernvideo"))[:120]
-    body = str(sc.get("body") or sc.get("bullets") or "")[:2000]
+    body = str(sc.get("body") or sc.get("bullets") or "")[:720]
     chapter = str(sc.get("chapter") or "").strip()
     top_c, bot_c, accent = palettes[i % len(palettes)]
     scene_accent = (42, 118, 92) if style == "whiteboard" else accent
     ph = wb_phase if style == "whiteboard" else None
+    ch = height - footer_h
 
     def line_h(line: str, font) -> int:
         if not font:
             return 26
-        b = draw.textbbox((0, 0), line or "Ay", font=font)
+        _tmp = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+        b = _tmp.textbbox((0, 0), line or "Ay", font=font)
         return max(24, b[3] - b[1] + 8)
+
+    photo_bytes = None
+    if use_stock_images and not is_title:
+        q = str(sc.get("image_query") or "").strip()
+        if q:
+            photo_bytes = mp.pexels_fetch_image_bytes(q)
 
     if style == "whiteboard":
         wb_bg = (242, 239, 230)
         img = Image.new("RGB", (width, height), color=wb_bg)
+        if photo_bytes:
+            try:
+                bg = Image.open(BytesIO(photo_bytes)).convert("RGB").resize((width, ch), Image.Resampling.LANCZOS)
+                img.paste(bg, (0, 0))
+                wash = Image.new("RGBA", (width, ch), (250, 246, 236, 198))
+                blended = Image.alpha_composite(bg.convert("RGBA"), wash).convert("RGB")
+                img.paste(blended, (0, 0))
+            except Exception:
+                pass
         draw = ImageDraw.Draw(img)
         wb_accent = (42, 118, 92)
-        mp._draw_whiteboard_doodles(draw, width, height - footer_h, i, wb_accent)
+        mp._draw_whiteboard_doodles(draw, width, ch, i, wb_accent)
         draw.rounded_rectangle(
-            [28, 28, width - 28, height - footer_h - 28],
+            [28, 28, width - 28, ch - 28],
             radius=8,
             outline=(198, 192, 176),
             width=2,
@@ -61,34 +78,28 @@ def _render_slide_raster(
         img = Image.new("RGB", (width, height), color=bot_c)
         draw = ImageDraw.Draw(img)
         if style == "rich":
-            mp._draw_gradient_background(draw, width, height - footer_h, top_c, bot_c)
-            draw.rectangle([0, 0, 12, height - footer_h], fill=accent)
+            mp._draw_gradient_background(draw, width, ch, top_c, bot_c)
+            draw.rectangle([0, 0, 12, ch], fill=accent)
         else:
-            draw.rectangle([0, 0, width, height - footer_h], fill=bot_c)
+            draw.rectangle([0, 0, width, ch], fill=bot_c)
 
     text_top_limit = height - footer_h - 24
     text_left = margin + (22 if style == "rich" else (28 if style == "whiteboard" else 0))
 
-    photo_bytes = None
-    if use_stock_images and not is_title and style != "whiteboard":
-        q = str(sc.get("image_query") or "").strip()
-        if q:
-            photo_bytes = mp.pexels_fetch_image_bytes(q)
-
-    if photo_bytes:
+    if photo_bytes and style != "whiteboard":
         try:
             bg = Image.open(BytesIO(photo_bytes)).convert("RGB")
-            bg = bg.resize((width, height - footer_h), Image.Resampling.LANCZOS)
+            bg = bg.resize((width, ch), Image.Resampling.LANCZOS)
             img.paste(bg, (0, 0))
-            overlay = Image.new("RGBA", (width, height - footer_h), (12, 14, 35, 200))
+            overlay = Image.new("RGBA", (width, ch), (12, 14, 35, 200))
             img = img.convert("RGBA")
-            sub = img.crop((0, 0, width, height - footer_h))
+            sub = img.crop((0, 0, width, ch))
             sub = Image.alpha_composite(sub.convert("RGBA"), overlay).convert("RGB")
             img.paste(sub, (0, 0))
             img = img.convert("RGB")
             draw = ImageDraw.Draw(img)
             if style == "rich":
-                draw.rectangle([0, 0, 10, height - footer_h], fill=accent)
+                draw.rectangle([0, 0, 10, ch], fill=accent)
         except Exception:
             draw = ImageDraw.Draw(img)
 
@@ -172,6 +183,7 @@ def _render_slide_raster(
         tw = card_w - 24
         title_lines = mp._wrap_text(draw, title, font_title, tw)
         body_lines = mp._wrap_text(draw, body, font_body, tw)
+        body_lines = body_lines[:10]
         if style == "rich" and not photo_bytes:
             est_h = 20 + len(title_lines) * 52 + 20 + min(len(body_lines), 12) * 36
             card_h = min(max(120, est_h), text_top_limit - card_top + 20)
@@ -182,7 +194,7 @@ def _render_slide_raster(
                 outline=accent,
                 width=2,
             )
-        elif style == "whiteboard" and not photo_bytes:
+        elif style == "whiteboard":
             est_h = 20 + len(title_lines) * 52 + 20 + min(len(body_lines), 12) * 36
             card_h = min(max(120, est_h), text_top_limit - card_top + 20)
             draw.rounded_rectangle(

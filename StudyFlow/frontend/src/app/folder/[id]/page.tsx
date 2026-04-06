@@ -599,8 +599,8 @@ export default function FolderPage() {
     const [isLearningVideoConfigOpen, setIsLearningVideoConfigOpen] = useState(false);
     const [lvTargetScenes, setLvTargetScenes] = useState(8);
     const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed" | "deep">("standard");
-    const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich" | "whiteboard">("whiteboard");
-    const [lvUseStockImages, setLvUseStockImages] = useState(false);
+    const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich" | "whiteboard">("rich");
+    const [lvUseStockImages, setLvUseStockImages] = useState(true);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
 
     // Learning Mode (shared across plan/summary/repetition modals)
@@ -3519,7 +3519,7 @@ export default function FolderPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-white">Lernvideo</h3>
-                                        <p className="text-xs text-gray-400">Szenen, Sprache, Optik und Bewegung</p>
+                                        <p className="text-xs text-gray-400">Folien knapp, Erklärung gesprochen — optional Stock-Fotos (Pexels)</p>
                                     </div>
                                 </div>
                                 <button
@@ -3619,12 +3619,13 @@ export default function FolderPage() {
                                     </div>
                                     {lvVisualStyle === "whiteboard" ? (
                                         <p className="text-xs text-gray-500 mt-2">
-                                            Whiteboard: Jede Szene wird in mehreren Schritten aufgebaut (wie am Brett). Kein
-                                            Kamera-Zoom — das Bild bleibt vollständig sichtbar.
+                                            Whiteboard: Schrittweise wie am Brett. Mit Stock-Fotos: dezentes Hintergrundmotiv
+                                            (wenn <code className="text-gray-400">PEXELS_API_KEY</code> gesetzt). Kein Zoom.
                                         </p>
                                     ) : (
                                         <p className="text-xs text-gray-500 mt-2">
-                                            Ohne Zoom/Pan: Folien werden zentriert skaliert, nichts wird am Rand abgeschnitten.
+                                            Dekorativ/Schlicht: Volles Bild oder Verlauf; mit Pexels-Fotos wirkt es weniger
+                                            textlastig. Ohne Zoom/Pan.
                                         </p>
                                     )}
                                 </div>
