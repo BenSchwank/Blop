@@ -4,7 +4,10 @@ from genai_warnings import suppress_known_google_warnings
 suppress_known_google_warnings()
 import google.generativeai as genai
 import json
+import time
 from typing import List, Dict, Any, Optional, Tuple
+
+from google.generativeai.types.helper_types import RequestOptions
 
 # Configure GenAI
 api_key = os.environ.get("GOOGLE_API_KEY")
@@ -59,6 +62,60 @@ SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
+
+# Große JSON-Storyboards brauchen oft >60s; sonst 504 / DeadlineExceeded vom API-Client.
+LEARNING_VIDEO_STORYBOARD_TIMEOUT_SEC = 600.0
+
+
+def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
+    """Gemini chat.send_message mit langem Timeout; ein Retry bei 504/Timeout/503."""
+    opts = RequestOptions(timeout=LEARNING_VIDEO_STORYBOARD_TIMEOUT_SEC)
+    last_exc: Optional[BaseException] = None
+    for attempt in range(2):
+        try:
+            return chat.send_message(
+                content,
+                safety_settings=SAFETY_SETTINGS,
+                request_options=opts,
+            )
+        except Exception as e:
+            last_exc = e
+            blob = (repr(e) + str(e)).lower()
+            transient = (
+                "504" in blob
+                or "503" in blob
+                or "timed out" in blob
+                or "timeout" in blob
+                or "deadline exceeded" in blob
+                or "unavailable" in blob
+            )
+            if attempt == 0 and transient:
+                print(f"Learning video storyboard: retry after API error ({e})")
+                time.sleep(4.0)
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Learning video storyboard: send_message failed without exception")
+
+
+def _learning_video_storyboard_error_hint(exc: BaseException) -> str:
+    """Deutschsprachiger Hinweis für typische API-Fehler (504, Timeout)."""
+    raw = (repr(exc) + " " + str(exc)).lower()
+    if (
+        "504" in raw
+        or "503" in raw
+        or "timed out" in raw
+        or "timeout" in raw
+        or "deadline exceeded" in raw
+        or "unavailable" in raw
+    ):
+        return (
+            "Die KI-Anfrage für das Storyboard hat zu lange gedauert oder der Dienst war kurzüberlastet. "
+            "Bitte später erneut versuchen, weniger Szenen oder eine kürzere Erzähltiefe wählen, oder ein schnelleres Modell (z. B. gemini-2.0-flash)."
+        )
+    return str(exc)
+
 
 # In alle mathematisch/naturwissenschaftlich relevanten Prompts einfügen (Rechenfehler in Musterlösungen vermeiden).
 MATH_ACCURACY_INSTRUCTIONS = """
@@ -816,7 +873,7 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
     ) -> Tuple[str, Dict[str, int], Any]:
         """Chat-based generation; join chunks with '' so JSON stays one document when MAX_TOKENS hits."""
         chat = model.start_chat(history=[])
-        response = chat.send_message(input_parts, safety_settings=SAFETY_SETTINGS)
+        response = _learning_video_storyboard_send_message(chat, input_parts)
         if not response.candidates:
             raise Exception("Leere Kandidaten-Antwort vom Modell.")
         chunks: List[str] = []
@@ -834,7 +891,7 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
         while fr == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
             follow += 1
             print(f"Learning video storyboard: finish_reason=MAX_TOKENS, continuation {follow}/{max_followups}")
-            response = chat.send_message(cont, safety_settings=SAFETY_SETTINGS)
+            response = _learning_video_storyboard_send_message(chat, cont)
             last_response = response
             if not response.candidates:
                 break
@@ -953,7 +1010,7 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
             }
         except Exception as e:
             print(f"Learning video storyboard error: {e}")
-            raise Exception(f"Lernvideo-Storyboard fehlgeschlagen: {str(e)}")
+            raise Exception(f"Lernvideo-Storyboard fehlgeschlagen: {_learning_video_storyboard_error_hint(e)}") from e
 
     @staticmethod
     def transcribe_audio(audio_file_path: str, model_preference: str = None, return_meta: bool = False) -> Any:
