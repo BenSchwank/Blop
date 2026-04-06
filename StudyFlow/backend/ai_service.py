@@ -914,8 +914,9 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
             vis = (opts.get("visual_style") or "").strip().lower()
             if vis == "whiteboard":
                 schema_hint += (
-                    "\nVisueller Stil Whiteboard: Kurze, klare Stichpunkte im body-Feld; Begriffe wie in einer "
-                    "Skizze erklären (z. B. Ursache → Wirkung, A B C). Keine langen Fließtextblöcke ohne Struktur.\n"
+                    "\nVisueller Stil Whiteboard: body als kurze Liste — ein Hauptgedanke pro Zeile (Strich oder "
+                    "Nummer), Zeilen etwa 60–100 Zeichen; lieber mehr Zeilen als ein langer Absatz. "
+                    "Struktur wie am Brett (z. B. Begriff — Kurzerklärung; Schritt 1 / Schritt 2).\n"
                 )
             schema_hint += (
                 "\nWichtig für gültiges JSON: In allen Textfeldern (title, opening_narration, body, narration) "

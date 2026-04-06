@@ -600,7 +600,6 @@ export default function FolderPage() {
     const [lvTargetScenes, setLvTargetScenes] = useState(8);
     const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed" | "deep">("standard");
     const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich" | "whiteboard">("whiteboard");
-    const [lvMotion, setLvMotion] = useState<"static" | "ken_burns" | "mixed">("mixed");
     const [lvUseStockImages, setLvUseStockImages] = useState(false);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
 
@@ -695,9 +694,6 @@ export default function FolderPage() {
             }
             if (p.visualStyle === "clean" || p.visualStyle === "rich" || p.visualStyle === "whiteboard") {
                 setLvVisualStyle(p.visualStyle);
-            }
-            if (p.motion === "static" || p.motion === "ken_burns" || p.motion === "mixed") {
-                setLvMotion(p.motion);
             }
             if (typeof p.useStockImages === "boolean") {
                 setLvUseStockImages(p.useStockImages);
@@ -1754,7 +1750,6 @@ export default function FolderPage() {
                     targetScenes: lvTargetScenes,
                     narrationDepth: lvNarrationDepth,
                     visualStyle: lvVisualStyle,
-                    motion: lvMotion,
                     useStockImages: lvUseStockImages,
                     ttsVoice: lvTtsVoice,
                 })
@@ -1781,7 +1776,6 @@ export default function FolderPage() {
                     target_scenes: lvTargetScenes,
                     narration_depth: lvNarrationDepth,
                     visual_style: lvVisualStyle,
-                    motion: lvMotion,
                     use_stock_images: lvUseStockImages,
                     tts_voice: lvTtsVoice,
                 }),
@@ -3623,47 +3617,16 @@ export default function FolderPage() {
                                             Whiteboard
                                         </button>
                                     </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Bewegung</label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setLvMotion("static")}
-                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
-                                                lvMotion === "static"
-                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
-                                            }`}
-                                        >
-                                            Statisch
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setLvMotion("ken_burns")}
-                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
-                                                lvMotion === "ken_burns"
-                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
-                                            }`}
-                                        >
-                                            Nur Zoom
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setLvMotion("mixed")}
-                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
-                                                lvMotion === "mixed"
-                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
-                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
-                                            }`}
-                                        >
-                                            Abwechslung
-                                        </button>
-                                    </div>
-                                    <p className="text-xs text-gray-500 mt-1.5">
-                                        „Abwechslung“ wechselt pro Szene (statisch, sanfter Zoom, sanfter Pan) — weniger eintönig als nur Zoom.
-                                    </p>
+                                    {lvVisualStyle === "whiteboard" ? (
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Whiteboard: Jede Szene wird in mehreren Schritten aufgebaut (wie am Brett). Kein
+                                            Kamera-Zoom — das Bild bleibt vollständig sichtbar.
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Ohne Zoom/Pan: Folien werden zentriert skaliert, nichts wird am Rand abgeschnitten.
+                                        </p>
+                                    )}
                                 </div>
                                 <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
                                     <input

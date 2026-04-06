@@ -10,6 +10,8 @@ from typing import List, Optional, Tuple
 
 import requests
 
+from study_slide_render import render_scene_slides_weighted
+
 # OpenAI TTS max input length per request
 TTS_CHUNK_CHARS = 3800
 
@@ -24,9 +26,6 @@ VIDEO_CRF = 25
 # Cap peak bitrate (960p learning video); limits MP4 size vs. raw CRF-only VBR.
 VIDEO_MAXRATE = "2M"
 VIDEO_BUFSIZE = "4M"
-# Ken-Burns: pad to exact 16:9 before zoompan (avoids odd-dimension crop glitches / clipped edges).
-_KEN_PAD_W = 1152
-_KEN_PAD_H = 648
 
 
 def _openai_tts_failure_message(response: requests.Response) -> str:
@@ -278,6 +277,14 @@ def _draw_whiteboard_doodles(
     wy = min(canvas_h - 120, 160 + rng.randint(0, 40))
     wpts = [(wx + j * 28, wy + (j % 3 - 1) * 4) for j in range(18)]
     draw.line(wpts, fill=(accent[0] // 2 + 80, accent[1] // 2 + 80, accent[2] // 2 + 80), width=2)
+    # Playful extras (sparkles + check)
+    for k in range(3):
+        cx = 90 + k * 52
+        cy = canvas_h - 95
+        draw.line([(cx - 6, cy), (cx + 6, cy)], fill=accent, width=2)
+        draw.line([(cx, cy - 6), (cx, cy + 6)], fill=accent, width=2)
+    chk_x, chk_y = width - 200, canvas_h - 90
+    draw.line([(chk_x, chk_y), (chk_x + 8, chk_y + 12), (chk_x + 22, chk_y - 6)], fill=accent, width=3)
 
 
 def _draw_chapter_badge(
@@ -298,224 +305,6 @@ def _draw_chapter_badge(
     x2, y2 = x1 + tw + 2 * pad_x, y1 + th + 2 * pad_y
     draw.rounded_rectangle([x1, y1, x2, y2], radius=10, fill=(22, 24, 44), outline=accent, width=2)
     draw.text((x1 + pad_x, y1 + pad_y), label, fill=(230, 235, 255), font=font_badge)
-
-
-def render_scene_slides(
-    scenes: List[dict],
-    width: int = VIDEO_W,
-    height: int = VIDEO_H,
-    visual_style: str = "clean",
-    use_stock_images: bool = False,
-) -> List[str]:
-    """Writes PNG files per scene; returns paths."""
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError as e:
-        raise RuntimeError("Pillow (PIL) wird für Lernvideos benötigt.") from e
-
-    style = (visual_style or "clean").strip().lower()
-    if style not in ("clean", "rich", "whiteboard"):
-        style = "clean"
-
-    font_title, font_body = _load_slide_fonts()
-    bold_path, regular_path = _resolve_ttf_paths()
-    font_footer = font_badge = None
-    try:
-        if regular_path:
-            font_footer = ImageFont.truetype(regular_path, 17)
-            font_badge = ImageFont.truetype(regular_path, 18)
-    except OSError:
-        font_footer = font_badge = font_body
-
-    paths: List[str] = []
-    tmp_root = tempfile.mkdtemp(prefix="blop_video_")
-
-    palettes = [
-        ((24, 32, 72), (12, 14, 38), (94, 156, 255)),
-        ((40, 22, 62), (14, 18, 42), (236, 112, 180)),
-        ((18, 52, 48), (10, 22, 28), (80, 220, 200)),
-        ((62, 28, 24), (20, 14, 22), (255, 180, 100)),
-    ]
-
-    footer_h = 46
-    margin = 56
-
-    def line_h(line: str, font) -> int:
-        if not font:
-            return 26
-        b = draw.textbbox((0, 0), line or "Ay", font=font)
-        return max(24, b[3] - b[1] + 8)
-
-    for i, sc in enumerate(scenes):
-        is_title = str(sc.get("slide_kind") or "") == "title"
-        title = str(sc.get("title") or (f"Szene {i+1}" if not is_title else "Lernvideo"))[:120]
-        body = str(sc.get("body") or sc.get("bullets") or "")[:2000]
-        chapter = str(sc.get("chapter") or "").strip()
-        top_c, bot_c, accent = palettes[i % len(palettes)]
-        scene_accent = (42, 118, 92) if style == "whiteboard" else accent
-
-        if style == "whiteboard":
-            wb_bg = (242, 239, 230)
-            img = Image.new("RGB", (width, height), color=wb_bg)
-            draw = ImageDraw.Draw(img)
-            wb_accent = (42, 118, 92)
-            _draw_whiteboard_doodles(draw, width, height - footer_h, i, wb_accent)
-            draw.rounded_rectangle(
-                [28, 28, width - 28, height - footer_h - 28],
-                radius=8,
-                outline=(198, 192, 176),
-                width=2,
-            )
-        else:
-            img = Image.new("RGB", (width, height), color=bot_c)
-            draw = ImageDraw.Draw(img)
-
-            if style == "rich":
-                _draw_gradient_background(draw, width, height - footer_h, top_c, bot_c)
-                draw.rectangle([0, 0, 12, height - footer_h], fill=accent)
-            else:
-                draw.rectangle([0, 0, width, height - footer_h], fill=bot_c)
-
-        text_top_limit = height - footer_h - 24
-        text_left = margin + (22 if style == "rich" else (28 if style == "whiteboard" else 0))
-
-        photo_bytes = None
-        if use_stock_images and not is_title and style != "whiteboard":
-            q = str(sc.get("image_query") or "").strip()
-            if q:
-                photo_bytes = pexels_fetch_image_bytes(q)
-
-        if photo_bytes:
-            try:
-                from io import BytesIO
-
-                bg = Image.open(BytesIO(photo_bytes)).convert("RGB")
-                bg = bg.resize((width, height - footer_h), Image.Resampling.LANCZOS)
-                img.paste(bg, (0, 0))
-                overlay = Image.new("RGBA", (width, height - footer_h), (12, 14, 35, 200))
-                img = img.convert("RGBA")
-                sub = img.crop((0, 0, width, height - footer_h))
-                sub = Image.alpha_composite(sub.convert("RGBA"), overlay).convert("RGB")
-                img.paste(sub, (0, 0))
-                img = img.convert("RGB")
-                draw = ImageDraw.Draw(img)
-                if style == "rich":
-                    draw.rectangle([0, 0, 10, height - footer_h], fill=accent)
-            except Exception:
-                draw = ImageDraw.Draw(img)
-
-        title_fill = (245, 248, 255)
-        body_fill = (210, 218, 235)
-        if photo_bytes:
-            title_fill = (255, 255, 255)
-            body_fill = (230, 235, 245)
-        if style == "whiteboard":
-            title_fill = (28, 32, 36)
-            body_fill = (52, 60, 68)
-
-        if is_title:
-            ft_big = fb_sub = font_title
-            try:
-                if bold_path:
-                    ft_big = ImageFont.truetype(bold_path, 54)
-                if regular_path:
-                    fb_sub = ImageFont.truetype(regular_path, 28)
-            except OSError:
-                pass
-            # Decorative frame
-            if style == "rich":
-                inset = 48
-                draw.rounded_rectangle(
-                    [inset, inset, width - inset, height - footer_h - inset],
-                    radius=20,
-                    outline=accent,
-                    width=4,
-                )
-                inner = inset + 28
-                draw.rounded_rectangle(
-                    [inner, inner, width - inner, height - footer_h - inner],
-                    radius=14,
-                    fill=(14, 16, 32),
-                )
-            elif style == "whiteboard":
-                inset = 40
-                draw.rounded_rectangle(
-                    [inset, inset, width - inset, height - footer_h - inset],
-                    radius=18,
-                    fill=(250, 247, 240),
-                    outline=scene_accent,
-                    width=3,
-                )
-            max_w = width - 2 * margin - 80
-            y = (height - footer_h) // 3
-            for line in _wrap_text(draw, title, ft_big, max_w):
-                bbox = draw.textbbox((0, 0), line, font=ft_big)
-                lw = bbox[2] - bbox[0]
-                draw.text(((width - lw) // 2, y), line, fill=title_fill, font=ft_big)
-                y += line_h(line, ft_big)
-            y += 28
-            for line in _wrap_text(draw, body, fb_sub, max_w - 40):
-                bbox = draw.textbbox((0, 0), line, font=fb_sub)
-                lw = bbox[2] - bbox[0]
-                draw.text(((width - lw) // 2, y), line, fill=body_fill, font=fb_sub)
-                y += line_h(line, fb_sub)
-                if y > text_top_limit - 40:
-                    break
-        else:
-            if chapter and style in ("rich", "whiteboard"):
-                _draw_chapter_badge(
-                    draw,
-                    width,
-                    chapter,
-                    font_badge,
-                    scene_accent if style == "whiteboard" else accent,
-                    margin,
-                )
-            card_margin = margin
-            card_top = margin + (52 if chapter and style in ("rich", "whiteboard") else 8)
-            card_w = width - 2 * card_margin - (22 if style == "rich" else 0)
-            # Title card background (rich)
-            if style == "rich" and not photo_bytes:
-                title_lines = _wrap_text(draw, title, font_title, card_w - 40)
-                body_lines = _wrap_text(draw, body, font_body, card_w - 40)
-                est_h = 20 + len(title_lines) * 52 + 20 + min(len(body_lines), 12) * 36
-                card_h = min(max(120, est_h), text_top_limit - card_top + 20)
-                draw.rounded_rectangle(
-                    [text_left - 16, card_top - 12, text_left + card_w, card_top + card_h],
-                    radius=16,
-                    fill=(28, 30, 52),
-                    outline=accent,
-                    width=2,
-                )
-            elif style == "whiteboard" and not photo_bytes:
-                title_lines = _wrap_text(draw, title, font_title, card_w - 40)
-                body_lines = _wrap_text(draw, body, font_body, card_w - 40)
-                est_h = 20 + len(title_lines) * 52 + 20 + min(len(body_lines), 12) * 36
-                card_h = min(max(120, est_h), text_top_limit - card_top + 20)
-                draw.rounded_rectangle(
-                    [text_left - 16, card_top - 12, text_left + card_w, card_top + card_h],
-                    radius=14,
-                    fill=(252, 249, 242),
-                    outline=scene_accent,
-                    width=2,
-                )
-            y = card_top + 8
-            for line in _wrap_text(draw, title, font_title, card_w - 24):
-                draw.text((text_left, y), line, fill=title_fill, font=font_title)
-                y += line_h(line, font_title)
-            y += 16
-            for line in _wrap_text(draw, body, font_body, card_w - 24):
-                draw.text((text_left, y), line, fill=body_fill, font=font_body)
-                y += line_h(line, font_body)
-                if y > text_top_limit:
-                    break
-
-        _draw_footer_bar(draw, width, height, font_footer, scene_accent)
-
-        p = os.path.join(tmp_root, f"slide_{i:03d}.png")
-        img.save(p)
-        paths.append(p)
-    return paths
 
 
 def _audio_duration_sec(path: str) -> float:
@@ -550,65 +339,13 @@ def _vf_static() -> str:
     )
 
 
-def _vf_kb_pre_pad() -> str:
-    """Pad to fixed 16:9 before zoompan so crop math stays centered (fixes left/right clipping)."""
-    return (
-        f"scale={_KEN_PAD_W}:{_KEN_PAD_H}:force_original_aspect_ratio=decrease,"
-        f"pad={_KEN_PAD_W}:{_KEN_PAD_H}:(ow-iw)/2:(oh-ih)/2,setsar=1"
-    )
-
-
-def _vf_ken_burns(seg_secs: float, max_zoom: float = 1.12) -> str:
-    d_frames = max(1, int(seg_secs * VIDEO_FPS))
-    zmax = max(1.02, min(max_zoom, 1.2))
-    denom = max(1, d_frames - 1)
-    step = (zmax - 1.0) / denom
-    return (
-        f"{_vf_kb_pre_pad()},"
-        f"zoompan=z='min(zoom+{step:.8f},{zmax})':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d={d_frames}:"
-        f"s={VIDEO_W}x{VIDEO_H}:fps={VIDEO_FPS},setsar=1"
-    )
-
-
-def _vf_pan_horizontal(seg_secs: float) -> str:
-    """Slow horizontal pan across a slightly oversized frame (no zoompan)."""
-    d_frames = max(1, int(seg_secs * VIDEO_FPS))
-    denom = max(1, d_frames - 1)
-    return (
-        f"scale=1440:810:force_original_aspect_ratio=decrease,pad=1440:810:(ow-iw)/2:(oh-ih)/2,"
-        f"crop=960:540:x='floor((iw-960)*n/{denom})':y='(ih-540)/2',setsar=1"
-    )
-
-
-def _vf_for_segment(seg_idx: int, seg_secs: float, motion: str) -> str:
-    """motion: static | ken_burns | mixed (cycles static / soft zoom / pan)."""
-    m = (motion or "static").strip().lower()
-    if m == "mixed":
-        # 0 static, 1 soft zoom, 2 pan, 3 soft zoom (repeat)
-        mode = ("static", "kb_soft", "pan", "kb_soft")[seg_idx % 4]
-    elif m == "ken_burns":
-        mode = "ken_burns"
-    else:
-        mode = "static"
-
-    if mode == "static":
-        return _vf_static()
-    if mode == "pan":
-        return _vf_pan_horizontal(seg_secs)
-    if mode == "kb_soft":
-        return _vf_ken_burns(seg_secs, max_zoom=1.08)
-    return _vf_ken_burns(seg_secs, max_zoom=1.12)
-
-
 def _encode_segment(
     ffmpeg: str,
     img: str,
     seg_secs: float,
     out_path: str,
-    motion: str,
-    seg_index: int,
 ) -> None:
-    vf = _vf_for_segment(seg_index, seg_secs, motion)
+    vf = _vf_static()
     subprocess.run(
         [
             ffmpeg,
@@ -648,34 +385,38 @@ def _encode_segment(
 
 
 def ffmpeg_slideshow_with_audio(
-    image_paths: List[str],
+    slides: List[Tuple[str, float]],
     audio_path: str,
     output_mp4_path: str,
-    motion: str = "static",
 ) -> None:
+    """slides: list of (png_path, duration_share) with shares summing to 1.0; only scale+pad (no crop)."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError(
             "ffmpeg ist nicht installiert oder nicht im PATH. Lernvideo-Erstellung auf dem Server nicht möglich."
         )
-    if not image_paths:
+    if not slides:
         raise ValueError("Keine Bilder für das Video.")
-    motion = (motion or "static").strip().lower()
-    if motion not in ("static", "ken_burns", "mixed"):
-        motion = "static"
+    for p, w in slides:
+        if not p or w <= 0:
+            raise ValueError("Ungültige Slide-Einträge (Pfad oder Anteil).")
 
     dur = _audio_duration_sec(audio_path)
-    seg_secs = max(2.5, dur / len(image_paths))
+    share_sum = sum(w for _, w in slides)
+    if abs(share_sum - 1.0) > 0.02:
+        raise ValueError("Slide-Daueranteile müssen sich zu 1.0 summieren.")
 
     with tempfile.TemporaryDirectory() as tmp:
         parts: List[str] = []
-        for i, img in enumerate(image_paths):
+        for i, (img, share) in enumerate(slides):
+            seg_secs = dur * share
+            if seg_secs < 0.05:
+                seg_secs = max(1.0 / VIDEO_FPS, seg_secs)
             seg = os.path.join(tmp, f"seg_{i:03d}.mp4")
-            _encode_segment(ffmpeg, img, seg_secs, seg, motion, i)
+            _encode_segment(ffmpeg, img, seg_secs, seg)
             parts.append(seg)
 
-        # Always concat with stream copy (no xfade filter graph). xfade loaded N decoders at once and
-        # OOM'd Starter (512MB). Ken-Burns motion stays per segment; transitions are clean cuts.
+        # Concat with stream copy (no xfade — avoids loading N decoders at once on small hosts).
         merged_v = os.path.join(tmp, "merged.mp4")
         lst = os.path.join(tmp, "vlist.txt")
         with open(lst, "w", encoding="utf-8") as f:

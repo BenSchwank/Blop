@@ -75,7 +75,7 @@ def _learning_video_job_fail(job_id: str, detail: str) -> None:
 
 
 def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
-    """Defaults match previous behavior: ~6 scenes, standard narration, clean static slides."""
+    """Defaults: ~6 scenes, standard narration; slides use scale+pad only (no zoom). motion is ignored."""
     ts = req.target_scenes
     if ts is None:
         ts = 6
@@ -90,9 +90,6 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
     visual = (req.visual_style or "clean").strip().lower()
     if visual not in ("clean", "rich", "whiteboard"):
         visual = "clean"
-    motion = (req.motion or "static").strip().lower()
-    if motion not in ("static", "ken_burns", "mixed"):
-        motion = "static"
     use_stock = bool(req.use_stock_images)
     if use_stock and not os.environ.get("PEXELS_API_KEY", "").strip():
         print("Lernvideo: Stock-Bilder gewünscht, aber PEXELS_API_KEY fehlt — Folien ohne Fotos.")
@@ -102,7 +99,6 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
         "target_scenes": ts,
         "narration_depth": depth,
         "visual_style": visual,
-        "motion": motion,
         "use_stock_images": use_stock,
         "tts_voice": voice,
     }
@@ -116,7 +112,13 @@ def _learning_video_job_worker(
     lv_opts: Optional[dict] = None,
 ) -> None:
     from ai_service import AIService
-    from media_pipeline import openai_tts_speech_mp3, render_scene_slides, ffmpeg_slideshow_with_audio
+    from media_pipeline import (
+        VIDEO_H,
+        VIDEO_W,
+        ffmpeg_slideshow_with_audio,
+        openai_tts_speech_mp3,
+        render_scene_slides_weighted,
+    )
 
     opts = lv_opts or {}
     slide_root: Optional[str] = None
@@ -202,24 +204,21 @@ def _learning_video_job_worker(
                 if iq:
                     item["image_query"] = iq
             slide_scenes.append(item)
-        img_paths = render_scene_slides(
+        img_weighted = render_scene_slides_weighted(
             slide_scenes,
+            width=VIDEO_W,
+            height=VIDEO_H,
             visual_style=opts.get("visual_style", "clean"),
             use_stock_images=use_stock,
         )
-        if img_paths:
-            slide_root = os.path.dirname(img_paths[0])
+        if img_weighted:
+            slide_root = os.path.dirname(img_weighted[0][0])
         work_tmp = tempfile.mkdtemp(prefix="blop_lv_")
         audio_path = os.path.join(work_tmp, "narration.mp3")
         with open(audio_path, "wb") as f:
             f.write(mp3_bytes)
         out_mp4 = os.path.join(work_tmp, "out.mp4")
-        ffmpeg_slideshow_with_audio(
-            img_paths,
-            audio_path,
-            out_mp4,
-            motion=opts.get("motion", "static"),
-        )
+        ffmpeg_slideshow_with_audio(img_weighted, audio_path, out_mp4)
         with open(out_mp4, "rb") as f:
             video_bytes = f.read()
         if not video_bytes:
