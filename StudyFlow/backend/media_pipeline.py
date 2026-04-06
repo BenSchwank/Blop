@@ -24,8 +24,9 @@ VIDEO_CRF = 25
 # Cap peak bitrate (960p learning video); limits MP4 size vs. raw CRF-only VBR.
 VIDEO_MAXRATE = "2M"
 VIDEO_BUFSIZE = "4M"
-# Ken-Burns supersample width cap (avoid 1920px-wide buffers on small instances)
-_KB_SCALE_W = 1152
+# Ken-Burns: pad to exact 16:9 before zoompan (avoids odd-dimension crop glitches / clipped edges).
+_KEN_PAD_W = 1152
+_KEN_PAD_H = 648
 
 
 def _openai_tts_failure_message(response: requests.Response) -> str:
@@ -243,6 +244,42 @@ def _draw_footer_bar(draw, width: int, height: int, font_small, accent: Tuple[in
         draw.text(((width - tw) // 2, y0 + 14), msg, fill=(170, 180, 210), font=font_small)
 
 
+def _draw_whiteboard_doodles(
+    draw,
+    width: int,
+    canvas_h: int,
+    scene_idx: int,
+    accent: Tuple[int, int, int],
+) -> None:
+    """Simple marker-like lines and shapes (PIL only — evokes whiteboard / explainer style)."""
+    import random
+
+    rng = random.Random(scene_idx * 9973 + 31)
+    # Top-left squiggle
+    pts = []
+    x0, y0 = 36 + rng.randint(0, 24), 44 + rng.randint(0, 20)
+    for k in range(10):
+        pts.append((x0 + k * 16 + rng.randint(-5, 5), y0 + rng.randint(-8, 8)))
+    if len(pts) >= 2:
+        draw.line(pts, fill=accent, width=3)
+    # Lightbulb / idea circle
+    cx = width - 140 - rng.randint(0, 40)
+    cy = 70 + rng.randint(0, 30)
+    r = 22 + rng.randint(0, 8)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=accent, width=2)
+    draw.line([(cx, cy + r), (cx, cy + r + 18)], fill=accent, width=2)
+    # Arrow
+    ax1, ay1 = width // 2 + 120, canvas_h // 3
+    ax2, ay2 = ax1 + 60, ay1 + 40
+    draw.line([(ax1, ay1), (ax2, ay2)], fill=accent, width=2)
+    draw.polygon([(ax2, ay2), (ax2 - 12, ay2 - 6), (ax2 - 8, ay2 + 4)], fill=accent)
+    # Underline wave under imaginary title area
+    wx = 48
+    wy = min(canvas_h - 120, 160 + rng.randint(0, 40))
+    wpts = [(wx + j * 28, wy + (j % 3 - 1) * 4) for j in range(18)]
+    draw.line(wpts, fill=(accent[0] // 2 + 80, accent[1] // 2 + 80, accent[2] // 2 + 80), width=2)
+
+
 def _draw_chapter_badge(
     draw,
     width: int,
@@ -277,7 +314,7 @@ def render_scene_slides(
         raise RuntimeError("Pillow (PIL) wird für Lernvideos benötigt.") from e
 
     style = (visual_style or "clean").strip().lower()
-    if style not in ("clean", "rich"):
+    if style not in ("clean", "rich", "whiteboard"):
         style = "clean"
 
     font_title, font_body = _load_slide_fonts()
@@ -315,21 +352,35 @@ def render_scene_slides(
         body = str(sc.get("body") or sc.get("bullets") or "")[:2000]
         chapter = str(sc.get("chapter") or "").strip()
         top_c, bot_c, accent = palettes[i % len(palettes)]
+        scene_accent = (42, 118, 92) if style == "whiteboard" else accent
 
-        img = Image.new("RGB", (width, height), color=bot_c)
-        draw = ImageDraw.Draw(img)
-
-        if style == "rich":
-            _draw_gradient_background(draw, width, height - footer_h, top_c, bot_c)
-            draw.rectangle([0, 0, 12, height - footer_h], fill=accent)
+        if style == "whiteboard":
+            wb_bg = (242, 239, 230)
+            img = Image.new("RGB", (width, height), color=wb_bg)
+            draw = ImageDraw.Draw(img)
+            wb_accent = (42, 118, 92)
+            _draw_whiteboard_doodles(draw, width, height - footer_h, i, wb_accent)
+            draw.rounded_rectangle(
+                [28, 28, width - 28, height - footer_h - 28],
+                radius=8,
+                outline=(198, 192, 176),
+                width=2,
+            )
         else:
-            draw.rectangle([0, 0, width, height - footer_h], fill=bot_c)
+            img = Image.new("RGB", (width, height), color=bot_c)
+            draw = ImageDraw.Draw(img)
+
+            if style == "rich":
+                _draw_gradient_background(draw, width, height - footer_h, top_c, bot_c)
+                draw.rectangle([0, 0, 12, height - footer_h], fill=accent)
+            else:
+                draw.rectangle([0, 0, width, height - footer_h], fill=bot_c)
 
         text_top_limit = height - footer_h - 24
-        text_left = margin + (22 if style == "rich" else 0)
+        text_left = margin + (22 if style == "rich" else (28 if style == "whiteboard" else 0))
 
         photo_bytes = None
-        if use_stock_images and not is_title:
+        if use_stock_images and not is_title and style != "whiteboard":
             q = str(sc.get("image_query") or "").strip()
             if q:
                 photo_bytes = pexels_fetch_image_bytes(q)
@@ -358,6 +409,9 @@ def render_scene_slides(
         if photo_bytes:
             title_fill = (255, 255, 255)
             body_fill = (230, 235, 245)
+        if style == "whiteboard":
+            title_fill = (28, 32, 36)
+            body_fill = (52, 60, 68)
 
         if is_title:
             ft_big = fb_sub = font_title
@@ -383,6 +437,15 @@ def render_scene_slides(
                     radius=14,
                     fill=(14, 16, 32),
                 )
+            elif style == "whiteboard":
+                inset = 40
+                draw.rounded_rectangle(
+                    [inset, inset, width - inset, height - footer_h - inset],
+                    radius=18,
+                    fill=(250, 247, 240),
+                    outline=scene_accent,
+                    width=3,
+                )
             max_w = width - 2 * margin - 80
             y = (height - footer_h) // 3
             for line in _wrap_text(draw, title, ft_big, max_w):
@@ -399,10 +462,17 @@ def render_scene_slides(
                 if y > text_top_limit - 40:
                     break
         else:
-            if style == "rich" and chapter:
-                _draw_chapter_badge(draw, width, chapter, font_badge, accent, margin)
+            if chapter and style in ("rich", "whiteboard"):
+                _draw_chapter_badge(
+                    draw,
+                    width,
+                    chapter,
+                    font_badge,
+                    scene_accent if style == "whiteboard" else accent,
+                    margin,
+                )
             card_margin = margin
-            card_top = margin + (52 if style == "rich" and chapter else 8)
+            card_top = margin + (52 if chapter and style in ("rich", "whiteboard") else 8)
             card_w = width - 2 * card_margin - (22 if style == "rich" else 0)
             # Title card background (rich)
             if style == "rich" and not photo_bytes:
@@ -417,6 +487,18 @@ def render_scene_slides(
                     outline=accent,
                     width=2,
                 )
+            elif style == "whiteboard" and not photo_bytes:
+                title_lines = _wrap_text(draw, title, font_title, card_w - 40)
+                body_lines = _wrap_text(draw, body, font_body, card_w - 40)
+                est_h = 20 + len(title_lines) * 52 + 20 + min(len(body_lines), 12) * 36
+                card_h = min(max(120, est_h), text_top_limit - card_top + 20)
+                draw.rounded_rectangle(
+                    [text_left - 16, card_top - 12, text_left + card_w, card_top + card_h],
+                    radius=14,
+                    fill=(252, 249, 242),
+                    outline=scene_accent,
+                    width=2,
+                )
             y = card_top + 8
             for line in _wrap_text(draw, title, font_title, card_w - 24):
                 draw.text((text_left, y), line, fill=title_fill, font=font_title)
@@ -428,7 +510,7 @@ def render_scene_slides(
                 if y > text_top_limit:
                     break
 
-        _draw_footer_bar(draw, width, height, font_footer, accent)
+        _draw_footer_bar(draw, width, height, font_footer, scene_accent)
 
         p = os.path.join(tmp_root, f"slide_{i:03d}.png")
         img.save(p)
@@ -464,18 +546,58 @@ def _audio_duration_sec(path: str) -> float:
 def _vf_static() -> str:
     return (
         f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=decrease,"
-        f"pad={VIDEO_W}:{VIDEO_H}:(ow-iw)/2:(oh-ih)/2"
+        f"pad={VIDEO_W}:{VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1"
     )
 
 
-def _vf_ken_burns(seg_secs: float) -> str:
-    d_frames = max(1, int(seg_secs * VIDEO_FPS))
-    # Light supersample for zoompan; capped width keeps RAM down on 0.5 CPU / 512MB hosts.
+def _vf_kb_pre_pad() -> str:
+    """Pad to fixed 16:9 before zoompan so crop math stays centered (fixes left/right clipping)."""
     return (
-        f"scale={_KB_SCALE_W}:-1,"
-        f"zoompan=z='min(zoom+0.0014,1.22)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d_frames}:"
-        f"s={VIDEO_W}x{VIDEO_H}:fps={VIDEO_FPS}"
+        f"scale={_KEN_PAD_W}:{_KEN_PAD_H}:force_original_aspect_ratio=decrease,"
+        f"pad={_KEN_PAD_W}:{_KEN_PAD_H}:(ow-iw)/2:(oh-ih)/2,setsar=1"
     )
+
+
+def _vf_ken_burns(seg_secs: float, max_zoom: float = 1.12) -> str:
+    d_frames = max(1, int(seg_secs * VIDEO_FPS))
+    zmax = max(1.02, min(max_zoom, 1.2))
+    denom = max(1, d_frames - 1)
+    step = (zmax - 1.0) / denom
+    return (
+        f"{_vf_kb_pre_pad()},"
+        f"zoompan=z='min(zoom+{step:.8f},{zmax})':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d={d_frames}:"
+        f"s={VIDEO_W}x{VIDEO_H}:fps={VIDEO_FPS},setsar=1"
+    )
+
+
+def _vf_pan_horizontal(seg_secs: float) -> str:
+    """Slow horizontal pan across a slightly oversized frame (no zoompan)."""
+    d_frames = max(1, int(seg_secs * VIDEO_FPS))
+    denom = max(1, d_frames - 1)
+    return (
+        f"scale=1440:810:force_original_aspect_ratio=decrease,pad=1440:810:(ow-iw)/2:(oh-ih)/2,"
+        f"crop=960:540:x='floor((iw-960)*n/{denom})':y='(ih-540)/2',setsar=1"
+    )
+
+
+def _vf_for_segment(seg_idx: int, seg_secs: float, motion: str) -> str:
+    """motion: static | ken_burns | mixed (cycles static / soft zoom / pan)."""
+    m = (motion or "static").strip().lower()
+    if m == "mixed":
+        # 0 static, 1 soft zoom, 2 pan, 3 soft zoom (repeat)
+        mode = ("static", "kb_soft", "pan", "kb_soft")[seg_idx % 4]
+    elif m == "ken_burns":
+        mode = "ken_burns"
+    else:
+        mode = "static"
+
+    if mode == "static":
+        return _vf_static()
+    if mode == "pan":
+        return _vf_pan_horizontal(seg_secs)
+    if mode == "kb_soft":
+        return _vf_ken_burns(seg_secs, max_zoom=1.08)
+    return _vf_ken_burns(seg_secs, max_zoom=1.12)
 
 
 def _encode_segment(
@@ -484,9 +606,9 @@ def _encode_segment(
     seg_secs: float,
     out_path: str,
     motion: str,
+    seg_index: int,
 ) -> None:
-    motion = (motion or "static").strip().lower()
-    vf = _vf_ken_burns(seg_secs) if motion == "ken_burns" else _vf_static()
+    vf = _vf_for_segment(seg_index, seg_secs, motion)
     subprocess.run(
         [
             ffmpeg,
@@ -539,7 +661,7 @@ def ffmpeg_slideshow_with_audio(
     if not image_paths:
         raise ValueError("Keine Bilder für das Video.")
     motion = (motion or "static").strip().lower()
-    if motion not in ("static", "ken_burns"):
+    if motion not in ("static", "ken_burns", "mixed"):
         motion = "static"
 
     dur = _audio_duration_sec(audio_path)
@@ -549,7 +671,7 @@ def ffmpeg_slideshow_with_audio(
         parts: List[str] = []
         for i, img in enumerate(image_paths):
             seg = os.path.join(tmp, f"seg_{i:03d}.mp4")
-            _encode_segment(ffmpeg, img, seg_secs, seg, motion)
+            _encode_segment(ffmpeg, img, seg_secs, seg, motion, i)
             parts.append(seg)
 
         # Always concat with stream copy (no xfade filter graph). xfade loaded N decoders at once and

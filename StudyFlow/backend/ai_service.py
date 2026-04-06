@@ -911,6 +911,12 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
             )
             if material_note:
                 schema_hint += "\nHinweis zum Umfang des Materials:\n" + material_note + "\n"
+            vis = (opts.get("visual_style") or "").strip().lower()
+            if vis == "whiteboard":
+                schema_hint += (
+                    "\nVisueller Stil Whiteboard: Kurze, klare Stichpunkte im body-Feld; Begriffe wie in einer "
+                    "Skizze erklären (z. B. Ursache → Wirkung, A B C). Keine langen Fließtextblöcke ohne Struktur.\n"
+                )
             schema_hint += (
                 "\nWichtig für gültiges JSON: In allen Textfeldern (title, opening_narration, body, narration) "
                 "darf im Fließtext kein rohes doppeltes Anführungszeichen (ASCII 34) vorkommen — nutze typografische "

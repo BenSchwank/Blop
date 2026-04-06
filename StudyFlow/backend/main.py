@@ -88,10 +88,10 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
     if depth not in ("compact", "standard", "detailed", "deep"):
         depth = "standard"
     visual = (req.visual_style or "clean").strip().lower()
-    if visual not in ("clean", "rich"):
+    if visual not in ("clean", "rich", "whiteboard"):
         visual = "clean"
     motion = (req.motion or "static").strip().lower()
-    if motion not in ("static", "ken_burns"):
+    if motion not in ("static", "ken_burns", "mixed"):
         motion = "static"
     use_stock = bool(req.use_stock_images)
     if use_stock and not os.environ.get("PEXELS_API_KEY", "").strip():
@@ -156,6 +156,7 @@ def _learning_video_job_worker(
                 "narration_depth": opts.get("narration_depth", "standard"),
                 "include_image_queries": bool(opts.get("use_stock_images")),
                 "material_summary": material_summary,
+                "visual_style": opts.get("visual_style", "clean"),
             },
         )
         data = sb_result["data"]

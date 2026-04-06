@@ -599,8 +599,8 @@ export default function FolderPage() {
     const [isLearningVideoConfigOpen, setIsLearningVideoConfigOpen] = useState(false);
     const [lvTargetScenes, setLvTargetScenes] = useState(8);
     const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed" | "deep">("standard");
-    const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich">("rich");
-    const [lvMotion, setLvMotion] = useState<"static" | "ken_burns">("ken_burns");
+    const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich" | "whiteboard">("whiteboard");
+    const [lvMotion, setLvMotion] = useState<"static" | "ken_burns" | "mixed">("mixed");
     const [lvUseStockImages, setLvUseStockImages] = useState(false);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
 
@@ -693,10 +693,10 @@ export default function FolderPage() {
             ) {
                 setLvNarrationDepth(p.narrationDepth);
             }
-            if (p.visualStyle === "clean" || p.visualStyle === "rich") {
+            if (p.visualStyle === "clean" || p.visualStyle === "rich" || p.visualStyle === "whiteboard") {
                 setLvVisualStyle(p.visualStyle);
             }
-            if (p.motion === "static" || p.motion === "ken_burns") {
+            if (p.motion === "static" || p.motion === "ken_burns" || p.motion === "mixed") {
                 setLvMotion(p.motion);
             }
             if (typeof p.useStockImages === "boolean") {
@@ -2358,8 +2358,8 @@ export default function FolderPage() {
                             Download
                         </a>
                     </div>
-                    <div className="flex-1 flex items-center justify-center p-4 bg-black w-full min-h-0">
-                        <div className="w-full max-w-4xl aspect-video min-h-[220px] max-h-[min(80vh,720px)] rounded-xl border border-[#2A2A40] bg-black overflow-hidden flex items-center justify-center">
+                    <div className="flex-1 flex items-center justify-center p-3 sm:p-4 bg-black w-full min-h-0 min-w-0 overflow-hidden">
+                        <div className="w-full max-w-4xl min-h-0 min-w-0 max-h-[min(80vh,720px)] aspect-video rounded-xl border border-[#2A2A40] bg-black overflow-hidden flex items-center justify-center">
                             {signedMediaStatus === 'loading' && (
                                 <Loader2 className="h-14 w-14 animate-spin text-cyan-300" aria-label="Lädt" />
                             )}
@@ -2370,7 +2370,7 @@ export default function FolderPage() {
                                 <video
                                     controls
                                     playsInline
-                                    className="h-full w-full max-h-[min(80vh,720px)] object-contain"
+                                    className="block max-w-full max-h-full w-full h-full object-contain object-center"
                                     onError={() => showToast("Video konnte nicht geladen werden.", "error")}
                                 >
                                     <source src={signedMediaUrl!} type="video/mp4" />
@@ -3588,11 +3588,11 @@ export default function FolderPage() {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Folien-Stil</label>
-                                    <div className="flex gap-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         <button
                                             type="button"
                                             onClick={() => setLvVisualStyle("clean")}
-                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvVisualStyle === "clean"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
                                                     : "bg-[#151525] text-gray-300 border-[#2A2A40]"
@@ -3603,7 +3603,7 @@ export default function FolderPage() {
                                         <button
                                             type="button"
                                             onClick={() => setLvVisualStyle("rich")}
-                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvVisualStyle === "rich"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
                                                     : "bg-[#151525] text-gray-300 border-[#2A2A40]"
@@ -3611,15 +3611,26 @@ export default function FolderPage() {
                                         >
                                             Dekorativ
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLvVisualStyle("whiteboard")}
+                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
+                                                lvVisualStyle === "whiteboard"
+                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                            }`}
+                                        >
+                                            Whiteboard
+                                        </button>
                                     </div>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Bewegung</label>
-                                    <div className="flex gap-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         <button
                                             type="button"
                                             onClick={() => setLvMotion("static")}
-                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvMotion === "static"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
                                                     : "bg-[#151525] text-gray-300 border-[#2A2A40]"
@@ -3630,15 +3641,29 @@ export default function FolderPage() {
                                         <button
                                             type="button"
                                             onClick={() => setLvMotion("ken_burns")}
-                                            className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
                                                 lvMotion === "ken_burns"
                                                     ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
                                                     : "bg-[#151525] text-gray-300 border-[#2A2A40]"
                                             }`}
                                         >
-                                            Zoom pro Szene
+                                            Nur Zoom
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLvMotion("mixed")}
+                                            className={`py-2.5 rounded-xl text-sm font-medium border ${
+                                                lvMotion === "mixed"
+                                                    ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                                                    : "bg-[#151525] text-gray-300 border-[#2A2A40]"
+                                            }`}
+                                        >
+                                            Abwechslung
                                         </button>
                                     </div>
+                                    <p className="text-xs text-gray-500 mt-1.5">
+                                        „Abwechslung“ wechselt pro Szene (statisch, sanfter Zoom, sanfter Pan) — weniger eintönig als nur Zoom.
+                                    </p>
                                 </div>
                                 <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
                                     <input
