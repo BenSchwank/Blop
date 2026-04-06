@@ -527,9 +527,25 @@ class DataManager:
         if not db:
             raise Exception("Supabase DB nicht initialisiert")
         path = f"{username}/{folder_id}/video/{filename}"
-        db.storage.from_("blop_documents").upload(
-            path, file_data, {"upsert": "true", "content-type": "video/mp4"}
-        )
+        try:
+            db.storage.from_("blop_documents").upload(
+                path, file_data, {"upsert": "true", "content-type": "video/mp4"}
+            )
+        except Exception as e:
+            blob = (repr(e) + " " + str(e)).lower()
+            if (
+                "413" in blob
+                or "payload too large" in blob
+                or "too large" in blob
+                or "maximum allowed" in blob
+                or "exceeded" in blob
+            ):
+                raise RuntimeError(
+                    "Die Videodatei ist zu groß für den Speicher (Supabase-Uploadlimit). "
+                    "Wähle ein kürzeres Lernvideo (weniger Szenen oder kürzere Erzähltiefe), "
+                    "oder erhöhe in der Supabase-Konsole unter Storage die maximale Dateigröße pro Objekt."
+                ) from e
+            raise
         file_id = f"video_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
         DataManager.save_file_metadata(
             {

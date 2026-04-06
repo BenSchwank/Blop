@@ -19,8 +19,11 @@ OPENAI_TTS_VOICES = frozenset({"alloy", "echo", "fable", "onyx", "nova", "shimme
 VIDEO_W = 960
 VIDEO_H = 540
 VIDEO_FPS = 15
-# Slightly better quality at this resolution (was 26 at 720p).
-VIDEO_CRF = 22
+# CRF + maxrate keep file size under typical Supabase per-object limits on long TTS videos.
+VIDEO_CRF = 25
+# Cap peak bitrate (960p learning video); limits MP4 size vs. raw CRF-only VBR.
+VIDEO_MAXRATE = "2M"
+VIDEO_BUFSIZE = "4M"
 # Ken-Burns supersample width cap (avoid 1920px-wide buffers on small instances)
 _KB_SCALE_W = 1152
 
@@ -506,6 +509,10 @@ def _encode_segment(
             "ultrafast",
             "-crf",
             str(VIDEO_CRF),
+            "-maxrate",
+            VIDEO_MAXRATE,
+            "-bufsize",
+            VIDEO_BUFSIZE,
             "-pix_fmt",
             "yuv420p",
             "-threads",
@@ -587,7 +594,7 @@ def ffmpeg_slideshow_with_audio(
                 "-c:a",
                 "aac",
                 "-b:a",
-                "160k",
+                "128k",
                 "-movflags",
                 "+faststart",
                 "-shortest",
