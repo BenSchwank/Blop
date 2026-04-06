@@ -240,9 +240,9 @@ export default function Settings() {
                             <option value="gemini-2.5-pro">Gemini 2.5 Pro (sehr stark, teurer)</option>
                             <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro (stark)</option>
                             <option value="gemini-1.5-pro">Gemini 1.5 Pro (stark)</option>
-                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (schnell)</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (schnell)</option>
                             <option value="gemini-1.5-flash">Gemini 1.5 Flash (günstig)</option>
-                            <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite (sehr günstig)</option>
+                            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (sehr günstig)</option>
                         </select>
                         <p className="text-xs text-gray-500">
                             Tokenabzug erfolgt dynamisch nach Nutzung. Pro-Modelle ziehen in der Regel mehr Tokens ab als Flash-Modelle.

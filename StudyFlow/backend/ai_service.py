@@ -15,12 +15,22 @@ if api_key:
     genai.configure(api_key=api_key)
 
 
+# Deprecated IDs still stored in settings / old code paths → current stable IDs (Google AI API).
+_DEPRECATED_MODEL_ALIASES = {
+    "gemini-2.0-flash": "gemini-2.5-flash",
+    "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
+}
+
+def _resolve_model_preference(model_preference: str) -> str:
+    return _DEPRECATED_MODEL_ALIASES.get(model_preference, model_preference)
+
+
 # Priority list of preferred models (newest/best first)
 _PREFERRED_MODELS = [
     "gemini-2.5-pro",
     "gemini-2.0-pro-exp",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
@@ -30,7 +40,7 @@ _PREFERRED_MODELS = [
 def get_best_model(model_preference: str = None) -> str:
     """Dynamically detect the best available Gemini model for this API key."""
     if model_preference:
-        return model_preference
+        return _resolve_model_preference(model_preference)
         
     try:
         available = []
@@ -76,6 +86,19 @@ def _is_transient_storyboard_error(exc: BaseException) -> bool:
         or "timeout" in raw
         or "deadline exceeded" in raw
         or "unavailable" in raw
+    )
+
+
+def _is_storyboard_model_fallback_error(exc: BaseException) -> bool:
+    """Transient API issues or model unavailable (404, deprecated) — try next candidate."""
+    if _is_transient_storyboard_error(exc):
+        return True
+    raw = (repr(exc) + " " + str(exc)).lower()
+    return (
+        "404" in raw
+        or "not found" in raw
+        or "no longer available" in raw
+        or "not available for new users" in raw
     )
 
 
@@ -237,22 +260,23 @@ Setze NAHTLOS fort:
         """Return a model that exists for this API key; fallback safely."""
         if preferred:
             try:
+                resolved = _resolve_model_preference(preferred)
                 available = []
                 for m in genai.list_models():
                     name = m.name.replace("models/", "")
                     if hasattr(m, "supported_generation_methods") and "generateContent" in m.supported_generation_methods:
                         available.append(name)
-                if preferred in available:
-                    return preferred
-                print(f"Preferred model '{preferred}' not available. Available: {available}")
+                if resolved in available:
+                    return resolved
+                print(f"Preferred model '{preferred}' (resolved: '{resolved}') not available. Available: {available}")
             except Exception as e:
                 print(f"Could not validate preferred model '{preferred}': {e}")
 
         if fast_only:
-            for candidate in ("gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"):
+            for candidate in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"):
                 picked = get_best_model(candidate)
                 if picked == candidate:
-                    return candidate
+                    return picked
         return get_best_model(None)
 
     @staticmethod
@@ -260,7 +284,7 @@ Setze NAHTLOS fort:
         """Prefer high-quality models first, then fallback to fast models."""
         if preferred:
             picked = AIService._pick_available_model(preferred=preferred, fast_only=False)
-            if picked == preferred:
+            if picked == _resolve_model_preference(preferred):
                 return picked
         strong_candidates = (
             "gemini-2.5-pro",
@@ -980,7 +1004,7 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
 
             primary = get_best_model(model_preference)
             model_candidates: List[str] = []
-            for m in (primary, "gemini-2.0-flash", "gemini-1.5-flash"):
+            for m in (primary, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"):
                 if m and m not in model_candidates:
                     model_candidates.append(m)
 
@@ -1017,7 +1041,7 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
                     }
                 except Exception as e:
                     last_err = e
-                    if model_name != model_candidates[-1] and _is_transient_storyboard_error(e):
+                    if model_name != model_candidates[-1] and _is_storyboard_model_fallback_error(e):
                         print(f"Lernvideo storyboard: model {model_name} failed ({e}), trying fallback...")
                         continue
                     print(f"Learning video storyboard error: {e}")
