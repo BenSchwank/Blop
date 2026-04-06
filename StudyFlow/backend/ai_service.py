@@ -103,10 +103,11 @@ def _is_storyboard_model_fallback_error(exc: BaseException) -> bool:
 
 
 def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
-    """Gemini chat.send_message mit langem Timeout; ein Retry bei 504/Timeout/503."""
+    """Gemini chat.send_message mit langem Timeout; mehrere Retries bei 503/504/Timeout mit Backoff."""
     opts = RequestOptions(timeout=LEARNING_VIDEO_STORYBOARD_TIMEOUT_SEC)
     last_exc: Optional[BaseException] = None
-    for attempt in range(2):
+    backoff_sec = (4.0, 12.0)
+    for attempt in range(3):
         try:
             return chat.send_message(
                 content,
@@ -116,14 +117,49 @@ def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
         except Exception as e:
             last_exc = e
             transient = _is_transient_storyboard_error(e)
-            if attempt == 0 and transient:
-                print(f"Learning video storyboard: retry after API error ({e})")
-                time.sleep(4.0)
+            if attempt < 2 and transient:
+                delay = backoff_sec[attempt]
+                print(f"Learning video storyboard: retry after API error ({e}) in {delay:.0f}s")
+                time.sleep(delay)
                 continue
             raise
     if last_exc:
         raise last_exc
     raise RuntimeError("Learning video storyboard: send_message failed without exception")
+
+
+def _learning_video_storyboard_model_candidates(model_preference: Optional[str]) -> List[str]:
+    """Storyboard: bei Auto Flash zuerst (weniger 503-Spitzenlast als Pro). Env LEARNING_VIDEO_STORYBOARD_MODEL setzt erste Wahl."""
+    env_first = os.environ.get("LEARNING_VIDEO_STORYBOARD_MODEL", "").strip()
+    if env_first:
+        resolved = _resolve_model_preference(env_first)
+        pool: List[str] = [resolved]
+        for m in (
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-1.5-flash",
+            "gemini-2.5-pro",
+        ):
+            if m not in pool:
+                pool.append(m)
+        return pool
+
+    mp = (model_preference or "").strip()
+    if mp:
+        primary = _resolve_model_preference(mp)
+        pool = [primary]
+        for m in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"):
+            if m not in pool:
+                pool.append(m)
+        return pool
+
+    pool: List[str] = []
+    for m in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"):
+        pool.append(m)
+    primary = get_best_model(None)
+    if primary not in pool:
+        pool.append(primary)
+    return pool
 
 
 def _learning_video_storyboard_error_hint(exc: BaseException) -> str:
@@ -1024,11 +1060,7 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
                 "‚…‘ oder Umformulierung ohne Zitate, damit die JSON-Strings syntaktisch gültig bleiben.\n"
             )
 
-            primary = get_best_model(model_preference)
-            model_candidates: List[str] = []
-            for m in (primary, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"):
-                if m and m not in model_candidates:
-                    model_candidates.append(m)
+            model_candidates = _learning_video_storyboard_model_candidates(model_preference)
 
             input_parts = [schema_hint + "\n\nAnalysiere das Material und fülle das JSON sinnvoll."]
             if isinstance(content, list):

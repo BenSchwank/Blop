@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime
 import uuid
 import tempfile
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 # Supabase Imports
 try:
@@ -792,3 +792,51 @@ class DataManager:
     @staticmethod
     def import_shared_plan(share_id, target_username):
         return None, "Not implemented yet"
+
+    @staticmethod
+    def save_background_job(
+        job_id: str,
+        job_type: str,
+        username: str,
+        status: str,
+        detail: Optional[str] = None,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Persistiert Lernvideo-/Podcast-Jobs (Multi-Instance / Restart). Tabelle ai_background_jobs anlegen (siehe supabase/migrations)."""
+        db = DataManager._init_supabase()
+        if not db:
+            return False
+        try:
+            row: Dict[str, Any] = {
+                "job_id": job_id,
+                "job_type": job_type,
+                "username": username,
+                "status": status,
+                "detail": detail,
+                "result": result,
+            }
+            db.table("ai_background_jobs").upsert(row).execute()
+            return True
+        except Exception as e:
+            print(f"save_background_job: {e}")
+            return False
+
+    @staticmethod
+    def get_background_job(job_id: str, username: str) -> Optional[Dict[str, Any]]:
+        db = DataManager._init_supabase()
+        if not db:
+            return None
+        try:
+            res = (
+                db.table("ai_background_jobs")
+                .select("*")
+                .eq("job_id", job_id)
+                .eq("username", username)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                return res.data[0]
+        except Exception as e:
+            print(f"get_background_job: {e}")
+        return None

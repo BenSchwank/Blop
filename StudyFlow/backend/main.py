@@ -56,8 +56,7 @@ _LEARNING_VIDEO_JOB_MAX = 256
 _PODCAST_JOBS: dict = {}
 _PODCAST_JOBS_LOCK = threading.Lock()
 _PODCAST_JOB_MAX = 256
-# Hinweis (Multi-Instance): Job-Status liegt nur im RAM dieses Prozesses. Mehrere Render-Instanzen:
-# Polling kann auf einer anderen Instanz landen (404). Dann Jobs in Redis/Supabase-Tabelle auslagern.
+# Multi-Instance: optional ai_background_jobs in Supabase (siehe supabase/migrations); Status-GET liest DB zuerst.
 
 
 def _learning_video_prune_jobs_locked() -> None:
@@ -74,11 +73,18 @@ def _learning_video_prune_jobs_locked() -> None:
 
 
 def _learning_video_job_fail(job_id: str, detail: str) -> None:
+    uname: Optional[str] = None
     with _LEARNING_VIDEO_JOBS_LOCK:
         if job_id in _LEARNING_VIDEO_JOBS:
-            _LEARNING_VIDEO_JOBS[job_id]["status"] = "error"
-            _LEARNING_VIDEO_JOBS[job_id]["detail"] = detail
-            _LEARNING_VIDEO_JOBS[job_id]["finished_at"] = time.time()
+            j = _LEARNING_VIDEO_JOBS[job_id]
+            uname = j.get("username")
+            j["status"] = "error"
+            j["detail"] = detail
+            j["finished_at"] = time.time()
+    if uname:
+        DataManager.save_background_job(
+            job_id, "learning_video", uname, "error", detail=detail
+        )
 
 
 def _podcast_prune_jobs_locked() -> None:
@@ -95,11 +101,16 @@ def _podcast_prune_jobs_locked() -> None:
 
 
 def _podcast_job_fail(job_id: str, detail: str) -> None:
+    uname: Optional[str] = None
     with _PODCAST_JOBS_LOCK:
         if job_id in _PODCAST_JOBS:
-            _PODCAST_JOBS[job_id]["status"] = "error"
-            _PODCAST_JOBS[job_id]["detail"] = detail
-            _PODCAST_JOBS[job_id]["finished_at"] = time.time()
+            j = _PODCAST_JOBS[job_id]
+            uname = j.get("username")
+            j["status"] = "error"
+            j["detail"] = detail
+            j["finished_at"] = time.time()
+    if uname:
+        DataManager.save_background_job(job_id, "podcast", uname, "error", detail=detail)
 
 
 def _podcast_job_worker(
@@ -148,6 +159,19 @@ def _podcast_job_worker(
                         **charge,
                     }
                 )
+        DataManager.save_background_job(
+            job_id,
+            "podcast",
+            username,
+            "done",
+            result={
+                "file_id": file_id,
+                "filename": fname,
+                "used_model": script_result.get("used_model", model_pref or ""),
+                "usage": script_result.get("usage", {}),
+                **charge,
+            },
+        )
     except HTTPException as e:
         detail = e.detail
         if not isinstance(detail, str):
@@ -357,6 +381,20 @@ def _learning_video_job_worker(
                         **charge,
                     }
                 )
+        DataManager.save_background_job(
+            job_id,
+            "learning_video",
+            username,
+            "done",
+            result={
+                "file_id": file_id,
+                "filename": vfname,
+                "title": vtitle,
+                "used_model": sb_result.get("used_model", model_pref or ""),
+                "usage": sb_result.get("usage", {}),
+                **charge,
+            },
+        )
     except HTTPException as e:
         detail = e.detail
         if not isinstance(detail, str):
@@ -2134,6 +2172,9 @@ def create_podcast(request: PodcastRequest):
             "username": request.username,
             "created_at": time.time(),
         }
+    DataManager.save_background_job(
+        job_id, "podcast", request.username, "pending"
+    )
     thread = threading.Thread(
         target=_podcast_job_worker,
         args=(job_id, request.username, request.folder_id, request.model_preference),
@@ -2151,27 +2192,49 @@ def create_podcast(request: PodcastRequest):
 
 @app.get("/api/ai/podcast/status/{job_id}")
 def podcast_job_status(job_id: str, username: str):
+    row = DataManager.get_background_job(job_id, username)
     with _PODCAST_JOBS_LOCK:
         job = _PODCAST_JOBS.get(job_id)
-    if not job or job.get("username") != username:
-        raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
-    status = job.get("status")
-    if status == "pending":
+    if job and job.get("username") == username:
+        status = job.get("status")
+        if status == "pending":
+            return {"status": "pending"}
+        if status == "error":
+            return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
+        if status == "done":
+            return {
+                "status": "done",
+                "file_id": job["file_id"],
+                "filename": job["filename"],
+                "used_model": job.get("used_model", ""),
+                "usage": job.get("usage", {}),
+                "tokens_charged": job.get("tokens_charged"),
+                "remaining_tokens": job.get("remaining_tokens"),
+                "usage_estimated": job.get("usage_estimated"),
+            }
         return {"status": "pending"}
-    if status == "error":
-        return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
-    if status == "done":
-        return {
-            "status": "done",
-            "file_id": job["file_id"],
-            "filename": job["filename"],
-            "used_model": job.get("used_model", ""),
-            "usage": job.get("usage", {}),
-            "tokens_charged": job.get("tokens_charged"),
-            "remaining_tokens": job.get("remaining_tokens"),
-            "usage_estimated": job.get("usage_estimated"),
-        }
-    return {"status": "pending"}
+    if row and row.get("job_type") == "podcast":
+        st = row.get("status")
+        if st == "error":
+            return {
+                "status": "error",
+                "detail": row.get("detail") or "Unbekannter Fehler.",
+            }
+        if st == "done":
+            r = row.get("result") or {}
+            return {
+                "status": "done",
+                "file_id": r.get("file_id"),
+                "filename": r.get("filename"),
+                "used_model": r.get("used_model", ""),
+                "usage": r.get("usage") or {},
+                "tokens_charged": r.get("tokens_charged"),
+                "remaining_tokens": r.get("remaining_tokens"),
+                "usage_estimated": r.get("usage_estimated"),
+            }
+        if st == "pending":
+            return {"status": "pending"}
+    raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
 
 
 @app.post("/api/ai/learning-video")
@@ -2190,6 +2253,9 @@ def create_learning_video(request: LearningVideoRequest):
             "username": request.username,
             "created_at": time.time(),
         }
+    DataManager.save_background_job(
+        job_id, "learning_video", request.username, "pending"
+    )
     thread = threading.Thread(
         target=_learning_video_job_worker,
         args=(job_id, request.username, request.folder_id, request.model_preference, lv_opts),
@@ -2207,28 +2273,51 @@ def create_learning_video(request: LearningVideoRequest):
 
 @app.get("/api/ai/learning-video/status/{job_id}")
 def learning_video_job_status(job_id: str, username: str):
+    row = DataManager.get_background_job(job_id, username)
     with _LEARNING_VIDEO_JOBS_LOCK:
         job = _LEARNING_VIDEO_JOBS.get(job_id)
-    if not job or job.get("username") != username:
-        raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
-    status = job.get("status")
-    if status == "pending":
+    if job and job.get("username") == username:
+        status = job.get("status")
+        if status == "pending":
+            return {"status": "pending"}
+        if status == "error":
+            return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
+        if status == "done":
+            return {
+                "status": "done",
+                "file_id": job["file_id"],
+                "filename": job["filename"],
+                "title": job["title"],
+                "used_model": job.get("used_model", ""),
+                "usage": job.get("usage", {}),
+                "tokens_charged": job.get("tokens_charged"),
+                "remaining_tokens": job.get("remaining_tokens"),
+                "usage_estimated": job.get("usage_estimated"),
+            }
         return {"status": "pending"}
-    if status == "error":
-        return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
-    if status == "done":
-        return {
-            "status": "done",
-            "file_id": job["file_id"],
-            "filename": job["filename"],
-            "title": job["title"],
-            "used_model": job.get("used_model", ""),
-            "usage": job.get("usage", {}),
-            "tokens_charged": job.get("tokens_charged"),
-            "remaining_tokens": job.get("remaining_tokens"),
-            "usage_estimated": job.get("usage_estimated"),
-        }
-    return {"status": "pending"}
+    if row and row.get("job_type") == "learning_video":
+        st = row.get("status")
+        if st == "error":
+            return {
+                "status": "error",
+                "detail": row.get("detail") or "Unbekannter Fehler.",
+            }
+        if st == "done":
+            r = row.get("result") or {}
+            return {
+                "status": "done",
+                "file_id": r.get("file_id"),
+                "filename": r.get("filename"),
+                "title": r.get("title"),
+                "used_model": r.get("used_model", ""),
+                "usage": r.get("usage") or {},
+                "tokens_charged": r.get("tokens_charged"),
+                "remaining_tokens": r.get("remaining_tokens"),
+                "usage_estimated": r.get("usage_estimated"),
+            }
+        if st == "pending":
+            return {"status": "pending"}
+    raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
 
 
 if __name__ == "__main__":
