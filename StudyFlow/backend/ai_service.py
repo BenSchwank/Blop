@@ -947,19 +947,29 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
             material_note = (opts.get("material_summary") or "").strip()
 
             if depth == "compact":
-                narr_hint = "narration: 2-3 kurze Sätze auf Deutsch — nur das Wesentliche; keine Wiederholung der Folien-Stichworte"
-                body_max = "max 180 Zeichen"
+                narr_hint = (
+                    "narration: 2-3 prägnante Sätze auf Deutsch — eine klare Kernaussage; "
+                    "keine Füllfloskeln, keine Wiederholung der Folien-Stichworte"
+                )
+                body_max = "max 160 Zeichen"
             elif depth == "deep":
                 narr_hint = (
-                    "narration: 10-16 ausführliche Sätze auf Deutsch, didaktisch; Details hier, NICHT auf der Folie wiederholen"
+                    "narration: 8-14 Sätze auf Deutsch: Definition, Zusammenhang, typische Fehler oder Beispiel; "
+                    "Schluss mit Merkpunkt oder kurzer Zusammenfassung; nichts wortgleich von der Folie abschreiben"
                 )
-                body_max = "max 620 Zeichen"
+                body_max = "max 560 Zeichen"
             elif depth == "detailed":
-                narr_hint = "narration: 6-12 Sätze auf Deutsch; Beispiele und Zusammenhänge gesprochen, Folie bleibt knapp"
-                body_max = "max 420 Zeichen"
+                narr_hint = (
+                    "narration: 5-10 Sätze auf Deutsch; ein konkretes Beispiel oder Kontrast wo sinnvoll; "
+                    "Folie bleibt Stichwortkarte"
+                )
+                body_max = "max 360 Zeichen"
             else:
-                narr_hint = "narration: 4-7 Sätze auf Deutsch; ausführlich gesprochen, Folie nur als Merkhilfe"
-                body_max = "max 300 Zeichen"
+                narr_hint = (
+                    "narration: 4-6 Sätze auf Deutsch; eine Hauptidee pro Szene klar aussprechen; "
+                    "Folie nur als Anker, keine Absätze vorlesen"
+                )
+                body_max = "max 260 Zeichen"
 
             scene_fields = '''      "title": "Kurzer Szenentitel (max. 8 Worte)",
       "body": "NUR knappe Folien-Stütze auf Deutsch (%s): Stichpunkte mit − oder •, keine langen Absätze",
@@ -971,19 +981,23 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
 Erzeuge EIN JSON-Objekt (kein Markdown) mit diesem Schema:
 {
   "title": "Kurztitel des Videos",
-  "opening_narration": "2-4 Sätze auf Deutsch: Begrüßung + Thema + Aufbau — kompakt; keine langen Abschweifungen.",
+  "opening_narration": "2-4 Sätze auf Deutsch: Thema nennen + in einem Satz das konkrete Lernziel (was der Zuschauer danach versteht/kann) + kurzer Aufbau der nächsten Szenen — ohne Floskeln wie ‚In diesem Video geht es um…‘ zu wiederholen.",
   "scenes": [
     {
 %s
     }
   ]
 }
-Erzeuge zwischen %d und %d Szenen (Ziel: etwa %d). Jede Szene deckt einen inhaltlichen Abschnitt des Materials ab.
+Erzeuge zwischen %d und %d Szenen (Ziel: etwa %d). Logische Reihenfolge: vom Einfachen zum Komplexen oder chronologisch sinnvoll; keine inhaltliche Szene doppelt.
+INHALTLICHE QUALITÄT:
+- Pro Szene genau EIN Schwerpunkt (ein Konzept, eine Regel, ein Schritt) — Titel und Erzählung greifen dasselbe auf, ohne Neben-Themen zu vermischen.
+- narration: lebendig erklären, nicht ablesen; wo passend: kurzes Beispiel, Gegenüberstellung (richtig/falsch) oder typischen Fehler nennen.
+- Vermeide zwischen Szenen wortgleiche Wiederholungen und leere Phrasen (z. B. ‚Wichtig ist auch…‘ ohne neuen Gehalt).
 WICHTIG — Lesbarkeit der FOLIEN (body):
-- body ist NUR Stütze für den Zuschauer: höchstens 3-5 kurze Zeilen oder Stichpunkte, KEINE Fließtext-Absätze und keine Romane.
-- Die eigentliche Erklärung, Definitionen und Beispiele gehören in narration; body wiederholt das nicht wortreich.
-- title und body sollen so kurz sein, dass man sie in 5-10 Sekunden erfassen kann.
-Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) soll zusammenhängend wirken.
+- body ist NUR Stütze: höchstens 3-4 kurze Zeilen/Stichpunkte, KEINE langen Absätze.
+- Definitionen, lange Beispiele und Ausführliches stehen in narration; body = Merk-Stichworte.
+- title und body in wenigen Sekunden erfassbar.
+Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) soll wie ein roter Faden wirken.
 """ % (
                 scene_fields,
                 lo,

@@ -541,9 +541,12 @@ class DataManager:
                 or "exceeded" in blob
             ):
                 raise RuntimeError(
-                    "Die Videodatei ist zu groß für den Speicher (Supabase-Uploadlimit). "
+                    "Die Videodatei ist zu groß für den Speicher (Supabase-Uploadlimit, z. B. 50 MB auf Free). "
                     "Wähle ein kürzeres Lernvideo (weniger Szenen oder kürzere Erzähltiefe), "
-                    "oder erhöhe in der Supabase-Konsole unter Storage die maximale Dateigröße pro Objekt."
+                    "oder setze auf dem Server stärkere Kompression: "
+                    "LEARNING_VIDEO_CRF=30–32, LEARNING_VIDEO_MAXRATE=800k, optional "
+                    "LEARNING_VIDEO_WIDTH=640 LEARNING_VIDEO_HEIGHT=360. "
+                    "Alternativ: Supabase Pro oder anderes Object Storage (S3/R2) ohne 50-MB-Grenze."
                 ) from e
             raise
         file_id = f"video_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"

@@ -17,15 +17,24 @@ TTS_CHUNK_CHARS = 3800
 
 OPENAI_TTS_VOICES = frozenset({"alloy", "echo", "fable", "onyx", "nova", "shimmer"})
 
-# 960x540: ~56% pixels vs 720p — fits Render Starter (512MB) while staying sharp for slides + text.
-VIDEO_W = 960
-VIDEO_H = 540
-VIDEO_FPS = 15
-# CRF + maxrate keep file size under typical Supabase per-object limits on long TTS videos.
-VIDEO_CRF = 25
-# Cap peak bitrate (960p learning video); limits MP4 size vs. raw CRF-only VBR.
-VIDEO_MAXRATE = "2M"
-VIDEO_BUFSIZE = "4M"
+def _lv_int(name: str, default: int, lo: int, hi: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(lo, min(hi, int(raw)))
+    except ValueError:
+        return default
+
+
+# Auflösung / Bitrate / CRF: Defaults zielen auf kleinere MP4 (z. B. Supabase Free 50 MB).
+# Für höhere Qualität: LEARNING_VIDEO_WIDTH=960 LEARNING_VIDEO_HEIGHT=540 LEARNING_VIDEO_CRF=25 LEARNING_VIDEO_MAXRATE=1.6M
+VIDEO_W = _lv_int("LEARNING_VIDEO_WIDTH", 854, 640, 1920)
+VIDEO_H = _lv_int("LEARNING_VIDEO_HEIGHT", 480, 360, 1080)
+VIDEO_FPS = _lv_int("LEARNING_VIDEO_FPS", 15, 10, 30)
+VIDEO_CRF = _lv_int("LEARNING_VIDEO_CRF", 29, 18, 35)
+VIDEO_MAXRATE = (os.environ.get("LEARNING_VIDEO_MAXRATE", "1M").strip() or "1M")
+VIDEO_BUFSIZE = (os.environ.get("LEARNING_VIDEO_BUFSIZE", "").strip() or "2M")
 
 
 def _openai_tts_failure_message(response: requests.Response) -> str:
