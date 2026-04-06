@@ -133,6 +133,7 @@ def _learning_video_job_worker(
                 f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
             )
             return
+        context = _truncate_for_learning_video_context(context)
         try:
             folder_files = DataManager.list_files(username, folder_id)
         except Exception:
@@ -1375,6 +1376,36 @@ def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
     except Exception as e:
         print(f"Plan generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Lernplan-Fehler: {str(e)}")
+
+
+def _truncate_for_learning_video_context(parts: List[Any]) -> List[Any]:
+    """Kürzt Text + begrenzt PDF-Anhänge, damit Gemini-Storyboard nicht bei großen Ordnern timeoutet."""
+    MAX_TEXT_CHARS = 100_000
+    MAX_PDF_FILES = 3
+    if not parts:
+        return parts
+    texts: List[str] = []
+    files: List[Any] = []
+    for p in parts:
+        if isinstance(p, str):
+            texts.append(p)
+        else:
+            files.append(p)
+    out: List[Any] = []
+    if texts:
+        merged = "\n\n".join(texts)
+        if len(merged) > MAX_TEXT_CHARS:
+            merged = (
+                merged[:MAX_TEXT_CHARS]
+                + "\n\n[… Material wurde automatisch gekürzt (Lernvideo-Storyboard, Timeout-Schutz). …]"
+            )
+        out.append(merged)
+    out.extend(files[:MAX_PDF_FILES])
+    if len(files) > MAX_PDF_FILES:
+        print(
+            f"Lernvideo: {len(files) - MAX_PDF_FILES} PDF(s) nicht mitgesendet (Limit {MAX_PDF_FILES} für Storyboard)."
+        )
+    return out if out else parts
 
 
 def _get_folder_context(username: str, folder_id: str, included_file_ids: Optional[List[str]] = None):

@@ -67,6 +67,18 @@ SAFETY_SETTINGS = [
 LEARNING_VIDEO_STORYBOARD_TIMEOUT_SEC = 600.0
 
 
+def _is_transient_storyboard_error(exc: BaseException) -> bool:
+    raw = (repr(exc) + " " + str(exc)).lower()
+    return (
+        "504" in raw
+        or "503" in raw
+        or "timed out" in raw
+        or "timeout" in raw
+        or "deadline exceeded" in raw
+        or "unavailable" in raw
+    )
+
+
 def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
     """Gemini chat.send_message mit langem Timeout; ein Retry bei 504/Timeout/503."""
     opts = RequestOptions(timeout=LEARNING_VIDEO_STORYBOARD_TIMEOUT_SEC)
@@ -80,15 +92,7 @@ def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
             )
         except Exception as e:
             last_exc = e
-            blob = (repr(e) + str(e)).lower()
-            transient = (
-                "504" in blob
-                or "503" in blob
-                or "timed out" in blob
-                or "timeout" in blob
-                or "deadline exceeded" in blob
-                or "unavailable" in blob
-            )
+            transient = _is_transient_storyboard_error(e)
             if attempt == 0 and transient:
                 print(f"Learning video storyboard: retry after API error ({e})")
                 time.sleep(4.0)
@@ -101,18 +105,11 @@ def _learning_video_storyboard_send_message(chat: Any, content: Any) -> Any:
 
 def _learning_video_storyboard_error_hint(exc: BaseException) -> str:
     """Deutschsprachiger Hinweis für typische API-Fehler (504, Timeout)."""
-    raw = (repr(exc) + " " + str(exc)).lower()
-    if (
-        "504" in raw
-        or "503" in raw
-        or "timed out" in raw
-        or "timeout" in raw
-        or "deadline exceeded" in raw
-        or "unavailable" in raw
-    ):
+    if _is_transient_storyboard_error(exc):
         return (
             "Die KI-Anfrage für das Storyboard hat zu lange gedauert oder der Dienst war kurzüberlastet. "
-            "Bitte später erneut versuchen, weniger Szenen oder eine kürzere Erzähltiefe wählen, oder ein schnelleres Modell (z. B. gemini-2.0-flash)."
+            "Das Backend versucht automatisch schnellere Modelle; falls es weiterhin scheitert: weniger Szenen, "
+            "kürzere Erzähltiefe oder später erneut versuchen."
         )
     return str(exc)
 
@@ -981,33 +978,53 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
                 "‚…‘ oder Umformulierung ohne Zitate, damit die JSON-Strings syntaktisch gültig bleiben.\n"
             )
 
-            model = genai.GenerativeModel(
-                get_best_model(model_preference),
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0.4,
-                    "max_output_tokens": 16384,
-                },
-            )
+            primary = get_best_model(model_preference)
+            model_candidates: List[str] = []
+            for m in (primary, "gemini-2.0-flash", "gemini-1.5-flash"):
+                if m and m not in model_candidates:
+                    model_candidates.append(m)
+
             input_parts = [schema_hint + "\n\nAnalysiere das Material und fülle das JSON sinnvoll."]
             if isinstance(content, list):
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
-            raw, usage_sum, _last_resp = AIService._generate_learning_video_storyboard_raw(
-                model, input_parts, max_followups=4
-            )
-            try:
-                data = AIService._parse_json_storyboard(raw)
-            except ValueError as ve:
-                raise Exception(str(ve)) from ve
-            if not return_meta:
-                return data
-            return {
-                "data": data,
-                "usage": usage_sum,
-                "used_model": str(getattr(model, "model_name", "") or ""),
-            }
+
+            last_err: Optional[BaseException] = None
+            for model_name in model_candidates:
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.4,
+                            "max_output_tokens": 8192,
+                        },
+                    )
+                    raw, usage_sum, _last_resp = AIService._generate_learning_video_storyboard_raw(
+                        model, input_parts, max_followups=4
+                    )
+                    try:
+                        data = AIService._parse_json_storyboard(raw)
+                    except ValueError as ve:
+                        raise Exception(str(ve)) from ve
+                    if not return_meta:
+                        return data
+                    return {
+                        "data": data,
+                        "usage": usage_sum,
+                        "used_model": model_name,
+                    }
+                except Exception as e:
+                    last_err = e
+                    if model_name != model_candidates[-1] and _is_transient_storyboard_error(e):
+                        print(f"Lernvideo storyboard: model {model_name} failed ({e}), trying fallback...")
+                        continue
+                    print(f"Learning video storyboard error: {e}")
+                    raise
+            if last_err:
+                raise last_err
+            raise RuntimeError("Lernvideo-Storyboard: keine Modellkandidaten")
         except Exception as e:
             print(f"Learning video storyboard error: {e}")
             raise Exception(f"Lernvideo-Storyboard fehlgeschlagen: {_learning_video_storyboard_error_hint(e)}") from e
