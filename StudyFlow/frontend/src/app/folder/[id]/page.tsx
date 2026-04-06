@@ -3636,7 +3636,7 @@ export default function FolderPage() {
                                                     : "bg-[#151525] text-gray-300 border-[#2A2A40]"
                                             }`}
                                         >
-                                            Zoom &amp; Überblendung
+                                            Zoom pro Szene
                                         </button>
                                     </div>
                                 </div>

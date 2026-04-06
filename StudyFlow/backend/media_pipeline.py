@@ -15,10 +15,14 @@ TTS_CHUNK_CHARS = 3800
 
 OPENAI_TTS_VOICES = frozenset({"alloy", "echo", "fable", "onyx", "nova", "shimmer"})
 
-VIDEO_W = 1280
-VIDEO_H = 720
-VIDEO_FPS = 18
-XFADE_SEC = 0.45
+# 960x540: ~56% pixels vs 720p — fits Render Starter (512MB) while staying sharp for slides + text.
+VIDEO_W = 960
+VIDEO_H = 540
+VIDEO_FPS = 15
+# Slightly better quality at this resolution (was 26 at 720p).
+VIDEO_CRF = 22
+# Ken-Burns supersample width cap (avoid 1920px-wide buffers on small instances)
+_KB_SCALE_W = 1152
 
 
 def _openai_tts_failure_message(response: requests.Response) -> str:
@@ -463,9 +467,9 @@ def _vf_static() -> str:
 
 def _vf_ken_burns(seg_secs: float) -> str:
     d_frames = max(1, int(seg_secs * VIDEO_FPS))
-    # Slight zoom-in over the segment; supersampled then zoompan to output size
+    # Light supersample for zoompan; capped width keeps RAM down on 0.5 CPU / 512MB hosts.
     return (
-        f"scale=1920:-1,"
+        f"scale={_KB_SCALE_W}:-1,"
         f"zoompan=z='min(zoom+0.0014,1.22)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d_frames}:"
         f"s={VIDEO_W}x{VIDEO_H}:fps={VIDEO_FPS}"
     )
@@ -484,6 +488,8 @@ def _encode_segment(
         [
             ffmpeg,
             "-y",
+            "-threads",
+            "1",
             "-loop",
             "1",
             "-i",
@@ -499,32 +505,17 @@ def _encode_segment(
             "-preset",
             "ultrafast",
             "-crf",
-            "26",
+            str(VIDEO_CRF),
             "-pix_fmt",
             "yuv420p",
+            "-threads",
+            "1",
             "-an",
             out_path,
         ],
         check=True,
         capture_output=True,
     )
-
-
-def _xfade_chain_filter(n: int, seg_secs: float) -> str:
-    """Build filter_complex for n video inputs of equal duration seg_secs."""
-    if n <= 1:
-        return ""
-    d = XFADE_SEC
-    parts: List[str] = []
-    cur_label = "[0:v]"
-    cur_dur = seg_secs
-    for i in range(1, n):
-        offset = max(0.1, cur_dur - d)
-        out = f"v{i}" if i < n - 1 else "vout"
-        parts.append(f"{cur_label}[{i}:v]xfade=transition=fade:duration={d}:offset={offset}[{out}]")
-        cur_dur = cur_dur + seg_secs - d
-        cur_label = f"[{out}]"
-    return ";".join(parts)
 
 
 def ffmpeg_slideshow_with_audio(
@@ -546,7 +537,6 @@ def ffmpeg_slideshow_with_audio(
 
     dur = _audio_duration_sec(audio_path)
     seg_secs = max(2.5, dur / len(image_paths))
-    n = len(image_paths)
 
     with tempfile.TemporaryDirectory() as tmp:
         parts: List[str] = []
@@ -555,47 +545,39 @@ def ffmpeg_slideshow_with_audio(
             _encode_segment(ffmpeg, img, seg_secs, seg, motion)
             parts.append(seg)
 
-        if motion == "ken_burns" and n > 1:
-            fc = _xfade_chain_filter(n, seg_secs)
-            merged_v = os.path.join(tmp, "merged.mp4")
-            cmd: List[str] = [ffmpeg, "-y"]
+        # Always concat with stream copy (no xfade filter graph). xfade loaded N decoders at once and
+        # OOM'd Starter (512MB). Ken-Burns motion stays per segment; transitions are clean cuts.
+        merged_v = os.path.join(tmp, "merged.mp4")
+        lst = os.path.join(tmp, "vlist.txt")
+        with open(lst, "w", encoding="utf-8") as f:
             for p in parts:
-                cmd.extend(["-i", p])
-            cmd.extend(
-                [
-                    "-filter_complex",
-                    fc,
-                    "-map",
-                    "[vout]",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "ultrafast",
-                    "-crf",
-                    "26",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-an",
-                    merged_v,
-                ]
-            )
-            subprocess.run(cmd, check=True, capture_output=True)
-        else:
-            merged_v = os.path.join(tmp, "merged.mp4")
-            lst = os.path.join(tmp, "vlist.txt")
-            with open(lst, "w", encoding="utf-8") as f:
-                for p in parts:
-                    f.write(f"file '{p.replace(chr(92), '/')}'\n")
-            subprocess.run(
-                [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", merged_v],
-                check=True,
-                capture_output=True,
-            )
+                f.write(f"file '{p.replace(chr(92), '/')}'\n")
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-threads",
+                "1",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                lst,
+                "-c",
+                "copy",
+                merged_v,
+            ],
+            check=True,
+            capture_output=True,
+        )
 
         subprocess.run(
             [
                 ffmpeg,
                 "-y",
+                "-threads",
+                "1",
                 "-i",
                 merged_v,
                 "-i",
@@ -604,6 +586,8 @@ def ffmpeg_slideshow_with_audio(
                 "copy",
                 "-c:a",
                 "aac",
+                "-b:a",
+                "160k",
                 "-movflags",
                 "+faststart",
                 "-shortest",
