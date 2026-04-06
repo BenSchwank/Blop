@@ -250,40 +250,67 @@ def _draw_whiteboard_doodles(
     scene_idx: int,
     accent: Tuple[int, int, int],
 ) -> None:
-    """Simple marker-like lines and shapes (PIL only — evokes whiteboard / explainer style)."""
+    """Marker-like lines and shapes — varied per scene (second accent, layout presets)."""
     import random
 
     rng = random.Random(scene_idx * 9973 + 31)
-    # Top-left squiggle
-    pts = []
-    x0, y0 = 36 + rng.randint(0, 24), 44 + rng.randint(0, 20)
-    for k in range(10):
-        pts.append((x0 + k * 16 + rng.randint(-5, 5), y0 + rng.randint(-8, 8)))
-    if len(pts) >= 2:
-        draw.line(pts, fill=accent, width=3)
-    # Lightbulb / idea circle
-    cx = width - 140 - rng.randint(0, 40)
-    cy = 70 + rng.randint(0, 30)
-    r = 22 + rng.randint(0, 8)
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=accent, width=2)
-    draw.line([(cx, cy + r), (cx, cy + r + 18)], fill=accent, width=2)
-    # Arrow
-    ax1, ay1 = width // 2 + 120, canvas_h // 3
-    ax2, ay2 = ax1 + 60, ay1 + 40
+    alt = (
+        min(255, accent[0] + 55),
+        max(0, accent[1] - 25),
+        min(255, accent[2] + 40),
+    )
+    soft = (
+        accent[0] // 2 + 70,
+        accent[1] // 2 + 75,
+        accent[2] // 2 + 70,
+    )
+    variant = scene_idx % 3
+    # Top corner brackets only (avoids layout clashes with footer)
+    br = 20
+    m = 14
+    for ox, oy in ((m, m), (width - m - br, m)):
+        draw.line([(ox, oy + br), (ox, oy), (ox + br, oy)], fill=soft, width=2)
+
+    if variant == 0:
+        pts = []
+        x0, y0 = 36 + rng.randint(0, 24), 44 + rng.randint(0, 20)
+        for k in range(10):
+            pts.append((x0 + k * 16 + rng.randint(-5, 5), y0 + rng.randint(-8, 8)))
+        if len(pts) >= 2:
+            draw.line(pts, fill=accent, width=3)
+        cx = width - 140 - rng.randint(0, 40)
+        cy = 70 + rng.randint(0, 30)
+        r = 22 + rng.randint(0, 8)
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=alt, width=2)
+        draw.line([(cx, cy + r), (cx, cy + r + 18)], fill=alt, width=2)
+    elif variant == 1:
+        for j in range(5):
+            px = 40 + j * 38 + rng.randint(-4, 4)
+            py = 55 + rng.randint(-6, 6)
+            draw.ellipse([px - 4, py - 4, px + 4, py + 4], outline=accent, width=2)
+        draw.arc([width - 220, 50, width - 80, 140], start=200, end=340, fill=alt, width=2)
+    else:
+        hx = width // 2 - 40
+        hy = 60
+        draw.line([(hx, hy), (hx + 20, hy - 12), (hx + 40, hy)], fill=accent, width=3)
+        draw.line([(hx + 20, hy - 12), (hx + 20, hy + 8)], fill=accent, width=3)
+
+    ax1, ay1 = width // 2 + 80 + rng.randint(-20, 20), canvas_h // 3 + rng.randint(-15, 15)
+    ax2, ay2 = ax1 + 55 + rng.randint(0, 15), ay1 + 35 + rng.randint(0, 12)
     draw.line([(ax1, ay1), (ax2, ay2)], fill=accent, width=2)
     draw.polygon([(ax2, ay2), (ax2 - 12, ay2 - 6), (ax2 - 8, ay2 + 4)], fill=accent)
-    # Underline wave under imaginary title area
+
     wx = 48
-    wy = min(canvas_h - 120, 160 + rng.randint(0, 40))
+    wy = min(canvas_h - 120, 155 + rng.randint(0, 45))
     wpts = [(wx + j * 28, wy + (j % 3 - 1) * 4) for j in range(18)]
-    draw.line(wpts, fill=(accent[0] // 2 + 80, accent[1] // 2 + 80, accent[2] // 2 + 80), width=2)
-    # Playful extras (sparkles + check)
+    draw.line(wpts, fill=soft, width=2)
+
     for k in range(3):
-        cx = 90 + k * 52
-        cy = canvas_h - 95
-        draw.line([(cx - 6, cy), (cx + 6, cy)], fill=accent, width=2)
-        draw.line([(cx, cy - 6), (cx, cy + 6)], fill=accent, width=2)
-    chk_x, chk_y = width - 200, canvas_h - 90
+        cx = 85 + k * 56 + rng.randint(-3, 3)
+        cy = canvas_h - 92 + rng.randint(-4, 4)
+        draw.line([(cx - 6, cy), (cx + 6, cy)], fill=alt, width=2)
+        draw.line([(cx, cy - 6), (cx, cy + 6)], fill=alt, width=2)
+    chk_x, chk_y = width - 195, canvas_h - 88
     draw.line([(chk_x, chk_y), (chk_x + 8, chk_y + 12), (chk_x + 22, chk_y - 6)], fill=accent, width=3)
 
 
@@ -339,29 +366,165 @@ def _vf_static() -> str:
     )
 
 
+def _vf_ken_burns(seg_secs: float) -> str:
+    """Subtle slow zoom on still image; d = frame count for zoompan."""
+    frames = max(2, int(round(seg_secs * float(VIDEO_FPS))))
+    # Overscale input so zoompan can crop inward; increment zoom slightly each frame (max ~6%)
+    return (
+        f"scale=4000:-2,"
+        f"zoompan=z='min(zoom+0.0014,1.08)':d={frames}:"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"s={VIDEO_W}x{VIDEO_H}:fps={VIDEO_FPS}"
+    )
+
+
+def _probe_video_duration_sec(path: str) -> float:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return 1.0
+    try:
+        out = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return max(0.05, float((out.stdout or "").strip() or 1.0))
+    except Exception:
+        return 1.0
+
+
 def _encode_segment(
     ffmpeg: str,
     img: str,
     seg_secs: float,
     out_path: str,
+    *,
+    ken_burns: bool = False,
 ) -> None:
-    vf = _vf_static()
-    subprocess.run(
+    vf = _vf_ken_burns(seg_secs) if ken_burns else _vf_static()
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-threads",
+        "1",
+        "-loop",
+        "1",
+        "-i",
+        img,
+        "-t",
+        str(seg_secs),
+        "-vf",
+        vf,
+        "-r",
+        str(VIDEO_FPS),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        str(VIDEO_CRF),
+        "-maxrate",
+        VIDEO_MAXRATE,
+        "-bufsize",
+        VIDEO_BUFSIZE,
+        "-pix_fmt",
+        "yuv420p",
+        "-threads",
+        "1",
+        "-an",
+        out_path,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        if not ken_burns:
+            raise
+        print("Lernvideo: Ken-Burns-Zoompan fehlgeschlagen, nutze statische Skalierung.")
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-threads",
+                "1",
+                "-loop",
+                "1",
+                "-i",
+                img,
+                "-t",
+                str(seg_secs),
+                "-vf",
+                _vf_static(),
+                "-r",
+                str(VIDEO_FPS),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                str(VIDEO_CRF),
+                "-maxrate",
+                VIDEO_MAXRATE,
+                "-bufsize",
+                VIDEO_BUFSIZE,
+                "-pix_fmt",
+                "yuv420p",
+                "-threads",
+                "1",
+                "-an",
+                out_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+
+def _merge_segments_xfade(
+    ffmpeg: str,
+    segment_paths: List[str],
+    fade_sec: float,
+    out_path: str,
+) -> None:
+    """Chain [0:v][1:v]xfade...[v1];[v1][2:v]xfade... Requires ffprobe durations."""
+    n = len(segment_paths)
+    if n == 0:
+        raise ValueError("Keine Segmente für xfade.")
+    if n == 1:
+        shutil.copy2(segment_paths[0], out_path)
+        return
+    durs = [_probe_video_duration_sec(p) for p in segment_paths]
+    fade = min(float(fade_sec), max(0.05, min(durs) * 0.25))
+    fc_parts: List[str] = []
+    cum = durs[0]
+    for i in range(1, n):
+        offset = max(0.0, cum - fade)
+        if i == 1:
+            inp_a, inp_b = "[0:v]", "[1:v]"
+        else:
+            inp_a = f"[v{i-1}]"
+            inp_b = f"[{i}:v]"
+        out_lbl = "vout" if i == n - 1 else f"v{i}"
+        fc_parts.append(f"{inp_a}{inp_b}xfade=transition=fade:duration={fade}:offset={offset}[{out_lbl}]")
+        cum = cum + durs[i] - fade
+    filter_complex = ";".join(fc_parts)
+    args: List[str] = [ffmpeg, "-y", "-threads", "1"]
+    for p in segment_paths:
+        args.extend(["-i", p])
+    args.extend(
         [
-            ffmpeg,
-            "-y",
-            "-threads",
-            "1",
-            "-loop",
-            "1",
-            "-i",
-            img,
-            "-t",
-            str(seg_secs),
-            "-vf",
-            vf,
-            "-r",
-            str(VIDEO_FPS),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[vout]",
             "-c:v",
             "libx264",
             "-preset",
@@ -374,22 +537,24 @@ def _encode_segment(
             VIDEO_BUFSIZE,
             "-pix_fmt",
             "yuv420p",
-            "-threads",
-            "1",
             "-an",
             out_path,
-        ],
-        check=True,
-        capture_output=True,
+        ]
     )
+    subprocess.run(args, check=True, capture_output=True)
 
 
 def ffmpeg_slideshow_with_audio(
     slides: List[Tuple[str, float]],
     audio_path: str,
     output_mp4_path: str,
+    *,
+    ken_burns: bool = False,
+    crossfade: bool = False,
+    xfade_seconds: float = 0.28,
 ) -> None:
-    """slides: list of (png_path, duration_share) with shares summing to 1.0; only scale+pad (no crop)."""
+    """slides: list of (png_path, duration_share) with shares summing to 1.0.
+    ken_burns: subtle zoom during each still segment. crossfade: fade between segments (more CPU/RAM)."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError(
@@ -406,41 +571,74 @@ def ffmpeg_slideshow_with_audio(
     if abs(share_sum - 1.0) > 0.02:
         raise ValueError("Slide-Daueranteile müssen sich zu 1.0 summieren.")
 
+    n_slides = len(slides)
+    fade_use = float(xfade_seconds) if crossfade and n_slides > 1 else 0.0
+    # xfade shortens total video by (n-1)*fade; stretch segment lengths so merged video matches audio dur.
+    time_stretch = (dur + max(0, n_slides - 1) * fade_use) / dur if dur > 0 else 1.0
+
     with tempfile.TemporaryDirectory() as tmp:
         parts: List[str] = []
         for i, (img, share) in enumerate(slides):
-            seg_secs = dur * share
+            seg_secs = dur * share * time_stretch
             if seg_secs < 0.05:
                 seg_secs = max(1.0 / VIDEO_FPS, seg_secs)
             seg = os.path.join(tmp, f"seg_{i:03d}.mp4")
-            _encode_segment(ffmpeg, img, seg_secs, seg)
+            _encode_segment(ffmpeg, img, seg_secs, seg, ken_burns=ken_burns)
             parts.append(seg)
 
-        # Concat with stream copy (no xfade — avoids loading N decoders at once on small hosts).
         merged_v = os.path.join(tmp, "merged.mp4")
-        lst = os.path.join(tmp, "vlist.txt")
-        with open(lst, "w", encoding="utf-8") as f:
-            for p in parts:
-                f.write(f"file '{p.replace(chr(92), '/')}'\n")
-        subprocess.run(
-            [
-                ffmpeg,
-                "-y",
-                "-threads",
-                "1",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                lst,
-                "-c",
-                "copy",
-                merged_v,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        if crossfade and len(parts) > 1:
+            try:
+                _merge_segments_xfade(ffmpeg, parts, fade_use, merged_v)
+            except Exception as e:
+                print(f"Lernvideo: xfade fehlgeschlagen ({e}), nutze harten Schnitt (concat).")
+                lst = os.path.join(tmp, "vlist.txt")
+                with open(lst, "w", encoding="utf-8") as f:
+                    for p in parts:
+                        f.write(f"file '{p.replace(chr(92), '/')}'\n")
+                subprocess.run(
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-threads",
+                        "1",
+                        "-f",
+                        "concat",
+                        "-safe",
+                        "0",
+                        "-i",
+                        lst,
+                        "-c",
+                        "copy",
+                        merged_v,
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+        else:
+            lst = os.path.join(tmp, "vlist.txt")
+            with open(lst, "w", encoding="utf-8") as f:
+                for p in parts:
+                    f.write(f"file '{p.replace(chr(92), '/')}'\n")
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-threads",
+                    "1",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    lst,
+                    "-c",
+                    "copy",
+                    merged_v,
+                ],
+                check=True,
+                capture_output=True,
+            )
 
         subprocess.run(
             [

@@ -220,11 +220,17 @@ def _render_slide_raster(
             return img
 
         lines_to_draw = body_lines
-        if style == "whiteboard" and ph == "body_partial" and len(body_lines) > 1:
+        if style == "whiteboard" and ph in ("empty", "title_only"):
+            lines_to_draw = []
+        elif style == "whiteboard" and ph == "body_partial" and len(body_lines) > 1:
             half = max(1, (len(body_lines) + 1) // 2)
             lines_to_draw = body_lines[:half]
-        elif style == "whiteboard" and ph in ("empty", "title_only"):
-            lines_to_draw = []
+        elif style == "whiteboard" and ph and str(ph).startswith("body_line_"):
+            try:
+                k = int(str(ph).split("_")[-1])
+                lines_to_draw = body_lines[: max(0, min(k, len(body_lines)))]
+            except ValueError:
+                lines_to_draw = body_lines
 
         for line in lines_to_draw:
             if style == "whiteboard":
@@ -301,10 +307,17 @@ def render_scene_slides_weighted(
                 tw = width - 2 * margin - 24
                 tl = mp._wrap_text(d, str(sc.get("title") or ""), font_title, tw)
                 bl = mp._wrap_text(d, body, font_body, tw)
-                if len(bl) <= 1:
-                    phases = [("empty", 0.14), ("title_only", 0.22), ("full", 0.64)]
+                bl = bl[:10]
+                L = len(bl)
+                if L <= 1:
+                    phases = [("empty", 0.14), ("title_only", 0.22), ("body_line_1", 0.64)]
                 else:
-                    phases = [("empty", 0.12), ("title_only", 0.18), ("body_partial", 0.32), ("full", 0.38)]
+                    w_intro = 0.08 + 0.12
+                    w_rest = 1.0 - w_intro
+                    w_each = w_rest / float(L)
+                    phases = [("empty", 0.08), ("title_only", 0.12)]
+                    for k in range(1, L + 1):
+                        phases.append((f"body_line_{k}", w_each))
             for pname, pw in phases:
                 img = _render_slide_raster(
                     sc,

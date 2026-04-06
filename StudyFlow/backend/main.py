@@ -75,7 +75,7 @@ def _learning_video_job_fail(job_id: str, detail: str) -> None:
 
 
 def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
-    """Defaults: ~6 scenes, standard narration; slides use scale+pad only (no zoom). motion is ignored."""
+    """Defaults: rich + stock; optional Ken-Burns motion and xfade (see slide_motion / slide_crossfade)."""
     ts = req.target_scenes
     if ts is None:
         ts = 6
@@ -98,12 +98,24 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
         print("Lernvideo: Stock-Bilder gewünscht, aber PEXELS_API_KEY fehlt — Folien ohne Fotos.")
         use_stock = False
     voice = (req.tts_voice or "alloy").strip().lower()
+    if req.slide_motion is not None:
+        slide_motion = bool(req.slide_motion)
+    elif os.environ.get("LEARNING_VIDEO_KEN_BURNS", "").strip() == "0":
+        slide_motion = False
+    else:
+        slide_motion = True
+    if req.slide_crossfade is not None:
+        slide_crossfade = bool(req.slide_crossfade)
+    else:
+        slide_crossfade = os.environ.get("LEARNING_VIDEO_XFADE", "0").strip() == "1"
     return {
         "target_scenes": ts,
         "narration_depth": depth,
         "visual_style": visual,
         "use_stock_images": use_stock,
         "tts_voice": voice,
+        "slide_motion": slide_motion,
+        "slide_crossfade": slide_crossfade,
     }
 
 
@@ -222,7 +234,13 @@ def _learning_video_job_worker(
         with open(audio_path, "wb") as f:
             f.write(mp3_bytes)
         out_mp4 = os.path.join(work_tmp, "out.mp4")
-        ffmpeg_slideshow_with_audio(img_weighted, audio_path, out_mp4)
+        ffmpeg_slideshow_with_audio(
+            img_weighted,
+            audio_path,
+            out_mp4,
+            ken_burns=bool(opts.get("slide_motion", True)),
+            crossfade=bool(opts.get("slide_crossfade", False)),
+        )
         with open(out_mp4, "rb") as f:
             video_bytes = f.read()
         if not video_bytes:
@@ -1328,6 +1346,8 @@ class LearningVideoRequest(BaseModel):
     motion: Optional[str] = None
     use_stock_images: Optional[bool] = None
     tts_voice: Optional[str] = None
+    slide_motion: Optional[bool] = None
+    slide_crossfade: Optional[bool] = None
 
 
 @app.post("/api/ai/plan")

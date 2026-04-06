@@ -601,6 +601,8 @@ export default function FolderPage() {
     const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed" | "deep">("standard");
     const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich" | "whiteboard">("rich");
     const [lvUseStockImages, setLvUseStockImages] = useState(true);
+    const [lvSlideMotion, setLvSlideMotion] = useState(true);
+    const [lvSlideCrossfade, setLvSlideCrossfade] = useState(false);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
 
     // Learning Mode (shared across plan/summary/repetition modals)
@@ -697,6 +699,12 @@ export default function FolderPage() {
             }
             if (typeof p.useStockImages === "boolean") {
                 setLvUseStockImages(p.useStockImages);
+            }
+            if (typeof p.slideMotion === "boolean") {
+                setLvSlideMotion(p.slideMotion);
+            }
+            if (typeof p.slideCrossfade === "boolean") {
+                setLvSlideCrossfade(p.slideCrossfade);
             }
             if (typeof p.ttsVoice === "string" && p.ttsVoice.trim()) {
                 setLvTtsVoice(p.ttsVoice.trim().toLowerCase());
@@ -1751,6 +1759,8 @@ export default function FolderPage() {
                     narrationDepth: lvNarrationDepth,
                     visualStyle: lvVisualStyle,
                     useStockImages: lvUseStockImages,
+                    slideMotion: lvSlideMotion,
+                    slideCrossfade: lvSlideCrossfade,
                     ttsVoice: lvTtsVoice,
                 })
             );
@@ -1777,6 +1787,8 @@ export default function FolderPage() {
                     narration_depth: lvNarrationDepth,
                     visual_style: lvVisualStyle,
                     use_stock_images: lvUseStockImages,
+                    slide_motion: lvSlideMotion,
+                    slide_crossfade: lvSlideCrossfade,
                     tts_voice: lvTtsVoice,
                 }),
                 signal: ac.signal,
@@ -3640,6 +3652,36 @@ export default function FolderPage() {
                                         <span className="text-sm font-medium text-gray-200">Stock-Fotos (Pexels)</span>
                                         <span className="block text-xs text-gray-500 mt-0.5">
                                             Nur wenn der Server <code className="text-gray-400">PEXELS_API_KEY</code> gesetzt hat. Sonst werden Fotos automatisch übersprungen.
+                                        </span>
+                                    </span>
+                                </label>
+                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
+                                    <input
+                                        type="checkbox"
+                                        className="mt-1 rounded border-[#2A2A40] text-cyan-500 focus:ring-cyan-500/40"
+                                        checked={lvSlideMotion}
+                                        onChange={(e) => setLvSlideMotion(e.target.checked)}
+                                    />
+                                    <span>
+                                        <span className="text-sm font-medium text-gray-200">Leichte Kamerafahrt (Ken Burns)</span>
+                                        <span className="block text-xs text-gray-500 mt-0.5">
+                                            Sanfter Zoom pro Folie — wirkt lebendiger. Server:{" "}
+                                            <code className="text-gray-400">LEARNING_VIDEO_KEN_BURNS=0</code> schaltet ab.
+                                        </span>
+                                    </span>
+                                </label>
+                                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-[#2A2A40] bg-[#151525] p-3">
+                                    <input
+                                        type="checkbox"
+                                        className="mt-1 rounded border-[#2A2A40] text-cyan-500 focus:ring-cyan-500/40"
+                                        checked={lvSlideCrossfade}
+                                        onChange={(e) => setLvSlideCrossfade(e.target.checked)}
+                                    />
+                                    <span>
+                                        <span className="text-sm font-medium text-gray-200">Weiche Übergänge (Crossfade)</span>
+                                        <span className="block text-xs text-gray-500 mt-0.5">
+                                            Überblendungen zwischen Folien (mehr CPU/RAM). Oder Server:{" "}
+                                            <code className="text-gray-400">LEARNING_VIDEO_XFADE=1</code> als Standard.
                                         </span>
                                     </span>
                                 </label>
