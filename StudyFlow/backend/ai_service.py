@@ -769,6 +769,85 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
             raise Exception(f"Podcast-Skript fehlgeschlagen: {str(e)}")
 
     @staticmethod
+    def _merge_usage_dict(a: Dict[str, int], b: Dict[str, int]) -> Dict[str, int]:
+        return {
+            "prompt_tokens": int(a.get("prompt_tokens", 0)) + int(b.get("prompt_tokens", 0)),
+            "output_tokens": int(a.get("output_tokens", 0)) + int(b.get("output_tokens", 0)),
+            "total_tokens": int(a.get("total_tokens", 0)) + int(b.get("total_tokens", 0)),
+        }
+
+    @staticmethod
+    def _parse_json_storyboard(raw: str) -> dict:
+        """Parse model JSON; repair common syntax issues (quotes, truncation artifacts)."""
+        raw = (raw or "").strip()
+        if not raw:
+            raise ValueError(
+                "Leere Modellantwort für das Storyboard. Bitte erneut versuchen oder weniger Szenen wählen."
+            )
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            slice_ = raw[start:end] if start >= 0 and end > start else raw
+            try:
+                data = json.loads(slice_)
+            except json.JSONDecodeError:
+                try:
+                    from json_repair import repair_json
+
+                    fixed = repair_json(slice_)
+                    data = json.loads(fixed)
+                except Exception as inner:
+                    raise ValueError(
+                        "Das Storyboard-JSON ist ungültig oder wurde abgeschnitten. "
+                        "Bitte weniger Szenen oder eine kürzere Erzähltiefe wählen und erneut versuchen. "
+                        f"Technischer Hinweis: {str(inner)}"
+                    ) from inner
+        if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
+            raise ValueError("Ungültiges Storyboard-Format (title/scenes).")
+        return data
+
+    @staticmethod
+    def _generate_learning_video_storyboard_raw(
+        model: Any,
+        input_parts: List[Any],
+        max_followups: int = 4,
+    ) -> Tuple[str, Dict[str, int], Any]:
+        """Chat-based generation; join chunks with '' so JSON stays one document when MAX_TOKENS hits."""
+        chat = model.start_chat(history=[])
+        response = chat.send_message(input_parts, safety_settings=SAFETY_SETTINGS)
+        if not response.candidates:
+            raise Exception("Leere Kandidaten-Antwort vom Modell.")
+        chunks: List[str] = []
+        if response.text:
+            chunks.append(response.text)
+        usage_sum = AIService._extract_usage(response)
+        last_response = response
+        fr = response.candidates[0].finish_reason
+        follow = 0
+        cont = (
+            "Das JSON wurde am Ende abgeschnitten. Vervollständige NUR den fehlenden Rest des JSON-Objekts, "
+            "exakt an der Abbruchstelle. Keine Wiederholung des bereits Ausgegebenen, kein Markdown, "
+            "keine Erklärung — nur gültiges JSON-Fragment, das sich nahtlos an den bisherigen Text anschließt."
+        )
+        while fr == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
+            follow += 1
+            print(f"Learning video storyboard: finish_reason=MAX_TOKENS, continuation {follow}/{max_followups}")
+            response = chat.send_message(cont, safety_settings=SAFETY_SETTINGS)
+            last_response = response
+            if not response.candidates:
+                break
+            if response.text:
+                chunks.append(response.text)
+            usage_sum = AIService._merge_usage_dict(usage_sum, AIService._extract_usage(response))
+            fr = response.candidates[0].finish_reason
+        raw = "".join(chunks).strip()
+        if not raw:
+            raise Exception("Kein Storyboard-Text in der Modellantwort.")
+        return raw, usage_sum, last_response
+
+    @staticmethod
     def generate_learning_video_storyboard(
         content: List[Any],
         model_preference: str = None,
@@ -832,6 +911,11 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
             )
             if material_note:
                 schema_hint += "\nHinweis zum Umfang des Materials:\n" + material_note + "\n"
+            schema_hint += (
+                "\nWichtig für gültiges JSON: In allen Textfeldern (title, opening_narration, body, narration) "
+                "darf im Fließtext kein rohes doppeltes Anführungszeichen (ASCII 34) vorkommen — nutze typografische "
+                "‚…‘ oder Umformulierung ohne Zitate, damit die JSON-Strings syntaktisch gültig bleiben.\n"
+            )
 
             model = genai.GenerativeModel(
                 get_best_model(model_preference),
@@ -846,24 +930,18 @@ Die gesprochene Gesamtfassung (opening_narration plus alle narration-Felder) sol
                 input_parts.extend(content)
             else:
                 input_parts.append(content)
-            response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-            raw = (response.text or "").strip()
+            raw, usage_sum, _last_resp = AIService._generate_learning_video_storyboard_raw(
+                model, input_parts, max_followups=4
+            )
             try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                start = raw.find("{")
-                end = raw.rfind("}") + 1
-                if start >= 0 and end > start:
-                    data = json.loads(raw[start:end])
-                else:
-                    raise Exception("Konnte JSON-Storyboard nicht parsen.")
-            if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
-                raise Exception("Ungültiges Storyboard-Format.")
+                data = AIService._parse_json_storyboard(raw)
+            except ValueError as ve:
+                raise Exception(str(ve)) from ve
             if not return_meta:
                 return data
             return {
                 "data": data,
-                "usage": AIService._extract_usage(response),
+                "usage": usage_sum,
                 "used_model": str(getattr(model, "model_name", "") or ""),
             }
         except Exception as e:

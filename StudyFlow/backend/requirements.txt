@@ -16,5 +16,6 @@ fpdf2
 markdown
 python-dotenv
 requests
+json-repair
 youtube-transcript-api
 Pillow
