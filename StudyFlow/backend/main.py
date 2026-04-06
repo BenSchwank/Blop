@@ -52,6 +52,13 @@ _LEARNING_VIDEO_JOBS: dict = {}
 _LEARNING_VIDEO_JOBS_LOCK = threading.Lock()
 _LEARNING_VIDEO_JOB_MAX = 256
 
+# Podcast: KI-Skript + OpenAI TTS — asynchron wie Lernvideo (502 vermeiden)
+_PODCAST_JOBS: dict = {}
+_PODCAST_JOBS_LOCK = threading.Lock()
+_PODCAST_JOB_MAX = 256
+# Hinweis (Multi-Instance): Job-Status liegt nur im RAM dieses Prozesses. Mehrere Render-Instanzen:
+# Polling kann auf einer anderen Instanz landen (404). Dann Jobs in Redis/Supabase-Tabelle auslagern.
+
 
 def _learning_video_prune_jobs_locked() -> None:
     if len(_LEARNING_VIDEO_JOBS) < _LEARNING_VIDEO_JOB_MAX:
@@ -72,6 +79,85 @@ def _learning_video_job_fail(job_id: str, detail: str) -> None:
             _LEARNING_VIDEO_JOBS[job_id]["status"] = "error"
             _LEARNING_VIDEO_JOBS[job_id]["detail"] = detail
             _LEARNING_VIDEO_JOBS[job_id]["finished_at"] = time.time()
+
+
+def _podcast_prune_jobs_locked() -> None:
+    if len(_PODCAST_JOBS) < _PODCAST_JOB_MAX:
+        return
+    finished = [
+        (jid, j.get("created_at", 0))
+        for jid, j in _PODCAST_JOBS.items()
+        if j.get("status") in ("done", "error")
+    ]
+    finished.sort(key=lambda x: x[1])
+    for jid, _ in finished[: max(32, len(finished) // 2)]:
+        _PODCAST_JOBS.pop(jid, None)
+
+
+def _podcast_job_fail(job_id: str, detail: str) -> None:
+    with _PODCAST_JOBS_LOCK:
+        if job_id in _PODCAST_JOBS:
+            _PODCAST_JOBS[job_id]["status"] = "error"
+            _PODCAST_JOBS[job_id]["detail"] = detail
+            _PODCAST_JOBS[job_id]["finished_at"] = time.time()
+
+
+def _podcast_job_worker(
+    job_id: str,
+    username: str,
+    folder_id: str,
+    model_preference: Optional[str],
+) -> None:
+    from ai_service import AIService
+    from media_pipeline import openai_tts_speech_mp3
+
+    try:
+        _configure_genai()
+        model_pref = resolve_model_preference(username, model_preference)
+        context, debug_log = _get_folder_context(username, folder_id)
+        if not context:
+            _podcast_job_fail(
+                job_id,
+                f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
+            )
+            return
+        script_result = AIService.generate_podcast_script(
+            context, model_preference=model_pref, return_meta=True
+        )
+        text = script_result["text"]
+        mp3_bytes = openai_tts_speech_mp3(text)
+        fname = f"podcast_{int(datetime.now().timestamp())}.mp3"
+        file_id = DataManager.save_audio(mp3_bytes, fname, username, folder_id)
+        charge = deduct_tokens_by_usage(
+            username,
+            "podcast",
+            script_result.get("used_model", model_pref or ""),
+            script_result.get("usage"),
+        )
+        try_notify_document_ready(username, folder_id, "Podcast")
+        with _PODCAST_JOBS_LOCK:
+            if job_id in _PODCAST_JOBS:
+                _PODCAST_JOBS[job_id].update(
+                    {
+                        "status": "done",
+                        "finished_at": time.time(),
+                        "file_id": file_id,
+                        "filename": fname,
+                        "used_model": script_result.get("used_model", model_pref or ""),
+                        "usage": script_result.get("usage", {}),
+                        **charge,
+                    }
+                )
+    except HTTPException as e:
+        detail = e.detail
+        if not isinstance(detail, str):
+            detail = str(detail)
+        _podcast_job_fail(job_id, detail)
+    except RuntimeError as e:
+        _podcast_job_fail(job_id, str(e))
+    except Exception as e:
+        print(f"Podcast job error: {e}")
+        _podcast_job_fail(job_id, f"Podcast-Fehler: {str(e)}")
 
 
 def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
@@ -2034,51 +2120,58 @@ def document_chat_patch(request: DocumentChatPatchRequest):
 
 
 @app.post("/api/ai/podcast")
-def create_podcast(request: PodcastRequest, background_tasks: BackgroundTasks):
-    from ai_service import AIService
-    from media_pipeline import openai_tts_speech_mp3
-
+def create_podcast(request: PodcastRequest):
+    """Startet Podcast-Erstellung im Hintergrund (vermeidet HTTP-502 durch Proxy-Timeouts)."""
     try:
         ensure_minimum_tokens(request.username, 2)
-        _configure_genai()
-        model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
-        if not context:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
-            )
-        script_result = AIService.generate_podcast_script(
-            context, model_preference=model_pref, return_meta=True
-        )
-        text = script_result["text"]
-        mp3_bytes = openai_tts_speech_mp3(text)
-        fname = f"podcast_{int(datetime.now().timestamp())}.mp3"
-        file_id = DataManager.save_audio(mp3_bytes, fname, request.username, request.folder_id)
-        charge = deduct_tokens_by_usage(
-            request.username,
-            "podcast",
-            script_result.get("used_model", model_pref or ""),
-            script_result.get("usage"),
-        )
-        background_tasks.add_task(
-            try_notify_document_ready, request.username, request.folder_id, "Podcast"
-        )
-        return {
-            "status": "success",
-            "file_id": file_id,
-            "filename": fname,
-            "used_model": script_result.get("used_model", model_pref or ""),
-            "usage": script_result.get("usage", {}),
-            **charge,
-        }
     except HTTPException:
         raise
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        print(f"Podcast error: {e}")
-        raise HTTPException(status_code=500, detail=f"Podcast-Fehler: {str(e)}")
+    job_id = str(uuid.uuid4())
+    with _PODCAST_JOBS_LOCK:
+        _podcast_prune_jobs_locked()
+        _PODCAST_JOBS[job_id] = {
+            "status": "pending",
+            "username": request.username,
+            "created_at": time.time(),
+        }
+    thread = threading.Thread(
+        target=_podcast_job_worker,
+        args=(job_id, request.username, request.folder_id, request.model_preference),
+        daemon=True,
+    )
+    thread.start()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "job_id": job_id,
+        },
+    )
+
+
+@app.get("/api/ai/podcast/status/{job_id}")
+def podcast_job_status(job_id: str, username: str):
+    with _PODCAST_JOBS_LOCK:
+        job = _PODCAST_JOBS.get(job_id)
+    if not job or job.get("username") != username:
+        raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
+    status = job.get("status")
+    if status == "pending":
+        return {"status": "pending"}
+    if status == "error":
+        return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
+    if status == "done":
+        return {
+            "status": "done",
+            "file_id": job["file_id"],
+            "filename": job["filename"],
+            "used_model": job.get("used_model", ""),
+            "usage": job.get("usage", {}),
+            "tokens_charged": job.get("tokens_charged"),
+            "remaining_tokens": job.get("remaining_tokens"),
+            "usage_estimated": job.get("usage_estimated"),
+        }
+    return {"status": "pending"}
 
 
 @app.post("/api/ai/learning-video")
