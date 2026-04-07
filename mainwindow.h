@@ -292,6 +292,8 @@ private:
   QWidget *m_studyWindowContainer{nullptr}; // QWidget::createWindowContainer(QQuickView)
   QPushButton *m_btnAndroidNotes{nullptr};
   QPushButton *m_btnAndroidStudy{nullptr};
+  /// Study: reset embedded web to default (invokeAndroidWebDestination(0)).
+  QPushButton *m_btnAndroidStudyReset{nullptr};
   QPushButton *m_btnAndroidAddWebBookmark{nullptr};
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};

@@ -4,6 +4,7 @@
 #include <QScreen>
 #include <QWindow>
 #include <QWidget>
+#include <QtGlobal>
 #include <QtMath>
 
 namespace {
@@ -38,12 +39,23 @@ int sp(int px) {
 
 int androidTopInsetPx(QWidget *reference) {
   QScreen *screen = bestScreen(reference);
-  if (!screen) {
-    return 0;
+  int inset = 0;
+  if (screen) {
+    const QRect full = screen->geometry();
+    const QRect avail = screen->availableGeometry();
+    inset = qMax(0, avail.top() - full.top());
   }
-  const QRect full = screen->geometry();
-  const QRect avail = screen->availableGeometry();
-  return qMax(0, avail.top() - full.top());
+#if defined(Q_OS_ANDROID)
+  if (reference && reference->windowHandle()) {
+    const int safeTop = reference->windowHandle()->safeAreaMargins().top();
+    inset = qMax(inset, safeTop);
+  }
+  // Edge-to-edge / fullscreen: geometry + safe area can still be 0 while status icons draw
+  // over the first row — keep a minimum strip so tabs clear the status bar.
+  if (inset < dp(24))
+    inset = qMax(inset, dp(24));
+#endif
+  return inset;
 }
 
 int androidBottomInsetPx(QWidget *reference) {

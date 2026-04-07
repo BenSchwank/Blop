@@ -2572,19 +2572,22 @@ void MainWindow::setupUi() {
       "spacing: 0; padding: 0px; }"
       "QToolButton { background: transparent; border: none; }");
   const int androidTopInset = UiScale::androidTopInsetPx(this);
+  const int androidHeaderTopExtra = UiScale::dp(6);
   const int androidHeaderHeight = UiScale::dp(52);
   const int androidHeaderButtonW = UiScale::dp(56);
   const int androidHeaderButtonH = UiScale::dp(32);
   const int androidCompactPillH = UiScale::dp(28);
-  topBar->setFixedHeight(androidHeaderHeight + androidTopInset);
+  const int androidHeaderTotalH =
+      androidHeaderHeight + androidTopInset + androidHeaderTopExtra;
+  topBar->setFixedHeight(androidHeaderTotalH);
 
   QWidget *androidHeader = new QWidget(topBar);
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  androidHeader->setFixedHeight(androidHeaderHeight + androidTopInset);
+  androidHeader->setFixedHeight(androidHeaderTotalH);
   androidHeader->setStyleSheet("background-color: #0F111A;");
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
-  headerLay->setContentsMargins(UiScale::dp(10), androidTopInset + UiScale::dp(2),
-                                UiScale::dp(10), UiScale::dp(2));
+  headerLay->setContentsMargins(UiScale::dp(10), androidTopInset + androidHeaderTopExtra,
+                                UiScale::dp(10), UiScale::dp(4));
   headerLay->setSpacing(UiScale::dp(8));
 
   auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
@@ -2719,6 +2722,27 @@ void MainWindow::setupUi() {
 
   headerLay->addWidget(m_btnAndroidNotes);
   headerLay->addWidget(m_btnAndroidStudy);
+
+  m_btnAndroidStudyReset = new QPushButton(androidHeader);
+  m_btnAndroidStudyReset->setFixedSize(UiScale::dp(30), androidCompactPillH);
+  m_btnAndroidStudyReset->setCursor(Qt::PointingHandCursor);
+  m_btnAndroidStudyReset->setToolTip(tr("Study zurücksetzen"));
+  m_btnAndroidStudyReset->setIcon(
+      createModernIcon("home", QColor("#F4F5FB")));
+  m_btnAndroidStudyReset->setIconSize(
+      QSize(UiScale::dp(18), UiScale::dp(18)));
+  m_btnAndroidStudyReset->setStyleSheet(
+      "QPushButton {"
+      "  background: rgba(255,255,255,0.08);"
+      "  color: #F4F5FB;"
+      "  border-radius: 13px;"
+      "  border: 1px solid rgba(255,255,255,0.16);"
+      "}"
+      "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
+  m_btnAndroidStudyReset->hide();
+  connect(m_btnAndroidStudyReset, &QPushButton::clicked, this,
+          &MainWindow::resetEmbeddedWebToStudy);
+  headerLay->addWidget(m_btnAndroidStudyReset);
 
   m_btnAndroidAddWebBookmark = new QPushButton(QStringLiteral("+"), androidHeader);
   m_btnAndroidAddWebBookmark->setFixedSize(UiScale::dp(30), androidCompactPillH);
@@ -3859,6 +3883,10 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_btnAndroidAddWebBookmark) {
       m_btnAndroidAddWebBookmark->setVisible(false);
       m_btnAndroidAddWebBookmark->setEnabled(false);
+    }
+    if (m_btnAndroidStudyReset) {
+      m_btnAndroidStudyReset->setVisible(false);
+      m_btnAndroidStudyReset->setEnabled(false);
     }
 #endif
     if (btnStripMenu)
