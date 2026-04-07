@@ -2,7 +2,6 @@
 
 #include <QGuiApplication>
 #include <QScreen>
-#include <QWindow>
 #include <QWidget>
 #include <QtGlobal>
 #include <QtMath>
@@ -46,11 +45,9 @@ int androidTopInsetPx(QWidget *reference) {
     inset = qMax(0, avail.top() - full.top());
   }
 #if defined(Q_OS_ANDROID)
-  if (reference && reference->windowHandle()) {
-    const int safeTop = reference->windowHandle()->safeAreaMargins().top();
-    inset = qMax(inset, safeTop);
-  }
-  // Edge-to-edge / fullscreen: geometry + safe area can still be 0 while status icons draw
+  // QWindow::safeAreaMargins() is not available on all Qt-for-Android targets (e.g. CI Qt 6.6);
+  // rely on screen geometry plus a minimum inset below.
+  // Edge-to-edge / fullscreen: geometry can still be 0 while status icons draw
   // over the first row — keep a minimum strip so tabs clear the status bar.
   if (inset < dp(24))
     inset = qMax(inset, dp(24));
