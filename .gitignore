@@ -81,5 +81,4 @@ CMakeLists.txt.user*
 .uic/
 /build*/
 
-# Cursor / IDE
-.cursor/
+# Cursor / IDE (tracked: share .cursor config in repo)
