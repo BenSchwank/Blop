@@ -317,6 +317,81 @@ Setze NAHTLOS fort:
         return "".join(chunks).strip()
 
     @staticmethod
+    def _document_patch_system_instruction() -> str:
+        return (
+            "Du bist ein Dokument-Editor für Blop. "
+            "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
+            "Du antwortest IMMER als JSON.\n"
+            "In JSON-Stringwerten müssen doppelte Anführungszeichen als \\\" und Backslashes als \\\\ escaped werden "
+            "(wichtig bei LaTeX und Zitaten).\n"
+            "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
+            "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
+        )
+
+    @staticmethod
+    def _collect_document_patch_response(chat: Any, prompt: str, max_followups: int = 4) -> Tuple[str, Any]:
+        """Send patch prompt; on MAX_TOKENS continue until JSON completes (Gemini finish_reason 2 = MAX_TOKENS)."""
+        continuation = (
+            "Die JSON-Antwort wurde wegen des Ausgabe-Tokenlimits abgeschnitten. "
+            "Vervollständige NUR den fehlenden Rest (schließende Anführungszeichen, Klammern, restlicher new_text). "
+            "Kein Markdown-Fence, keine Erklärung außerhalb von JSON."
+        )
+        response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+        last = response
+        chunks: List[str] = []
+        piece = AIService._extract_response_text_safe(response)
+        if piece:
+            chunks.append(piece)
+        fr = None
+        try:
+            if getattr(response, "candidates", None):
+                fr = response.candidates[0].finish_reason
+        except Exception:
+            fr = None
+        follow = 0
+        while fr == genai.protos.Candidate.FinishReason.MAX_TOKENS and follow < max_followups:
+            follow += 1
+            print(f"Document chat: finish_reason=MAX_TOKENS, continuation {follow}/{max_followups}")
+            response = chat.send_message(continuation, safety_settings=SAFETY_SETTINGS)
+            last = response
+            if not getattr(response, "candidates", None):
+                break
+            fr = response.candidates[0].finish_reason
+            piece = AIService._extract_response_text_safe(response)
+            if piece:
+                chunks.append(piece)
+        return "".join(chunks).strip(), last
+
+    @staticmethod
+    def _humanize_empty_document_chat_response(response: Any) -> str:
+        """User-facing German message when no text could be read from the model."""
+        fr = None
+        try:
+            if getattr(response, "candidates", None):
+                fr = getattr(response.candidates[0], "finish_reason", None)
+        except Exception:
+            fr = None
+        if fr == genai.protos.Candidate.FinishReason.MAX_TOKENS:
+            return (
+                "Die Antwort wurde wegen des Ausgabe-Limits abgebrochen, ohne nutzbaren Text. "
+                "Bitte erneut versuchen oder eine kürzere Ergänzung im Dokument anfordern."
+            )
+        if fr == genai.protos.Candidate.FinishReason.SAFETY:
+            return (
+                "Die Antwort wurde von den Sicherheitsfiltern zurückgehalten. "
+                "Bitte die Frage anders formulieren."
+            )
+        if fr == genai.protos.Candidate.FinishReason.RECITATION:
+            return (
+                "Die Antwort wurde wegen möglicher Urheberrechts-Nähe zurückgehalten. "
+                "Bitte mit eigenen Worten nachfragen."
+            )
+        return (
+            "Keine nutzbare Antwort vom Modell. "
+            "Bitte kurz warten und erneut versuchen oder die Anfrage kürzer halten."
+        )
+
+    @staticmethod
     def _pick_available_model(preferred: Optional[str] = None, fast_only: bool = False) -> str:
         """Return a model that exists for this API key; fallback safely."""
         if preferred:
@@ -1381,22 +1456,16 @@ Hier ist das Quellenmaterial:
         """Return a patch proposal for interactive document editing."""
         try:
             selected_model = AIService._pick_strong_model(model_preference)
+            doc_patch_gen_cfg = {
+                "response_mime_type": "application/json",
+                "max_output_tokens": 8192,
+                "temperature": 0.25,
+            }
+            si = AIService._document_patch_system_instruction()
             model = genai.GenerativeModel(
                 model_name=selected_model,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "max_output_tokens": 2500,
-                    "temperature": 0.25,
-                },
-                system_instruction=(
-                    "Du bist ein Dokument-Editor für Blop. "
-                    "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
-                    "Du antwortest IMMER als JSON.\n"
-                    "In JSON-Stringwerten müssen doppelte Anführungszeichen als \\\" und Backslashes als \\\\ escaped werden "
-                    "(wichtig bei LaTeX und Zitaten).\n"
-                    "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
-                    "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
-                ),
+                generation_config=doc_patch_gen_cfg,
+                system_instruction=si,
             )
             compact_history = []
             for msg in history[-8:]:
@@ -1420,7 +1489,7 @@ Antworte nur als JSON im Format:
 }}
 """
             try:
-                response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+                response_text, response = AIService._collect_document_patch_response(chat, prompt)
             except Exception as first_err:
                 err_msg = str(first_err)
                 if "model is not found" in err_msg.lower() or "404" in err_msg:
@@ -1428,37 +1497,15 @@ Antworte nur als JSON im Format:
                     print(f"Document chat model fallback: '{selected_model}' -> '{fallback_model}'")
                     model = genai.GenerativeModel(
                         model_name=fallback_model,
-                        generation_config={
-                            "response_mime_type": "application/json",
-                            "max_output_tokens": 2500,
-                            "temperature": 0.25,
-                        },
-                        system_instruction=(
-                            "Du bist ein Dokument-Editor für Blop. "
-                            "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
-                            "Du antwortest IMMER als JSON.\n"
-                            "In JSON-Stringwerten müssen doppelte Anführungszeichen als \\\" und Backslashes als \\\\ escaped werden "
-                            "(wichtig bei LaTeX und Zitaten).\n"
-                            "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
-                            "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
-                        ),
+                        generation_config=doc_patch_gen_cfg,
+                        system_instruction=si,
                     )
                     chat = model.start_chat(history=compact_history)
-                    response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
+                    response_text, response = AIService._collect_document_patch_response(chat, prompt)
                 else:
                     raise
-            response_text = AIService._extract_response_text_safe(response)
             if not response_text:
-                finish_reason = None
-                try:
-                    if getattr(response, "candidates", None):
-                        finish_reason = getattr(response.candidates[0], "finish_reason", None)
-                except Exception:
-                    finish_reason = None
-                raise Exception(
-                    "Leere/gesperrte Modellantwort beim Dokument-Chat. "
-                    f"finish_reason={finish_reason}"
-                )
+                raise Exception(AIService._humanize_empty_document_chat_response(response))
             try:
                 parsed = AIService._parse_document_patch_json(response_text)
             except ValueError as ve:
