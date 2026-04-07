@@ -3,10 +3,15 @@ import QtWebEngine 1.10
 
 Item {
     id: root
+    readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
+    readonly property int toolbarHeight: Math.round(50 * uiScale)
     
     WebEngineView {
         id: webView
-        anchors.fill: parent
+        anchors.top: toolbar.bottom
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
         
         // Load Blop Study (Production)
         url: "https://blop-study.vercel.app"
@@ -22,17 +27,17 @@ Item {
         // Loading indicator
         Rectangle {
             anchors.centerIn: parent
-            width: 100
-            height: 100
+            width: Math.round(100 * uiScale)
+            height: Math.round(100 * uiScale)
             color: "#1e1e1e"
-            radius: 12
+            radius: Math.round(12 * uiScale)
             visible: webView.loading
             
             Text {
                 anchors.centerIn: parent
                 text: "Lädt..."
                 color: "#DDD"
-                font.pixelSize: 14
+                font.pixelSize: Math.round(14 * uiScale)
             }
         }
         
@@ -49,27 +54,27 @@ Item {
         id: toolbar
         anchors.top: parent.top
         width: parent.width
-        height: 50
+        height: root.toolbarHeight
         color: "#1e1e1e"
         border.color: "#333"
         border.width: 1
         
         Row {
             anchors.centerIn: parent
-            spacing: 10
+            spacing: Math.round(10 * uiScale)
             
             // Back button
             Rectangle {
-                width: 80
-                height: 30
-                radius: 6
+                width: Math.round(80 * uiScale)
+                height: Math.round(30 * uiScale)
+                radius: Math.round(6 * uiScale)
                 color: webView.canGoBack ? "#5E5CE6" : "#333"
                 
                 Text {
                     anchors.centerIn: parent
                     text: "← Zurück"
                     color: "white"
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * uiScale)
                 }
                 
                 MouseArea {
@@ -81,16 +86,16 @@ Item {
             
             // Forward button
             Rectangle {
-                width: 80
-                height: 30
-                radius: 6
+                width: Math.round(80 * uiScale)
+                height: Math.round(30 * uiScale)
+                radius: Math.round(6 * uiScale)
                 color: webView.canGoForward ? "#5E5CE6" : "#333"
                 
                 Text {
                     anchors.centerIn: parent
                     text: "Vor →"
                     color: "white"
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * uiScale)
                 }
                 
                 MouseArea {
@@ -102,16 +107,16 @@ Item {
             
             // Reload button
             Rectangle {
-                width: 80
-                height: 30
-                radius: 6
+                width: Math.round(80 * uiScale)
+                height: Math.round(30 * uiScale)
+                radius: Math.round(6 * uiScale)
                 color: "#5E5CE6"
                 
                 Text {
                     anchors.centerIn: parent
                     text: "↻ Neu laden"
                     color: "white"
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * uiScale)
                 }
                 
                 MouseArea {
@@ -122,8 +127,4 @@ Item {
         }
     }
     
-    // Adjust WebView to account for toolbar
-    Component.onCompleted: {
-        webView.anchors.topMargin = toolbar.height
-    }
 }

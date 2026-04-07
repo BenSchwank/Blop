@@ -87,6 +87,8 @@ qt_add_executable(Blop
     markdowneditor.h
     uiprofilemanager.h
     uiprofilemanager.cpp
+    uiscale.h
+    uiscale.cpp
     moderntoolbar.cpp
     moderntoolbar.h
     modetoolbar.cpp

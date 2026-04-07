@@ -4,10 +4,11 @@ import QtQuick.Controls 2.15
 
 Rectangle {
     id: root
-    width: 280
-    height: parent.height - 20
+    readonly property real uiScale: Math.max(0.9, Math.min((parent ? parent.width : 411) / 411, 1.35))
+    width: Math.min(Math.round((parent ? parent.width : 411) * 0.86), Math.round(340 * uiScale))
+    height: (parent ? parent.height : 900) - Math.round(20 * uiScale)
     color: "#1E1E1E"
-    radius: 12
+    radius: Math.round(12 * uiScale)
     border.color: "#333"
     border.width: 1
     visible: false
@@ -23,9 +24,9 @@ Rectangle {
         spacing: 2
         RowLayout {
             Layout.fillWidth: true
-            Text { text: parent.text; color: "#DDD"; font.pixelSize: 12 }
+            Text { text: parent.text; color: "#DDD"; font.pixelSize: Math.round(12 * root.uiScale) }
             Item { Layout.fillWidth: true }
-            Text { text: slider.value.toFixed(0); color: "#888"; font.pixelSize: 12 }
+            Text { text: slider.value.toFixed(0); color: "#888"; font.pixelSize: Math.round(12 * root.uiScale) }
         }
         Slider {
             id: slider
@@ -33,12 +34,12 @@ Rectangle {
             handle: Rectangle {
                 x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
                 y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                width: 16; height: 16; radius: 8; color: "white"
+                width: Math.round(16 * root.uiScale); height: Math.round(16 * root.uiScale); radius: width / 2; color: "white"
             }
             background: Rectangle {
                 x: slider.leftPadding; y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                width: slider.availableWidth; height: 4; radius: 2; color: "#444"
-                Rectangle { width: slider.visualPosition * parent.width; height: 4; radius: 2; color: "#5E5CE6" }
+                width: slider.availableWidth; height: Math.round(4 * root.uiScale); radius: height / 2; color: "#444"
+                Rectangle { width: slider.visualPosition * parent.width; height: parent.height; radius: parent.radius; color: "#5E5CE6" }
             }
         }
     }
@@ -47,16 +48,16 @@ Rectangle {
         property alias text: lbl.text
         property alias checked: sw.checked
         Layout.fillWidth: true
-        Text { id: lbl; color: "#DDD"; font.pixelSize: 14; Layout.fillWidth: true }
+        Text { id: lbl; color: "#DDD"; font.pixelSize: Math.round(14 * root.uiScale); Layout.fillWidth: true }
         Switch {
             id: sw
             indicator: Rectangle {
-                width: 40; height: 20; radius: 10
+                width: Math.round(40 * root.uiScale); height: Math.round(20 * root.uiScale); radius: height / 2
                 color: sw.checked ? "#5E5CE6" : "#444"
                 border.color: "#333"
                 Rectangle {
                     x: sw.checked ? parent.width - width - 2 : 2
-                    y: 2; width: 16; height: 16; radius: 8; color: "white"
+                    y: Math.round(2 * root.uiScale); width: Math.round(16 * root.uiScale); height: Math.round(16 * root.uiScale); radius: width / 2; color: "white"
                     Behavior on x { NumberAnimation { duration: 150 } }
                 }
             }
@@ -64,13 +65,13 @@ Rectangle {
     }
 
     component SectionLabel: Text {
-        color: "#888"; font.bold: true; font.pixelSize: 11; font.capitalization: Font.AllUppercase
-        Layout.topMargin: 10
+        color: "#888"; font.bold: true; font.pixelSize: Math.round(11 * root.uiScale); font.capitalization: Font.AllUppercase
+        Layout.topMargin: Math.round(10 * root.uiScale)
     }
 
     ScrollView {
         anchors.fill: parent
-        anchors.margins: 15
+        anchors.margins: Math.round(15 * root.uiScale)
         contentWidth: parent.width - 30
 
         ColumnLayout {
@@ -80,7 +81,7 @@ Rectangle {
             Text {
                 text: "Werkzeug Optionen"
                 color: "white"
-                font.pixelSize: 18
+                font.pixelSize: Math.round(18 * root.uiScale)
                 font.bold: true
             }
 
@@ -131,7 +132,7 @@ Rectangle {
             SectionLabel { text: "Spitze" }
             RowLayout { spacing: 10
                 Repeater { model: ["Rund", "Keil"]
-                    delegate: Rectangle { width: 80; height: 30; radius: 6; color: (Bridge.highlighterTip === index) ? "#5E5CE6" : "#333"
+                    delegate: Rectangle { width: Math.round(80 * root.uiScale); height: Math.round(30 * root.uiScale); radius: Math.round(6 * root.uiScale); color: (Bridge.highlighterTip === index) ? "#5E5CE6" : "#333"
                         Text { anchors.centerIn: parent; text: modelData; color: "white" }
                         MouseArea { anchors.fill: parent; onClicked: Bridge.highlighterTip = index }
                     }
@@ -146,7 +147,7 @@ Rectangle {
             SectionLabel { text: "Modus" }
             RowLayout { spacing: 10
                 Repeater { model: ["Pixel", "Objekt"]
-                    delegate: Rectangle { width: 80; height: 30; radius: 6; color: (Bridge.eraserMode === index) ? "#5E5CE6" : "#333"
+                    delegate: Rectangle { width: Math.round(80 * root.uiScale); height: Math.round(30 * root.uiScale); radius: Math.round(6 * root.uiScale); color: (Bridge.eraserMode === index) ? "#5E5CE6" : "#333"
                         Text { anchors.centerIn: parent; text: modelData; color: "white" }
                         MouseArea { anchors.fill: parent; onClicked: Bridge.eraserMode = index }
                     }
@@ -163,7 +164,7 @@ Rectangle {
             SectionLabel { text: "Auswahl-Modus" }
             RowLayout { spacing: 10
                 Repeater { model: ["Freihand", "Rechteck"]
-                    delegate: Rectangle { width: 80; height: 30; radius: 6; color: (Bridge.lassoMode === index) ? "#5E5CE6" : "#333"
+                    delegate: Rectangle { width: Math.round(80 * root.uiScale); height: Math.round(30 * root.uiScale); radius: Math.round(6 * root.uiScale); color: (Bridge.lassoMode === index) ? "#5E5CE6" : "#333"
                         Text { anchors.centerIn: parent; text: modelData; color: "white" }
                         MouseArea { anchors.fill: parent; onClicked: Bridge.lassoMode = index }
                     }
@@ -185,7 +186,7 @@ Rectangle {
             SectionLabel { text: "Einheiten" }
             RowLayout { spacing: 10
                 Repeater { model: ["px", "cm", "in"]
-                    delegate: Rectangle { width: 60; height: 35; radius: 6; color: (Bridge.rulerUnit === index) ? "#5E5CE6" : "#333"
+                    delegate: Rectangle { width: Math.round(60 * root.uiScale); height: Math.round(35 * root.uiScale); radius: Math.round(6 * root.uiScale); color: (Bridge.rulerUnit === index) ? "#5E5CE6" : "#333"
                         Text { anchors.centerIn: parent; text: modelData; color: "white"; font.bold: true }
                         MouseArea { anchors.fill: parent; onClicked: Bridge.rulerUnit = index }
                     }
@@ -193,7 +194,7 @@ Rectangle {
             }
             Label {
                 text: "Info: Wähle das Lineal-Werkzeug, um es zu bewegen. Wähle einen Stift, um daran zu zeichnen."
-                color: "#888"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: 10
+                color: "#888"; font.pixelSize: Math.round(12 * root.uiScale); wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: Math.round(10 * root.uiScale)
             }
         }
     }

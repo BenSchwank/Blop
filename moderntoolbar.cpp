@@ -3,6 +3,7 @@
 #include "tools/ToolManager.h"
 #include "tools/ToolUIBridge.h"
 #include "tools/WritingTools.h"
+#include "uiscale.h"
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCheckBox>
@@ -383,7 +384,7 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
 // =============================================================================
 ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
     : QWidget(parent), m_iconName(iconName) {
-  setBtnSize(40);
+  setBtnSize(UiScale::dp(40));
   setCursor(Qt::PointingHandCursor);
   setAttribute(Qt::WA_AcceptTouchEvents, true);
 #if BLOP_TOOLBAR_LONGPRESS
@@ -532,7 +533,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
 class ToolPreviewWidget : public QWidget {
 public:
   ToolPreviewWidget(QWidget *parent) : QWidget(parent) {
-    setFixedHeight(50);
+    setFixedHeight(UiScale::dp(50));
     setAttribute(Qt::WA_TranslucentBackground);
   }
   void updateConfig(ToolMode m, ToolConfig c) {
@@ -1856,19 +1857,19 @@ void ModernToolbar::setStyle(Style style) {
     b->setAttribute(Qt::WA_TransparentForMouseEvents, buttonsIgnoreMouse);
   }
   if (m_style == Normal) {
-    setMinimumSize(50, 65);
+    setMinimumSize(UiScale::dp(50), UiScale::dp(65));
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     if (m_orientation == Vertical) {
-      setFixedWidth(65);
+      setFixedWidth(UiScale::dp(65));
       setMinimumHeight(calculateMinLength());
       setMaximumHeight(QWIDGETSIZE_MAX);
     } else {
-      setFixedHeight(65);
+      setFixedHeight(UiScale::dp(65));
       setMinimumWidth(calculateMinLength());
       setMaximumWidth(QWIDGETSIZE_MAX);
     }
   } else {
-    int size = 380 * m_scale;
+    int size = UiScale::dp(380) * m_scale;
     setFixedSize(size, size);
     reorderButtons();
   }
@@ -1980,7 +1981,7 @@ void ModernToolbar::checkOrientation(const QPoint &globalPos) {
   int distRight = parentW - myRect.right();
   int distTop = myRect.top();
   int distBottom = parentH - myRect.bottom();
-  int threshold = 80;
+  int threshold = UiScale::dp(80);
   bool horizontal = false;
   if (distTop < threshold || distBottom < threshold)
     horizontal = true;
@@ -2029,11 +2030,12 @@ void ModernToolbar::setDockMode(bool docked) {
     int idealW = calculateMinLength();
     if (docked) {
       m_orientation = Horizontal;
-      targetGeom = QRect((pw->width() - idealW) / 2, 0, idealW, 48);
+      targetGeom = QRect((pw->width() - idealW) / 2, 0, idealW, UiScale::dp(48));
     } else {
       m_orientation = Horizontal;
       int idealW = calculateMinLength();
-      targetGeom = QRect((pw->width() - idealW) / 2, 60, idealW, 52);
+      targetGeom = QRect((pw->width() - idealW) / 2, UiScale::dp(60), idealW,
+                         UiScale::dp(52));
     }
 
     QPropertyAnimation *anim = new QPropertyAnimation(this, "geometry");
@@ -2061,8 +2063,8 @@ QList<ToolbarBtn *> ModernToolbar::leftChromeButtons() const {
 }
 
 int ModernToolbar::calculateMinLength() {
-  int btnS = 40;
-  int minGap = 6;
+  int btnS = UiScale::dp(40);
+  int minGap = UiScale::dp(6);
   
   if (m_isDockedMode) {
     QList<ToolbarBtn *> leftGroup = leftChromeButtons();
@@ -2072,11 +2074,13 @@ int ModernToolbar::calculateMinLength() {
     
     int leftW = leftGroup.size() * btnS + (leftGroup.size() - 1) * minGap;
     int rightW = rightGroup.size() * btnS + (rightGroup.size() - 1) * minGap;
-    int centerW = centerGroupSize * btnS + (centerGroupSize - 1) * minGap + 24; // 24 = 3 separators * 8px
+    int centerW = centerGroupSize * btnS + (centerGroupSize - 1) * minGap +
+                  UiScale::dp(24); // 24 = 3 separators * 8px
     
-    return 20 + leftW + 30 + centerW + 30 + rightW + 20; // 20px margins, 30px group gaps
+    return UiScale::dp(20) + leftW + UiScale::dp(30) + centerW + UiScale::dp(30) +
+           rightW + UiScale::dp(20); // margins + group gaps
   } else {
-    int dragH = 30;
+    int dragH = UiScale::dp(30);
     int numButtons = 0;
     for (auto *b : m_buttons) {
       if (m_dockedOnlyButtons.contains(b)) continue;

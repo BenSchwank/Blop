@@ -3,6 +3,7 @@
 #include "TransformOverlay.h"
 #include "editoroverlays.h"
 #include "UIStyles.h"
+#include "uiscale.h"
 #include "tools/AbstractTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
 #include "tools/ToolManager.h"
@@ -151,28 +152,42 @@ signals:
   void cropRequested();
 };
 
-static constexpr int A4W = 793;
-static constexpr int A4H = 1122;
-static constexpr int PageSpacing = 60;
-static constexpr float kBottomRevealPull = 100.0f;
+static int a4wPx() {
+#ifdef Q_OS_ANDROID
+  return qRound(793 * (UiScale::dp(100) / 100.0));
+#else
+  return 793;
+#endif
+}
+static int a4hPx() {
+#ifdef Q_OS_ANDROID
+  return qRound(1122 * (UiScale::dp(100) / 100.0));
+#else
+  return 1122;
+#endif
+}
+static int pageSpacingPx() { return UiScale::dp(60); }
+static float kBottomRevealPull() { return UiScale::dp(100); }
 /// Abstand Seitenunterkante → Panel (Szenenkoordinaten)
-static constexpr qreal kSheetGapBelowPage = 40;
+static qreal kSheetGapBelowPage() { return UiScale::dp(40); }
 /// Zusätzlicher Scrollbereich unter dem Inhalt (~eine A4-Höhe)
-static constexpr qreal kExtraScrollBelowPages = static_cast<qreal>(A4H);
+static qreal kExtraScrollBelowPages() { return static_cast<qreal>(a4hPx()); }
 /// Szene: Leiste unter letzter Seite — schmaler als A4, zur Seite zentriert
-static constexpr int kPagesBarStripHeight = 380;
+static int kPagesBarStripHeight() { return UiScale::dp(380); }
 /// Anteil der A4-Breite (Rest links/rechts frei = optisch zentriert zur Seite)
 static constexpr qreal kPagesBarStripWidthRatio = 0.86;
 /// Platz unter der Leiste zum bequemen Scrollen
-static constexpr qreal kSceneReserveBelowPagesBar = 200;
+static qreal kSceneReserveBelowPagesBar() { return UiScale::dp(200); }
 /// Abstand Panel → untere Viewport-Kante (sonst wirkt es mit Taskbar/Fensterrand „verschmolzen“)
-static constexpr int kBottomSheetViewportBottomInset = 18;
+static int kBottomSheetViewportBottomInset() {
+  return UiScale::dp(18) + UiScale::androidBottomInsetPx();
+}
 /// Leichter seitlicher Luftabstand zum Viewport-Rand (schwebende Karte)
-static constexpr int kBottomSheetViewportSideInset = 10;
+static int kBottomSheetViewportSideInset() { return UiScale::dp(10); }
 /// Zielhöhe des Panels (wirkt beim Scrollen stabil, nicht „zusammengedrückt“)
-static constexpr int kBottomSheetPreferredHeight = 300;
+static int kBottomSheetPreferredHeight() { return UiScale::dp(300); }
 /// Unter dieser Höhe zwischen letzter Seite und unterem Rand lieber ausblenden
-static constexpr int kBottomSheetMinVisibleHeight = 208;
+static int kBottomSheetMinVisibleHeight() { return UiScale::dp(208); }
 
 #ifdef Q_OS_ANDROID
 static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
@@ -508,7 +523,7 @@ void MultiPageNoteView::layoutPages() {
   qreal y = 0;
 
   for (int i = 0; i < n; ++i) {
-    auto pageItem = new PageItem(0, 0, A4W, A4H);
+    auto pageItem = new PageItem(0, 0, a4wPx(), a4hPx());
     // Seiten ganz unten (Z=0 oder negativ), damit Lineal drüber ist
     pageItem->setZValue(0);
     if (i < note_->pages.size()) {
@@ -524,19 +539,19 @@ void MultiPageNoteView::layoutPages() {
     scene_.addItem(pageItem);
     pageItem->setPos(0, y);
     pageItems_.push_back(pageItem);
-    y += A4H + PageSpacing;
+    y += a4hPx() + pageSpacingPx();
   }
   const qreal stripW =
-      qMax(320.0, static_cast<qreal>(qRound(A4W * kPagesBarStripWidthRatio)));
-  const qreal stripX = (A4W - stripW) / 2.0;
+      qMax(320.0, static_cast<qreal>(qRound(a4wPx() * kPagesBarStripWidthRatio)));
+  const qreal stripX = (a4wPx() - stripW) / 2.0;
   m_pagesBarAnchorStrip =
-      new SkeletonPageItem(stripX, y, stripW, kPagesBarStripHeight);
+      new SkeletonPageItem(stripX, y, stripW, kPagesBarStripHeight());
   scene_.addItem(m_pagesBarAnchorStrip);
 
-  const qreal stripBottom = y + kPagesBarStripHeight;
+  const qreal stripBottom = y + kPagesBarStripHeight();
   const qreal sceneBottom =
-      stripBottom + kSheetGapBelowPage + kSceneReserveBelowPagesBar;
-  scene_.setSceneRect(QRectF(-100, -100, A4W + 200, sceneBottom));
+      stripBottom + kSheetGapBelowPage() + kSceneReserveBelowPagesBar();
+  scene_.setSceneRect(QRectF(-100, -100, a4wPx() + 200, sceneBottom));
   ensureSceneRectCoversViewport();
   syncPagesBarVisibility();
 }
@@ -557,8 +572,8 @@ void MultiPageNoteView::toggleRuler(bool active) {
 }
 
 QRectF MultiPageNoteView::pageRect(int idx) const {
-  qreal y = idx * (A4H + PageSpacing);
-  return QRectF(0, y, A4W, A4H);
+  qreal y = idx * (a4hPx() + pageSpacingPx());
+  return QRectF(0, y, a4wPx(), a4hPx());
 }
 
 int MultiPageNoteView::pageAt(const QPointF &scenePos) const {
@@ -609,12 +624,12 @@ void MultiPageNoteView::showBottomSheetFromPull() {
   syncPagesBarVisibility();
   if (m_pagesBarAnchorStrip) {
     QRectF r = m_pagesBarAnchorStrip->sceneBoundingRect();
-    r.adjust(-40, -100, 40, kSceneReserveBelowPagesBar + 160);
+    r.adjust(-40, -100, 40, kSceneReserveBelowPagesBar() + 160);
     ensureVisible(r, 32, 32);
   } else if (note_ && !pageItems_.isEmpty()) {
     const qreal lb = lastPageBottomSceneY();
-    const QRectF reveal(0, lb - A4H * 0.35, A4W,
-                        A4H * 0.65 + kSheetGapBelowPage);
+    const QRectF reveal(0, lb - a4hPx() * 0.35, a4wPx(),
+                        a4hPx() * 0.65 + kSheetGapBelowPage());
     ensureVisible(reveal, 24, 24);
   }
   syncPagesBarVisibility();
@@ -649,7 +664,7 @@ void MultiPageNoteView::syncPagesBarVisibility() {
 qreal MultiPageNoteView::lastPageBottomSceneY() const {
   if (!pageItems_.isEmpty())
     return pageItems_.last()->sceneBoundingRect().bottom();
-  return A4H;
+  return a4hPx();
 }
 
 bool MultiPageNoteView::isSkeletonStripIntersectingViewport() const {
@@ -677,31 +692,31 @@ void MultiPageNoteView::updateBottomSheetGeometry() {
   m_bottomSheet->adjustSize();
 
   const int floorY = QGraphicsView::mapFromScene(
-                         QPointF(A4W * 0.5, lastPageBottomSceneY()))
+                         QPointF(a4wPx() * 0.5, lastPageBottomSceneY()))
                          .y();
 
-  int x = skView.left() + kBottomSheetViewportSideInset;
-  int w = skView.width() - 2 * kBottomSheetViewportSideInset;
+  int x = skView.left() + kBottomSheetViewportSideInset();
+  int w = skView.width() - 2 * kBottomSheetViewportSideInset();
   x = qBound(0, x, qMax(0, width() - 1));
   w = qMin(qMax(w, 0), width() - x);
 
-  const int maxBottomY = height() - kBottomSheetViewportBottomInset;
+  const int maxBottomY = height() - kBottomSheetViewportBottomInset();
   const int bottom = qMin(skView.bottom(), maxBottomY);
   const int floorYBound = qMax(floorY, 0);
   const int availableBelowPage = bottom - floorYBound;
-  if (availableBelowPage < kBottomSheetMinVisibleHeight || w < 120) {
+  if (availableBelowPage < kBottomSheetMinVisibleHeight() || w < 120) {
     m_bottomSheet->hide();
     if (m_pagesBarAnchorStrip)
       m_pagesBarAnchorStrip->setVisible(true);
     return;
   }
 
-  const int h = qMin(kBottomSheetPreferredHeight, availableBelowPage);
+  const int h = qMin(kBottomSheetPreferredHeight(), availableBelowPage);
   int y = bottom - h;
   y = qMax(y, floorY);
   y = qMax(y, 0);
   const int hClamped = bottom - y;
-  if (hClamped < kBottomSheetMinVisibleHeight) {
+  if (hClamped < kBottomSheetMinVisibleHeight()) {
     m_bottomSheet->hide();
     if (m_pagesBarAnchorStrip)
       m_pagesBarAnchorStrip->setVisible(true);
@@ -785,12 +800,12 @@ void MultiPageNoteView::pickAndAddImagePage() {
     return;
   }
   QImage scaled =
-      img.scaled(A4W, A4H, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-  QImage canvas(A4W, A4H, QImage::Format_ARGB32_Premultiplied);
+      img.scaled(a4wPx(), a4hPx(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  QImage canvas(a4wPx(), a4hPx(), QImage::Format_ARGB32_Premultiplied);
   canvas.fill(Qt::white);
   {
     QPainter p(&canvas);
-    p.drawImage((A4W - scaled.width()) / 2, (A4H - scaled.height()) / 2,
+    p.drawImage((a4wPx() - scaled.width()) / 2, (a4hPx() - scaled.height()) / 2,
                 scaled);
   }
   int idx = note_->pages.size();
@@ -894,7 +909,7 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && e->angleDelta().y() < 0) {
       m_pullDistance += std::abs(e->angleDelta().y()) * 0.5f;
-      if (m_pullDistance >= kBottomRevealPull) {
+      if (m_pullDistance >= kBottomRevealPull()) {
         showBottomSheetFromPull();
       }
       e->accept();
@@ -1099,7 +1114,7 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && delta.y() < 0) {
       m_pullDistance += std::abs(delta.y()) * 0.5f;
-      if (m_pullDistance >= kBottomRevealPull)
+      if (m_pullDistance >= kBottomRevealPull())
         showBottomSheetFromPull();
     } else {
       horizontalScrollBar()->setValue(horizontalScrollBar()->value() -
@@ -1313,7 +1328,7 @@ QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, const QSize &size) {
     empty.fill(Qt::white);
     return empty;
   }
-  QImage img(A4W, A4H, QImage::Format_ARGB32_Premultiplied);
+  QImage img(a4wPx(), a4hPx(), QImage::Format_ARGB32_Premultiplied);
   img.fill(Qt::white);
   QPainter p(&img);
   p.setRenderHint(QPainter::Antialiasing);
@@ -1338,7 +1353,7 @@ QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, const QSize &size) {
 }
 
 bool MultiPageNoteView::exportPageToPng(int pageIndex, const QString &path) {
-  QPixmap pm = generateThumbnail(pageIndex, QSize(A4W, A4H));
+  QPixmap pm = generateThumbnail(pageIndex, QSize(a4wPx(), a4hPx()));
   return pm.save(path, "PNG");
 }
 
@@ -1346,7 +1361,7 @@ bool MultiPageNoteView::exportPageToPdf(int pageIndex, const QString &path) {
   QPdfWriter pdf(path);
   pdf.setPageSize(QPageSize(QPageSize::A4));
   QPainter p(&pdf);
-  p.fillRect(QRectF(0, 0, A4W, A4H), Qt::white);
+  p.fillRect(QRectF(0, 0, a4wPx(), a4hPx()), Qt::white);
   if (note_ && pageIndex >= 0 && pageIndex < note_->pages.size()) {
     for (const auto &s : note_->pages[pageIndex].strokes) {
       QColor c = s.color;
@@ -1485,7 +1500,7 @@ bool MultiPageNoteView::importPdfPages(const QString &pdfPath) {
     note_->pages[pageIdx].title = QString("PDF S.%1").arg(i + 1);
 
     // Render at A4 pixel resolution (793 x 1122)
-    QImage img = doc.render(i, QSize(A4W, A4H));
+    QImage img = doc.render(i, QSize(a4wPx(), a4hPx()));
     if (!img.isNull())
       note_->pages[pageIdx].backgroundImage = img;
   }

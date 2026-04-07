@@ -14,6 +14,7 @@
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "pagemanager.h"
+#include "uiscale.h"
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
 
@@ -1749,7 +1750,8 @@ void MainWindow::onShowNewTabPopup() {
   overlay->setAttribute(Qt::WA_DeleteOnClose);
   overlay->setAttribute(Qt::WA_TranslucentBackground); // WICHTIG: Erlaubt weiche Rundungen ohne schwarze Ecken!
 
-  overlay->setFixedSize(450, 550);
+  overlay->setMinimumSize(UiScale::dp(320), UiScale::dp(380));
+  overlay->resize(UiScale::dp(450), UiScale::dp(550));
   overlay->setStyleSheet(
       "QDialog {"
       "  background-color: #1A1A24;" // Blop Theme Dark
@@ -2185,8 +2187,8 @@ void MainWindow::applyTheme() {
             "QToolButton:pressed { background: %2; }")
             .arg(m_currentAccentColor.lighter(110).name(QColor::HexArgb),
                  m_currentAccentColor.darker(110).name(QColor::HexArgb)));
-    m_btnAndroidToolbarExport->setFixedSize(56, 32);
-    m_btnAndroidToolbarExport->setIconSize(QSize(56, 32));
+    m_btnAndroidToolbarExport->setFixedSize(UiScale::dp(56), UiScale::dp(32));
+    m_btnAndroidToolbarExport->setIconSize(QSize(UiScale::dp(56), UiScale::dp(32)));
     m_btnAndroidToolbarExport->setIcon(
         createModernIcon("more_pill", QColor("#C8CDDC")));
   }
@@ -2538,7 +2540,7 @@ void MainWindow::setupUi() {
   QVBoxLayout *mainLayout = new QVBoxLayout(m_centralContainer);
 #ifdef Q_OS_ANDROID
   // Keep content above Android system/nav bar area.
-  mainLayout->setContentsMargins(0, 0, 0, 22);
+  mainLayout->setContentsMargins(0, 0, 0, UiScale::androidBottomInsetPx(this));
 #else
   mainLayout->setContentsMargins(0, 0, 0, 0);
 #endif
@@ -2559,15 +2561,21 @@ void MainWindow::setupUi() {
       "QToolBar { background-color: #0F111A; border: none; "
       "spacing: 0; padding: 0px; }"
       "QToolButton { background: transparent; border: none; }");
-  topBar->setFixedHeight(52);
+  const int androidTopInset = UiScale::androidTopInsetPx(this);
+  const int androidHeaderHeight = UiScale::dp(52);
+  const int androidHeaderButtonW = UiScale::dp(56);
+  const int androidHeaderButtonH = UiScale::dp(32);
+  const int androidCompactPillH = UiScale::dp(28);
+  topBar->setFixedHeight(androidHeaderHeight + androidTopInset);
 
   QWidget *androidHeader = new QWidget(topBar);
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  androidHeader->setFixedHeight(52);
+  androidHeader->setFixedHeight(androidHeaderHeight + androidTopInset);
   androidHeader->setStyleSheet("background-color: #0F111A;");
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
-  headerLay->setContentsMargins(10, 2, 10, 2);
-  headerLay->setSpacing(8);
+  headerLay->setContentsMargins(UiScale::dp(10), androidTopInset + UiScale::dp(2),
+                                UiScale::dp(10), UiScale::dp(2));
+  headerLay->setSpacing(UiScale::dp(8));
 
   auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
                           const QColor &tint) -> QIcon {
@@ -2623,8 +2631,8 @@ void MainWindow::setupUi() {
                                    m_currentAccentColor);
     m_btnAndroidToolbarMenu->setIcon(menuIcon);
   }
-  m_btnAndroidToolbarMenu->setFixedSize(56, 32);
-  m_btnAndroidToolbarMenu->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarMenu->setFixedSize(androidHeaderButtonW, androidHeaderButtonH);
+  m_btnAndroidToolbarMenu->setIconSize(QSize(androidHeaderButtonW, androidHeaderButtonH));
   m_btnAndroidToolbarMenu->setHoverScaleEnabled(false);
   m_btnAndroidToolbarMenu->setStyleSheet(
       "QToolButton { background: transparent; border: none; padding: 0; }"
@@ -2679,12 +2687,12 @@ void MainWindow::setupUi() {
       "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
 
   m_btnAndroidNotes = new QPushButton("Notizen", androidHeader);
-  m_btnAndroidNotes->setFixedHeight(28);
+  m_btnAndroidNotes->setFixedHeight(androidCompactPillH);
   m_btnAndroidNotes->setCursor(Qt::PointingHandCursor);
   m_btnAndroidNotes->setStyleSheet(tabActiveStyle); // default: notes active
 
   m_btnAndroidStudy = new QPushButton("Study", androidHeader);
-  m_btnAndroidStudy->setFixedHeight(28);
+  m_btnAndroidStudy->setFixedHeight(androidCompactPillH);
   m_btnAndroidStudy->setCursor(Qt::PointingHandCursor);
   m_btnAndroidStudy->setStyleSheet(tabInactiveStyle);
 
@@ -2703,7 +2711,7 @@ void MainWindow::setupUi() {
   headerLay->addWidget(m_btnAndroidStudy);
 
   m_btnAndroidAddWebBookmark = new QPushButton(QStringLiteral("+"), androidHeader);
-  m_btnAndroidAddWebBookmark->setFixedSize(30, 28);
+  m_btnAndroidAddWebBookmark->setFixedSize(UiScale::dp(30), androidCompactPillH);
   m_btnAndroidAddWebBookmark->setCursor(Qt::PointingHandCursor);
   m_btnAndroidAddWebBookmark->setToolTip(tr("Web-Lesezeichen"));
   m_btnAndroidAddWebBookmark->setStyleSheet(
@@ -2731,9 +2739,9 @@ void MainWindow::setupUi() {
   m_androidTopSearchBar->setPlaceholderText("Notiz suchen...");
   m_androidTopSearchBar->setFrame(false);
   m_androidTopSearchBar->setAttribute(Qt::WA_StyledBackground, true);
-  m_androidTopSearchBar->setFixedHeight(32);
-  m_androidTopSearchBar->setMinimumWidth(170);
-  m_androidTopSearchBar->setMaximumWidth(290);
+  m_androidTopSearchBar->setFixedHeight(androidHeaderButtonH);
+  m_androidTopSearchBar->setMinimumWidth(UiScale::dp(170));
+  m_androidTopSearchBar->setMaximumWidth(UiScale::dp(290));
   m_androidTopSearchBar->setStyleSheet(
       "QLineEdit#androidTopSearchBar {"
       "  background: rgba(255,255,255,0.08);"
@@ -2787,8 +2795,8 @@ void MainWindow::setupUi() {
                                     m_currentAccentColor);
     m_btnAndroidToolbarPageManager->setIcon(pagesIcon);
   }
-  m_btnAndroidToolbarPageManager->setFixedSize(56, 32);
-  m_btnAndroidToolbarPageManager->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarPageManager->setFixedSize(androidHeaderButtonW, androidHeaderButtonH);
+  m_btnAndroidToolbarPageManager->setIconSize(QSize(androidHeaderButtonW, androidHeaderButtonH));
   m_btnAndroidToolbarPageManager->setHoverScaleEnabled(false);
   m_btnAndroidToolbarPageManager->setStyleSheet(
       "QToolButton { background: transparent; border: none; padding: 0; }"
@@ -2806,8 +2814,8 @@ void MainWindow::setupUi() {
       "QToolButton { background: transparent; border: none; padding: 0; }"
       "QToolButton:hover { background: transparent; }"
       "QToolButton:pressed { background: transparent; }");
-  m_btnAndroidToolbarExport->setFixedSize(56, 32);
-  m_btnAndroidToolbarExport->setIconSize(QSize(56, 32));
+  m_btnAndroidToolbarExport->setFixedSize(androidHeaderButtonW, androidHeaderButtonH);
+  m_btnAndroidToolbarExport->setIconSize(QSize(androidHeaderButtonW, androidHeaderButtonH));
   m_btnAndroidToolbarExport->setIcon(
       createModernIcon("more_pill", QColor("#C8CDDC")));
   m_btnAndroidToolbarExport->hide();
@@ -2879,8 +2887,9 @@ void MainWindow::setupUi() {
   QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 #ifdef Q_OS_ANDROID
   // Align with Windows overview: same horizontal breathing room; bottom inset for nav/FAB
-  overviewLayout->setContentsMargins(MARGIN_OVERVIEW + 4, 20,
-                                     MARGIN_OVERVIEW + 4, 110);
+  overviewLayout->setContentsMargins(MARGIN_OVERVIEW + UiScale::dp(4), UiScale::dp(20),
+                                     MARGIN_OVERVIEW + UiScale::dp(4),
+                                     UiScale::dp(110) + UiScale::androidBottomInsetPx(this));
 #else
   overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW,
                                      MARGIN_OVERVIEW, MARGIN_OVERVIEW);
@@ -2910,13 +2919,14 @@ void MainWindow::setupUi() {
 
 #ifdef Q_OS_ANDROID
   // ── Android: same structure & styles as Windows (welcome → search row) ────
-  headerLayout->setContentsMargins(10, 20, 10, 30);
-  headerLayout->setSpacing(15);
+  headerLayout->setContentsMargins(UiScale::dp(10), UiScale::dp(20), UiScale::dp(10),
+                                   UiScale::dp(30));
+  headerLayout->setSpacing(UiScale::dp(15));
 
   // Hamburger top-left, title below — matches Windows reference layout
   btnEditorMenu = new ModernButton(m_overviewContainer);
   btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
-  btnEditorMenu->setFixedSize(40, 40);
+  btnEditorMenu->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btnEditorMenu->setCursor(Qt::PointingHandCursor);
   btnEditorMenu->setStyleSheet(
       "QToolButton { background: transparent; border: none; border-radius: 8px; }"
@@ -3858,7 +3868,7 @@ QRect MainWindow::sidebarPushContentRect() const {
   int h = m_centralContainer->height();
 #ifdef Q_OS_ANDROID
   // Avoid overlapping with Android bottom system/nav area.
-  h -= 22;
+  h -= UiScale::androidBottomInsetPx(const_cast<MainWindow *>(this));
 #endif
 #ifndef Q_OS_ANDROID
   if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
@@ -3933,7 +3943,7 @@ void MainWindow::setupSidebar() {
 
   QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
 #ifdef Q_OS_ANDROID
-  layout->setContentsMargins(6, 0, 6, 0);
+  layout->setContentsMargins(UiScale::dp(6), 0, UiScale::dp(6), 0);
 #else
   layout->setContentsMargins(4, 0, 4, 0);
 #endif
@@ -3943,7 +3953,7 @@ void MainWindow::setupSidebar() {
   // --- HEADER: Blop Study style ---
   QWidget *header = new QWidget(m_sidebarContainer);
 #ifdef Q_OS_ANDROID
-  header->setFixedHeight(52);
+  header->setFixedHeight(UiScale::dp(52));
 #else
   header->setFixedHeight(62);
 #endif
@@ -3954,8 +3964,9 @@ void MainWindow::setupSidebar() {
 #endif
   QHBoxLayout *headerLay = new QHBoxLayout(header);
 #ifdef Q_OS_ANDROID
-  headerLay->setContentsMargins(12, 10, 12, 10);
-  headerLay->setSpacing(8);
+  headerLay->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
+                                UiScale::dp(10));
+  headerLay->setSpacing(UiScale::dp(8));
 #else
   headerLay->setContentsMargins(12, 10, 12, 10);
   headerLay->setSpacing(8);
@@ -3964,7 +3975,7 @@ void MainWindow::setupSidebar() {
   // Logo box (oval, accent color)
   QLabel *lblLogo = new QLabel(header);
 #ifdef Q_OS_ANDROID
-  lblLogo->setFixedSize(32, 32);
+  lblLogo->setFixedSize(UiScale::dp(32), UiScale::dp(32));
 #else
   lblLogo->setFixedSize(38, 38);
 #endif

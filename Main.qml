@@ -11,6 +11,10 @@ ApplicationWindow {
     width: 480
     height: 800
     title: "Blop"
+    readonly property bool isAndroid: Qt.platform.os === "android"
+    readonly property real uiScale: isAndroid ? Math.max(0.9, Math.min(width / 411, 1.35)) : 1.0
+    readonly property int pad: Math.round(12 * uiScale)
+    readonly property int cardRadius: Math.round(12 * uiScale)
 
     // --- AUTOMATIK: Android = Vollbild, Windows = Fenster ---
     visibility: Qt.platform.os === "android" ? Window.FullScreen : Window.Windowed
@@ -43,17 +47,17 @@ ApplicationWindow {
     // --- INHALT: Deine Dateiliste ---
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Qt.platform.os === "android" ? 0 : 10 // Rand nur am PC
+        anchors.margins: window.isAndroid ? 0 : window.pad
 
         // Überschrift (Nur Android, weil PC hat ja den Header oben)
         Text {
-            visible: Qt.platform.os === "android"
+            visible: window.isAndroid
             text: "Meine Notizen"
             color: "white"
-            font.pixelSize: 28
+            font.pixelSize: Math.round(28 * window.uiScale)
             font.bold: true
-            Layout.leftMargin: 20
-            Layout.topMargin: 20
+            Layout.leftMargin: Math.round(20 * window.uiScale)
+            Layout.topMargin: Math.round(20 * window.uiScale)
         }
 
         // DEINE LIST VIEW (Original-Code integriert)
@@ -62,12 +66,12 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 15
+            spacing: Math.round(12 * window.uiScale)
 
             // Wichtig: Padding für bessere Touch-Bedienung
-            topMargin: 10
-            leftMargin: Qt.platform.os === "android" ? 10 : 30
-            rightMargin: Qt.platform.os === "android" ? 10 : 30
+            topMargin: Math.round(10 * window.uiScale)
+            leftMargin: window.isAndroid ? Math.round(10 * window.uiScale) : 30
+            rightMargin: window.isAndroid ? Math.round(10 * window.uiScale) : 30
 
             model: FolderListModel {
                 folder: notesPath // Kommt aus main.cpp (Context Property)
@@ -78,12 +82,12 @@ ApplicationWindow {
 
             delegate: Item {
                 width: ListView.view.width
-                height: 100
+                height: Math.max(Math.round(88 * window.uiScale), width * 0.18)
 
                 Rectangle {
                     anchors.fill: parent
                     color: "#252526"
-                    radius: 12
+                    radius: window.cardRadius
 
                     MouseArea {
                         anchors.fill: parent
@@ -94,14 +98,14 @@ ApplicationWindow {
                     }
 
                     Row {
-                        spacing: 20
+                        spacing: Math.round(16 * window.uiScale)
                         anchors.fill: parent
-                        anchors.margins: 12
+                        anchors.margins: Math.round(12 * window.uiScale)
 
                         Image {
                             id: thumbnail
-                            width: 70
-                            height: 90
+                            width: Math.max(56, Math.round(70 * window.uiScale))
+                            height: Math.max(72, Math.round(90 * window.uiScale))
                             fillMode: Image.PreserveAspectFit
                             // Image Provider Aufruf
                             source: "image://blop/" + filePath
@@ -124,13 +128,13 @@ ApplicationWindow {
                                 text: fileName
                                 color: "white"
                                 font.bold: true
-                                font.pixelSize: 18
+                                font.pixelSize: Math.round(18 * window.uiScale)
                                 font.family: "Segoe UI"
                             }
                             Text {
                                 text: "Notiz • " + fileModified
                                 color: "#888"
-                                font.pixelSize: 13
+                                font.pixelSize: Math.round(13 * window.uiScale)
                                 font.family: "Segoe UI"
                             }
                         }

@@ -7,6 +7,7 @@
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
 #include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
+#include "uiscale.h"
 #include <QUndoCommand>
 
 // ---------------------------------------------------------------------------
@@ -91,10 +92,17 @@ private:
 #include <cmath>
 #include <utility>
 
-static constexpr float PAGE_WIDTH = 794 * 1.5f;
-static constexpr float PAGE_HEIGHT = 1123 * 1.5f;
-static constexpr float PAGE_GAP = 60.0f;
-static constexpr float TOTAL_PAGE_HEIGHT = PAGE_HEIGHT + PAGE_GAP;
+static float pageScale() {
+#ifdef Q_OS_ANDROID
+  return UiScale::dp(100) / 100.0f;
+#else
+  return 1.0f;
+#endif
+}
+static float pageWidthPx() { return 794.0f * 1.5f * pageScale(); }
+static float pageHeightPx() { return 1123.0f * 1.5f * pageScale(); }
+static float pageGapPx() { return UiScale::dp(60); }
+static float totalPageHeightPx() { return pageHeightPx() + pageGapPx(); }
 
 #ifdef Q_OS_ANDROID
 /// Solid canvas color via palette (no viewport stylesheet overlay). Android only.
@@ -379,7 +387,7 @@ CanvasView::CanvasView(QWidget *parent)
   m_scene = new QGraphicsScene(this);
   setScene(m_scene);
   m_scene->setItemIndexMethod(QGraphicsScene::NoIndex);
-  m_a4Rect = QRectF(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+  m_a4Rect = QRectF(0, 0, pageWidthPx(), pageHeightPx());
   m_undoStack = new QUndoStack(this);
 
   setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
@@ -598,14 +606,14 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
   } else if (!m_isInfinite) {
     painter->save();
     int startPage =
-        std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
-    int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
-    int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
+        std::max(0, static_cast<int>(rect.top() / totalPageHeightPx()));
+    int endPage = static_cast<int>(rect.bottom() / totalPageHeightPx());
+    int maxPage = static_cast<int>(m_a4Rect.height() / totalPageHeightPx());
     if (endPage > maxPage)
       endPage = maxPage;
     for (int i = startPage; i <= endPage; ++i) {
-      qreal y = i * TOTAL_PAGE_HEIGHT;
-      QRectF pageRect(0, y, PAGE_WIDTH, PAGE_HEIGHT);
+      qreal y = i * totalPageHeightPx();
+      QRectF pageRect(0, y, pageWidthPx(), pageHeightPx());
       painter->fillRect(pageRect, m_pageColor);
       painter->setBrushOrigin(pageRect.topLeft());
       painter->drawTiledPixmap(pageRect, m_bgTile);
@@ -632,13 +640,13 @@ void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
     painter->setPen(QPen(QColor(0, 0, 0, 60), 1, Qt::SolidLine));
     painter->setBrush(Qt::NoBrush);
     int startPage =
-        std::max(0, static_cast<int>(rect.top() / TOTAL_PAGE_HEIGHT));
-    int endPage = static_cast<int>(rect.bottom() / TOTAL_PAGE_HEIGHT);
-    int maxPage = static_cast<int>(m_a4Rect.height() / TOTAL_PAGE_HEIGHT);
+        std::max(0, static_cast<int>(rect.top() / totalPageHeightPx()));
+    int endPage = static_cast<int>(rect.bottom() / totalPageHeightPx());
+    int maxPage = static_cast<int>(m_a4Rect.height() / totalPageHeightPx());
     if (endPage > maxPage)
       endPage = maxPage;
     for (int i = startPage; i <= endPage; ++i) {
-      QRectF pageRect(0, i * TOTAL_PAGE_HEIGHT, PAGE_WIDTH, PAGE_HEIGHT);
+      QRectF pageRect(0, i * totalPageHeightPx(), pageWidthPx(), pageHeightPx());
       painter->drawRect(pageRect);
     }
     painter->restore();
@@ -683,7 +691,7 @@ void CanvasView::drawPullIndicator(QPainter *painter) {
 }
 
 void CanvasView::addNewPage() {
-  m_a4Rect.setHeight(m_a4Rect.height() + PAGE_HEIGHT + PAGE_GAP);
+  m_a4Rect.setHeight(m_a4Rect.height() + pageHeightPx() + pageGapPx());
   setSceneRect(m_a4Rect);
   viewport()->update();
 }
@@ -1347,12 +1355,12 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     if (!m_isInfinite) {
       qreal currentY = 0;
       while (currentY < m_a4Rect.height()) {
-        QRectF pageRect(0, currentY, PAGE_WIDTH, PAGE_HEIGHT);
+        QRectF pageRect(0, currentY, pageWidthPx(), pageHeightPx());
         if (pageRect.contains(scenePos)) {
           onPage = true;
           break;
         }
-        currentY += PAGE_HEIGHT + PAGE_GAP;
+        currentY += pageHeightPx() + pageGapPx();
       }
       if (!onPage)
         return;

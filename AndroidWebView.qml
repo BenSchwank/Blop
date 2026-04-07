@@ -11,6 +11,7 @@ Item {
     property bool ssoPollingEnabled: true
     // Slight zoom-out so auth forms fit better without vertical scrolling.
     property real authUiScale: 0.86
+    readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
     function setWebDestination(kind, urlStr) {
@@ -106,53 +107,66 @@ Item {
         visible: oauthPending && ssoPollingEnabled
         z: 10
 
-        Column {
-            anchors.centerIn: parent
-            spacing: 20
+        Flickable {
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: waitingColumn.implicitHeight + Math.round(48 * uiScale)
+            clip: true
 
-            BusyIndicator {
+            Column {
+                id: waitingColumn
+                width: Math.min(parent.width - Math.round(24 * uiScale), Math.round(420 * uiScale))
                 anchors.horizontalCenter: parent.horizontalCenter
-                running: oauthPending
-                width: 60; height: 60
-            }
+                anchors.verticalCenter: parent.height > implicitHeight ? parent.verticalCenter : undefined
+                anchors.top: parent.height > implicitHeight ? undefined : parent.top
+                anchors.topMargin: Math.round(24 * uiScale)
+                spacing: Math.round(20 * uiScale)
 
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "Google-Anmeldung läuft..."
-                color: "white"
-                font.pixelSize: 20
-                font.bold: true
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: 300
-                wrapMode: Text.WordWrap
-                horizontalAlignment: Text.AlignHCenter
-                text: "Bitte alle Schritte im Browser abschließen\n(Account wählen & Berechtigungen bestätigen).\n\nDanach wirst du automatisch angemeldet."
-                color: "#AAAACC"
-                font.pixelSize: 15
-            }
-
-            // Cancel button
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: 160; height: 44
-                radius: 22
-                color: "#2A2A44"
-                border.color: "#5E5CE6"
-                border.width: 1
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "Abbrechen"
-                    color: "#888"
-                    font.pixelSize: 14
+                BusyIndicator {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    running: oauthPending
+                    width: Math.round(60 * uiScale)
+                    height: Math.round(60 * uiScale)
                 }
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: oauthPending = false
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Google-Anmeldung läuft..."
+                    color: "white"
+                    font.pixelSize: Math.round(20 * uiScale)
+                    font.bold: true
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "Bitte alle Schritte im Browser abschließen\n(Account wählen & Berechtigungen bestätigen).\n\nDanach wirst du automatisch angemeldet."
+                    color: "#AAAACC"
+                    font.pixelSize: Math.round(15 * uiScale)
+                }
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(parent.width, Math.round(200 * uiScale))
+                    height: Math.round(44 * uiScale)
+                    radius: height / 2
+                    color: "#2A2A44"
+                    border.color: "#5E5CE6"
+                    border.width: 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Abbrechen"
+                        color: "#888"
+                        font.pixelSize: Math.round(14 * uiScale)
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: oauthPending = false
+                    }
                 }
             }
         }
