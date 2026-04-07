@@ -243,8 +243,13 @@ private:
 #endif
   /// Sidebar rect in MainWindow coords (below title bar on desktop, under toolbar on Android).
   QRect sidebarPushContentRect() const;
+  /// Drawer width: capped on narrow Android screens so the panel never exceeds ~86% of window width.
+  int effectiveSidebarWidthPx() const;
   /// Keep push offset + sidebar geometry in sync (no overlap with main content).
   void syncSidebarPushLayout();
+#ifdef Q_OS_ANDROID
+  void updateAndroidSidebarScrimGeometry();
+#endif
 
   void showRenameOverlay(const QString &currentName);
 
@@ -294,6 +299,8 @@ private:
   ModernButton *m_btnAndroidToolbarPageManager{nullptr};
   /// Export current note while editing on Android.
   ModernButton *m_btnAndroidToolbarExport{nullptr};
+  /// Dimmed overlay behind drawer; taps close the sidebar (Material-style).
+  QWidget *m_androidSidebarScrim{nullptr};
 #endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};

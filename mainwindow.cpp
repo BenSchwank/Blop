@@ -1620,6 +1620,12 @@ void MainWindow::setupTitleBar() {
 
 // Window Dragging Implementation
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
+#ifdef Q_OS_ANDROID
+  if (obj == m_androidSidebarScrim && event->type() == QEvent::MouseButtonPress) {
+    animateSidebar(false);
+    return true;
+  }
+#endif
   if (obj == m_editorCenterWidget && event->type() == QEvent::Resize && m_floatingTools) {
     if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       if (tb->isDockedMode()) {
@@ -2227,7 +2233,11 @@ void MainWindow::updateGrid() {
 
 #ifdef Q_OS_ANDROID
   // Match Windows desktop grid: same profile-driven tile size, square cells, spacing
-  int screenWidth = m_fileListView->width();
+  int screenWidth = 0;
+  if (m_fileListView->viewport())
+    screenWidth = m_fileListView->viewport()->width();
+  if (screenWidth <= 0)
+    screenWidth = m_fileListView->width();
   if (screenWidth <= 0)
     screenWidth = QApplication::primaryScreen()->availableGeometry().width();
 
@@ -2940,9 +2950,6 @@ void MainWindow::setupUi() {
       "color: white; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';");
   headerLayout->addWidget(lblWelcome);
 
-  QHBoxLayout *searchActionLayout = new QHBoxLayout();
-  searchActionLayout->setSpacing(15);
-
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
   searchBar->setObjectName("overviewSearchBar");
   searchBar->setPlaceholderText("Notizen durchsuchen...");
@@ -2962,12 +2969,12 @@ void MainWindow::setupUi() {
       "  border: 1px solid #5E5CE6;"
       "}"
   );
-  searchActionLayout->addWidget(searchBar, 1);
 
   QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
   btnNewNote->setFixedHeight(40);
   btnNewNote->setCursor(Qt::PointingHandCursor);
+  btnNewNote->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
   btnNewNote->setStyleSheet(
       "QPushButton {"
       "  background-color: #5E5CE6;"
@@ -2981,12 +2988,12 @@ void MainWindow::setupUi() {
       "QPushButton:hover { background-color: #7D7AFF; }"
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
-  searchActionLayout->addWidget(btnNewNote);
 
   QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setObjectName("overviewBtnNewFolder");
   btnNewFolder->setFixedHeight(40);
   btnNewFolder->setCursor(Qt::PointingHandCursor);
+  btnNewFolder->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
   btnNewFolder->setStyleSheet(
       "QPushButton {"
       "  background-color: transparent;"
@@ -3000,9 +3007,17 @@ void MainWindow::setupUi() {
       "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }"
   );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
-  searchActionLayout->addWidget(btnNewFolder);
 
-  headerLayout->addLayout(searchActionLayout);
+  QVBoxLayout *searchBlock = new QVBoxLayout();
+  searchBlock->setSpacing(UiScale::dp(10));
+  searchBlock->addWidget(searchBar);
+  QHBoxLayout *actionsRow = new QHBoxLayout();
+  actionsRow->setSpacing(UiScale::dp(10));
+  actionsRow->addWidget(btnNewNote, 1);
+  actionsRow->addWidget(btnNewFolder, 1);
+  searchBlock->addLayout(actionsRow);
+
+  headerLayout->addLayout(searchBlock);
 
 #else
   // ── Desktop/Windows: Original layout unchanged ───────────────────────────
@@ -3859,9 +3874,19 @@ void MainWindow::updateSidebarUser(const QString &username) {
   updateSidebarState();
 }
 
+int MainWindow::effectiveSidebarWidthPx() const {
+#ifdef Q_OS_ANDROID
+  const int basis = SIDEBAR_WIDTH;
+  const int maxByScreen = qMax(120, int(width() * 0.86));
+  return qMin(basis, maxByScreen);
+#else
+  return SIDEBAR_WIDTH;
+#endif
+}
+
 QRect MainWindow::sidebarPushContentRect() const {
   if (!m_centralContainer)
-    return QRect(0, 0, SIDEBAR_WIDTH, height());
+    return QRect(0, 0, effectiveSidebarWidthPx(), height());
   const QPoint tl = m_centralContainer->mapTo(const_cast<MainWindow *>(this),
                                                QPoint(0, 0));
   int y = tl.y();
@@ -3877,7 +3902,7 @@ QRect MainWindow::sidebarPushContentRect() const {
     h -= th;
   }
 #endif
-  return QRect(tl.x(), y, SIDEBAR_WIDTH, h);
+  return QRect(tl.x(), y, effectiveSidebarWidthPx(), h);
 }
 
 void MainWindow::syncSidebarPushLayout() {
@@ -3891,23 +3916,29 @@ void MainWindow::syncSidebarPushLayout() {
   if (!m_sidebarContainer || !m_sidebarContainer->isVisible()) {
 #ifdef Q_OS_ANDROID
     if (QVBoxLayout *mainLayout =
-            qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
-      mainLayout->setContentsMargins(0, 0, 0, 0);
+            qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
+      const int b = UiScale::androidBottomInsetPx(this);
+      mainLayout->setContentsMargins(0, 0, 0, b);
+    }
 #else
     if (m_desktopSidebarPushSpacer)
       m_desktopSidebarPushSpacer->setFixedWidth(0);
 #endif
     return;
   }
-  const int w = m_sidebarContainer->width();
+  const int w = effectiveSidebarWidthPx();
 #ifdef Q_OS_ANDROID
   if (QVBoxLayout *mainLayout =
-          qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
-    mainLayout->setContentsMargins(w, 0, 0, 0);
+          qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
+    const int b = UiScale::androidBottomInsetPx(this);
+    // Overlay drawer: do not push main content horizontally (only bottom safe-area inset).
+    mainLayout->setContentsMargins(0, 0, 0, b);
+  }
 #else
   if (m_desktopSidebarPushSpacer)
     m_desktopSidebarPushSpacer->setFixedWidth(w);
 #endif
+  m_sidebarContainer->setMaximumWidth(w);
   m_sidebarContainer->setGeometry(r.x(), r.y(), w, h);
   m_sidebarContainer->raise();
 }
@@ -4187,7 +4218,10 @@ void MainWindow::setupSidebar() {
           &MainWindow::onOpenSettings);
   userCol->addWidget(m_btnSidebarSettings);
 
-  QLabel *lblVersion = new QLabel("v" + QString(BLOP_VERSION), bottomBar);
+  QString verStr = QString::fromUtf8(BLOP_VERSION);
+  if (verStr.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+    verStr = verStr.mid(1);
+  QLabel *lblVersion = new QLabel(QStringLiteral("v") + verStr, bottomBar);
   lblVersion->setStyleSheet(
       "font-size: 10px; color: #555; background: transparent; border: none;");
   userCol->addWidget(lblVersion);
@@ -4206,7 +4240,24 @@ void MainWindow::setupSidebar() {
     m_sidebarContainer->setGeometry(r.x(), r.y(), 0, h);
   }
   m_sidebarContainer->hide();
+
+#ifdef Q_OS_ANDROID
+  m_androidSidebarScrim = new QWidget(this);
+  m_androidSidebarScrim->setObjectName(QStringLiteral("AndroidSidebarScrim"));
+  m_androidSidebarScrim->setStyleSheet(
+      QStringLiteral("background-color: rgba(0,0,0,0.45);"));
+  m_androidSidebarScrim->hide();
+  m_androidSidebarScrim->installEventFilter(this);
+#endif
 }
+
+#ifdef Q_OS_ANDROID
+void MainWindow::updateAndroidSidebarScrimGeometry() {
+  if (!m_androidSidebarScrim || !m_centralContainer)
+    return;
+  m_androidSidebarScrim->setGeometry(m_centralContainer->geometry());
+}
+#endif
 
 void MainWindow::updateSidebarBadges() {
   QDir rootDir(m_rootPath);
@@ -4905,11 +4956,20 @@ void MainWindow::animateSidebar(bool show) {
   if (containerHeight <= 0)
     containerHeight = qMax(100, height() - r.y());
 
+  const int fullW = effectiveSidebarWidthPx();
+
   if (show) {
     m_isSidebarOpen = true;
     m_sidebarContainer->setGeometry(r.x(), r.y(), 0, containerHeight);
     m_sidebarContainer->raise();
     m_sidebarContainer->show();
+#ifdef Q_OS_ANDROID
+    if (m_androidSidebarScrim) {
+      updateAndroidSidebarScrimGeometry();
+      m_androidSidebarScrim->show();
+      m_androidSidebarScrim->raise();
+    }
+#endif
   } else {
     m_sidebarContainer->raise();
   }
@@ -4917,8 +4977,8 @@ void MainWindow::animateSidebar(bool show) {
   QVariantAnimation *anim = new QVariantAnimation(this);
   anim->setDuration(280);
   anim->setEasingCurve(QEasingCurve::OutCubic);
-  anim->setStartValue(show ? 0 : SIDEBAR_WIDTH);
-  anim->setEndValue(show ? SIDEBAR_WIDTH : 0);
+  anim->setStartValue(show ? 0 : fullW);
+  anim->setEndValue(show ? fullW : 0);
   connect(anim, &QVariantAnimation::valueChanged, this,
           [this](const QVariant &v) {
             const int w = v.toInt();
@@ -4928,14 +4988,29 @@ void MainWindow::animateSidebar(bool show) {
               h2 = qMax(100, height() - r2.y());
 #ifdef Q_OS_ANDROID
             if (QVBoxLayout *lay =
-                    qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
-              lay->setContentsMargins(w, 0, 0, 0);
+                    qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
+              const int b = UiScale::androidBottomInsetPx(this);
+              lay->setContentsMargins(0, 0, 0, b);
+            }
+            if (m_androidSidebarScrim) {
+              updateAndroidSidebarScrimGeometry();
+              m_androidSidebarScrim->setVisible(w > 0);
+              m_androidSidebarScrim->raise();
+            }
 #else
             if (m_desktopSidebarPushSpacer)
               m_desktopSidebarPushSpacer->setFixedWidth(w);
 #endif
             if (m_sidebarContainer)
               m_sidebarContainer->setGeometry(r2.x(), r2.y(), w, h2);
+#ifdef Q_OS_ANDROID
+            if (m_androidSidebarScrim)
+              m_androidSidebarScrim->raise();
+            if (m_sidebarContainer)
+              m_sidebarContainer->raise();
+            if (m_androidHeader)
+              m_androidHeader->raise();
+#endif
             // Keep docked toolbar fully visible while sidebar animates.
             if (m_floatingTools) {
               if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
@@ -4957,19 +5032,34 @@ void MainWindow::animateSidebar(bool show) {
   connect(anim, &QVariantAnimation::finished, this, [this, show]() {
     if (show) {
       syncSidebarPushLayout();
+#ifdef Q_OS_ANDROID
+      if (m_androidSidebarScrim) {
+        updateAndroidSidebarScrimGeometry();
+        m_androidSidebarScrim->raise();
+      }
+      if (m_sidebarContainer)
+        m_sidebarContainer->raise();
+      if (m_androidHeader)
+        m_androidHeader->raise();
+#endif
     } else {
       m_isSidebarOpen = false;
       if (m_sidebarContainer)
         m_sidebarContainer->hide();
 #ifdef Q_OS_ANDROID
       if (QVBoxLayout *lay =
-              qobject_cast<QVBoxLayout *>(m_centralContainer->layout()))
-        lay->setContentsMargins(0, 0, 0, 0);
+              qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
+        const int b = UiScale::androidBottomInsetPx(this);
+        lay->setContentsMargins(0, 0, 0, b);
+      }
+      if (m_androidSidebarScrim)
+        m_androidSidebarScrim->hide();
 #else
       if (m_desktopSidebarPushSpacer)
         m_desktopSidebarPushSpacer->setFixedWidth(0);
 #endif
     }
+    updateGrid();
 #ifdef Q_OS_ANDROID
     if (m_androidHeader)
       m_androidHeader->raise();
@@ -5468,6 +5558,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   fabSize = FAB_SIZE_ANDROID;
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
   syncSidebarPushLayout();
+  if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
+    updateAndroidSidebarScrimGeometry();
   if (m_androidHeader)
     m_androidHeader->raise();
 #else
