@@ -923,6 +923,36 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
         return data
 
     @staticmethod
+    def _parse_document_patch_json(raw: str) -> dict:
+        """Parse patch JSON from the model; repair quotes/LaTeX issues that break json.loads."""
+        raw = (raw or "").strip()
+        if not raw:
+            raise ValueError("Leere Modellantwort für den Dokument-Patch.")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            slice_ = raw[start:end] if start >= 0 and end > start else raw
+            try:
+                data = json.loads(slice_)
+            except json.JSONDecodeError:
+                try:
+                    from json_repair import repair_json
+
+                    fixed = repair_json(slice_)
+                    data = json.loads(fixed)
+                except Exception as inner:
+                    raise ValueError(
+                        "Die Patch-Antwort war kein gültiges JSON (oft durch Anführungszeichen oder LaTeX im Text). "
+                        "Bitte erneut versuchen oder die Frage kürzer formulieren. "
+                        f"Technischer Hinweis: {str(inner)}"
+                    ) from inner
+        if not isinstance(data, dict):
+            raise ValueError("Patch-Antwort ist kein JSON-Objekt.")
+        return data
+
+    @staticmethod
     def _generate_learning_video_storyboard_raw(
         model: Any,
         input_parts: List[Any],
@@ -1337,6 +1367,8 @@ Hier ist das Quellenmaterial:
                     "Du bist ein Dokument-Editor für Blop. "
                     "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
                     "Du antwortest IMMER als JSON.\n"
+                    "In JSON-Stringwerten müssen doppelte Anführungszeichen als \\\" und Backslashes als \\\\ escaped werden "
+                    "(wichtig bei LaTeX und Zitaten).\n"
                     "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
                     "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
                 ),
@@ -1380,6 +1412,8 @@ Antworte nur als JSON im Format:
                             "Du bist ein Dokument-Editor für Blop. "
                             "Erzeuge KEINEN Komplett-Text als Ersatz, sondern einen klaren Änderungsvorschlag als JSON.\n"
                             "Du antwortest IMMER als JSON.\n"
+                            "In JSON-Stringwerten müssen doppelte Anführungszeichen als \\\" und Backslashes als \\\\ escaped werden "
+                            "(wichtig bei LaTeX und Zitaten).\n"
                             "Nutze vorzugsweise apply_mode 'append' oder 'replace_section'.\n"
                             "Für replace_section setze section_hint auf eine vorhandene Markdown-Überschrift (z. B. '## Fazit')."
                         ),
@@ -1390,9 +1424,10 @@ Antworte nur als JSON im Format:
                     raise
             if not response.text:
                 raise Exception("Leere Antwort vom Modell erhalten.")
-            parsed = json.loads(response.text)
-            if not isinstance(parsed, dict):
-                raise Exception("Patch-Antwort ist kein JSON-Objekt.")
+            try:
+                parsed = AIService._parse_document_patch_json(response.text)
+            except ValueError as ve:
+                raise Exception(str(ve)) from ve
             apply_mode = parsed.get("apply_mode")
             if apply_mode not in ("append", "replace_section"):
                 parsed["apply_mode"] = "append"
