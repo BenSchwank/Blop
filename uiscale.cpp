@@ -2,6 +2,7 @@
 
 #include <QGuiApplication>
 #include <QScreen>
+#include <QWindow>
 #include <QWidget>
 #include <QtMath>
 
