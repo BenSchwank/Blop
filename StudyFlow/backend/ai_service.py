@@ -292,6 +292,31 @@ Setze NAHTLOS fort:
         }
 
     @staticmethod
+    def _extract_response_text_safe(response: Any) -> str:
+        """Return model text without crashing on empty/blocked candidate parts."""
+        if response is None:
+            return ""
+        try:
+            txt = getattr(response, "text", None)
+            if txt:
+                return str(txt)
+        except Exception:
+            # Some SDK variants throw when quick-access text is unavailable.
+            pass
+
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            return ""
+        content = getattr(candidates[0], "content", None)
+        parts = getattr(content, "parts", None) or []
+        chunks: List[str] = []
+        for part in parts:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                chunks.append(str(part_text))
+        return "".join(chunks).strip()
+
+    @staticmethod
     def _pick_available_model(preferred: Optional[str] = None, fast_only: bool = False) -> str:
         """Return a model that exists for this API key; fallback safely."""
         if preferred:
@@ -1422,10 +1447,20 @@ Antworte nur als JSON im Format:
                     response = chat.send_message(prompt, safety_settings=SAFETY_SETTINGS)
                 else:
                     raise
-            if not response.text:
-                raise Exception("Leere Antwort vom Modell erhalten.")
+            response_text = AIService._extract_response_text_safe(response)
+            if not response_text:
+                finish_reason = None
+                try:
+                    if getattr(response, "candidates", None):
+                        finish_reason = getattr(response.candidates[0], "finish_reason", None)
+                except Exception:
+                    finish_reason = None
+                raise Exception(
+                    "Leere/gesperrte Modellantwort beim Dokument-Chat. "
+                    f"finish_reason={finish_reason}"
+                )
             try:
-                parsed = AIService._parse_document_patch_json(response.text)
+                parsed = AIService._parse_document_patch_json(response_text)
             except ValueError as ve:
                 raise Exception(str(ve)) from ve
             apply_mode = parsed.get("apply_mode")
