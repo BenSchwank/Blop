@@ -118,6 +118,7 @@ def _podcast_job_worker(
     username: str,
     folder_id: str,
     model_preference: Optional[str],
+    tts_voice: Optional[str] = None,
 ) -> None:
     from ai_service import AIService
     from media_pipeline import openai_tts_speech_mp3
@@ -136,7 +137,8 @@ def _podcast_job_worker(
             context, model_preference=model_pref, return_meta=True
         )
         text = script_result["text"]
-        mp3_bytes = openai_tts_speech_mp3(text)
+        voice = (tts_voice or "alloy").strip().lower()
+        mp3_bytes = openai_tts_speech_mp3(text, voice=voice)
         fname = f"podcast_{int(datetime.now().timestamp())}.mp3"
         file_id = DataManager.save_audio(mp3_bytes, fname, username, folder_id)
         charge = deduct_tokens_by_usage(
@@ -154,6 +156,7 @@ def _podcast_job_worker(
                         "finished_at": time.time(),
                         "file_id": file_id,
                         "filename": fname,
+                        "tts_voice": voice,
                         "used_model": script_result.get("used_model", model_pref or ""),
                         "usage": script_result.get("usage", {}),
                         **charge,
@@ -167,6 +170,7 @@ def _podcast_job_worker(
             result={
                 "file_id": file_id,
                 "filename": fname,
+                "tts_voice": voice,
                 "used_model": script_result.get("used_model", model_pref or ""),
                 "usage": script_result.get("usage", {}),
                 **charge,
@@ -1458,6 +1462,7 @@ class PodcastRequest(BaseModel):
     username: str
     folder_id: str
     model_preference: Optional[str] = None
+    tts_voice: Optional[str] = None
 
 
 class LearningVideoRequest(BaseModel):
@@ -2177,7 +2182,7 @@ def create_podcast(request: PodcastRequest):
     )
     thread = threading.Thread(
         target=_podcast_job_worker,
-        args=(job_id, request.username, request.folder_id, request.model_preference),
+        args=(job_id, request.username, request.folder_id, request.model_preference, request.tts_voice),
         daemon=True,
     )
     thread.start()
@@ -2206,6 +2211,7 @@ def podcast_job_status(job_id: str, username: str):
                 "status": "done",
                 "file_id": job["file_id"],
                 "filename": job["filename"],
+                "tts_voice": job.get("tts_voice", "alloy"),
                 "used_model": job.get("used_model", ""),
                 "usage": job.get("usage", {}),
                 "tokens_charged": job.get("tokens_charged"),
@@ -2226,6 +2232,7 @@ def podcast_job_status(job_id: str, username: str):
                 "status": "done",
                 "file_id": r.get("file_id"),
                 "filename": r.get("filename"),
+                "tts_voice": r.get("tts_voice", "alloy"),
                 "used_model": r.get("used_model", ""),
                 "usage": r.get("usage") or {},
                 "tokens_charged": r.get("tokens_charged"),

@@ -101,6 +101,7 @@ const AI_JOB_LABELS: Record<string, string> = {
 };
 
 const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
+const PODCAST_SETTINGS_KEY = "blop_study_podcast_settings_v1";
 
 /** File types that the backend includes in folder AI context (see _get_folder_context). */
 const AI_CONTEXT_FILE_TYPES = new Set([
@@ -604,6 +605,8 @@ export default function FolderPage() {
     const [lvSlideMotion, setLvSlideMotion] = useState(true);
     const [lvSlideCrossfade, setLvSlideCrossfade] = useState(false);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
+    const [isPodcastConfigOpen, setIsPodcastConfigOpen] = useState(false);
+    const [podcastTtsVoice, setPodcastTtsVoice] = useState<string>("alloy");
 
     // Learning Mode (shared across plan/summary/repetition modals)
     const [learningMode, setLearningMode] = useState<'normal' | 'exercise'>('normal');
@@ -708,6 +711,20 @@ export default function FolderPage() {
             }
             if (typeof p.ttsVoice === "string" && p.ttsVoice.trim()) {
                 setLvTtsVoice(p.ttsVoice.trim().toLowerCase());
+            }
+        } catch {
+            /* ignore */
+        }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        try {
+            const raw = localStorage.getItem(PODCAST_SETTINGS_KEY);
+            if (!raw) return;
+            const p = JSON.parse(raw) as Record<string, unknown>;
+            if (typeof p.ttsVoice === "string" && p.ttsVoice.trim()) {
+                setPodcastTtsVoice(p.ttsVoice.trim().toLowerCase());
             }
         } catch {
             /* ignore */
@@ -1684,6 +1701,17 @@ export default function FolderPage() {
     };
 
     const handlePodcastGenerate = async () => {
+        setIsPodcastConfigOpen(false);
+        try {
+            localStorage.setItem(
+                PODCAST_SETTINGS_KEY,
+                JSON.stringify({
+                    ttsVoice: podcastTtsVoice,
+                })
+            );
+        } catch {
+            /* ignore */
+        }
         setIsGenerating((prev) => (prev.includes('podcast') ? prev : [...prev, 'podcast']));
         queueStart('podcast');
         const jobId = `${folderId}:podcast`;
@@ -1700,6 +1728,7 @@ export default function FolderPage() {
                     username,
                     folder_id: folderId,
                     model_preference: effectiveModelPreference,
+                    tts_voice: podcastTtsVoice,
                 }),
                 signal: ac.signal,
             });
@@ -3096,7 +3125,7 @@ export default function FolderPage() {
                             <button onClick={() => handleGenerate('repetition')} disabled={isGenerating.includes('repetition')} className="p-2.5 bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 rounded-xl transition-all disabled:opacity-50" title="Wiederholung erstellen">
                                 {isGenerating.includes('repetition') ? <Loader2 size={20} className="animate-spin" /> : <Repeat size={20} />}
                             </button>
-                            <button type="button" onClick={() => void handlePodcastGenerate()} disabled={isGenerating.includes('podcast')} className="p-2.5 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50" title="Podcast aus Material (TTS)">
+                            <button type="button" onClick={() => setIsPodcastConfigOpen(true)} disabled={isGenerating.includes('podcast')} className="p-2.5 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 rounded-xl transition-all disabled:opacity-50" title="Podcast (Einstellungen & TTS)">
                                 {isGenerating.includes('podcast') ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}
                             </button>
                             <button type="button" onClick={() => setIsLearningVideoConfigOpen(true)} disabled={isGenerating.includes('learning-video')} className="p-2.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-xl transition-all disabled:opacity-50" title="Lernvideo (Einstellungen & KI)">
@@ -3574,6 +3603,85 @@ export default function FolderPage() {
                                 </button>
                                 <button onClick={handleFlashcardsGenerate} className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
                                     <Layers size={16} />
+                                    Generieren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Podcast config */}
+                {isPodcastConfigOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40] shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-xl bg-pink-500/10 text-pink-300">
+                                        <Mic size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">Podcast</h3>
+                                        <p className="text-xs text-gray-400">Skript per KI, gesprochen mit OpenAI TTS</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPodcastConfigOpen(false)}
+                                    className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">TTS-Stimme (OpenAI)</label>
+                                    <select
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
+                                        value={podcastTtsVoice}
+                                        onChange={(e) => setPodcastTtsVoice(e.target.value)}
+                                    >
+                                        <option value="alloy">Alloy</option>
+                                        <option value="echo">Echo</option>
+                                        <option value="fable">Fable</option>
+                                        <option value="onyx">Onyx</option>
+                                        <option value="nova">Nova</option>
+                                        <option value="shimmer">Shimmer</option>
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Hinweis: Die Stimme beeinflusst den TTS-Klang, nicht den Inhalt des Podcast-Skripts.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>
+                                    <select
+                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#5E5CE6]/50 focus:border-[#5E5CE6] outline-none transition-all appearance-none"
+                                        value={aiModelPreference}
+                                        onChange={(e) => setAiModelPreference(e.target.value)}
+                                    >
+                                        <option value="">Globales Standardmodell verwenden</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
+                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40] shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPodcastConfigOpen(false)}
+                                    className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                                >
+                                    Abbrechen
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void handlePodcastGenerate()}
+                                    className="flex-1 py-2.5 bg-pink-600 hover:bg-pink-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Mic size={16} />
                                     Generieren
                                 </button>
                             </div>
