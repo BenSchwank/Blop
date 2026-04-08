@@ -3725,6 +3725,7 @@ void MainWindow::onModeChanged(int index) {
   // broke re-entering Study on some devices).
   if (mainStackIdx == 0) {
     if (m_studyWindowContainer) {
+      m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
       m_studyWindowContainer->setEnabled(false);
       m_studyWindowContainer->clearFocus();
       m_studyWindowContainer->hide();
@@ -3742,6 +3743,7 @@ void MainWindow::onModeChanged(int index) {
   }
 #ifdef Q_OS_ANDROID
   if (mainStackIdx == 1 && m_studyWindowContainer && m_studyVBoxLayout) {
+    m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, false);
     m_studyWindowContainer->setEnabled(true);
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
@@ -3927,10 +3929,6 @@ QRect MainWindow::sidebarPushContentRect() const {
                                                QPoint(0, 0));
   int y = tl.y();
   int h = m_centralContainer->height();
-#ifdef Q_OS_ANDROID
-  // Avoid overlapping with Android bottom system/nav area.
-  h -= UiScale::androidBottomInsetPx(const_cast<MainWindow *>(this));
-#endif
 #ifndef Q_OS_ANDROID
   if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
     const int th = m_titleBarWidget->height();
@@ -3953,8 +3951,8 @@ void MainWindow::syncSidebarPushLayout() {
 #ifdef Q_OS_ANDROID
     if (QVBoxLayout *mainLayout =
             qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
-      const int b = UiScale::androidBottomInsetPx(this);
-      mainLayout->setContentsMargins(0, 0, 0, b);
+      // Android: page-specific layouts own safe-area insets (no global double inset).
+      mainLayout->setContentsMargins(0, 0, 0, 0);
     }
 #else
     if (m_desktopSidebarPushSpacer)
@@ -3966,9 +3964,8 @@ void MainWindow::syncSidebarPushLayout() {
 #ifdef Q_OS_ANDROID
   if (QVBoxLayout *mainLayout =
           qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
-    const int b = UiScale::androidBottomInsetPx(this);
-    // Overlay drawer: do not push main content horizontally (only bottom safe-area inset).
-    mainLayout->setContentsMargins(0, 0, 0, b);
+    // Overlay drawer: no horizontal push on Android; insets handled by active page.
+    mainLayout->setContentsMargins(0, 0, 0, 0);
   }
 #else
   if (m_desktopSidebarPushSpacer)
@@ -5023,11 +5020,6 @@ void MainWindow::animateSidebar(bool show) {
             if (h2 <= 0)
               h2 = qMax(100, height() - r2.y());
 #ifdef Q_OS_ANDROID
-            if (QVBoxLayout *lay =
-                    qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
-              const int b = UiScale::androidBottomInsetPx(this);
-              lay->setContentsMargins(0, 0, 0, b);
-            }
             if (m_androidSidebarScrim) {
               updateAndroidSidebarScrimGeometry();
               m_androidSidebarScrim->setVisible(w > 0);
@@ -5083,11 +5075,6 @@ void MainWindow::animateSidebar(bool show) {
       if (m_sidebarContainer)
         m_sidebarContainer->hide();
 #ifdef Q_OS_ANDROID
-      if (QVBoxLayout *lay =
-              qobject_cast<QVBoxLayout *>(m_centralContainer->layout())) {
-        const int b = UiScale::androidBottomInsetPx(this);
-        lay->setContentsMargins(0, 0, 0, b);
-      }
       if (m_androidSidebarScrim)
         m_androidSidebarScrim->hide();
 #else
