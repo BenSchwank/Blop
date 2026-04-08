@@ -102,6 +102,7 @@ const AI_JOB_LABELS: Record<string, string> = {
 
 const LEARNING_VIDEO_SETTINGS_KEY = "blop_study_learning_video_settings_v1";
 const PODCAST_SETTINGS_KEY = "blop_study_podcast_settings_v1";
+const OPENAI_TTS_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
 
 /** File types that the backend includes in folder AI context (see _get_folder_context). */
 const AI_CONTEXT_FILE_TYPES = new Set([
@@ -607,6 +608,9 @@ export default function FolderPage() {
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
     const [isPodcastConfigOpen, setIsPodcastConfigOpen] = useState(false);
     const [podcastTtsVoice, setPodcastTtsVoice] = useState<string>("alloy");
+    const [ttsPreviewLoadingVoice, setTtsPreviewLoadingVoice] = useState<string | null>(null);
+    const ttsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+    const ttsPreviewUrlRef = useRef<string | null>(null);
 
     // Learning Mode (shared across plan/summary/repetition modals)
     const [learningMode, setLearningMode] = useState<'normal' | 'exercise'>('normal');
@@ -792,6 +796,19 @@ export default function FolderPage() {
         void run();
         return () => ac.abort();
     }, [selectedFile?.id, selectedFile?.type, folderId, backendOrigin]);
+
+    useEffect(() => {
+        return () => {
+            if (ttsPreviewAudioRef.current) {
+                ttsPreviewAudioRef.current.pause();
+                ttsPreviewAudioRef.current = null;
+            }
+            if (ttsPreviewUrlRef.current) {
+                URL.revokeObjectURL(ttsPreviewUrlRef.current);
+                ttsPreviewUrlRef.current = null;
+            }
+        };
+    }, []);
 
     useEffect(() => {
         const isTextDoc =
@@ -2458,6 +2475,54 @@ export default function FolderPage() {
         }
     };
 
+    const playTtsVoicePreview = async (voice: string) => {
+        if (ttsPreviewLoadingVoice) return;
+        try {
+            setTtsPreviewLoadingVoice(voice);
+            const username = localStorage.getItem("username") || "";
+            if (!username) {
+                showToast("Nicht angemeldet.");
+                return;
+            }
+            const res = await fetch(`${API_BASE}/ai/tts-preview`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, voice }),
+            });
+            if (!res.ok) {
+                let msg = `HTTP ${res.status}`;
+                try {
+                    const err = await res.json();
+                    msg = formatFastApiDetail(err.detail) || msg;
+                } catch {
+                    /* ignore */
+                }
+                throw new Error(msg);
+            }
+            const blob = await res.blob();
+            if (ttsPreviewAudioRef.current) {
+                ttsPreviewAudioRef.current.pause();
+                ttsPreviewAudioRef.current = null;
+            }
+            if (ttsPreviewUrlRef.current) {
+                URL.revokeObjectURL(ttsPreviewUrlRef.current);
+                ttsPreviewUrlRef.current = null;
+            }
+            const url = URL.createObjectURL(blob);
+            ttsPreviewUrlRef.current = url;
+            const audio = new Audio(url);
+            ttsPreviewAudioRef.current = audio;
+            audio.onended = () => setTtsPreviewLoadingVoice(null);
+            audio.onerror = () => setTtsPreviewLoadingVoice(null);
+            await audio.play();
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            showToast(`Stimmen-Test fehlgeschlagen: ${msg}`);
+        } finally {
+            setTtsPreviewLoadingVoice(null);
+        }
+    };
+
     const handleUndoLastPatch = async () => {
         if (!selectedFile || typeof selectedFile.content !== 'string') {
             throw new Error("Kein bearbeitbares Textdokument geöffnet.");
@@ -3820,13 +3885,34 @@ export default function FolderPage() {
                                         value={podcastTtsVoice}
                                         onChange={(e) => setPodcastTtsVoice(e.target.value)}
                                     >
-                                        <option value="alloy">Alloy</option>
-                                        <option value="echo">Echo</option>
-                                        <option value="fable">Fable</option>
-                                        <option value="onyx">Onyx</option>
-                                        <option value="nova">Nova</option>
-                                        <option value="shimmer">Shimmer</option>
+                                        {OPENAI_TTS_VOICES.map((v) => (
+                                            <option key={v} value={v}>
+                                                {v.charAt(0).toUpperCase() + v.slice(1)}
+                                            </option>
+                                        ))}
                                     </select>
+                                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {OPENAI_TTS_VOICES.map((v) => (
+                                            <div key={`podcast-voice-${v}`} className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${podcastTtsVoice === v ? 'border-pink-500/50 bg-pink-500/10' : 'border-[#2A2A40] bg-[#12121f]'}`}>
+                                                <button
+                                                    type="button"
+                                                    className="text-xs text-gray-200"
+                                                    onClick={() => setPodcastTtsVoice(v)}
+                                                >
+                                                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="text-[11px] px-1.5 py-0.5 rounded bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300 disabled:opacity-50"
+                                                    onClick={() => void playTtsVoicePreview(v)}
+                                                    disabled={ttsPreviewLoadingVoice !== null}
+                                                    title="Stimme testen"
+                                                >
+                                                    {ttsPreviewLoadingVoice === v ? "..." : "Test"}
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
                                     <p className="text-xs text-gray-500 mt-2">
                                         Hinweis: Die Stimme beeinflusst den TTS-Klang, nicht den Inhalt des Podcast-Skripts.
                                     </p>
@@ -4041,13 +4127,34 @@ export default function FolderPage() {
                                         value={lvTtsVoice}
                                         onChange={(e) => setLvTtsVoice(e.target.value)}
                                     >
-                                        <option value="alloy">Alloy</option>
-                                        <option value="echo">Echo</option>
-                                        <option value="fable">Fable</option>
-                                        <option value="onyx">Onyx</option>
-                                        <option value="nova">Nova</option>
-                                        <option value="shimmer">Shimmer</option>
+                                        {OPENAI_TTS_VOICES.map((v) => (
+                                            <option key={v} value={v}>
+                                                {v.charAt(0).toUpperCase() + v.slice(1)}
+                                            </option>
+                                        ))}
                                     </select>
+                                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {OPENAI_TTS_VOICES.map((v) => (
+                                            <div key={`lv-voice-${v}`} className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${lvTtsVoice === v ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-[#2A2A40] bg-[#12121f]'}`}>
+                                                <button
+                                                    type="button"
+                                                    className="text-xs text-gray-200"
+                                                    onClick={() => setLvTtsVoice(v)}
+                                                >
+                                                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="text-[11px] px-1.5 py-0.5 rounded bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300 disabled:opacity-50"
+                                                    onClick={() => void playTtsVoicePreview(v)}
+                                                    disabled={ttsPreviewLoadingVoice !== null}
+                                                    title="Stimme testen"
+                                                >
+                                                    {ttsPreviewLoadingVoice === v ? "..." : "Test"}
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                                 <div className="pt-2 border-t border-[#2A2A40]">
                                     <label className="block text-sm font-medium text-gray-300 mb-2">Bevorzugtes AI-Modell (optional)</label>

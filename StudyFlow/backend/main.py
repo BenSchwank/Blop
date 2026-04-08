@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import Any, List, Optional
 import uvicorn
@@ -1467,6 +1467,12 @@ class SelectionEditRequest(BaseModel):
     model_preference: Optional[str] = None
 
 
+class TtsPreviewRequest(BaseModel):
+    username: str
+    voice: str
+    text: Optional[str] = None
+
+
 class PodcastRequest(BaseModel):
     username: str
     folder_id: str
@@ -2209,6 +2215,27 @@ def edit_selection(request: SelectionEditRequest):
     except Exception as e:
         print(f"Selection edit error: {e}")
         raise HTTPException(status_code=500, detail=f"Selektions-Bearbeitung fehlgeschlagen: {str(e)}")
+
+
+@app.post("/api/ai/tts-preview")
+def tts_preview(request: TtsPreviewRequest):
+    from media_pipeline import openai_tts_speech_mp3
+    try:
+        ensure_minimum_tokens(request.username, 1)
+        voice = (request.voice or "alloy").strip().lower()
+        text = (request.text or "").strip()
+        if not text:
+            text = (
+                "Hallo, das ist eine kurze Stimmprobe. "
+                "So klingt diese Stimme in Blop Study."
+            )
+        mp3 = openai_tts_speech_mp3(text, voice=voice)
+        return Response(content=mp3, media_type="audio/mpeg")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"TTS preview error: {e}")
+        raise HTTPException(status_code=500, detail=f"TTS-Vorschau fehlgeschlagen: {str(e)}")
 
 
 @app.post("/api/ai/podcast")
