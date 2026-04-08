@@ -5891,7 +5891,15 @@ void MainWindow::onTabChanged(int index) {
 
 void MainWindow::restoreWindowState() {
   QSettings settings("Blop", "BlopApp");
-  
+
+#ifdef Q_OS_ANDROID
+  // Android must always use fullscreen metrics from the current device.
+  // Restoring desktop-like window geometry/state can shift the whole UI and
+  // produce clipped top/bottom areas after updates or device changes.
+  showFullScreen();
+  return;
+#endif
+
   if (settings.contains("geometry") && settings.contains("windowState")) {
     restoreGeometry(settings.value("geometry").toByteArray());
     restoreState(settings.value("windowState").toByteArray());
@@ -5907,9 +5915,11 @@ void MainWindow::restoreWindowState() {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+#ifndef Q_OS_ANDROID
   QSettings settings("Blop", "BlopApp");
   settings.setValue("geometry", saveGeometry());
   settings.setValue("windowState", saveState());
+#endif
   QMainWindow::closeEvent(event);
 }
 
