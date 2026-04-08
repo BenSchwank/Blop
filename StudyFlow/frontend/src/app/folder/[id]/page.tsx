@@ -3880,38 +3880,27 @@ export default function FolderPage() {
                             <div className="p-5 space-y-4 overflow-y-auto flex-1">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">TTS-Stimme (OpenAI)</label>
-                                    <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
-                                        value={podcastTtsVoice}
-                                        onChange={(e) => setPodcastTtsVoice(e.target.value)}
-                                    >
-                                        {OPENAI_TTS_VOICES.map((v) => (
-                                            <option key={v} value={v}>
-                                                {v.charAt(0).toUpperCase() + v.slice(1)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {OPENAI_TTS_VOICES.map((v) => (
-                                            <div key={`podcast-voice-${v}`} className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${podcastTtsVoice === v ? 'border-pink-500/50 bg-pink-500/10' : 'border-[#2A2A40] bg-[#12121f]'}`}>
-                                                <button
-                                                    type="button"
-                                                    className="text-xs text-gray-200"
-                                                    onClick={() => setPodcastTtsVoice(v)}
-                                                >
+                                    <div className="flex items-center gap-2">
+                                        <select
+                                            className="flex-1 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-pink-500/40 focus:border-pink-500/50 outline-none transition-all appearance-none"
+                                            value={podcastTtsVoice}
+                                            onChange={(e) => setPodcastTtsVoice(e.target.value)}
+                                        >
+                                            {OPENAI_TTS_VOICES.map((v) => (
+                                                <option key={v} value={v}>
                                                     {v.charAt(0).toUpperCase() + v.slice(1)}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="text-[11px] px-1.5 py-0.5 rounded bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300 disabled:opacity-50"
-                                                    onClick={() => void playTtsVoicePreview(v)}
-                                                    disabled={ttsPreviewLoadingVoice !== null}
-                                                    title="Stimme testen"
-                                                >
-                                                    {ttsPreviewLoadingVoice === v ? "..." : "Test"}
-                                                </button>
-                                            </div>
-                                        ))}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            type="button"
+                                            className="shrink-0 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            onClick={() => void playTtsVoicePreview(podcastTtsVoice)}
+                                            disabled={ttsPreviewLoadingVoice !== null}
+                                            title="Stimme testen"
+                                        >
+                                            {ttsPreviewLoadingVoice === podcastTtsVoice ? "..." : "Test"}
+                                        </button>
                                     </div>
                                     <p className="text-xs text-gray-500 mt-2">
                                         Hinweis: Die Stimme beeinflusst den TTS-Klang, nicht den Inhalt des Podcast-Skripts.
@@ -4122,38 +4111,27 @@ export default function FolderPage() {
                                 </label>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">TTS-Stimme (OpenAI)</label>
-                                    <select
-                                        className="w-full bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 outline-none transition-all appearance-none"
-                                        value={lvTtsVoice}
-                                        onChange={(e) => setLvTtsVoice(e.target.value)}
-                                    >
-                                        {OPENAI_TTS_VOICES.map((v) => (
-                                            <option key={v} value={v}>
-                                                {v.charAt(0).toUpperCase() + v.slice(1)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {OPENAI_TTS_VOICES.map((v) => (
-                                            <div key={`lv-voice-${v}`} className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${lvTtsVoice === v ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-[#2A2A40] bg-[#12121f]'}`}>
-                                                <button
-                                                    type="button"
-                                                    className="text-xs text-gray-200"
-                                                    onClick={() => setLvTtsVoice(v)}
-                                                >
+                                    <div className="flex items-center gap-2">
+                                        <select
+                                            className="flex-1 bg-[#151525] border border-[#2A2A40] text-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 outline-none transition-all appearance-none"
+                                            value={lvTtsVoice}
+                                            onChange={(e) => setLvTtsVoice(e.target.value)}
+                                        >
+                                            {OPENAI_TTS_VOICES.map((v) => (
+                                                <option key={v} value={v}>
                                                     {v.charAt(0).toUpperCase() + v.slice(1)}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="text-[11px] px-1.5 py-0.5 rounded bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300 disabled:opacity-50"
-                                                    onClick={() => void playTtsVoicePreview(v)}
-                                                    disabled={ttsPreviewLoadingVoice !== null}
-                                                    title="Stimme testen"
-                                                >
-                                                    {ttsPreviewLoadingVoice === v ? "..." : "Test"}
-                                                </button>
-                                            </div>
-                                        ))}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            type="button"
+                                            className="shrink-0 px-3 py-2.5 rounded-xl bg-[#1C1C33] hover:bg-[#2A2A40] border border-[#2A2A40] text-gray-200 text-sm disabled:opacity-50"
+                                            onClick={() => void playTtsVoicePreview(lvTtsVoice)}
+                                            disabled={ttsPreviewLoadingVoice !== null}
+                                            title="Stimme testen"
+                                        >
+                                            {ttsPreviewLoadingVoice === lvTtsVoice ? "..." : "Test"}
+                                        </button>
                                     </div>
                                 </div>
                                 <div className="pt-2 border-t border-[#2A2A40]">
