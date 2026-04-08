@@ -672,6 +672,8 @@ export default function FolderPage() {
     const [expandedDay, setExpandedDay] = useState<number | null>(0);
     const [signedMediaUrl, setSignedMediaUrl] = useState<string | null>(null);
     const [signedMediaStatus, setSignedMediaStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+    const [chatPatchJumpToken, setChatPatchJumpToken] = useState(0);
+    const [chatPatchJumpText, setChatPatchJumpText] = useState<string>('');
 
     const API_BASE = '/api';
     const backendOrigin =
@@ -2318,6 +2320,10 @@ export default function FolderPage() {
         const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: nextContent } : f);
         setFiles(updatedFiles);
         setSelectedFile({ ...selectedFile, content: nextContent });
+        const jumpHint = (patch.section_hint || '').trim();
+        const jumpText = jumpHint || patch.new_text.trim().slice(0, 140);
+        setChatPatchJumpText(jumpText);
+        setChatPatchJumpToken((v) => v + 1);
         showToast("Änderung angewendet.", "success");
     };
 
@@ -2490,6 +2496,8 @@ export default function FolderPage() {
                         initialContent={contentStr}
                         title={selectedFile.name}
                         youtubeVideoId={selectedFile.type === 'transcript' ? ytId : null}
+                        externalUpdateToken={chatPatchJumpToken}
+                        jumpToText={chatPatchJumpText}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
                         onSave={async (newContent) => {
                             try {
@@ -4877,10 +4885,13 @@ export default function FolderPage() {
                         if (!selectedFile) return;
 
                         try {
-                            await persistFileContent(selectedFile.id, String(newContent ?? ""));
-                            const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: String(newContent ?? "") } : f);
+                            const normalized = String(newContent ?? "");
+                            await persistFileContent(selectedFile.id, normalized);
+                            const updatedFiles = files.map(f => f.id === selectedFile.id ? { ...f, content: normalized } : f);
                             setFiles(updatedFiles);
-                            setSelectedFile({ ...selectedFile, content: String(newContent ?? "") });
+                            setSelectedFile({ ...selectedFile, content: normalized });
+                            setChatPatchJumpText(normalized.trim().slice(0, 140));
+                            setChatPatchJumpToken((v) => v + 1);
                             showToast("Dokument wurde durch die KI aktualisiert und gespeichert! ✨", "success");
                         } catch {
                             showToast("Fehler beim Speichern der KI-Änderung.");

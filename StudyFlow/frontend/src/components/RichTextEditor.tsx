@@ -21,6 +21,10 @@ interface RichTextEditorProps {
     onClose: () => void;
     /** When set (e.g. YouTube import), show embedded player above the editor. */
     youtubeVideoId?: string | null;
+    /** Increment when parent updated content externally (e.g. chat patch). */
+    externalUpdateToken?: number;
+    /** Optional text snippet to scroll to after external update. */
+    jumpToText?: string;
 }
 
 const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, onExportPdf: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
@@ -166,7 +170,7 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
     );
 };
 
-export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId }: RichTextEditorProps) {
+export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId, externalUpdateToken, jumpToText }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
@@ -225,6 +229,36 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             }, 2000); // 2 second debounce
         }
     });
+
+    useEffect(() => {
+        if (!editor || typeof externalUpdateToken !== 'number') return;
+        const isHtmlInput = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>|<img/i.test(initialContent || '');
+        const html = isHtmlInput ? initialContent : (marked.parse(initialContent || '', { async: false }) as string);
+        if (editor.getHTML() !== html) {
+            editor.commands.setContent(html, false);
+        }
+
+        const needle = (jumpToText || '').trim().replace(/\s+/g, ' ').toLowerCase();
+        if (!needle) return;
+        const shortNeedle = needle.slice(0, 80);
+
+        requestAnimationFrame(() => {
+            const root = editor.view.dom as HTMLElement;
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            let found: Node | null = null;
+            while (walker.nextNode()) {
+                const txt = (walker.currentNode.textContent || '').replace(/\s+/g, ' ').toLowerCase();
+                if (txt.includes(shortNeedle)) {
+                    found = walker.currentNode;
+                    break;
+                }
+            }
+            if (!found || !found.parentElement) return;
+            found.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            found.parentElement.classList.add('blop-chat-jump-highlight');
+            setTimeout(() => found?.parentElement?.classList.remove('blop-chat-jump-highlight'), 1800);
+        });
+    }, [editor, initialContent, externalUpdateToken, jumpToText]);
 
     const handleSave = async () => {
         if (!editor) return;
@@ -374,6 +408,15 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                 .ProseMirror img.ProseMirror-selectednode {
                     outline: 2px solid #5E5CE6;
                     outline-offset: 2px;
+                }
+                .blop-chat-jump-highlight {
+                    animation: blopChatJumpFlash 1.8s ease-out;
+                    box-shadow: 0 0 0 2px rgba(94, 92, 230, 0.5);
+                    border-radius: 0.4rem;
+                }
+                @keyframes blopChatJumpFlash {
+                    0% { background-color: rgba(94, 92, 230, 0.28); }
+                    100% { background-color: transparent; }
                 }
             `}</style>
         </div>
