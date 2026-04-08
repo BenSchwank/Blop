@@ -314,6 +314,21 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         return () => document.removeEventListener('selectionchange', updateSelectionUi);
     }, [editor, selectionBusy]);
 
+    useEffect(() => {
+        if (!editor || !selectionRect) return;
+        const onPointerDown = (ev: PointerEvent) => {
+            const target = ev.target as Node | null;
+            const inPopup = !!(target && selectionPopupRef.current?.contains(target));
+            const inEditor = !!(target && editor.view.dom.contains(target));
+            if (inPopup || inEditor) return;
+            setSelectionRect(null);
+            setSelectionText('');
+            selectionRangeRef.current = null;
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    }, [editor, selectionRect]);
+
     const applySelectionAiEdit = useCallback(async () => {
         if (!editor || !selectionText.trim() || !selectionInstruction.trim() || selectionBusy) return;
         try {

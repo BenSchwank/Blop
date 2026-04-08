@@ -848,6 +848,21 @@ export default function FolderPage() {
         return () => document.removeEventListener('selectionchange', onSelectionChange);
     }, [selectedFile, isEditingFile, readSelectionBusy]);
 
+    useEffect(() => {
+        if (!readSelectionRect) return;
+        const onPointerDown = (ev: PointerEvent) => {
+            const target = ev.target as Node | null;
+            const inPopup = !!(target && readSelectionPopupRef.current?.contains(target));
+            const inContent = !!(target && readModeContentRef.current?.contains(target));
+            if (inPopup || inContent) return;
+            setReadSelectionRect(null);
+            setReadSelectionText('');
+            readSelectionRangeRef.current = null;
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    }, [readSelectionRect]);
+
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
         if (!username) return;
