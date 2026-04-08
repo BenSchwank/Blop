@@ -2921,10 +2921,11 @@ void MainWindow::setupUi() {
   // KEIN installEventFilter - damit Klicks auf Buttons korrekt weitergeleitet werden!
   QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 #ifdef Q_OS_ANDROID
-  // Align with Windows overview: same horizontal breathing room; bottom inset for nav/FAB
+  // Align with Windows overview: same horizontal breathing room; keep only a
+  // modest bottom reserve so content does not look vertically "pushed up".
   overviewLayout->setContentsMargins(MARGIN_OVERVIEW + UiScale::dp(4), UiScale::dp(20),
                                      MARGIN_OVERVIEW + UiScale::dp(4),
-                                     UiScale::dp(110) + UiScale::androidBottomInsetPx(this));
+                                     UiScale::dp(28) + UiScale::androidBottomInsetPx(this));
 #else
   overviewLayout->setContentsMargins(MARGIN_OVERVIEW, MARGIN_OVERVIEW,
                                      MARGIN_OVERVIEW, MARGIN_OVERVIEW);
@@ -3382,7 +3383,7 @@ void MainWindow::setupWebBrowser() {
   // Dark background so it's not pitch-black while WebEngine loads
   m_studyContainer->setStyleSheet("background-color: #1e1e1e;");
   QVBoxLayout *layout = new QVBoxLayout(m_studyContainer);
-  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setContentsMargins(0, UiScale::dp(6), 0, UiScale::androidBottomInsetPx(this));
 #ifdef Q_OS_ANDROID
   m_studyVBoxLayout = layout;
 #endif
@@ -3744,9 +3745,17 @@ void MainWindow::onModeChanged(int index) {
     m_studyWindowContainer->setEnabled(true);
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
+    // Keep native container below toolbar hit area (tabs must stay clickable).
+    m_studyWindowContainer->lower();
     m_studyWindowContainer->show();
     if (m_studyQQuickView)
       m_studyQQuickView->show();
+    QTimer::singleShot(0, this, [this]() {
+      if (m_studyWindowContainer)
+        m_studyWindowContainer->lower();
+      if (m_androidHeader)
+        m_androidHeader->raise();
+    });
   }
   if (m_mainContentStack) {
     if (QWidget *cur = m_mainContentStack->currentWidget()) {
@@ -5591,6 +5600,10 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   fabSize = FAB_SIZE_ANDROID;
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
   syncSidebarPushLayout();
+  if (m_studyVBoxLayout) {
+    m_studyVBoxLayout->setContentsMargins(
+        0, UiScale::dp(6), 0, UiScale::androidBottomInsetPx(this));
+  }
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
   if (m_androidHeader)
