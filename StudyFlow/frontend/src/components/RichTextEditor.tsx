@@ -235,7 +235,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         const isHtmlInput = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>|<img/i.test(initialContent || '');
         const html = isHtmlInput ? initialContent : (marked.parse(initialContent || '', { async: false }) as string);
         if (editor.getHTML() !== html) {
-            editor.commands.setContent(html, false);
+            editor.commands.setContent(html, { emitUpdate: false });
         }
 
         const needle = (jumpToText || '').trim().replace(/\s+/g, ' ').toLowerCase();
