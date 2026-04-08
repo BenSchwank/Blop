@@ -27,14 +27,15 @@ def _lv_int(name: str, default: int, lo: int, hi: int) -> int:
         return default
 
 
-# Auflösung / Bitrate / CRF: Defaults zielen auf kleinere MP4 (z. B. Supabase Free 50 MB).
-# Für höhere Qualität: LEARNING_VIDEO_WIDTH=960 LEARNING_VIDEO_HEIGHT=540 LEARNING_VIDEO_CRF=25 LEARNING_VIDEO_MAXRATE=1.6M
-VIDEO_W = _lv_int("LEARNING_VIDEO_WIDTH", 854, 640, 1920)
-VIDEO_H = _lv_int("LEARNING_VIDEO_HEIGHT", 480, 360, 1080)
-VIDEO_FPS = _lv_int("LEARNING_VIDEO_FPS", 15, 10, 30)
-VIDEO_CRF = _lv_int("LEARNING_VIDEO_CRF", 29, 18, 35)
-VIDEO_MAXRATE = (os.environ.get("LEARNING_VIDEO_MAXRATE", "1M").strip() or "1M")
-VIDEO_BUFSIZE = (os.environ.get("LEARNING_VIDEO_BUFSIZE", "").strip() or "2M")
+# Balanced Low-Memory Defaults für kleine Instanzen (z. B. 512MB Render Free).
+# Für höhere Qualität (mehr RAM/CPU nötig): LEARNING_VIDEO_WIDTH=854 LEARNING_VIDEO_HEIGHT=480 LEARNING_VIDEO_FPS=15
+# LEARNING_VIDEO_CRF=29 LEARNING_VIDEO_MAXRATE=1M LEARNING_VIDEO_BUFSIZE=2M
+VIDEO_W = _lv_int("LEARNING_VIDEO_WIDTH", 640, 640, 1920)
+VIDEO_H = _lv_int("LEARNING_VIDEO_HEIGHT", 360, 360, 1080)
+VIDEO_FPS = _lv_int("LEARNING_VIDEO_FPS", 10, 10, 30)
+VIDEO_CRF = _lv_int("LEARNING_VIDEO_CRF", 32, 18, 35)
+VIDEO_MAXRATE = (os.environ.get("LEARNING_VIDEO_MAXRATE", "600k").strip() or "600k")
+VIDEO_BUFSIZE = (os.environ.get("LEARNING_VIDEO_BUFSIZE", "").strip() or "1200k")
 
 
 def _openai_tts_failure_message(response: requests.Response) -> str:

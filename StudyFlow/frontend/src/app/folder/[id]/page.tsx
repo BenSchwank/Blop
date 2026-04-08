@@ -599,11 +599,11 @@ export default function FolderPage() {
     const [flashcardsMaxText, setFlashcardsMaxText] = useState(320);
 
     const [isLearningVideoConfigOpen, setIsLearningVideoConfigOpen] = useState(false);
-    const [lvTargetScenes, setLvTargetScenes] = useState(8);
+    const [lvTargetScenes, setLvTargetScenes] = useState(5);
     const [lvNarrationDepth, setLvNarrationDepth] = useState<"compact" | "standard" | "detailed" | "deep">("standard");
     const [lvVisualStyle, setLvVisualStyle] = useState<"clean" | "rich" | "whiteboard">("rich");
-    const [lvUseStockImages, setLvUseStockImages] = useState(true);
-    const [lvSlideMotion, setLvSlideMotion] = useState(true);
+    const [lvUseStockImages, setLvUseStockImages] = useState(false);
+    const [lvSlideMotion, setLvSlideMotion] = useState(false);
     const [lvSlideCrossfade, setLvSlideCrossfade] = useState(false);
     const [lvTtsVoice, setLvTtsVoice] = useState<string>("alloy");
     const [isPodcastConfigOpen, setIsPodcastConfigOpen] = useState(false);
@@ -3986,7 +3986,7 @@ export default function FolderPage() {
                                         <span>22</span>
                                     </div>
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Mehr Szenen und „Sehr ausführlich“ erzeugen deutlich längeres Audio (mehr KI- und OpenAI-TTS-Nutzung).
+                                        Für 512MB-Instanzen: 4-6 Szenen, Standard/Kurz und Effekte aus laufen am stabilsten.
                                     </p>
                                 </div>
                                 <div>

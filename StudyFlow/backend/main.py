@@ -189,23 +189,25 @@ def _podcast_job_worker(
 
 
 def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
-    """Defaults: rich + stock; optional Ken-Burns motion and xfade (see slide_motion / slide_crossfade)."""
+    """Balanced low-memory defaults for 512MB-like instances."""
     ts = req.target_scenes
     if ts is None:
-        ts = 6
+        ts = 5
     try:
         ts = int(ts)
     except (TypeError, ValueError):
         ts = 6
-    ts = max(4, min(22, ts))
+    ts = max(4, min(12, ts))
     depth = (req.narration_depth or "standard").strip().lower()
     if depth not in ("compact", "standard", "detailed", "deep"):
         depth = "standard"
+    if depth == "deep":
+        depth = "detailed"
     visual = (req.visual_style or "rich").strip().lower()
     if visual not in ("clean", "rich", "whiteboard"):
         visual = "rich"
     if req.use_stock_images is None:
-        use_stock = True
+        use_stock = False
     else:
         use_stock = bool(req.use_stock_images)
     if use_stock and not os.environ.get("PEXELS_API_KEY", "").strip():
@@ -217,11 +219,17 @@ def _normalize_learning_video_options(req: "LearningVideoRequest") -> dict:
     elif os.environ.get("LEARNING_VIDEO_KEN_BURNS", "").strip() == "0":
         slide_motion = False
     else:
-        slide_motion = True
+        slide_motion = False
     if req.slide_crossfade is not None:
         slide_crossfade = bool(req.slide_crossfade)
     else:
         slide_crossfade = os.environ.get("LEARNING_VIDEO_XFADE", "0").strip() == "1"
+    if ts >= 10:
+        # Guardrail: many scenes + effects tends to OOM on 512MB instances.
+        slide_motion = False
+        slide_crossfade = False
+        if depth == "detailed":
+            depth = "standard"
     return {
         "target_scenes": ts,
         "narration_depth": depth,

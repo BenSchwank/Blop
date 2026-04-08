@@ -9,6 +9,23 @@
   - `LEARNING_VIDEO_KEN_BURNS=0` — keine Zoom/Pan-Animation
   - `LEARNING_VIDEO_XFADE=1` — weiche Übergänge (mehr CPU)
 
+### 512MB Balanced Defaults (aktiv)
+
+- Video-Encoding Defaults in [`media_pipeline.py`](media_pipeline.py):
+  - `LEARNING_VIDEO_WIDTH=640`
+  - `LEARNING_VIDEO_HEIGHT=360`
+  - `LEARNING_VIDEO_FPS=10`
+  - `LEARNING_VIDEO_CRF=32`
+  - `LEARNING_VIDEO_MAXRATE=600k`
+  - `LEARNING_VIDEO_BUFSIZE=1200k`
+- Lernvideo-Defaults in [`main.py`](main.py):
+  - `target_scenes` standardmäßig 5 (Clamp max. 12)
+  - Stock-Bilder standardmäßig aus
+  - Ken-Burns standardmäßig aus
+  - Guardrail: bei vielen Szenen werden Effekte deaktiviert und Tiefe konservativer gesetzt
+
+Wenn weiterhin OOM auftritt: zuerst Szenen reduzieren (4-5), Erzähltiefe „compact“, Stock-Bilder aus. Danach Lernvideo-Worker aus dem Webprozess auslagern.
+
 ## Gemini-API (503 / Überlast)
 
 - Das Backend nutzt für das **Storyboard** standardmäßig **Flash zuerst** (weniger anfällig für Spitzenlast als Pro).
