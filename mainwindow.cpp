@@ -2549,8 +2549,9 @@ void MainWindow::setupUi() {
   setCentralWidget(m_centralContainer);
   QVBoxLayout *mainLayout = new QVBoxLayout(m_centralContainer);
 #ifdef Q_OS_ANDROID
-  // Keep content above Android system/nav bar area.
-  mainLayout->setContentsMargins(0, 0, 0, UiScale::androidBottomInsetPx(this));
+  // Avoid a permanent black bottom strip on Android; per-view layouts handle
+  // bottom safe spacing where needed.
+  mainLayout->setContentsMargins(0, 0, 0, 0);
 #else
   mainLayout->setContentsMargins(0, 0, 0, 0);
 #endif
@@ -3419,10 +3420,8 @@ void MainWindow::setupWebBrowser() {
   m_studyWindowContainer = container;
   // Touch/focus hardening for Android
   container->setAttribute(Qt::WA_AcceptTouchEvents, true);
-  container->setAttribute(Qt::WA_NativeWindow, true);
   container->setFocusPolicy(Qt::StrongFocus);
   container->setFocus(Qt::OtherFocusReason);
-  container->raise();
   layout->addWidget(container);
 
 #else
@@ -5098,6 +5097,12 @@ void MainWindow::animateSidebar(bool show) {
 #ifdef Q_OS_ANDROID
   if (m_androidHeader)
     m_androidHeader->raise();
+  // Native WebView surfaces can briefly jump above widgets on some devices;
+  // enforce header z-order again on the next event loop turn.
+  QTimer::singleShot(0, this, [this]() {
+    if (m_androidHeader)
+      m_androidHeader->raise();
+  });
 #endif
 }
 void MainWindow::onToggleSidebar() {
