@@ -2,7 +2,8 @@ import QtQuick 2.0
 import QtQuick.Controls 2.0
 import QtWebView 1.1
 
-Item {
+Rectangle {
+    color: "#0B0B1A"
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
     property string studyUrl: "https://blop-six.vercel.app"
@@ -35,6 +36,8 @@ Item {
             return
         var jsCode = "(function() {" +
                      "  try {" +
+                     "    document.documentElement.style.backgroundColor = '#0B0B1A';" +
+                     "    if (document.body) document.body.style.backgroundColor = '#0B0B1A';" +
                      "    var bodyText = (document.body && document.body.innerText ? document.body.innerText : '').toLowerCase();" +
                      "    var path = (location.pathname || '').toLowerCase();" +
                      "    var authLike = path.indexOf('login') !== -1 || path.indexOf('register') !== -1 || bodyText.indexOf('passwort') !== -1 || bodyText.indexOf('benutzername') !== -1;" +

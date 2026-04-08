@@ -2558,20 +2558,18 @@ void MainWindow::setupUi() {
   mainLayout->setSpacing(0);
 
 #ifdef Q_OS_ANDROID
-  // Native QQuickView/WebView can draw above normal widgets in the central layout
-  // (Android SurfaceView z-order). Put tabs in QMainWindow's top tool bar so they
-  // stay above the embedded native surface — changing onModeChanged alone won't fix that.
-  QToolBar *topBar = new QToolBar(this);
-  m_androidHeader = topBar;
-  topBar->setObjectName("AndroidTopBar");
-  topBar->setMovable(false);
-  topBar->setFloatable(false);
-  topBar->setAllowedAreas(Qt::TopToolBarArea);
-  topBar->setContentsMargins(0, 0, 0, 0);
-  topBar->setStyleSheet(
-      "QToolBar { background-color: #0F111A; border: none; "
-      "spacing: 0; padding: 0px; }"
-      "QToolButton { background: transparent; border: none; }");
+  // QtWebView on Android uses a SurfaceView that can draw above unrelated Qt
+  // siblings (including QToolBar). Keep Notizen/Study tabs inside centralWidget,
+  // stacked above the content, so the tab row stays visible and tappable.
+  m_centralContainer->setStyleSheet(
+      "QWidget#CentralContainer { background-color: #0D0B14; }");
+  m_centralContainer->setObjectName(QStringLiteral("CentralContainer"));
+
+  QWidget *androidTopChrome = new QWidget(m_centralContainer);
+  m_androidHeader = androidTopChrome;
+  androidTopChrome->setObjectName(QStringLiteral("AndroidTopChrome"));
+  androidTopChrome->setStyleSheet(
+      "QWidget#AndroidTopChrome { background-color: #0F111A; border: none; }");
   const int androidTopInset = UiScale::androidTopInsetPx(this);
   const int androidHeaderTopExtra = UiScale::dp(6);
   const int androidHeaderHeight = UiScale::dp(52);
@@ -2580,9 +2578,8 @@ void MainWindow::setupUi() {
   const int androidCompactPillH = UiScale::dp(28);
   const int androidHeaderTotalH =
       androidHeaderHeight + androidTopInset + androidHeaderTopExtra;
-  topBar->setFixedHeight(androidHeaderTotalH);
 
-  QWidget *androidHeader = new QWidget(topBar);
+  QWidget *androidHeader = new QWidget(androidTopChrome);
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   androidHeader->setFixedHeight(androidHeaderTotalH);
   androidHeader->setStyleSheet("background-color: #0F111A;");
@@ -2859,8 +2856,14 @@ void MainWindow::setupUi() {
   headerLay->addWidget(m_btnAndroidToolbarExport, 0, Qt::AlignVCenter);
 #endif
 
-  topBar->addWidget(androidHeader);
-  addToolBar(Qt::TopToolBarArea, topBar);
+  {
+    QVBoxLayout *chromeLay = new QVBoxLayout(androidTopChrome);
+    chromeLay->setContentsMargins(0, 0, 0, 0);
+    chromeLay->setSpacing(0);
+    chromeLay->addWidget(androidHeader);
+  }
+  androidTopChrome->setFixedHeight(androidHeaderTotalH);
+  mainLayout->addWidget(androidTopChrome, 0);
 
   // Status bar colors must run on Android's *UI* thread — JNI from Qt's thread
   // triggers CalledFromWrongThreadException and can break touch/layout (see logcat).
@@ -3359,7 +3362,7 @@ void MainWindow::setupUi() {
   desktopRowLay->addWidget(m_mainContentStack, 1);
   mainLayout->addWidget(desktopContentRow, 1);
 #else
-  mainLayout->addWidget(m_mainContentStack);
+  mainLayout->addWidget(m_mainContentStack, 1);
 #endif
 
   setWindowTitle("Blop");
@@ -3380,10 +3383,11 @@ bool InterceptingWebPage::acceptNavigationRequest(const QUrl &url, NavigationTyp
 
 void MainWindow::setupWebBrowser() {
   m_studyContainer = new QWidget(this);
-  // Dark background so it's not pitch-black while WebEngine loads
-  m_studyContainer->setStyleSheet("background-color: #1e1e1e;");
+  // Match Study web chrome; avoids light “gaps” around the native WebView.
+  m_studyContainer->setStyleSheet(
+      "background-color: #0B0B1A;");
   QVBoxLayout *layout = new QVBoxLayout(m_studyContainer);
-  layout->setContentsMargins(0, UiScale::dp(6), 0, UiScale::androidBottomInsetPx(this));
+  layout->setContentsMargins(0, 0, 0, 0);
 #ifdef Q_OS_ANDROID
   m_studyVBoxLayout = layout;
 #endif
@@ -3395,6 +3399,7 @@ void MainWindow::setupWebBrowser() {
   QQuickView *view = new QQuickView();
   m_studyQQuickView = view;
   view->setResizeMode(QQuickView::SizeRootObjectToView);
+  view->setColor(QColor(0x0b, 0x0b, 0x1a));
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
@@ -3710,6 +3715,12 @@ void MainWindow::applyAndroidTabStyles(int index) {
       "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
+  if (m_btnAndroidStudyReset) {
+    const bool show =
+        m_btnAndroidStudy && m_btnAndroidStudy->isVisible() && index >= 1;
+    m_btnAndroidStudyReset->setVisible(show);
+    m_btnAndroidStudyReset->setEnabled(show);
+  }
 }
 #endif
 
@@ -3761,7 +3772,13 @@ void MainWindow::onModeChanged(int index) {
   }
   if (m_mainContentStack) {
     if (QWidget *cur = m_mainContentStack->currentWidget()) {
+#ifndef Q_OS_ANDROID
       cur->raise();
+#else
+      // Study page embeds a native SurfaceView; avoid reordering above the tab chrome.
+      if (mainStackIdx == 0)
+        cur->raise();
+#endif
       cur->setEnabled(true);
       cur->setFocus(Qt::OtherFocusReason);
     }
@@ -5587,10 +5604,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   fabSize = FAB_SIZE_ANDROID;
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
   syncSidebarPushLayout();
-  if (m_studyVBoxLayout) {
-    m_studyVBoxLayout->setContentsMargins(
-        0, UiScale::dp(6), 0, UiScale::androidBottomInsetPx(this));
-  }
+  if (m_studyVBoxLayout)
+    m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
   if (m_androidHeader)
