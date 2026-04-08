@@ -252,8 +252,9 @@ Setze NAHTLOS fort:
         if not response.candidates:
             raise Exception("Leere Kandidaten-Antwort vom Modell.")
         chunks: List[str] = []
-        if response.text:
-            chunks.append(response.text)
+        first_piece = AIService._extract_response_text_safe(response)
+        if first_piece:
+            chunks.append(first_piece)
         first_usage = _usage_to_dict(getattr(response, "usage_metadata", None))
         usage_sum["prompt_tokens"] += first_usage["prompt_tokens"]
         usage_sum["output_tokens"] += first_usage["output_tokens"]
@@ -266,14 +267,21 @@ Setze NAHTLOS fort:
             response = chat.send_message(continuation_prompt, safety_settings=SAFETY_SETTINGS)
             if not response.candidates:
                 break
-            if response.text:
-                chunks.append(response.text)
+            piece = AIService._extract_response_text_safe(response)
+            if piece:
+                chunks.append(piece)
             step_usage = _usage_to_dict(getattr(response, "usage_metadata", None))
             usage_sum["prompt_tokens"] += step_usage["prompt_tokens"]
             usage_sum["output_tokens"] += step_usage["output_tokens"]
             usage_sum["total_tokens"] += step_usage["total_tokens"]
             finish_reason = response.candidates[0].finish_reason
         text = "\n\n".join(chunks).strip()
+        if not text and response.candidates:
+            try:
+                fr = getattr(response.candidates[0], "finish_reason", None)
+                print(f"{log_prefix}: empty text after extraction; finish_reason={fr}")
+            except Exception:
+                pass
         if not return_meta:
             return text
         return {
@@ -1392,7 +1400,14 @@ Gebe als Antwort AUSSCHLIESSLICH ein valides JSON-Objekt im folgenden Format zur
             raise Exception(f"Fehler bei der Audio-Transkription: {str(e)}")
 
     @staticmethod
-    def generate_elaboration(content: List[Any], detail_level: str = "Normal", custom_rules: str = "", model_preference: str = None, return_meta: bool = False) -> Any:
+    def generate_elaboration(
+        content: List[Any],
+        detail_level: str = "Normal",
+        custom_rules: str = "",
+        model_preference: str = None,
+        return_meta: bool = False,
+        substantive_check: bool = True,
+    ) -> Any:
         """Generates a detailed elaboration/essay based on the material and user instructions."""
         try:
             elaboration_generation_config = {
@@ -1472,20 +1487,31 @@ Hier ist das Quellenmaterial:
             except Exception as mt_err:
                 print(f"Elaboration multiturn failed ({mt_err}), falling back to single-shot generate_content")
                 response = model.generate_content(input_parts, safety_settings=SAFETY_SETTINGS)
-                if not response.text:
+                fb = AIService._extract_response_text_safe(response)
+                if not fb:
                     raise Exception("Leere Antwort vom Modell erhalten.")
                 if not return_meta:
-                    full_text = response.text
-                    full_result = full_text
+                    full_result = fb
                 else:
                     full_result = {
-                        "text": response.text,
+                        "text": fb,
                         "usage": AIService._extract_usage(response),
                         "used_model": str(getattr(model, "model_name", "") or ""),
                     }
             full_text = full_result["text"] if return_meta else full_result
-            if not full_text:
+            ft = (full_text or "").strip()
+            if not ft:
                 raise Exception("Leere Antwort vom Modell erhalten.")
+            # Verhindert „Erfolg“ mit nur Anführungszeichen / minimalem Müll (schnell fertig, kein Inhalt)
+            if substantive_check and (len(ft) < 80 or len(ft.split()) < 25):
+                raise Exception(
+                    "Die Ausarbeitung ist zu kurz oder wurde nicht geliefert (Safety/Blockierung oder leeres Modell). "
+                    "Bitte Ordner-Material prüfen, ggf. erneut versuchen oder ein anderes Modell wählen."
+                )
+            if return_meta:
+                full_result["text"] = ft
+            else:
+                full_result = ft
             return full_result
         except Exception as e:
             print(f"Elaboration Error: {e}")

@@ -176,7 +176,7 @@ def _elaboration_job_worker(
             {
                 "id": file_id,
                 "name": "Ausarbeitung",
-                "type": "summary",
+                "type": "elaboration",
                 "content": elaboration_text,
                 "created_at": datetime.now().strftime("%Y-%m-%d"),
             },
@@ -1743,7 +1743,7 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
                  debug_log.append(f"Transcript {f_name} has no content")
 
         # 1b. Text-based generated / stored documents (summary, plans, quiz JSON, etc.)
-        elif f_type in ("summary", "repetition", "plan", "quiz", "flashcards"):
+        elif f_type in ("summary", "repetition", "elaboration", "plan", "quiz", "flashcards"):
             raw = f.get("content")
             if raw is None:
                 debug_log.append(f"{f_name} ({f_type}) has no content field")
@@ -2111,6 +2111,7 @@ def refine_elaboration(request: ElaborationRefineRequest):
             custom_rules=combined_rules,
             model_preference=model_pref,
             return_meta=True,
+            substantive_check=False,
         )
         refined_text = refined_result["text"]
         save_mode = (request.save_mode or "new_file").lower()

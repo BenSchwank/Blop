@@ -1754,20 +1754,27 @@ export default function FolderPage() {
                         }
                     }
                     if (data && typeof data.elaboration === "string") {
-                        ok = true;
-                        announceUsage(data);
-                        const fid =
-                            typeof data.file_id === "string"
-                                ? data.file_id
-                                : `elaboration_${Date.now()}`;
-                        setSelectedFile({
-                            id: fid,
-                            name: "Ausarbeitung",
-                            type: "summary",
-                            created_at: new Date().toISOString().split("T")[0],
-                            content: data.elaboration,
-                        });
-                        await fetchFiles();
+                        const elab = (data.elaboration as string).trim();
+                        if (!elab || elab.length < 40) {
+                            lastError =
+                                "Die Ausarbeitung kam ohne nutzbaren Text zurück. Bitte erneut versuchen oder Material prüfen.";
+                            showToast(lastError);
+                        } else {
+                            ok = true;
+                            announceUsage(data);
+                            const fid =
+                                typeof data.file_id === "string"
+                                    ? data.file_id
+                                    : `elaboration_${Date.now()}`;
+                            setSelectedFile({
+                                id: fid,
+                                name: "Ausarbeitung",
+                                type: "elaboration",
+                                created_at: new Date().toISOString().split("T")[0],
+                                content: data.elaboration,
+                            });
+                            await fetchFiles();
+                        }
                     } else if (!lastError && !acElab.signal.aborted) {
                         lastError =
                             "Zeitüberschreitung — die Ausarbeitung dauert ungewöhnlich lange. Bitte später in den Dateien prüfen oder erneut versuchen.";
@@ -1781,7 +1788,7 @@ export default function FolderPage() {
                 setSelectedFile({
                     id: `elaboration_${Date.now()}`,
                     name: 'Ausarbeitung',
-                    type: 'summary', // Using 'summary' to inherit Rich Text Editor styling
+                    type: 'elaboration',
                     created_at: new Date().toISOString().split('T')[0],
                     content: data.elaboration
                 });
