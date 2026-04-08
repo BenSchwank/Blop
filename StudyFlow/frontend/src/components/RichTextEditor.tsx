@@ -181,6 +181,8 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
     const [selectionInstruction, setSelectionInstruction] = useState('');
     const [selectionBusy, setSelectionBusy] = useState(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const selectionPopupRef = useRef<HTMLDivElement | null>(null);
+    const selectionRangeRef = useRef<{ from: number; to: number } | null>(null);
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
     // If it already looks like HTML (from a previous edit), we can just use it directly. 
@@ -271,21 +273,38 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         const updateSelectionUi = () => {
             const sel = window.getSelection();
             if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+                const focusedInsidePopup =
+                    !!selectionPopupRef.current &&
+                    !!document.activeElement &&
+                    selectionPopupRef.current.contains(document.activeElement);
+                if (focusedInsidePopup || selectionBusy) {
+                    return;
+                }
                 setSelectionRect(null);
                 setSelectionText('');
+                selectionRangeRef.current = null;
                 return;
             }
             const range = sel.getRangeAt(0);
             if (!editor.view.dom.contains(range.commonAncestorContainer)) {
                 setSelectionRect(null);
                 setSelectionText('');
+                selectionRangeRef.current = null;
                 return;
             }
             const text = sel.toString().trim();
             if (!text) {
                 setSelectionRect(null);
                 setSelectionText('');
+                selectionRangeRef.current = null;
                 return;
+            }
+            try {
+                const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+                const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
+                selectionRangeRef.current = { from: Math.min(from, to), to: Math.max(from, to) };
+            } catch {
+                selectionRangeRef.current = null;
             }
             const rect = range.getBoundingClientRect();
             setSelectionText(text);
@@ -293,7 +312,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         };
         document.addEventListener('selectionchange', updateSelectionUi);
         return () => document.removeEventListener('selectionchange', updateSelectionUi);
-    }, [editor]);
+    }, [editor, selectionBusy]);
 
     const applySelectionAiEdit = useCallback(async () => {
         if (!editor || !selectionText.trim() || !selectionInstruction.trim() || selectionBusy) return;
@@ -301,9 +320,13 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             setSelectionBusy(true);
             const user = username || (typeof window !== 'undefined' ? localStorage.getItem('username') || '' : '');
             if (!user) throw new Error('Kein Benutzer gefunden.');
+            const savedRange = selectionRangeRef.current;
+            if (!savedRange || savedRange.from >= savedRange.to) {
+                throw new Error('Bitte markiere zuerst einen Textbereich.');
+            }
             const surrounding = editor.state.doc.textBetween(
-                Math.max(0, editor.state.selection.from - 500),
-                Math.min(editor.state.doc.content.size, editor.state.selection.to + 500),
+                Math.max(0, savedRange.from - 500),
+                Math.min(editor.state.doc.content.size, savedRange.to + 500),
                 '\n',
                 '\n'
             );
@@ -324,10 +347,11 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             }
             const replacement = String(data?.replacement_text || '').trim();
             if (!replacement) throw new Error('Leere KI-Antwort.');
-            editor.chain().focus().insertContent(replacement).run();
+            editor.chain().focus().setTextSelection(savedRange).insertContent(replacement).run();
             setSelectionInstruction('');
             setSelectionRect(null);
             setSelectionText('');
+            selectionRangeRef.current = null;
         } finally {
             setSelectionBusy(false);
         }
@@ -454,6 +478,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             </div>
             {selectionRect && (
                 <div
+                    ref={selectionPopupRef}
                     className="fixed z-[120] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#3B3B55] bg-[#151525] p-3 shadow-2xl"
                     style={{
                         left: Math.max(8, Math.min(window.innerWidth - 328, selectionRect.x - 160)),
@@ -473,6 +498,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                             onClick={() => {
                                 setSelectionRect(null);
                                 setSelectionText('');
+                                selectionRangeRef.current = null;
                             }}
                             className="flex-1 py-1.5 rounded-lg text-xs bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300"
                         >

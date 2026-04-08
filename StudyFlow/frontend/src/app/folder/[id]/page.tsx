@@ -674,6 +674,13 @@ export default function FolderPage() {
     const [signedMediaStatus, setSignedMediaStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const [chatPatchJumpToken, setChatPatchJumpToken] = useState(0);
     const [chatPatchJumpText, setChatPatchJumpText] = useState<string>('');
+    const [readSelectionText, setReadSelectionText] = useState('');
+    const [readSelectionRect, setReadSelectionRect] = useState<{ x: number; y: number } | null>(null);
+    const [readSelectionInstruction, setReadSelectionInstruction] = useState('');
+    const [readSelectionBusy, setReadSelectionBusy] = useState(false);
+    const readSelectionRangeRef = useRef<Range | null>(null);
+    const readModeContentRef = useRef<HTMLDivElement | null>(null);
+    const readSelectionPopupRef = useRef<HTMLDivElement | null>(null);
 
     const API_BASE = '/api';
     const backendOrigin =
@@ -785,6 +792,61 @@ export default function FolderPage() {
         void run();
         return () => ac.abort();
     }, [selectedFile?.id, selectedFile?.type, folderId, backendOrigin]);
+
+    useEffect(() => {
+        const isTextDoc =
+            !!selectedFile &&
+            (selectedFile.type === 'summary' ||
+                selectedFile.type === 'repetition' ||
+                selectedFile.type === 'elaboration' ||
+                selectedFile.type === 'transcript');
+        const contentStr = isTextDoc
+            ? (typeof selectedFile.content === 'string'
+                ? selectedFile.content
+                : JSON.stringify(selectedFile.content || ''))
+            : '';
+        const isHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote|<img/i.test(contentStr);
+        const active = isTextDoc && !isEditingFile && !isHtml;
+
+        const reset = () => {
+            setReadSelectionRect(null);
+            setReadSelectionText('');
+            readSelectionRangeRef.current = null;
+        };
+        if (!active) {
+            reset();
+            return;
+        }
+        const onSelectionChange = () => {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+                const focusedInsidePopup =
+                    !!readSelectionPopupRef.current &&
+                    !!document.activeElement &&
+                    readSelectionPopupRef.current.contains(document.activeElement);
+                if (focusedInsidePopup || readSelectionBusy) return;
+                reset();
+                return;
+            }
+            const range = sel.getRangeAt(0);
+            const root = readModeContentRef.current;
+            if (!root || !root.contains(range.commonAncestorContainer)) {
+                reset();
+                return;
+            }
+            const txt = sel.toString().trim();
+            if (!txt) {
+                reset();
+                return;
+            }
+            readSelectionRangeRef.current = range.cloneRange();
+            const rect = range.getBoundingClientRect();
+            setReadSelectionText(txt);
+            setReadSelectionRect({ x: rect.left + rect.width / 2, y: rect.top - 12 });
+        };
+        document.addEventListener('selectionchange', onSelectionChange);
+        return () => document.removeEventListener('selectionchange', onSelectionChange);
+    }, [selectedFile, isEditingFile, readSelectionBusy]);
 
     const persistAiContext = async (next: string[] | null) => {
         const username = localStorage.getItem("username");
@@ -2327,6 +2389,60 @@ export default function FolderPage() {
         showToast("Änderung angewendet.", "success");
     };
 
+    const handleApplyReadSelectionAiEdit = async () => {
+        if (!selectedFile || typeof selectedFile.content !== 'string') return;
+        if (!readSelectionText.trim() || !readSelectionInstruction.trim() || readSelectionBusy) return;
+        try {
+            setReadSelectionBusy(true);
+            const username = localStorage.getItem("username") || "";
+            if (!username) {
+                showToast("Nicht angemeldet.");
+                return;
+            }
+            const range = readSelectionRangeRef.current;
+            const surrounding = range?.commonAncestorContainer?.textContent || "";
+            const res = await fetch(`${API_BASE}/ai/edit-selection`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    selected_text: readSelectionText,
+                    instruction: readSelectionInstruction.trim(),
+                    surrounding_context: surrounding.slice(0, 2000),
+                    model_preference: effectiveModelPreference,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(formatFastApiDetail(data?.detail) || `HTTP ${res.status}`);
+            }
+            const replacement = String(data?.replacement_text || "").trim();
+            if (!replacement) {
+                throw new Error("Leere KI-Antwort.");
+            }
+            const currentContent = selectedFile.content;
+            const pos = currentContent.indexOf(readSelectionText);
+            if (pos < 0) {
+                throw new Error("Markierte Stelle wurde im Text nicht gefunden. Bitte erneut markieren.");
+            }
+            const nextContent = currentContent.slice(0, pos) + replacement + currentContent.slice(pos + readSelectionText.length);
+            await persistFileContent(selectedFile.id, nextContent);
+            const updatedFiles = files.map((f) => (f.id === selectedFile.id ? { ...f, content: nextContent } : f));
+            setFiles(updatedFiles);
+            setSelectedFile({ ...selectedFile, content: nextContent });
+            setReadSelectionInstruction("");
+            setReadSelectionRect(null);
+            setReadSelectionText("");
+            readSelectionRangeRef.current = null;
+            showToast("Markierte Stelle mit KI bearbeitet.", "success");
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            showToast(msg || "KI-Bearbeitung fehlgeschlagen.");
+        } finally {
+            setReadSelectionBusy(false);
+        }
+    };
+
     const handleUndoLastPatch = async () => {
         if (!selectedFile || typeof selectedFile.content !== 'string') {
             throw new Error("Kein bearbeitbares Textdokument geöffnet.");
@@ -2598,7 +2714,7 @@ export default function FolderPage() {
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto bg-[#1a1a1a] p-8">
-                        <div className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40] [&_.katex-display]:max-w-full">
+                        <div ref={readModeContentRef} className="max-w-4xl mx-auto prose prose-invert prose-blop prose-pre:bg-[#151525] prose-pre:border prose-pre:border-[#2A2A40] [&_.katex-display]:max-w-full">
                             {ytId ? (
                                 <div className="not-prose mb-8 aspect-video w-full max-h-[min(50vh,420px)] rounded-xl overflow-hidden border border-[#2A2A40] bg-black shadow-lg">
                                     <iframe
@@ -2617,6 +2733,45 @@ export default function FolderPage() {
                                 {contentStr}
                             </ReactMarkdown>
                         </div>
+                        {readSelectionRect && (
+                            <div
+                                ref={readSelectionPopupRef}
+                                className="fixed z-[130] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#3B3B55] bg-[#151525] p-3 shadow-2xl"
+                                style={{
+                                    left: Math.max(8, Math.min(window.innerWidth - 328, readSelectionRect.x - 160)),
+                                    top: Math.max(8, readSelectionRect.y - 110),
+                                }}
+                            >
+                                <div className="text-xs text-gray-400 mb-2">Markierten Text mit KI bearbeiten</div>
+                                <textarea
+                                    value={readSelectionInstruction}
+                                    onChange={(e) => setReadSelectionInstruction(e.target.value)}
+                                    placeholder="z. B. kürzer, einfacher, professioneller formulieren ..."
+                                    className="w-full bg-[#0B0B1A] border border-[#2A2A40] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5E5CE6]/40"
+                                />
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setReadSelectionRect(null);
+                                            setReadSelectionText("");
+                                            readSelectionRangeRef.current = null;
+                                        }}
+                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300"
+                                    >
+                                        Schließen
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleApplyReadSelectionAiEdit()}
+                                        disabled={!readSelectionInstruction.trim() || readSelectionBusy}
+                                        className="flex-1 py-1.5 rounded-lg text-xs bg-[#5E5CE6] hover:bg-[#7D7AFF] text-white disabled:opacity-50"
+                                    >
+                                        {readSelectionBusy ? 'Bearbeite…' : 'Mit KI anwenden'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
