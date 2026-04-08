@@ -2498,6 +2498,8 @@ export default function FolderPage() {
                         youtubeVideoId={selectedFile.type === 'transcript' ? ytId : null}
                         externalUpdateToken={chatPatchJumpToken}
                         jumpToText={chatPatchJumpText}
+                        username={typeof window !== 'undefined' ? localStorage.getItem("username") || "" : ""}
+                        modelPreference={effectiveModelPreference}
                         onClose={() => { setSelectedFile(null); setIsEditingFile(false); }}
                         onSave={async (newContent) => {
                             try {

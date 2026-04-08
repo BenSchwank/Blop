@@ -987,6 +987,7 @@ FEATURE_MULTIPLIER = {
     "task_help": 0.7,
     "chat": 0.6,
     "document_chat": 0.8,
+    "selection_edit": 0.7,
     "audio_transcribe": 1.0,
     "podcast": 1.2,
     "learning_video": 1.4,
@@ -1455,6 +1456,14 @@ class DocumentChatPatchRequest(BaseModel):
     file_id: str
     message: str
     history: List[ChatMessage]
+    model_preference: Optional[str] = None
+
+
+class SelectionEditRequest(BaseModel):
+    username: str
+    selected_text: str
+    instruction: str
+    surrounding_context: Optional[str] = None
     model_preference: Optional[str] = None
 
 
@@ -2160,6 +2169,46 @@ def document_chat_patch(request: DocumentChatPatchRequest):
     except Exception as e:
         print(f"Document chat error: {e}")
         raise HTTPException(status_code=500, detail=f"Dokument-Chat-Fehler: {str(e)}")
+
+
+@app.post("/api/ai/edit-selection")
+def edit_selection(request: SelectionEditRequest):
+    from ai_service import AIService
+    try:
+        ensure_minimum_tokens(request.username, 1)
+        _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        selected = (request.selected_text or "").strip()
+        instruction = (request.instruction or "").strip()
+        if not selected:
+            raise HTTPException(status_code=400, detail="Keine Textauswahl übergeben.")
+        if not instruction:
+            raise HTTPException(status_code=400, detail="Keine Anweisung übergeben.")
+        result = AIService.edit_selected_text(
+            selected_text=selected,
+            instruction=instruction,
+            surrounding_context=(request.surrounding_context or ""),
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        charge = deduct_tokens_by_usage(
+            request.username,
+            "selection_edit",
+            result.get("used_model", model_pref or ""),
+            result.get("usage"),
+        )
+        return {
+            "status": "success",
+            "replacement_text": result["text"],
+            "used_model": result.get("used_model", model_pref or ""),
+            "usage": result.get("usage", {}),
+            **charge,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Selection edit error: {e}")
+        raise HTTPException(status_code=500, detail=f"Selektions-Bearbeitung fehlgeschlagen: {str(e)}")
 
 
 @app.post("/api/ai/podcast")

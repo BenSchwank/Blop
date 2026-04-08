@@ -25,6 +25,8 @@ interface RichTextEditorProps {
     externalUpdateToken?: number;
     /** Optional text snippet to scroll to after external update. */
     jumpToText?: string;
+    username?: string;
+    modelPreference?: string;
 }
 
 const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveStatus }: { editor: any, onSave: () => void, onClose: () => void, onExportPdf: () => void, isSaving: boolean, title: string, saveStatus: 'idle' | 'saving' | 'saved' }) => {
@@ -170,10 +172,14 @@ const MenuBar = ({ editor, onSave, onClose, onExportPdf, isSaving, title, saveSt
     );
 };
 
-export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId, externalUpdateToken, jumpToText }: RichTextEditorProps) {
+export default function RichTextEditor({ initialContent, title, onSave, onClose, youtubeVideoId, externalUpdateToken, jumpToText, username, modelPreference }: RichTextEditorProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [printMarkdown, setPrintMarkdown] = useState<string | null>(null);
+    const [selectionText, setSelectionText] = useState('');
+    const [selectionRect, setSelectionRect] = useState<{ x: number; y: number } | null>(null);
+    const [selectionInstruction, setSelectionInstruction] = useState('');
+    const [selectionBusy, setSelectionBusy] = useState(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
@@ -259,6 +265,73 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             setTimeout(() => found?.parentElement?.classList.remove('blop-chat-jump-highlight'), 1800);
         });
     }, [editor, initialContent, externalUpdateToken, jumpToText]);
+
+    useEffect(() => {
+        if (!editor) return;
+        const updateSelectionUi = () => {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+                setSelectionRect(null);
+                setSelectionText('');
+                return;
+            }
+            const range = sel.getRangeAt(0);
+            if (!editor.view.dom.contains(range.commonAncestorContainer)) {
+                setSelectionRect(null);
+                setSelectionText('');
+                return;
+            }
+            const text = sel.toString().trim();
+            if (!text) {
+                setSelectionRect(null);
+                setSelectionText('');
+                return;
+            }
+            const rect = range.getBoundingClientRect();
+            setSelectionText(text);
+            setSelectionRect({ x: rect.left + rect.width / 2, y: rect.top - 12 });
+        };
+        document.addEventListener('selectionchange', updateSelectionUi);
+        return () => document.removeEventListener('selectionchange', updateSelectionUi);
+    }, [editor]);
+
+    const applySelectionAiEdit = useCallback(async () => {
+        if (!editor || !selectionText.trim() || !selectionInstruction.trim() || selectionBusy) return;
+        try {
+            setSelectionBusy(true);
+            const user = username || (typeof window !== 'undefined' ? localStorage.getItem('username') || '' : '');
+            if (!user) throw new Error('Kein Benutzer gefunden.');
+            const surrounding = editor.state.doc.textBetween(
+                Math.max(0, editor.state.selection.from - 500),
+                Math.min(editor.state.doc.content.size, editor.state.selection.to + 500),
+                '\n',
+                '\n'
+            );
+            const res = await fetch('/api/ai/edit-selection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: user,
+                    selected_text: selectionText,
+                    instruction: selectionInstruction.trim(),
+                    surrounding_context: surrounding,
+                    model_preference: modelPreference || null,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data?.detail || `HTTP ${res.status}`);
+            }
+            const replacement = String(data?.replacement_text || '').trim();
+            if (!replacement) throw new Error('Leere KI-Antwort.');
+            editor.chain().focus().insertContent(replacement).run();
+            setSelectionInstruction('');
+            setSelectionRect(null);
+            setSelectionText('');
+        } finally {
+            setSelectionBusy(false);
+        }
+    }, [editor, modelPreference, selectionBusy, selectionInstruction, selectionText, username]);
 
     const handleSave = async () => {
         if (!editor) return;
@@ -379,6 +452,43 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             <div className="flex-1 overflow-y-auto bg-[#1e1e1e] min-h-0">
                 <EditorContent editor={editor} />
             </div>
+            {selectionRect && (
+                <div
+                    className="fixed z-[120] w-[320px] max-w-[calc(100vw-1rem)] rounded-xl border border-[#3B3B55] bg-[#151525] p-3 shadow-2xl"
+                    style={{
+                        left: Math.max(8, Math.min(window.innerWidth - 328, selectionRect.x - 160)),
+                        top: Math.max(8, selectionRect.y - 110),
+                    }}
+                >
+                    <div className="text-xs text-gray-400 mb-2">Markierten Text mit KI bearbeiten</div>
+                    <textarea
+                        value={selectionInstruction}
+                        onChange={(e) => setSelectionInstruction(e.target.value)}
+                        placeholder="z. B. kürzer, einfacher, professioneller formulieren ..."
+                        className="w-full bg-[#0B0B1A] border border-[#2A2A40] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5E5CE6]/40"
+                    />
+                    <div className="mt-2 flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSelectionRect(null);
+                                setSelectionText('');
+                            }}
+                            className="flex-1 py-1.5 rounded-lg text-xs bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300"
+                        >
+                            Schließen
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void applySelectionAiEdit()}
+                            disabled={!selectionInstruction.trim() || selectionBusy}
+                            className="flex-1 py-1.5 rounded-lg text-xs bg-[#5E5CE6] hover:bg-[#7D7AFF] text-white disabled:opacity-50"
+                        >
+                            {selectionBusy ? 'Bearbeite…' : 'Mit KI anwenden'}
+                        </button>
+                    </div>
+                </div>
+            )}
             {printPortal}
 
             <style jsx global>{`

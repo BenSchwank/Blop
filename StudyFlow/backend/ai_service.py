@@ -983,6 +983,53 @@ Antworte NUR mit dem Vorlesetext, ohne Titelzeile oder Einleitungssatz der Art �
             raise Exception(f"Podcast-Skript fehlgeschlagen: {str(e)}")
 
     @staticmethod
+    def edit_selected_text(
+        selected_text: str,
+        instruction: str,
+        surrounding_context: str = "",
+        model_preference: str = None,
+        return_meta: bool = False,
+    ) -> Any:
+        """Edits only the selected text span and returns replacement text."""
+        try:
+            model = genai.GenerativeModel(
+                get_best_model(model_preference),
+                generation_config={"temperature": 0.25, "max_output_tokens": 2048},
+            )
+            prompt = f"""
+Du bearbeitest NUR einen markierten Textausschnitt aus einem Lerndokument.
+
+AUFGABE:
+- Wende die Nutzeranweisung auf den markierten Ausschnitt an.
+- Liefere AUSSCHLIESSLICH den neuen Ersatztext für genau diesen Ausschnitt.
+- Keine Einleitung, keine Erklärungen, kein Markdown-Codeblock.
+- Keine inhaltlichen Änderungen außerhalb der Anweisung.
+
+Nutzeranweisung:
+{instruction}
+
+Kontext (nur zur Orientierung):
+{surrounding_context[:2000]}
+
+Markierter Ausschnitt (nur diesen ersetzen):
+{selected_text}
+"""
+            response = model.generate_content([prompt], safety_settings=SAFETY_SETTINGS)
+            if not response.text:
+                raise Exception("Leere Antwort vom Modell erhalten.")
+            text = response.text.strip()
+            if not return_meta:
+                return text
+            return {
+                "text": text,
+                "usage": AIService._extract_usage(response),
+                "used_model": str(getattr(model, "model_name", "") or ""),
+            }
+        except Exception as e:
+            print(f"Selection edit error: {e}")
+            raise Exception(f"Selektions-Bearbeitung fehlgeschlagen: {str(e)}")
+
+    @staticmethod
     def _merge_usage_dict(a: Dict[str, int], b: Dict[str, int]) -> Dict[str, int]:
         return {
             "prompt_tokens": int(a.get("prompt_tokens", 0)) + int(b.get("prompt_tokens", 0)),
