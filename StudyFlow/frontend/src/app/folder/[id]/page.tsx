@@ -685,6 +685,8 @@ export default function FolderPage() {
     const readSelectionRangeRef = useRef<Range | null>(null);
     const readModeContentRef = useRef<HTMLDivElement | null>(null);
     const readSelectionPopupRef = useRef<HTMLDivElement | null>(null);
+    const readSelectionRafRef = useRef<number | null>(null);
+    const readSelectionSigRef = useRef<string>('');
 
     const API_BASE = '/api';
     const backendOrigin =
@@ -826,6 +828,7 @@ export default function FolderPage() {
         const active = isTextDoc && !isEditingFile && !isHtml;
 
         const reset = () => {
+            readSelectionSigRef.current = '';
             setReadSelectionRect(null);
             setReadSelectionText('');
             readSelectionRangeRef.current = null;
@@ -834,7 +837,7 @@ export default function FolderPage() {
             reset();
             return;
         }
-        const onSelectionChange = () => {
+        const flushReadSelection = () => {
             const sel = window.getSelection();
             if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
                 const focusedInsidePopup =
@@ -842,27 +845,54 @@ export default function FolderPage() {
                     !!document.activeElement &&
                     readSelectionPopupRef.current.contains(document.activeElement);
                 if (focusedInsidePopup || readSelectionBusy) return;
-                reset();
+                if (readSelectionSigRef.current !== '') {
+                    readSelectionSigRef.current = '';
+                    reset();
+                }
                 return;
             }
             const range = sel.getRangeAt(0);
             const root = readModeContentRef.current;
             if (!root || !root.contains(range.commonAncestorContainer)) {
-                reset();
+                if (readSelectionSigRef.current !== '') {
+                    readSelectionSigRef.current = '';
+                    reset();
+                }
                 return;
             }
             const txt = sel.toString().trim();
             if (!txt) {
-                reset();
+                if (readSelectionSigRef.current !== '') {
+                    readSelectionSigRef.current = '';
+                    reset();
+                }
                 return;
             }
-            readSelectionRangeRef.current = range.cloneRange();
             const rect = range.getBoundingClientRect();
+            const sig = `${txt}\0${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`;
+            if (sig === readSelectionSigRef.current) {
+                return;
+            }
+            readSelectionSigRef.current = sig;
+            readSelectionRangeRef.current = range.cloneRange();
             setReadSelectionText(txt);
             setReadSelectionRect({ x: rect.left + rect.width / 2, y: rect.top - 12 });
         };
-        document.addEventListener('selectionchange', onSelectionChange);
-        return () => document.removeEventListener('selectionchange', onSelectionChange);
+        const scheduleReadSelection = () => {
+            if (readSelectionRafRef.current != null) return;
+            readSelectionRafRef.current = window.requestAnimationFrame(() => {
+                readSelectionRafRef.current = null;
+                flushReadSelection();
+            });
+        };
+        document.addEventListener('selectionchange', scheduleReadSelection);
+        return () => {
+            document.removeEventListener('selectionchange', scheduleReadSelection);
+            if (readSelectionRafRef.current != null) {
+                cancelAnimationFrame(readSelectionRafRef.current);
+                readSelectionRafRef.current = null;
+            }
+        };
     }, [selectedFile, isEditingFile, readSelectionBusy]);
 
     useEffect(() => {
@@ -1684,7 +1714,67 @@ export default function FolderPage() {
                 signal: acElab.signal,
             });
 
-            if (res.ok) {
+            if (res.status === 202) {
+                const start = await res.json();
+                const jid = start.job_id as string | undefined;
+                if (!jid) {
+                    lastError = "Keine Job-ID vom Server.";
+                    showToast(`Ausarbeitung: ${lastError}`);
+                } else {
+                    const pollMs = 2000;
+                    const maxPolls = 600;
+                    let data: Record<string, unknown> | null = null;
+                    for (let i = 0; i < maxPolls; i++) {
+                        if (acElab.signal.aborted) break;
+                        await new Promise((r) => setTimeout(r, pollMs));
+                        const st = await fetch(
+                            `${API_BASE}/ai/elaboration/status/${encodeURIComponent(jid)}?username=${encodeURIComponent(username || "")}`,
+                            { signal: acElab.signal }
+                        );
+                        if (!st.ok) {
+                            lastError = `HTTP ${st.status}`;
+                            try {
+                                const err = await st.json();
+                                lastError = formatFastApiDetail(err.detail) || lastError;
+                            } catch {
+                                /* ignore */
+                            }
+                            showToast(`Ausarbeitung: ${lastError}`);
+                            break;
+                        }
+                        const j = (await st.json()) as { status: string; detail?: string };
+                        if (j.status === "done") {
+                            data = j as Record<string, unknown>;
+                            break;
+                        }
+                        if (j.status === "error") {
+                            lastError = j.detail || "Fehler bei der Erstellung.";
+                            showToast(`Ausarbeitung: ${lastError}`);
+                            break;
+                        }
+                    }
+                    if (data && typeof data.elaboration === "string") {
+                        ok = true;
+                        announceUsage(data);
+                        const fid =
+                            typeof data.file_id === "string"
+                                ? data.file_id
+                                : `elaboration_${Date.now()}`;
+                        setSelectedFile({
+                            id: fid,
+                            name: "Ausarbeitung",
+                            type: "summary",
+                            created_at: new Date().toISOString().split("T")[0],
+                            content: data.elaboration,
+                        });
+                        await fetchFiles();
+                    } else if (!lastError && !acElab.signal.aborted) {
+                        lastError =
+                            "Zeitüberschreitung — die Ausarbeitung dauert ungewöhnlich lange. Bitte später in den Dateien prüfen oder erneut versuchen.";
+                        showToast(lastError);
+                    }
+                }
+            } else if (res.ok) {
                 ok = true;
                 const data = await res.json();
                 announceUsage(data);

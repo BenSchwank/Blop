@@ -183,6 +183,8 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const selectionPopupRef = useRef<HTMLDivElement | null>(null);
     const selectionRangeRef = useRef<{ from: number; to: number } | null>(null);
+    const selectionRafRef = useRef<number | null>(null);
+    const selectionSigRef = useRef<string>('');
 
     // If initialContent is raw markdown (e.g. from the AI), Tiptap requires HTML to style it properly.
     // If it already looks like HTML (from a previous edit), we can just use it directly. 
@@ -270,7 +272,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
 
     useEffect(() => {
         if (!editor) return;
-        const updateSelectionUi = () => {
+        const flushSelectionUi = () => {
             const sel = window.getSelection();
             if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
                 const focusedInsidePopup =
@@ -280,25 +282,40 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                 if (focusedInsidePopup || selectionBusy) {
                     return;
                 }
-                setSelectionRect(null);
-                setSelectionText('');
-                selectionRangeRef.current = null;
+                if (selectionSigRef.current !== '') {
+                    selectionSigRef.current = '';
+                    setSelectionRect(null);
+                    setSelectionText('');
+                    selectionRangeRef.current = null;
+                }
                 return;
             }
             const range = sel.getRangeAt(0);
             if (!editor.view.dom.contains(range.commonAncestorContainer)) {
-                setSelectionRect(null);
-                setSelectionText('');
-                selectionRangeRef.current = null;
+                if (selectionSigRef.current !== '') {
+                    selectionSigRef.current = '';
+                    setSelectionRect(null);
+                    setSelectionText('');
+                    selectionRangeRef.current = null;
+                }
                 return;
             }
             const text = sel.toString().trim();
             if (!text) {
-                setSelectionRect(null);
-                setSelectionText('');
-                selectionRangeRef.current = null;
+                if (selectionSigRef.current !== '') {
+                    selectionSigRef.current = '';
+                    setSelectionRect(null);
+                    setSelectionText('');
+                    selectionRangeRef.current = null;
+                }
                 return;
             }
+            const rect = range.getBoundingClientRect();
+            const sig = `${text}\0${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`;
+            if (sig === selectionSigRef.current) {
+                return;
+            }
+            selectionSigRef.current = sig;
             try {
                 const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
                 const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
@@ -306,12 +323,24 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             } catch {
                 selectionRangeRef.current = null;
             }
-            const rect = range.getBoundingClientRect();
             setSelectionText(text);
             setSelectionRect({ x: rect.left + rect.width / 2, y: rect.top - 12 });
         };
-        document.addEventListener('selectionchange', updateSelectionUi);
-        return () => document.removeEventListener('selectionchange', updateSelectionUi);
+        const scheduleSelectionUi = () => {
+            if (selectionRafRef.current != null) return;
+            selectionRafRef.current = window.requestAnimationFrame(() => {
+                selectionRafRef.current = null;
+                flushSelectionUi();
+            });
+        };
+        document.addEventListener('selectionchange', scheduleSelectionUi);
+        return () => {
+            document.removeEventListener('selectionchange', scheduleSelectionUi);
+            if (selectionRafRef.current != null) {
+                cancelAnimationFrame(selectionRafRef.current);
+                selectionRafRef.current = null;
+            }
+        };
     }, [editor, selectionBusy]);
 
     useEffect(() => {
@@ -321,6 +350,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             const inPopup = !!(target && selectionPopupRef.current?.contains(target));
             const inEditor = !!(target && editor.view.dom.contains(target));
             if (inPopup || inEditor) return;
+            selectionSigRef.current = '';
             setSelectionRect(null);
             setSelectionText('');
             selectionRangeRef.current = null;

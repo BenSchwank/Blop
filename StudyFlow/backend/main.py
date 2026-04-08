@@ -56,6 +56,10 @@ _LEARNING_VIDEO_JOB_MAX = 256
 _PODCAST_JOBS: dict = {}
 _PODCAST_JOBS_LOCK = threading.Lock()
 _PODCAST_JOB_MAX = 256
+# Ausarbeitung: lange Gemini-Generierung — synchron würde Proxy-Timeouts (502) auslösen
+_ELABORATION_JOBS: dict = {}
+_ELABORATION_JOBS_LOCK = threading.Lock()
+_ELABORATION_JOB_MAX = 256
 # Multi-Instance: optional ai_background_jobs in Supabase (siehe supabase/migrations); Status-GET liest DB zuerst.
 
 
@@ -111,6 +115,115 @@ def _podcast_job_fail(job_id: str, detail: str) -> None:
             j["finished_at"] = time.time()
     if uname:
         DataManager.save_background_job(job_id, "podcast", uname, "error", detail=detail)
+
+
+def _elaboration_prune_jobs_locked() -> None:
+    if len(_ELABORATION_JOBS) < _ELABORATION_JOB_MAX:
+        return
+    finished = [
+        (jid, j.get("created_at", 0))
+        for jid, j in _ELABORATION_JOBS.items()
+        if j.get("status") in ("done", "error")
+    ]
+    finished.sort(key=lambda x: x[1])
+    for jid, _ in finished[: max(32, len(finished) // 2)]:
+        _ELABORATION_JOBS.pop(jid, None)
+
+
+def _elaboration_job_fail(job_id: str, detail: str) -> None:
+    uname: Optional[str] = None
+    with _ELABORATION_JOBS_LOCK:
+        if job_id in _ELABORATION_JOBS:
+            j = _ELABORATION_JOBS[job_id]
+            uname = j.get("username")
+            j["status"] = "error"
+            j["detail"] = detail
+            j["finished_at"] = time.time()
+    if uname:
+        DataManager.save_background_job(job_id, "elaboration", uname, "error", detail=detail)
+
+
+def _elaboration_job_worker(
+    job_id: str,
+    username: str,
+    folder_id: str,
+    detail_level: str,
+    custom_rules: str,
+    model_preference: Optional[str],
+) -> None:
+    from ai_service import AIService
+
+    try:
+        _configure_genai()
+        model_pref = resolve_model_preference(username, model_preference)
+        context, debug_log = _get_folder_context(username, folder_id)
+        if not context:
+            _elaboration_job_fail(
+                job_id,
+                f"Kein Material gefunden. Debug: {'; '.join(debug_log)}",
+            )
+            return
+        elaboration_result = AIService.generate_elaboration(
+            context,
+            detail_level=detail_level,
+            custom_rules=custom_rules or "",
+            model_preference=model_pref,
+            return_meta=True,
+        )
+        elaboration_text = elaboration_result["text"]
+        file_id = f"elaboration_{int(datetime.now().timestamp())}"
+        DataManager.save_file_metadata(
+            {
+                "id": file_id,
+                "name": "Ausarbeitung",
+                "type": "summary",
+                "content": elaboration_text,
+                "created_at": datetime.now().strftime("%Y-%m-%d"),
+            },
+            username,
+            folder_id,
+        )
+        try_notify_document_ready(username, folder_id, "Ausarbeitung")
+        charge = deduct_tokens_by_usage(
+            username,
+            "elaboration",
+            elaboration_result.get("used_model", model_pref or ""),
+            elaboration_result.get("usage"),
+        )
+        with _ELABORATION_JOBS_LOCK:
+            if job_id in _ELABORATION_JOBS:
+                _ELABORATION_JOBS[job_id].update(
+                    {
+                        "status": "done",
+                        "finished_at": time.time(),
+                        "elaboration": elaboration_text,
+                        "file_id": file_id,
+                        "used_model": elaboration_result.get("used_model", model_pref or ""),
+                        "usage": elaboration_result.get("usage", {}),
+                        **charge,
+                    }
+                )
+        DataManager.save_background_job(
+            job_id,
+            "elaboration",
+            username,
+            "done",
+            result={
+                "elaboration": elaboration_text,
+                "file_id": file_id,
+                "used_model": elaboration_result.get("used_model", model_pref or ""),
+                "usage": elaboration_result.get("usage", {}),
+                **charge,
+            },
+        )
+    except HTTPException as e:
+        detail = e.detail
+        if not isinstance(detail, str):
+            detail = str(detail)
+        _elaboration_job_fail(job_id, detail)
+    except Exception as e:
+        print(f"Elaboration job error: {e}")
+        _elaboration_job_fail(job_id, f"Ausarbeitungs-Fehler: {str(e)}")
 
 
 def _podcast_job_worker(
@@ -1819,51 +1932,87 @@ def create_summary(request: SummaryRequest, background_tasks: BackgroundTasks):
 
 @app.post("/api/ai/elaboration")
 def create_elaboration(request: ElaborationRequest):
-    from ai_service import AIService
-    from datetime import datetime
+    """Startet Ausarbeitung im Hintergrund (vermeidet HTTP-502 durch Proxy-Timeouts)."""
     try:
         ensure_minimum_tokens(request.username, 2)
-        _configure_genai()
-        model_pref = resolve_model_preference(request.username, request.model_preference)
-        context, debug_log = _get_folder_context(request.username, request.folder_id)
-        if not context:
-            raise HTTPException(status_code=400, detail=f"Kein Material gefunden. Debug: {'; '.join(debug_log)}")
-        
-        elaboration_result = AIService.generate_elaboration(
-            context,
-            detail_level=request.detail_level,
-            custom_rules=request.custom_rules,
-            model_preference=model_pref,
-            return_meta=True,
-        )
-        elaboration_text = elaboration_result["text"]
-        
-        DataManager.save_file_metadata({
-            "id": f"elaboration_{int(datetime.now().timestamp())}",
-            "name": "Ausarbeitung",
-            "type": "summary", # Reusing 'summary' rich text editor styling for now
-            "content": elaboration_text,
-            "created_at": datetime.now().strftime("%Y-%m-%d")
-        }, request.username, request.folder_id)
-        background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Ausarbeitung")
-        charge = deduct_tokens_by_usage(
-            request.username,
-            "elaboration",
-            elaboration_result.get("used_model", model_pref or ""),
-            elaboration_result.get("usage"),
-        )
-        return {
-            "status": "success",
-            "elaboration": elaboration_text,
-            "used_model": elaboration_result.get("used_model", model_pref or ""),
-            "usage": elaboration_result.get("usage", {}),
-            **charge,
-        }
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"Elaboration error: {e}")
-        raise HTTPException(status_code=500, detail=f"Ausarbeitungs-Fehler: {str(e)}")
+    job_id = str(uuid.uuid4())
+    with _ELABORATION_JOBS_LOCK:
+        _elaboration_prune_jobs_locked()
+        _ELABORATION_JOBS[job_id] = {
+            "status": "pending",
+            "username": request.username,
+            "created_at": time.time(),
+        }
+    DataManager.save_background_job(job_id, "elaboration", request.username, "pending")
+    thread = threading.Thread(
+        target=_elaboration_job_worker,
+        args=(
+            job_id,
+            request.username,
+            request.folder_id,
+            request.detail_level,
+            request.custom_rules or "",
+            request.model_preference,
+        ),
+        daemon=True,
+    )
+    thread.start()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "job_id": job_id,
+        },
+    )
+
+
+@app.get("/api/ai/elaboration/status/{job_id}")
+def elaboration_job_status(job_id: str, username: str):
+    row = DataManager.get_background_job(job_id, username)
+    with _ELABORATION_JOBS_LOCK:
+        job = _ELABORATION_JOBS.get(job_id)
+    if job and job.get("username") == username:
+        status = job.get("status")
+        if status == "pending":
+            return {"status": "pending"}
+        if status == "error":
+            return {"status": "error", "detail": job.get("detail") or "Unbekannter Fehler."}
+        if status == "done":
+            return {
+                "status": "done",
+                "elaboration": job.get("elaboration", ""),
+                "file_id": job.get("file_id"),
+                "used_model": job.get("used_model", ""),
+                "usage": job.get("usage", {}),
+                "tokens_charged": job.get("tokens_charged"),
+                "remaining_tokens": job.get("remaining_tokens"),
+                "usage_estimated": job.get("usage_estimated"),
+            }
+        return {"status": "pending"}
+    if row and row.get("job_type") == "elaboration":
+        st = row.get("status")
+        if st == "error":
+            return {
+                "status": "error",
+                "detail": row.get("detail") or "Unbekannter Fehler.",
+            }
+        if st == "done":
+            r = row.get("result") or {}
+            return {
+                "status": "done",
+                "elaboration": r.get("elaboration", ""),
+                "file_id": r.get("file_id"),
+                "used_model": r.get("used_model", ""),
+                "usage": r.get("usage") or {},
+                "tokens_charged": r.get("tokens_charged"),
+                "remaining_tokens": r.get("remaining_tokens"),
+                "usage_estimated": r.get("usage_estimated"),
+            }
+        if st == "pending":
+            return {"status": "pending"}
+    raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
 
 @app.post("/api/ai/elaboration/refine")
 def refine_elaboration(request: ElaborationRefineRequest):
