@@ -3894,19 +3894,23 @@ void MainWindow::updateSidebarUser(const QString &username) {
       QSignalBlocker b(m_modeSelector);
 #endif
       m_modeSelector->setCurrentIndex(1); // Force back to web login
-      m_modeSelector->hide(); // Hide the selector completely to prevent bypass
+#ifndef Q_OS_ANDROID
+      m_modeSelector->hide(); // Desktop: hide selector on auth screen
+#endif
     }
 #ifdef Q_OS_ANDROID
     onModeChanged(1);
-    // On auth screen the mode switch must not be usable.
+    // Keep tab switch usable on Android so users can always return to Notes.
+    // (Web localStorage/session sync can be delayed on some devices.)
     if (m_btnAndroidNotes) {
-      m_btnAndroidNotes->setVisible(false);
-      m_btnAndroidNotes->setEnabled(false);
+      m_btnAndroidNotes->setVisible(true);
+      m_btnAndroidNotes->setEnabled(true);
     }
     if (m_btnAndroidStudy) {
-      m_btnAndroidStudy->setVisible(false);
-      m_btnAndroidStudy->setEnabled(false);
+      m_btnAndroidStudy->setVisible(true);
+      m_btnAndroidStudy->setEnabled(true);
     }
+    // Web/bookmark actions stay hidden until we have a confirmed web session.
     if (m_btnAndroidAddWebBookmark) {
       m_btnAndroidAddWebBookmark->setVisible(false);
       m_btnAndroidAddWebBookmark->setEnabled(false);

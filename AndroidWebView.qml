@@ -44,10 +44,10 @@ Rectangle {
                      "    if (authLike) {" +
                      "      document.documentElement.style.zoom = '" + authUiScale + "';" +
                      "      if (document.body) document.body.style.zoom = '" + authUiScale + "';" +
-                     "    } else {" +
-                     "      document.documentElement.style.zoom = '0.94';" +
-                     "      if (document.body) document.body.style.zoom = '0.94';" +
-                     "    }" +
+                    "    } else {" +
+                    "      document.documentElement.style.zoom = '1.0';" +
+                    "      if (document.body) document.body.style.zoom = '1.0';" +
+                    "    }" +
                      "  } catch(e) {}" +
                      "  return true;" +
                      "})();";
