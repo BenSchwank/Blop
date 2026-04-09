@@ -5302,19 +5302,12 @@ void MainWindow::updateSidebarState() {
       btnEditorMenu->hide();
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
-    bool showPageManager = false;
-    if (m_editorTabs) {
-      if (auto *editor =
-              qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-        if (editor->view())
-          showPageManager = true;
-      }
-    }
     if (m_btnAndroidToolbarPageManager) {
-      m_btnAndroidToolbarPageManager->setVisible(showPageManager);
+      // Always keep page settings entry point reachable in Notes mode.
+      m_btnAndroidToolbarPageManager->setVisible(true);
     }
     if (m_btnAndroidToolbarExport)
-      m_btnAndroidToolbarExport->setVisible(showPageManager);
+      m_btnAndroidToolbarExport->setVisible(true);
     if (m_androidTopSearchBar)
       m_androidTopSearchBar->show();
 
@@ -5332,10 +5325,8 @@ void MainWindow::updateSidebarState() {
         a->setEasingCurve(QEasingCurve::OutBack);
         a->start(QAbstractAnimation::DeleteWhenStopped);
       };
-      if (showPageManager) {
-        animateScale(m_btnAndroidToolbarExport);
-        animateScale(m_btnAndroidToolbarPageManager);
-      }
+      animateScale(m_btnAndroidToolbarExport);
+      animateScale(m_btnAndroidToolbarPageManager);
     }
   } else {
     m_sidebarStrip->show();
@@ -5346,9 +5337,9 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
     if (m_btnAndroidToolbarPageManager)
-      m_btnAndroidToolbarPageManager->hide();
+      m_btnAndroidToolbarPageManager->setVisible(true);
     if (m_btnAndroidToolbarExport)
-      m_btnAndroidToolbarExport->hide();
+      m_btnAndroidToolbarExport->setVisible(true);
     if (m_androidTopSearchBar) {
       m_androidTopSearchBar->clear();
       m_androidTopSearchBar->hide();

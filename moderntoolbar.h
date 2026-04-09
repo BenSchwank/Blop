@@ -188,6 +188,8 @@ private:
 
     void updateLayout(bool animate = false);
     bool supportsAdaptiveDockedScroll() const;
+    int effectiveButtonSize(int w, int h) const;
+    int effectiveGap() const;
     QList<ToolbarBtn*> leftChromeButtons() const;
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);

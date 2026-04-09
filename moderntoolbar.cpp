@@ -1792,6 +1792,28 @@ bool ModernToolbar::supportsAdaptiveDockedScroll() const {
   return false;
 #endif
 }
+int ModernToolbar::effectiveButtonSize(int w, int h) const {
+#ifdef Q_OS_ANDROID
+  if (m_style == Normal && !m_isDockedMode) {
+    const int axis = (m_orientation == Vertical) ? qMin(w, h) : h;
+    return qBound(30, axis - UiScale::dp(16), 36);
+  }
+  if (m_style == Normal && m_isDockedMode) {
+    const int axis = (m_orientation == Vertical) ? qMin(w, h) : h;
+    return qBound(30, axis - UiScale::dp(12), 38);
+  }
+#endif
+  if (m_orientation == Vertical)
+    return std::max(30, (w < h ? w - 14 : h - 14));
+  return std::max(30, (h < w ? h - 12 : w - 12));
+}
+int ModernToolbar::effectiveGap() const {
+#ifdef Q_OS_ANDROID
+  return (m_style == Normal && !m_isDockedMode) ? UiScale::dp(4) : UiScale::dp(5);
+#else
+  return UiScale::dp(6);
+#endif
+}
 bool ModernToolbar::eventFilter(QObject *watched, QEvent *event) {
   if (watched == parentWidget() && event->type() == QEvent::Resize &&
       !m_isPreview) {
@@ -2009,7 +2031,7 @@ void ModernToolbar::snapToEdge() {
 void ModernToolbar::wheelEvent(QWheelEvent *e) {
   if (m_style == Normal && m_isDockedMode && m_orientation == Horizontal &&
       supportsAdaptiveDockedScroll() && m_dockedCenterOverflowPx > 0) {
-    const int step = qRound(e->angleDelta().y() / 8.0);
+    const int step = qRound(e->angleDelta().y() / 12.0);
     m_dockedCenterScrollPx =
         qBound(0, m_dockedCenterScrollPx - step, m_dockedCenterOverflowPx);
     updateLayout(false);
@@ -2092,8 +2114,14 @@ void ModernToolbar::setDockMode(bool docked) {
     } else {
       m_orientation = Horizontal;
       int idealW = calculateMinLength();
+#ifdef Q_OS_ANDROID
+      idealW = qMin(idealW, pw->width() - UiScale::dp(20));
+      targetGeom = QRect((pw->width() - idealW) / 2, UiScale::dp(56), idealW,
+                         UiScale::dp(46));
+#else
       targetGeom = QRect((pw->width() - idealW) / 2, UiScale::dp(60), idealW,
                          UiScale::dp(52));
+#endif
     }
 
     QPropertyAnimation *anim = new QPropertyAnimation(this, "geometry");
@@ -2153,12 +2181,7 @@ void ModernToolbar::updateLayout(bool animate) {
   if (m_style == Normal) {
     int w = width();
     int h = height();
-    int btnS = 40;
-    if (m_orientation == Vertical) {
-      btnS = std::max(30, (w < h ? w - 14 : h - 14));
-    } else {
-      btnS = std::max(30, (h < w ? h - 12 : w - 12)); 
-    }
+    int btnS = effectiveButtonSize(w, h);
     
     for (auto *b : m_buttons) {
       b->setBtnSize(btnS);
@@ -2174,8 +2197,8 @@ void ModernToolbar::updateLayout(bool animate) {
       if (b->isVisible()) numVisible++;
     }
     
-    int dragSize = (m_draggable && !m_isDockedMode) ? 20 : 10;
-    int gap = 6;
+    int dragSize = (m_draggable && !m_isDockedMode) ? UiScale::dp(14) : UiScale::dp(8);
+    int gap = effectiveGap();
     m_separatorXPositions.clear();
     
     if (m_isDockedMode) {
