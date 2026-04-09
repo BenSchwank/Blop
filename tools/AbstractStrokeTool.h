@@ -24,21 +24,26 @@ public:
     // though native TabletEvents will use their own pressure.
     qreal m_lastPressure{1.0};
 
+    /// Call from the view before each tablet gesture event so strokes are added to the scene
+    /// (tablet callbacks pass no QGraphicsScene* to handleMoveOrPress).
+    void setStrokeSceneForTablet(QGraphicsScene* scene) {
+        if (scene)
+            m_sceneRef = scene;
+    }
+
     bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
         // Tablet events give us robust pressure [0.0 - 1.0]
         m_lastPressure = event->pressure();
-        
-        // We simulate a mouse event call to keep the logic unified. 
-        // The actual drawing loop uses m_lastPressure.
+
+        QGraphicsScene* sc = m_sceneRef;
         if (event->type() == QEvent::TabletPress) {
-            handleMoveOrPress(scenePos, true, nullptr);
+            handleMoveOrPress(scenePos, true, sc);
             return true;
         } else if (event->type() == QEvent::TabletMove) {
-            handleMoveOrPress(scenePos, false, nullptr);
+            handleMoveOrPress(scenePos, false, sc);
             return true;
         } else if (event->type() == QEvent::TabletRelease) {
-            // End stroke
-            return handleMouseRelease(nullptr, nullptr); // scene is stored conceptually
+            return handleMouseRelease(nullptr, nullptr);
         }
         return false;
     }
@@ -52,6 +57,8 @@ public:
     }
 
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
+        if (scene)
+            m_sceneRef = scene;
         return handleMoveOrPress(event->scenePos(), false, scene);
     }
 
@@ -62,9 +69,10 @@ public:
             m_currentItem = nullptr;
             m_pointsBuffer.clear();
             m_longPressStraightMode = false;
+            m_holdShapeCommitted = false;
             m_holdShapeKind = HoldShapeKind::None;
             m_holdShapeConfidence = 0.0;
-            m_isSnapping = false; 
+            m_isSnapping = false;
             m_rulerRef = nullptr;
             m_sceneRef = nullptr;
             emit contentModified();
@@ -87,6 +95,8 @@ protected:
     QPointF m_lastMotionPos;
     QPointF m_pressStartPos;
     bool m_longPressStraightMode{false};
+    bool m_holdShapeCommitted{false};
+    QPointF m_holdLastScenePos;
     HoldShapeKind m_holdShapeKind{HoldShapeKind::None};
     qreal m_holdShapeConfidence{0.0};
     bool m_isSnapping{false};
@@ -101,6 +111,7 @@ protected:
             m_lastMotionPos = scenePos;
             m_lastMotionTimer.restart();
             m_longPressStraightMode = false;
+            m_holdShapeCommitted = false;
             m_holdShapeKind = HoldShapeKind::None;
             m_holdShapeConfidence = 0.0;
             m_isSnapping = false;
@@ -131,12 +142,12 @@ protected:
                 QPointF newPos = scenePos;
                 if (!m_longPressStraightMode && m_lastMotionTimer.isValid()) {
                     const qreal movementSinceLastSample = QLineF(scenePos, m_lastMotionPos).length();
-                    if (movementSinceLastSample > 1.8) {
+                    if (movementSinceLastSample > 4.0) {
                         m_lastMotionPos = scenePos;
                         m_lastMotionTimer.restart();
                     }
                     const bool heldLongEnough = m_lastMotionTimer.elapsed() >= 360;
-                    const bool draggedEnough = QLineF(scenePos, m_pressStartPos).length() >= 8.0;
+                    const bool draggedEnough = QLineF(scenePos, m_pressStartPos).length() >= 5.0;
                     if (heldLongEnough && draggedEnough) {
                         m_longPressStraightMode = true;
                     }
@@ -158,19 +169,36 @@ protected:
 
                 if (m_longPressStraightMode && !m_pointsBuffer.isEmpty()) {
                     auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
+                    if (m_holdShapeCommitted) {
+                        const QPointF delta = scenePos - m_holdLastScenePos;
+                        const qreal dlen = std::hypot(delta.x(), delta.y());
+                        static constexpr qreal kHoldTranslateDeadband = 0.35;
+                        if (dlen >= kHoldTranslateDeadband) {
+                            m_currentPath = m_currentPath.translated(delta);
+                            QVector<StrokePoint> pts = typedItem->points();
+                            for (int i = 0; i < pts.size(); ++i)
+                                pts[i].pos += delta;
+                            m_currentItem->setPath(m_currentPath);
+                            typedItem->setPoints(pts);
+                            m_holdLastScenePos = scenePos;
+                        }
+                        return true;
+                    }
                     QPainterPath fittedPath;
                     QVector<StrokePoint> fittedPoints;
                     qreal confidence = 0.0;
                     HoldShapeKind kind = fitHoldShape(m_pointsBuffer, fittedPath, fittedPoints, confidence);
-                    if (kind != HoldShapeKind::None && confidence >= 0.56 && fittedPoints.size() >= 2) {
+                    const qreal thresh = holdConfidenceThreshold(kind);
+                    if (kind != HoldShapeKind::None && confidence >= thresh && fittedPoints.size() >= 2) {
                         m_holdShapeKind = kind;
                         m_holdShapeConfidence = confidence;
                         m_currentPath = fittedPath;
                         m_currentItem->setPath(m_currentPath);
                         typedItem->setPoints(fittedPoints);
+                        m_holdShapeCommitted = true;
+                        m_holdLastScenePos = scenePos;
                         return true;
                     }
-                    // Match became unstable while drawing: switch back to freehand path.
                     m_holdShapeKind = HoldShapeKind::None;
                     m_holdShapeConfidence = 0.0;
                     m_longPressStraightMode = false;
@@ -211,6 +239,12 @@ protected:
         if (v < 0.0) return 0.0;
         if (v > 1.0) return 1.0;
         return v;
+    }
+
+    static qreal holdConfidenceThreshold(HoldShapeKind k) {
+        if (k == HoldShapeKind::Line)
+            return 0.56;
+        return 0.48;
     }
 
     static qreal distancePointToLine(const QPointF& p, const QPointF& a, const QPointF& b) {
@@ -271,7 +305,8 @@ protected:
         qreal lineErr = 0.0;
         for (const auto& p : pts) lineErr += distancePointToLine(p.pos, pStart, pEnd);
         lineErr = (lineErr / pts.size()) / diag;
-        qreal lineScore = clamp01((1.0 - lineErr * 5.5) * (mostlyClosed ? 0.35 : 1.0));
+        const qreal lineClosedPenalty = mostlyClosed ? 0.22 : 1.0;
+        qreal lineScore = clamp01((1.0 - lineErr * 5.5) * lineClosedPenalty);
 
         QPointF center = box.center();
         qreal rAvg = 0.0;
@@ -284,7 +319,8 @@ protected:
         }
         rVar = std::sqrt(rVar / pts.size()) / qMax<qreal>(1.0, rAvg);
         const qreal aspect = qMin(w, h) / qMax(w, h);
-        qreal circleScore = clamp01((1.0 - rVar * 2.4) * (0.35 + 0.65 * aspect) * (mostlyClosed ? 1.0 : 0.2));
+        const qreal circleClosedBoost = mostlyClosed ? 1.18 : 0.2;
+        qreal circleScore = clamp01((1.0 - rVar * 2.15) * (0.35 + 0.65 * aspect) * circleClosedBoost);
 
         qreal edgeNear = 0.0;
         for (const auto& p : pts) {
@@ -295,10 +331,11 @@ protected:
             const qreal dMin = qMin(qMin(dL, dR), qMin(dT, dB));
             if (dMin < diag * 0.08) edgeNear += 1.0;
         }
-        qreal rectScore = clamp01((edgeNear / pts.size()) * (mostlyClosed ? 1.0 : 0.1));
-        if (corners < 3) rectScore *= 0.55;
+        const qreal rectClosedBoost = mostlyClosed ? 1.15 : 0.1;
+        qreal rectScore = clamp01((edgeNear / pts.size()) * rectClosedBoost * (mostlyClosed ? 1.08 : 1.0));
+        if (corners < 3) rectScore *= mostlyClosed ? 0.72 : 0.55;
 
-        qreal triScore = clamp01((mostlyClosed ? 1.0 : 0.15) * (1.0 - std::abs(corners - 3) * 0.22));
+        qreal triScore = clamp01((mostlyClosed ? 1.12 : 0.15) * (1.0 - std::abs(corners - 3) * 0.18));
 
         qreal arcScore = 0.0;
         if (!mostlyClosed) {

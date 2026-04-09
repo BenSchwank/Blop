@@ -19,6 +19,7 @@ class QFrame;
 
 class NoteSelectionMenu;
 class StrokeAddUndoCommand;
+class AbstractTool;
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
@@ -164,4 +165,7 @@ private:
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);
     void pushUndoSnapshot(const QVector<NotePage>& beforeState);
+
+    /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.
+    void commitPendingStrokeItemsToNote(AbstractTool* tool);
 };

@@ -5,6 +5,7 @@
 #include "UIStyles.h"
 #include "uiscale.h"
 #include "tools/AbstractTool.h"
+#include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
 #include "tools/ToolManager.h"
 #include "tools/StrokeItem.h"
@@ -1164,6 +1165,54 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
   }
 }
 
+void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
+  if (!tool || !note_)
+    return;
+  QList<QGraphicsItem *> itemsToRemove;
+  for (QGraphicsItem *item : scene_.items()) {
+    if (!item->parentItem() && item->type() == QGraphicsItem::UserType + 1) {
+      auto *strokeItem = static_cast<StrokeItem *>(item);
+      auto points = strokeItem->points();
+      if (!points.isEmpty()) {
+        int pIdx = pageAt(points.first().pos);
+        if (pIdx >= 0 && note_) {
+          note_->ensurePage(pIdx);
+          QPointF pageTopLeft = pageRect(pIdx).topLeft();
+
+          Stroke s;
+          s.pageIndex = pIdx;
+          s.color = strokeItem->pen().color();
+          s.width = strokeItem->pen().width();
+          s.isEraser = (strokeItem->strokeStyle() == StrokeItem::Eraser);
+          s.isHighlighter =
+              (strokeItem->strokeStyle() == StrokeItem::Highlighter);
+
+          QPainterPath localPath;
+          for (int i = 0; i < points.size(); ++i) {
+            QPointF localP = points[i].pos - pageTopLeft;
+            s.points.append(localP);
+            if (i == 0)
+              localPath.moveTo(localP);
+            else
+              localPath.lineTo(localP);
+          }
+          s.path = localPath;
+          pushStrokeUndoCommand(pIdx, std::move(s));
+        }
+      }
+      itemsToRemove.append(item);
+    }
+  }
+
+  for (auto *item : itemsToRemove) {
+    scene_.removeItem(item);
+    delete item;
+  }
+
+  if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty())
+    startTransformSession();
+}
+
 void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
   if (m_pullDistance > 0.f)
     m_pullDistance = 0.f;
@@ -1188,49 +1237,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     scEvent.setButton(e->button());
 
     if (tool->handleMouseRelease(&scEvent, &scene_)) {
-      // 1. Hole den neu gezeichneten StrokeItem aus der Szene
-      QList<QGraphicsItem*> itemsToRemove;
-      for (QGraphicsItem* item : scene_.items()) {
-        if (!item->parentItem() && item->type() == QGraphicsItem::UserType + 1) {
-            auto* strokeItem = static_cast<StrokeItem*>(item);
-            auto points = strokeItem->points();
-            if (!points.isEmpty()) {
-                int pIdx = pageAt(points.first().pos);
-                if (pIdx >= 0 && note_) {
-                    note_->ensurePage(pIdx);
-                    QPointF pageTopLeft = pageRect(pIdx).topLeft();
-                    
-                    Stroke s;
-                    s.pageIndex = pIdx;
-                    s.color = strokeItem->pen().color();
-                    s.width = strokeItem->pen().width();
-                    s.isEraser = (strokeItem->strokeStyle() == StrokeItem::Eraser);
-                    s.isHighlighter = (strokeItem->strokeStyle() == StrokeItem::Highlighter);
-                    
-                    QPainterPath localPath;
-                    for (int i=0; i < points.size(); ++i) {
-                        QPointF localP = points[i].pos - pageTopLeft;
-                        s.points.append(localP);
-                        if (i == 0) localPath.moveTo(localP);
-                        else localPath.lineTo(localP);
-                    }
-                    s.path = localPath;
-                    pushStrokeUndoCommand(pIdx, std::move(s));
-                }
-            }
-            itemsToRemove.append(item);
-        }
-      }
-
-      for (auto* item : itemsToRemove) {
-          scene_.removeItem(item);
-          delete item;
-      }
-
-      if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty()) {
-          startTransformSession();
-      }
-
+      commitPendingStrokeItemsToNote(tool);
       e->accept();
       return;
     }
@@ -1249,11 +1256,17 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
-  // Wenn Ruler oder ein anderes Tool aktiv ist, Tablet-Event ignorieren und
-  // auf MouseEvent-Verarbeitung (oben) verlassen.
-  if (ToolManager::instance().activeTool()) {
-    e->ignore();
-    return;
+  AbstractTool *tool = ToolManager::instance().activeTool();
+  if (tool && note_ && mode_ != ToolMode::Lasso) {
+    QPointF scenePos = mapToScene(e->position().toPoint());
+    if (auto *strokeTool = qobject_cast<AbstractStrokeTool *>(tool))
+      strokeTool->setStrokeSceneForTablet(&scene_);
+    if (tool->handleTabletEvent(e, scenePos)) {
+      e->accept();
+      if (e->type() == QEvent::TabletRelease)
+        commitPendingStrokeItemsToNote(tool);
+      return;
+    }
   }
 
   if (!note_ || mode_ == ToolMode::Lasso) {

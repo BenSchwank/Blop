@@ -4,6 +4,7 @@
 #include "UIStyles.h"
 #include "mainwindow.h"
 #include "tools/AbstractTool.h"
+#include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
 #include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
@@ -1231,7 +1232,9 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
     if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
         // Automatically switch to drawing mode (disabling touch-panning temporarily if they hover with pen)
         QPointF scenePos = mapToScene(event->position().toPoint());
-        
+        if (auto *strokeTool = qobject_cast<AbstractStrokeTool *>(m_toolManager->activeTool()))
+            strokeTool->setStrokeSceneForTablet(m_scene);
+
         if (m_toolManager->activeTool()->handleTabletEvent(event, scenePos)) {
             if (event->type() == QEvent::TabletPress) {
                 m_isDrawing = true;
