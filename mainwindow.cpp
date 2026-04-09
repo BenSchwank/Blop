@@ -188,6 +188,34 @@ QString blopGhostButtonStyle() {
 QPushButton:hover { background: rgba(255,255,255,0.08); color: #F0EEFF; border-color: rgba(124,92,252,0.45); })");
 }
 
+#ifdef Q_OS_ANDROID
+void syncAndroidHeaderGeometry(MainWindow *window) {
+  if (!window)
+    return;
+  QWidget *chrome = window->findChild<QWidget *>(QStringLiteral("AndroidTopChrome"));
+  QWidget *inner =
+      window->findChild<QWidget *>(QStringLiteral("AndroidTopHeaderInner"));
+  if (!chrome || !inner)
+    return;
+  auto *headerLay = qobject_cast<QHBoxLayout *>(inner->layout());
+  if (!headerLay)
+    return;
+
+  // Keep the status-bar offset conservative and bounded so Study transitions
+  // never push the tab row outside the visible top area.
+  const int rawInset = UiScale::androidTopInsetPx(window);
+  const int clampedInset = qBound(0, rawInset, UiScale::dp(18));
+  const int topExtra = UiScale::dp(4);
+  const int headerHeight = UiScale::dp(52);
+  const int totalHeight = headerHeight + clampedInset + topExtra;
+
+  chrome->setFixedHeight(totalHeight);
+  inner->setFixedHeight(totalHeight);
+  headerLay->setContentsMargins(UiScale::dp(10), clampedInset + topExtra,
+                                UiScale::dp(10), UiScale::dp(4));
+}
+#endif
+
 } // namespace
 
 // ============================================================================
@@ -2570,8 +2598,8 @@ void MainWindow::setupUi() {
   androidTopChrome->setObjectName(QStringLiteral("AndroidTopChrome"));
   androidTopChrome->setStyleSheet(
       "QWidget#AndroidTopChrome { background-color: #0F111A; border: none; }");
-  const int androidTopInset = UiScale::androidTopInsetPx(this);
-  const int androidHeaderTopExtra = UiScale::dp(6);
+  const int androidTopInset = qBound(0, UiScale::androidTopInsetPx(this), UiScale::dp(18));
+  const int androidHeaderTopExtra = UiScale::dp(4);
   const int androidHeaderHeight = UiScale::dp(52);
   const int androidHeaderButtonW = UiScale::dp(56);
   const int androidHeaderButtonH = UiScale::dp(32);
@@ -2580,6 +2608,7 @@ void MainWindow::setupUi() {
       androidHeaderHeight + androidTopInset + androidHeaderTopExtra;
 
   QWidget *androidHeader = new QWidget(androidTopChrome);
+  androidHeader->setObjectName(QStringLiteral("AndroidTopHeaderInner"));
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   androidHeader->setFixedHeight(androidHeaderTotalH);
   androidHeader->setStyleSheet("background-color: #0F111A;");
@@ -2864,6 +2893,7 @@ void MainWindow::setupUi() {
   }
   androidTopChrome->setFixedHeight(androidHeaderTotalH);
   mainLayout->addWidget(androidTopChrome, 0);
+  syncAndroidHeaderGeometry(this);
 
   // Status bar colors must run on Android's *UI* thread — JNI from Qt's thread
   // triggers CalledFromWrongThreadException and can break touch/layout (see logcat).
@@ -3732,6 +3762,7 @@ void MainWindow::onModeChanged(int index) {
     animateSidebar(false);
 
 #ifdef Q_OS_ANDROID
+  syncAndroidHeaderGeometry(this);
   // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
   // broke re-entering Study on some devices).
   if (mainStackIdx == 0) {
@@ -3785,6 +3816,7 @@ void MainWindow::onModeChanged(int index) {
   }
   if (m_androidHeader)
     m_androidHeader->raise();
+  syncAndroidHeaderGeometry(this);
 #endif
 
 #ifdef Q_OS_ANDROID
@@ -5588,6 +5620,7 @@ void MainWindow::finishRename() {
 void MainWindow::showEvent(QShowEvent *event) {
   QMainWindow::showEvent(event);
 #ifdef Q_OS_ANDROID
+  syncAndroidHeaderGeometry(this);
   if (m_androidHeader)
     m_androidHeader->raise();
 #endif
@@ -5607,6 +5640,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 #ifdef Q_OS_ANDROID
   fabSize = FAB_SIZE_ANDROID;
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
+  syncAndroidHeaderGeometry(this);
   syncSidebarPushLayout();
   if (m_studyVBoxLayout)
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
