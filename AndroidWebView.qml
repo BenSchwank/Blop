@@ -13,6 +13,8 @@ Rectangle {
     // Slight zoom-out so auth forms fit better without vertical scrolling.
     property real authUiScale: 0.86
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
+    readonly property int topBarHeight: Math.round(48 * uiScale)
+    readonly property int topBarTopMargin: Math.round(8 * uiScale)
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
     function setWebDestination(kind, urlStr) {
@@ -63,9 +65,101 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        id: qmlTopBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: topBarHeight + topBarTopMargin
+        color: "#0F111A"
+        z: 20
+
+        Row {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Math.round(10 * uiScale)
+            spacing: Math.round(8 * uiScale)
+
+            Rectangle {
+                width: Math.round(74 * uiScale)
+                height: Math.round(30 * uiScale)
+                radius: Math.round(14 * uiScale)
+                color: "transparent"
+                border.color: "#2D3145"
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Notizen"
+                    color: "#A7ACBB"
+                    font.pixelSize: Math.round(12 * uiScale)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        if (typeof blopAppBridge !== "undefined")
+                            blopAppBridge.switchToNotesFromWebQmlBar()
+                    }
+                }
+            }
+
+            Rectangle {
+                width: Math.round(64 * uiScale)
+                height: Math.round(30 * uiScale)
+                radius: Math.round(14 * uiScale)
+                color: "#5E5CE6"
+                border.color: "#7D7AFF"
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Study"
+                    color: "#F4F5FB"
+                    font.pixelSize: Math.round(12 * uiScale)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: setWebDestination(0, "")
+                }
+            }
+
+            Rectangle {
+                width: Math.round(30 * uiScale)
+                height: Math.round(30 * uiScale)
+                radius: Math.round(14 * uiScale)
+                color: "transparent"
+                border.color: "#2D3145"
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "+"
+                    color: "#A7ACBB"
+                    font.pixelSize: Math.round(14 * uiScale)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        if (typeof blopAppBridge !== "undefined")
+                            blopAppBridge.openWebBookmarkMenuFromWebQmlBar()
+                    }
+                }
+            }
+        }
+    }
+
     WebView {
         id: webView
-        anchors.fill: parent
+        anchors.top: qmlTopBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         url: "about:blank"
 
         // Qt 6: declare loadRequest explicitly (injected implicit parameter is deprecated)

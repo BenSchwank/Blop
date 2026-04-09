@@ -3870,6 +3870,27 @@ void MainWindow::requestGoogleLogin() {
     GoogleAuthManager::instance().login();
 }
 
+void MainWindow::switchToNotesFromWebQmlBar() {
+#ifdef Q_OS_ANDROID
+  if (m_modeSelector) {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(0);
+  }
+  onModeChanged(0);
+#endif
+}
+
+void MainWindow::openWebBookmarkMenuFromWebQmlBar() {
+#ifdef Q_OS_ANDROID
+  if (m_btnAndroidAddWebBookmark) {
+    openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+    return;
+  }
+  if (m_androidHeader)
+    openWebBookmarkOverflowMenuFromWidget(m_androidHeader);
+#endif
+}
+
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
