@@ -5200,6 +5200,9 @@ void MainWindow::animateSidebar(bool show) {
 }
 void MainWindow::onToggleSidebar() {
 #ifdef Q_OS_ANDROID
+  const bool inNotesMode = m_mainContentStack && m_mainContentStack->currentIndex() == 0;
+  if (!inNotesMode)
+    return;
   // Debounce: Android touch events can fire clicked() twice (press+release propagation).
   static QElapsedTimer sidebarToggleCooldown;
   if (sidebarToggleCooldown.isValid() && sidebarToggleCooldown.elapsed() < 400)
@@ -5267,7 +5270,21 @@ void MainWindow::updateSidebarState() {
   }
 #ifdef Q_OS_ANDROID
   // Overview: floating menu next to welcome; Editor: compact hamburger in top bar
-  if (isEditor) {
+  if (!inNotesMode) {
+    m_sidebarStrip->hide();
+    if (btnEditorMenu)
+      btnEditorMenu->hide();
+    if (m_btnAndroidToolbarMenu)
+      m_btnAndroidToolbarMenu->hide();
+    if (m_btnAndroidToolbarPageManager)
+      m_btnAndroidToolbarPageManager->hide();
+    if (m_btnAndroidToolbarExport)
+      m_btnAndroidToolbarExport->hide();
+    if (m_androidTopSearchBar) {
+      m_androidTopSearchBar->clear();
+      m_androidTopSearchBar->hide();
+    }
+  } else if (isEditor) {
     if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       // Avoid random floating state on Android.
       tb->setDockMode(true);

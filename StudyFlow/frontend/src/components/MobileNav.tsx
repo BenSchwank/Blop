@@ -46,7 +46,8 @@ export default function MobileNav() {
             aria-label="Mobile"
             className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pt-1"
             style={{
-                paddingBottom: isNativeApp ? "env(safe-area-inset-bottom, 0px)" : "calc(env(safe-area-inset-bottom, 0px) + 8px)",
+                paddingBottom: isNativeApp ? "0px" : "calc(env(safe-area-inset-bottom, 0px) + 8px)",
+                borderTop: isNativeApp ? "0px solid transparent" : undefined,
             }}
         >
             <div className="flex justify-around items-center h-16 px-2">
