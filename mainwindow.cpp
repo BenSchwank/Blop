@@ -3764,8 +3764,8 @@ void MainWindow::onModeChanged(int index) {
 #ifdef Q_OS_ANDROID
   syncAndroidHeaderGeometry(this);
   if (m_studyVBoxLayout) {
-    const int studyTopInset = m_androidHeader ? m_androidHeader->height() : 0;
-    m_studyVBoxLayout->setContentsMargins(0, studyTopInset, 0, 0);
+    // Study has its own QML top bar; keep web content flush to avoid double top bars.
+    m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   }
   // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
   // broke re-entering Study on some devices).
@@ -3783,8 +3783,12 @@ void MainWindow::onModeChanged(int index) {
   if (m_mainContentStack) {
     m_mainContentStack->setCurrentIndex(mainStackIdx);
 #ifdef Q_OS_ANDROID
-    if (m_androidHeader)
-      m_androidHeader->raise();
+    if (m_androidHeader) {
+      const bool showNativeHeader = (mainStackIdx == 0);
+      m_androidHeader->setVisible(showNativeHeader);
+      if (showNativeHeader)
+        m_androidHeader->raise();
+    }
 #endif
   }
 #ifdef Q_OS_ANDROID
@@ -3819,13 +3823,18 @@ void MainWindow::onModeChanged(int index) {
     }
   }
   if (m_androidHeader)
+    m_androidHeader->setVisible(mainStackIdx == 0);
+  if (m_androidHeader && mainStackIdx == 0)
     m_androidHeader->raise();
   syncAndroidHeaderGeometry(this);
   // Study switches can transiently report stale availableGeometry on Android.
   // Re-sync shortly after layer reordering so the top tab row stays visible.
   QTimer::singleShot(80, this, [this]() {
     syncAndroidHeaderGeometry(this);
+    const bool inNotesMode = m_mainContentStack && m_mainContentStack->currentIndex() == 0;
     if (m_androidHeader)
+      m_androidHeader->setVisible(inNotesMode);
+    if (m_androidHeader && inNotesMode)
       m_androidHeader->raise();
   });
 #endif
@@ -3882,12 +3891,15 @@ void MainWindow::switchToNotesFromWebQmlBar() {
 
 void MainWindow::openWebBookmarkMenuFromWebQmlBar() {
 #ifdef Q_OS_ANDROID
-  if (m_btnAndroidAddWebBookmark) {
+  if (m_btnAndroidAddWebBookmark && m_btnAndroidAddWebBookmark->isVisible()) {
     openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
     return;
   }
-  if (m_androidHeader)
-    openWebBookmarkOverflowMenuFromWidget(m_androidHeader);
+  if (m_studyContainer && m_studyContainer->isVisible()) {
+    openWebBookmarkOverflowMenuFromWidget(m_studyContainer);
+    return;
+  }
+  openWebBookmarkOverflowMenuFromWidget(this);
 #endif
 }
 
@@ -5674,13 +5686,11 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
   syncAndroidHeaderGeometry(this);
   syncSidebarPushLayout();
-  if (m_studyVBoxLayout) {
-    const int studyTopInset = m_androidHeader ? m_androidHeader->height() : 0;
-    m_studyVBoxLayout->setContentsMargins(0, studyTopInset, 0, 0);
-  }
+  if (m_studyVBoxLayout)
+    m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
-  if (m_androidHeader)
+  if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
 #else
   if (isTouchMode())
