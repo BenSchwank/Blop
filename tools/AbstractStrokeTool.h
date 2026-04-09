@@ -141,10 +141,6 @@ protected:
                         m_longPressStraightMode = true;
                     }
                 }
-                if (QLineF(newPos, m_pointsBuffer.last().pos).length() > 0.8) {
-                    m_pointsBuffer.append({newPos, m_lastPressure});
-                }
-
                 if (m_isSnapping && m_rulerRef) {
                     QPointF start = m_pointsBuffer.first().pos;
                     newPos = m_rulerRef->snapPoint(newPos, start);
