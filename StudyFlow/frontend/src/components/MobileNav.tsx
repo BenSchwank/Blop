@@ -30,7 +30,10 @@ export default function MobileNav() {
         <div
             role="navigation"
             aria-label="Mobile"
-            className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pb-5 pt-1"
+            className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pt-1 pb-2"
+            style={{
+                paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)",
+            }}
         >
             <div className="flex justify-around items-center h-16 px-2">
                 {navItems.map((item) => {

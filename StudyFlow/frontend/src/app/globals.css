@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+:root {
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --mobile-nav-base: 72px;
+  --mobile-nav-reserve: calc(var(--mobile-nav-base) + var(--safe-area-bottom));
+}
+
 /* Blop Study - iOS-Inspired Design System */
 @theme {
   /* Blop Colors (from original QML) */
@@ -46,6 +52,10 @@ body {
   overflow-x: hidden;
   font-size: 16px;
   /* Base size for better readability */
+}
+
+.mobile-safe-bottom {
+  padding-bottom: var(--safe-area-bottom);
 }
 
 /*
