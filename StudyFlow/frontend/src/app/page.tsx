@@ -301,10 +301,10 @@ export default function Dashboard() {
   return (
     <div className="bg-[#0B0B1A] min-h-screen relative">
       {/* Main Container - Professional Width */}
-      <div className="max-w-7xl mr-auto px-8 py-12">
+      <div className="mx-auto w-full max-w-[1400px] px-6 py-10 md:px-8 md:py-12 xl:px-10">
 
         {/* Header */}
-        <div className="mb-10 flex items-center justify-between">
+        <div className="mb-9 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white mb-2">
               Willkommen zurück! 👋
@@ -316,7 +316,7 @@ export default function Dashboard() {
         </div>
 
         {/* Search Bar & Actions Row - GRID LAYOUT */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] items-center gap-4 mb-8 h-12">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] items-center gap-4 mb-8 min-h-[48px]">
 
           {/* Search */}
           <div className="relative w-full h-full">
@@ -334,7 +334,7 @@ export default function Dashboard() {
           </div>
 
           {/* Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 h-full">
+          <div className="flex flex-col sm:flex-row gap-3 xl:justify-end h-full">
             <button
               onClick={() => setIsSummaryOpen(true)}
               className="h-10 sm:h-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#5E5CE6] to-[#7D7AFF] text-white px-4 sm:px-6 rounded-xl text-[13px] sm:text-sm font-semibold hover:shadow-lg hover:shadow-[#5E5CE6]/25 transition-all shadow-md min-w-[120px] sm:min-w-[140px]"
@@ -405,7 +405,7 @@ export default function Dashboard() {
                 onDragEnd={handleDragEnd}
                 collisionDetection={closestCenter}
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 lg:gap-5">
                   <AnimatePresence mode='popLayout'>
                     {filteredFolders.map((folder) => (
                       <DraggableFolder
@@ -439,7 +439,7 @@ export default function Dashboard() {
                 </DragOverlay>
               </DndContext>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 lg:gap-5">
                 <AnimatePresence mode='popLayout'>
                   {filteredFolders.map((folder) => (
                     <motion.div
