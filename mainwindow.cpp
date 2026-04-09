@@ -3763,6 +3763,10 @@ void MainWindow::onModeChanged(int index) {
 
 #ifdef Q_OS_ANDROID
   syncAndroidHeaderGeometry(this);
+  if (m_studyVBoxLayout) {
+    const int studyTopInset = m_androidHeader ? m_androidHeader->height() : 0;
+    m_studyVBoxLayout->setContentsMargins(0, studyTopInset, 0, 0);
+  }
   // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
   // broke re-entering Study on some devices).
   if (mainStackIdx == 0) {
@@ -5649,8 +5653,10 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
   syncAndroidHeaderGeometry(this);
   syncSidebarPushLayout();
-  if (m_studyVBoxLayout)
-    m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
+  if (m_studyVBoxLayout) {
+    const int studyTopInset = m_androidHeader ? m_androidHeader->height() : 0;
+    m_studyVBoxLayout->setContentsMargins(0, studyTopInset, 0, 0);
+  }
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
   if (m_androidHeader)
