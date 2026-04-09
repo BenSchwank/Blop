@@ -20,6 +20,7 @@ public:
         if (!scene) return false;
 
         m_startPos = event->scenePos();
+        m_lastMotionPos = m_startPos;
         m_pressTimer.restart();
         m_longPressLock = false;
 
@@ -43,6 +44,11 @@ public:
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentShape) {
             if (!m_longPressLock && m_pressTimer.isValid()) {
+                const qreal moved = QLineF(m_lastMotionPos, event->scenePos()).length();
+                if (moved > 1.8) {
+                    m_lastMotionPos = event->scenePos();
+                    m_pressTimer.restart();
+                }
                 const bool heldLongEnough = m_pressTimer.elapsed() >= 360;
                 const bool draggedEnough = QLineF(m_startPos, event->scenePos()).length() >= 8.0;
                 if (heldLongEnough && draggedEnough)
@@ -89,6 +95,7 @@ public:
 private:
     QGraphicsItem* m_currentShape{nullptr};
     QPointF m_startPos;
+    QPointF m_lastMotionPos;
     QElapsedTimer m_pressTimer;
     bool m_longPressLock{false};
 };
