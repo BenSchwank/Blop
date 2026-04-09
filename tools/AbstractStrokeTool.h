@@ -517,7 +517,8 @@ protected:
     }
 
     HoldShapeKind fitHoldShape(const QList<StrokePoint>& pts, QPainterPath& outPath,
-                               QVector<StrokePoint>& outPoints, qreal& outConfidence) const {
+                               QVector<StrokePoint>& outPoints, qreal& outConfidence,
+                               bool* outSquareLike = nullptr, QPointF* outArcMid = nullptr) const {
         outPath = QPainterPath();
         outPoints.clear();
         outConfidence = 0.0;
