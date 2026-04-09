@@ -13,12 +13,21 @@
 #include <QList>
 #include <QPointF>
 #include <QTabletEvent>
+#include <QTimer>
+#include <array>
 
 class AbstractStrokeTool : public AbstractTool {
     Q_OBJECT
 
 public:
-    using AbstractTool::AbstractTool;
+    explicit AbstractStrokeTool(QObject* parent = nullptr)
+        : AbstractTool(parent) {
+        m_holdStillTimer = new QTimer(this);
+        m_holdStillTimer->setSingleShot(true);
+        m_holdStillTimer->setInterval(360);
+        connect(m_holdStillTimer, &QTimer::timeout, this,
+                &AbstractStrokeTool::onHoldStillTimeout);
+    }
 
     // We store the last pressure so that mouseMove events (if synthesized) have a fallback,
     // though native TabletEvents will use their own pressure.
@@ -64,6 +73,8 @@ public:
 
     bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentItem) {
+            if (m_holdStillTimer)
+                m_holdStillTimer->stop();
             m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
             m_lastCompletedItem = m_currentItem;
             m_currentItem = nullptr;
@@ -72,6 +83,8 @@ public:
             m_holdShapeCommitted = false;
             m_holdShapeKind = HoldShapeKind::None;
             m_holdShapeConfidence = 0.0;
+            m_holdTriValid = false;
+            m_holdArcValid = false;
             m_isSnapping = false;
             m_rulerRef = nullptr;
             m_sceneRef = nullptr;
@@ -80,6 +93,25 @@ public:
         }
         return false;
     }
+
+private slots:
+    void onHoldStillTimeout() {
+        if (!m_currentItem || m_holdShapeCommitted || m_pointsBuffer.size() < 6)
+            return;
+        if (QLineF(m_lastKnownScenePos, m_pressStartPos).length() < 5.0)
+            return;
+        m_longPressStraightMode = true;
+        if (!commitHoldShapeIfReady(m_lastKnownScenePos)) {
+            m_holdShapeKind = HoldShapeKind::None;
+            m_holdShapeConfidence = 0.0;
+            m_longPressStraightMode = false;
+            rebuildFreehandPathFromPoints();
+        }
+    }
+
+private:
+    QTimer* m_holdStillTimer{nullptr};
+    QPointF m_lastKnownScenePos;
 
 protected:
     enum class HoldShapeKind { None, Line, Arc, Rectangle, Triangle, Circle };
@@ -103,6 +135,16 @@ protected:
     RulerItem* m_rulerRef{nullptr};
     QGraphicsScene* m_sceneRef{nullptr};
 
+    QPointF m_holdStrokeStart;
+    QPointF m_holdCircleCenter;
+    QPointF m_holdRectAnchorCorner;
+    bool m_holdIsSquare{false};
+    std::array<QPointF, 3> m_holdTriangleVerts{};
+    bool m_holdTriValid{false};
+    QPointF m_holdArcStart;
+    qreal m_arcHOverChord{0};
+    bool m_holdArcValid{false};
+
     bool handleMoveOrPress(QPointF scenePos, bool isPress, QGraphicsScene* scene) {
         if (isPress) {
             m_currentPath = QPainterPath();
@@ -114,6 +156,8 @@ protected:
             m_holdShapeCommitted = false;
             m_holdShapeKind = HoldShapeKind::None;
             m_holdShapeConfidence = 0.0;
+            m_holdTriValid = false;
+            m_holdArcValid = false;
             m_isSnapping = false;
             m_rulerRef = nullptr;
             if (scene) m_sceneRef = scene;
@@ -136,15 +180,21 @@ protected:
             m_currentItem->setZValue(getZValue());
 
             if (m_sceneRef) m_sceneRef->addItem(m_currentItem);
+            m_lastKnownScenePos = startPos;
+            if (m_holdStillTimer)
+                m_holdStillTimer->start(360);
             return true;
         } else {
             if (m_currentItem) {
+                m_lastKnownScenePos = scenePos;
                 QPointF newPos = scenePos;
                 if (!m_longPressStraightMode && m_lastMotionTimer.isValid()) {
                     const qreal movementSinceLastSample = QLineF(scenePos, m_lastMotionPos).length();
                     if (movementSinceLastSample > 4.0) {
                         m_lastMotionPos = scenePos;
                         m_lastMotionTimer.restart();
+                        if (m_holdStillTimer)
+                            m_holdStillTimer->start(360);
                     }
                     const bool heldLongEnough = m_lastMotionTimer.elapsed() >= 360;
                     const bool draggedEnough = QLineF(scenePos, m_pressStartPos).length() >= 5.0;
@@ -168,37 +218,12 @@ protected:
                 }
 
                 if (m_longPressStraightMode && !m_pointsBuffer.isEmpty()) {
-                    auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
                     if (m_holdShapeCommitted) {
-                        const QPointF delta = scenePos - m_holdLastScenePos;
-                        const qreal dlen = std::hypot(delta.x(), delta.y());
-                        static constexpr qreal kHoldTranslateDeadband = 0.35;
-                        if (dlen >= kHoldTranslateDeadband) {
-                            m_currentPath = m_currentPath.translated(delta);
-                            QVector<StrokePoint> pts = typedItem->points();
-                            for (int i = 0; i < pts.size(); ++i)
-                                pts[i].pos += delta;
-                            m_currentItem->setPath(m_currentPath);
-                            typedItem->setPoints(pts);
-                            m_holdLastScenePos = scenePos;
-                        }
+                        adjustHoldShape(scenePos);
                         return true;
                     }
-                    QPainterPath fittedPath;
-                    QVector<StrokePoint> fittedPoints;
-                    qreal confidence = 0.0;
-                    HoldShapeKind kind = fitHoldShape(m_pointsBuffer, fittedPath, fittedPoints, confidence);
-                    const qreal thresh = holdConfidenceThreshold(kind);
-                    if (kind != HoldShapeKind::None && confidence >= thresh && fittedPoints.size() >= 2) {
-                        m_holdShapeKind = kind;
-                        m_holdShapeConfidence = confidence;
-                        m_currentPath = fittedPath;
-                        m_currentItem->setPath(m_currentPath);
-                        typedItem->setPoints(fittedPoints);
-                        m_holdShapeCommitted = true;
-                        m_holdLastScenePos = scenePos;
+                    if (commitHoldShapeIfReady(scenePos))
                         return true;
-                    }
                     m_holdShapeKind = HoldShapeKind::None;
                     m_holdShapeConfidence = 0.0;
                     m_longPressStraightMode = false;
@@ -225,6 +250,218 @@ protected:
             }
         }
         return false;
+    }
+
+    bool commitHoldShapeIfReady(QPointF scenePos) {
+        if (!m_currentItem || m_pointsBuffer.size() < 6)
+            return false;
+        if (m_holdShapeCommitted)
+            return true;
+        auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
+        QPainterPath fittedPath;
+        QVector<StrokePoint> fittedPoints;
+        qreal confidence = 0.0;
+        bool squareLike = false;
+        QPointF arcMidCaptured;
+        HoldShapeKind kind = fitHoldShape(m_pointsBuffer, fittedPath, fittedPoints, confidence, &squareLike,
+                                          &arcMidCaptured);
+        const qreal thresh = holdConfidenceThreshold(kind);
+        if (kind == HoldShapeKind::None || confidence < thresh || fittedPoints.size() < 2)
+            return false;
+        m_holdShapeKind = kind;
+        m_holdShapeConfidence = confidence;
+        m_currentPath = fittedPath;
+        m_currentItem->setPath(m_currentPath);
+        typedItem->setPoints(fittedPoints);
+        captureHoldAnchorsAfterFirstFit(kind, fittedPoints, squareLike, arcMidCaptured);
+        m_holdShapeCommitted = true;
+        if (m_holdStillTimer)
+            m_holdStillTimer->stop();
+        adjustHoldShape(scenePos);
+        return true;
+    }
+
+    void adjustHoldShape(QPointF scenePos) {
+        if (!m_currentItem)
+            return;
+        const qreal pr = m_lastPressure;
+        switch (m_holdShapeKind) {
+        case HoldShapeKind::Line:
+            rebuildHoldLine(scenePos, pr);
+            break;
+        case HoldShapeKind::Rectangle:
+            rebuildHoldRect(scenePos, pr);
+            break;
+        case HoldShapeKind::Triangle:
+            if (m_holdTriValid)
+                rebuildHoldTriangle(scenePos, pr);
+            break;
+        case HoldShapeKind::Circle:
+            rebuildHoldCircle(scenePos, pr);
+            break;
+        case HoldShapeKind::Arc:
+            if (m_holdArcValid)
+                rebuildHoldArc(scenePos, pr);
+            break;
+        default:
+            break;
+        }
+        m_holdLastScenePos = scenePos;
+    }
+
+    void captureHoldAnchorsAfterFirstFit(HoldShapeKind kind, const QVector<StrokePoint>& fitted,
+                                         bool squareLike, const QPointF& arcMid) {
+        m_holdStrokeStart = m_pointsBuffer.first().pos;
+        m_holdTriValid = false;
+        m_holdArcValid = false;
+        switch (kind) {
+        case HoldShapeKind::Line:
+            break;
+        case HoldShapeKind::Rectangle: {
+            m_holdIsSquare = squareLike;
+            const QPointF c[4] = {fitted[0].pos, fitted[1].pos, fitted[2].pos, fitted[3].pos};
+            qreal bestD = 1e100;
+            int bi = 0;
+            for (int i = 0; i < 4; ++i) {
+                const qreal d = QLineF(c[i], m_holdStrokeStart).length();
+                if (d < bestD) {
+                    bestD = d;
+                    bi = i;
+                }
+            }
+            m_holdRectAnchorCorner = c[bi];
+            break;
+        }
+        case HoldShapeKind::Triangle:
+            m_holdTriangleVerts[0] = fitted[0].pos;
+            m_holdTriangleVerts[1] = fitted[1].pos;
+            m_holdTriangleVerts[2] = fitted[2].pos;
+            m_holdTriValid = true;
+            break;
+        case HoldShapeKind::Circle: {
+            QRectF bb;
+            for (const auto& sp : fitted)
+                bb |= QRectF(sp.pos, QSizeF(1, 1));
+            m_holdCircleCenter = bb.center();
+            break;
+        }
+        case HoldShapeKind::Arc: {
+            const QPointF p0 = fitted.first().pos;
+            const QPointF p2 = fitted.last().pos;
+            m_holdArcStart = p0;
+            const QPointF M((p0.x() + p2.x()) * 0.5, (p0.y() + p2.y()) * 0.5);
+            const qreal len = QLineF(p0, p2).length();
+            if (len > 1e-6) {
+                QPointF perp(-(p2.y() - p0.y()) / len, (p2.x() - p0.x()) / len);
+                const QPointF am = arcMid - M;
+                m_arcHOverChord = (am.x() * perp.x() + am.y() * perp.y()) / len;
+                m_holdArcValid = true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    void rebuildHoldLine(const QPointF& end, qreal pressure) {
+        QVector<StrokePoint> pts;
+        pts.append({m_holdStrokeStart, pressure});
+        pts.append({end, pressure});
+        m_currentPath = QPainterPath();
+        m_currentPath.moveTo(m_holdStrokeStart);
+        m_currentPath.lineTo(end);
+        m_currentItem->setPath(m_currentPath);
+        static_cast<StrokeItem*>(m_currentItem)->setPoints(pts);
+    }
+
+    void rebuildHoldRect(const QPointF& oppositeCorner, qreal pressure) {
+        QPointF a = m_holdRectAnchorCorner;
+        QPointF b = oppositeCorner;
+        if (m_holdIsSquare) {
+            const qreal sx = (b.x() >= a.x()) ? 1.0 : -1.0;
+            const qreal sy = (b.y() >= a.y()) ? 1.0 : -1.0;
+            const qreal side = qMax(qMax(std::abs(b.x() - a.x()), std::abs(b.y() - a.y())), 1.0);
+            b = QPointF(a.x() + sx * side, a.y() + sy * side);
+        }
+        const QRectF r = QRectF(a, b).normalized();
+        const QVector<QPointF> poly{r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft(), r.topLeft()};
+        m_currentPath = QPainterPath();
+        m_currentPath.moveTo(poly.first());
+        QVector<StrokePoint> pts;
+        pts.append({poly.first(), pressure});
+        for (int i = 1; i < poly.size(); ++i) {
+            m_currentPath.lineTo(poly[i]);
+            pts.append({poly[i], pressure});
+        }
+        m_currentItem->setPath(m_currentPath);
+        static_cast<StrokeItem*>(m_currentItem)->setPoints(pts);
+    }
+
+    void rebuildHoldTriangle(const QPointF& cursor, qreal pressure) {
+        int mi = 0;
+        qreal best = -1.0;
+        for (int i = 0; i < 3; ++i) {
+            const qreal d = QLineF(m_holdTriangleVerts[i], m_holdStrokeStart).length();
+            if (d > best) {
+                best = d;
+                mi = i;
+            }
+        }
+        m_holdTriangleVerts[mi] = cursor;
+        const QVector<QPointF> poly{m_holdTriangleVerts[0], m_holdTriangleVerts[1], m_holdTriangleVerts[2],
+                                      m_holdTriangleVerts[0]};
+        m_currentPath = QPainterPath();
+        m_currentPath.moveTo(poly.first());
+        QVector<StrokePoint> pts;
+        pts.append({poly.first(), pressure});
+        for (int i = 1; i < poly.size(); ++i) {
+            m_currentPath.lineTo(poly[i]);
+            pts.append({poly[i], pressure});
+        }
+        m_currentItem->setPath(m_currentPath);
+        static_cast<StrokeItem*>(m_currentItem)->setPoints(pts);
+    }
+
+    void rebuildHoldCircle(const QPointF& cursor, qreal pressure) {
+        qreal r = QLineF(m_holdCircleCenter, cursor).length();
+        r = qMax(r, 1.0);
+        const QRectF box(m_holdCircleCenter.x() - r, m_holdCircleCenter.y() - r, 2.0 * r, 2.0 * r);
+        m_currentPath = QPainterPath();
+        m_currentPath.addEllipse(box);
+        QVector<StrokePoint> pts;
+        const int seg = 40;
+        for (int i = 0; i <= seg; ++i) {
+            const qreal t = (2.0 * M_PI * i) / seg;
+            const QPointF p(m_holdCircleCenter.x() + r * std::cos(t), m_holdCircleCenter.y() + r * std::sin(t));
+            pts.append({p, pressure});
+        }
+        m_currentItem->setPath(m_currentPath);
+        static_cast<StrokeItem*>(m_currentItem)->setPoints(pts);
+    }
+
+    void rebuildHoldArc(const QPointF& end, qreal pressure) {
+        const QPointF p0 = m_holdArcStart;
+        const QPointF p2 = end;
+        const QPointF M((p0.x() + p2.x()) * 0.5, (p0.y() + p2.y()) * 0.5);
+        const qreal len = QLineF(p0, p2).length();
+        if (len < 1e-4)
+            return;
+        QPointF perp(-(p2.y() - p0.y()) / len, (p2.x() - p0.x()) / len);
+        const QPointF midCtrl = M + perp * (m_arcHOverChord * len);
+        m_currentPath = QPainterPath();
+        m_currentPath.moveTo(p0);
+        m_currentPath.quadTo(midCtrl, p2);
+        QVector<StrokePoint> pts;
+        const int seg = 24;
+        for (int i = 0; i <= seg; ++i) {
+            const qreal t = static_cast<qreal>(i) / seg;
+            const qreal u = 1.0 - t;
+            const QPointF p = (u * u) * p0 + (2.0 * u * t) * midCtrl + (t * t) * p2;
+            pts.append({p, pressure});
+        }
+        m_currentItem->setPath(m_currentPath);
+        static_cast<StrokeItem*>(m_currentItem)->setPoints(pts);
     }
 
     RulerItem* findRuler(QGraphicsScene* scene) {
@@ -369,6 +606,8 @@ protected:
             addPolyline({pStart, pEnd});
         } else if (best == HoldShapeKind::Rectangle) {
             const bool squareLike = aspect > 0.84;
+            if (outSquareLike)
+                *outSquareLike = squareLike;
             QRectF r = box.normalized();
             if (squareLike) {
                 const qreal side = qMax(r.width(), r.height());
@@ -392,6 +631,8 @@ protected:
             }
         } else if (best == HoldShapeKind::Arc) {
             const QPointF mid = pts[pts.size() / 2].pos;
+            if (outArcMid)
+                *outArcMid = mid;
             outPath.moveTo(pStart);
             outPath.quadTo(mid, pEnd);
             const int seg = 24;
