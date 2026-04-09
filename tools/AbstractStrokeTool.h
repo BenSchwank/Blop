@@ -2,7 +2,9 @@
 #include "AbstractTool.h"
 #include "RulerItem.h"
 #include "StrokeItem.h"
+#include <QElapsedTimer>
 #include <QGraphicsPathItem>
+#include <QLineF>
 #include <QPen>
 #include <QList>
 #include <QPointF>
@@ -55,6 +57,7 @@ public:
             m_lastCompletedItem = m_currentItem;
             m_currentItem = nullptr;
             m_pointsBuffer.clear();
+            m_longPressStraightMode = false;
             m_isSnapping = false; 
             m_rulerRef = nullptr;
             m_sceneRef = nullptr;
@@ -72,6 +75,9 @@ protected:
     QGraphicsPathItem* m_currentItem{nullptr};
     QPainterPath m_currentPath;
     QList<StrokePoint> m_pointsBuffer;
+    QElapsedTimer m_pressTimer;
+    QPointF m_pressStartPos;
+    bool m_longPressStraightMode{false};
     bool m_isSnapping{false};
     RulerItem* m_rulerRef{nullptr};
     QGraphicsScene* m_sceneRef{nullptr};
@@ -80,6 +86,9 @@ protected:
         if (isPress) {
             m_currentPath = QPainterPath();
             QPointF startPos = scenePos;
+            m_pressStartPos = scenePos;
+            m_pressTimer.restart();
+            m_longPressStraightMode = false;
             m_isSnapping = false;
             m_rulerRef = nullptr;
             if (scene) m_sceneRef = scene;
@@ -106,6 +115,14 @@ protected:
         } else {
             if (m_currentItem) {
                 QPointF newPos = scenePos;
+                if (!m_longPressStraightMode && m_pressTimer.isValid()) {
+                    const bool heldLongEnough = m_pressTimer.elapsed() >= 360;
+                    const bool draggedEnough = QLineF(scenePos, m_pressStartPos).length() >= 8.0;
+                    if (heldLongEnough && draggedEnough) {
+                        m_longPressStraightMode = true;
+                    }
+                }
+
                 if (m_isSnapping && m_rulerRef) {
                     QPointF start = m_pointsBuffer.first().pos;
                     newPos = m_rulerRef->snapPoint(newPos, start);
@@ -118,6 +135,21 @@ protected:
                         auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
                         typedItem->addPoint({newPos, m_lastPressure});
                     }
+                    return true;
+                }
+
+                if (m_longPressStraightMode && !m_pointsBuffer.isEmpty()) {
+                    const QPointF start = m_pointsBuffer.first().pos;
+                    m_currentPath = QPainterPath();
+                    m_currentPath.moveTo(start);
+                    m_currentPath.lineTo(newPos);
+                    m_currentItem->setPath(m_currentPath);
+                    auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
+                    QVector<StrokePoint> lockedPoints;
+                    lockedPoints.reserve(2);
+                    lockedPoints.append({start, m_pointsBuffer.first().pressure});
+                    lockedPoints.append({newPos, m_lastPressure});
+                    typedItem->setPoints(lockedPoints);
                     return true;
                 }
 

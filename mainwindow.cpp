@@ -3873,6 +3873,13 @@ void MainWindow::onModeChanged(int index) {
   // Without this, the UI can remain in an "editor" state while the Study
   // WebView is shown, which may block switching back.
   updateSidebarState();
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    tb->requestAdaptiveReflow();
+    QTimer::singleShot(0, this, [this]() {
+      if (auto *tbNow = qobject_cast<ModernToolbar *>(m_floatingTools))
+        tbNow->requestAdaptiveReflow();
+    });
+  }
 }
 
 void MainWindow::requestGoogleLogin() {
@@ -5723,6 +5730,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
     if (tb) {
       tb->setTopBound(0);
+      tb->requestAdaptiveReflow();
       // Let the toolbar govern its own dragged docking position seamlessly.
     }
   }

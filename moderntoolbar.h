@@ -94,6 +94,7 @@ public:
 
     void constrainToParent();
     void setTopBound(int top);
+    void requestAdaptiveReflow();
     int calculateMinLength();
 
 signals:
@@ -138,8 +139,14 @@ private:
 
     bool m_isScrolling{false};
     bool m_hasScrolled{false};
+    bool m_isDockedCenterDragging{false};
     double m_dragStartAngle{0.0};
     double m_scrollStartAngleVal{0.0};
+    int m_dockedCenterDragLastX{0};
+    int m_dockedCenterScrollPx{0};
+    int m_dockedCenterOverflowPx{0};
+    int m_dockedCenterAreaStartX{0};
+    int m_dockedCenterAreaEndX{0};
 
     bool m_isDockedLeft{true};
     double m_scrollAngle{0.0};
@@ -180,6 +187,7 @@ private:
     QList<QColor> m_customColors;
 
     void updateLayout(bool animate = false);
+    bool supportsAdaptiveDockedScroll() const;
     QList<ToolbarBtn*> leftChromeButtons() const;
     void snapToEdge();
     void checkOrientation(const QPoint& globalPos);

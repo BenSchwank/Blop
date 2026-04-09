@@ -1,5 +1,7 @@
 #pragma once
 #include "AbstractTool.h"
+#include <QElapsedTimer>
+#include <QLineF>
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QPen>
@@ -18,6 +20,8 @@ public:
         if (!scene) return false;
 
         m_startPos = event->scenePos();
+        m_pressTimer.restart();
+        m_longPressLock = false;
 
         // KORREKTUR: Wir erstellen das Item direkt als RectItem
         QGraphicsRectItem* rectItem = new QGraphicsRectItem();
@@ -38,10 +42,25 @@ public:
 
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (m_currentShape) {
+            if (!m_longPressLock && m_pressTimer.isValid()) {
+                const bool heldLongEnough = m_pressTimer.elapsed() >= 360;
+                const bool draggedEnough = QLineF(m_startPos, event->scenePos()).length() >= 8.0;
+                if (heldLongEnough && draggedEnough)
+                    m_longPressLock = true;
+            }
             // Wir müssen zurückcasten, um setRect aufzurufen
             QGraphicsRectItem* rectItem = static_cast<QGraphicsRectItem*>(m_currentShape);
 
-            QRectF newRect(m_startPos, event->scenePos());
+            QPointF endPos = event->scenePos();
+            if (m_longPressLock) {
+                // Long-press: keep shape clean/proportional (square lock).
+                const QPointF delta = endPos - m_startPos;
+                const qreal side = qMax(qAbs(delta.x()), qAbs(delta.y()));
+                const qreal sx = (delta.x() >= 0) ? 1.0 : -1.0;
+                const qreal sy = (delta.y() >= 0) ? 1.0 : -1.0;
+                endPos = m_startPos + QPointF(side * sx, side * sy);
+            }
+            QRectF newRect(m_startPos, endPos);
             rectItem->setRect(newRect.normalized());
             return true;
         }
@@ -61,6 +80,7 @@ public:
                 emit contentModified();
             }
             m_currentShape = nullptr;
+            m_longPressLock = false;
             return true;
         }
         return false;
@@ -69,4 +89,6 @@ public:
 private:
     QGraphicsItem* m_currentShape{nullptr};
     QPointF m_startPos;
+    QElapsedTimer m_pressTimer;
+    bool m_longPressLock{false};
 };

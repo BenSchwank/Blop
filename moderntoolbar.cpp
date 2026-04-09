@@ -1357,6 +1357,7 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     m_isScrolling = false;
     m_hasScrolled = false;
     m_isDragging = false;
+    m_isDockedCenterDragging = false;
     if (m_style == Radial)
       m_pressedButton = getRadialButtonAt(e->pos());
     int dragR = 45 * m_scale;
@@ -1378,6 +1379,25 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     }
     if (m_isResizing)
       return;
+    if (m_style == Normal && m_isDockedMode && m_orientation == Horizontal &&
+        supportsAdaptiveDockedScroll() && m_dockedCenterOverflowPx > 0) {
+      bool hitVisibleButton = false;
+      for (auto *b : m_buttons) {
+        if (b && b->isVisible() && b->geometry().contains(e->pos())) {
+          hitVisibleButton = true;
+          break;
+        }
+      }
+      const bool inCenterLane =
+          e->pos().x() >= m_dockedCenterAreaStartX &&
+          e->pos().x() <= m_dockedCenterAreaEndX;
+      if (!hitVisibleButton && inCenterLane) {
+        m_isDockedCenterDragging = true;
+        m_dockedCenterDragLastX = e->pos().x();
+        e->accept();
+        return;
+      }
+    }
     if (m_style == Normal && !m_isPreview) {
       int handleSize = 30;
       if (e->pos().x() > width() - handleSize &&
@@ -1411,6 +1431,17 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
 }
 
 void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
+  if (m_isDockedCenterDragging && m_style == Normal && m_isDockedMode &&
+      m_orientation == Horizontal && supportsAdaptiveDockedScroll() &&
+      m_dockedCenterOverflowPx > 0) {
+    const int dx = e->pos().x() - m_dockedCenterDragLastX;
+    m_dockedCenterDragLastX = e->pos().x();
+    m_dockedCenterScrollPx =
+        qBound(0, m_dockedCenterScrollPx - dx, m_dockedCenterOverflowPx);
+    updateLayout(false);
+    e->accept();
+    return;
+  }
   if (e->buttons() == Qt::NoButton && !m_isDragging && !m_isScrolling && e->source() == Qt::MouseEventNotSynthesized) return;
 
   if (m_style == Radial && !m_isDragging) {
@@ -1612,6 +1643,11 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
+  if (m_isDockedCenterDragging) {
+    m_isDockedCenterDragging = false;
+    e->accept();
+    return;
+  }
   if (m_pressedButton) {
     if (!(m_style == Radial && m_radialType == HalfEdge && m_hasScrolled))
       m_pressedButton->triggerClick();
@@ -1749,15 +1785,30 @@ void ModernToolbar::showEvent(QShowEvent *) {
     constrainToParent();
   updateHitbox();
 }
+bool ModernToolbar::supportsAdaptiveDockedScroll() const {
+#ifdef Q_OS_ANDROID
+  return true;
+#else
+  return false;
+#endif
+}
 bool ModernToolbar::eventFilter(QObject *watched, QEvent *event) {
   if (watched == parentWidget() && event->type() == QEvent::Resize &&
-      !m_isPreview)
+      !m_isPreview) {
+    updateLayout(false);
     constrainToParent();
+  }
   return QWidget::eventFilter(watched, event);
 }
 void ModernToolbar::setTopBound(int top) {
   m_topBound = top;
   constrainToParent();
+}
+void ModernToolbar::requestAdaptiveReflow() {
+  updateLayout(false);
+  if (!m_isPreview)
+    constrainToParent();
+  update();
 }
 void ModernToolbar::setScale(double s) {
   if (s < 0.5)
@@ -1956,7 +2007,14 @@ void ModernToolbar::snapToEdge() {
   anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 void ModernToolbar::wheelEvent(QWheelEvent *e) {
-  if (m_style == Radial && m_radialType == HalfEdge) {
+  if (m_style == Normal && m_isDockedMode && m_orientation == Horizontal &&
+      supportsAdaptiveDockedScroll() && m_dockedCenterOverflowPx > 0) {
+    const int step = qRound(e->angleDelta().y() / 8.0);
+    m_dockedCenterScrollPx =
+        qBound(0, m_dockedCenterScrollPx - step, m_dockedCenterOverflowPx);
+    updateLayout(false);
+    e->accept();
+  } else if (m_style == Radial && m_radialType == HalfEdge) {
     double delta = e->angleDelta().y() / 8.0;
     m_scrollAngle += delta;
     double maxScroll = (m_buttons.size() * 30.0);
@@ -2142,11 +2200,34 @@ void ModernToolbar::updateLayout(bool animate) {
           }
       }
       
-      // Calculate widths and starting X positions
-      int totalCenterW = centerGroup.size() * btnS + (centerGroup.size() - 1) * gap + (3 * 20);
-      int centerStartX = (w - totalCenterW) / 2;
+      const bool adaptiveCenterScroll = supportsAdaptiveDockedScroll();
+      // Calculate widths and adaptive center scroll area.
       int leftStartX = 20;
-      int rightStartX = w - 20 - (rightGroup.size() * btnS + (rightGroup.size() - 1) * gap);
+      const int rightGroupW =
+          rightGroup.size() * btnS + (rightGroup.size() - 1) * gap;
+      const int rightStartXBase = w - 20 - rightGroupW;
+
+      int centerContentW =
+          centerGroup.size() * btnS + (centerGroup.size() - 1) * gap + (3 * 20);
+      int leftEndX = leftStartX + leftGroup.size() * btnS +
+                     (leftGroup.size() - 1) * gap;
+      int centerAreaStart = leftEndX + 20;
+      int centerAreaEnd = rightStartXBase - 20;
+      if (centerAreaEnd < centerAreaStart)
+        centerAreaEnd = centerAreaStart;
+      int centerAreaW = centerAreaEnd - centerAreaStart;
+      m_dockedCenterOverflowPx =
+          adaptiveCenterScroll ? qMax(0, centerContentW - centerAreaW) : 0;
+      m_dockedCenterScrollPx =
+          qBound(0, m_dockedCenterScrollPx, m_dockedCenterOverflowPx);
+      m_dockedCenterAreaStartX = centerAreaStart;
+      m_dockedCenterAreaEndX = centerAreaEnd;
+
+      int centerStartX =
+          adaptiveCenterScroll
+              ? (centerAreaStart - m_dockedCenterScrollPx)
+              : ((w - centerContentW) / 2);
+      int rightStartX = rightStartXBase;
       
       for (int i = 0; i < m_buttons.size(); ++i) {
         auto *b = m_buttons[i];
@@ -2170,8 +2251,16 @@ void ModernToolbar::updateLayout(bool animate) {
               m_separatorXPositions.append(centerStartX);
               centerStartX += gap + 4;
             }
+            if (adaptiveCenterScroll) {
+              const bool inVisibleCenterWindow =
+                  (bx + btnS >= centerAreaStart) && (bx <= centerAreaEnd);
+              b->setVisible(inVisibleCenterWindow);
+            }
         }
         
+        if (!b->isVisible())
+          continue;
+
         if (animate) {
           QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
           anim->setDuration(200);
@@ -2182,6 +2271,10 @@ void ModernToolbar::updateLayout(bool animate) {
         }
       }
     } else {
+      m_dockedCenterOverflowPx = 0;
+      m_dockedCenterScrollPx = 0;
+      m_dockedCenterAreaStartX = 0;
+      m_dockedCenterAreaEndX = 0;
       int currentPos = dragSize;
       const QList<ToolbarBtn *> chromeRow = leftChromeButtons();
 
