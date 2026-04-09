@@ -3879,6 +3879,19 @@ void MainWindow::switchToNotesFromWeb() {
 #endif
 }
 
+void MainWindow::switchToStudyFromWeb() {
+#ifdef Q_OS_ANDROID
+  if (m_modeSelector) {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(1);
+  }
+  onModeChanged(1);
+  if (m_androidHeader)
+    m_androidHeader->raise();
+  syncAndroidHeaderGeometry(this);
+#endif
+}
+
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();

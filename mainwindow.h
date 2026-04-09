@@ -159,6 +159,7 @@ public slots:
   void onSessionCheck(const QString &sessionData);
   void showAuthOverlay(const QUrl &url);
   void switchToNotesFromWeb();
+  void switchToStudyFromWeb();
 
 private slots:
   void checkForUpdates();
