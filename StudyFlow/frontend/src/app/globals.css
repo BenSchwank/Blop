@@ -3,7 +3,7 @@
 :root {
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --mobile-nav-base: 72px;
-  --mobile-nav-reserve: calc(var(--mobile-nav-base) + var(--safe-area-bottom));
+  --mobile-nav-reserve: var(--mobile-nav-base);
 }
 
 /* Blop Study - iOS-Inspired Design System */

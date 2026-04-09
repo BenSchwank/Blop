@@ -204,7 +204,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   // Keep the status-bar offset conservative and bounded so Study transitions
   // never push the tab row outside the visible top area.
   const int rawInset = UiScale::androidTopInsetPx(window);
-  const int clampedInset = qBound(0, rawInset, UiScale::dp(18));
+  const int clampedInset = qBound(0, rawInset, UiScale::dp(32));
   const int topExtra = UiScale::dp(4);
   const int headerHeight = UiScale::dp(52);
   const int totalHeight = headerHeight + clampedInset + topExtra;
@@ -2598,7 +2598,7 @@ void MainWindow::setupUi() {
   androidTopChrome->setObjectName(QStringLiteral("AndroidTopChrome"));
   androidTopChrome->setStyleSheet(
       "QWidget#AndroidTopChrome { background-color: #0F111A; border: none; }");
-  const int androidTopInset = qBound(0, UiScale::androidTopInsetPx(this), UiScale::dp(18));
+  const int androidTopInset = qBound(0, UiScale::androidTopInsetPx(this), UiScale::dp(32));
   const int androidHeaderTopExtra = UiScale::dp(4);
   const int androidHeaderHeight = UiScale::dp(52);
   const int androidHeaderButtonW = UiScale::dp(56);
@@ -3817,6 +3817,13 @@ void MainWindow::onModeChanged(int index) {
   if (m_androidHeader)
     m_androidHeader->raise();
   syncAndroidHeaderGeometry(this);
+  // Study switches can transiently report stale availableGeometry on Android.
+  // Re-sync shortly after layer reordering so the top tab row stays visible.
+  QTimer::singleShot(80, this, [this]() {
+    syncAndroidHeaderGeometry(this);
+    if (m_androidHeader)
+      m_androidHeader->raise();
+  });
 #endif
 
 #ifdef Q_OS_ANDROID

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Settings, Shield, Sparkles } from 'lucide-react';
+import { Home, Settings, Shield } from 'lucide-react';
 
 export default function MobileNav() {
     const pathname = usePathname();
@@ -30,7 +30,7 @@ export default function MobileNav() {
         <div
             role="navigation"
             aria-label="Mobile"
-            className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pt-1 pb-2"
+            className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-[#1e1e1e]/90 backdrop-blur-lg border-t border-[#333] z-50 pt-1"
             style={{
                 paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)",
             }}

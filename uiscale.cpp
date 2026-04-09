@@ -51,10 +51,10 @@ int androidTopInsetPx(QWidget *reference) {
   // Edge-to-edge / fullscreen: geometry can still be 0 while status icons draw
   // over the first row — keep a conservative minimum strip to avoid over-shifting.
   if (inset <= 0)
-    inset = dp(12);
+    inset = dp(16);
   // Some Android/ROM combinations can report unusually large deltas during
   // surface transitions; keep the returned inset bounded for stable layouts.
-  inset = qBound(0, inset, dp(18));
+  inset = qBound(0, inset, dp(32));
 #endif
   return inset;
 }
