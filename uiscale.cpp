@@ -47,11 +47,8 @@ int androidTopInsetPx(QWidget *reference) {
   }
 #if defined(Q_OS_ANDROID)
   // QWindow::safeAreaMargins() is not available on all Qt-for-Android targets (e.g. CI Qt 6.6);
-  // rely on screen geometry plus a minimum inset below.
-  // Edge-to-edge / fullscreen: geometry can still be 0 while status icons draw
-  // over the first row — keep a conservative minimum strip to avoid over-shifting.
-  if (inset <= 0)
-    inset = dp(16);
+  // rely on screen geometry and avoid synthetic minimums that can create a
+  // permanent fake top strip on devices already reporting correct geometry.
   // Some Android/ROM combinations can report unusually large deltas during
   // surface transitions; keep the returned inset bounded for stable layouts.
   inset = qBound(0, inset, dp(32));

@@ -205,7 +205,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   // never push the tab row outside the visible top area.
   const int rawInset = UiScale::androidTopInsetPx(window);
   const int clampedInset = qBound(0, rawInset, UiScale::dp(32));
-  const int topExtra = UiScale::dp(4);
+  const int topExtra = UiScale::dp(2);
   const int headerHeight = UiScale::dp(52);
   const int totalHeight = headerHeight + clampedInset + topExtra;
 
@@ -3864,32 +3864,6 @@ void MainWindow::onModeChanged(int index) {
 
 void MainWindow::requestGoogleLogin() {
     GoogleAuthManager::instance().login();
-}
-
-void MainWindow::switchToNotesFromWeb() {
-#ifdef Q_OS_ANDROID
-  if (m_modeSelector) {
-    QSignalBlocker b(m_modeSelector);
-    m_modeSelector->setCurrentIndex(0);
-  }
-  onModeChanged(0);
-  if (m_androidHeader)
-    m_androidHeader->raise();
-  syncAndroidHeaderGeometry(this);
-#endif
-}
-
-void MainWindow::switchToStudyFromWeb() {
-#ifdef Q_OS_ANDROID
-  if (m_modeSelector) {
-    QSignalBlocker b(m_modeSelector);
-    m_modeSelector->setCurrentIndex(1);
-  }
-  onModeChanged(1);
-  if (m_androidHeader)
-    m_androidHeader->raise();
-  syncAndroidHeaderGeometry(this);
-#endif
 }
 
 void MainWindow::onSessionCheck(const QString &sessionData) {

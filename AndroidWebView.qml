@@ -12,21 +12,18 @@ Rectangle {
     property bool ssoPollingEnabled: true
     // Slight zoom-out so auth forms fit better without vertical scrolling.
     property real authUiScale: 0.86
-    property string nativeMode: "study"
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
     function setWebDestination(kind, urlStr) {
         var k = Number(kind)
         if (k === 0) {
-            nativeMode = "study"
             ssoPollingEnabled = true
             oauthPending = false
             firstLoadDone = true
             webView.url = studyUrl
             applyAuthUiScale()
         } else {
-            nativeMode = "study"
             ssoPollingEnabled = false
             oauthPending = false
             if (urlStr && String(urlStr).length > 0)
@@ -57,76 +54,6 @@ Rectangle {
         webView.runJavaScript(jsCode);
     }
 
-    function ensureNativeModeSwitch() {
-        var jsCode = "(function() {" +
-                     "  try {" +
-                     "    var mode = '" + nativeMode + "';" +
-                     "    var id = 'blop-native-mode-switch';" +
-                     "    var existing = document.getElementById(id);" +
-                     "    if (!existing) {" +
-                     "      var wrap = document.createElement('div');" +
-                     "      wrap.id = id;" +
-                     "      wrap.style.position = 'fixed';" +
-                     "      wrap.style.left = '10px';" +
-                     "      wrap.style.top = '10px';" +
-                     "      wrap.style.zIndex = '2147483647';" +
-                     "      wrap.style.display = 'flex';" +
-                     "      wrap.style.gap = '8px';" +
-                     "      wrap.style.padding = '6px';" +
-                     "      wrap.style.borderRadius = '14px';" +
-                     "      wrap.style.background = 'rgba(15,17,26,0.88)';" +
-                     "      wrap.style.backdropFilter = 'blur(8px)';" +
-                     "      wrap.style.boxShadow = '0 3px 14px rgba(0,0,0,0.38)';" +
-                     "      var btnNotes = document.createElement('button');" +
-                     "      btnNotes.type = 'button';" +
-                     "      btnNotes.textContent = 'Notizen';" +
-                     "      btnNotes.style.border = '1px solid rgba(122,108,255,0.7)';" +
-                     "      btnNotes.style.background = 'linear-gradient(135deg,#7D7AFF,#5E5CE6)';" +
-                     "      btnNotes.style.color = '#fff';" +
-                     "      btnNotes.style.fontSize = '12px';" +
-                     "      btnNotes.style.fontWeight = '700';" +
-                     "      btnNotes.style.borderRadius = '12px';" +
-                     "      btnNotes.style.padding = '7px 14px';" +
-                     "      btnNotes.style.cursor = 'pointer';" +
-                     "      btnNotes.addEventListener('click', function(e) {" +
-                     "        e.preventDefault();" +
-                     "        location.href = 'blop://go-notes';" +
-                     "      });" +
-                     "      var btnStudy = document.createElement('button');" +
-                     "      btnStudy.type = 'button';" +
-                     "      btnStudy.textContent = 'Study';" +
-                     "      btnStudy.style.border = '1px solid rgba(255,255,255,0.18)';" +
-                     "      btnStudy.style.background = 'rgba(255,255,255,0.06)';" +
-                     "      btnStudy.style.color = '#d6daf2';" +
-                     "      btnStudy.style.fontSize = '12px';" +
-                     "      btnStudy.style.fontWeight = '600';" +
-                     "      btnStudy.style.borderRadius = '12px';" +
-                     "      btnStudy.style.padding = '7px 14px';" +
-                     "      btnStudy.style.cursor = 'pointer';" +
-                     "      btnStudy.addEventListener('click', function(e) {" +
-                     "        e.preventDefault();" +
-                     "        location.href = 'blop://go-study';" +
-                     "      });" +
-                     "      if (mode === 'study') {" +
-                     "        btnStudy.style.border = '1px solid rgba(122,108,255,0.7)';" +
-                     "        btnStudy.style.background = 'linear-gradient(135deg,#7D7AFF,#5E5CE6)';" +
-                     "        btnStudy.style.color = '#fff';" +
-                     "        btnStudy.style.fontWeight = '700';" +
-                     "        btnNotes.style.border = '1px solid rgba(255,255,255,0.18)';" +
-                     "        btnNotes.style.background = 'rgba(255,255,255,0.06)';" +
-                     "        btnNotes.style.color = '#d6daf2';" +
-                     "        btnNotes.style.fontWeight = '600';" +
-                     "      }" +
-                     "      wrap.appendChild(btnNotes);" +
-                     "      wrap.appendChild(btnStudy);" +
-                     "      document.documentElement.appendChild(wrap);" +
-                     "    }" +
-                     "  } catch(e) {}" +
-                     "  return true;" +
-                     "})();";
-        webView.runJavaScript(jsCode);
-    }
-
     function ensureStudyLoaded() {
         if (!ssoPollingEnabled)
             return
@@ -149,27 +76,12 @@ Rectangle {
                     blopAppBridge.requestGoogleLogin()
                 }
             }
-            if (loadRequest.url.toString().indexOf("blop://go-notes") === 0) {
-                webView.stop()
-                if (typeof blopAppBridge !== "undefined") {
-                    blopAppBridge.switchToNotesFromWeb()
-                }
-                return
-            }
-            if (loadRequest.url.toString().indexOf("blop://go-study") === 0) {
-                webView.stop()
-                if (typeof blopAppBridge !== "undefined") {
-                    blopAppBridge.switchToStudyFromWeb()
-                }
-                return
-            }
             // Defensive reset: if an OAuth overlay stayed visible accidentally, clear it
             // when normal website navigation happens.
             if (loadRequest.url.toString().indexOf("https://") === 0 ||
                 loadRequest.url.toString().indexOf("http://") === 0) {
                 oauthPending = false
                 applyAuthUiScale()
-                ensureNativeModeSwitch()
             }
         }
     }
@@ -187,7 +99,6 @@ Rectangle {
         if (visible) {
             ensureStudyLoaded()
             applyAuthUiScale()
-            ensureNativeModeSwitch()
         }
     }
 
@@ -307,7 +218,6 @@ Rectangle {
                     } else {
                         // Keep the login/register page slightly zoomed out.
                         applyAuthUiScale();
-                        ensureNativeModeSwitch();
                     }
                 }
             })
