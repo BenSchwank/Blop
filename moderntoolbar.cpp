@@ -2110,6 +2110,9 @@ void ModernToolbar::setDockMode(bool docked) {
     int idealW = calculateMinLength();
     if (docked) {
       m_orientation = Horizontal;
+#ifdef Q_OS_ANDROID
+      idealW = qMin(idealW, pw->width() - UiScale::dp(8));
+#endif
       targetGeom = QRect((pw->width() - idealW) / 2, 0, idealW, UiScale::dp(48));
     } else {
       m_orientation = Horizontal;

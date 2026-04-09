@@ -75,7 +75,8 @@ protected:
     QGraphicsPathItem* m_currentItem{nullptr};
     QPainterPath m_currentPath;
     QList<StrokePoint> m_pointsBuffer;
-    QElapsedTimer m_pressTimer;
+    QElapsedTimer m_lastMotionTimer;
+    QPointF m_lastMotionPos;
     QPointF m_pressStartPos;
     bool m_longPressStraightMode{false};
     bool m_isSnapping{false};
@@ -87,7 +88,8 @@ protected:
             m_currentPath = QPainterPath();
             QPointF startPos = scenePos;
             m_pressStartPos = scenePos;
-            m_pressTimer.restart();
+            m_lastMotionPos = scenePos;
+            m_lastMotionTimer.restart();
             m_longPressStraightMode = false;
             m_isSnapping = false;
             m_rulerRef = nullptr;
@@ -115,8 +117,13 @@ protected:
         } else {
             if (m_currentItem) {
                 QPointF newPos = scenePos;
-                if (!m_longPressStraightMode && m_pressTimer.isValid()) {
-                    const bool heldLongEnough = m_pressTimer.elapsed() >= 360;
+                if (!m_longPressStraightMode && m_lastMotionTimer.isValid()) {
+                    const qreal movementSinceLastSample = QLineF(scenePos, m_lastMotionPos).length();
+                    if (movementSinceLastSample > 1.8) {
+                        m_lastMotionPos = scenePos;
+                        m_lastMotionTimer.restart();
+                    }
+                    const bool heldLongEnough = m_lastMotionTimer.elapsed() >= 360;
                     const bool draggedEnough = QLineF(scenePos, m_pressStartPos).length() >= 8.0;
                     if (heldLongEnough && draggedEnough) {
                         m_longPressStraightMode = true;
