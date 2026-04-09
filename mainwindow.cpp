@@ -3866,6 +3866,19 @@ void MainWindow::requestGoogleLogin() {
     GoogleAuthManager::instance().login();
 }
 
+void MainWindow::switchToNotesFromWeb() {
+#ifdef Q_OS_ANDROID
+  if (m_modeSelector) {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(0);
+  }
+  onModeChanged(0);
+  if (m_androidHeader)
+    m_androidHeader->raise();
+  syncAndroidHeaderGeometry(this);
+#endif
+}
+
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();

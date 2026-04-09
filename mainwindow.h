@@ -158,6 +158,7 @@ public slots:
   void requestGoogleLogin();
   void onSessionCheck(const QString &sessionData);
   void showAuthOverlay(const QUrl &url);
+  void switchToNotesFromWeb();
 
 private slots:
   void checkForUpdates();
