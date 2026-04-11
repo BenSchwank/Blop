@@ -5,6 +5,7 @@
 #include "newnotedialog.h"
 #include "profileeditordialog.h"
 #include "settingsdialog.h"
+#include "editoroverlays.h"
 
 // --- WICHTIGE ZUSÄTZLICHE INCLUDES ---
 #include "Note.h"
@@ -4541,6 +4542,15 @@ void MainWindow::onNewPage() {
   if (dlg.exec() == QDialog::Accepted) {
     QString name = dlg.getNoteName();
     bool isInfinite = dlg.isInfiniteFormat();
+    A4LayoutDialogResult layoutResult;
+    const QString subtitle = isInfinite
+        ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
+        : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
+    if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), subtitle,
+                             2, UIStyles::PageBackground, &layoutResult) ||
+        !layoutResult.accepted) {
+      return;
+    }
     QString safeName = name;
     safeName.replace("/", "_").replace("\\", "_");
 
@@ -4556,13 +4566,40 @@ void MainWindow::onNewPage() {
         file.close();
       }
       onFileDoubleClicked(m_fileModel->index(path));
+      if (CanvasView *cv = getCurrentCanvas()) {
+        cv->setPageColor(layoutResult.paperColor.isValid()
+                             ? layoutResult.paperColor
+                             : UIStyles::PageBackground);
+        PageStyle style = PageStyle::Squared;
+        switch (layoutResult.backgroundType) {
+        case 0:
+          style = PageStyle::Blank;
+          break;
+        case 1:
+          style = PageStyle::Lined;
+          break;
+        case 3:
+          style = PageStyle::Dotted;
+          break;
+        default:
+          style = PageStyle::Squared;
+          break;
+        }
+        cv->setPageStyle(style);
+        cv->setGridSize(40);
+      }
     } else {
       // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
       QString path = m_fileModel->rootPath() + "/" + safeName + ".bnote";
       Note note;
       note.id = QUuid::createUuid().toString();
       note.title = name;
-      note.pages.append(NotePage());
+      NotePage p;
+      p.paperColor = layoutResult.paperColor.isValid()
+                         ? layoutResult.paperColor
+                         : UIStyles::PageBackground;
+      p.backgroundType = qBound(0, layoutResult.backgroundType, 4);
+      note.pages.append(p);
       NoteManager::saveNote(note, path);
       onFileDoubleClicked(m_fileModel->index(path));
     }
@@ -5056,10 +5093,9 @@ void MainWindow::setupRightSidebar() {
 
 void MainWindow::updateInputMode(bool penOnly) {
   m_penOnlyMode = penOnly;
-  QWidget *current = m_editorTabs->currentWidget();
-  if (auto *cv = qobject_cast<CanvasView *>(current)) {
+  if (CanvasView *cv = getCurrentCanvas()) {
     cv->setPenMode(penOnly);
-  } else if (auto *editor = qobject_cast<NoteEditor *>(current)) {
+  } else if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
     if (editor->view())
       editor->view()->setPenOnlyMode(penOnly);
   }
@@ -5070,8 +5106,7 @@ void MainWindow::onPageStyleButtonToggled(QAbstractButton *button,
   if (!checked)
     return;
   PageStyle style = (PageStyle)m_grpPageStyle->id(button);
-  QWidget *current = m_editorTabs->currentWidget();
-  if (auto *cv = qobject_cast<CanvasView *>(current)) {
+  if (CanvasView *cv = getCurrentCanvas()) {
     cv->setPageStyle(style);
     cv->setGridSize(m_sliderGridSpacing->value());
   }
@@ -5081,8 +5116,7 @@ void MainWindow::onPageGridSpacingSliderChanged(int value) {
   m_gridSpacingTimer->start();
 }
 void MainWindow::applyDelayedGridSpacing() {
-  QWidget *current = m_editorTabs->currentWidget();
-  if (auto *cv = qobject_cast<CanvasView *>(current)) {
+  if (CanvasView *cv = getCurrentCanvas()) {
     cv->setGridSize(m_sliderGridSpacing->value());
   }
 }
@@ -5385,7 +5419,7 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
   if (!m_editorTabs)
     return;
   QWidget *current = m_editorTabs->currentWidget();
-  CanvasView *cv = qobject_cast<CanvasView *>(current);
+  CanvasView *cv = getCurrentCanvas();
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
   if (cv) {
     bool inf = cv->isInfinite();
@@ -5558,11 +5592,18 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               "QMenu::item { color: #D8D5FF; padding: 10px 20px;"
               "  border-radius: 5px; font-size: 13px; }"
               "QMenu::item:selected { background: #6C5CE7; color: white; }");
+          auto *actLayout = menu->addAction("Seitenlayout...");
+          auto *actOptions = menu->addAction("Optionen & Tags...");
+          menu->addSeparator();
           auto *actPdf = menu->addAction("\U00002714  Als PDF exportieren");
           auto *actImg = menu->addAction("\U0001F5BC  Als Bild exportieren");
+          menu->addSeparator();
+          auto *actImportPdf = menu->addAction("PDF importieren");
           auto *chosen = menu->exec(QCursor::pos());
           QFileInfo fi(capPath);
-          if (chosen == actPdf) {
+          if (chosen == actLayout || chosen == actOptions) {
+              setPageSettingsOverlayVisible(true);
+          } else if (chosen == actPdf) {
               QString out = QFileDialog::getSaveFileName(this, "Als PDF exportieren",
                   fi.baseName() + ".pdf", "PDF (*.pdf)");
               if (!out.isEmpty()) {
@@ -5577,6 +5618,14 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   bool ok = canvas->exportToImage(out);
                   if (ok) QMessageBox::information(this, "Exportiert", "Bild gespeichert!");
                   else    QMessageBox::warning(this, "Fehler", "Bild fehlgeschlagen.");
+              }
+          } else if (chosen == actImportPdf) {
+              QString in = QFileDialog::getOpenFileName(this, "PDF importieren",
+                  QString(), "PDF (*.pdf)");
+              if (!in.isEmpty()) {
+                  bool ok = canvas->importPdfIntoCanvas(in);
+                  if (ok) QMessageBox::information(this, "Importiert", "PDF wurde in die unendliche Seite eingefuegt.");
+                  else    QMessageBox::warning(this, "Fehler", "PDF konnte nicht importiert werden.");
               }
           }
       });
@@ -5783,8 +5832,7 @@ void MainWindow::onOpenSettings() {
 }
 
 void MainWindow::setPageColor(bool dark) {
-  QWidget *current = m_editorTabs->currentWidget();
-  if (auto *cv = qobject_cast<CanvasView *>(current)) {
+  if (CanvasView *cv = getCurrentCanvas()) {
     cv->setPageColor(dark ? UIStyles::SceneBackground
                           : UIStyles::PageBackground);
   }
@@ -5935,7 +5983,7 @@ void MainWindow::onTabChanged(int index) {
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
 
   // WICHTIG: ToolManager auf neuen View aktualisieren
-  CanvasView *cv = qobject_cast<CanvasView *>(current);
+  CanvasView *cv = getCurrentCanvas();
   if (cv && m_toolManager) {
     cv->setToolManager(m_toolManager);
   }

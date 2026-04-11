@@ -8,8 +8,48 @@
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
 #include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
+#include "tools/GraphCanvasItem.h"
+#include "graphaxissettingsdialog.h"
 #include "uiscale.h"
+#include <QDateTime>
+#include <QLineF>
 #include <QUndoCommand>
+
+namespace {
+GraphCanvasItem *graphCanvasHittingPlus(QGraphicsScene *scene, const QPointF &scenePos) {
+  if (!scene)
+    return nullptr;
+  const QList<QGraphicsItem *> stack = scene->items(scenePos);
+  for (QGraphicsItem *raw : stack) {
+    for (QGraphicsItem *w = raw; w; w = w->parentItem()) {
+      if (w->type() == GraphCanvasItem::Type) {
+        auto *gi = static_cast<GraphCanvasItem *>(w);
+        if (gi->hitPlusButtonAtScene(scenePos))
+          return gi;
+        break;
+      }
+    }
+  }
+  return nullptr;
+}
+
+GraphCanvasItem *graphCanvasHittingChrome(QGraphicsScene *scene, const QPointF &scenePos) {
+  if (!scene)
+    return nullptr;
+  const QList<QGraphicsItem *> stack = scene->items(scenePos);
+  for (QGraphicsItem *raw : stack) {
+    for (QGraphicsItem *w = raw; w; w = w->parentItem()) {
+      if (w->type() == GraphCanvasItem::Type) {
+        auto *gi = static_cast<GraphCanvasItem *>(w);
+        if (gi->hitGraphChromeAtScene(scenePos))
+          return gi;
+        break;
+      }
+    }
+  }
+  return nullptr;
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Undo commands for canvas items
@@ -92,6 +132,9 @@ private:
 #include <QtGlobal>
 #include <cmath>
 #include <utility>
+#ifdef BLOP_HAS_PDF
+#include <QPdfDocument>
+#endif
 
 static float pageScale() {
 #ifdef Q_OS_ANDROID
@@ -104,6 +147,20 @@ static float pageWidthPx() { return 794.0f * 1.5f * pageScale(); }
 static float pageHeightPx() { return 1123.0f * 1.5f * pageScale(); }
 static float pageGapPx() { return UiScale::dp(60); }
 static float totalPageHeightPx() { return pageHeightPx() + pageGapPx(); }
+
+static bool canvasScenePosOnPage(bool isInfinite, qreal a4Height,
+                                 const QPointF &scenePos) {
+  if (isInfinite)
+    return true;
+  qreal currentY = 0;
+  while (currentY < a4Height) {
+    const QRectF pageRect(0, currentY, pageWidthPx(), pageHeightPx());
+    if (pageRect.contains(scenePos))
+      return true;
+    currentY += pageHeightPx() + pageGapPx();
+  }
+  return false;
+}
 
 #ifdef Q_OS_ANDROID
 /// Solid canvas color via palette (no viewport stylesheet overlay). Android only.
@@ -379,7 +436,7 @@ private:
 CanvasView::CanvasView(QWidget *parent)
     : QGraphicsView(parent), m_toolManager(nullptr), m_currentItem(nullptr),
       m_lassoItem(nullptr), m_isDrawing(false), m_isInfinite(true),
-      m_penOnlyMode(false), m_pageColor(UIStyles::SceneBackground) // Default: dark page
+      m_penOnlyMode(false), m_pageColor(UIStyles::PageBackground)
       ,
       m_pageStyle(PageStyle::Squared), m_gridSize(40),
       m_currentTool(ToolType::Pen), m_penColor(Qt::black), m_penWidth(3),
@@ -759,6 +816,9 @@ bool CanvasView::loadFromFile() {
   setPageFormat(m_isInfinite);
   m_scene->clear();
   m_undoStack->clear();
+  m_graphPlusBypassItem = nullptr;
+  m_graphPlotBypassItem = nullptr;
+  m_graphTabletPendingItem = nullptr;
   
   int count;
   in >> count;
@@ -794,6 +854,45 @@ bool CanvasView::loadFromFile() {
   if (m_isInfinite)
     updateSceneRect();
   return true;
+}
+
+bool CanvasView::importPdfIntoCanvas(const QString &pdfPath) {
+#ifdef BLOP_HAS_PDF
+  if (pdfPath.isEmpty())
+    return false;
+  QPdfDocument doc;
+  auto status = doc.load(pdfPath);
+  if (status != QPdfDocument::Error::None)
+    return false;
+  const int count = doc.pageCount();
+  if (count <= 0)
+    return false;
+
+  QRectF bounds = m_scene->itemsBoundingRect();
+  qreal y = bounds.isNull() ? 0.0 : (bounds.bottom() + 30.0);
+  bool importedAny = false;
+  for (int i = 0; i < count; ++i) {
+    QImage img = doc.render(i, QSize(static_cast<int>(pageWidthPx()),
+                                     static_cast<int>(pageHeightPx())));
+    if (img.isNull())
+      continue;
+    auto *pix = m_scene->addPixmap(QPixmap::fromImage(img));
+    pix->setPos(0.0, y);
+    pix->setZValue(0.2);
+    pix->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
+    y += img.height() + 20.0;
+    importedAny = true;
+  }
+  if (importedAny) {
+    if (m_isInfinite)
+      updateSceneRect();
+    emit contentModified();
+  }
+  return importedAny;
+#else
+  Q_UNUSED(pdfPath);
+  return false;
+#endif
 }
 
 void CanvasView::toggleRuler(bool active) {
@@ -1229,9 +1328,50 @@ void CanvasView::showEvent(QShowEvent *event) {
 // === WICHTIG: EVENT DELEGATION AN TOOL MANAGER ===
 
 void CanvasView::tabletEvent(QTabletEvent *event) {
+    const QPointF scenePos = mapToScene(event->position().toPoint());
+
+    const bool lassoTool =
+        m_toolManager && m_toolManager->activeTool() &&
+        m_toolManager->activeTool()->mode() == ToolMode::Lasso;
+    if (m_scene && m_interactionMode == InteractionMode::None && !lassoTool) {
+        if (event->type() == QEvent::TabletRelease && m_graphTabletPendingItem) {
+            GraphCanvasItem *const gi = m_graphTabletPendingItem.data();
+            const QPointF pressScene = m_graphTabletPressScene;
+            const qint64 pressMs = m_graphTabletPressMs;
+            m_graphTabletPendingItem = nullptr;
+            if (gi && QLineF(scenePos, pressScene).length() < 22.0) {
+                const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                const qint64 elapsedMs = nowMs - pressMs;
+                const qint64 clampedMs = qBound(qint64{0}, elapsedMs, qint64{600000});
+                gi->deliverTapFromScene(pressScene, static_cast<int>(clampedMs));
+            }
+            event->accept();
+            return;
+        }
+        if (event->type() == QEvent::TabletMove && m_graphTabletPendingItem) {
+            if (QLineF(scenePos, m_graphTabletPressScene).length() > 24.0)
+                m_graphTabletPendingItem = nullptr;
+            event->accept();
+            return;
+        }
+        if (event->type() == QEvent::TabletPress &&
+            canvasScenePosOnPage(m_isInfinite, m_a4Rect.height(), scenePos)) {
+            if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(m_scene, scenePos)) {
+                hitGraph->requestPlusTap();
+                event->accept();
+                return;
+            }
+            if (GraphCanvasItem *hitGraph = graphCanvasHittingChrome(m_scene, scenePos)) {
+                m_graphTabletPendingItem = hitGraph;
+                m_graphTabletPressScene = scenePos;
+                m_graphTabletPressMs = QDateTime::currentMSecsSinceEpoch();
+                event->accept();
+                return;
+            }
+        }
+    }
+
     if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
-        // Automatically switch to drawing mode (disabling touch-panning temporarily if they hover with pen)
-        QPointF scenePos = mapToScene(event->position().toPoint());
         if (auto *strokeTool = qobject_cast<AbstractStrokeTool *>(m_toolManager->activeTool()))
             strokeTool->setStrokeSceneForTablet(m_scene);
 
@@ -1242,6 +1382,10 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
                 m_isDrawing = false;
                 if (auto* item = m_toolManager->activeTool()->lastCompletedItem()) {
                     m_undoStack->push(new AddItemCommand(m_scene, item));
+                    if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
+                        GraphAxisSettingsDialog dlg(gi, window());
+                        dlg.exec();
+                    }
                     m_toolManager->activeTool()->clearLastCompletedItem();
                 }
                 emit contentModified();
@@ -1259,7 +1403,28 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
 
 void CanvasView::mousePressEvent(QMouseEvent *event) {
   const QInputDevice *dev = event->device();
-  
+
+  if (event->button() == Qt::LeftButton && m_interactionMode == InteractionMode::None &&
+      m_scene) {
+    const QPointF scenePos = mapToScene(event->pos());
+    if (canvasScenePosOnPage(m_isInfinite, m_a4Rect.height(), scenePos)) {
+      if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(m_scene, scenePos)) {
+        m_graphPlusBypassItem = hitGraph;
+        if (m_selectionMenu->isVisible() && !itemAt(event->pos()))
+          m_selectionMenu->hide();
+        QGraphicsView::mousePressEvent(event);
+        return;
+      }
+      if (GraphCanvasItem *hitGraph = graphCanvasHittingChrome(m_scene, scenePos)) {
+        m_graphPlotBypassItem = hitGraph;
+        if (m_selectionMenu->isVisible() && !itemAt(event->pos()))
+          m_selectionMenu->hide();
+        QGraphicsView::mousePressEvent(event);
+        return;
+      }
+    }
+  }
+
   // Ignore fallback mouse events generated by the OS for Stylus EXCEPT when using tools like Lasso that rely on mouse events,
   // or when we are interacting with Transform overlays.
   if (dev && dev->type() == QInputDevice::DeviceType::Stylus) {
@@ -1339,8 +1504,10 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     scEvent.setButtons(event->buttons());
     scEvent.setModifiers(event->modifiers());
 
-    // Snapshot current items so we can detect newly added items on release
-    m_preStrokeItems = QSet<QGraphicsItem *>(m_scene->items().begin(), m_scene->items().end());
+    // Snapshot current items so we can detect newly added items on release.
+    // Important: build from one stable list instance to avoid UB.
+    const QList<QGraphicsItem *> beforeItems = m_scene->items();
+    m_preStrokeItems = QSet<QGraphicsItem *>(beforeItems.begin(), beforeItems.end());
 
     if (m_toolManager->activeTool()->handleMousePress(&scEvent, m_scene)) {
       m_isDrawing = true;
@@ -1373,6 +1540,12 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event) {
+  if ((m_graphPlusBypassItem || m_graphPlotBypassItem) && m_interactionMode == InteractionMode::None &&
+      (event->buttons() & Qt::LeftButton)) {
+    QGraphicsView::mouseMoveEvent(event);
+    return;
+  }
+
   const QInputDevice *dev = event->device();
   if (dev && dev->type() == QInputDevice::DeviceType::Stylus) {
       event->accept();
@@ -1415,6 +1588,19 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
+  if (m_graphPlusBypassItem && m_interactionMode == InteractionMode::None &&
+      event->button() == Qt::LeftButton) {
+    QGraphicsView::mouseReleaseEvent(event);
+    m_graphPlusBypassItem = nullptr;
+    return;
+  }
+  if (m_graphPlotBypassItem && m_interactionMode == InteractionMode::None &&
+      event->button() == Qt::LeftButton) {
+    QGraphicsView::mouseReleaseEvent(event);
+    m_graphPlotBypassItem = nullptr;
+    return;
+  }
+
   const QInputDevice *dev = event->device();
   if (dev && dev->type() == QInputDevice::DeviceType::Stylus) {
       event->accept();
@@ -1467,6 +1653,10 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
       m_isDrawing = false;
       if (auto* item = m_toolManager->activeTool()->lastCompletedItem()) {
           m_undoStack->push(new AddItemCommand(m_scene, item));
+          if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
+            GraphAxisSettingsDialog dlg(gi, window());
+            dlg.exec();
+          }
           m_toolManager->activeTool()->clearLastCompletedItem();
       }
       emit contentModified();

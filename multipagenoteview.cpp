@@ -9,6 +9,12 @@
 #include "tools/RulerTool.h" // NEU: Lineal-Werkzeug
 #include "tools/ToolManager.h"
 #include "tools/StrokeItem.h"
+#include "tools/GraphCanvasItem.h"
+#include "graphaxissettingsdialog.h"
+#include "graphlegenddock.h"
+#include "graphquickactionpopup.h"
+#include "tools/math/MathExpressionParser.h"
+#include "tools/math/NumericAnalysis.h"
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
@@ -20,7 +26,10 @@
 #include <QPolygonF>
 #include <QScrollBar>
 #include <QClipboard>
+#include <QCursor>
+#include <QDateTime>
 #include <QGuiApplication>
+#include <QLineF>
 #ifdef BLOP_HAS_PDF
 #include <QPdfDocument>
 #endif
@@ -37,14 +46,162 @@
 #include <QFrame>
 #include <QStackedWidget>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QFileDialog>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMenu>
 #include <QAction>
 #include <QEvent>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMouseEvent>
+#include <QDoubleSpinBox>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QTimer>
+#include <QEventPoint>
+#include <QTouchEvent>
+#include <QUrl>
+#include <QBuffer>
 #include <QPalette>
 #include <QShowEvent>
+#include <QSignalBlocker>
+#include <QToolTip>
 #include <QUndoCommand>
+#include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
+#include <QEasingCurve>
+#include <QGraphicsItem>
+#include <functional>
+
+class MultiPageNoteView;
+
+namespace {
+
+QRect graphItemRectInViewCoords(QGraphicsView *v, GraphCanvasItem *graph) {
+  if (!v || !graph)
+    return {};
+  return v->mapFromScene(graph->sceneBoundingRect()).boundingRect();
+}
+
+QPoint primaryPanelAnchor(QGraphicsView *v, GraphCanvasItem *graph, int anchorKind, int mh, int margin) {
+  if (!v || !graph)
+    return {};
+  if (anchorKind == 0) {
+    const QRectF ar = graph->plusButtonSceneRect();
+    const QPoint br = v->mapFromScene(ar.bottomRight());
+    QPoint topLeft(br.x() + 6, br.y() + 2);
+    if (topLeft.y() + mh > v->height() - margin)
+      topLeft.setY(v->mapFromScene(ar.topLeft()).y() - mh - 6);
+    return topLeft;
+  }
+  const QRectF r = graph->sceneBoundingRect();
+  const QPoint tr = v->mapFromScene(r.topRight());
+  return QPoint(tr.x() + 10, tr.y());
+}
+
+QPoint pickSmartPanelPos(QGraphicsView *view, GraphCanvasItem *graph, int anchorKind, int mw, int mh,
+                         int margin) {
+  if (!view || !graph)
+    return QPoint(margin, margin);
+  const QRect avail(0, 0, view->width(), view->height());
+  const QRect gr = graphItemRectInViewCoords(view, graph);
+  QVector<QPoint> cands;
+  cands.append(primaryPanelAnchor(view, graph, anchorKind, mh, margin));
+  cands.append(QPoint(gr.right() + margin, gr.top()));
+  cands.append(QPoint(gr.left() - mw - margin, gr.top()));
+  cands.append(QPoint(gr.left(), gr.bottom() + margin));
+  cands.append(QPoint(gr.left(), gr.top() - mh - margin));
+  auto clamp = [&](QPoint tl) {
+    const int x = qBound(margin, tl.x(), qMax(margin, view->width() - mw - margin));
+    const int y = qBound(margin, tl.y(), qMax(margin, view->height() - mh - margin));
+    return QPoint(x, y);
+  };
+  for (QPoint tl : cands) {
+    const QPoint c = clamp(tl);
+    if (avail.contains(QRect(c, QSize(mw, mh))))
+      return c;
+  }
+  return clamp(cands.first());
+}
+
+QPoint legendTopLeftDocked(QGraphicsView *view, GraphCanvasItem *graph, int lw, int lh, int margin) {
+  if (!view || !graph)
+    return QPoint(margin, margin);
+  QRect gr = view->mapFromScene(graph->sceneBoundingRect()).boundingRect();
+  const QRect vp(0, 0, view->width(), view->height());
+  const int g = 10;
+  if (!gr.isValid() || gr.width() < 2 || gr.height() < 2) {
+    const QPoint c = view->mapFromScene(graph->sceneBoundingRect().center());
+    gr = QRect(c.x(), c.y(), 1, 1);
+  }
+  const QPoint right(gr.right() + g, gr.top());
+  const QPoint left(gr.left() - g - lw, gr.top());
+  auto clamp = [&](QPoint tl) {
+    return QPoint(qBound(margin, tl.x(), qMax(margin, view->width() - lw - margin)),
+                  qBound(margin, tl.y(), qMax(margin, view->height() - lh - margin)));
+  };
+  const QRect rr(right, QSize(lw, lh));
+  const QRect rl(left, QSize(lw, lh));
+  if (vp.intersects(rr))
+    return clamp(right);
+  if (vp.intersects(rl))
+    return clamp(left);
+  return clamp(right);
+}
+
+QPoint quickPopupTopLeftForView(QGraphicsView *view, const QPointF &scenePos, int pw, int ph, int margin) {
+  if (!view)
+    return QPoint(margin, margin);
+  const QPoint c = view->mapFromScene(scenePos);
+  QPoint tl = c + QPoint(10, -ph - 10);
+  if (tl.y() < margin)
+    tl.setY(c.y() + 14);
+  tl.setX(qBound(margin, tl.x(), qMax(margin, view->width() - pw - margin)));
+  tl.setY(qBound(margin, tl.y(), qMax(margin, view->height() - ph - margin)));
+  return tl;
+}
+
+GraphCanvasItem *graphCanvasHittingPlus(QGraphicsScene *scene, const QPointF &scenePos) {
+  if (!scene)
+    return nullptr;
+  const QList<QGraphicsItem *> stack = scene->items(scenePos);
+  for (QGraphicsItem *raw : stack) {
+    for (QGraphicsItem *w = raw; w; w = w->parentItem()) {
+      if (w->type() == GraphCanvasItem::Type) {
+        auto *gi = static_cast<GraphCanvasItem *>(w);
+        if (gi->hitPlusButtonAtScene(scenePos))
+          return gi;
+        break;
+      }
+    }
+  }
+  return nullptr;
+}
+
+GraphCanvasItem *graphCanvasHittingChrome(QGraphicsScene *scene, const QPointF &scenePos) {
+  if (!scene)
+    return nullptr;
+  const QList<QGraphicsItem *> stack = scene->items(scenePos);
+  for (QGraphicsItem *raw : stack) {
+    for (QGraphicsItem *w = raw; w; w = w->parentItem()) {
+      if (w->type() == GraphCanvasItem::Type) {
+        auto *gi = static_cast<GraphCanvasItem *>(w);
+        if (gi->hitGraphChromeAtScene(scenePos))
+          return gi;
+        break;
+      }
+    }
+  }
+  return nullptr;
+}
+} // namespace
 
 class StrokeAddUndoCommand : public QUndoCommand {
 public:
@@ -151,6 +308,621 @@ signals:
   void colorRequested();
   void screenshotRequested();
   void cropRequested();
+};
+
+class GraphInkInputWidget : public QWidget {
+public:
+  explicit GraphInkInputWidget(QWidget* p = nullptr) : QWidget(p) {
+    setMinimumHeight(78);
+    setAttribute(Qt::WA_StaticContents);
+    setAttribute(Qt::WA_AcceptTouchEvents, true);
+    setMouseTracking(true);
+  }
+  QVector<QPainterPath> strokes() const { return m_strokes; }
+  void clearInk() {
+    m_strokes.clear();
+    m_current = QPainterPath();
+    m_drawing = false;
+    m_touchActive = false;
+    update();
+  }
+  /// High-contrast raster of ink for vision-based recognition (white background, black strokes).
+  QImage inkImageForRecognition() const {
+    QRectF bb;
+    for (const auto &s : m_strokes) {
+      for (const QPolygonF &poly : s.toSubpathPolygons()) {
+        if (!poly.isEmpty())
+          bb |= poly.boundingRect();
+      }
+    }
+    if (!bb.isValid() || bb.isEmpty())
+      return {};
+    constexpr qreal kMargin = 10.0;
+    bb.adjust(-kMargin, -kMargin, kMargin, kMargin);
+    const qreal w = qMax(bb.width(), 1.0);
+    const qreal h = qMax(bb.height(), 1.0);
+    constexpr int kOutW = 720;
+    const int kOutH = qBound(160, int(kOutW * h / w + 0.5), 420);
+    QImage img(kOutW, kOutH, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const qreal sx = (kOutW - 20) / w;
+    const qreal sy = (kOutH - 20) / h;
+    const qreal sc = qMin(sx, sy);
+    p.translate(10.0 - bb.left() * sc, 10.0 - bb.top() * sc);
+    p.scale(sc, sc);
+    const qreal penW = qMax(1.2, 3.5 / sc);
+    p.setPen(QPen(Qt::black, penW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    for (const auto &s : m_strokes)
+      p.drawPath(s);
+    return img;
+  }
+protected:
+  bool event(QEvent *e) override {
+    switch (e->type()) {
+    case QEvent::TouchBegin:
+    case QEvent::TouchUpdate:
+    case QEvent::TouchEnd: {
+      auto *te = static_cast<QTouchEvent *>(e);
+      const QList<QEventPoint> tpoints = te->points();
+      if (tpoints.isEmpty()) {
+        if (e->type() == QEvent::TouchEnd && m_drawing && m_touchActive) {
+          m_drawing = false;
+          m_touchActive = false;
+          if (!m_current.isEmpty())
+            m_strokes.push_back(m_current);
+          m_current = QPainterPath();
+          update();
+          if (onInkChanged)
+            onInkChanged();
+          te->accept();
+          return true;
+        }
+        break;
+      }
+      const QEventPoint &tp = tpoints.constFirst();
+      const QPoint pos = mapFromGlobal(tp.globalPosition().toPoint());
+      switch (e->type()) {
+      case QEvent::TouchBegin:
+        m_touchActive = true;
+        m_drawing = true;
+        m_current = QPainterPath();
+        m_current.moveTo(pos);
+        update();
+        te->accept();
+        return true;
+      case QEvent::TouchUpdate:
+        if (m_drawing && m_touchActive) {
+          m_current.lineTo(pos);
+          update();
+        }
+        te->accept();
+        return true;
+      case QEvent::TouchEnd:
+        if (m_drawing && m_touchActive) {
+          m_drawing = false;
+          m_touchActive = false;
+          if (!m_current.isEmpty())
+            m_strokes.push_back(m_current);
+          m_current = QPainterPath();
+          update();
+          if (onInkChanged)
+            onInkChanged();
+        }
+        te->accept();
+        return true;
+      default:
+        break;
+      }
+    }
+    default:
+      break;
+    }
+    return QWidget::event(e);
+  }
+  void mousePressEvent(QMouseEvent* e) override {
+    if (m_touchActive)
+      return;
+    m_drawing = true;
+    m_current = QPainterPath();
+    m_current.moveTo(e->pos());
+    update();
+  }
+  void mouseMoveEvent(QMouseEvent* e) override {
+    if (!m_drawing || m_touchActive)
+      return;
+    m_current.lineTo(e->pos());
+    update();
+  }
+  void mouseReleaseEvent(QMouseEvent*) override {
+    if (!m_drawing || m_touchActive)
+      return;
+    m_drawing = false;
+    if (!m_current.isEmpty()) m_strokes.push_back(m_current);
+    m_current = QPainterPath();
+    update();
+    if (onInkChanged) onInkChanged();
+  }
+  void paintEvent(QPaintEvent*) override {
+    QPainter p(this);
+    p.fillRect(rect(), UIStyles::PageBackground);
+    p.setPen(QPen(QColor(255, 255, 255, 35), 1));
+    p.drawRect(rect().adjusted(0, 0, -1, -1));
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(QColor(230, 228, 255, 200), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    for (const auto& s : m_strokes) p.drawPath(s);
+    p.drawPath(m_current);
+  }
+public:
+  std::function<void()> onInkChanged;
+private:
+  QVector<QPainterPath> m_strokes;
+  QPainterPath m_current;
+  bool m_drawing{false};
+  bool m_touchActive{false};
+};
+
+class GraphFormulaEntryBar : public QWidget {
+  Q_OBJECT
+public:
+  explicit GraphFormulaEntryBar(QWidget *parent = nullptr) : QWidget(parent) {
+    setObjectName(QStringLiteral("GraphFormulaEntryBar"));
+    setAttribute(Qt::WA_StyledBackground, true);
+    const QString side = UIStyles::Sidebar.name();
+    const QString page = UIStyles::PageBackground.name();
+    const QString accent = UIStyles::Accent.name();
+    const QString text = UIStyles::Text.name();
+    const QString sub = UIStyles::TextSecondary.name();
+    setStyleSheet(QStringLiteral(
+        "QWidget#GraphFormulaEntryBar { background-color: %1; border-radius: 14px; "
+        "border: 1px solid rgba(124,92,252,0.38); }"
+        "QWidget#GraphFormulaEntryBar QLineEdit { background-color: %2; border: 1px solid rgba(255,255,255,0.12); "
+        "border-radius: 10px; padding: 6px 10px; min-height: 30px; color: %3; }"
+        "QWidget#GraphFormulaEntryBar QToolButton { background-color: rgba(255,255,255,0.15); "
+        "border: 1px solid rgba(255,255,255,0.24); border-radius: 8px; min-width: 30px; min-height: 30px; color: %3; font-weight: 700; }"
+        "QWidget#GraphFormulaEntryBar QToolButton:hover { background-color: rgba(124,92,252,0.32); border-color: rgba(124,92,252,0.55); }"
+        "QWidget#GraphFormulaEntryBar QLabel { color: %4; }"
+        "QWidget#GraphFormulaEntryBar QToolButton#GraphFormulaOk { background-color: %5; color: #f6f4ff; border: none; border-radius: 8px; }"
+        "QWidget#GraphFormulaEntryBar QToolButton#GraphFormulaOk:hover { background-color: #8b6eff; }")
+                      .arg(side, page, text, sub, accent));
+    auto *v = new QVBoxLayout(this);
+    v->setContentsMargins(14, 14, 14, 14);
+    v->setSpacing(10);
+    m_ink = new GraphInkInputWidget(this);
+    m_ink->setMinimumHeight(52);
+    m_ink->setMaximumHeight(76);
+    m_ink->setMinimumWidth(160);
+    v->addWidget(m_ink);
+    auto *row = new QHBoxLayout();
+    row->setSpacing(6);
+    m_expr = new QLineEdit(this);
+    m_expr->setPlaceholderText(QStringLiteral("z.B. sin(x), x^2"));
+    m_btnR = new QToolButton(this);
+    m_btnR->setText(QStringLiteral("R"));
+    m_btnR->setToolTip(
+        QStringLiteral("Handschrift erkennen (startet auch automatisch nach dem Zeichnen)"));
+    m_btnOk = new QToolButton(this);
+    m_btnOk->setObjectName(QStringLiteral("GraphFormulaOk"));
+    m_btnOk->setText(QStringLiteral("✓"));
+    m_btnOk->setToolTip(QStringLiteral("Uebernehmen"));
+    m_btnCancel = new QToolButton(this);
+    m_btnCancel->setText(QStringLiteral("×"));
+    m_btnCancel->setToolTip(QStringLiteral("Abbrechen"));
+    m_btnInkClear = new QToolButton(this);
+    m_btnInkClear->setText(QStringLiteral("⌧"));
+    m_btnInkClear->setToolTip(QStringLiteral("Zeichenflaeche leeren"));
+    row->addWidget(m_expr, 0);
+    row->addWidget(m_btnInkClear);
+    row->addWidget(m_btnR);
+    row->addWidget(m_btnOk);
+    row->addWidget(m_btnCancel);
+    v->addLayout(row);
+    m_status = new QLabel(this);
+    m_status->setWordWrap(true);
+    m_status->setMaximumWidth(400);
+    m_status->setStyleSheet(
+        QStringLiteral("QLabel { font-size: 11px; color: %1; }").arg(sub));
+    v->addWidget(m_status);
+
+    m_autoTimer = new QTimer(this);
+    m_autoTimer->setInterval(400);
+    m_autoTimer->setSingleShot(true);
+    m_nam = new QNetworkAccessManager(this);
+    m_ink->onInkChanged = [this]() {
+      const bool plusFirstStroke = m_afterPlusOpen && !m_ink->strokes().isEmpty();
+      if (plusFirstStroke)
+        m_afterPlusOpen = false;
+      else
+        m_autoTimer->start();
+      if (plusFirstStroke) {
+        QTimer::singleShot(400, this, [this]() {
+          if (m_expr->text().trimmed().isEmpty() && !m_ink->strokes().isEmpty())
+            startHandwritingRecognition(false);
+        });
+      }
+    };
+    connect(m_autoTimer, &QTimer::timeout, this, [this]() {
+      if (m_expr->text().trimmed().isEmpty())
+        startHandwritingRecognition(false);
+    });
+    connect(m_btnInkClear, &QToolButton::clicked, this, [this]() {
+      m_autoTimer->stop();
+      abortPendingRecognize();
+      m_ink->clearInk();
+      setStatus(QString());
+    });
+    connect(m_btnR, &QToolButton::clicked, this,
+            [this]() { startHandwritingRecognition(true); });
+    connect(m_btnOk, &QToolButton::clicked, this, [this]() { emit commitRequested(); });
+    connect(m_btnCancel, &QToolButton::clicked, this, [this]() { emit cancelRequested(); });
+    connect(m_expr, &QLineEdit::textChanged, this, [this](const QString &t) {
+      updateExprWidth();
+      emit liveTextChanged(t.trimmed());
+    });
+    hide();
+  }
+
+  QString expressionText() const { return m_expr->text(); }
+
+  /// Call after opening from "+" so the first ink stroke schedules recognition soon.
+  void notifyPlusOpened() { m_afterPlusOpen = true; }
+
+  void prepareOpen() {
+    abortPendingRecognize();
+    m_autoTimer->stop();
+    m_afterPlusOpen = false;
+    m_expr->clear();
+    m_ink->clearInk();
+    setStatus(QString());
+    updateExprWidth();
+    m_expr->setFocus();
+  }
+
+  void setStatus(const QString &text, bool isError = false) {
+    if (!m_status)
+      return;
+    m_status->setStyleSheet(isError
+      ? QStringLiteral("QLabel { font-size: 11px; color: #ff8a8a; }")
+      : QStringLiteral("QLabel { font-size: 11px; color: %1; }")
+            .arg(UIStyles::TextSecondary.name()));
+    m_status->setText(text);
+    m_status->setVisible(!text.isEmpty());
+  }
+
+signals:
+  void liveTextChanged(const QString &expr);
+  void commitRequested();
+  void cancelRequested();
+
+private:
+  void startHandwritingRecognition(bool offerCandidateMenuOnEmpty);
+  void finishRecognizeWithFallback(const QString &backendExpr,
+                                   bool offerCandidateMenuOnEmpty);
+  void abortPendingRecognize();
+  QJsonObject buildRecognizePayload() const;
+
+  void updateExprWidth() {
+    const QFontMetrics fm(m_expr->font());
+    const QString sample = m_expr->text().isEmpty() ? m_expr->placeholderText() : m_expr->text();
+    const int textW = fm.horizontalAdvance(sample);
+    const int inner = qBound(72, textW + 32, 320);
+    m_expr->setFixedWidth(inner);
+    adjustSize();
+  }
+
+  QStringList recognizeLocalCandidates() const {
+    QStringList out;
+    const auto st = m_ink->strokes();
+    if (st.isEmpty())
+      return out;
+    QRectF bb;
+    for (const auto &s : st)
+      bb = bb.united(s.boundingRect());
+    if (bb.isEmpty())
+      return out;
+    const qreal w = bb.width();
+    const qreal h = bb.height();
+    const qreal ratio = h <= 0.0 ? 1.0 : (w / h);
+    if (st.size() <= 2) {
+      out << QStringLiteral("2*x") << QStringLiteral("x") << QStringLiteral("x^2");
+    } else if (ratio > 2.2) {
+      out << QStringLiteral("2*x") << QStringLiteral("y=x") << QStringLiteral("x")
+          << QStringLiteral("x^2");
+    } else if (ratio > 1.4) {
+      out << QStringLiteral("sin(x)") << QStringLiteral("cos(x)") << QStringLiteral("tan(x)");
+    } else {
+      out << QStringLiteral("2*x") << QStringLiteral("x^2") << QStringLiteral("x^3")
+          << QStringLiteral("sqrt(x)");
+    }
+    return out;
+  }
+
+  GraphInkInputWidget *m_ink{nullptr};
+  QLineEdit *m_expr{nullptr};
+  QToolButton *m_btnInkClear{nullptr};
+  QToolButton *m_btnR{nullptr};
+  QToolButton *m_btnOk{nullptr};
+  QToolButton *m_btnCancel{nullptr};
+  QLabel *m_status{nullptr};
+  QTimer *m_autoTimer{nullptr};
+  QNetworkAccessManager *m_nam{nullptr};
+  QNetworkReply *m_pendingReply{nullptr};
+  bool m_afterPlusOpen{false};
+};
+
+void GraphFormulaEntryBar::abortPendingRecognize() {
+  if (m_pendingReply) {
+    disconnect(m_pendingReply, nullptr, this, nullptr);
+    m_pendingReply->abort();
+    m_pendingReply->deleteLater();
+    m_pendingReply = nullptr;
+  }
+  if (m_btnR)
+    m_btnR->setEnabled(true);
+}
+
+QJsonObject GraphFormulaEntryBar::buildRecognizePayload() const {
+  QJsonArray strokesJson;
+  QJsonArray strokesNormJson;
+  constexpr int kMaxPerStroke = 128;
+  QRectF inkBb;
+  for (const auto &s : m_ink->strokes()) {
+    for (const QPolygonF &poly : s.toSubpathPolygons()) {
+      if (!poly.isEmpty())
+        inkBb |= poly.boundingRect();
+    }
+  }
+  const double side = qMax(inkBb.width(), inkBb.height());
+  const bool haveNorm = side > 1e-5;
+  for (const auto &s : m_ink->strokes()) {
+    QJsonArray pts;
+    QJsonArray ptsNorm;
+    const auto polys = s.toSubpathPolygons();
+    for (const auto &poly : polys) {
+      const int n = poly.size();
+      if (n <= 0)
+        continue;
+      const int take = qMin(kMaxPerStroke, qMax(1, n));
+      for (int i = 0; i < take; ++i) {
+        const int idx = (take <= 1) ? 0 : (i * (n - 1)) / (take - 1);
+        const QPointF pt = poly.at(idx);
+        QJsonArray pair;
+        pair.append(pt.x());
+        pair.append(pt.y());
+        pts.append(pair);
+        if (haveNorm) {
+          QJsonArray np;
+          np.append(int(qBound(0.0, (pt.x() - inkBb.left()) / side * 1000.0, 1000.0)));
+          np.append(int(qBound(0.0, (pt.y() - inkBb.top()) / side * 1000.0, 1000.0)));
+          ptsNorm.append(np);
+        }
+      }
+    }
+    strokesJson.append(pts);
+    if (haveNorm)
+      strokesNormJson.append(ptsNorm);
+  }
+  QJsonObject payload;
+  payload.insert(QStringLiteral("strokes"), strokesJson);
+  if (haveNorm)
+    payload.insert(QStringLiteral("strokes_normalized"), strokesNormJson);
+  payload.insert(QStringLiteral("hint"),
+                 QStringLiteral("Einzelner mathematischer Ausdruck fuer y=f(x): Operatoren + - * / ^ oder **, "
+                                "Klammern, sin(x) cos(x) tan(x) sqrt(x) log(x) exp(x) abs(x), Konstante pi."));
+  payload.insert(QStringLiteral("current_expression"), m_expr->text().trimmed());
+  const QImage snap = m_ink->inkImageForRecognition();
+  if (!snap.isNull()) {
+    QByteArray png;
+    QBuffer buf(&png);
+    buf.open(QIODevice::WriteOnly);
+    if (snap.save(&buf, "PNG"))
+      payload.insert(QStringLiteral("ink_png_base64"), QString::fromLatin1(png.toBase64()));
+  }
+  return payload;
+}
+
+void GraphFormulaEntryBar::finishRecognizeWithFallback(const QString &backendExpr,
+                                                       bool offerCandidateMenuOnEmpty) {
+  setStatus(QString());
+  if (!backendExpr.isEmpty()) {
+    m_expr->setText(backendExpr);
+    setStatus(QStringLiteral("Erkannt — mit Haken uebernehmen"), false);
+    return;
+  }
+  const QStringList locals = recognizeLocalCandidates();
+  if (locals.isEmpty()) {
+    setStatus(QStringLiteral("Nichts erkannt"), true);
+    return;
+  }
+  if (offerCandidateMenuOnEmpty) {
+    QMenu menu(this);
+    for (const QString &c : locals)
+      menu.addAction(c);
+    QAction *chosen = menu.exec(m_btnR->mapToGlobal(QPoint(0, m_btnR->height())));
+    if (chosen)
+      m_expr->setText(chosen->text());
+    if (!m_expr->text().trimmed().isEmpty())
+      setStatus(QStringLiteral("Gewaehlt — mit Haken uebernehmen"), false);
+  } else {
+    m_expr->setText(locals.first());
+  }
+}
+
+void GraphFormulaEntryBar::startHandwritingRecognition(bool offerCandidateMenuOnEmpty) {
+  if (!m_ink || m_ink->strokes().isEmpty()) {
+    setStatus(QStringLiteral("Nichts gezeichnet"), true);
+    return;
+  }
+  const QString endpoint = qEnvironmentVariable(
+      "BLOP_MATH_OCR_URL", QStringLiteral("http://127.0.0.1:8000/api/ai/math-ink/recognize"));
+  if (endpoint.isEmpty()) {
+    finishRecognizeWithFallback(QString(), offerCandidateMenuOnEmpty);
+    return;
+  }
+  abortPendingRecognize();
+  m_btnR->setEnabled(false);
+  setStatus(QStringLiteral("Erkennung laeuft..."), false);
+  QNetworkRequest req{QUrl(endpoint)};
+  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+  req.setTransferTimeout(25000);
+  m_pendingReply =
+      m_nam->post(req, QJsonDocument(buildRecognizePayload()).toJson(QJsonDocument::Compact));
+  connect(m_pendingReply, &QNetworkReply::finished, this, [this, offerCandidateMenuOnEmpty]() {
+    m_btnR->setEnabled(true);
+    QNetworkReply *rep = m_pendingReply;
+    m_pendingReply = nullptr;
+    if (!rep) {
+      finishRecognizeWithFallback(QString(), offerCandidateMenuOnEmpty);
+      return;
+    }
+    const QByteArray body = rep->readAll();
+    const QNetworkReply::NetworkError err = rep->error();
+    rep->deleteLater();
+    if (err != QNetworkReply::NoError) {
+      finishRecognizeWithFallback(QString(), offerCandidateMenuOnEmpty);
+      return;
+    }
+    const QJsonObject obj = QJsonDocument::fromJson(body).object();
+    finishRecognizeWithFallback(obj.value(QStringLiteral("expression")).toString().trimmed(),
+                                offerCandidateMenuOnEmpty);
+  });
+}
+
+class GraphTangentXPopup : public QWidget {
+public:
+  GraphTangentXPopup(MultiPageNoteView *view,
+                     std::function<void(GraphCanvasItem *, double, bool)> onCommit)
+      : QWidget(view), m_view(view), m_onCommit(std::move(onCommit)) {
+    setObjectName(QStringLiteral("GraphTangentXPopup"));
+    setAttribute(Qt::WA_StyledBackground, true);
+    auto *shadow = new QGraphicsDropShadowEffect(this);
+    shadow->setBlurRadius(22);
+    shadow->setOffset(0, 4);
+    shadow->setColor(QColor(0, 0, 0, 130));
+    setGraphicsEffect(shadow);
+    const QString bg = UIStyles::Sidebar.name();
+    const QString accent = UIStyles::Accent.name();
+    const QString text = UIStyles::Text.name();
+    const QString sub = UIStyles::TextSecondary.name();
+    setStyleSheet(QStringLiteral(
+        "QWidget#GraphTangentXPopup { background-color: %1; border-radius: 12px; "
+        "border: 1px solid rgba(124,92,252,0.38); }"
+        "QWidget#GraphTangentXPopup QLabel { color: %3; }"
+        "QWidget#GraphTangentXPopup QDoubleSpinBox { background-color: %1; color: %3; "
+        "border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 4px 8px; min-height: 28px; }"
+        "QWidget#GraphTangentXPopup QPushButton { background-color: %2; color: #f0eefc; border: none; border-radius: 8px; "
+        "padding: 7px 16px; font-weight: 600; }"
+        "QWidget#GraphTangentXPopup QPushButton#PopupCancel { background-color: rgba(255,255,255,0.1); color: %3; }"
+        "QWidget#GraphTangentXPopup QCheckBox { color: %4; spacing: 6px; }")
+                      .arg(bg, accent, text, sub));
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(16, 16, 16, 16);
+    lay->setSpacing(10);
+    auto *title = new QLabel(QStringLiteral("Stelle auf der x-Achse"), this);
+    QFont tf = title->font();
+    tf.setBold(true);
+    tf.setPointSizeF(tf.pointSizeF() + 1.0);
+    title->setFont(tf);
+    lay->addWidget(title);
+    m_x = new QDoubleSpinBox(this);
+    m_x->setDecimals(4);
+    m_x->setRange(-1e6, 1e6);
+    connect(m_x, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this]() { refreshExtra(); });
+    lay->addWidget(m_x);
+    m_showTangent = new QCheckBox(QStringLiteral("Tangente anzeigen"), this);
+    m_showTangent->setChecked(true);
+    lay->addWidget(m_showTangent);
+    m_extra = new QLabel(this);
+    m_extra->setWordWrap(true);
+    m_extra->setStyleSheet(QStringLiteral("QLabel { font-size: 11px; color: %1; }").arg(sub));
+    m_extra->hide();
+    lay->addWidget(m_extra);
+    auto *row = new QHBoxLayout();
+    row->addStretch(1);
+    auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), this);
+    btnCancel->setObjectName(QStringLiteral("PopupCancel"));
+    auto *btnOk = new QPushButton(QStringLiteral("Uebernehmen"), this);
+    row->addWidget(btnCancel);
+    row->addWidget(btnOk);
+    lay->addLayout(row);
+    connect(btnCancel, &QPushButton::clicked, this, &GraphTangentXPopup::hide);
+    connect(btnOk, &QPushButton::clicked, this, [this]() {
+      if (m_graph && m_onCommit)
+        m_onCommit(m_graph, m_x->value(), m_showTangent->isChecked());
+      hide();
+    });
+    setFixedWidth(280);
+    hide();
+  }
+
+  void present(GraphCanvasItem *gi, const QPointF &scenePos, double dataX) {
+    m_graph = gi;
+    if (!m_view || !gi)
+      return;
+    const GraphObject d = gi->data();
+    m_x->blockSignals(true);
+    m_x->setRange(d.xMin, d.xMax);
+    m_x->setValue(qBound(d.xMin, dataX, d.xMax));
+    m_x->blockSignals(false);
+    refreshExtra();
+    adjustSize();
+    auto *gv = static_cast<QGraphicsView *>(m_view);
+    QPoint vp = gv->mapFromScene(scenePos);
+    QPoint p = vp + QPoint(16, 16);
+    const int w = qMax(width(), 260);
+    const int h = height();
+    const QRect vr = gv->rect();
+    if (p.x() + w > vr.right())
+      p.setX(vr.right() - w - 10);
+    if (p.y() + h > vr.bottom())
+      p.setY(qMax(8, vp.y() - h - 10));
+    if (p.x() < 8)
+      p.setX(8);
+    if (p.y() < 8)
+      p.setY(8);
+    move(p);
+    show();
+    raise();
+  }
+
+private:
+  void refreshExtra() {
+    if (!m_extra || !m_graph)
+      return;
+    const GraphObject d = m_graph->data();
+    if (d.selectedFunction < 0 || d.selectedFunction >= d.functions.size()) {
+      m_extra->hide();
+      return;
+    }
+    const GraphFunction &f = d.functions[d.selectedFunction];
+    if (!f.isDerivativeCurve) {
+      m_extra->hide();
+      return;
+    }
+    const ParsedExpression p = MathExpressionParser::parseFunctionExpression(f.sourceExpression);
+    if (!p.ok) {
+      m_extra->hide();
+      return;
+    }
+    const double xv = m_x->value();
+    const double slope = NumericAnalysis::derivativeCentral(p, xv);
+    if (!qIsFinite(slope)) {
+      m_extra->hide();
+      return;
+    }
+    m_extra->setText(
+        QStringLiteral("Ableitung f'(x) an dieser Stelle: %1").arg(slope, 0, 'g', 5));
+    m_extra->show();
+  }
+
+  MultiPageNoteView *m_view;
+  std::function<void(GraphCanvasItem *, double, bool)> m_onCommit;
+  GraphCanvasItem *m_graph{nullptr};
+  QDoubleSpinBox *m_x{nullptr};
+  QCheckBox *m_showTangent{nullptr};
+  QLabel *m_extra{nullptr};
 };
 
 static int a4wPx() {
@@ -263,11 +1035,305 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   connect(m_selectionMenu, &NoteSelectionMenu::cutRequested, this, &MultiPageNoteView::cutSelection);
   connect(m_selectionMenu, &NoteSelectionMenu::colorRequested, this, &MultiPageNoteView::changeSelectionColor);
   connect(m_selectionMenu, &NoteSelectionMenu::screenshotRequested, this, &MultiPageNoteView::screenshotSelection);
+  m_graphLegendDock = new GraphLegendDock(this);
+  m_graphLegendDock->hide();
+  m_graphQuickPopup = new GraphQuickActionPopup(this);
+  m_graphQuickPopup->hide();
 
-  connect(verticalScrollBar(), &QScrollBar::valueChanged, this,
-          [this]() { syncPagesBarVisibility(); });
-  connect(horizontalScrollBar(), &QScrollBar::valueChanged, this,
-          [this]() { syncPagesBarVisibility(); });
+  connect(m_graphLegendDock, &GraphLegendDock::selectionRequested, this, [this](int idx) {
+    if (!m_selectedGraphItem)
+      return;
+    m_graphQuickPopupWanted = false;
+    hideGraphQuickPopup();
+    m_selectedGraphItem->setSelectedFunction(idx);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    if (m_graphPanelExplicitOpen && m_graphLegendDock) {
+      bindGraphChrome(m_selectedGraphItem);
+      syncGraphLegendLayout();
+    }
+  });
+  m_graphEntryBar = new GraphFormulaEntryBar(this);
+  m_graphEntryBar->hide();
+  m_tangentXPopup = new GraphTangentXPopup(this, [this](GraphCanvasItem *gi, double x, bool st) {
+    if (!gi)
+      return;
+    auto d = gi->data();
+    if (d.functions.isEmpty())
+      return;
+    const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
+    d.functions[idx].tangentX = qBound(d.xMin, x, d.xMax);
+    d.functions[idx].showTangent = st;
+    gi->fromData(d);
+    if (m_selectedGraphItem == gi)
+      bindGraphChrome(gi);
+    syncGraphPlusLayout(gi);
+    syncGraphItemsToNote();
+  });
+  connect(m_graphLegendDock, &GraphLegendDock::entryBarRequested, this, [this]() {
+    if (!m_selectedGraphItem)
+      return;
+    openGraphEntryBarForGraph(m_selectedGraphItem);
+  });
+  connect(m_graphEntryBar, &GraphFormulaEntryBar::liveTextChanged, this, [this](const QString& expr) {
+    if (!m_selectedGraphItem)
+      return;
+    auto d = m_selectedGraphItem->data();
+    if (expr.isEmpty()) {
+      if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
+        d.functions.removeAt(m_livePreviewIndex);
+        m_livePreviewIndex = -1;
+        if (d.functions.isEmpty())
+          d.selectedFunction = -1;
+        else
+          d.selectedFunction = qBound(0, d.selectedFunction, d.functions.size() - 1);
+        m_selectedGraphItem->fromData(d);
+        m_graphEntryBar->setStatus(QString());
+        syncGraphPlusLayout(m_selectedGraphItem);
+        if (m_graphPanelExplicitOpen)
+          bindGraphChrome(m_selectedGraphItem);
+        repositionGraphEntryBar();
+      }
+      return;
+    }
+    const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
+    if (!parsed.ok) {
+      m_graphEntryBar->setStatus(QStringLiteral("Eingabe ungueltig"), true);
+      return;
+    }
+    m_graphEntryBar->setStatus(QStringLiteral("Live: %1").arg(parsed.normalizedInput), false);
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
+      d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
+    } else {
+      GraphFunction previewFn;
+      previewFn.expression = parsed.normalizedInput;
+      previewFn.color = QColor(227, 132, 46);
+      previewFn.visible = true;
+      d.functions.push_back(previewFn);
+      m_livePreviewIndex = d.functions.size() - 1;
+    }
+    d.selectedFunction = m_livePreviewIndex;
+    m_selectedGraphItem->fromData(d);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    if (m_graphPanelExplicitOpen)
+      bindGraphChrome(m_selectedGraphItem);
+    repositionGraphEntryBar();
+  });
+  connect(m_graphEntryBar, &GraphFormulaEntryBar::commitRequested, this, [this]() {
+    if (!m_selectedGraphItem || !m_graphEntryBar)
+      return;
+    const QString expr = m_graphEntryBar->expressionText().trimmed();
+    if (expr.isEmpty()) {
+      m_graphEntryBar->setStatus(QStringLiteral("Bitte einen Ausdruck eingeben"), true);
+      return;
+    }
+    const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
+    if (!parsed.ok) {
+      m_graphEntryBar->setStatus(QStringLiteral("Ungueltig: %1").arg(parsed.error), true);
+      return;
+    }
+    auto d = m_selectedGraphItem->data();
+    const QColor fixedColor = QColor(94, 92, 230);
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
+      d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
+      d.functions[m_livePreviewIndex].color = fixedColor;
+      d.selectedFunction = m_livePreviewIndex;
+      m_livePreviewIndex = -1;
+    } else {
+      GraphFunction fn;
+      fn.expression = parsed.normalizedInput;
+      fn.visible = true;
+      d.functions.push_back(fn);
+      d.selectedFunction = d.functions.size() - 1;
+    }
+    m_selectedGraphItem->fromData(d);
+    closeGraphEntryBar();
+    syncGraphPlusLayout(m_selectedGraphItem);
+    if (m_graphPanelExplicitOpen) {
+      bindGraphChrome(m_selectedGraphItem);
+      syncGraphLegendLayout();
+    }
+    syncGraphItemsToNote();
+  });
+  connect(m_graphEntryBar, &GraphFormulaEntryBar::cancelRequested, this, [this]() {
+    abandonGraphEntrySession();
+    if (m_graphPanelExplicitOpen && m_selectedGraphItem) {
+      bindGraphChrome(m_selectedGraphItem);
+      syncGraphLegendLayout();
+    }
+    syncGraphItemsToNote();
+  });
+  connect(m_graphLegendDock, &GraphLegendDock::removeRequested, this, [this](int requestedIdx) {
+    if (!m_selectedGraphItem) return;
+    auto d = m_selectedGraphItem->data();
+    if (d.functions.isEmpty()) return;
+    const int idx = qBound(0, requestedIdx >= 0 ? requestedIdx : d.selectedFunction, d.functions.size() - 1);
+    d.functions.removeAt(idx);
+    if (m_livePreviewIndex == idx)
+      m_livePreviewIndex = -1;
+    else if (m_livePreviewIndex > idx)
+      --m_livePreviewIndex;
+    d.selectedFunction = d.functions.isEmpty() ? -1 : qBound(0, idx - 1, d.functions.size() - 1);
+    m_selectedGraphItem->fromData(d);
+    bindGraphChrome(m_selectedGraphItem);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    syncGraphLegendLayout();
+    syncGraphItemsToNote();
+  });
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::toggleRequested, this, [this](const QString& what) {
+    if (!m_selectedGraphItem) return;
+    auto d = m_selectedGraphItem->data();
+    if (d.functions.isEmpty()) return;
+    const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
+    if (idx < 0 || idx >= d.functions.size()) return;
+    if (what == "derivative_create") {
+      const GraphFunction &base = d.functions[idx];
+      const QString src = (base.isDerivativeCurve && !base.sourceExpression.isEmpty())
+          ? base.sourceExpression
+          : base.expression;
+      const QString innerLabel = base.isDerivativeCurve ? base.expression : src;
+      const QString firstSym = MathExpressionParser::symbolicDerivativeString(src);
+      QString plotSource = src;
+      QString displayExpr = firstSym;
+      if (base.isDerivativeCurve) {
+        plotSource = firstSym.isEmpty() ? src : firstSym;
+        displayExpr =
+            firstSym.isEmpty() ? QString() : MathExpressionParser::symbolicDerivativeString(firstSym);
+      }
+      GraphFunction derFn;
+      derFn.sourceExpression = plotSource;
+      derFn.expression =
+          displayExpr.isEmpty() ? QStringLiteral("d/dx(%1)").arg(innerLabel) : displayExpr;
+      derFn.isDerivativeCurve = true;
+      derFn.color = base.color.darker(120);
+      d.functions[idx].showTangent = true;
+      d.functions[idx].tangentX = qBound(d.xMin, d.functions[idx].tangentX, d.xMax);
+      d.functions.push_back(derFn);
+      d.selectedFunction = d.functions.size() - 1;
+    }
+    else if (what == "roots") d.functions[idx].showRoots = !d.functions[idx].showRoots;
+    else if (what == "extrema") d.functions[idx].showExtrema = !d.functions[idx].showExtrema;
+    m_selectedGraphItem->fromData(d);
+    bindGraphChrome(m_selectedGraphItem);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    syncGraphLegendLayout();
+    syncGraphItemsToNote();
+  });
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentXRequested, this, [this](double x0) {
+    if (!m_selectedGraphItem) return;
+    auto d = m_selectedGraphItem->data();
+    if (d.functions.isEmpty()) return;
+    const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
+    if (idx < 0 || idx >= d.functions.size()) return;
+    d.functions[idx].tangentX = qBound(d.xMin, x0, d.xMax);
+    d.functions[idx].showTangent = true;
+    m_selectedGraphItem->fromData(d);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    bindGraphChrome(m_selectedGraphItem);
+    syncGraphItemsToNote();
+  });
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentAtFirstRootRequested, this, [this]() {
+    if (!m_selectedGraphItem)
+      return;
+    auto d = m_selectedGraphItem->data();
+    if (d.functions.isEmpty())
+      return;
+    const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
+    if (idx < 0 || idx >= d.functions.size())
+      return;
+    const auto &f = d.functions[idx];
+    const QString expr = f.isDerivativeCurve ? f.sourceExpression : f.expression;
+    const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
+    double x0 = 0.0;
+    if (parsed.ok) {
+      const QVector<double> roots =
+          NumericAnalysis::findRootsBisection(parsed, d.xMin, d.xMax, 300);
+      if (!roots.isEmpty())
+        x0 = roots.first();
+    }
+    d.functions[idx].tangentX = qBound(d.xMin, x0, d.xMax);
+    d.functions[idx].showTangent = true;
+    m_selectedGraphItem->fromData(d);
+    bindGraphChrome(m_selectedGraphItem);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    syncGraphItemsToNote();
+  });
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentManualRequested, this, [this]() {
+    if (!m_selectedGraphItem || !m_tangentXPopup)
+      return;
+    const QRectF sr = m_selectedGraphItem->sceneBoundingRect();
+    const QPointF center = sr.center();
+    auto d = m_selectedGraphItem->data();
+    double x0 = 0.0;
+    if (d.selectedFunction >= 0 && d.selectedFunction < d.functions.size())
+      x0 = d.functions[d.selectedFunction].tangentX;
+    m_tangentXPopup->present(m_selectedGraphItem, center, x0);
+  });
+  const auto removeWholeGraph = [this]() {
+    GraphCanvasItem *gi = m_selectedGraphItem;
+    if (!gi)
+      return;
+    if (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)
+      abandonGraphEntrySession();
+    else
+      closeGraphEntryBar();
+    if (m_graphPlusBypassItem == gi)
+      m_graphPlusBypassItem = nullptr;
+    if (m_graphPlotBypassItem == gi)
+      m_graphPlotBypassItem = nullptr;
+    m_graphPanelExplicitOpen = false;
+    m_graphPanelTargetGraph = nullptr;
+    m_selectedGraphItem = nullptr;
+    m_livePreviewIndex = -1;
+    hideGraphLegendQuick();
+    bindGraphChrome(nullptr);
+    {
+      QSignalBlocker blocker(&scene_);
+      scene_.clearSelection();
+      delete gi;
+    }
+    syncGraphItemsToNote();
+  };
+  connect(m_graphLegendDock, &GraphLegendDock::removeGraphWidgetRequested, this, removeWholeGraph);
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::removeGraphRequested, this, removeWholeGraph);
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::removeSelectedFunctionRequested, this, [this]() {
+    if (!m_selectedGraphItem)
+      return;
+    auto d = m_selectedGraphItem->data();
+    if (d.functions.isEmpty())
+      return;
+    const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
+    d.functions.removeAt(idx);
+    if (m_livePreviewIndex == idx)
+      m_livePreviewIndex = -1;
+    else if (m_livePreviewIndex > idx)
+      --m_livePreviewIndex;
+    d.selectedFunction = d.functions.isEmpty() ? -1 : qBound(0, idx - 1, d.functions.size() - 1);
+    m_selectedGraphItem->fromData(d);
+    bindGraphChrome(m_selectedGraphItem);
+    syncGraphPlusLayout(m_selectedGraphItem);
+    syncGraphLegendLayout();
+    syncGraphItemsToNote();
+  });
+  connect(m_graphQuickPopup, &GraphQuickActionPopup::axisSettingsRequested, this, [this]() {
+    if (!m_selectedGraphItem)
+      return;
+    GraphAxisSettingsDialog dlg(m_selectedGraphItem, window());
+    dlg.exec();
+    bindGraphChrome(m_selectedGraphItem);
+    syncGraphLegendLayout();
+    syncGraphItemsToNote();
+  });
+
+  connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+    syncPagesBarVisibility();
+    syncGraphLegendLayout();
+    repositionGraphEntryBar();
+  });
+  connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+    syncPagesBarVisibility();
+    syncGraphLegendLayout();
+    repositionGraphEntryBar();
+  });
   // Overlay über der Skeleton-Fläche — muss Maus-Events fangen (kein
   // WA_TransparentForMouseEvents, sonst gehen Klicks zur QGraphicsView durch).
   m_bottomSheet = new QWidget(this);
@@ -409,6 +1475,7 @@ void MultiPageNoteView::setNote(Note *note) {
   scene_.clear();
   pageItems_.clear();
   m_pagesBarAnchorStrip = nullptr;
+  resetGraphChromeAfterSceneClear();
 
   layoutPages();
 
@@ -452,6 +1519,79 @@ void MultiPageNoteView::setNote(Note *note) {
       item->setFlag(QGraphicsItem::ItemIsMovable, true);
       scene_.addItem(item);
       item->setPos(pageRect(i).topLeft());
+    }
+    for (const auto& g : note_->pages[i].graphs) {
+      auto* gi = new GraphCanvasItem(g.rect);
+      gi->fromData(g);
+      gi->setParentItem(pageItems_[i]);
+      gi->setFlag(QGraphicsItem::ItemIsSelectable, true);
+      gi->setFlag(QGraphicsItem::ItemIsMovable, true);
+      gi->setZValue(4.0);
+      connect(gi, &GraphCanvasItem::graphChanged, this, [this]() { syncGraphItemsToNote(); });
+      connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
+        abandonGraphEntrySession();
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        m_graphQuickPopupWanted = false;
+        hideGraphQuickPopup();
+        gi->setSelectedFunction(idx);
+        refreshGraphPanelForSelection();
+      });
+      connect(gi, &GraphCanvasItem::functionLongPressed, this, [this, gi](int idx) {
+        abandonGraphEntrySession();
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        m_graphQuickPopupWanted = false;
+        hideGraphQuickPopup();
+        gi->setSelectedFunction(idx);
+        refreshGraphPanelForSelection();
+      });
+      connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphQuickPopupWanted = false;
+        hideGraphQuickPopup();
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        refreshGraphPanelForSelection();
+        openGraphEntryBarForGraph(gi, true);
+      });
+      connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
+        abandonGraphEntrySession();
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        m_graphQuickAnchorScene = scenePos;
+        m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
+        if (!m_graphQuickPopupWanted)
+          hideGraphQuickPopup();
+        refreshGraphPanelForSelection();
+      });
+      connect(gi, &GraphCanvasItem::xAxisTapped, this, [this, gi](double dataX, QPointF scenePos) {
+        if (m_tangentXPopup)
+          m_tangentXPopup->present(gi, scenePos, dataX);
+      });
+      connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
+        if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
+            (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
+          syncGraphLegendLayout();
+        }
+      });
+      gi->setData(9001, true);
+      syncGraphPlusLayout(gi);
     }
   }
   scene_.blockSignals(wasBlocked);
@@ -865,6 +2005,8 @@ void MultiPageNoteView::ensureSceneRectCoversViewport() {
 void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   QGraphicsView::resizeEvent(e);
   syncPagesBarVisibility();
+  syncGraphLegendLayout();
+  repositionGraphEntryBar();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
 #endif
@@ -905,6 +2047,8 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
     ensureSceneRectCoversViewport();
 #endif
     syncPagesBarVisibility();
+    syncGraphLegendLayout();
+    repositionGraphEntryBar();
     e->accept();
   } else {
     QScrollBar *vb = verticalScrollBar();
@@ -1009,6 +2153,8 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
       ensureSceneRectCoversViewport();
 #endif
       syncPagesBarVisibility();
+      syncGraphLegendLayout();
+      repositionGraphEntryBar();
     }
   }
 
@@ -1016,6 +2162,8 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
     QPointF delta = gesture->centerPoint() - gesture->lastCenterPoint();
     horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
     verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+    syncGraphLegendLayout();
+    repositionGraphEntryBar();
   }
 
   if (gesture->state() == Qt::GestureFinished ||
@@ -1028,6 +2176,25 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
   if (m_isZooming) {
     e->accept();
     return;
+  }
+
+  // Graph "+" / chrome reach the item before touch-pan and tools.
+  if (e->button() == Qt::LeftButton) {
+    const QPointF scenePos = mapToScene(e->pos());
+    GraphCanvasItem *plusHit = graphCanvasHittingPlus(&scene_, scenePos);
+    GraphCanvasItem *chromeHit = graphCanvasHittingChrome(&scene_, scenePos);
+    if (pageAt(scenePos) >= 0 || plusHit || chromeHit) {
+      if (plusHit) {
+        m_graphPlusBypassItem = plusHit;
+        QGraphicsView::mousePressEvent(e);
+        return;
+      }
+      if (chromeHit) {
+        m_graphPlotBypassItem = chromeHit;
+        QGraphicsView::mousePressEvent(e);
+        return;
+      }
+    }
   }
 
   const QInputDevice *dev = e->device();
@@ -1105,6 +2272,11 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
 void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
   if (m_isZooming) {
     e->accept();
+    return;
+  }
+
+  if ((m_graphPlusBypassItem || m_graphPlotBypassItem) && (e->buttons() & Qt::LeftButton)) {
+    QGraphicsView::mouseMoveEvent(e);
     return;
   }
 
@@ -1217,6 +2389,17 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
   if (m_pullDistance > 0.f)
     m_pullDistance = 0.f;
 
+  if (m_graphPlusBypassItem && e->button() == Qt::LeftButton) {
+    QGraphicsView::mouseReleaseEvent(e);
+    m_graphPlusBypassItem = nullptr;
+    return;
+  }
+  if (m_graphPlotBypassItem && e->button() == Qt::LeftButton) {
+    QGraphicsView::mouseReleaseEvent(e);
+    m_graphPlotBypassItem = nullptr;
+    return;
+  }
+
   if (m_isPanning) {
     m_isPanning = false;
     setCursor(Qt::ArrowCursor);
@@ -1237,7 +2420,15 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     scEvent.setButton(e->button());
 
     if (tool->handleMouseRelease(&scEvent, &scene_)) {
+      GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
       commitPendingStrokeItemsToNote(tool);
+      syncGraphItemsToNote();
+      if (newGraph) {
+        GraphAxisSettingsDialog dlg(newGraph, window());
+        dlg.exec();
+        syncGraphItemsToNote();
+      }
+      tool->clearLastCompletedItem();
       e->accept();
       return;
     }
@@ -1256,9 +2447,48 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
+  const QPointF scenePos = mapToScene(e->position().toPoint());
+
+  if (note_ && mode_ != ToolMode::Lasso) {
+    if (e->type() == QEvent::TabletRelease && m_graphTabletPendingItem) {
+      GraphCanvasItem *const gi = m_graphTabletPendingItem.data();
+      const QPointF pressScene = m_graphTabletPressScene;
+      const qint64 pressMs = m_graphTabletPressMs;
+      m_graphTabletPendingItem = nullptr;
+      if (gi && QLineF(scenePos, pressScene).length() < 22.0) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        const qint64 elapsedMs = nowMs - pressMs;
+        const qint64 clampedMs = qBound(qint64{0}, elapsedMs, qint64{600000});
+        const int holdMs = static_cast<int>(clampedMs);
+        gi->deliverTapFromScene(pressScene, holdMs);
+      }
+      e->accept();
+      return;
+    }
+    if (e->type() == QEvent::TabletMove && m_graphTabletPendingItem) {
+      if (QLineF(scenePos, m_graphTabletPressScene).length() > 24.0)
+        m_graphTabletPendingItem = nullptr;
+      e->accept();
+      return;
+    }
+    if (e->type() == QEvent::TabletPress && pageAt(scenePos) >= 0) {
+      if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(&scene_, scenePos)) {
+        hitGraph->requestPlusTap();
+        e->accept();
+        return;
+      }
+      if (GraphCanvasItem *hitGraph = graphCanvasHittingChrome(&scene_, scenePos)) {
+        m_graphTabletPendingItem = hitGraph;
+        m_graphTabletPressScene = scenePos;
+        m_graphTabletPressMs = QDateTime::currentMSecsSinceEpoch();
+        e->accept();
+        return;
+      }
+    }
+  }
+
   AbstractTool *tool = ToolManager::instance().activeTool();
   if (tool && note_ && mode_ != ToolMode::Lasso) {
-    QPointF scenePos = mapToScene(e->position().toPoint());
     if (auto *strokeTool = qobject_cast<AbstractStrokeTool *>(tool))
       strokeTool->setStrokeSceneForTablet(&scene_);
     if (tool->handleTabletEvent(e, scenePos)) {
@@ -1274,7 +2504,6 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
     return;
   }
 
-  QPointF scenePos = mapToScene(e->position().toPoint());
   int p = pageAt(scenePos);
   if (p < 0) {
     e->ignore();
@@ -1529,6 +2758,31 @@ bool MultiPageNoteView::importPdfPages(const QString &pdfPath) {
 
 void MultiPageNoteView::onSelectionChanged() {
   QList<QGraphicsItem*> items = scene_.selectedItems();
+  GraphCanvasItem* graphItem = nullptr;
+  for (QGraphicsItem* item : items) {
+    if (item->type() == GraphCanvasItem::Type) {
+      graphItem = static_cast<GraphCanvasItem*>(item);
+      break;
+    }
+  }
+  if (graphItem) {
+    if (m_selectionMenu) m_selectionMenu->hide();
+    if (m_graphEntryBarOpen && m_graphEntryTargetGraph && m_graphEntryTargetGraph != graphItem)
+      abandonGraphEntrySession();
+    m_selectedGraphItem = graphItem;
+    syncGraphPlusLayout(graphItem);
+    m_graphPanelTargetGraph = graphItem;
+    m_graphPanelExplicitOpen = true;
+    bindGraphChrome(m_selectedGraphItem);
+    presentGraphLegendAnimated();
+    return;
+  }
+  abandonGraphEntrySession();
+  m_selectedGraphItem = nullptr;
+  m_graphPanelExplicitOpen = false;
+  m_graphPanelTargetGraph = nullptr;
+  hideGraphLegendQuick();
+
   if (items.isEmpty() || !m_selectionMenu) {
       if (m_selectionMenu) m_selectionMenu->hide();
       applyTransform(); // Deselect and remove overlay if it exists
@@ -1565,6 +2819,7 @@ void MultiPageNoteView::deleteSelection() {
         delete item;
     }
     if (m_selectionMenu) m_selectionMenu->hide();
+    syncGraphItemsToNote();
     if (onSaveRequested) onSaveRequested(note_);
 }
 
@@ -1663,9 +2918,367 @@ void MultiPageNoteView::applyTransform() {
     scene_.destroyItemGroup(m_transformGroup);
     m_transformGroup = nullptr;
   }
+  syncGraphItemsToNote();
   if (onSaveRequested) onSaveRequested(note_);
 }
 
 void MultiPageNoteView::screenshotSelection() {
     copySelection(); 
+}
+
+void MultiPageNoteView::syncGraphPlusLayout(GraphCanvasItem *gi) {
+  if (!gi)
+    return;
+  auto d = gi->data();
+  int committed = d.functions.size();
+  if (m_livePreviewIndex >= 0 && m_livePreviewIndex < committed && gi == m_selectedGraphItem)
+    committed -= 1;
+  gi->setCommittedFunctionCountForPlusLayout(qMax(0, committed));
+  const bool entryOpen = m_graphEntryBar && m_graphEntryBar->isVisible() && m_graphEntryBarOpen &&
+                         m_graphEntryTargetGraph == gi;
+  gi->setPlusButtonSuppressed(entryOpen);
+}
+
+void MultiPageNoteView::closeGraphEntryBar() {
+  m_graphEntryBarOpen = false;
+  m_graphEntryTargetGraph = nullptr;
+  if (m_graphEntryBar) {
+    hideGraphEntryBarQuick();
+    m_graphEntryBar->setStatus(QString());
+  }
+  if (m_selectedGraphItem)
+    syncGraphPlusLayout(m_selectedGraphItem);
+}
+
+void MultiPageNoteView::abandonGraphEntrySession() {
+  GraphCanvasItem *gi = m_graphEntryTargetGraph;
+  if (m_graphEntryBarOpen && gi) {
+    auto d = gi->data();
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
+      d.functions.removeAt(m_livePreviewIndex);
+      m_livePreviewIndex = -1;
+      if (d.functions.isEmpty())
+        d.selectedFunction = -1;
+      else
+        d.selectedFunction = qBound(0, d.selectedFunction, d.functions.size() - 1);
+      gi->fromData(d);
+    }
+    syncGraphPlusLayout(gi);
+  }
+  closeGraphEntryBar();
+}
+
+void MultiPageNoteView::openGraphEntryBarForGraph(GraphCanvasItem *gi, bool fromPlus) {
+  if (!gi || !m_graphEntryBar)
+    return;
+  if (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi) {
+    m_graphEntryBar->raise();
+    repositionGraphEntryBar();
+    if (fromPlus)
+      m_graphEntryBar->notifyPlusOpened();
+    return;
+  }
+  if (m_graphEntryBarOpen && m_graphEntryTargetGraph != gi)
+    abandonGraphEntrySession();
+  m_selectedGraphItem = gi;
+  m_graphEntryBarOpen = true;
+  m_graphEntryTargetGraph = gi;
+  m_graphEntryBar->prepareOpen();
+  syncGraphPlusLayout(gi);
+  presentGraphEntryBarAnimated();
+  if (fromPlus)
+    m_graphEntryBar->notifyPlusOpened();
+}
+
+void MultiPageNoteView::repositionGraphEntryBar() {
+  if (!m_graphEntryBarOpen || !m_selectedGraphItem || !m_graphEntryBar)
+    return;
+  m_graphEntryBar->adjustSize();
+  const int mw = m_graphEntryBar->width();
+  const int mh = m_graphEntryBar->height();
+  const int margin = 8;
+  QPoint topLeft;
+  if (m_graphLegendDock && m_graphLegendDock->isVisible() && m_graphPanelExplicitOpen &&
+      m_selectedGraphItem == m_graphPanelTargetGraph) {
+    const QRect lr = m_graphLegendDock->geometry();
+    topLeft = QPoint(lr.center().x() - mw / 2, lr.bottom() + margin);
+    topLeft.setX(qBound(margin, topLeft.x(), qMax(margin, width() - mw - margin)));
+    topLeft.setY(qBound(margin, topLeft.y(), qMax(margin, height() - mh - margin)));
+  } else {
+    topLeft = pickSmartPanelPos(this, m_selectedGraphItem, 0, mw, mh, margin);
+  }
+  m_graphEntryBar->move(topLeft);
+}
+
+void MultiPageNoteView::syncGraphLegendLayout() {
+  const int margin = 10;
+  if (m_graphPanelExplicitOpen && m_selectedGraphItem && m_graphLegendDock && m_graphLegendDock->isVisible()) {
+    m_graphLegendDock->adjustSize();
+    const int lw = m_graphLegendDock->width();
+    const int lh = m_graphLegendDock->height();
+    const QPoint tl = legendTopLeftDocked(this, m_selectedGraphItem, lw, lh, margin);
+    m_graphLegendDock->move(tl);
+  }
+  if (m_graphQuickPopupWanted && m_graphQuickPopup && m_selectedGraphItem) {
+    m_graphQuickPopup->adjustSize();
+    const int pw = m_graphQuickPopup->width();
+    const int ph = m_graphQuickPopup->height();
+    const QPoint pt = quickPopupTopLeftForView(this, m_graphQuickAnchorScene, pw, ph, margin);
+    m_graphQuickPopup->move(pt);
+    if (!m_graphQuickPopup->isVisible()) {
+      m_graphQuickPopup->show();
+    }
+    m_graphQuickPopup->raise();
+  }
+  repositionGraphEntryBar();
+}
+
+void MultiPageNoteView::bindGraphChrome(GraphCanvasItem *gi) {
+  if (gi) {
+    const auto &gd = gi->data();
+    if (!gd.functions.isEmpty() && gd.selectedFunction < 0)
+      gi->setSelectedFunction(0);
+  }
+  if (m_graphLegendDock)
+    m_graphLegendDock->bind(gi);
+  if (m_graphQuickPopup)
+    m_graphQuickPopup->bind(gi);
+}
+
+void MultiPageNoteView::resetGraphChromeAfterSceneClear() {
+  m_graphPlusBypassItem = nullptr;
+  m_graphPlotBypassItem = nullptr;
+  m_graphTabletPendingItem = nullptr;
+  m_selectedGraphItem = nullptr;
+  m_graphPanelTargetGraph = nullptr;
+  m_graphPanelExplicitOpen = false;
+  m_graphQuickPopupWanted = false;
+  m_livePreviewIndex = -1;
+  m_graphEntryBarOpen = false;
+  m_graphEntryTargetGraph = nullptr;
+  hideGraphLegendQuick();
+  bindGraphChrome(nullptr);
+  if (m_graphEntryBar) {
+    hideGraphEntryBarQuick();
+    m_graphEntryBar->setStatus(QString());
+  }
+}
+
+void MultiPageNoteView::updateGraphChromeIfVisible() {
+  if (!m_graphPanelExplicitOpen || !m_graphLegendDock || !m_graphLegendDock->isVisible())
+    return;
+  if (!m_selectedGraphItem || m_selectedGraphItem->scene() != &scene_)
+    return;
+  bindGraphChrome(m_selectedGraphItem);
+  syncGraphLegendLayout();
+}
+
+void MultiPageNoteView::ensureGraphLegendFadeSetup() {
+  if (!m_graphLegendDock || m_graphLegendOpacityFx)
+    return;
+  m_graphLegendOpacityFx = new QGraphicsOpacityEffect(m_graphLegendDock);
+  m_graphLegendDock->setGraphicsEffect(m_graphLegendOpacityFx);
+  m_graphLegendFadeAnim = new QPropertyAnimation(m_graphLegendOpacityFx, "opacity", this);
+  m_graphLegendFadeAnim->setDuration(140);
+  m_graphLegendFadeAnim->setEasingCurve(QEasingCurve::OutCubic);
+}
+
+void MultiPageNoteView::ensureGraphEntryBarFadeSetup() {
+  if (!m_graphEntryBar || m_graphEntryBarOpacityFx)
+    return;
+  m_graphEntryBarOpacityFx = new QGraphicsOpacityEffect(m_graphEntryBar);
+  m_graphEntryBar->setGraphicsEffect(m_graphEntryBarOpacityFx);
+  m_graphEntryBarFadeAnim = new QPropertyAnimation(m_graphEntryBarOpacityFx, "opacity", this);
+  m_graphEntryBarFadeAnim->setDuration(140);
+  m_graphEntryBarFadeAnim->setEasingCurve(QEasingCurve::OutCubic);
+}
+
+void MultiPageNoteView::hideGraphQuickPopup() {
+  m_graphQuickPopupWanted = false;
+  if (m_graphQuickPopup)
+    m_graphQuickPopup->hide();
+}
+
+void MultiPageNoteView::hideGraphLegendQuick() {
+  if (m_graphLegendFadeAnim)
+    m_graphLegendFadeAnim->stop();
+  if (m_graphLegendOpacityFx)
+    m_graphLegendOpacityFx->setOpacity(1.0);
+  if (m_graphLegendDock)
+    m_graphLegendDock->hide();
+  hideGraphQuickPopup();
+}
+
+void MultiPageNoteView::hideGraphEntryBarQuick() {
+  if (m_graphEntryBarFadeAnim)
+    m_graphEntryBarFadeAnim->stop();
+  if (m_graphEntryBarOpacityFx)
+    m_graphEntryBarOpacityFx->setOpacity(1.0);
+  if (m_graphEntryBar)
+    m_graphEntryBar->hide();
+}
+
+void MultiPageNoteView::presentGraphLegendAnimated() {
+  if (!m_graphLegendDock)
+    return;
+  ensureGraphLegendFadeSetup();
+  const bool alreadyVisible =
+      m_graphLegendDock->isVisible() && m_graphLegendOpacityFx->opacity() > 0.02;
+  if (alreadyVisible) {
+    syncGraphLegendLayout();
+    m_graphLegendFadeAnim->stop();
+    m_graphLegendOpacityFx->setOpacity(1.0);
+    m_graphLegendDock->raise();
+    if (m_graphQuickPopupWanted && m_graphQuickPopup)
+      m_graphQuickPopup->raise();
+    return;
+  }
+  m_graphLegendFadeAnim->stop();
+  m_graphLegendOpacityFx->setOpacity(0.0);
+  m_graphLegendDock->show();
+  m_graphLegendDock->raise();
+  syncGraphLegendLayout();
+  if (m_graphQuickPopupWanted && m_graphQuickPopup) {
+    m_graphQuickPopup->show();
+    syncGraphLegendLayout();
+    m_graphQuickPopup->raise();
+  }
+  m_graphLegendFadeAnim->setStartValue(0.0);
+  m_graphLegendFadeAnim->setEndValue(1.0);
+  m_graphLegendFadeAnim->start();
+  QTimer::singleShot(0, this, [this]() {
+    if (m_graphLegendDock && m_graphLegendDock->isVisible() && m_graphPanelExplicitOpen && m_selectedGraphItem)
+      syncGraphLegendLayout();
+  });
+}
+
+void MultiPageNoteView::presentGraphEntryBarAnimated() {
+  if (!m_graphEntryBar)
+    return;
+  ensureGraphEntryBarFadeSetup();
+  repositionGraphEntryBar();
+  if (m_graphEntryBar->isVisible() && m_graphEntryBarOpacityFx->opacity() > 0.02) {
+    m_graphEntryBarFadeAnim->stop();
+    m_graphEntryBarOpacityFx->setOpacity(1.0);
+    m_graphEntryBar->raise();
+    return;
+  }
+  m_graphEntryBarFadeAnim->stop();
+  m_graphEntryBarOpacityFx->setOpacity(0.0);
+  m_graphEntryBar->show();
+  m_graphEntryBar->raise();
+  m_graphEntryBarFadeAnim->setStartValue(0.0);
+  m_graphEntryBarFadeAnim->setEndValue(1.0);
+  m_graphEntryBarFadeAnim->start();
+}
+
+void MultiPageNoteView::refreshGraphPanelForSelection() {
+  if (!m_selectedGraphItem || !m_graphLegendDock) {
+    hideGraphLegendQuick();
+    m_graphPanelExplicitOpen = false;
+    m_graphPanelTargetGraph = nullptr;
+    return;
+  }
+  bindGraphChrome(m_selectedGraphItem);
+  if (!m_graphPanelExplicitOpen) {
+    hideGraphLegendQuick();
+    return;
+  }
+  if (m_graphQuickPopupWanted && m_graphQuickPopup)
+    m_graphQuickPopup->setAnchorScenePos(m_graphQuickAnchorScene);
+  presentGraphLegendAnimated();
+}
+
+void MultiPageNoteView::syncGraphItemsToNote() {
+  if (!note_) return;
+  if (m_syncingGraphs) return;
+  m_syncingGraphs = true;
+  for (auto& p : note_->pages) p.graphs.clear();
+
+  const auto all = scene_.items(Qt::AscendingOrder);
+  for (QGraphicsItem* item : all) {
+    if (item->type() != GraphCanvasItem::Type) continue;
+    auto* gi = static_cast<GraphCanvasItem*>(item);
+    if (!static_cast<QGraphicsItem*>(gi)->data(9001).toBool()) {
+      connect(gi, &GraphCanvasItem::graphChanged, this, [this]() { syncGraphItemsToNote(); });
+      connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
+        abandonGraphEntrySession();
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        m_graphQuickPopupWanted = false;
+        hideGraphQuickPopup();
+        gi->setSelectedFunction(idx);
+        refreshGraphPanelForSelection();
+      });
+      connect(gi, &GraphCanvasItem::functionLongPressed, this, [this, gi](int idx) {
+        abandonGraphEntrySession();
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        m_graphQuickPopupWanted = false;
+        hideGraphQuickPopup();
+        gi->setSelectedFunction(idx);
+        refreshGraphPanelForSelection();
+      });
+      connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphQuickPopupWanted = false;
+        hideGraphQuickPopup();
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        refreshGraphPanelForSelection();
+        openGraphEntryBarForGraph(gi, true);
+      });
+      connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
+        abandonGraphEntrySession();
+        QSignalBlocker blocker(&scene_);
+        scene_.clearSelection();
+        gi->setSelected(true);
+        m_selectedGraphItem = gi;
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = true;
+        m_graphQuickAnchorScene = scenePos;
+        m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
+        if (!m_graphQuickPopupWanted)
+          hideGraphQuickPopup();
+        refreshGraphPanelForSelection();
+      });
+      connect(gi, &GraphCanvasItem::xAxisTapped, this, [this, gi](double dataX, QPointF scenePos) {
+        if (m_tangentXPopup)
+          m_tangentXPopup->present(gi, scenePos, dataX);
+      });
+      connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
+        if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
+            (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
+          syncGraphLegendLayout();
+        }
+      });
+      gi->setData(9001, true);
+    }
+    syncGraphPlusLayout(gi);
+    QPointF sceneCenter = gi->sceneBoundingRect().center();
+    int pIdx = pageAt(sceneCenter);
+    if (pIdx < 0 || pIdx >= pageItems_.size()) continue;
+    if (gi->parentItem() != pageItems_[pIdx]) {
+      const QPointF sceneTopLeft = gi->sceneBoundingRect().topLeft();
+      gi->setParentItem(pageItems_[pIdx]);
+      gi->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
+    }
+    GraphObject d = gi->toData();
+    d.rect.moveTopLeft(gi->pos());
+    note_->pages[pIdx].graphs.push_back(std::move(d));
+  }
+  updateGraphChromeIfVisible();
+  if (onSaveRequested) onSaveRequested(note_);
+  m_syncingGraphs = false;
 }

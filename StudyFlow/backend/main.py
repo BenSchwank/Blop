@@ -1615,6 +1615,116 @@ class LearningVideoRequest(BaseModel):
     slide_crossfade: Optional[bool] = None
 
 
+class MathInkRecognizeRequest(BaseModel):
+    strokes: List[List[List[float]]]
+    hint: Optional[str] = ""
+    current_expression: Optional[str] = None
+    ink_png_base64: Optional[str] = None
+    strokes_normalized: Optional[List[List[List[float]]]] = None
+
+
+@app.post("/api/ai/math-ink/recognize")
+def recognize_math_ink(request: MathInkRecognizeRequest):
+    """
+    Handwritten math for graph entry: stroke lists plus optional PNG and scale-normalized points.
+    Output: {"expression": "..."} or empty on failure/uncertain.
+    """
+    import base64
+    from io import BytesIO
+
+    from ai_service import SAFETY_SETTINGS, get_best_model
+
+    try:
+        if not request.strokes and not (request.ink_png_base64 or "").strip():
+            return {"expression": ""}
+        if not api_key:
+            return {"expression": ""}
+
+        stroke_preview = []
+        src_strokes = request.strokes or []
+        for i, s in enumerate(src_strokes[:20]):
+            if not s:
+                continue
+            pts = ", ".join([f"({round(p[0], 2)},{round(p[1], 2)})" for p in s[:36]])
+            stroke_preview.append(f"stroke_{i}_px: {pts}")
+
+        norm_preview = []
+        if request.strokes_normalized:
+            for i, s in enumerate(request.strokes_normalized[:20]):
+                if not s:
+                    continue
+                pts = ", ".join([f"({int(p[0])},{int(p[1])})" for p in s[:36]])
+                norm_preview.append(f"stroke_{i}_norm0_1000: {pts}")
+
+        user_hint = (request.current_expression or "").strip()
+        ctx = ""
+        if user_hint:
+            ctx = (
+                "Bereits im Eingabefeld (vervollstaendigen oder korrigieren, wenn es passt): "
+                f"{user_hint}\n"
+            )
+
+        prompt = (
+            "Du siehst handschriftliche Mathematik fuer eine Funktion y = f(x) in einer Lern-App.\n"
+            "Antworte NUR mit einem einzigen Ausdruck in x (kein y=, keine Erklaerung, keine Anfuehrungszeichen).\n"
+            "Erlaubt: Ziffern, + - * / ^ oder **, Klammern, pi, e, sin cos tan sqrt log ln exp abs, Komma als Dezimaltrenner vermeiden — Punkt nutzen.\n"
+            "Immer explizites * zwischen Zahl und Variable (2*x nicht 2x). Potenzen: x^2 oder x**2.\n"
+            "Wenn mehrdeutig oder unleserlich: antworte mit exakt leerem String.\n\n"
+            f"Kontext-Hinweis: {request.hint or ''}\n"
+            + ctx
+        )
+        if norm_preview:
+            prompt += (
+                "\nZusaetzlich: Punktfolgen in normierten Koordinaten 0..1000 (gleiche Skalierung fuer x und y):\n"
+                + "\n".join(norm_preview)
+                + "\n"
+            )
+        if stroke_preview:
+            prompt += "\nRohpunkte in Pixeln des Eingabefelds:\n" + "\n".join(stroke_preview) + "\n"
+        if request.ink_png_base64:
+            prompt += (
+                "\nEs liegt ein Bild der Handschrift bei (schwarz auf weiss) — "
+                "nutze es als primaere Quelle; die Zahlenlisten sind Fallback.\n"
+            )
+
+        model = genai.GenerativeModel(
+            get_best_model("gemini-2.5-flash"),
+            generation_config={"temperature": 0.12, "max_output_tokens": 256},
+        )
+        parts: List[Any] = [prompt]
+        raw_b64 = (request.ink_png_base64 or "").strip()
+        if raw_b64:
+            try:
+                from PIL import Image
+
+                raw = base64.b64decode(raw_b64)
+                pil_img = Image.open(BytesIO(raw)).convert("RGB")
+                parts.append(pil_img)
+            except Exception:
+                pass
+
+        response = model.generate_content(parts, safety_settings=SAFETY_SETTINGS)
+        expr = ""
+        try:
+            if response and getattr(response, "candidates", None):
+                expr = (response.text or "").strip()
+        except (ValueError, AttributeError):
+            expr = ""
+        expr = expr.replace("```", "").strip()
+        if "\n" in expr:
+            expr = expr.splitlines()[0].strip()
+        # Strip common wrappers the model might add
+        for prefix in ("$", "\\(", "\\["):
+            if expr.startswith(prefix):
+                expr = expr[len(prefix) :].strip()
+        for suffix in ("$", "\\)", "\\]"):
+            if expr.endswith(suffix):
+                expr = expr[: -len(suffix)].strip()
+        return {"expression": expr}
+    except Exception:
+        return {"expression": ""}
+
+
 @app.post("/api/ai/plan")
 def create_study_plan(request: PlanRequest, background_tasks: BackgroundTasks):
     """Generates a study plan from folder contents."""

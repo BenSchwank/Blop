@@ -1,6 +1,7 @@
 #ifndef CANVASVIEW_H
 #define CANVASVIEW_H
 
+#include <QPointer>
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
@@ -25,6 +26,7 @@ class CropMenu;
 class CropResizer;
 class TransformOverlay;
 class ToolManager; // WICHTIG
+class GraphCanvasItem;
 
 class CanvasView : public QGraphicsView
 {
@@ -86,6 +88,7 @@ public:
     QString filePath() const { return m_filePath; }
     bool saveToFile();
     bool loadFromFile();
+    bool importPdfIntoCanvas(const QString &pdfPath);
 
     // Export
     bool exportToPDF(const QString &path);
@@ -130,6 +133,11 @@ private:
 
     QUndoStack *m_undoStack;
     QSet<QGraphicsItem *> m_preStrokeItems; // snapshot before a stroke begins
+    GraphCanvasItem *m_graphPlusBypassItem{nullptr}; // "+" on graph bypasses tool until release
+    GraphCanvasItem *m_graphPlotBypassItem{nullptr}; // graph chrome tap bypasses tool until release
+    QPointer<GraphCanvasItem> m_graphTabletPendingItem;
+    QPointF m_graphTabletPressScene;
+    qint64 m_graphTabletPressMs{0};
 
     // Selection & Menus
     QGraphicsPathItem *m_lassoItem;

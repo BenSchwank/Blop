@@ -1,4 +1,5 @@
 #pragma once
+#include <QPointer>
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
@@ -18,6 +19,13 @@ class QFrame;
 #include "TransformOverlay.h"
 
 class NoteSelectionMenu;
+class GraphCanvasItem;
+class QGraphicsOpacityEffect;
+class QPropertyAnimation;
+class GraphLegendDock;
+class GraphQuickActionPopup;
+class GraphFormulaEntryBar;
+class GraphTangentXPopup;
 class StrokeAddUndoCommand;
 class AbstractTool;
 
@@ -168,4 +176,51 @@ private:
 
     /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
+    void syncGraphItemsToNote();
+    void refreshGraphPanelForSelection();
+    void syncGraphLegendLayout();
+    void repositionGraphEntryBar();
+    void ensureGraphLegendFadeSetup();
+    void ensureGraphEntryBarFadeSetup();
+    void presentGraphLegendAnimated();
+    void hideGraphLegendQuick();
+    void hideGraphQuickPopup();
+    void presentGraphEntryBarAnimated();
+    void hideGraphEntryBarQuick();
+    void closeGraphEntryBar();
+    void abandonGraphEntrySession();
+    void openGraphEntryBarForGraph(GraphCanvasItem* gi, bool fromPlus = false);
+    void syncGraphPlusLayout(GraphCanvasItem* gi);
+    void bindGraphChrome(GraphCanvasItem* gi);
+    /// After scene_.clear(): drop dangling graph pointers, hide overlays (no graph item access).
+    void resetGraphChromeAfterSceneClear();
+    /// After model sync: refresh bound data and layout only if chrome is already visible.
+    void updateGraphChromeIfVisible();
+
+    GraphLegendDock* m_graphLegendDock{nullptr};
+    GraphQuickActionPopup* m_graphQuickPopup{nullptr};
+    GraphFormulaEntryBar* m_graphEntryBar{nullptr};
+    GraphTangentXPopup* m_tangentXPopup{nullptr};
+    GraphCanvasItem* m_selectedGraphItem{nullptr};
+    GraphCanvasItem* m_graphPanelTargetGraph{nullptr};
+    bool m_graphPanelExplicitOpen{false};
+    /// Last plot-background tap in scene coords (quick action popup anchor).
+    QPointF m_graphQuickAnchorScene;
+    bool m_graphQuickPopupWanted{false};
+    bool m_syncingGraphs{false};
+    int m_livePreviewIndex{-1};
+    bool m_graphEntryBarOpen{false};
+    GraphCanvasItem* m_graphEntryTargetGraph{nullptr};
+    /// While set, graph "+" interaction bypasses tools and touch pan (see CanvasView equivalent).
+    GraphCanvasItem* m_graphPlusBypassItem{nullptr};
+    GraphCanvasItem* m_graphPlotBypassItem{nullptr};
+    /// Pending stylus/tablet tap on graph chrome (press without mouse bypass).
+    QPointer<GraphCanvasItem> m_graphTabletPendingItem;
+    QPointF m_graphTabletPressScene;
+    qint64 m_graphTabletPressMs{0};
+
+    QGraphicsOpacityEffect* m_graphLegendOpacityFx{nullptr};
+    QPropertyAnimation* m_graphLegendFadeAnim{nullptr};
+    QGraphicsOpacityEffect* m_graphEntryBarOpacityFx{nullptr};
+    QPropertyAnimation* m_graphEntryBarFadeAnim{nullptr};
 };

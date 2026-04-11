@@ -73,6 +73,12 @@ qt_add_executable(Blop
     settingsdialog.cpp
     settingsdialog.h
     SettingsDialog.ui
+    graphaxissettingsdialog.cpp
+    graphaxissettingsdialog.h
+    graphlegenddock.cpp
+    graphlegenddock.h
+    graphquickactionpopup.cpp
+    graphquickactionpopup.h
     newnotedialog.h
     newnotedialog.cpp
     profileeditordialog.h
@@ -110,6 +116,15 @@ qt_add_executable(Blop
     tools/EraserTool.h
     tools/LassoTool.h
     tools/ShapeTool.h
+    tools/GraphCanvasItem.h
+    tools/GraphCanvasItem.cpp
+    tools/math/MathTypes.h
+    tools/math/MathExpressionParser.h
+    tools/math/MathExpressionParser.cpp
+    tools/math/MathEvaluator.h
+    tools/math/MathEvaluator.cpp
+    tools/math/NumericAnalysis.h
+    tools/math/NumericAnalysis.cpp
     tools/ImageTool.h
     tools/RulerItem.h
     tools/RulerTool.h

@@ -2,11 +2,15 @@
 #include "UIStyles.h"
 #include "tools/ToolManager.h"
 #include "tools/ToolUIBridge.h"
+#include "tools/ShapeTool.h"
 #include "tools/WritingTools.h"
 #include "uiscale.h"
 #include <QApplication>
 #include <QButtonGroup>
+#include <QAbstractSpinBox>
 #include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QGridLayout>
 #include "editoroverlays.h"
 #include <QDialog>
 #include <QGraphicsDropShadowEffect>
@@ -14,6 +18,8 @@
 #include <QGraphicsView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
@@ -558,6 +564,21 @@ protected:
       p.setCompositionMode(QPainter::CompositionMode_Multiply);
     }
 
+    if (m_mode == ToolMode::Shape) {
+      QColor sh = m_config.penColor;
+      sh.setAlphaF(m_config.opacity);
+      QPen pshape;
+      pshape.setColor(sh);
+      pshape.setWidth(qMax(2, m_config.penWidth));
+      pshape.setCapStyle(Qt::FlatCap);
+      pshape.setJoinStyle(Qt::MiterJoin);
+      p.setPen(pshape);
+      p.setBrush(Qt::NoBrush);
+      QRectF rr = paperRect.adjusted(14, 12, -14, -12);
+      p.drawPath(ShapeTool::buildShapePath(rr, m_config));
+      return;
+    }
+
     QColor c = m_config.penColor;
     double alpha = m_config.opacity;
     int penW = m_config.penWidth;
@@ -698,6 +719,40 @@ public:
           apply();
         });
         layout->addWidget(chkPressure);
+
+        layout->addWidget(new QLabel("Halten → Form"));
+        layout->addWidget(new QLabel("Empfindlichkeit:"));
+        QSlider *slHoldPen = new QSlider(Qt::Horizontal);
+        slHoldPen->setRange(0, 100);
+        slHoldPen->setValue(m_config.holdShapeSensitivity);
+        connect(slHoldPen, &QSlider::valueChanged, [this](int v) {
+          m_config.holdShapeSensitivity = v;
+          apply();
+        });
+        layout->addWidget(slHoldPen);
+        layout->addWidget(new QLabel("Haltezeit (ms):"));
+        QSlider *slDelayPen = new QSlider(Qt::Horizontal);
+        slDelayPen->setRange(200, 900);
+        slDelayPen->setValue(m_config.holdStillDelayMs);
+        connect(slDelayPen, &QSlider::valueChanged, [this](int v) {
+          m_config.holdStillDelayMs = v;
+          apply();
+        });
+        layout->addWidget(slDelayPen);
+        QCheckBox *chkHC = new QCheckBox("Kreis-Erkennung");
+        chkHC->setChecked(m_config.holdEnableCircle);
+        connect(chkHC, &QCheckBox::toggled, [this](bool on) {
+          m_config.holdEnableCircle = on;
+          apply();
+        });
+        layout->addWidget(chkHC);
+        QCheckBox *chkHT = new QCheckBox("Dreieck-Erkennung");
+        chkHT->setChecked(m_config.holdEnableTriangle);
+        connect(chkHT, &QCheckBox::toggled, [this](bool on) {
+          m_config.holdEnableTriangle = on;
+          apply();
+        });
+        layout->addWidget(chkHT);
       } else if (m_mode == ToolMode::Pencil) {
         layout->addWidget(new QLabel("Härte:"));
         QSlider *slHardness = new QSlider(Qt::Horizontal);
@@ -1050,6 +1105,367 @@ public:
         apply();
       });
       layout->addWidget(chkInfinite);
+    } else if (m_mode == ToolMode::Shape) {
+      layout->addWidget(new QLabel("Dicke:"));
+      QSlider *slSize = new QSlider(Qt::Horizontal);
+      slSize->setRange(1, 50);
+      slSize->setValue(m_config.penWidth);
+      connect(slSize, &QSlider::valueChanged, [this](int v) {
+        m_config.penWidth = v;
+        updatePreview();
+        apply();
+      });
+      layout->addWidget(slSize);
+
+      layout->addWidget(new QLabel("Deckkraft:"));
+      QSlider *slOpacity = new QSlider(Qt::Horizontal);
+      slOpacity->setRange(10, 100);
+      slOpacity->setValue(static_cast<int>(m_config.opacity * 100));
+      connect(slOpacity, &QSlider::valueChanged, [this](int v) {
+        m_config.opacity = v / 100.0;
+        updatePreview();
+        apply();
+      });
+      layout->addWidget(slOpacity);
+
+      layout->addWidget(new QLabel("Farbe:"));
+      QHBoxLayout *colors = new QHBoxLayout;
+      colors->setSpacing(8);
+      for (int i = 0; i < static_cast<int>(m_config.quickColors.size()); ++i) {
+        const QColor col = m_config.quickColors[i].isValid() ? m_config.quickColors[i] : QColor(Qt::black);
+        QPushButton *b = new QPushButton;
+        b->setFixedSize(24, 24);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(QStringLiteral(
+            "QPushButton { background-color: %1; border-radius: 12px; border: 1px solid rgba(15,23,42,180); }")
+                             .arg(col.name()));
+        colors->addWidget(b);
+        connect(b, &QPushButton::clicked, this, [this, i, col]() {
+          if (i >= 0 && i < static_cast<int>(m_config.quickColors.size()))
+            m_config.quickColors[i] = col;
+          m_config.penColor = col;
+          updatePreview();
+          apply();
+        });
+      }
+      QPushButton *btnWheel = new QPushButton("...");
+      btnWheel->setFixedSize(24, 24);
+      btnWheel->setStyleSheet("background-color: #333; color: white; "
+                              "border-radius: 12px; border: 1px solid #666;");
+      connect(btnWheel, &QPushButton::clicked, [this]() {
+        QColor c = m_config.penColor;
+        QWidget *overlayHost = parentWidget();
+        if (!overlayHost)
+          overlayHost = this->window();
+        hide();
+        const bool ok =
+            showColorPickerOverlay(overlayHost, &c, QStringLiteral("Formfarbe"));
+        show();
+        raise();
+        activateWindow();
+        if (ok) {
+          m_config.penColor = c;
+          updatePreview();
+          apply();
+        }
+      });
+      colors->addWidget(btnWheel);
+      colors->addStretch();
+      layout->addLayout(colors);
+
+      layout->addWidget(new QLabel("Form:"));
+      QHBoxLayout *kindRow = new QHBoxLayout;
+      kindRow->setSpacing(4);
+      QButtonGroup *kindGroup = new QButtonGroup(this);
+      struct KindEntry {
+        QString label;
+        ShapeToolKind kind;
+      };
+      const QList<KindEntry> kindList = {
+          {QStringLiteral("Rechteck"), ShapeToolKind::Rectangle},
+          {QStringLiteral("Kreis"), ShapeToolKind::Circle},
+          {QStringLiteral("Achsen"), ShapeToolKind::Axes2D},
+          {QStringLiteral("Sinus"), ShapeToolKind::SineGraph},
+          {QStringLiteral("Graph"), ShapeToolKind::CoordinateGraph}};
+      for (const KindEntry &ke : kindList) {
+        QPushButton *bk = new QPushButton(ke.label);
+        bk->setCheckable(true);
+        bk->setFixedHeight(26);
+        if (m_config.shapeToolKind == ke.kind)
+          bk->setChecked(true);
+        kindGroup->addButton(bk);
+        kindRow->addWidget(bk);
+        connect(bk, &QPushButton::clicked, [this, ke]() {
+          m_config.shapeToolKind = ke.kind;
+          syncShapeOptionPanels();
+          updatePreview();
+          apply();
+        });
+      }
+      layout->addLayout(kindRow);
+
+      m_shapeTicksPanel = new QWidget(this);
+      QVBoxLayout *ticksLay = new QVBoxLayout(m_shapeTicksPanel);
+      ticksLay->setContentsMargins(0, 0, 0, 0);
+      ticksLay->setSpacing(4);
+      ticksLay->addWidget(new QLabel(QStringLiteral("Achsen: Teilstriche (je Richtung):")));
+      QSlider *slTicks = new QSlider(Qt::Horizontal);
+      slTicks->setRange(2, 12);
+      slTicks->setValue(m_config.shapeAxisTicks);
+      connect(slTicks, &QSlider::valueChanged, [this](int v) {
+        m_config.shapeAxisTicks = v;
+        updatePreview();
+        apply();
+      });
+      ticksLay->addWidget(slTicks);
+      layout->addWidget(m_shapeTicksPanel);
+
+      m_shapeSinePanel = new QWidget(this);
+      QVBoxLayout *sineLay = new QVBoxLayout(m_shapeSinePanel);
+      sineLay->setContentsMargins(0, 0, 0, 0);
+      sineLay->setSpacing(6);
+      QCheckBox *chkSineFixed =
+          new QCheckBox(QStringLiteral("Feste Parameter verwenden"));
+      chkSineFixed->setChecked(m_config.shapeSineFixedParams);
+      chkSineFixed->setStyleSheet(QStringLiteral("color:#DDD;font-weight:bold;"));
+      sineLay->addWidget(chkSineFixed);
+
+      auto *lblSineMode = new QLabel();
+      lblSineMode->setWordWrap(true);
+      lblSineMode->setStyleSheet(QStringLiteral("color:#888;font-weight:normal;"));
+      sineLay->addWidget(lblSineMode);
+
+      m_shapeSineParamsWidget = new QWidget(m_shapeSinePanel);
+      QVBoxLayout *sineParamsLay = new QVBoxLayout(m_shapeSineParamsWidget);
+      sineParamsLay->setContentsMargins(0, 0, 0, 0);
+      sineParamsLay->setSpacing(6);
+      auto *sineHelp = new QLabel(
+          QStringLiteral(
+              "y = Mitte \u2212 (a\u00b745\u00b7sin(b\u00b72\u03c0\u00b7(x\u2212x links)/100 + c) + d\u00b745); "
+              "b = volle Perioden je 100 px Breite."));
+      sineHelp->setWordWrap(true);
+      sineHelp->setStyleSheet(QStringLiteral("color:#bbb;font-weight:normal;"));
+      sineParamsLay->addWidget(sineHelp);
+
+      auto mkSpin = [](double minV, double maxV, int decimals, double step) {
+        QDoubleSpinBox *s = new QDoubleSpinBox;
+        s->setRange(minV, maxV);
+        s->setDecimals(decimals);
+        s->setSingleStep(step);
+        s->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        s->setMinimumWidth(80);
+        return s;
+      };
+      QDoubleSpinBox *spA = mkSpin(0.01, 2.0, 4, 0.05);
+      QDoubleSpinBox *spB = mkSpin(0.05, 12.0, 4, 0.1);
+      QDoubleSpinBox *spC = mkSpin(-12.57, 12.57, 4, 0.1);
+      QDoubleSpinBox *spD = mkSpin(-1.5, 1.5, 4, 0.05);
+      spA->setValue(m_config.shapeMathA);
+      spB->setValue(m_config.shapeMathB);
+      spC->setValue(m_config.shapeMathC);
+      spD->setValue(m_config.shapeMathD);
+
+      auto onSineSpin = [this, spA, spB, spC, spD]() {
+        m_config.shapeMathA = spA->value();
+        m_config.shapeMathB = spB->value();
+        m_config.shapeMathC = spC->value();
+        m_config.shapeMathD = spD->value();
+        updatePreview();
+        apply();
+      };
+      connect(spA, &QDoubleSpinBox::valueChanged, this, onSineSpin);
+      connect(spB, &QDoubleSpinBox::valueChanged, this, onSineSpin);
+      connect(spC, &QDoubleSpinBox::valueChanged, this, onSineSpin);
+      connect(spD, &QDoubleSpinBox::valueChanged, this, onSineSpin);
+
+      QGridLayout *sineGrid = new QGridLayout;
+      sineGrid->setColumnStretch(1, 1);
+      sineGrid->addWidget(new QLabel(QStringLiteral("a (Amplitude):")), 0, 0);
+      sineGrid->addWidget(spA, 0, 1);
+      sineGrid->addWidget(new QLabel(QStringLiteral("b (Perioden):")), 1, 0);
+      sineGrid->addWidget(spB, 1, 1);
+      sineGrid->addWidget(new QLabel(QStringLiteral("c (Phase, rad):")), 2, 0);
+      sineGrid->addWidget(spC, 2, 1);
+      sineGrid->addWidget(new QLabel(QStringLiteral("d (Offset):")), 3, 0);
+      sineGrid->addWidget(spD, 3, 1);
+      sineParamsLay->addLayout(sineGrid);
+      sineLay->addWidget(m_shapeSineParamsWidget);
+
+      auto applySineModeHint = [lblSineMode](bool fixed) {
+        if (fixed) {
+          lblSineMode->setText(
+              QStringLiteral("Fest: Breiter ziehen zeigt mehr Perioden (b je 100 px); "
+                             "Amplitude skaliert nicht mit der Rechteckh\u00f6he."));
+        } else {
+          lblSineMode->setText(QStringLiteral(
+              "Flexibel: Aufziehen skaliert Amplitude und Perioden mit dem Rechteck."));
+        }
+      };
+      applySineModeHint(m_config.shapeSineFixedParams);
+      m_shapeSineParamsWidget->setVisible(m_config.shapeSineFixedParams);
+
+      connect(chkSineFixed, &QCheckBox::toggled, this,
+              [this, applySineModeHint](bool on) {
+                m_config.shapeSineFixedParams = on;
+                m_shapeSineParamsWidget->setVisible(on);
+                applySineModeHint(on);
+                updatePreview();
+                apply();
+              });
+
+      layout->addWidget(m_shapeSinePanel);
+
+      m_shapeGraphPanel = new QWidget(this);
+      QVBoxLayout *graphLay = new QVBoxLayout(m_shapeGraphPanel);
+      graphLay->setContentsMargins(0, 0, 0, 0);
+      graphLay->setSpacing(6);
+      graphLay->addWidget(new QLabel(QStringLiteral("Koordinatensystem")));
+      QGridLayout *rangeGrid = new QGridLayout;
+      auto mkRange = [](double v) {
+        QDoubleSpinBox *s = new QDoubleSpinBox;
+        s->setRange(-10000.0, 10000.0);
+        s->setDecimals(2);
+        s->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        s->setValue(v);
+        return s;
+      };
+      QDoubleSpinBox *sxMin = mkRange(m_config.graphXMin);
+      QDoubleSpinBox *sxMax = mkRange(m_config.graphXMax);
+      QDoubleSpinBox *syMin = mkRange(m_config.graphYMin);
+      QDoubleSpinBox *syMax = mkRange(m_config.graphYMax);
+      rangeGrid->addWidget(new QLabel("xMin"), 0, 0); rangeGrid->addWidget(sxMin, 0, 1);
+      rangeGrid->addWidget(new QLabel("xMax"), 0, 2); rangeGrid->addWidget(sxMax, 0, 3);
+      rangeGrid->addWidget(new QLabel("yMin"), 1, 0); rangeGrid->addWidget(syMin, 1, 1);
+      rangeGrid->addWidget(new QLabel("yMax"), 1, 2); rangeGrid->addWidget(syMax, 1, 3);
+      graphLay->addLayout(rangeGrid);
+      auto onRange = [this, sxMin, sxMax, syMin, syMax]() {
+        m_config.graphXMin = sxMin->value();
+        m_config.graphXMax = sxMax->value();
+        m_config.graphYMin = syMin->value();
+        m_config.graphYMax = syMax->value();
+        updatePreview();
+        apply();
+      };
+      connect(sxMin, &QDoubleSpinBox::valueChanged, this, onRange);
+      connect(sxMax, &QDoubleSpinBox::valueChanged, this, onRange);
+      connect(syMin, &QDoubleSpinBox::valueChanged, this, onRange);
+      connect(syMax, &QDoubleSpinBox::valueChanged, this, onRange);
+
+      QHBoxLayout *addRow = new QHBoxLayout;
+      QLineEdit *edExpr = new QLineEdit;
+      edExpr->setPlaceholderText(QStringLiteral("f(x), z.B. sin(x)+x^2 oder y=cos(x)"));
+      QPushButton *btnAddExpr = new QPushButton("+");
+      btnAddExpr->setFixedWidth(32);
+      addRow->addWidget(edExpr, 1);
+      addRow->addWidget(btnAddExpr);
+      graphLay->addLayout(addRow);
+
+      QListWidget *lst = new QListWidget;
+      graphLay->addWidget(lst);
+      auto refreshFns = [this, lst]() {
+        lst->clear();
+        for (int i = 0; i < m_config.graphFunctions.size(); ++i) {
+          const auto& f = m_config.graphFunctions[i];
+          QString txt = QStringLiteral("%1: %2").arg(i + 1).arg(f.expression);
+          if (!f.visible) txt += QStringLiteral(" [hidden]");
+          lst->addItem(txt);
+        }
+        if (m_config.graphSelectedFunction >= 0 && m_config.graphSelectedFunction < lst->count())
+          lst->setCurrentRow(m_config.graphSelectedFunction);
+      };
+      refreshFns();
+
+      connect(btnAddExpr, &QPushButton::clicked, this, [this, edExpr, refreshFns]() {
+        const QString expr = edExpr->text().trimmed();
+        if (expr.isEmpty()) return;
+        GraphFunctionSpec g;
+        g.expression = expr;
+        m_config.graphFunctions.push_back(g);
+        m_config.graphSelectedFunction = m_config.graphFunctions.size() - 1;
+        edExpr->clear();
+        refreshFns();
+        updatePreview();
+        apply();
+      });
+      connect(lst, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row >= 0 && row < m_config.graphFunctions.size()) {
+          m_config.graphSelectedFunction = row;
+          apply();
+        }
+      });
+
+      QHBoxLayout *actRow = new QHBoxLayout;
+      QPushButton *btnDer = new QPushButton(QStringLiteral("Ableitung"));
+      QPushButton *btnRoots = new QPushButton(QStringLiteral("Nullstellen"));
+      QPushButton *btnExt = new QPushButton(QStringLiteral("Extrema"));
+      QPushButton *btnDel = new QPushButton(QStringLiteral("Löschen"));
+      actRow->addWidget(btnDer); actRow->addWidget(btnRoots); actRow->addWidget(btnExt); actRow->addWidget(btnDel);
+      graphLay->addLayout(actRow);
+      auto toggleFlag = [this, lst, refreshFns](int mode) {
+        const int row = lst->currentRow();
+        if (row < 0 || row >= m_config.graphFunctions.size()) return;
+        auto& f = m_config.graphFunctions[row];
+        if (mode == 0) f.showDerivative = !f.showDerivative;
+        if (mode == 1) f.showRoots = !f.showRoots;
+        if (mode == 2) f.showExtrema = !f.showExtrema;
+        refreshFns();
+        updatePreview();
+        apply();
+      };
+      connect(btnDer, &QPushButton::clicked, this, [toggleFlag]() { toggleFlag(0); });
+      connect(btnRoots, &QPushButton::clicked, this, [toggleFlag]() { toggleFlag(1); });
+      connect(btnExt, &QPushButton::clicked, this, [toggleFlag]() { toggleFlag(2); });
+      connect(btnDel, &QPushButton::clicked, this, [this, lst, refreshFns]() {
+        const int row = lst->currentRow();
+        if (row < 0 || row >= m_config.graphFunctions.size()) return;
+        m_config.graphFunctions.removeAt(row);
+        if (m_config.graphFunctions.isEmpty()) m_config.graphFunctions.push_back(GraphFunctionSpec{});
+        m_config.graphSelectedFunction = qBound(0, m_config.graphSelectedFunction, m_config.graphFunctions.size() - 1);
+        refreshFns();
+        updatePreview();
+        apply();
+      });
+      layout->addWidget(m_shapeGraphPanel);
+
+      syncShapeOptionPanels();
+
+      layout->addWidget(new QLabel("Halten → Form (Stift & Co.)"));
+      layout->addWidget(new QLabel("Empfindlichkeit:"));
+      QSlider *slHold = new QSlider(Qt::Horizontal);
+      slHold->setRange(0, 100);
+      slHold->setValue(m_config.holdShapeSensitivity);
+      connect(slHold, &QSlider::valueChanged, [this](int v) {
+        m_config.holdShapeSensitivity = v;
+        apply();
+      });
+      layout->addWidget(slHold);
+
+      layout->addWidget(new QLabel("Haltezeit (ms):"));
+      QSlider *slDelay = new QSlider(Qt::Horizontal);
+      slDelay->setRange(200, 900);
+      slDelay->setSingleStep(20);
+      slDelay->setValue(m_config.holdStillDelayMs);
+      connect(slDelay, &QSlider::valueChanged, [this](int v) {
+        m_config.holdStillDelayMs = v;
+        apply();
+      });
+      layout->addWidget(slDelay);
+
+      QCheckBox *chkCirc = new QCheckBox("Kreis-Erkennung");
+      chkCirc->setChecked(m_config.holdEnableCircle);
+      connect(chkCirc, &QCheckBox::toggled, [this](bool on) {
+        m_config.holdEnableCircle = on;
+        apply();
+      });
+      layout->addWidget(chkCirc);
+
+      QCheckBox *chkTri = new QCheckBox("Dreieck-Erkennung");
+      chkTri->setChecked(m_config.holdEnableTriangle);
+      connect(chkTri, &QCheckBox::toggled, [this](bool on) {
+        m_config.holdEnableTriangle = on;
+        apply();
+      });
+      layout->addWidget(chkTri);
     }
   }
 
@@ -1062,6 +1478,17 @@ public:
   }
 
 private:
+  void syncShapeOptionPanels() {
+    if (!m_shapeTicksPanel || !m_shapeSinePanel || !m_shapeGraphPanel)
+      return;
+    m_shapeTicksPanel->setVisible(m_config.shapeToolKind == ShapeToolKind::Axes2D);
+    const bool sineMode =
+        m_config.shapeToolKind == ShapeToolKind::SineGraph;
+    m_shapeSinePanel->setVisible(sineMode);
+    m_shapeGraphPanel->setVisible(false);
+    if (m_shapeSineParamsWidget)
+      m_shapeSineParamsWidget->setVisible(sineMode && m_config.shapeSineFixedParams);
+  }
   void updatePreview() {
     if (m_previewWidget)
       m_previewWidget->updateConfig(m_mode, m_config);
@@ -1071,6 +1498,10 @@ private:
   ToolMode m_mode;
   ToolPreviewWidget *m_previewWidget;
   int m_selectedQuickIndex{-1};
+  QWidget *m_shapeTicksPanel{nullptr};
+  QWidget *m_shapeSinePanel{nullptr};
+  QWidget *m_shapeSineParamsWidget{nullptr};
+  QWidget *m_shapeGraphPanel{nullptr};
 };
 
 // =============================================================================
@@ -1708,7 +2139,8 @@ void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 void ModernToolbar::showSettingsPopup() {
   if (mode_ != ToolMode::Pen && mode_ != ToolMode::Pencil &&
       mode_ != ToolMode::Highlighter && mode_ != ToolMode::Eraser &&
-      mode_ != ToolMode::Lasso && mode_ != ToolMode::Ruler)
+      mode_ != ToolMode::Lasso && mode_ != ToolMode::Ruler &&
+      mode_ != ToolMode::Shape)
     return;
   ToolConfig currentConfig = ToolManager::instance().config();
   ToolSettingsPopup *popup =
