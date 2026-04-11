@@ -125,6 +125,10 @@ qt_add_executable(Blop
     tools/math/MathEvaluator.cpp
     tools/math/NumericAnalysis.h
     tools/math/NumericAnalysis.cpp
+    tools/math/LatexToBlopConverter.h
+    tools/math/LatexToBlopConverter.cpp
+    tools/math/MathInkRecognizer.h
+    tools/math/MathInkRecognizer.cpp
     tools/ImageTool.h
     tools/RulerItem.h
     tools/RulerTool.h
@@ -229,6 +233,21 @@ else()
     if(Qt6Pdf_FOUND)
         target_link_libraries(Blop PRIVATE Qt6::Pdf)
         target_compile_definitions(Blop PRIVATE BLOP_HAS_PDF)
+    endif()
+endif()
+
+# --- ONNX Runtime (Offline Math OCR) ---
+# Pre-built binaries expected under externals/onnxruntime/
+if(NOT ANDROID)
+    set(ONNXRUNTIME_ROOT "${CMAKE_SOURCE_DIR}/externals/onnxruntime")
+    if(EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
+        message(STATUS "Found ONNX Runtime at ${ONNXRUNTIME_ROOT}")
+        target_include_directories(Blop PRIVATE "${ONNXRUNTIME_ROOT}/include")
+        target_link_directories(Blop PRIVATE "${ONNXRUNTIME_ROOT}/lib")
+        target_link_libraries(Blop PRIVATE onnxruntime)
+        target_compile_definitions(Blop PRIVATE BLOP_HAS_ONNX_OCR)
+    else()
+        message(STATUS "ONNX Runtime not found — offline math OCR disabled")
     endif()
 endif()
 

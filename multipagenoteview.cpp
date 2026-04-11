@@ -15,6 +15,7 @@
 #include "graphquickactionpopup.h"
 #include "tools/math/MathExpressionParser.h"
 #include "tools/math/NumericAnalysis.h"
+#include "tools/math/MathInkRecognizer.h"
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
@@ -498,10 +499,6 @@ public:
     row->setSpacing(6);
     m_expr = new QLineEdit(this);
     m_expr->setPlaceholderText(QStringLiteral("z.B. sin(x), x^2"));
-    m_btnR = new QToolButton(this);
-    m_btnR->setText(QStringLiteral("R"));
-    m_btnR->setToolTip(
-        QStringLiteral("Handschrift erkennen (startet auch automatisch nach dem Zeichnen)"));
     m_btnOk = new QToolButton(this);
     m_btnOk->setObjectName(QStringLiteral("GraphFormulaOk"));
     m_btnOk->setText(QStringLiteral("✓"));
@@ -514,7 +511,6 @@ public:
     m_btnInkClear->setToolTip(QStringLiteral("Zeichenflaeche leeren"));
     row->addWidget(m_expr, 0);
     row->addWidget(m_btnInkClear);
-    row->addWidget(m_btnR);
     row->addWidget(m_btnOk);
     row->addWidget(m_btnCancel);
     v->addLayout(row);
@@ -537,13 +533,13 @@ public:
         m_autoTimer->start();
       if (plusFirstStroke) {
         QTimer::singleShot(400, this, [this]() {
-          if (m_expr->text().trimmed().isEmpty() && !m_ink->strokes().isEmpty())
+          if (!m_ink->strokes().isEmpty())
             startHandwritingRecognition(false);
         });
       }
     };
     connect(m_autoTimer, &QTimer::timeout, this, [this]() {
-      if (m_expr->text().trimmed().isEmpty())
+      if (!m_ink->strokes().isEmpty())
         startHandwritingRecognition(false);
     });
     connect(m_btnInkClear, &QToolButton::clicked, this, [this]() {
@@ -552,8 +548,6 @@ public:
       m_ink->clearInk();
       setStatus(QString());
     });
-    connect(m_btnR, &QToolButton::clicked, this,
-            [this]() { startHandwritingRecognition(true); });
     connect(m_btnOk, &QToolButton::clicked, this, [this]() { emit commitRequested(); });
     connect(m_btnCancel, &QToolButton::clicked, this, [this]() { emit cancelRequested(); });
     connect(m_expr, &QLineEdit::textChanged, this, [this](const QString &t) {
@@ -624,24 +618,39 @@ private:
     const qreal w = bb.width();
     const qreal h = bb.height();
     const qreal ratio = h <= 0.0 ? 1.0 : (w / h);
+    QStringList prefix;
+    if (st.size() >= 3 && ratio > 1.5) {
+      prefix << QStringLiteral("x+1") << QStringLiteral("x-1") << QStringLiteral("2*x+1")
+             << QStringLiteral("x+2") << QStringLiteral("-x+1");
+    } else if (st.size() >= 2) {
+      prefix << QStringLiteral("x+1") << QStringLiteral("x-1") << QStringLiteral("2*x");
+    }
     if (st.size() <= 2) {
-      out << QStringLiteral("2*x") << QStringLiteral("x") << QStringLiteral("x^2");
+      out << QStringLiteral("x") << QStringLiteral("x^2") << QStringLiteral("2*x");
     } else if (ratio > 2.2) {
-      out << QStringLiteral("2*x") << QStringLiteral("y=x") << QStringLiteral("x")
-          << QStringLiteral("x^2");
+      out << QStringLiteral("2*x") << QStringLiteral("x") << QStringLiteral("x^2");
     } else if (ratio > 1.4) {
       out << QStringLiteral("sin(x)") << QStringLiteral("cos(x)") << QStringLiteral("tan(x)");
     } else {
       out << QStringLiteral("2*x") << QStringLiteral("x^2") << QStringLiteral("x^3")
           << QStringLiteral("sqrt(x)");
     }
-    return out;
+    QStringList merged;
+    for (const QString &p : prefix) {
+      if (!merged.contains(p))
+        merged.append(p);
+    }
+    for (const QString &x : out) {
+      if (!merged.contains(x))
+        merged.append(x);
+    }
+    return merged;
   }
 
   GraphInkInputWidget *m_ink{nullptr};
   QLineEdit *m_expr{nullptr};
   QToolButton *m_btnInkClear{nullptr};
-  QToolButton *m_btnR{nullptr};
+
   QToolButton *m_btnOk{nullptr};
   QToolButton *m_btnCancel{nullptr};
   QLabel *m_status{nullptr};
@@ -658,8 +667,7 @@ void GraphFormulaEntryBar::abortPendingRecognize() {
     m_pendingReply->deleteLater();
     m_pendingReply = nullptr;
   }
-  if (m_btnR)
-    m_btnR->setEnabled(true);
+
 }
 
 QJsonObject GraphFormulaEntryBar::buildRecognizePayload() const {
@@ -739,13 +747,19 @@ void GraphFormulaEntryBar::finishRecognizeWithFallback(const QString &backendExp
     QMenu menu(this);
     for (const QString &c : locals)
       menu.addAction(c);
-    QAction *chosen = menu.exec(m_btnR->mapToGlobal(QPoint(0, m_btnR->height())));
+    QAction *chosen = menu.exec(m_btnInkClear->mapToGlobal(QPoint(0, m_btnInkClear->height())));
     if (chosen)
       m_expr->setText(chosen->text());
     if (!m_expr->text().trimmed().isEmpty())
       setStatus(QStringLiteral("Gewaehlt — mit Haken uebernehmen"), false);
   } else {
-    m_expr->setText(locals.first());
+    // Auto-Erkennung hat nichts gefunden — ersten lokalen Vorschlag anbieten
+    if (!locals.isEmpty()) {
+      m_expr->setText(locals.first());
+      setStatus(QStringLiteral("Vorschlag — mit Haken uebernehmen oder manuell aendern"), false);
+    } else {
+      setStatus(QStringLiteral("Nicht erkannt — bitte Ausdruck manuell eingeben."), true);
+    }
   }
 }
 
@@ -754,6 +768,23 @@ void GraphFormulaEntryBar::startHandwritingRecognition(bool offerCandidateMenuOn
     setStatus(QStringLiteral("Nichts gezeichnet"), true);
     return;
   }
+
+  // ── Phase 1: Offline-Erkennung (ONNX, sofort) ──────────────────────
+#ifdef BLOP_HAS_ONNX_OCR
+  if (MathInkRecognizer::instance().isAvailable()) {
+    setStatus(QStringLiteral("Offline-Erkennung..."), false);
+    const QImage snap = m_ink->inkImageForRecognition();
+    const QString localExpr = MathInkRecognizer::instance().recognize(snap);
+    if (!localExpr.isEmpty()) {
+      // Offline hat ein Ergebnis geliefert — direkt uebernehmen
+      finishRecognizeWithFallback(localExpr, offerCandidateMenuOnEmpty);
+      return;
+    }
+    // Offline lieferte nichts — automatisch weiter zum Backend
+  }
+#endif
+
+  // ── Phase 2: Backend-Erkennung (automatischer Fallback) ────────────
   const QString endpoint = qEnvironmentVariable(
       "BLOP_MATH_OCR_URL", QStringLiteral("http://127.0.0.1:8000/api/ai/math-ink/recognize"));
   if (endpoint.isEmpty()) {
@@ -761,7 +792,6 @@ void GraphFormulaEntryBar::startHandwritingRecognition(bool offerCandidateMenuOn
     return;
   }
   abortPendingRecognize();
-  m_btnR->setEnabled(false);
   setStatus(QStringLiteral("Erkennung laeuft..."), false);
   QNetworkRequest req{QUrl(endpoint)};
   req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
@@ -769,7 +799,6 @@ void GraphFormulaEntryBar::startHandwritingRecognition(bool offerCandidateMenuOn
   m_pendingReply =
       m_nam->post(req, QJsonDocument(buildRecognizePayload()).toJson(QJsonDocument::Compact));
   connect(m_pendingReply, &QNetworkReply::finished, this, [this, offerCandidateMenuOnEmpty]() {
-    m_btnR->setEnabled(true);
     QNetworkReply *rep = m_pendingReply;
     m_pendingReply = nullptr;
     if (!rep) {

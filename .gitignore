@@ -82,3 +82,10 @@ CMakeLists.txt.user*
 /build*/
 
 # Cursor / IDE (tracked: share .cursor config in repo)
+
+# ONNX Runtime binaries (downloaded, not tracked)
+externals/onnxruntime/
+
+# ONNX model files (generated via scripts/export_math_ocr_model.py)
+assets/models/*.onnx
+assets/models/tokens.json

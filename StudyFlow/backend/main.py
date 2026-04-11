@@ -1667,7 +1667,10 @@ def recognize_math_ink(request: MathInkRecognizeRequest):
         prompt = (
             "Du siehst handschriftliche Mathematik fuer eine Funktion y = f(x) in einer Lern-App.\n"
             "Antworte NUR mit einem einzigen Ausdruck in x (kein y=, keine Erklaerung, keine Anfuehrungszeichen).\n"
-            "Erlaubt: Ziffern, + - * / ^ oder **, Klammern, pi, e, sin cos tan sqrt log ln exp abs, Komma als Dezimaltrenner vermeiden — Punkt nutzen.\n"
+            "Lies die GESAMTE Handschrift von links nach rechts: alle Symbole, Operatoren (+ - * /) und Ziffern "
+            "gehoeren in EINEN Ausdruck. Beispiele: x+1, 2*x-3, x^2+1. "
+            "Vermeide es, nur den ersten Buchstaben oder nur den ersten Term zu liefern, wenn mehrere Striche/Zeichen sichtbar sind.\n"
+            "Erlaubt: Ziffern, + - * / ^ oder **, Klammern, pi, e, sin cos tan sqrt log ln exp abs; Dezimaltrenner als Punkt.\n"
             "Immer explizites * zwischen Zahl und Variable (2*x nicht 2x). Potenzen: x^2 oder x**2.\n"
             "Wenn mehrdeutig oder unleserlich: antworte mit exakt leerem String.\n\n"
             f"Kontext-Hinweis: {request.hint or ''}\n"
@@ -1689,7 +1692,7 @@ def recognize_math_ink(request: MathInkRecognizeRequest):
 
         model = genai.GenerativeModel(
             get_best_model("gemini-2.5-flash"),
-            generation_config={"temperature": 0.12, "max_output_tokens": 256},
+            generation_config={"temperature": 0.2, "max_output_tokens": 256},
         )
         parts: List[Any] = [prompt]
         raw_b64 = (request.ink_png_base64 or "").strip()
