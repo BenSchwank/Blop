@@ -80,8 +80,11 @@ ToolMode ToolManager::activeToolMode() const {
 }
 
 const ToolConfig& ToolManager::config() const {
-    if (m_activeTool && m_configs.contains(m_activeTool->mode())) {
-        return m_configs[m_activeTool->mode()];
+    if (m_activeTool) {
+        auto it = m_configs.find(m_activeTool->mode());
+        if (it != m_configs.end()) {
+            return it.value();
+        }
     }
     return m_fallbackConfig;
 }
