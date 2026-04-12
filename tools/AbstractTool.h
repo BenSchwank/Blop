@@ -26,6 +26,7 @@ public:
     virtual bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) { return false; }
 
     virtual bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) { return false; }
+    virtual void setStrokeSceneForTablet(QGraphicsScene* scene) {}
     virtual void drawOverlay(QPainter* painter, const QRectF& rect) {}
 
     virtual void setConfig(const ToolConfig& config) { m_config = config; }

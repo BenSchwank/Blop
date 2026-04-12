@@ -118,6 +118,8 @@ qt_add_executable(Blop
     tools/ShapeTool.h
     tools/GraphCanvasItem.h
     tools/GraphCanvasItem.cpp
+    tools/GraphFormulaZone.h
+    tools/GraphFormulaZone.cpp
     tools/math/MathTypes.h
     tools/math/MathExpressionParser.h
     tools/math/MathExpressionParser.cpp

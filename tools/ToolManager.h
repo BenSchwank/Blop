@@ -27,6 +27,9 @@ public:
     const ToolConfig& config() const;
     void setConfig(const ToolConfig& config);
     void updateConfig(const ToolConfig& config);
+    
+    // Zugriff auf Konfig eines bestimmten Tools (für Initialisierung)
+    ToolConfig& configFor(ToolMode mode);
 
 signals:
     void toolChanged(AbstractTool* tool);
@@ -42,5 +45,6 @@ private:
 
     QMap<ToolMode, AbstractTool*> m_tools;
     AbstractTool* m_activeTool = nullptr;
-    ToolConfig m_config;
+    QMap<ToolMode, ToolConfig> m_configs;
+    ToolConfig m_fallbackConfig;
 };

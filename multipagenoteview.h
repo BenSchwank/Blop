@@ -28,6 +28,7 @@ class GraphFormulaEntryBar;
 class GraphTangentXPopup;
 class StrokeAddUndoCommand;
 class AbstractTool;
+class GraphFormulaZone;
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
@@ -190,6 +191,8 @@ private:
     void closeGraphEntryBar();
     void abandonGraphEntrySession();
     void openGraphEntryBarForGraph(GraphCanvasItem* gi, bool fromPlus = false);
+    void openGraphFormulaZone(GraphCanvasItem* gi);
+    void captureStrokesInFormulaZones();
     void syncGraphPlusLayout(GraphCanvasItem* gi);
     void bindGraphChrome(GraphCanvasItem* gi);
     /// After scene_.clear(): drop dangling graph pointers, hide overlays (no graph item access).
@@ -223,4 +226,7 @@ private:
     QPropertyAnimation* m_graphLegendFadeAnim{nullptr};
     QGraphicsOpacityEffect* m_graphEntryBarOpacityFx{nullptr};
     QPropertyAnimation* m_graphEntryBarFadeAnim{nullptr};
+
+    /// Currently active inline formula input zone (created by "+" tap).
+    QPointer<GraphFormulaZone> m_activeFormulaZone;
 };

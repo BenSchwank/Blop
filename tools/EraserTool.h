@@ -33,8 +33,17 @@ public:
         return true;
     }
 
+    // --- TABLET ---
+    bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
+        if (m_sceneRef) {
+            eraseAt(scenePos, m_sceneRef);
+        }
+        return AbstractStrokeTool::handleTabletEvent(event, scenePos);
+    }
+
 protected:
-    QPen createPen() const override { return QPen(); }
+    QPen createPen() const override { return QPen(Qt::white, m_config.penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin); }
+    StrokeItem::StrokeStyle strokeStyle() const override { return StrokeItem::Eraser; }
 
 private:
     void eraseAt(QPointF pos, QGraphicsScene* scene) {
@@ -58,6 +67,11 @@ private:
             QGraphicsPathItem* pathItem = dynamic_cast<QGraphicsPathItem*>(item);
 
             if (pathItem) {
+                // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht (führt zu Absturz!)
+                if (pathItem == m_currentItem) {
+                    continue;
+                }
+
                 // FEATURE: "Nur Textmarker löschen"
                 // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
                 if (m_config.eraserKeepInk && pathItem->zValue() >= 10) {
