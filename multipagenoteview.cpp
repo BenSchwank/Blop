@@ -16,6 +16,7 @@
 #include "tools/math/MathExpressionParser.h"
 #include "tools/math/NumericAnalysis.h"
 #include "tools/math/MathInkRecognizer.h"
+#include "tools/GraphFormulaZone.h"
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
@@ -857,7 +858,13 @@ public:
     auto *title = new QLabel(QStringLiteral("Stelle auf der x-Achse"), this);
     QFont tf = title->font();
     tf.setBold(true);
-    tf.setPointSizeF(tf.pointSizeF() + 1.0);
+    if (tf.pointSizeF() > 0) {
+        tf.setPointSizeF(tf.pointSizeF() + 1.0);
+    } else if (tf.pixelSize() > 0) {
+        tf.setPixelSize(tf.pixelSize() + 2);
+    } else {
+        tf.setPointSizeF(10.0);
+    }
     title->setFont(tf);
     lay->addWidget(title);
     m_x = new QDoubleSpinBox(this);
@@ -1088,6 +1095,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   });
   m_graphEntryBar = new GraphFormulaEntryBar(this);
   m_graphEntryBar->hide();
+  // Note: GraphFormulaEntryBar is kept as a fallback but zones are primary input
   m_tangentXPopup = new GraphTangentXPopup(this, [this](GraphCanvasItem *gi, double x, bool st) {
     if (!gi)
       return;
@@ -1596,9 +1604,9 @@ void MultiPageNoteView::setNote(Note *note) {
         m_graphQuickPopupWanted = false;
         hideGraphQuickPopup();
         m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        refreshGraphPanelForSelection();
-        openGraphEntryBarForGraph(gi, true);
+        m_graphPanelTargetGraph = gi;
+        m_graphPanelExplicitOpen = false; // Don't open old legend auto
+        openGraphFormulaZone(gi);
       });
       connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
         abandonGraphEntrySession();
@@ -2415,6 +2423,9 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
     delete item;
   }
 
+  // ── Check new strokes against active formula zones ──────────────
+  captureStrokesInFormulaZones();
+
   if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty())
     startTransformSession();
 }
@@ -2506,6 +2517,19 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
       return;
     }
     if (e->type() == QEvent::TabletPress && pageAt(scenePos) >= 0) {
+      if (m_activeFormulaZone) {
+        if (m_activeFormulaZone->hitClearButton(scenePos)) {
+          m_activeFormulaZone->clearZone();
+          e->accept();
+          return;
+        }
+        if (m_activeFormulaZone->hitCommitButton(scenePos)) {
+          emit m_activeFormulaZone->commitRequested(m_activeFormulaZone->recognizedExpression());
+          e->accept();
+          return;
+        }
+      }
+      
       if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(&scene_, scenePos)) {
         hitGraph->requestPlusTap();
         e->accept();
@@ -2523,12 +2547,20 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
 
   AbstractTool *tool = ToolManager::instance().activeTool();
   if (tool && note_ && mode_ != ToolMode::Lasso) {
-    if (auto *strokeTool = qobject_cast<AbstractStrokeTool *>(tool))
-      strokeTool->setStrokeSceneForTablet(&scene_);
+    tool->setStrokeSceneForTablet(&scene_);
     if (tool->handleTabletEvent(e, scenePos)) {
       e->accept();
-      if (e->type() == QEvent::TabletRelease)
+      if (e->type() == QEvent::TabletRelease) {
+        GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
         commitPendingStrokeItemsToNote(tool);
+        syncGraphItemsToNote();
+        if (newGraph) {
+          GraphAxisSettingsDialog dlg(newGraph, window());
+          dlg.exec();
+          syncGraphItemsToNote();
+        }
+        tool->clearLastCompletedItem();
+      }
       return;
     }
   }
@@ -3269,9 +3301,8 @@ void MultiPageNoteView::syncGraphItemsToNote() {
         m_graphQuickPopupWanted = false;
         hideGraphQuickPopup();
         m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        refreshGraphPanelForSelection();
-        openGraphEntryBarForGraph(gi, true);
+        m_graphPanelExplicitOpen = false; // Don't open the old legend dock automatically
+        openGraphFormulaZone(gi);
       });
       connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
         abandonGraphEntrySession();
@@ -3315,4 +3346,162 @@ void MultiPageNoteView::syncGraphItemsToNote() {
   updateGraphChromeIfVisible();
   if (onSaveRequested) onSaveRequested(note_);
   m_syncingGraphs = false;
+}
+
+// ============================================================================
+// Inline Formula Zone (replaces the old popup GraphFormulaEntryBar)
+// ============================================================================
+
+void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
+  if (!gi)
+    return;
+
+  // If there's already an active zone for this graph, just return
+  if (m_activeFormulaZone && m_activeFormulaZone->parentItem() == gi)
+    return;
+
+  // Clean up any existing zone
+  if (m_activeFormulaZone) {
+    m_activeFormulaZone->deleteLater();
+    m_activeFormulaZone = nullptr;
+  }
+
+  // Determine slot index = number of committed functions (zone goes after them)
+  const int slotIdx = gi->data().functions.size();
+
+  // Create the zone as a child of the graph (follows graph movement)
+  auto *zone = new GraphFormulaZone(slotIdx, gi);
+  m_activeFormulaZone = zone;
+
+  // Update the "+" position so it moves below the zone
+  gi->setCommittedFunctionCountForPlusLayout(slotIdx + 1);
+
+  // ── Connect zone signals ───────────────────────────────────────────
+
+  // Preview: add a dashed preview curve to the graph
+  connect(zone, &GraphFormulaZone::expressionRecognized, this,
+          [this, gi](const QString &expr) {
+    if (!gi) return;
+    const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
+    if (!parsed.ok) return;
+
+    auto d = gi->toData();
+
+    // Remove old preview if exists
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
+      d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
+    } else {
+      GraphFunction previewFn;
+      previewFn.expression = parsed.normalizedInput;
+      previewFn.color = QColor(124, 92, 252, 120); // semi-transparent purple
+      previewFn.visible = true;
+      d.functions.push_back(previewFn);
+      m_livePreviewIndex = d.functions.size() - 1;
+    }
+    d.selectedFunction = m_livePreviewIndex;
+    gi->fromData(d);
+    syncGraphPlusLayout(gi);
+  });
+
+  // Manual commit: make the curve permanent
+  connect(zone, &GraphFormulaZone::commitRequested, this,
+          [this, gi](const QString &expr) {
+    if (!gi) return;
+    const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
+    if (!parsed.ok) return;
+
+    auto d = gi->toData();
+    const QColor finalColor = QColor(94, 92, 230);
+
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
+      d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
+      d.functions[m_livePreviewIndex].color = finalColor;
+      d.selectedFunction = m_livePreviewIndex;
+      m_livePreviewIndex = -1;
+    } else {
+      GraphFunction fn;
+      fn.expression = parsed.normalizedInput;
+      fn.color = finalColor;
+      fn.visible = true;
+      d.functions.push_back(fn);
+      d.selectedFunction = d.functions.size() - 1;
+    }
+    gi->fromData(d);
+
+    // Clean up the zone
+    if (m_activeFormulaZone) {
+      m_activeFormulaZone->deleteLater();
+      m_activeFormulaZone = nullptr;
+    }
+
+    syncGraphPlusLayout(gi);
+    if (m_graphPanelExplicitOpen) {
+      bindGraphChrome(gi);
+      syncGraphLegendLayout();
+    }
+    syncGraphItemsToNote();
+  });
+
+  // Zone cleared: remove preview curve
+  connect(zone, &GraphFormulaZone::zoneCleared, this, [this, gi]() {
+    if (!gi) return;
+    if (m_livePreviewIndex >= 0) {
+      auto d = gi->toData();
+      if (m_livePreviewIndex < d.functions.size()) {
+        d.functions.removeAt(m_livePreviewIndex);
+        if (d.functions.isEmpty())
+          d.selectedFunction = -1;
+        else
+          d.selectedFunction = qBound(0, d.selectedFunction, d.functions.size() - 1);
+        gi->fromData(d);
+      }
+      m_livePreviewIndex = -1;
+    }
+    syncGraphPlusLayout(gi);
+  });
+}
+
+void MultiPageNoteView::captureStrokesInFormulaZones() {
+  if (!m_activeFormulaZone || !note_)
+    return;
+
+  const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
+
+  // Look at the most recently added strokes on the current page
+  const int pIdx = visiblePageIndex();
+  if (pIdx < 0 || pIdx >= note_->pages.size())
+    return;
+
+  const auto &pageStrokes = note_->pages[pIdx].strokes;
+  if (pageStrokes.isEmpty())
+    return;
+
+  // Check the last few strokes (just committed)
+  const int checkCount = qMin(3, pageStrokes.size());
+  for (int i = pageStrokes.size() - checkCount; i < pageStrokes.size(); ++i) {
+    const Stroke &s = pageStrokes[i];
+    if (s.isHighlighter)
+      continue;
+
+    // Convert page-local path to scene coords for intersection test
+    const QRectF pageR = pageRect(pIdx);
+    QPainterPath scenePath;
+    for (int j = 0; j < s.points.size(); ++j) {
+      const QPointF sceneP = s.points[j] + pageR.topLeft();
+      if (j == 0)
+        scenePath.moveTo(sceneP);
+      else
+        scenePath.lineTo(sceneP);
+    }
+
+    if (s.isEraser) {
+      if (m_activeFormulaZone->catchAreaSceneRect().intersects(scenePath.boundingRect())) {
+        m_activeFormulaZone->eraseStrokesIntersecting(scenePath, s.width);
+      }
+    } else {
+      if (zoneScene.intersects(scenePath.boundingRect())) {
+        m_activeFormulaZone->addStroke(scenePath, s.color, s.width);
+      }
+    }
+  }
 }

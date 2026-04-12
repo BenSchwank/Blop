@@ -405,24 +405,33 @@ QVector<int64_t> MathInkRecognizer::Impl::greedyDecode(Ort::Value &encoderOut) c
             idsShape.data(),
             idsShape.size());
 
-        // Collect inputs
+        // Detect input order from ONNX model and build inputs accordingly.
+        // Also add causal mask for BTTR-style models.
         std::vector<Ort::Value> inputs;
-        inputs.push_back(std::move(encoderOut));
-        inputs.push_back(std::move(idsTensor));
+        const bool idsFirst = (numInputs >= 2 && strcmp(inputNames[0], "input_ids") == 0);
+        if (idsFirst) {
+            inputs.push_back(std::move(idsTensor));
+            inputs.push_back(std::move(encoderOut));
+        } else {
+            inputs.push_back(std::move(encoderOut));
+            inputs.push_back(std::move(idsTensor));
+        }
 
-        // Build causal mask [seqLen, seqLen] if the model expects it
-        std::vector<float> maskData;
+        // Build causal mask [seqLen, seqLen] if the model expects it (BTTR)
+        // BTTR uses bool mask: True = position is masked (future tokens)
+        std::vector<bool> maskBoolBuf;
+        std::vector<uint8_t> maskData;  // ONNX Runtime stores bool as uint8
         if (needsTgtMask && numInputs >= 3) {
-            maskData.resize(static_cast<size_t>(seqLen * seqLen), 0.0f);
+            maskData.resize(static_cast<size_t>(seqLen * seqLen), 0);
             for (int64_t i = 0; i < seqLen; ++i) {
                 for (int64_t j = i + 1; j < seqLen; ++j) {
-                    maskData[static_cast<size_t>(i * seqLen + j)] = -1e9f;
+                    maskData[static_cast<size_t>(i * seqLen + j)] = 1;  // masked
                 }
             }
             const std::array<int64_t, 2> maskShape = {seqLen, seqLen};
-            Ort::Value maskTensor = Ort::Value::CreateTensor<float>(
+            Ort::Value maskTensor = Ort::Value::CreateTensor<bool>(
                 memInfo,
-                maskData.data(),
+                reinterpret_cast<bool *>(maskData.data()),
                 maskData.size(),
                 maskShape.data(),
                 maskShape.size());
@@ -435,7 +444,11 @@ QVector<int64_t> MathInkRecognizer::Impl::greedyDecode(Ort::Value &encoderOut) c
             outputNames.data(), numOutputs);
 
         // Get encoder output back for next iteration (moved into inputs)
-        encoderOut = std::move(inputs[0]);
+        if (numInputs == 2 && strcmp(inputNames[0], "input_ids") == 0) {
+            encoderOut = std::move(inputs[1]);
+        } else {
+            encoderOut = std::move(inputs[0]);
+        }
 
         if (results.empty() || !results[0].IsTensor())
             break;
