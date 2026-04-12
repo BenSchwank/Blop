@@ -2512,6 +2512,19 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
       return;
     }
     if (e->type() == QEvent::TabletPress && pageAt(scenePos) >= 0) {
+      if (m_activeFormulaZone) {
+        if (m_activeFormulaZone->hitClearButton(scenePos)) {
+          m_activeFormulaZone->clearZone();
+          e->accept();
+          return;
+        }
+        if (m_activeFormulaZone->hitCommitButton(scenePos)) {
+          emit m_activeFormulaZone->commitRequested(m_activeFormulaZone->recognizedExpression());
+          e->accept();
+          return;
+        }
+      }
+      
       if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(&scene_, scenePos)) {
         hitGraph->requestPlusTap();
         e->accept();
@@ -3385,8 +3398,8 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     syncGraphPlusLayout(gi);
   });
 
-  // Auto-commit: make the curve permanent
-  connect(zone, &GraphFormulaZone::autoCommitReady, this,
+  // Manual commit: make the curve permanent
+  connect(zone, &GraphFormulaZone::commitRequested, this,
           [this, gi](const QString &expr) {
     if (!gi) return;
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);

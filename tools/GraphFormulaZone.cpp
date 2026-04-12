@@ -40,10 +40,6 @@ GraphFormulaZone::GraphFormulaZone(int slotIndex, GraphCanvasItem *parentGraph)
     m_recognizeTimer.setInterval(600);
     connect(&m_recognizeTimer, &QTimer::timeout, this, &GraphFormulaZone::onRecognizeTimer);
 
-    m_autoCommitTimer.setSingleShot(true);
-    m_autoCommitTimer.setInterval(2000);
-    connect(&m_autoCommitTimer, &QTimer::timeout, this, &GraphFormulaZone::onAutoCommitTimer);
-
     m_nam = new QNetworkAccessManager(this);
 }
 
@@ -109,22 +105,36 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
                     m_recognizedExpr);
     }
 
+    // ── Checkmark (Commit) button ───────────────────────────────────────────
+    if (!m_recognizedExpr.isEmpty() || m_previewActive) {
+        const qreal margin = 6.0;
+        const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
+        const qreal bxCommit = bxClear - kCommitBtnSize - margin;
+        const qreal byCommit = kBaselineY - 2; 
+        const QRectF commitBtn(bxCommit, byCommit, kCommitBtnSize, kCommitBtnSize);
+        
+        p->setPen(Qt::NoPen);
+        p->setBrush(QColor(46, 204, 113, m_previewActive ? 255 : 200)); // green
+        p->drawRoundedRect(commitBtn, 8, 8);
+        
+        // Draw tick mark
+        p->setPen(QPen(Qt::white, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p->drawLine(QPointF(bxCommit + 5, byCommit + 10), QPointF(bxCommit + 9, byCommit + 14));
+        p->drawLine(QPointF(bxCommit + 9, byCommit + 14), QPointF(bxCommit + 16, byCommit + 6));
+    }
+
     // ── Round clear button ───────────────────────────────────────────
     if (hasStrokes() || !m_recognizedExpr.isEmpty()) {
-        const qreal bx = m_currentWidth - kClearBtnSize - 4;
-        const qreal by = kBaselineY + 2; // Positioned below the line on the right
-        const QRectF btn(bx, by, kClearBtnSize, kClearBtnSize);
-
-        p->setPen(QPen(QColor(180, 60, 60, 120), 1.0));
-        p->setBrush(QColor(220, 80, 80, 40));
+        const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
+        const qreal byClear = kBaselineY + 2; // Positioned below the line on the right
+        const QRectF btn(bxClear, byClear, kClearBtnSize, kClearBtnSize);
+        p->setPen(Qt::NoPen);
+        p->setBrush(QColor(180, 180, 190, 80));
         p->drawEllipse(btn);
-
-        // "×" inside
-        p->setPen(QPen(QColor(200, 80, 80, 180), 1.4));
-        const QPointF c = btn.center();
-        const qreal d = 3.5;
-        p->drawLine(QPointF(c.x() - d, c.y() - d), QPointF(c.x() + d, c.y() + d));
-        p->drawLine(QPointF(c.x() + d, c.y() - d), QPointF(c.x() - d, c.y() + d));
+        
+        p->setPen(QPen(QColor(120, 120, 130), 1.5, Qt::SolidLine, Qt::RoundCap));
+        p->drawLine(QPointF(btn.left() + 4, btn.top() + 4), QPointF(btn.right() - 4, btn.bottom() - 4));
+        p->drawLine(QPointF(btn.left() + 4, btn.bottom() - 4), QPointF(btn.right() - 4, btn.top() + 4));
     }
 
     // ── Preview indicator (small pulsing dot) ────────────────────────
@@ -159,15 +169,13 @@ bool GraphFormulaZone::addStroke(const QPainterPath &path, const QColor &color, 
     // Update width
     qreal newW = kSlotWidth;
     for (const auto &s : m_strokes) {
-        newW = qMax(newW, s.path.boundingRect().right() + 20.0);
+        newW = qMax(newW, s.path.boundingRect().right() + 40.0);
     }
     if (newW > m_currentWidth) {
         prepareGeometryChange();
         m_currentWidth = newW;
     }
 
-    // Cancel any pending auto-commit since new input arrived
-    m_autoCommitTimer.stop();
     m_previewActive = false;
 
     scheduleRecognition();
@@ -228,7 +236,7 @@ void GraphFormulaZone::eraseStrokesIntersecting(const QPainterPath &eraserPath, 
         // Recompute width
         qreal newW = kSlotWidth;
         for (const auto &s : m_strokes) {
-            newW = qMax(newW, s.path.boundingRect().right() + 20.0);
+            newW = qMax(newW, s.path.boundingRect().right() + 40.0);
         }
         if (std::abs(newW - m_currentWidth) > 1.0) {
             prepareGeometryChange();
@@ -290,7 +298,6 @@ void GraphFormulaZone::scheduleRecognition()
 void GraphFormulaZone::cancelTimers()
 {
     m_recognizeTimer.stop();
-    m_autoCommitTimer.stop();
 }
 
 void GraphFormulaZone::onRecognizeTimer()
@@ -311,7 +318,6 @@ void GraphFormulaZone::onRecognizeTimer()
             m_previewActive = true;
             update();
             emit expressionRecognized(expr);
-            m_autoCommitTimer.start(); // 2s → auto-commit
             return;
         }
     }
@@ -319,16 +325,6 @@ void GraphFormulaZone::onRecognizeTimer()
 
     // ── Phase 2: Backend fallback ────────────────────────────────────
     startBackendRecognition(img);
-}
-
-void GraphFormulaZone::onAutoCommitTimer()
-{
-    if (m_recognizedExpr.isEmpty())
-        return;
-
-    m_previewActive = false;
-    update();
-    emit autoCommitReady(m_recognizedExpr);
 }
 
 // ============================================================================
@@ -434,7 +430,6 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
                 m_previewActive = true;
                 update();
                 emit expressionRecognized(fb);
-                m_autoCommitTimer.start();
             }
             return;
         }
@@ -454,7 +449,6 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
         m_previewActive = true;
         update();
         emit expressionRecognized(expr);
-        m_autoCommitTimer.start();
     });
 }
 

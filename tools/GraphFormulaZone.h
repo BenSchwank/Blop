@@ -64,20 +64,22 @@ public:
 
     /// True if the small round clear button at `scenePos` was hit.
     bool hitClearButton(const QPointF &scenePos) const;
+    
+    /// True if the checkmark commit button at `scenePos` was hit.
+    bool hitCommitButton(const QPointF &scenePos) const;
 
 signals:
     /// Emitted when a new expression was recognized (preview curve).
     void expressionRecognized(const QString &expr);
 
-    /// Emitted after the auto-commit delay — the curve should become permanent.
-    void autoCommitReady(const QString &expr);
+    /// Emitted when the user explicitly clicks the checkmark button.
+    void commitRequested(const QString &expr);
 
     /// Emitted when zone is cleared by the user.
     void zoneCleared();
 
 private slots:
     void onRecognizeTimer();
-    void onAutoCommitTimer();
 
 private:
     void scheduleRecognition();
@@ -101,7 +103,6 @@ private:
     bool    m_previewActive{false};
 
     QTimer  m_recognizeTimer;    // 600 ms after last stroke → run OCR
-    QTimer  m_autoCommitTimer;   // 2000 ms after recognition → commit
 
     QNetworkAccessManager *m_nam{nullptr};
     QNetworkReply *m_pendingReply{nullptr};
@@ -111,6 +112,7 @@ private:
     static constexpr qreal kSlotHeight   = 44.0;
     static constexpr qreal kSlotWidth    = 180.0;
     static constexpr qreal kMarginRight  = 14.0;   // gap between graph edge and zone
-    static constexpr qreal kClearBtnSize = 16.0;
+    static constexpr qreal kClearBtnSize = 18.0;
+    static constexpr qreal kCommitBtnSize = 22.0;
     static constexpr qreal kBaselineY    = 28.0;    // y within slot for the solid line
 };
