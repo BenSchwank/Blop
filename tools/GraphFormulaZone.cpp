@@ -455,6 +455,7 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
         update();
         emit expressionRecognized(expr);
         m_autoCommitTimer.start();
+    });
 }
 
 QString GraphFormulaZone::recognizeLocalCandidates() const {
