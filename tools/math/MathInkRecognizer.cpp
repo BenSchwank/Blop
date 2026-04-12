@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QPainter>
 
 #ifdef BLOP_HAS_ONNX_OCR
 #include <onnxruntime_cxx_api.h>
@@ -34,18 +35,20 @@ struct MathInkRecognizer::Impl {
                                                      OrtArenaAllocator, OrtMemTypeDefault);
 
     // --- Token vocabulary ---
-    QVector<QString>                     id2token;    // index → LaTeX token string
-    QHash<QString, int64_t>              token2id;    // token string → index
-    int64_t                              bosId = -1;  // <s>  / [BOS]
-    int64_t                              eosId = -1;  // </s> / [EOS]
+    QVector<QString>                     id2token;    // index -> LaTeX token string
+    QHash<QString, int64_t>              token2id;    // token string -> index
+    int64_t                              bosId = -1;  // <sos> / <s> / [BOS]
+    int64_t                              eosId = -1;  // <eos> / </s> / [EOS]
     int64_t                              padId = -1;  // [PAD]
 
     // --- Model metadata ---
     int     imgChannels = 1;     // grayscale by default
-    int     imgHeight   = 224;   // encoder expected input H
-    int     imgWidth    = 224;   // encoder expected input W
-    int     maxDecLen   = 512;   // maximum decoder steps
-    bool    hwc         = false; // true if model expects HWC layout (unusual)
+    int     imgHeight   = 128;   // max input H (aspect-ratio preserved, padded)
+    int     imgWidth    = 512;   // max input W
+    int     maxDecLen   = 256;   // maximum decoder steps
+    float   normMean    = 0.5f;  // pixel normalization mean
+    float   normStd     = 0.5f;  // pixel normalization std
+    bool    needsTgtMask = true; // decoder expects causal mask input (BTTR)
 #endif
 
     bool    loaded      = false;
@@ -57,13 +60,14 @@ struct MathInkRecognizer::Impl {
     bool tryLoad();
 
 #ifdef BLOP_HAS_ONNX_OCR
-    /// Pre-process QImage → float tensor in NCHW format.
+    /// Pre-process QImage -> float tensor in NCHW format.
+    /// Aspect-ratio-preserving resize + white padding.
     std::vector<float> preprocessImage(const QImage &img) const;
 
     /// Run encoder on image tensor, return encoder hidden states.
     Ort::Value runEncoder(const std::vector<float> &imgTensor) const;
 
-    /// Greedy autoregressive decode.
+    /// Greedy autoregressive decode (L2R, with optional causal mask).
     QVector<int64_t> greedyDecode(Ort::Value &encoderOut) const;
 
     /// Convert token IDs to a LaTeX string.
@@ -124,14 +128,14 @@ QString MathInkRecognizer::recognize(const QImage &inkImage) const
         // 3. decoder (greedy)
         QVector<int64_t> tokenIds = d->greedyDecode(encOut);
 
-        // 4. detokenize → LaTeX
+        // 4. detokenize -> LaTeX
         QString latex = d->detokenize(tokenIds);
         if (latex.isEmpty())
             return {};
 
-        // 5. LaTeX → Blop syntax
+        // 5. LaTeX -> Blop syntax
         QString blop = LatexToBlopConverter::convert(latex);
-        qDebug() << "[MathInkRecognizer] LaTeX:" << latex << " → Blop:" << blop;
+        qDebug() << "[MathInkRecognizer] LaTeX:" << latex << " -> Blop:" << blop;
         return blop;
 
     } catch (const Ort::Exception &e) {
@@ -170,7 +174,7 @@ bool MathInkRecognizer::Impl::tryLoad()
 
     if (!QFile::exists(encPath) || !QFile::exists(decPath) || !QFile::exists(tokPath)) {
         qInfo() << "[MathInkRecognizer] Model files not found in" << dir
-                << "— offline recognition disabled.";
+                << "-- offline recognition disabled.";
         return false;
     }
 
@@ -200,7 +204,7 @@ bool MathInkRecognizer::Impl::tryLoad()
             token2id.insert(id2token[i], i);
         }
 
-        // Special token IDs
+        // Special token IDs (explicit from JSON)
         bosId = obj.value(QStringLiteral("bos_id")).toInteger(-1);
         eosId = obj.value(QStringLiteral("eos_id")).toInteger(-1);
         padId = obj.value(QStringLiteral("pad_id")).toInteger(0);
@@ -208,7 +212,7 @@ bool MathInkRecognizer::Impl::tryLoad()
         // Fallback: try to find special tokens by name
         if (bosId < 0) {
             for (const auto &name : {QStringLiteral("<s>"), QStringLiteral("[BOS]"),
-                                     QStringLiteral("<bos>")}) {
+                                     QStringLiteral("<bos>"), QStringLiteral("<sos>")}) {
                 if (token2id.contains(name)) { bosId = token2id.value(name); break; }
             }
         }
@@ -221,15 +225,26 @@ bool MathInkRecognizer::Impl::tryLoad()
         if (bosId < 0) bosId = 1;
         if (eosId < 0) eosId = 2;
 
-        // Optional model metadata
+        // Model metadata
         imgChannels = obj.value(QStringLiteral("img_channels")).toInt(1);
-        imgHeight   = obj.value(QStringLiteral("img_height")).toInt(224);
-        imgWidth    = obj.value(QStringLiteral("img_width")).toInt(224);
-        maxDecLen   = obj.value(QStringLiteral("max_seq_len")).toInt(512);
+        imgHeight   = obj.value(QStringLiteral("img_height")).toInt(128);
+        imgWidth    = obj.value(QStringLiteral("img_width")).toInt(512);
+        maxDecLen   = obj.value(QStringLiteral("max_seq_len")).toInt(256);
+        needsTgtMask = obj.value(QStringLiteral("needs_tgt_mask")).toBool(false);
 
-        qInfo() << "[MathInkRecognizer] Loaded" << id2token.size()
-                << "tokens. BOS=" << bosId << "EOS=" << eosId
-                << "img=" << imgChannels << "x" << imgHeight << "x" << imgWidth;
+        // Normalization constants (configurable per model)
+        const QJsonObject normObj = obj.value(QStringLiteral("normalization")).toObject();
+        normMean = static_cast<float>(normObj.value(QStringLiteral("mean")).toDouble(0.5));
+        normStd  = static_cast<float>(normObj.value(QStringLiteral("std")).toDouble(0.5));
+
+        const QString modelName = obj.value(QStringLiteral("model_name")).toString(
+            QStringLiteral("unknown"));
+        qInfo() << "[MathInkRecognizer] Model:" << modelName
+                << "| Loaded" << id2token.size() << "tokens"
+                << "| BOS=" << bosId << "EOS=" << eosId
+                << "| img=" << imgChannels << "x" << imgHeight << "x" << imgWidth
+                << "| norm=" << normMean << "/" << normStd
+                << "| tgtMask=" << needsTgtMask;
     }
 
     // --- Create ONNX environment + sessions ---
@@ -266,7 +281,7 @@ bool MathInkRecognizer::Impl::tryLoad()
     }
 
 #else
-    qInfo() << "[MathInkRecognizer] Built without BLOP_HAS_ONNX_OCR — offline recognition disabled.";
+    qInfo() << "[MathInkRecognizer] Built without BLOP_HAS_ONNX_OCR -- offline recognition disabled.";
     return false;
 #endif
 }
@@ -283,27 +298,31 @@ bool MathInkRecognizer::Impl::tryLoad()
 
 std::vector<float> MathInkRecognizer::Impl::preprocessImage(const QImage &img) const
 {
-    // Convert to grayscale and resize to model's expected dimensions
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8)
-                     .scaled(imgWidth, imgHeight, Qt::IgnoreAspectRatio,
-                             Qt::SmoothTransformation);
+    // 1. Convert to grayscale
+    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
 
-    const int C = imgChannels;
+    // 2. Aspect-ratio-preserving resize to fit within imgHeight x imgWidth
+    gray = gray.scaled(imgWidth, imgHeight, Qt::KeepAspectRatio,
+                       Qt::SmoothTransformation);
+
+    // 3. Pad to full imgHeight x imgWidth with white background
+    QImage padded(imgWidth, imgHeight, QImage::Format_Grayscale8);
+    padded.fill(255);  // white
+    {
+        QPainter painter(&padded);
+        painter.drawImage(0, 0, gray);  // top-left aligned
+    }
+
+    // 4. Build NCHW tensor with normalization
     const int H = imgHeight;
     const int W = imgWidth;
-    std::vector<float> tensor(static_cast<size_t>(1 * C * H * W));
-
-    // Normalize to [0, 1] and apply ImageNet-style normalization
-    // pix2tex uses: mean=0.7931, std=0.1738 for single channel
-    constexpr float kMean = 0.7931f;
-    constexpr float kStd  = 0.1738f;
+    std::vector<float> tensor(static_cast<size_t>(1 * 1 * H * W));
 
     for (int y = 0; y < H; ++y) {
-        const uchar *row = gray.constScanLine(y);
+        const uchar *row = padded.constScanLine(y);
         for (int x = 0; x < W; ++x) {
             const float pixel = static_cast<float>(row[x]) / 255.0f;
-            const float normalized = (pixel - kMean) / kStd;
-            // NCHW layout: [batch=0, channel=0, y, x]
+            const float normalized = (pixel - normMean) / normStd;
             tensor[static_cast<size_t>(y * W + x)] = normalized;
         }
     }
@@ -386,17 +405,28 @@ QVector<int64_t> MathInkRecognizer::Impl::greedyDecode(Ort::Value &encoderOut) c
             idsShape.data(),
             idsShape.size());
 
-        // Collect inputs: typically [encoder_hidden_states, input_ids]
-        // The exact order depends on the exported model.  We support 2 common layouts.
+        // Collect inputs
         std::vector<Ort::Value> inputs;
-        if (numInputs == 2) {
-            // Layout A: (encoder_hidden_states, input_ids)
-            inputs.push_back(std::move(encoderOut));
-            inputs.push_back(std::move(idsTensor));
-        } else {
-            // Fallback: just the two we have, hope the order matches
-            inputs.push_back(std::move(encoderOut));
-            inputs.push_back(std::move(idsTensor));
+        inputs.push_back(std::move(encoderOut));
+        inputs.push_back(std::move(idsTensor));
+
+        // Build causal mask [seqLen, seqLen] if the model expects it
+        std::vector<float> maskData;
+        if (needsTgtMask && numInputs >= 3) {
+            maskData.resize(static_cast<size_t>(seqLen * seqLen), 0.0f);
+            for (int64_t i = 0; i < seqLen; ++i) {
+                for (int64_t j = i + 1; j < seqLen; ++j) {
+                    maskData[static_cast<size_t>(i * seqLen + j)] = -1e9f;
+                }
+            }
+            const std::array<int64_t, 2> maskShape = {seqLen, seqLen};
+            Ort::Value maskTensor = Ort::Value::CreateTensor<float>(
+                memInfo,
+                maskData.data(),
+                maskData.size(),
+                maskShape.data(),
+                maskShape.size());
+            inputs.push_back(std::move(maskTensor));
         }
 
         auto results = decoderSession->Run(
@@ -454,7 +484,7 @@ QString MathInkRecognizer::Impl::detokenize(const QVector<int64_t> &ids) const
             continue;
 
         const QString &tok = id2token[static_cast<int>(id)];
-        // Skip special-looking tokens (e.g. <pad>, <s>, </s>)
+        // Skip special-looking tokens
         if (tok.startsWith(QLatin1Char('<')) && tok.endsWith(QLatin1Char('>')))
             continue;
         if (tok.startsWith(QLatin1String("[")) && tok.endsWith(QLatin1String("]")))
@@ -463,8 +493,8 @@ QString MathInkRecognizer::Impl::detokenize(const QVector<int64_t> &ids) const
         parts.append(tok);
     }
 
-    // pix2tex tokens are typically individual characters or short LaTeX commands.
-    // Join with spaces (the LaTeX→Blop converter will handle spacing).
+    // Tokens are individual LaTeX tokens/characters.
+    // Join with spaces; the LaTeX->Blop converter handles spacing.
     return parts.join(QLatin1Char(' '));
 }
 
