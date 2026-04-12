@@ -386,15 +386,20 @@ QVector<int64_t> MathInkRecognizer::Impl::greedyDecode(Ort::Value &encoderOut) c
             idsShape.data(),
             idsShape.size());
 
-        // Collect inputs: typically [encoder_hidden_states, input_ids]
         // The exact order depends on the exported model.  We support 2 common layouts.
         std::vector<Ort::Value> inputs;
+        inputs.reserve(2);
         if (numInputs == 2) {
-            // Layout A: (encoder_hidden_states, input_ids)
-            inputs.push_back(std::move(encoderOut));
-            inputs.push_back(std::move(idsTensor));
+            if (strcmp(inputNames[0], "input_ids") == 0) {
+                // Layout: (input_ids, encoder_hidden_states)
+                inputs.push_back(std::move(idsTensor));
+                inputs.push_back(std::move(encoderOut));
+            } else {
+                // Layout: (encoder_hidden_states, input_ids)
+                inputs.push_back(std::move(encoderOut));
+                inputs.push_back(std::move(idsTensor));
+            }
         } else {
-            // Fallback: just the two we have, hope the order matches
             inputs.push_back(std::move(encoderOut));
             inputs.push_back(std::move(idsTensor));
         }
@@ -405,7 +410,11 @@ QVector<int64_t> MathInkRecognizer::Impl::greedyDecode(Ort::Value &encoderOut) c
             outputNames.data(), numOutputs);
 
         // Get encoder output back for next iteration (moved into inputs)
-        encoderOut = std::move(inputs[0]);
+        if (numInputs == 2 && strcmp(inputNames[0], "input_ids") == 0) {
+            encoderOut = std::move(inputs[1]);
+        } else {
+            encoderOut = std::move(inputs[0]);
+        }
 
         if (results.empty() || !results[0].IsTensor())
             break;

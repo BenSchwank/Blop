@@ -1372,8 +1372,7 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
     }
 
     if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
-        if (auto *strokeTool = qobject_cast<AbstractStrokeTool *>(m_toolManager->activeTool()))
-            strokeTool->setStrokeSceneForTablet(m_scene);
+        m_toolManager->activeTool()->setStrokeSceneForTablet(m_scene);
 
         if (m_toolManager->activeTool()->handleTabletEvent(event, scenePos)) {
             if (event->type() == QEvent::TabletPress) {

@@ -24,7 +24,7 @@ public:
         
         // Performance Fix: Cache strokes as static images once fully constructed. 
         if (!m_points.isEmpty()) {
-            setCacheMode(QGraphicsItem::DeviceCoordinateCache);
+            // setCacheMode(QGraphicsItem::DeviceCoordinateCache); // DISABLED: causes infinite painter loops with DestinationOut/Eraser strokes!
         }
     }
     

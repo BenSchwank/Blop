@@ -123,6 +123,27 @@ public:
         }
     }
 
+    void setStrokeSceneForTablet(QGraphicsScene* scene) override {
+        m_sceneRef = scene;
+    }
+
+    bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
+        if (event->type() == QEvent::TabletPress) {
+            QGraphicsSceneMouseEvent mouseEvent(QEvent::GraphicsSceneMousePress);
+            mouseEvent.setScenePos(scenePos);
+            return handleMousePress(&mouseEvent, m_sceneRef);
+        } else if (event->type() == QEvent::TabletMove) {
+            QGraphicsSceneMouseEvent mouseEvent(QEvent::GraphicsSceneMouseMove);
+            mouseEvent.setScenePos(scenePos);
+            return handleMouseMove(&mouseEvent, m_sceneRef);
+        } else if (event->type() == QEvent::TabletRelease) {
+            QGraphicsSceneMouseEvent mouseEvent(QEvent::GraphicsSceneMouseRelease);
+            mouseEvent.setScenePos(scenePos);
+            return handleMouseRelease(&mouseEvent, m_sceneRef);
+        }
+        return false;
+    }
+
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene)
             return false;
@@ -225,4 +246,5 @@ private:
     QPointF m_lastMotionPos;
     QElapsedTimer m_pressTimer;
     bool m_longPressLock{false};
+    QGraphicsScene* m_sceneRef{nullptr};
 };
