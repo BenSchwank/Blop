@@ -57,14 +57,6 @@ QRectF GraphFormulaZone::catchAreaSceneRect() const
     return mapRectToScene(boundingRect());
 }
 
-bool GraphFormulaZone::hitClearButton(const QPointF &scenePos) const
-{
-    const QPointF local = mapFromScene(scenePos);
-    const qreal bx = kSlotWidth - kClearBtnSize - 4;
-    const qreal by = kBaselineY + 2;
-    const QRectF btn(bx, by, kClearBtnSize, kClearBtnSize);
-    return btn.adjusted(-4, -4, 4, 4).contains(local);
-}
 
 // ============================================================================
 // Paint
