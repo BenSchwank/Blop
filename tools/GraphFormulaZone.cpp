@@ -145,6 +145,28 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
     }
 }
 
+bool GraphFormulaZone::hitClearButton(const QPointF &scenePos) const
+{
+    if (!hasStrokes() && m_recognizedExpr.isEmpty())
+        return false;
+    const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
+    const qreal byClear = kBaselineY + 2;
+    const QRectF btn(bxClear, byClear, kClearBtnSize, kClearBtnSize);
+    return mapRectToScene(btn.adjusted(-5, -5, 5, 5)).contains(scenePos);
+}
+
+bool GraphFormulaZone::hitCommitButton(const QPointF &scenePos) const
+{
+    if (m_recognizedExpr.isEmpty() && !m_previewActive)
+        return false;
+    const qreal margin = 6.0;
+    const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
+    const qreal bxCommit = bxClear - kCommitBtnSize - margin;
+    const qreal byCommit = kBaselineY - 2; 
+    const QRectF commitBtn(bxCommit, byCommit, kCommitBtnSize, kCommitBtnSize);
+    return mapRectToScene(commitBtn.adjusted(-5, -5, 5, 5)).contains(scenePos);
+}
+
 // ============================================================================
 // Stroke management
 // ============================================================================
