@@ -3380,7 +3380,7 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
     if (!parsed.ok) return;
 
-    auto d = gi->data();
+    auto d = gi->toData();
 
     // Remove old preview if exists
     if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
@@ -3405,7 +3405,7 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
     if (!parsed.ok) return;
 
-    auto d = gi->data();
+    auto d = gi->toData();
     const QColor finalColor = QColor(94, 92, 230);
 
     if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
@@ -3441,7 +3441,7 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
   connect(zone, &GraphFormulaZone::zoneCleared, this, [this, gi]() {
     if (!gi) return;
     if (m_livePreviewIndex >= 0) {
-      auto d = gi->data();
+      auto d = gi->toData();
       if (m_livePreviewIndex < d.functions.size()) {
         d.functions.removeAt(m_livePreviewIndex);
         if (d.functions.isEmpty())

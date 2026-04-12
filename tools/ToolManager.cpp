@@ -7,9 +7,25 @@ ToolManager& ToolManager::instance() {
 }
 
 ToolManager::ToolManager(QObject* parent) : QObject(parent) {
-    // Standard Config setzen (optional)
-    m_config.penColor = Qt::black;
-    m_config.penWidth = 3.0;
+    // Basic defaults
+    m_fallbackConfig.penColor = Qt::black;
+    m_fallbackConfig.penWidth = 3.0;
+
+    // Pre-populate some mode-specific defaults
+    ToolConfig highlighterCfg;
+    highlighterCfg.penWidth = 15;
+    highlighterCfg.opacity = 0.5;
+    highlighterCfg.penColor = Qt::yellow;
+    m_configs[ToolMode::Highlighter] = highlighterCfg;
+
+    ToolConfig eraserCfg;
+    eraserCfg.penWidth = 20;
+    m_configs[ToolMode::Eraser] = eraserCfg;
+    
+    ToolConfig pencilCfg;
+    pencilCfg.penColor = QColor(40, 40, 40);
+    pencilCfg.penWidth = 2;
+    m_configs[ToolMode::Pencil] = pencilCfg;
 }
 
 ToolManager::~ToolManager() {
@@ -21,6 +37,11 @@ void ToolManager::registerTool(AbstractTool* tool) {
     if (!tool) return;
     tool->setParent(this);
     m_tools.insert(tool->mode(), tool);
+
+    // Initialize config if missing
+    if (!m_configs.contains(tool->mode())) {
+        m_configs[tool->mode()] = m_fallbackConfig;
+    }
 
     // Erstes registriertes Tool als aktiv setzen, falls noch keines gewählt ist
     if (!m_activeTool) {
@@ -41,7 +62,7 @@ void ToolManager::selectTool(ToolMode mode) {
             }
 
             m_activeTool = it.value();
-            m_activeTool->setConfig(m_config); // Config syncen
+            m_activeTool->setConfig(m_configs[mode]); // Config syncen
             m_activeTool->onActivated();
 
             emit toolChanged(m_activeTool);
@@ -59,17 +80,29 @@ ToolMode ToolManager::activeToolMode() const {
 }
 
 const ToolConfig& ToolManager::config() const {
-    return m_config;
+    if (m_activeTool && m_configs.contains(m_activeTool->mode())) {
+        return m_configs[m_activeTool->mode()];
+    }
+    return m_fallbackConfig;
 }
 
 void ToolManager::setConfig(const ToolConfig& config) {
-    m_config = config;
     if (m_activeTool) {
-        m_activeTool->setConfig(m_config);
+        m_configs[m_activeTool->mode()] = config;
+        m_activeTool->setConfig(config);
+        emit configChanged(config);
+    } else {
+        m_fallbackConfig = config;
     }
-    emit configChanged(m_config);
 }
 
 void ToolManager::updateConfig(const ToolConfig& config) {
     setConfig(config);
+}
+
+ToolConfig& ToolManager::configFor(ToolMode mode) {
+    if (!m_configs.contains(mode)) {
+        m_configs[mode] = m_fallbackConfig;
+    }
+    return m_configs[mode];
 }
