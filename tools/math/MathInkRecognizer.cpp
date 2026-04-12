@@ -418,18 +418,20 @@ QVector<int64_t> MathInkRecognizer::Impl::greedyDecode(Ort::Value &encoderOut) c
         }
 
         // Build causal mask [seqLen, seqLen] if the model expects it (BTTR)
-        std::vector<float> maskData;
+        // BTTR uses bool mask: True = position is masked (future tokens)
+        std::vector<bool> maskBoolBuf;
+        std::vector<uint8_t> maskData;  // ONNX Runtime stores bool as uint8
         if (needsTgtMask && numInputs >= 3) {
-            maskData.resize(static_cast<size_t>(seqLen * seqLen), 0.0f);
+            maskData.resize(static_cast<size_t>(seqLen * seqLen), 0);
             for (int64_t i = 0; i < seqLen; ++i) {
                 for (int64_t j = i + 1; j < seqLen; ++j) {
-                    maskData[static_cast<size_t>(i * seqLen + j)] = -1e9f;
+                    maskData[static_cast<size_t>(i * seqLen + j)] = 1;  // masked
                 }
             }
             const std::array<int64_t, 2> maskShape = {seqLen, seqLen};
-            Ort::Value maskTensor = Ort::Value::CreateTensor<float>(
+            Ort::Value maskTensor = Ort::Value::CreateTensor<bool>(
                 memInfo,
-                maskData.data(),
+                reinterpret_cast<bool *>(maskData.data()),
                 maskData.size(),
                 maskShape.data(),
                 maskShape.size());
