@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from typing import Any, List, Optional
 import uvicorn
@@ -2362,6 +2362,51 @@ def get_task_help(request: TaskHelpRequest):
     except Exception as e:
         print(f"Task Help error: {e}")
         raise HTTPException(status_code=500, detail=f"Aufgabenhilfe-Fehler: {str(e)}")
+
+@app.post("/api/ai/chat/stream")
+def chat_endpoint_stream(request: ChatRequest):
+    from ai_service import AIService
+    try:
+        ensure_minimum_tokens(request.username, 1)
+        _configure_genai()
+        model_pref = resolve_model_preference(request.username, request.model_preference)
+        context, _ = _get_folder_context(request.username, request.folder_id)
+        if not context:
+            context = []
+        history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
+
+        def generate():
+            try:
+                for event in AIService.chat_stream(
+                    content=context,
+                    user_message=request.message,
+                    history=history_dicts,
+                    model_preference=model_pref,
+                    active_file=request.active_file,
+                ):
+                    if event["type"] == "chunk":
+                        yield f"data: {json.dumps({'text': event['text']})}\n\n"
+                    elif event["type"] == "done":
+                        charge = deduct_tokens_by_usage(
+                            request.username, "chat",
+                            event.get("used_model", ""),
+                            event.get("usage"),
+                        )
+                        yield f"data: {json.dumps({'done': True, 'used_model': event.get('used_model', ''), **charge})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Chat stream error: {e}")
+        raise HTTPException(status_code=500, detail=f"Chatbot-Fehler: {str(e)}")
+
 
 @app.post("/api/ai/chat")
 def chat_endpoint(request: ChatRequest):

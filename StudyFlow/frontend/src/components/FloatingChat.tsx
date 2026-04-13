@@ -65,85 +65,133 @@ export default function FloatingChat({ folderId, username, modelPreference, acti
         setMessages(newMessages);
         setIsLoading(true);
 
+        const requestBody = {
+            username,
+            folder_id: folderId,
+            file_id: activeFile?.id,
+            message: userMsg,
+            history: messages.filter(m => m.role !== 'model' || m.content !== 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?'),
+            model_preference: modelPreference || null,
+            active_file: activeFile || null,
+        };
+
         try {
             const hasTextDocument = activeFile && typeof activeFile.content === 'string';
-            const endpoint = hasTextDocument ? '/api/ai/document-chat' : '/api/ai/chat';
-            const res = await fetch(endpoint, {
+
+            // Document-chat: returns a JSON patch → can't stream, keep as-is
+            if (hasTextDocument) {
+                const res = await fetch('/api/ai/document-chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                });
+                let errData = null;
+                if (!res.ok) {
+                    try { errData = await res.json(); } catch (_) {}
+                    if (res.status === 402 || errData?.detail?.includes?.("Nicht genügend Tokens")) {
+                        throw new Error(errData?.detail || "Nicht genügend Tokens. Bitte lade dein Abo in den Einstellungen auf!");
+                    }
+                    if (errData?.detail === "NO_API_KEY_FOUND") throw new Error("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
+                    throw new Error(typeof errData?.detail === 'string' ? errData.detail : 'Netzwerkfehler');
+                }
+                const data = await res.json();
+                if (typeof data?.tokens_charged === 'number') {
+                    setLastUsageInfo(`Modell: ${data.used_model || 'auto'} · -${data.tokens_charged} Tokens`);
+                    window.dispatchEvent(new Event('blop_tokens_updated'));
+                }
+                if (data?.patch && isPatchResponse(data.patch)) {
+                    setPendingPatch(data.patch);
+                    setMessages([...newMessages, {
+                        role: 'model',
+                        content: `Vorschlag: **${data.patch.patch_description || 'Dokumentänderung'}**\n\n${data.patch.new_text.substring(0, 1400)}${data.patch.new_text.length > 1400 ? '\n\n…(gekürzt)' : ''}`,
+                    }]);
+                }
+                return;
+            }
+
+            // General chat: use streaming endpoint
+            const res = await fetch('/api/ai/chat/stream', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    username,
-                    folder_id: folderId,
-                    file_id: activeFile?.id,
-                    message: userMsg,
-                    history: messages.filter(m => m.role !== 'model' || m.content !== 'Hallo! Ich bin dein Blop KI-Assistent. Hast du Fragen zu den Dokumenten in diesem Ordner?'), // Don't send the default greeting
-                    model_preference: modelPreference || null,
-                    active_file: activeFile || null
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
             });
 
-            let errData = null;
             if (!res.ok) {
-                try {
-                    errData = await res.json();
-                } catch(e) {}
-                
-                if (res.status === 402 || (errData && errData.detail && typeof errData.detail === 'string' && errData.detail.includes("Nicht genügend Tokens"))) {
+                let errData = null;
+                try { errData = await res.json(); } catch (_) {}
+                if (res.status === 402 || errData?.detail?.includes?.("Nicht genügend Tokens")) {
                     throw new Error(errData?.detail || "Nicht genügend Tokens. Bitte lade dein Abo in den Einstellungen auf!");
                 }
-                if (errData && errData.detail === "NO_API_KEY_FOUND") {
-                    throw new Error("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
-                }
+                if (errData?.detail === "NO_API_KEY_FOUND") throw new Error("Serverfehler: Der AI Key wurde vom Administrator nicht konfiguriert.");
                 throw new Error(typeof errData?.detail === 'string' ? errData.detail : 'Netzwerkfehler');
             }
 
-            const data = await res.json();
-            if (typeof data?.tokens_charged === 'number') {
-                const modelLabel = data?.used_model || 'auto';
-                setLastUsageInfo(`Modell: ${modelLabel} · -${data.tokens_charged} Tokens`);
-                if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new Event('blop_tokens_updated'));
+            // Add a placeholder message and fill it as chunks arrive
+            const aiMsgIndex = newMessages.length;
+            setMessages([...newMessages, { role: 'model', content: '' }]);
+
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let streamedContent = '';
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const payload = line.slice(6).trim();
+                    if (!payload) continue;
+                    let data: any;
+                    try { data = JSON.parse(payload); } catch { continue; }
+
+                    if (data.error) throw new Error(data.error);
+
+                    if (data.text) {
+                        streamedContent += data.text;
+                        setMessages(prev => {
+                            const updated = [...prev];
+                            updated[aiMsgIndex] = { role: 'model', content: streamedContent };
+                            return updated;
+                        });
+                    }
+
+                    if (data.done) {
+                        if (typeof data.tokens_charged === 'number') {
+                            setLastUsageInfo(`Modell: ${data.used_model || 'auto'} · -${data.tokens_charged} Tokens`);
+                            window.dispatchEvent(new Event('blop_tokens_updated'));
+                        }
+                    }
                 }
             }
-            if (data?.patch && isPatchResponse(data.patch)) {
-                setPendingPatch(data.patch);
-                setMessages([
-                    ...newMessages,
-                    {
-                        role: 'model',
-                        content: `Vorschlag: **${data.patch.patch_description || 'Dokumentänderung'}**\n\n${data.patch.new_text.substring(0, 1400)}${data.patch.new_text.length > 1400 ? '\n\n…(gekürzt)' : ''}`,
-                    },
-                ]);
-                return;
-            }
-            const replyText = data.reply;
 
-            // Try to parse JSON to see if it's an action rather than a chat message
+            // Check if the full streamed content is a JSON file-update action
             try {
-                // The AI might wrap the JSON in markdown code blocks like ```json ... ```
-                let jsonStr = replyText.trim();
-                if (jsonStr.startsWith('```json')) jsonStr = jsonStr.substring(7);
-                if (jsonStr.startsWith('```')) jsonStr = jsonStr.substring(3);
-                if (jsonStr.endsWith('```')) jsonStr = jsonStr.substring(0, jsonStr.length - 3);
-                jsonStr = jsonStr.trim();
-
-                const jsonObj = JSON.parse(jsonStr);
-
-                if (jsonObj && jsonObj.blop_action === "update_file" && onUpdateActiveFile) {
+                let jsonStr = streamedContent.trim();
+                if (jsonStr.startsWith('```json')) jsonStr = jsonStr.slice(7);
+                if (jsonStr.startsWith('```')) jsonStr = jsonStr.slice(3);
+                if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
+                const jsonObj = JSON.parse(jsonStr.trim());
+                if (jsonObj?.blop_action === "update_file" && onUpdateActiveFile) {
                     await onUpdateActiveFile(jsonObj.new_content);
                     setMessages([...newMessages, { role: 'model', content: `Ich habe das Dokument "${activeFile?.name}" für dich aktualisiert! ✨` }]);
-                    return;
                 }
-            } catch (jsonError) {
-                // Not JSON, or not our specific action - just treat as a normal text reply.
-            }
+            } catch { /* normal text reply */ }
 
-            setMessages([...newMessages, { role: 'model', content: replyText }]);
         } catch (error: any) {
             console.error(error);
-            setMessages([...newMessages, { role: 'model', content: error.message || 'Es gab einen Fehler bei der Verbindung zur KI. Bitte versuche es später noch einmal.' }]);
+            setMessages(prev => {
+                // Replace empty placeholder if it exists, otherwise append
+                const last = prev[prev.length - 1];
+                if (last?.role === 'model' && last.content === '') {
+                    return [...prev.slice(0, -1), { role: 'model', content: error.message || 'Verbindungsfehler. Bitte versuche es erneut.' }];
+                }
+                return [...prev, { role: 'model', content: error.message || 'Verbindungsfehler. Bitte versuche es erneut.' }];
+            });
         } finally {
             setIsLoading(false);
         }

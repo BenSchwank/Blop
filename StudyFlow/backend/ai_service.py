@@ -1732,6 +1732,84 @@ Hier ist das Quellenmaterial:
             raise Exception(f"Fehler bei der Wiederholung: {str(e)}")
 
     @staticmethod
+    def chat_stream(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None):
+        """Like chat() but yields text chunks. Final item has type='done' with usage info."""
+        system_instruction = (
+            "Du bist der hilfreiche 'Blop KI-Assistent'. Deine Aufgabe ist es, Fragen des Schülers "
+            "zu seinen Lernmaterialien (PDFs, Notizen, etc.) zu beantworten.\n"
+            "Sei immer freundlich, ermutigend und hilfsbereit. Antworte in der Sprache des Nutzers (standardmäßig Deutsch).\n"
+            "Fasse dich eher kurz und präzise, um den Chatverlauf lesbar zu halten.\n\n"
+            "WICHTIGE FORMATIERUNGSREGEL FÜR MATHEMATIK:\n"
+            "Verwende IMMER die LaTeX-Notation für mathematische Formeln und Ausdrücke. \n"
+            "- Für Inline-Formeln verwende ein einzelnes Dollarzeichen: $E = mc^2$ \n"
+            "- Für Block-Formeln verwende doppelte Dollarzeichen: $$E = mc^2$$ \n"
+            "Verwende niemals andere Notationen für Mathematik.\n\n"
+            + MATH_ACCURACY_INSTRUCTIONS
+            + "\n"
+        )
+
+        if active_file:
+            file_name = active_file.get("name", "Unbekannt")
+            file_type = active_file.get("type", "Unbekannt")
+            file_content = active_file.get("content", "")
+            if isinstance(file_content, (dict, list)):
+                file_content_str = json.dumps(file_content, ensure_ascii=False, indent=2)
+            else:
+                file_content_str = str(file_content)
+            system_instruction += (
+                f"WICHTIGE OPERATION (DOKUMENTEN-BEARBEITUNG):\n"
+                f"Der Nutzer hat aktuell folgende Datei geöffnet:\n"
+                f"- Name: {file_name}\n- Typ: {file_type}\n- Inhalt:\n{file_content_str}\n\n"
+                f"ANWEISUNG ZUM BEARBEITEN DER DATEI:\n"
+                f"Wenn der Nutzer dich bittet, diese geöffnete Datei zu ändern, "
+                f"antworte AUSSCHLIEßLICH mit einem JSON-Block:\n"
+                f"```json\n{{\"blop_action\": \"update_file\", \"new_content\": <NEUER INHALT>}}\n```\n"
+                f"Beachte: Wenn die Originaldatei ein JSON Array war, muss `new_content` wieder exakt so ein Array sein.\n"
+                f"Wenn es nur normaler Chat ist, antworte ganz normal als Text."
+            )
+
+        model = genai.GenerativeModel(
+            model_name=get_best_model(model_preference),
+            system_instruction=system_instruction,
+        )
+
+        context_parts = ["--- LERNMATERIAL KONTEXT ---\nBitte nutze dieses Material, um Anfragen darauf basierend zu beantworten.\n"]
+        if isinstance(content, list):
+            context_parts.extend(content)
+        elif content:
+            context_parts.append(content)
+
+        formatted_history = []
+        if history:
+            first_user_msg = True
+            for msg in history:
+                if not msg.get("content"):
+                    continue
+                role = "user" if msg.get("role") == "user" else "model"
+                parts = [msg.get("content")]
+                if role == "user" and first_user_msg:
+                    parts = context_parts + parts
+                    first_user_msg = False
+                formatted_history.append({"role": role, "parts": parts})
+            chat_session = model.start_chat(history=formatted_history)
+            response = chat_session.send_message(user_message, stream=True, safety_settings=SAFETY_SETTINGS)
+        else:
+            message_parts = context_parts + [user_message]
+            chat_session = model.start_chat(history=[])
+            response = chat_session.send_message(message_parts, stream=True, safety_settings=SAFETY_SETTINGS)
+
+        for chunk in response:
+            text = getattr(chunk, "text", None)
+            if text:
+                yield {"type": "chunk", "text": text}
+
+        yield {
+            "type": "done",
+            "usage": AIService._extract_usage(response),
+            "used_model": str(getattr(model, "model_name", "") or ""),
+        }
+
+    @staticmethod
     def chat(content: List[Any], user_message: str, history: List[Dict[str, str]], model_preference: str = None, active_file: dict = None, return_meta: bool = False) -> Any:
         """Handles a conversational chat with the AI, given the folder content context and optionally the currently active file."""
         try:

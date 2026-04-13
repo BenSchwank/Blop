@@ -13,6 +13,7 @@ import { registerAiJobAbort, unregisterAiJobAbort, isAbortError } from "@/lib/ai
 import { OVERLAY_FOLDER_KI_PANEL } from "@/constants/overlayLayout";
 import FloatingChat from "@/components/FloatingChat";
 import { motion, AnimatePresence } from 'framer-motion';
+import { marked } from 'marked';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
 
 interface FileData {
@@ -2477,21 +2478,47 @@ export default function FolderPage() {
     };
 
     const applyPatchToContent = (baseContent: string, patch: DocumentPatch): string => {
+        // The document is stored as HTML (Tiptap). Convert the AI's markdown new_text to HTML.
+        const isBaseHtml = /<p>|<h[1-6]>|<ul>|<ol>|<blockquote>/i.test(baseContent);
+        const newHtml = isBaseHtml
+            ? (marked.parse(patch.new_text.trim(), { async: false }) as string).trim()
+            : patch.new_text.trim();
+
         if (patch.apply_mode === 'append') {
-            return `${baseContent.trimEnd()}\n\n${patch.new_text.trim()}\n`;
+            return `${baseContent.trimEnd()}\n${newHtml}\n`;
         }
+
         const hint = (patch.section_hint || '').trim();
-        if (!hint) {
-            return `${baseContent.trimEnd()}\n\n${patch.new_text.trim()}\n`;
+        if (!hint || !isBaseHtml) {
+            return `${baseContent.trimEnd()}\n${newHtml}\n`;
         }
-        const escapedHint = hint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const sectionRegex = new RegExp(`(${escapedHint}[\\s\\S]*?)(\\n##\\s|\\n#\\s|$)`, 'm');
-        const match = baseContent.match(sectionRegex);
-        if (!match) {
-            return `${baseContent.trimEnd()}\n\n${patch.new_text.trim()}\n`;
+
+        // Strip markdown heading markers (## Titel → Titel) to search in HTML
+        const plainHint = hint.replace(/^#+\s*/, '').trim();
+        const escapedHint = plainHint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        // Find an HTML heading element containing this text
+        const headingRegex = new RegExp(`<h([1-6])[^>]*>[^<]*${escapedHint}[^<]*</h\\1>`, 'i');
+        const headingMatch = baseContent.match(headingRegex);
+
+        if (!headingMatch || headingMatch.index === undefined) {
+            // Fallback: append
+            return `${baseContent.trimEnd()}\n${newHtml}\n`;
         }
-        const replacement = `${hint}\n\n${patch.new_text.trim()}\n\n`;
-        return baseContent.replace(sectionRegex, `${replacement}$2`);
+
+        const headingEnd = headingMatch.index + headingMatch[0].length;
+        const afterHeading = baseContent.slice(headingEnd);
+
+        // Find where the next heading starts (same or higher level = replace this section's content)
+        const nextHeadingMatch = afterHeading.match(/<h[1-6][^>]*>/i);
+        if (!nextHeadingMatch || nextHeadingMatch.index === undefined) {
+            // No next heading — replace everything after this heading
+            return `${baseContent.slice(0, headingEnd)}\n${newHtml}\n`;
+        }
+
+        const before = baseContent.slice(0, headingEnd);
+        const after = afterHeading.slice(nextHeadingMatch.index);
+        return `${before}\n${newHtml}\n${after}`;
     };
 
     const handleApplyChatPatch = async (patch: DocumentPatch) => {

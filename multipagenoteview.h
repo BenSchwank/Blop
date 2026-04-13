@@ -192,7 +192,7 @@ private:
     void abandonGraphEntrySession();
     void openGraphEntryBarForGraph(GraphCanvasItem* gi, bool fromPlus = false);
     void openGraphFormulaZone(GraphCanvasItem* gi);
-    void captureStrokesInFormulaZones();
+
     void syncGraphPlusLayout(GraphCanvasItem* gi);
     void bindGraphChrome(GraphCanvasItem* gi);
     /// After scene_.clear(): drop dangling graph pointers, hide overlays (no graph item access).

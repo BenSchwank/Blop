@@ -14,6 +14,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QBuffer>
+#include <QDebug>
 #include <cmath>
 
 // ============================================================================
@@ -32,7 +33,7 @@ GraphFormulaZone::GraphFormulaZone(int slotIndex, GraphCanvasItem *parentGraph)
     // Position relative to parent graph: right side, stacked vertically
     const QRectF gr = parentGraph->boundingRect();
     const qreal x = parentGraph->data().rect.width() + kMarginRight;
-    const qreal y = 8.0 + static_cast<qreal>(slotIndex) * kSlotHeight;
+    const qreal y = 8.0 + static_cast<qreal>(slotIndex) * kMinHeight;
     setPos(x, y);
 
     // Timers
@@ -46,10 +47,44 @@ GraphFormulaZone::GraphFormulaZone(int slotIndex, GraphCanvasItem *parentGraph)
 // ============================================================================
 // Geometry
 // ============================================================================
+// Helper to resize around strokes
+void GraphFormulaZone::updateSize()
+{
+    qreal newW = kMinWidth;
+    qreal newH = kMinHeight;
+    qreal minY = 0.0;
+    qreal maxY = 0.0;
+
+    if (!m_strokes.isEmpty()) {
+        QRectF bb;
+        for (const auto &s : m_strokes)
+            bb = bb.united(s.path.boundingRect());
+            
+        newW = qMax(newW, bb.right() + 45.0);
+        minY = bb.top();
+        maxY = bb.bottom();
+    }
+
+    if (minY < -10.0 || maxY > kMinHeight + 10.0) {
+        qreal topPadding = qMax(0.0, -minY + 20.0);
+        qreal bottomPadding = qMax(0.0, maxY - kMinHeight + 20.0);
+        newH = kMinHeight + topPadding + bottomPadding;
+        m_baselineY = 36.0 + topPadding;
+    } else {
+        m_baselineY = 36.0;
+        newH = kMinHeight;
+    }
+
+    if (newW != m_currentWidth || newH != m_currentHeight) {
+        prepareGeometryChange();
+        m_currentWidth = newW;
+        m_currentHeight = newH;
+    }
+}
 
 QRectF GraphFormulaZone::boundingRect() const
 {
-    return QRectF(0, 0, m_currentWidth, kSlotHeight);
+    return QRectF(0, 0, m_currentWidth, m_currentHeight);
 }
 
 QRectF GraphFormulaZone::catchAreaSceneRect() const
@@ -78,7 +113,15 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
     // ── Solid writing baseline ───────────────────────────────────────
     {
         p->setPen(QPen(QColor(40, 40, 45, 200), 2.0, Qt::SolidLine, Qt::RoundCap));
-        p->drawLine(QPointF(4, kBaselineY), QPointF(m_currentWidth - 4, kBaselineY));
+        p->drawLine(QPointF(4, m_baselineY), QPointF(m_currentWidth - 4, m_baselineY));
+    }
+
+    // ── Draw captured strokes (they live in local coords, move with graph) ──
+    for (const auto &s : m_strokes) {
+        QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p->setPen(pen);
+        p->setBrush(Qt::NoBrush);
+        p->drawPath(s.path);
     }
 
     // ── Recognized expression text (below the line) ──────────────────
@@ -92,7 +135,7 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
             ? QColor(124, 92, 252, 210)   // purple during preview
             : QColor(100, 100, 110, 160); // gray when committed
         p->setPen(textColor);
-        p->drawText(QRectF(4, kBaselineY + 3, m_currentWidth - 24, 14),
+        p->drawText(QRectF(4, m_baselineY + 3, m_currentWidth - 24, 14),
                     Qt::AlignLeft | Qt::AlignTop,
                     m_recognizedExpr);
     }
@@ -102,7 +145,7 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
         const qreal margin = 6.0;
         const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
         const qreal bxCommit = bxClear - kCommitBtnSize - margin;
-        const qreal byCommit = kBaselineY - 2; 
+        const qreal byCommit = m_baselineY - 2; 
         const QRectF commitBtn(bxCommit, byCommit, kCommitBtnSize, kCommitBtnSize);
         
         p->setPen(Qt::NoPen);
@@ -118,7 +161,7 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
     // ── Round clear button ───────────────────────────────────────────
     if (hasStrokes() || !m_recognizedExpr.isEmpty()) {
         const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
-        const qreal byClear = kBaselineY + 2; // Positioned below the line on the right
+        const qreal byClear = m_baselineY + 2;
         const QRectF btn(bxClear, byClear, kClearBtnSize, kClearBtnSize);
         p->setPen(Qt::NoPen);
         p->setBrush(QColor(180, 180, 190, 80));
@@ -142,7 +185,7 @@ bool GraphFormulaZone::hitClearButton(const QPointF &scenePos) const
     if (!hasStrokes() && m_recognizedExpr.isEmpty())
         return false;
     const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
-    const qreal byClear = kBaselineY + 2;
+    const qreal byClear = m_baselineY + 2;
     const QRectF btn(bxClear, byClear, kClearBtnSize, kClearBtnSize);
     return mapRectToScene(btn.adjusted(-5, -5, 5, 5)).contains(scenePos);
 }
@@ -154,7 +197,7 @@ bool GraphFormulaZone::hitCommitButton(const QPointF &scenePos) const
     const qreal margin = 6.0;
     const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
     const qreal bxCommit = bxClear - kCommitBtnSize - margin;
-    const qreal byCommit = kBaselineY - 2; 
+    const qreal byCommit = m_baselineY - 2; 
     const QRectF commitBtn(bxCommit, byCommit, kCommitBtnSize, kCommitBtnSize);
     return mapRectToScene(commitBtn.adjusted(-5, -5, 5, 5)).contains(scenePos);
 }
@@ -180,15 +223,7 @@ bool GraphFormulaZone::addStroke(const QPainterPath &path, const QColor &color, 
 
     m_strokes.append({localPath, color, width});
 
-    // Update width
-    qreal newW = kSlotWidth;
-    for (const auto &s : m_strokes) {
-        newW = qMax(newW, s.path.boundingRect().right() + 40.0);
-    }
-    if (newW > m_currentWidth) {
-        prepareGeometryChange();
-        m_currentWidth = newW;
-    }
+    updateSize();
 
     m_previewActive = false;
 
@@ -205,6 +240,8 @@ void GraphFormulaZone::removeStroke(const QPainterPath &path)
             break;
         }
     }
+
+    updateSize();
 
     if (m_strokes.isEmpty()) {
         cancelTimers();
@@ -247,15 +284,7 @@ void GraphFormulaZone::eraseStrokesIntersecting(const QPainterPath &eraserPath, 
     }
 
     if (removedAny) {
-        // Recompute width
-        qreal newW = kSlotWidth;
-        for (const auto &s : m_strokes) {
-            newW = qMax(newW, s.path.boundingRect().right() + 40.0);
-        }
-        if (std::abs(newW - m_currentWidth) > 1.0) {
-            prepareGeometryChange();
-            m_currentWidth = newW;
-        }
+        updateSize();
 
         if (m_strokes.isEmpty()) {
             cancelTimers();
@@ -283,11 +312,7 @@ void GraphFormulaZone::clearZone()
     m_recognizedExpr.clear();
     m_previewActive = false;
     cancelTimers();
-
-    if (m_currentWidth > kSlotWidth) {
-        prepareGeometryChange();
-        m_currentWidth = kSlotWidth;
-    }
+    updateSize();
 
     if (m_pendingReply) {
         QNetworkReply* rep = m_pendingReply;
@@ -319,15 +344,20 @@ void GraphFormulaZone::onRecognizeTimer()
     if (m_strokes.isEmpty())
         return;
 
+    qDebug() << "[GraphFormulaZone] onRecognizeTimer: strokes=" << m_strokes.size();
+
     const QImage img = renderStrokesToImage();
-    if (img.isNull())
+    if (img.isNull()) {
+        qDebug() << "[GraphFormulaZone] renderStrokesToImage returned null";
         return;
+    }
 
     // ── Phase 1: Offline (ONNX) ──────────────────────────────────────
 #ifdef BLOP_HAS_ONNX_OCR
     if (MathInkRecognizer::instance().isAvailable()) {
         const QString expr = MathInkRecognizer::instance().recognize(img);
         if (!expr.isEmpty()) {
+            qDebug() << "[GraphFormulaZone] ONNX recognized:" << expr;
             m_recognizedExpr = expr;
             m_previewActive = true;
             update();
@@ -338,6 +368,7 @@ void GraphFormulaZone::onRecognizeTimer()
 #endif
 
     // ── Phase 2: Backend fallback ────────────────────────────────────
+    qDebug() << "[GraphFormulaZone] Sending to backend for recognition...";
     startBackendRecognition(img);
 }
 
@@ -394,6 +425,8 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
     if (endpoint.isEmpty())
         return;
 
+    qDebug() << "[GraphFormulaZone] Backend endpoint:" << endpoint;
+
     if (m_pendingReply) {
         QNetworkReply* rep = m_pendingReply;
         m_pendingReply = nullptr;
@@ -413,7 +446,7 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
     payload.insert(QStringLiteral("ink_png_base64"),
                    QString::fromLatin1(pngBytes.toBase64()));
 
-    // Also send strokes as coordinate arrays
+    // Send strokes as coordinate arrays
     QJsonArray strokesArr;
     for (const auto &s : m_strokes) {
         QJsonArray pts;
@@ -424,6 +457,29 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
         strokesArr.append(pts);
     }
     payload.insert(QStringLiteral("strokes"), strokesArr);
+
+    // Also send normalized strokes (0..1000 range) for better recognition
+    QRectF bb;
+    for (const auto &s : m_strokes)
+        bb = bb.united(s.path.boundingRect());
+    if (!bb.isEmpty()) {
+        const qreal scaleX = 1000.0 / qMax(1.0, bb.width());
+        const qreal scaleY = 1000.0 / qMax(1.0, bb.height());
+        const qreal scale = qMin(scaleX, scaleY);
+        QJsonArray normArr;
+        for (const auto &s : m_strokes) {
+            QJsonArray pts;
+            for (int i = 0; i < s.path.elementCount(); ++i) {
+                const auto e = s.path.elementAt(i);
+                pts.append(QJsonArray{
+                    (e.x - bb.left()) * scale,
+                    (e.y - bb.top()) * scale
+                });
+            }
+            normArr.append(pts);
+        }
+        payload.insert(QStringLiteral("strokes_normalized"), normArr);
+    }
 
     QNetworkRequest req{QUrl(endpoint)};
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
@@ -437,9 +493,11 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
 
         const auto err = rep->error();
         if (err != QNetworkReply::NoError) {
+            qDebug() << "[GraphFormulaZone] Backend error:" << rep->errorString();
             rep->deleteLater();
             QString fb = recognizeLocalCandidates();
             if (!fb.isEmpty()) {
+                qDebug() << "[GraphFormulaZone] Using local fallback:" << fb;
                 m_recognizedExpr = fb;
                 m_previewActive = true;
                 update();
@@ -453,8 +511,10 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
 
         const QJsonObject obj = QJsonDocument::fromJson(body).object();
         QString expr = obj.value(QStringLiteral("expression")).toString().trimmed();
+        qDebug() << "[GraphFormulaZone] Backend recognized:" << expr;
         if (expr.isEmpty()) {
             expr = recognizeLocalCandidates();
+            qDebug() << "[GraphFormulaZone] Backend returned empty, local fallback:" << expr;
         }
         if (expr.isEmpty())
             return;
