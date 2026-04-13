@@ -39,6 +39,21 @@ class DataManager:
             return None
 
     @staticmethod
+    def _sanitize_filename(filename: str) -> str:
+        """Replace special characters in filenames so Supabase Storage accepts the key."""
+        import re as _re
+        unicode_map = {
+            'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
+            'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
+            'ß': 'ss',
+        }
+        for char, repl in unicode_map.items():
+            filename = filename.replace(char, repl)
+        filename = filename.replace(' ', '_')
+        filename = _re.sub(r'[^\w.\-]', '', filename)
+        return filename
+
+    @staticmethod
     def _normalize_bucket_object_path(path: str, bucket_id: str) -> str:
         p = (path or "").strip().lstrip("/")
         prefix = f"{bucket_id}/"
@@ -390,8 +405,9 @@ class DataManager:
     def save_pdf(file_data, filename, username, folder_id):
         db = DataManager._init_supabase()
         if not db: raise Exception("Supabase DB nicht initialisiert")
-        
-        path = f"{username}/{folder_id}/{filename}"
+
+        safe_filename = DataManager._sanitize_filename(filename)
+        path = f"{username}/{folder_id}/{safe_filename}"
         res = db.storage.from_("blop_documents").upload(path, file_data, {"upsert": "true", "content-type": "application/pdf"})
         
         file_id = f"pdf_{int(datetime.now().timestamp())}"
@@ -507,8 +523,9 @@ class DataManager:
     def save_audio(file_data, filename, username, folder_id):
         db = DataManager._init_supabase()
         if not db: raise Exception("Supabase DB nicht initialisiert")
-        
-        path = f"{username}/{folder_id}/audio/{filename}"
+
+        safe_filename = DataManager._sanitize_filename(filename)
+        path = f"{username}/{folder_id}/audio/{safe_filename}"
         db.storage.from_("blop_documents").upload(path, file_data, {"upsert": "true", "content-type": "audio/mpeg"})
         
         file_id = f"audio_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
@@ -526,7 +543,8 @@ class DataManager:
         db = DataManager._init_supabase()
         if not db:
             raise Exception("Supabase DB nicht initialisiert")
-        path = f"{username}/{folder_id}/video/{filename}"
+        safe_filename = DataManager._sanitize_filename(filename)
+        path = f"{username}/{folder_id}/video/{safe_filename}"
         try:
             db.storage.from_("blop_documents").upload(
                 path, file_data, {"upsert": "true", "content-type": "video/mp4"}

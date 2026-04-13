@@ -84,6 +84,7 @@ private slots:
 private:
     void scheduleRecognition();
     void cancelTimers();
+    void updateSize();
     QImage renderStrokesToImage() const;
     void startBackendRecognition(const QImage &img);
     QString recognizeLocalCandidates() const;
@@ -108,11 +109,13 @@ private:
     QNetworkReply *m_pendingReply{nullptr};
 
     // ── Layout constants & state ─────────────────────────────────────
-    qreal m_currentWidth{180.0};
-    static constexpr qreal kSlotHeight   = 44.0;
-    static constexpr qreal kSlotWidth    = 180.0;
+    qreal m_currentWidth{200.0};
+    qreal m_currentHeight{60.0};
+    qreal m_baselineY{36.0};
+
+    static constexpr qreal kMinHeight    = 60.0;
+    static constexpr qreal kMinWidth     = 200.0;
     static constexpr qreal kMarginRight  = 14.0;   // gap between graph edge and zone
     static constexpr qreal kClearBtnSize = 18.0;
     static constexpr qreal kCommitBtnSize = 22.0;
-    static constexpr qreal kBaselineY    = 28.0;    // y within slot for the solid line
 };

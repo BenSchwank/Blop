@@ -180,6 +180,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
     const [selectionRect, setSelectionRect] = useState<{ x: number; y: number } | null>(null);
     const [selectionInstruction, setSelectionInstruction] = useState('');
     const [selectionBusy, setSelectionBusy] = useState(false);
+    const [selectionError, setSelectionError] = useState('');
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const selectionPopupRef = useRef<HTMLDivElement | null>(null);
     const selectionRangeRef = useRef<{ from: number; to: number } | null>(null);
@@ -292,6 +293,12 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             }
             const range = sel.getRangeAt(0);
             if (!editor.view.dom.contains(range.commonAncestorContainer)) {
+                // Don't dismiss if the user has focus inside the selection popup (e.g. typing instruction)
+                const focusedInsidePopup =
+                    !!selectionPopupRef.current &&
+                    !!document.activeElement &&
+                    selectionPopupRef.current.contains(document.activeElement);
+                if (focusedInsidePopup || selectionBusy) return;
                 if (selectionSigRef.current !== '') {
                     selectionSigRef.current = '';
                     setSelectionRect(null);
@@ -363,6 +370,7 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
         if (!editor || !selectionText.trim() || !selectionInstruction.trim() || selectionBusy) return;
         try {
             setSelectionBusy(true);
+            setSelectionError('');
             const user = username || (typeof window !== 'undefined' ? localStorage.getItem('username') || '' : '');
             if (!user) throw new Error('Kein Benutzer gefunden.');
             const savedRange = selectionRangeRef.current;
@@ -396,7 +404,10 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
             setSelectionInstruction('');
             setSelectionRect(null);
             setSelectionText('');
+            setSelectionError('');
             selectionRangeRef.current = null;
+        } catch (err: any) {
+            setSelectionError(err?.message || 'Fehler bei der KI-Bearbeitung.');
         } finally {
             setSelectionBusy(false);
         }
@@ -537,12 +548,16 @@ export default function RichTextEditor({ initialContent, title, onSave, onClose,
                         placeholder="z. B. kürzer, einfacher, professioneller formulieren ..."
                         className="w-full bg-[#0B0B1A] border border-[#2A2A40] text-gray-200 rounded-lg px-3 py-2 text-xs min-h-[68px] focus:outline-none focus:ring-2 focus:ring-[#5E5CE6]/40"
                     />
+                    {selectionError && (
+                        <p className="mt-2 text-xs text-red-400">{selectionError}</p>
+                    )}
                     <div className="mt-2 flex gap-2">
                         <button
                             type="button"
                             onClick={() => {
                                 setSelectionRect(null);
                                 setSelectionText('');
+                                setSelectionError('');
                                 selectionRangeRef.current = null;
                             }}
                             className="flex-1 py-1.5 rounded-lg text-xs bg-[#1C1C33] hover:bg-[#2A2A40] text-gray-300"
