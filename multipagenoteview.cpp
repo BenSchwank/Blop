@@ -253,6 +253,36 @@ private:
   int m_index;
 };
 
+/// Undo/redo a single stroke added to a GraphFormulaZone.
+class FormulaZoneStrokeCommand : public QUndoCommand {
+public:
+    FormulaZoneStrokeCommand(QPointer<GraphFormulaZone> zone,
+                             const QPainterPath &path,
+                             const QColor &color, qreal width)
+        : QUndoCommand(), m_zone(zone), m_path(path),
+          m_color(color), m_width(width) {}
+
+    void undo() override {
+        if (m_zone)
+            m_zone->removeStroke(m_path);
+    }
+
+    void redo() override {
+        // Skip the very first redo: the stroke was already added before we
+        // pushed this command.  Only re-add on subsequent redo calls.
+        if (m_firstRedo) { m_firstRedo = false; return; }
+        if (m_zone)
+            m_zone->addStroke(m_path, m_color, m_width);
+    }
+
+private:
+    QPointer<GraphFormulaZone> m_zone;
+    QPainterPath m_path;
+    QColor       m_color;
+    qreal        m_width;
+    bool         m_firstRedo{true};
+};
+
 class NoteSelectionMenu : public QWidget {
   Q_OBJECT
 public:
@@ -2478,6 +2508,23 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
       auto *strokeItem = static_cast<StrokeItem *>(item);
       auto points = strokeItem->points();
       if (!points.isEmpty()) {
+        // ── Formula-zone eraser: must happen BEFORE the pageAt() check ──────
+        // The formula zone is positioned outside the page boundary, so when
+        // the eraser starts there pageAt() returns -1 and the inner zone check
+        // is never reached.  We handle it here unconditionally.
+        if (m_activeFormulaZone && strokeItem->strokeStyle() == StrokeItem::Eraser) {
+          QPainterPath zoneEraserPath;
+          for (int i = 0; i < points.size(); ++i) {
+            if (i == 0) zoneEraserPath.moveTo(points[i].pos);
+            else        zoneEraserPath.lineTo(points[i].pos);
+          }
+          if (m_activeFormulaZone->catchAreaSceneRect()
+                  .intersects(zoneEraserPath.boundingRect())) {
+            m_activeFormulaZone->eraseStrokesIntersecting(
+                zoneEraserPath, strokeItem->pen().widthF());
+          }
+        }
+
         int pIdx = pageAt(points.first().pos);
         if (pIdx >= 0 && note_) {
           note_->ensurePage(pIdx);
@@ -2508,16 +2555,18 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
           s.path = localPath;
 
           bool capturedByZone = false;
-          if (m_activeFormulaZone) {
-            const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
-            if (s.isEraser) {
-              if (zoneScene.intersects(scenePath.boundingRect())) {
-                m_activeFormulaZone->eraseStrokesIntersecting(scenePath, s.width);
-              }
-            } else if (!s.isHighlighter) {
+          if (m_activeFormulaZone && !s.isEraser) {
+            // Eraser is already handled above; only capture ink/highlighter here.
+            if (!s.isHighlighter) {
+              const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
               if (zoneScene.intersects(scenePath.boundingRect())) {
                 if (m_activeFormulaZone->addStroke(scenePath, s.color, s.width)) {
                   capturedByZone = true;
+                  // Push to undo stack so Ctrl+Z removes the formula zone stroke
+                  if (m_undoStack) {
+                    m_undoStack->push(new FormulaZoneStrokeCommand(
+                        m_activeFormulaZone, scenePath, s.color, s.width));
+                  }
                 }
               }
             }
