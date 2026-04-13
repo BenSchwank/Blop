@@ -16,14 +16,29 @@ repositories {
 }
 
 // --- FIX: Provide fallback properties if gradle.properties is missing, stopping IDE sync crashes ---
+// androiddeployqt can set androidCompileSdkVersion to a CMake platform string (e.g. android-34-ext12);
+// compileSdk must be an int — extract API level from that form or parse plain integer.
+def parseAndroidSdkInt = { String key, int fallback ->
+    def raw = project.findProperty(key)
+    if (raw == null || raw.toString().trim().isEmpty()) return fallback
+    def s = raw.toString().trim()
+    def m = (s =~ /android-(\d+)/)
+    if (m.find()) return m.group(1).toInteger()
+    try {
+        return s.toInteger()
+    } catch (NumberFormatException ignored) {
+        return fallback
+    }
+}
+
 def localQtGradlePluginType = project.findProperty('qtGradlePluginType') ?: 'com.android.application'
 def localAndroidPackageName = project.findProperty('androidPackageName') ?: 'com.benschwank.blop'
-def localAndroidCompileSdkVersion = project.findProperty('androidCompileSdkVersion') ? project.findProperty('androidCompileSdkVersion').toInteger() : 34
+def localAndroidCompileSdkVersion = parseAndroidSdkInt('androidCompileSdkVersion', 34)
 def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '34.0.0'
 def localAndroidNdkVersion = project.findProperty('androidNdkVersion') ?: '25.1.8937393'
 def localQtAndroidDir = project.findProperty('qtAndroidDir') ?: '.'
-def localQtMinSdkVersion = project.findProperty('qtMinSdkVersion') ? project.findProperty('qtMinSdkVersion').toInteger() : 23
-def localQtTargetSdkVersion = project.findProperty('qtTargetSdkVersion') ? project.findProperty('qtTargetSdkVersion').toInteger() : 34
+def localQtMinSdkVersion = parseAndroidSdkInt('qtMinSdkVersion', 23)
+def localQtTargetSdkVersion = parseAndroidSdkInt('qtTargetSdkVersion', 34)
 def localQtTargetAbiList = project.findProperty('qtTargetAbiList') ?: 'arm64-v8a,armeabi-v7a,x86,x86_64'
 // --------------------------------------------------------------------------------------------------
 
