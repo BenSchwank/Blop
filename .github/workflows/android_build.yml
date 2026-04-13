@@ -131,7 +131,7 @@ jobs:
           cp "$apk" release-staging/Blop-signed.apk
           aab=$(find build/android-build -name 'android-build-release-signed.aab' -print -quit)
           if [[ -z "$aab" ]]; then echo 'android-build-release-signed.aab not found under build/android-build'; exit 1; fi
-          cp "$aab" release-staging/Blop-play.aab
+          cp "$aab" release-staging/com.benschwank.blop.aab
           ls -la release-staging/
 
       - name: Release to Public Repo
@@ -140,6 +140,6 @@ jobs:
         with:
           files: |
             release-staging/Blop-signed.apk
-            release-staging/Blop-play.aab
+            release-staging/com.benschwank.blop.aab
           repository: BenSchwank/Blop-releases
           token: ${{ secrets.RELEASE_TOKEN }}
