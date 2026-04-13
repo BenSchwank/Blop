@@ -355,7 +355,8 @@ void GraphFormulaZone::onRecognizeTimer()
     // ── Phase 1: Offline (ONNX) ──────────────────────────────────────
 #ifdef BLOP_HAS_ONNX_OCR
     if (MathInkRecognizer::instance().isAvailable()) {
-        const QString expr = MathInkRecognizer::instance().recognize(img);
+        const QString raw  = MathInkRecognizer::instance().recognize(img);
+        const QString expr = LatexToBlopConverter::stripFunctionPrefix(raw);
         if (!expr.isEmpty()) {
             qDebug() << "[GraphFormulaZone] ONNX recognized:" << expr;
             m_recognizedExpr = expr;
@@ -514,7 +515,8 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
         rep->deleteLater();
 
         const QJsonObject obj = QJsonDocument::fromJson(body).object();
-        QString expr = obj.value(QStringLiteral("expression")).toString().trimmed();
+        QString expr = LatexToBlopConverter::stripFunctionPrefix(
+            obj.value(QStringLiteral("expression")).toString().trimmed());
         qDebug() << "[GraphFormulaZone] Backend recognized:" << expr;
         if (expr.isEmpty()) {
             expr = recognizeLocalCandidates();
@@ -530,113 +532,241 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
     });
 }
 
+// ── Helpers for stroke-level structural analysis ────────────────────────
+
+namespace {
+
+/// Average curvature of a single stroke (degrees per sample point).
+qreal strokeCurvature(const QPainterPath &p)
+{
+    qreal sum = 0.0;
+    int   cnt = 0;
+    const int n = p.elementCount();
+    for (int i = 1; i < n - 1; ++i) {
+        const QPointF a(p.elementAt(i-1).x, p.elementAt(i-1).y);
+        const QPointF b(p.elementAt(i  ).x, p.elementAt(i  ).y);
+        const QPointF c(p.elementAt(i+1).x, p.elementAt(i+1).y);
+        const QLineF ab(a, b), bc(b, c);
+        if (ab.length() < 0.5 || bc.length() < 0.5) continue;
+        qreal ang = std::abs(ab.angleTo(bc));
+        if (ang > 180.0) ang = 360.0 - ang;
+        sum += ang;
+        ++cnt;
+    }
+    return cnt > 0 ? sum / cnt : 0.0;
+}
+
+/// True when a stroke looks "roughly horizontal" — low height, low curvature.
+bool isHorizontalStroke(const QPainterPath &p, qreal maxAR = 0.35)
+{
+    const QRectF r = p.boundingRect();
+    if (r.width() < 3.0) return false;
+    return (r.height() / r.width()) < maxAR && strokeCurvature(p) < 4.0;
+}
+
+} // anonymous namespace
+
+// ──────────────────────────────────────────────────────────────────────────
+
 QString GraphFormulaZone::recognizeLocalCandidates() const
 {
     if (m_strokes.isEmpty())
         return {};
 
-    // ── Bounding box ────────────────────────────────────────────────
+    // ── Full bounding box ───────────────────────────────────────────
     QRectF bb;
     for (const auto &s : m_strokes)
         bb = bb.united(s.path.boundingRect());
     if (bb.isEmpty())
         return {};
 
-    const qreal w     = bb.width();
-    const qreal h     = bb.height();
-    const qreal ratio = (h <= 1.0) ? 10.0 : (w / h); // width / height
+    const qreal fullH = bb.height();
+    const qreal fullW = bb.width();
 
-    // ── Arc length and average curvature ────────────────────────────
-    qreal totalCurv = 0.0;
-    int   curvCount = 0;
+    // ══════════════════════════════════════════════════════════════════
+    //  STEP 1 — Detect the "=" sign
+    //  Two short, roughly horizontal strokes that are vertically
+    //  stacked and horizontally overlapping.
+    // ══════════════════════════════════════════════════════════════════
+    qreal equalsRightEdge = -1e9;
 
-    for (const auto &s : m_strokes) {
-        const int n = s.path.elementCount();
-        for (int i = 1; i < n - 1; ++i) {
-            const QPointF a(s.path.elementAt(i-1).x, s.path.elementAt(i-1).y);
-            const QPointF b(s.path.elementAt(i  ).x, s.path.elementAt(i  ).y);
-            const QPointF c(s.path.elementAt(i+1).x, s.path.elementAt(i+1).y);
-            const QLineF  ab(a, b), bc(b, c);
-            if (ab.length() < 0.5 || bc.length() < 0.5) continue;
-            qreal ang = std::abs(ab.angleTo(bc));
-            if (ang > 180.0) ang = 360.0 - ang;
-            totalCurv += ang;
-            ++curvCount;
+    for (int i = 0; i < m_strokes.size(); ++i) {
+        const QRectF r1 = m_strokes[i].path.boundingRect();
+        if (!isHorizontalStroke(m_strokes[i].path)) continue;
+        if (r1.width() > fullW * 0.35) continue; // "=" bars aren't very wide
+
+        for (int j = i + 1; j < m_strokes.size(); ++j) {
+            const QRectF r2 = m_strokes[j].path.boundingRect();
+            if (!isHorizontalStroke(m_strokes[j].path)) continue;
+            if (r2.width() > fullW * 0.35) continue;
+
+            // Horizontally overlapping?
+            const qreal overlap = qMin(r1.right(), r2.right())
+                                - qMax(r1.left(),  r2.left());
+            if (overlap < qMin(r1.width(), r2.width()) * 0.4) continue;
+
+            // Vertically close but not the same line
+            const qreal vGap = std::abs(r1.center().y() - r2.center().y());
+            if (vGap < 3.0 || vGap > fullH * 0.45) continue;
+
+            // Widths reasonably similar
+            const qreal wRatio = qMin(r1.width(), r2.width())
+                               / qMax(r1.width(), r2.width());
+            if (wRatio < 0.4) continue;
+
+            // This pair looks like "=".
+            equalsRightEdge = qMax(r1.right(), r2.right());
+            break;
+        }
+        if (equalsRightEdge > -1e8) break;
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  STEP 2 — Collect only the EXPRESSION strokes (after "=")
+    //  Everything before / including "=" is the prefix and is ignored.
+    // ══════════════════════════════════════════════════════════════════
+    QVector<const InkStroke*> expr;
+    QRectF eBB;
+
+    if (equalsRightEdge > -1e8) {
+        const qreal threshold = equalsRightEdge + 4.0;   // small gap
+        for (const auto &s : m_strokes) {
+            if (s.path.boundingRect().center().x() > threshold) {
+                expr.append(&s);
+                eBB = eBB.united(s.path.boundingRect());
+            }
         }
     }
-    const qreal avgCurv = (curvCount > 0) ? (totalCurv / curvCount) : 0.0;
 
-    // ── Superscript detection ────────────────────────────────────────
-    // When the user writes "f(x) = x^2", the exponent "2" sits in the
-    // upper third of the bounding box while the base strokes are in the
-    // lower two-thirds.  Detect this pattern to reliably recognise x^n
-    // regardless of how many helper characters (f, (, ), =) were written.
-    const qreal topThird  = bb.top()  + h / 3.0;
-    const qreal botThird  = bb.top()  + h * 2.0 / 3.0;
-    int superscriptStrokes = 0; // small strokes in the top third
-    int baselineStrokes    = 0; // strokes whose centre is in lower two-thirds
-
-    for (const auto &s : m_strokes) {
-        const QRectF sb   = s.path.boundingRect();
-        const qreal  cy   = sb.center().y();
-        const qreal  sh   = sb.height();
-        // A superscript stroke is small AND sits high up
-        if (cy < topThird && sh < h * 0.45)
-            ++superscriptStrokes;
-        if (cy > botThird * 0.6) // centre in lower portion
-            ++baselineStrokes;
+    // Fallback: if no "=" found, use all strokes as the expression
+    if (expr.isEmpty()) {
+        for (const auto &s : m_strokes) {
+            expr.append(&s);
+        }
+        eBB = bb;
     }
-    const bool likelySuperscript = (superscriptStrokes >= 1)
-                                && (baselineStrokes    >= 2)
-                                && (h > 25.0);
 
-    const int nStr = m_strokes.size();
+    if (expr.isEmpty())
+        return QStringLiteral("x");
 
-    // ── Rule-based classification ────────────────────────────────────
+    const qreal eH = eBB.height();
+    const qreal eW = eBB.width();
 
-    // Superscript pattern detected (e.g. "x^2", "f(x)=x^2", "x^3") → always x^n
-    if (likelySuperscript) {
-        // If there is a clear intercept hint (many base strokes) → x^2+1
-        if (baselineStrokes >= 5)
-            return QStringLiteral("x^2+1");
+    // ══════════════════════════════════════════════════════════════════
+    //  STEP 3 — Structural analysis of the EXPRESSION strokes
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── 3a. Superscript detection ────────────────────────────────────
+    //   A small stroke whose centre is in the top 40 % of the expression
+    //   bounding box AND whose height is < 50 % of expression height.
+    int superscriptCount = 0;
+    int baseCount        = 0;
+    const qreal supThreshold = eBB.top() + eH * 0.40;
+
+    for (const auto *s : expr) {
+        const QRectF sb = s->path.boundingRect();
+        const bool isSmall = sb.height() < eH * 0.50
+                          && sb.width()  < eW * 0.40;
+        if (isSmall && sb.center().y() < supThreshold) {
+            ++superscriptCount;
+        } else {
+            ++baseCount;
+        }
+    }
+
+    // ── 3b. Plus-sign detection ──────────────────────────────────────
+    //   Two short strokes that cross near their centres, one mostly
+    //   horizontal, one mostly vertical.
+    bool hasPlus = false;
+    for (int i = 0; i < expr.size() && !hasPlus; ++i) {
+        const QRectF ri = expr[i]->path.boundingRect();
+        if (ri.width() < 3.0 && ri.height() < 3.0) continue;
+        for (int j = i + 1; j < expr.size(); ++j) {
+            const QRectF rj = expr[j]->path.boundingRect();
+            if (!ri.intersects(rj)) continue;
+
+            // One wider than tall, the other taller than wide?
+            const bool iH = ri.width() > ri.height();
+            const bool jH = rj.width() > rj.height();
+            if (iH == jH) continue;   // both same orientation → not a +
+
+            // Both should be short relative to the expression
+            if (ri.width() > eW * 0.35 || rj.width() > eW * 0.35) continue;
+            if (ri.height() > eH * 0.55 || rj.height() > eH * 0.55) continue;
+
+            hasPlus = true;
+            break;
+        }
+    }
+
+    // ── 3c. Minus-sign detection ─────────────────────────────────────
+    //   A single short horizontal stroke in the middle-height band
+    //   that is NOT part of an "=" pair (already filtered).
+    bool hasMinus = false;
+    for (const auto *s : expr) {
+        if (!isHorizontalStroke(s->path, 0.30)) continue;
+        const QRectF sb = s->path.boundingRect();
+        if (sb.width() > eW * 0.35) continue; // too wide → probably a fraction line
+        const qreal cy = sb.center().y();
+        if (cy > eBB.top() + eH * 0.25 && cy < eBB.top() + eH * 0.75) {
+            hasMinus = true;
+            break;
+        }
+    }
+
+    // ── 3d. Fraction line detection ──────────────────────────────────
+    //   A long horizontal stroke spanning most of the expression width.
+    bool hasFraction = false;
+    for (const auto *s : expr) {
+        if (!isHorizontalStroke(s->path, 0.20)) continue;
+        if (s->path.boundingRect().width() > eW * 0.50) {
+            hasFraction = true;
+            break;
+        }
+    }
+
+    // ── 3e. Average curvature of expression strokes ──────────────────
+    qreal totalCurv = 0.0;
+    int   curvN     = 0;
+    for (const auto *s : expr) {
+        const qreal c = strokeCurvature(s->path);
+        if (c > 0.0) { totalCurv += c; ++curvN; }
+    }
+    const qreal avgCurv = curvN > 0 ? totalCurv / curvN : 0.0;
+
+    // ══════════════════════════════════════════════════════════════════
+    //  STEP 4 — Build the expression from detected features
+    // ══════════════════════════════════════════════════════════════════
+
+    // Fraction → 1/x
+    if (hasFraction && !superscriptCount) {
+        return QStringLiteral("1/x");
+    }
+
+    // Superscript → x^2 variant
+    if (superscriptCount >= 1) {
+        if (hasPlus)  return QStringLiteral("x^2+1");
+        if (hasMinus) return QStringLiteral("x^2-1");
         return QStringLiteral("x^2");
     }
 
-    // Single stroke
-    if (nStr == 1) {
-        if (avgCurv > 9.0 && ratio > 2.0)
-            return QStringLiteral("sin(x)");   // wide, wavy
-        if (avgCurv > 5.0)
-            return QStringLiteral("x^2");      // curved → parabola
-        if (avgCurv < 2.5 && ratio > 2.5)
-            return QStringLiteral("x");        // straight & wide → identity
-        return QStringLiteral("2*x");          // diagonal line
-    }
+    // High curvature + wide → sin/cos
+    if (avgCurv > 8.0 && eW / qMax(1.0, eH) > 1.5)
+        return QStringLiteral("sin(x)");
 
-    // Two strokes
-    if (nStr == 2) {
-        if (avgCurv > 7.0)
-            return QStringLiteral("x^2+1");
-        if (ratio > 1.5)
-            return QStringLiteral("x+1");
+    // Moderate curvature → x^2
+    if (avgCurv > 5.5)
         return QStringLiteral("x^2");
-    }
 
-    // Three strokes
-    if (nStr == 3) {
-        if (avgCurv > 6.0)
-            return QStringLiteral("x^2+1");
-        if (ratio > 2.0)
-            return QStringLiteral("2*x+1");
-        return QStringLiteral("x^2+1");
-    }
+    // Plus → x+1
+    if (hasPlus) return QStringLiteral("x+1");
 
-    // Four+ strokes without detected superscript
-    if (nStr >= 4) {
-        if (avgCurv > 5.0)
-            return QStringLiteral("x^2+1");
-        return QStringLiteral("x+1");
-    }
+    // Minus → x-1
+    if (hasMinus) return QStringLiteral("x-1");
 
-    return QStringLiteral("x");
+    // Very few strokes, low curvature → simple linear
+    if (baseCount <= 2 && avgCurv < 3.0)
+        return QStringLiteral("x");
+
+    return QStringLiteral("2*x");
 }

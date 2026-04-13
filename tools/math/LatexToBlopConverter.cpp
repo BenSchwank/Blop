@@ -19,6 +19,34 @@ QString LatexToBlopConverter::convert(const QString &latex)
     s = s.simplified();                       // collapse whitespace
     s.replace(QLatin1String(" "), QString());  // remove all spaces
 
+    // Strip function-definition prefixes: f(x)=, y=, g(x)= …
+    s = stripFunctionPrefix(s);
+
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// stripFunctionPrefix
+// ---------------------------------------------------------------------------
+
+QString LatexToBlopConverter::stripFunctionPrefix(const QString &expr)
+{
+    QString s = expr.trimmed();
+    if (s.isEmpty())
+        return s;
+
+    // f(x)=…, g(x)=…, h(x)=…, F(x)=…   (with optional spaces)
+    static const QRegularExpression reFnParen(
+        QStringLiteral(R"(^[a-zA-Z]\s*\(\s*[a-zA-Z]\s*\)\s*=\s*)"));
+    s.remove(reFnParen);
+
+    // y=…, Y=…   (single letter = )
+    // But NOT x=… because that could be a valid sub-expression start.
+    // Also avoid stripping the whole expression if it IS just "a=b" style.
+    static const QRegularExpression reLetterEq(
+        QStringLiteral(R"(^[yYfFgGhH]\s*=\s*)"));
+    s.remove(reLetterEq);
+
     return s;
 }
 
