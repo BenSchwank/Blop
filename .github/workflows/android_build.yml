@@ -21,14 +21,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 1. Instabile Android SDKs entfernen (Platz schaffen & Fehler vermeiden)
+      # 1. Nur wirklich instabile SDKs entfernen — API 35 wird für targetSdk/compileSdk benötigt (Play Console).
       - name: Remove unstable Android SDKs
         run: |
-          echo "Removing unstable Android SDKs..."
+          echo "Removing unstable Android SDKs (keep API 35)..."
           sudo rm -rf /usr/local/lib/android/sdk/platforms/android-36*
           sudo rm -rf /usr/local/lib/android/sdk/build-tools/36*
-          sudo rm -rf /usr/local/lib/android/sdk/platforms/android-35*
-          sudo rm -rf /usr/local/lib/android/sdk/build-tools/35*
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -118,7 +116,7 @@ jobs:
           keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
           keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          buildToolsVersion: 34.0.0
+          buildToolsVersion: 35.0.0
 
       # 4. Upload — nur ein APK + ein Play-Bundle, eindeutige Zielnamen (kein Duplikat-Asset auf GitHub).
       - name: Stage release artifacts
