@@ -220,7 +220,9 @@ if(ANDROID)
         message(WARNING "android_openssl not found at ${ANDROID_OPENSSL_ROOT}! TLS will not work. Clone from https://github.com/KDAB/android_openssl")
     endif()
 
+    # Ohne dieses Verzeichnis mischt androiddeployqt nur das Qt-Template ein → Paket bleibt org.qtproject.example.
     set_target_properties(Blop PROPERTIES
+        QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android"
         QT_ANDROID_PACKAGE_NAME "com.benschwank.blop"
         QT_ANDROID_COMPILE_SDK_VERSION "34"
         QT_ANDROID_TARGET_SDK_VERSION "34"
