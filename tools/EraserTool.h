@@ -6,6 +6,7 @@
 #include <QGraphicsItem>
 #include <QPainterPath>
 #include <QPainterPathStroker>
+#include <QPointer>
 
 class EraserTool : public AbstractStrokeTool {
     Q_OBJECT
@@ -62,76 +63,79 @@ private:
         QPainterPath eraserShape;
         eraserShape.addEllipse(pos, r, r);
 
+        // Items die komplett gelöscht werden sollen – NACH der Schleife löschen,
+        // nie während der Iteration (verhindert use-after-free / Absturz).
+        QList<QGraphicsItem*> toDelete;
+
         for (QGraphicsItem* item : items) {
             // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
             QGraphicsPathItem* pathItem = dynamic_cast<QGraphicsPathItem*>(item);
+            if (!pathItem) continue;
 
-            if (pathItem) {
-                // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht (führt zu Absturz!)
-                if (pathItem == m_currentItem) {
-                    continue;
+            // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht
+            if (m_currentItem && pathItem == m_currentItem) continue;
+
+            // Bereits zum Löschen vorgemerkt – überspringen
+            if (toDelete.contains(item)) continue;
+
+            // FEATURE: "Nur Textmarker löschen"
+            // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
+            if (m_config.eraserKeepInk && pathItem->zValue() >= 10) continue;
+
+            // --- MODUS 1: OBJEKT RADIERER (Ganzes Item weg) ---
+            if (m_config.eraserMode == EraserMode::Object) {
+                toDelete.append(item);
+            }
+
+            // --- MODUS 2: PIXEL RADIERER (Schneiden) ---
+            else {
+                QPainterPath currentPath = pathItem->path();
+
+                // FIX: "Linie wird zur Form"-Problem beheben
+                // Wenn das Item noch ein Strich ist (hat einen Pen), müssen wir es
+                // zuerst in eine Fläche (Outline) umwandeln.
+                if (pathItem->pen().style() != Qt::NoPen) {
+                    QPainterPathStroker stroker;
+                    stroker.setWidth(pathItem->pen().widthF());
+                    stroker.setCapStyle(pathItem->pen().capStyle());
+                    stroker.setJoinStyle(pathItem->pen().joinStyle());
+                    stroker.setMiterLimit(pathItem->pen().miterLimit());
+
+                    // Erstelle die Umriss-Form des Striches
+                    QPainterPath outline = stroker.createStroke(currentPath);
+
+                    // Jetzt subtrahieren wir den Radierer von der Fläche
+                    QPainterPath newPath = outline.subtracted(eraserShape);
+
+                    // Das Item ist jetzt eine Fläche, kein Strich mehr!
+                    pathItem->setPath(newPath);
+
+                    // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
+                    pathItem->setBrush(pathItem->pen().brush());
+                    pathItem->setPen(Qt::NoPen);
                 }
-
-                // FEATURE: "Nur Textmarker löschen"
-                // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
-                if (m_config.eraserKeepInk && pathItem->zValue() >= 10) {
-                    continue;
-                }
-
-                // --- MODUS 1: OBJEKT RADIERER (Ganzes Item weg) ---
-                if (m_config.eraserMode == EraserMode::Object) {
-                    scene->removeItem(item);
-                    delete item;
-                }
-
-                // --- MODUS 2: PIXEL RADIERER (Schneiden) ---
                 else {
-                    QPainterPath currentPath = pathItem->path();
+                    // Das Item ist bereits eine Fläche (wurde schonmal radiert)
+                    // Einfach weiter subtrahieren
+                    QPainterPath newPath = currentPath.subtracted(eraserShape);
+                    pathItem->setPath(newPath);
+                }
 
-                    // FIX: "Linie wird zur Form"-Problem beheben
-                    // Wenn das Item noch ein Strich ist (hat einen Pen), müssen wir es
-                    // zuerst in eine Fläche (Outline) umwandeln.
-                    if (pathItem->pen().style() != Qt::NoPen) {
-
-                        QPainterPathStroker stroker;
-                        stroker.setWidth(pathItem->pen().widthF());
-                        stroker.setCapStyle(pathItem->pen().capStyle());
-                        stroker.setJoinStyle(pathItem->pen().joinStyle());
-                        stroker.setMiterLimit(pathItem->pen().miterLimit());
-
-                        // Erstelle die Umriss-Form des Striches
-                        QPainterPath outline = stroker.createStroke(currentPath);
-
-                        // Jetzt subtrahieren wir den Radierer von der Fläche
-                        QPainterPath newPath = outline.subtracted(eraserShape);
-
-                        // Das Item ist jetzt eine Fläche, kein Strich mehr!
-                        pathItem->setPath(newPath);
-
-                        // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
-                        pathItem->setBrush(pathItem->pen().brush());
-                        pathItem->setPen(Qt::NoPen);
-                        
-                        // Wenn es ein Pressure-Stroke ist, Punkte löschen, damit er in den Fallback-Render geht
-                        StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
-                        if(strokeItem) {
-                            strokeItem->setPoints({});
-                        }
-                    }
-                    else {
-                        // Das Item ist bereits eine Fläche (wurde schonmal radiert)
-                        // Einfach weiter subtrahieren
-                        QPainterPath newPath = currentPath.subtracted(eraserShape);
-                        pathItem->setPath(newPath);
-                    }
-
-                    // Wenn nichts mehr übrig ist -> Item ganz löschen
-                    if (pathItem->path().isEmpty()) {
-                        scene->removeItem(item);
-                        delete item;
-                    }
+                // Wenn nichts mehr übrig ist -> Item zum Löschen vormerken
+                if (pathItem->path().isEmpty()) {
+                    // Pressure-Punkte erst leeren wenn wir es wirklich löschen
+                    StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
+                    if (strokeItem) strokeItem->setPoints({});
+                    toDelete.append(item);
                 }
             }
+        }
+
+        // Erst NACH der Schleife löschen – verhindert Absturz durch Zugriff auf
+        // bereits gelöschte Pointer während der Iteration.
+        for (QGraphicsItem* item : toDelete) {
+            scene->removeItem(item);
+            delete item;
         }
     }
 };
