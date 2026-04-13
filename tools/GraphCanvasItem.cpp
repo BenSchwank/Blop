@@ -483,6 +483,13 @@ void GraphCanvasItem::fromData(const GraphObject& d) {
     update();
 }
 
+void GraphCanvasItem::updateFunctions(const QVector<GraphFunction>& fns, int selectedFn) {
+    m_data.functions = fns;
+    m_data.selectedFunction = selectedFn;
+    update();
+    emit graphChanged();
+}
+
 void GraphCanvasItem::notifyGraphChanged() {
     emit graphChanged();
 }
