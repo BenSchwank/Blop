@@ -547,17 +547,11 @@ QString GraphFormulaZone::recognizeLocalCandidates() const
     const qreal ratio = (h <= 1.0) ? 10.0 : (w / h); // width / height
 
     // ── Arc length and average curvature ────────────────────────────
-    qreal totalLen   = 0.0;
-    qreal totalCurv  = 0.0;
-    int   curvCount  = 0;
+    qreal totalCurv = 0.0;
+    int   curvCount = 0;
 
     for (const auto &s : m_strokes) {
         const int n = s.path.elementCount();
-        for (int i = 0; i < n - 1; ++i) {
-            const QPointF a(s.path.elementAt(i).x,   s.path.elementAt(i).y);
-            const QPointF b(s.path.elementAt(i+1).x, s.path.elementAt(i+1).y);
-            totalLen += QLineF(a, b).length();
-        }
         for (int i = 1; i < n - 1; ++i) {
             const QPointF a(s.path.elementAt(i-1).x, s.path.elementAt(i-1).y);
             const QPointF b(s.path.elementAt(i  ).x, s.path.elementAt(i  ).y);
@@ -570,51 +564,78 @@ QString GraphFormulaZone::recognizeLocalCandidates() const
             ++curvCount;
         }
     }
-
     const qreal avgCurv = (curvCount > 0) ? (totalCurv / curvCount) : 0.0;
-    const int   nStr    = m_strokes.size();
+
+    // ── Superscript detection ────────────────────────────────────────
+    // When the user writes "f(x) = x^2", the exponent "2" sits in the
+    // upper third of the bounding box while the base strokes are in the
+    // lower two-thirds.  Detect this pattern to reliably recognise x^n
+    // regardless of how many helper characters (f, (, ), =) were written.
+    const qreal topThird  = bb.top()  + h / 3.0;
+    const qreal botThird  = bb.top()  + h * 2.0 / 3.0;
+    int superscriptStrokes = 0; // small strokes in the top third
+    int baselineStrokes    = 0; // strokes whose centre is in lower two-thirds
+
+    for (const auto &s : m_strokes) {
+        const QRectF sb   = s.path.boundingRect();
+        const qreal  cy   = sb.center().y();
+        const qreal  sh   = sb.height();
+        // A superscript stroke is small AND sits high up
+        if (cy < topThird && sh < h * 0.45)
+            ++superscriptStrokes;
+        if (cy > botThird * 0.6) // centre in lower portion
+            ++baselineStrokes;
+    }
+    const bool likelySuperscript = (superscriptStrokes >= 1)
+                                && (baselineStrokes    >= 2)
+                                && (h > 25.0);
+
+    const int nStr = m_strokes.size();
 
     // ── Rule-based classification ────────────────────────────────────
+
+    // Superscript pattern detected (e.g. "x^2", "f(x)=x^2", "x^3") → always x^n
+    if (likelySuperscript) {
+        // If there is a clear intercept hint (many base strokes) → x^2+1
+        if (baselineStrokes >= 5)
+            return QStringLiteral("x^2+1");
+        return QStringLiteral("x^2");
+    }
+
     // Single stroke
     if (nStr == 1) {
         if (avgCurv > 9.0 && ratio > 2.0)
-            return QStringLiteral("sin(x)");          // wide, wavy
-        if (avgCurv > 7.0 && ratio < 1.6)
-            return QStringLiteral("x^2");             // tall, curved → parabola
+            return QStringLiteral("sin(x)");   // wide, wavy
         if (avgCurv > 5.0)
-            return QStringLiteral("x^2");             // moderately curved
+            return QStringLiteral("x^2");      // curved → parabola
         if (avgCurv < 2.5 && ratio > 2.5)
-            return QStringLiteral("x");               // straight horizontal-ish
-        if (avgCurv < 2.5)
-            return QStringLiteral("2*x");             // straight diagonal
-        return QStringLiteral("x^2");
+            return QStringLiteral("x");        // straight & wide → identity
+        return QStringLiteral("2*x");          // diagonal line
     }
 
     // Two strokes
     if (nStr == 2) {
         if (avgCurv > 7.0)
-            return QStringLiteral("x^2+1");           // curvy + extra mark → quadratic
+            return QStringLiteral("x^2+1");
         if (ratio > 1.5)
-            return QStringLiteral("x+1");             // wide → linear with offset
-        if (ratio < 0.8)
-            return QStringLiteral("x^2");             // tall → quadratic
-        return QStringLiteral("x+1");
+            return QStringLiteral("x+1");
+        return QStringLiteral("x^2");
     }
 
     // Three strokes
     if (nStr == 3) {
         if (avgCurv > 6.0)
-            return QStringLiteral("x^2+x+1");
+            return QStringLiteral("x^2+1");
         if (ratio > 2.0)
             return QStringLiteral("2*x+1");
         return QStringLiteral("x^2+1");
     }
 
-    // Four or more strokes → likely a longer expression
+    // Four+ strokes without detected superscript
     if (nStr >= 4) {
         if (avgCurv > 5.0)
-            return QStringLiteral("x^2+2*x+1");
-        return QStringLiteral("2*x+1");
+            return QStringLiteral("x^2+1");
+        return QStringLiteral("x+1");
     }
 
     return QStringLiteral("x");
