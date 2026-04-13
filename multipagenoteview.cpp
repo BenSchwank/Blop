@@ -2337,7 +2337,13 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
         return;
       }
       if (m_activeFormulaZone->hitCommitButton(scenePos)) {
+        m_activeFormulaZone->closeInlineEditor();
         emit m_activeFormulaZone->commitRequested(m_activeFormulaZone->recognizedExpression());
+        e->accept();
+        return;
+      }
+      if (m_activeFormulaZone->hitExpressionLabel(scenePos)) {
+        m_activeFormulaZone->openInlineEditor();
         e->accept();
         return;
       }
@@ -2685,7 +2691,13 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
           return;
         }
         if (m_activeFormulaZone->hitCommitButton(scenePos)) {
+          m_activeFormulaZone->closeInlineEditor();
           emit m_activeFormulaZone->commitRequested(m_activeFormulaZone->recognizedExpression());
+          e->accept();
+          return;
+        }
+        if (m_activeFormulaZone->hitExpressionLabel(scenePos)) {
+          m_activeFormulaZone->openInlineEditor();
           e->accept();
           return;
         }
@@ -2709,6 +2721,24 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
   }
 
   AbstractTool *tool = ToolManager::instance().activeTool();
+
+  // ── Live eraser → formula zone ────────────────────────────────────
+  // Formula zone strokes are NOT QGraphicsScene items — the EraserTool's
+  // eraseAt() never sees them.  We intercept every eraser move/press here
+  // and forward it directly to the formula zone.
+  if (tool && m_activeFormulaZone
+      && tool->mode() == ToolMode::Eraser
+      && (e->type() == QEvent::TabletPress || e->type() == QEvent::TabletMove))
+  {
+      const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
+      const qreal r = 12.0; // eraser radius
+      if (zoneScene.adjusted(-r, -r, r, r).contains(scenePos)) {
+          QPainterPath ep;
+          ep.addEllipse(scenePos, r, r);
+          m_activeFormulaZone->eraseStrokesIntersecting(ep, r * 2.0);
+      }
+  }
+
   if (tool && note_ && mode_ != ToolMode::Lasso) {
     tool->setStrokeSceneForTablet(&scene_);
     if (tool->handleTabletEvent(e, scenePos)) {

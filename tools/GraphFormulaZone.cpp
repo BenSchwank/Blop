@@ -125,19 +125,24 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
     }
 
     // ── Recognized expression text (below the line) ──────────────────
-    if (!m_recognizedExpr.isEmpty()) {
+    // When the inline editor is open, skip drawing the static text.
+    if (!m_recognizedExpr.isEmpty() && !m_editor) {
         QFont sFont = p->font();
-        sFont.setPointSizeF(8.5);
+        sFont.setPointSizeF(9.0);
         sFont.setItalic(true);
         sFont.setBold(false);
+        sFont.setUnderline(true);   // hint that it's editable
         p->setFont(sFont);
         const QColor textColor = m_previewActive
             ? QColor(124, 92, 252, 210)   // purple during preview
             : QColor(100, 100, 110, 160); // gray when committed
         p->setPen(textColor);
-        p->drawText(QRectF(4, m_baselineY + 3, m_currentWidth - 24, 14),
+
+        // Draw editable text with pencil icon hint
+        const QString display = m_recognizedExpr + QStringLiteral("  \u270E"); // ✎
+        p->drawText(QRectF(4, m_baselineY + 3, m_currentWidth - 50, 14),
                     Qt::AlignLeft | Qt::AlignTop,
-                    m_recognizedExpr);
+                    display);
     }
 
     // ── Checkmark (Commit) button ───────────────────────────────────────────
@@ -197,9 +202,83 @@ bool GraphFormulaZone::hitCommitButton(const QPointF &scenePos) const
     const qreal margin = 6.0;
     const qreal bxClear = m_currentWidth - kClearBtnSize - 4;
     const qreal bxCommit = bxClear - kCommitBtnSize - margin;
-    const qreal byCommit = m_baselineY - 2; 
+    const qreal byCommit = m_baselineY - 2;
     const QRectF commitBtn(bxCommit, byCommit, kCommitBtnSize, kCommitBtnSize);
     return mapRectToScene(commitBtn.adjusted(-5, -5, 5, 5)).contains(scenePos);
+}
+
+bool GraphFormulaZone::hitExpressionLabel(const QPointF &scenePos) const
+{
+    if (m_recognizedExpr.isEmpty())
+        return false;
+    const QRectF label(4, m_baselineY + 2, m_currentWidth - 60, 16);
+    return mapRectToScene(label.adjusted(-4, -4, 4, 4)).contains(scenePos);
+}
+
+void GraphFormulaZone::openInlineEditor()
+{
+    if (m_editor) return; // already open
+
+    m_editor = new QLineEdit();
+    m_editor->setText(m_recognizedExpr);
+    m_editor->setPlaceholderText(QStringLiteral("z.B. x^2, sin(x), 2*x+1"));
+    m_editor->setFrame(false);
+    m_editor->setFont([]{
+        QFont f;
+        f.setPointSizeF(9.5);
+        f.setItalic(true);
+        return f;
+    }());
+    m_editor->setStyleSheet(QStringLiteral(
+        "QLineEdit {"
+        "  background: rgba(124,92,252,18);"
+        "  color: #5E5CE6;"
+        "  border: 1px solid rgba(124,92,252,80);"
+        "  border-radius: 4px;"
+        "  padding: 1px 4px;"
+        "  selection-background-color: rgba(124,92,252,60);"
+        "}"
+    ));
+    m_editor->selectAll();
+
+    m_editorProxy = new QGraphicsProxyWidget(this);
+    m_editorProxy->setWidget(m_editor);
+    m_editorProxy->setPos(4, m_baselineY + 1);
+    m_editorProxy->resize(m_currentWidth - 60, 18);
+
+    // Accept mouse so the editor can be clicked/typed
+    m_editorProxy->setAcceptedMouseButtons(Qt::AllButtons);
+    m_editorProxy->setFlag(QGraphicsItem::ItemIsFocusable, true);
+    m_editorProxy->setFocusPolicy(Qt::StrongFocus);
+    m_editor->setFocus();
+
+    // Enter/Return → apply and close
+    connect(m_editor, &QLineEdit::returnPressed, this, [this]() {
+        closeInlineEditor();
+    });
+
+    update();
+}
+
+void GraphFormulaZone::closeInlineEditor()
+{
+    if (!m_editor) return;
+
+    const QString typed = m_editor->text().trimmed();
+
+    // Destroy the editor
+    m_editorProxy->setWidget(nullptr);
+    delete m_editor;
+    m_editor = nullptr;
+    delete m_editorProxy;
+    m_editorProxy = nullptr;
+
+    if (!typed.isEmpty()) {
+        m_recognizedExpr = LatexToBlopConverter::stripFunctionPrefix(typed);
+        m_previewActive = true;
+        update();
+        emit expressionRecognized(m_recognizedExpr);
+    }
 }
 
 // ============================================================================
