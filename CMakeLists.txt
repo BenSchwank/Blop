@@ -221,6 +221,7 @@ if(ANDROID)
     endif()
 
     set_target_properties(Blop PROPERTIES
+        QT_ANDROID_PACKAGE_NAME "com.benschwank.blop"
         QT_ANDROID_COMPILE_SDK_VERSION "34"
         QT_ANDROID_TARGET_SDK_VERSION "34"
         QT_ANDROID_MIN_SDK_VERSION "23"
