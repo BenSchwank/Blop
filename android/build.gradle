@@ -46,6 +46,15 @@ def localQtTargetAbiList = project.findProperty('qtTargetAbiList') ?: 'arm64-v8a
 
 apply plugin: localQtGradlePluginType
 
+// Transitive androidx libs may pull kotlin-stdlib-jdk7/jdk8:1.6 while kotlin-stdlib is 1.8.x → duplicate classes.
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'org.jetbrains.kotlin') {
+            details.useVersion '1.8.22'
+        }
+    }
+}
+
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
     // Pin below 1.16: core-1.16+ needs compileSdk 35 + AGP 8.6+, but Qt 6.6 androiddeployqt
