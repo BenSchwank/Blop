@@ -248,6 +248,46 @@ if(NOT ANDROID)
         target_link_directories(Blop PRIVATE "${ONNXRUNTIME_ROOT}/lib")
         target_link_libraries(Blop PRIVATE onnxruntime)
         target_compile_definitions(Blop PRIVATE BLOP_HAS_ONNX_OCR)
+
+        # Copy onnxruntime.dll next to the executable so the app finds it at runtime
+        add_custom_command(TARGET Blop POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
+                "$<TARGET_FILE_DIR:Blop>/onnxruntime.dll"
+            COMMENT "Copying onnxruntime.dll to build dir"
+        )
+        add_custom_command(TARGET Blop POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNXRUNTIME_ROOT}/lib/onnxruntime_providers_shared.dll"
+                "$<TARGET_FILE_DIR:Blop>/onnxruntime_providers_shared.dll"
+            COMMENT "Copying onnxruntime_providers_shared.dll to build dir"
+        )
+
+        # Copy AI model files (encoder.onnx, decoder.onnx, tokens.json) to build dir
+        # MathInkRecognizer looks in applicationDirPath()/assets/models/
+        add_custom_command(TARGET Blop POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:Blop>/assets/models"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/assets/models/encoder.onnx"
+                "$<TARGET_FILE_DIR:Blop>/assets/models/encoder.onnx"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/assets/models/decoder.onnx"
+                "$<TARGET_FILE_DIR:Blop>/assets/models/decoder.onnx"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/assets/models/tokens.json"
+                "$<TARGET_FILE_DIR:Blop>/assets/models/tokens.json"
+            COMMENT "Copying AI math OCR model files to build dir"
+        )
+        # encoder.onnx uses external data — copy the .data sidecar if it exists
+        if(EXISTS "${CMAKE_SOURCE_DIR}/assets/models/encoder.onnx.data")
+            add_custom_command(TARGET Blop POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_SOURCE_DIR}/assets/models/encoder.onnx.data"
+                    "$<TARGET_FILE_DIR:Blop>/assets/models/encoder.onnx.data"
+                COMMENT "Copying encoder.onnx.data sidecar"
+            )
+        endif()
     else()
         message(STATUS "ONNX Runtime not found — offline math OCR disabled")
     endif()
