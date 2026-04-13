@@ -164,25 +164,40 @@ bool MathInkRecognizer::Impl::tryLoad()
     // --- Resolve model directory ---
     // Search order:
     //   1. Explicitly set modelDir (unit tests / installer)
-    //   2. <appDir>/assets/models  (installed / deployed build)
-    //   3. BLOP_MODELS_SOURCE_DIR  (source tree fallback for Qt Creator dev builds)
-    auto candidateDir = [](const QString &path) -> QString {
+    //   2. <appDir>/assets/models        (deployed / installed build)
+    //   3. Walk UP from appDir looking for assets/models  (Qt Creator dev builds:
+    //      the exe sits in build/Desktop_.../  but assets/ is in the source tree)
+    auto hasModels = [](const QString &path) -> bool {
         const QDir d(path);
-        if (d.exists(QStringLiteral("encoder.onnx")) &&
-            d.exists(QStringLiteral("decoder.onnx")) &&
-            d.exists(QStringLiteral("tokens.json")))
-            return path;
-        return {};
+        return d.exists(QStringLiteral("encoder.onnx"))
+            && d.exists(QStringLiteral("decoder.onnx"))
+            && d.exists(QStringLiteral("tokens.json"));
     };
 
     QString dir = modelDir;
-    if (dir.isEmpty())
-        dir = candidateDir(QCoreApplication::applicationDirPath()
-                           + QStringLiteral("/assets/models"));
-#ifdef BLOP_MODELS_SOURCE_DIR
-    if (dir.isEmpty())
-        dir = candidateDir(QStringLiteral(BLOP_MODELS_SOURCE_DIR));
-#endif
+
+    // 2 — next to the executable
+    if (dir.isEmpty()) {
+        const QString candidate = QCoreApplication::applicationDirPath()
+                                  + QStringLiteral("/assets/models");
+        if (hasModels(candidate))
+            dir = candidate;
+    }
+
+    // 3 — walk up the directory tree (max 8 levels) looking for assets/models
+    if (dir.isEmpty()) {
+        QDir cur(QCoreApplication::applicationDirPath());
+        for (int i = 0; i < 8; ++i) {
+            const QString candidate = cur.filePath(QStringLiteral("assets/models"));
+            if (hasModels(candidate)) {
+                dir = candidate;
+                break;
+            }
+            if (!cur.cdUp())
+                break;
+        }
+    }
+
     if (dir.isEmpty()) {
         qInfo() << "[MathInkRecognizer] Model files not found in any search path"
                 << "-- offline recognition disabled.";
