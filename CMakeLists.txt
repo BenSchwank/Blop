@@ -249,14 +249,6 @@ if(NOT ANDROID)
         target_link_libraries(Blop PRIVATE onnxruntime)
         target_compile_definitions(Blop PRIVATE BLOP_HAS_ONNX_OCR)
 
-        # Pass the source-tree models directory as a compile-time fallback path.
-        # MathInkRecognizer will check applicationDirPath()/assets/models first
-        # (production), then fall back here (development / Qt Creator runs).
-        # This avoids having to copy the large model files on every build.
-        target_compile_definitions(Blop PRIVATE
-            BLOP_MODELS_SOURCE_DIR="${CMAKE_SOURCE_DIR}/assets/models"
-        )
-
         # Copy onnxruntime.dll next to the executable (small, fast, needed at runtime)
         add_custom_command(TARGET Blop POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
