@@ -102,8 +102,14 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
-      # 3. Signieren
-      - name: Sign APK
+      # Play Store verlangt ein Android App Bundle (.aab). Qt erzeugt es parallel zur APK (Target Blop_make_aab).
+      # Lokal nach qt-cmake: cmake --build <build-dir> --target Blop_make_aab — .aab unter .../outputs/bundle/release/
+      - name: Build Android App Bundle (AAB)
+        working-directory: build
+        run: cmake --build . --target Blop_make_aab
+
+      # 3. Signieren (rekursiv alle *.apk und *.aab unter android-build; Ausgabe *-signed.apk / *-signed.aab)
+      - name: Sign release APK and AAB
         id: sign_app
         uses: ilharp/sign-android-release@v1
         with:
@@ -119,6 +125,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: build/android-build/*.apk
+          files: |
+            build/android-build/**/*-signed.apk
+            build/android-build/**/*-signed.aab
           repository: BenSchwank/Blop-releases
           token: ${{ secrets.RELEASE_TOKEN }}
