@@ -35,8 +35,8 @@ def parseAndroidSdkInt = { String key, int fallback ->
 
 def localQtGradlePluginType = project.findProperty('qtGradlePluginType') ?: 'com.android.application'
 def localAndroidPackageName = project.findProperty('androidPackageName') ?: 'com.benschwank.blop'
-def localAndroidCompileSdkVersion = parseAndroidSdkInt('androidCompileSdkVersion', 35)
-def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '35.0.0'
+def localAndroidCompileSdkVersion = parseAndroidSdkInt('androidCompileSdkVersion', 34)
+def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '34.0.0'
 def localAndroidNdkVersion = project.findProperty('androidNdkVersion') ?: '25.1.8937393'
 def localQtAndroidDir = project.findProperty('qtAndroidDir') ?: '.'
 def localQtMinSdkVersion = parseAndroidSdkInt('qtMinSdkVersion', 23)

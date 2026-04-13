@@ -6,6 +6,8 @@
     android:installLocation="auto"
     android:versionCode="-- %%INSERT_VERSION_CODE%% --"
     android:versionName="-- %%INSERT_VERSION_NAME%% --">
+    <!-- Aligns with Play Console “Advertising ID” declaration (Android 13+). Remove if you set declaration to “No”. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
     <!-- %%INSERT_PERMISSIONS inserts network permissions; avoid duplicates here -->
     <!-- %%INSERT_FEATURES -->
     <supports-screens

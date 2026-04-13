@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Android Setup
 if(ANDROID)
-    set(ANDROID_PLATFORM "android-35")
+    # compileSdk 34: GHA android-35 android.jar can be broken (aapt2 load error); targetSdk 35 still satisfies Play.
+    set(ANDROID_PLATFORM "android-34")
 endif()
 
 # Fetch version from Git
@@ -224,7 +225,7 @@ if(ANDROID)
     set_target_properties(Blop PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android"
         QT_ANDROID_PACKAGE_NAME "com.benschwank.blop"
-        QT_ANDROID_COMPILE_SDK_VERSION "35"
+        QT_ANDROID_COMPILE_SDK_VERSION "34"
         QT_ANDROID_TARGET_SDK_VERSION "35"
         QT_ANDROID_MIN_SDK_VERSION "23"
         QT_ANDROID_VERSION_CODE "${ANDROID_VERSION_CODE}"
