@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Android Setup
 if(ANDROID)
-    set(ANDROID_PLATFORM "android-34")
+    set(ANDROID_PLATFORM "android-35")
 endif()
 
 # Fetch version from Git
@@ -224,8 +224,8 @@ if(ANDROID)
     set_target_properties(Blop PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android"
         QT_ANDROID_PACKAGE_NAME "com.benschwank.blop"
-        QT_ANDROID_COMPILE_SDK_VERSION "34"
-        QT_ANDROID_TARGET_SDK_VERSION "34"
+        QT_ANDROID_COMPILE_SDK_VERSION "35"
+        QT_ANDROID_TARGET_SDK_VERSION "35"
         QT_ANDROID_MIN_SDK_VERSION "23"
         QT_ANDROID_VERSION_CODE "${ANDROID_VERSION_CODE}"
         QT_ANDROID_VERSION_NAME "${SAFE_VERSION}"
