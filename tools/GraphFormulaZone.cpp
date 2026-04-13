@@ -418,9 +418,13 @@ QImage GraphFormulaZone::renderStrokesToImage() const
 
 void GraphFormulaZone::startBackendRecognition(const QImage &img)
 {
-    const QString endpoint = qEnvironmentVariable(
-        "BLOP_MATH_OCR_URL",
-        QStringLiteral("http://127.0.0.1:8000/api/ai/math-ink/recognize"));
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // No local server on mobile — go straight to local heuristic
+    const QString defaultEndpoint;
+#else
+    const QString defaultEndpoint = QStringLiteral("http://127.0.0.1:8000/api/ai/math-ink/recognize");
+#endif
+    const QString endpoint = qEnvironmentVariable("BLOP_MATH_OCR_URL", defaultEndpoint);
 
     if (endpoint.isEmpty())
         return;
@@ -526,35 +530,92 @@ void GraphFormulaZone::startBackendRecognition(const QImage &img)
     });
 }
 
-QString GraphFormulaZone::recognizeLocalCandidates() const {
+QString GraphFormulaZone::recognizeLocalCandidates() const
+{
     if (m_strokes.isEmpty())
         return {};
+
+    // ── Bounding box ────────────────────────────────────────────────
     QRectF bb;
     for (const auto &s : m_strokes)
         bb = bb.united(s.path.boundingRect());
     if (bb.isEmpty())
         return {};
-        
-    const qreal w = bb.width();
-    const qreal h = bb.height();
-    const qreal ratio = h <= 0.0 ? 1.0 : (w / h);
-    QStringList out;
-    
-    if (m_strokes.size() >= 3 && ratio > 1.5) {
-        out << QStringLiteral("x+1") << QStringLiteral("x-1") << QStringLiteral("2*x+1");
-    } else if (m_strokes.size() >= 2) {
-        out << QStringLiteral("x+1") << QStringLiteral("x-1") << QStringLiteral("2*x");
+
+    const qreal w     = bb.width();
+    const qreal h     = bb.height();
+    const qreal ratio = (h <= 1.0) ? 10.0 : (w / h); // width / height
+
+    // ── Arc length and average curvature ────────────────────────────
+    qreal totalLen   = 0.0;
+    qreal totalCurv  = 0.0;
+    int   curvCount  = 0;
+
+    for (const auto &s : m_strokes) {
+        const int n = s.path.elementCount();
+        for (int i = 0; i < n - 1; ++i) {
+            const QPointF a(s.path.elementAt(i).x,   s.path.elementAt(i).y);
+            const QPointF b(s.path.elementAt(i+1).x, s.path.elementAt(i+1).y);
+            totalLen += QLineF(a, b).length();
+        }
+        for (int i = 1; i < n - 1; ++i) {
+            const QPointF a(s.path.elementAt(i-1).x, s.path.elementAt(i-1).y);
+            const QPointF b(s.path.elementAt(i  ).x, s.path.elementAt(i  ).y);
+            const QPointF c(s.path.elementAt(i+1).x, s.path.elementAt(i+1).y);
+            const QLineF  ab(a, b), bc(b, c);
+            if (ab.length() < 0.5 || bc.length() < 0.5) continue;
+            qreal ang = std::abs(ab.angleTo(bc));
+            if (ang > 180.0) ang = 360.0 - ang;
+            totalCurv += ang;
+            ++curvCount;
+        }
     }
-    
-    if (m_strokes.size() <= 2) {
-        out << QStringLiteral("x") << QStringLiteral("x^2") << QStringLiteral("2*x");
-    } else if (ratio > 2.2) {
-        out << QStringLiteral("2*x") << QStringLiteral("x") << QStringLiteral("x^2");
-    } else if (ratio > 1.4) {
-        out << QStringLiteral("sin(x)") << QStringLiteral("cos(x)") << QStringLiteral("tan(x)");
-    } else {
-        out << QStringLiteral("2*x") << QStringLiteral("x^2") << QStringLiteral("x^3");
+
+    const qreal avgCurv = (curvCount > 0) ? (totalCurv / curvCount) : 0.0;
+    const int   nStr    = m_strokes.size();
+
+    // ── Rule-based classification ────────────────────────────────────
+    // Single stroke
+    if (nStr == 1) {
+        if (avgCurv > 9.0 && ratio > 2.0)
+            return QStringLiteral("sin(x)");          // wide, wavy
+        if (avgCurv > 7.0 && ratio < 1.6)
+            return QStringLiteral("x^2");             // tall, curved → parabola
+        if (avgCurv > 5.0)
+            return QStringLiteral("x^2");             // moderately curved
+        if (avgCurv < 2.5 && ratio > 2.5)
+            return QStringLiteral("x");               // straight horizontal-ish
+        if (avgCurv < 2.5)
+            return QStringLiteral("2*x");             // straight diagonal
+        return QStringLiteral("x^2");
     }
-    
-    return out.first();
+
+    // Two strokes
+    if (nStr == 2) {
+        if (avgCurv > 7.0)
+            return QStringLiteral("x^2+1");           // curvy + extra mark → quadratic
+        if (ratio > 1.5)
+            return QStringLiteral("x+1");             // wide → linear with offset
+        if (ratio < 0.8)
+            return QStringLiteral("x^2");             // tall → quadratic
+        return QStringLiteral("x+1");
+    }
+
+    // Three strokes
+    if (nStr == 3) {
+        if (avgCurv > 6.0)
+            return QStringLiteral("x^2+x+1");
+        if (ratio > 2.0)
+            return QStringLiteral("2*x+1");
+        return QStringLiteral("x^2+1");
+    }
+
+    // Four or more strokes → likely a longer expression
+    if (nStr >= 4) {
+        if (avgCurv > 5.0)
+            return QStringLiteral("x^2+2*x+1");
+        return QStringLiteral("2*x+1");
+    }
+
+    return QStringLiteral("x");
 }

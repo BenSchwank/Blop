@@ -2298,6 +2298,21 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
   // Graph "+" / chrome reach the item before touch-pan and tools.
   if (e->button() == Qt::LeftButton) {
     const QPointF scenePos = mapToScene(e->pos());
+
+    // Formula zone buttons may lie outside the page rect — check before everything.
+    if (m_activeFormulaZone) {
+      if (m_activeFormulaZone->hitClearButton(scenePos)) {
+        m_activeFormulaZone->clearZone();
+        e->accept();
+        return;
+      }
+      if (m_activeFormulaZone->hitCommitButton(scenePos)) {
+        emit m_activeFormulaZone->commitRequested(m_activeFormulaZone->recognizedExpression());
+        e->accept();
+        return;
+      }
+    }
+
     GraphCanvasItem *plusHit = graphCanvasHittingPlus(&scene_, scenePos);
     GraphCanvasItem *chromeHit = graphCanvasHittingChrome(&scene_, scenePos);
     if (pageAt(scenePos) >= 0 || plusHit || chromeHit) {
@@ -2612,7 +2627,8 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
       e->accept();
       return;
     }
-    if (e->type() == QEvent::TabletPress && pageAt(scenePos) >= 0) {
+    if (e->type() == QEvent::TabletPress) {
+      // Formula zone buttons may lie outside the page rect — check BEFORE pageAt().
       if (m_activeFormulaZone) {
         if (m_activeFormulaZone->hitClearButton(scenePos)) {
           m_activeFormulaZone->clearZone();
@@ -2625,18 +2641,20 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
           return;
         }
       }
-      
-      if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(&scene_, scenePos)) {
-        hitGraph->requestPlusTap();
-        e->accept();
-        return;
-      }
-      if (GraphCanvasItem *hitGraph = graphCanvasHittingChrome(&scene_, scenePos)) {
-        m_graphTabletPendingItem = hitGraph;
-        m_graphTabletPressScene = scenePos;
-        m_graphTabletPressMs = QDateTime::currentMSecsSinceEpoch();
-        e->accept();
-        return;
+
+      if (pageAt(scenePos) >= 0) {
+        if (GraphCanvasItem *hitGraph = graphCanvasHittingPlus(&scene_, scenePos)) {
+          hitGraph->requestPlusTap();
+          e->accept();
+          return;
+        }
+        if (GraphCanvasItem *hitGraph = graphCanvasHittingChrome(&scene_, scenePos)) {
+          m_graphTabletPendingItem = hitGraph;
+          m_graphTabletPressScene = scenePos;
+          m_graphTabletPressMs = QDateTime::currentMSecsSinceEpoch();
+          e->accept();
+          return;
+        }
       }
     }
   }
