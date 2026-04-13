@@ -17,6 +17,8 @@ public:
 
     GraphObject toData() const;
     void fromData(const GraphObject& d);
+    /// Update only the function list + selectedFunction without touching position/size.
+    void updateFunctions(const QVector<GraphFunction>& fns, int selectedFn);
 
     /// After external `fromData` (e.g. axis dialog), call this so MultiPageNoteView can sync the note.
     void notifyGraphChanged();
