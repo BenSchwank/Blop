@@ -606,46 +606,109 @@ private:
     adjustSize();
   }
 
+  // Verbesserte lokale Heuristik – nutzt Strichanzahl, Seitenverhältnis,
+  // Streckenlänge und Kurvigkeit um häufige Funktionen zu erkennen.
   QStringList recognizeLocalCandidates() const {
-    QStringList out;
     const auto st = m_ink->strokes();
     if (st.isEmpty())
-      return out;
+      return {};
+
+    // --- Geometrie berechnen ---
     QRectF bb;
-    for (const auto &s : st)
+    qreal totalLen = 0.0;
+    qreal totalCurv = 0.0;  // Summe der Winkeländerungen (Kurvigkeit)
+    int totalPts = 0;
+    for (const auto &s : st) {
       bb = bb.united(s.boundingRect());
-    if (bb.isEmpty())
-      return out;
-    const qreal w = bb.width();
-    const qreal h = bb.height();
-    const qreal ratio = h <= 0.0 ? 1.0 : (w / h);
-    QStringList prefix;
-    if (st.size() >= 3 && ratio > 1.5) {
-      prefix << QStringLiteral("x+1") << QStringLiteral("x-1") << QStringLiteral("2*x+1")
-             << QStringLiteral("x+2") << QStringLiteral("-x+1");
-    } else if (st.size() >= 2) {
-      prefix << QStringLiteral("x+1") << QStringLiteral("x-1") << QStringLiteral("2*x");
+      const auto polys = s.toSubpathPolygons();
+      for (const auto &poly : polys) {
+        for (int i = 1; i < poly.size(); ++i)
+          totalLen += QLineF(poly[i-1], poly[i]).length();
+        for (int i = 1; i + 1 < poly.size(); ++i) {
+          QLineF l1(poly[i-1], poly[i]);
+          QLineF l2(poly[i], poly[i+1]);
+          totalCurv += qAbs(l1.angleTo(l2));
+        }
+        totalPts += poly.size();
+      }
     }
-    if (st.size() <= 2) {
-      out << QStringLiteral("x") << QStringLiteral("x^2") << QStringLiteral("2*x");
-    } else if (ratio > 2.2) {
-      out << QStringLiteral("2*x") << QStringLiteral("x") << QStringLiteral("x^2");
-    } else if (ratio > 1.4) {
-      out << QStringLiteral("sin(x)") << QStringLiteral("cos(x)") << QStringLiteral("tan(x)");
-    } else {
-      out << QStringLiteral("2*x") << QStringLiteral("x^2") << QStringLiteral("x^3")
-          << QStringLiteral("sqrt(x)");
+    if (bb.isEmpty()) return {};
+
+    const int    nStrokes = st.size();
+    const qreal  w        = bb.width();
+    const qreal  h        = bb.height();
+    const qreal  ratio    = h > 1.0 ? (w / h) : w;  // Breite/Höhe
+    const qreal  sqratio  = h > 1.0 ? (bb.height() / bb.width()) : 1.0; // Höhe/Breite
+    const qreal  avgCurv  = totalPts > 2 ? (totalCurv / totalPts) : 0.0;
+    const bool   curved   = avgCurv > 15.0;  // Striche sind eher kurvig
+    const bool   hasLoop  = avgCurv > 40.0;  // sehr kurvig = Kreis/Oval
+
+    // --- Heuristik ---
+    QStringList candidates;
+
+    // Einzelner sehr kurzer Strich → x oder c
+    if (nStrokes == 1 && totalLen < 80) {
+      candidates << QStringLiteral("x") << QStringLiteral("x^2") << QStringLiteral("2");
+      return candidates;
     }
-    QStringList merged;
-    for (const QString &p : prefix) {
-      if (!merged.contains(p))
-        merged.append(p);
+
+    // Sehr hoch (sqratio > 2) → oft Bruch, Integral, Summe
+    if (sqratio > 2.0 && nStrokes >= 2) {
+      candidates << QStringLiteral("1/x")
+                 << QStringLiteral("(x+1)/(x-1)")
+                 << QStringLiteral("x^2/2");
     }
-    for (const QString &x : out) {
-      if (!merged.contains(x))
-        merged.append(x);
+
+    // Breite und kurvig → trig. Funktionen
+    if (ratio > 2.5 && curved) {
+      candidates << QStringLiteral("sin(x)")
+                 << QStringLiteral("cos(x)")
+                 << QStringLiteral("sin(2*x)")
+                 << QStringLiteral("cos(2*x)")
+                 << QStringLiteral("tan(x)");
     }
-    return merged;
+
+    // Runde/kreisartige Form → Parabel / Kreis
+    if (hasLoop || (ratio > 0.6 && ratio < 1.8 && curved)) {
+      candidates << QStringLiteral("x^2")
+                 << QStringLiteral("-x^2")
+                 << QStringLiteral("x^2-1")
+                 << QStringLiteral("x^2+1");
+    }
+
+    // Lange gerade Striche → Geraden, Polynome
+    if (ratio > 1.5 && !curved && nStrokes <= 3) {
+      candidates << QStringLiteral("2*x")
+                 << QStringLiteral("x")
+                 << QStringLiteral("-x")
+                 << QStringLiteral("3*x-2");
+    }
+
+    // Viele Striche → komplexere Ausdrücke
+    if (nStrokes >= 4) {
+      candidates << QStringLiteral("x^3-x")
+                 << QStringLiteral("sin(x)+x")
+                 << QStringLiteral("x^2-2*x+1")
+                 << QStringLiteral("sqrt(x)")
+                 << QStringLiteral("log(x)");
+    }
+
+    // Allgemeine Fallbacks
+    if (candidates.isEmpty() || candidates.size() < 3) {
+      candidates << QStringLiteral("x^2")
+                 << QStringLiteral("sin(x)")
+                 << QStringLiteral("x")
+                 << QStringLiteral("2*x")
+                 << QStringLiteral("sqrt(x)");
+    }
+
+    // Deduplizieren, max 6 Vorschläge
+    QStringList result;
+    for (const QString &c : candidates) {
+      if (!result.contains(c)) result.append(c);
+      if (result.size() >= 6) break;
+    }
+    return result;
   }
 
   GraphInkInputWidget *m_ink{nullptr};
@@ -770,33 +833,44 @@ void GraphFormulaEntryBar::startHandwritingRecognition(bool offerCandidateMenuOn
     return;
   }
 
-  // ── Phase 1: Offline-Erkennung (ONNX, sofort) ──────────────────────
+  // ── Phase 1: Offline-Erkennung (ONNX, sofort, nur Desktop) ────────
 #ifdef BLOP_HAS_ONNX_OCR
   if (MathInkRecognizer::instance().isAvailable()) {
     setStatus(QStringLiteral("Offline-Erkennung..."), false);
     const QImage snap = m_ink->inkImageForRecognition();
-    const QString localExpr = MathInkRecognizer::instance().recognize(snap);
-    if (!localExpr.isEmpty()) {
-      // Offline hat ein Ergebnis geliefert — direkt uebernehmen
-      finishRecognizeWithFallback(localExpr, offerCandidateMenuOnEmpty);
-      return;
+    if (!snap.isNull()) {
+      const QString localExpr = MathInkRecognizer::instance().recognize(snap);
+      if (!localExpr.isEmpty()) {
+        finishRecognizeWithFallback(localExpr, offerCandidateMenuOnEmpty);
+        return;
+      }
     }
-    // Offline lieferte nichts — automatisch weiter zum Backend
+    // Offline lieferte nichts — weiter zum Backend
   }
 #endif
 
-  // ── Phase 2: Backend-Erkennung (automatischer Fallback) ────────────
-  const QString endpoint = qEnvironmentVariable(
-      "BLOP_MATH_OCR_URL", QStringLiteral("http://127.0.0.1:8000/api/ai/math-ink/recognize"));
+  // ── Phase 2: Backend-Erkennung ──────────────────────────────────────
+  // Nur anfragen wenn die URL nicht localhost ist (auf Android nicht
+  // erreichbar) oder explizit per Umgebungsvariable gesetzt wurde.
+  const QString defaultEndpoint =
+#ifdef Q_OS_ANDROID
+      QString();  // kein localhost-Request auf Android
+#else
+      QStringLiteral("http://127.0.0.1:8000/api/ai/math-ink/recognize");
+#endif
+  const QString endpoint = qEnvironmentVariable("BLOP_MATH_OCR_URL", defaultEndpoint);
+
   if (endpoint.isEmpty()) {
+    // Kein Server konfiguriert → direkt lokale Vorschläge
     finishRecognizeWithFallback(QString(), offerCandidateMenuOnEmpty);
     return;
   }
+
   abortPendingRecognize();
   setStatus(QStringLiteral("Erkennung laeuft..."), false);
   QNetworkRequest req{QUrl(endpoint)};
   req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-  req.setTransferTimeout(25000);
+  req.setTransferTimeout(8000);  // 8s statt 25s — schnellerer Fallback
   m_pendingReply =
       m_nam->post(req, QJsonDocument(buildRecognizePayload()).toJson(QJsonDocument::Compact));
   connect(m_pendingReply, &QNetworkReply::finished, this, [this, offerCandidateMenuOnEmpty]() {
@@ -810,6 +884,7 @@ void GraphFormulaEntryBar::startHandwritingRecognition(bool offerCandidateMenuOn
     const QNetworkReply::NetworkError err = rep->error();
     rep->deleteLater();
     if (err != QNetworkReply::NoError) {
+      // Server nicht erreichbar → sofort lokale Vorschläge
       finishRecognizeWithFallback(QString(), offerCandidateMenuOnEmpty);
       return;
     }
@@ -2397,16 +2472,40 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
               (strokeItem->strokeStyle() == StrokeItem::Highlighter);
 
           QPainterPath localPath;
+          QPainterPath scenePath;
           for (int i = 0; i < points.size(); ++i) {
-            QPointF localP = points[i].pos - pageTopLeft;
+            QPointF sceneP = points[i].pos;
+            QPointF localP = sceneP - pageTopLeft;
             s.points.append(localP);
-            if (i == 0)
+            if (i == 0) {
               localPath.moveTo(localP);
-            else
+              scenePath.moveTo(sceneP);
+            } else {
               localPath.lineTo(localP);
+              scenePath.lineTo(sceneP);
+            }
           }
           s.path = localPath;
-          pushStrokeUndoCommand(pIdx, std::move(s));
+
+          bool capturedByZone = false;
+          if (m_activeFormulaZone) {
+            const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
+            if (s.isEraser) {
+              if (zoneScene.intersects(scenePath.boundingRect())) {
+                m_activeFormulaZone->eraseStrokesIntersecting(scenePath, s.width);
+              }
+            } else if (!s.isHighlighter) {
+              if (zoneScene.intersects(scenePath.boundingRect())) {
+                if (m_activeFormulaZone->addStroke(scenePath, s.color, s.width)) {
+                  capturedByZone = true;
+                }
+              }
+            }
+          }
+
+          if (!capturedByZone) {
+            pushStrokeUndoCommand(pIdx, std::move(s));
+          }
         }
       }
       itemsToRemove.append(item);
@@ -2417,9 +2516,6 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
     scene_.removeItem(item);
     delete item;
   }
-
-  // ── Check new strokes against active formula zones ──────────────
-  captureStrokesInFormulaZones();
 
   if (tool->mode() == ToolMode::Lasso && !scene_.selectedItems().isEmpty())
     startTransformSession();
@@ -3380,21 +3476,20 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
     if (!parsed.ok) return;
 
-    auto d = gi->toData();
+    auto fns = gi->data().functions;
 
     // Remove old preview if exists
-    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
-      d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < fns.size()) {
+      fns[m_livePreviewIndex].expression = parsed.normalizedInput;
     } else {
       GraphFunction previewFn;
       previewFn.expression = parsed.normalizedInput;
       previewFn.color = QColor(124, 92, 252, 120); // semi-transparent purple
       previewFn.visible = true;
-      d.functions.push_back(previewFn);
-      m_livePreviewIndex = d.functions.size() - 1;
+      fns.push_back(previewFn);
+      m_livePreviewIndex = fns.size() - 1;
     }
-    d.selectedFunction = m_livePreviewIndex;
-    gi->fromData(d);
+    gi->updateFunctions(fns, m_livePreviewIndex);
     syncGraphPlusLayout(gi);
   });
 
@@ -3405,23 +3500,23 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
     if (!parsed.ok) return;
 
-    auto d = gi->toData();
+    auto fns = gi->data().functions;
     const QColor finalColor = QColor(94, 92, 230);
 
-    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
-      d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
-      d.functions[m_livePreviewIndex].color = finalColor;
-      d.selectedFunction = m_livePreviewIndex;
+    if (m_livePreviewIndex >= 0 && m_livePreviewIndex < fns.size()) {
+      fns[m_livePreviewIndex].expression = parsed.normalizedInput;
+      fns[m_livePreviewIndex].color = finalColor;
+      int sel = m_livePreviewIndex;
       m_livePreviewIndex = -1;
+      gi->updateFunctions(fns, sel);
     } else {
       GraphFunction fn;
       fn.expression = parsed.normalizedInput;
       fn.color = finalColor;
       fn.visible = true;
-      d.functions.push_back(fn);
-      d.selectedFunction = d.functions.size() - 1;
+      fns.push_back(fn);
+      gi->updateFunctions(fns, fns.size() - 1);
     }
-    gi->fromData(d);
 
     // Clean up the zone
     if (m_activeFormulaZone) {
@@ -3441,14 +3536,13 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
   connect(zone, &GraphFormulaZone::zoneCleared, this, [this, gi]() {
     if (!gi) return;
     if (m_livePreviewIndex >= 0) {
-      auto d = gi->toData();
-      if (m_livePreviewIndex < d.functions.size()) {
-        d.functions.removeAt(m_livePreviewIndex);
-        if (d.functions.isEmpty())
-          d.selectedFunction = -1;
-        else
-          d.selectedFunction = qBound(0, d.selectedFunction, d.functions.size() - 1);
-        gi->fromData(d);
+      auto fns = gi->data().functions;
+      if (m_livePreviewIndex < fns.size()) {
+        fns.removeAt(m_livePreviewIndex);
+        int sel = -1;
+        if (!fns.isEmpty())
+          sel = qBound(0, gi->data().selectedFunction, fns.size() - 1);
+        gi->updateFunctions(fns, sel);
       }
       m_livePreviewIndex = -1;
     }
@@ -3456,47 +3550,4 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
   });
 }
 
-void MultiPageNoteView::captureStrokesInFormulaZones() {
-  if (!m_activeFormulaZone || !note_)
-    return;
-
-  const QRectF zoneScene = m_activeFormulaZone->catchAreaSceneRect();
-
-  // Look at the most recently added strokes on the current page
-  const int pIdx = visiblePageIndex();
-  if (pIdx < 0 || pIdx >= note_->pages.size())
-    return;
-
-  const auto &pageStrokes = note_->pages[pIdx].strokes;
-  if (pageStrokes.isEmpty())
-    return;
-
-  // Check the last few strokes (just committed)
-  const int checkCount = qMin(3, pageStrokes.size());
-  for (int i = pageStrokes.size() - checkCount; i < pageStrokes.size(); ++i) {
-    const Stroke &s = pageStrokes[i];
-    if (s.isHighlighter)
-      continue;
-
-    // Convert page-local path to scene coords for intersection test
-    const QRectF pageR = pageRect(pIdx);
-    QPainterPath scenePath;
-    for (int j = 0; j < s.points.size(); ++j) {
-      const QPointF sceneP = s.points[j] + pageR.topLeft();
-      if (j == 0)
-        scenePath.moveTo(sceneP);
-      else
-        scenePath.lineTo(sceneP);
-    }
-
-    if (s.isEraser) {
-      if (m_activeFormulaZone->catchAreaSceneRect().intersects(scenePath.boundingRect())) {
-        m_activeFormulaZone->eraseStrokesIntersecting(scenePath, s.width);
-      }
-    } else {
-      if (zoneScene.intersects(scenePath.boundingRect())) {
-        m_activeFormulaZone->addStroke(scenePath, s.color, s.width);
-      }
-    }
-  }
-}
+// Removed captureStrokesInFormulaZones as logic is now inside commitPendingStrokeItemsToNote
