@@ -52,6 +52,9 @@ dependencies {
     // forces android.bundle.enableUncompressedNativeLibs (broken on AGP 8.1+).
     //noinspection GradleDependency
     implementation 'androidx.core:core:1.12.0'
+    // styles.xml uses Theme.AppCompat.NoActionBar
+    //noinspection GradleDependency
+    implementation 'androidx.appcompat:appcompat:1.6.1'
 }
 
 android {
