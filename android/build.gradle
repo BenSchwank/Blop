@@ -48,8 +48,10 @@ apply plugin: localQtGradlePluginType
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
+    // Pin below 1.16: core-1.16+ needs compileSdk 35 + AGP 8.6+, but Qt 6.6 androiddeployqt
+    // forces android.bundle.enableUncompressedNativeLibs (broken on AGP 8.1+).
     //noinspection GradleDependency
-    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.core:core:1.12.0'
 }
 
 android {
