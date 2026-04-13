@@ -162,21 +162,38 @@ bool MathInkRecognizer::Impl::tryLoad()
 
 #ifdef BLOP_HAS_ONNX_OCR
     // --- Resolve model directory ---
+    // Search order:
+    //   1. Explicitly set modelDir (unit tests / installer)
+    //   2. <appDir>/assets/models  (installed / deployed build)
+    //   3. BLOP_MODELS_SOURCE_DIR  (source tree fallback for Qt Creator dev builds)
+    auto candidateDir = [](const QString &path) -> QString {
+        const QDir d(path);
+        if (d.exists(QStringLiteral("encoder.onnx")) &&
+            d.exists(QStringLiteral("decoder.onnx")) &&
+            d.exists(QStringLiteral("tokens.json")))
+            return path;
+        return {};
+    };
+
     QString dir = modelDir;
+    if (dir.isEmpty())
+        dir = candidateDir(QCoreApplication::applicationDirPath()
+                           + QStringLiteral("/assets/models"));
+#ifdef BLOP_MODELS_SOURCE_DIR
+    if (dir.isEmpty())
+        dir = candidateDir(QStringLiteral(BLOP_MODELS_SOURCE_DIR));
+#endif
     if (dir.isEmpty()) {
-        dir = QCoreApplication::applicationDirPath()
-              + QStringLiteral("/assets/models");
+        qInfo() << "[MathInkRecognizer] Model files not found in any search path"
+                << "-- offline recognition disabled.";
+        return false;
     }
+    qInfo() << "[MathInkRecognizer] Using model dir:" << dir;
+
     const QDir d(dir);
     const QString encPath   = d.filePath(QStringLiteral("encoder.onnx"));
     const QString decPath   = d.filePath(QStringLiteral("decoder.onnx"));
     const QString tokPath   = d.filePath(QStringLiteral("tokens.json"));
-
-    if (!QFile::exists(encPath) || !QFile::exists(decPath) || !QFile::exists(tokPath)) {
-        qInfo() << "[MathInkRecognizer] Model files not found in" << dir
-                << "-- offline recognition disabled.";
-        return false;
-    }
 
     // --- Load token vocabulary ---
     {
