@@ -21,6 +21,11 @@ public:
     /// if the input was empty or un-processable.
     static QString convert(const QString &latex);
 
+    /// Remove a function-definition prefix such as "f(x)=", "y=", "g(x)=".
+    /// This is called automatically inside convert() and can also be used
+    /// standalone when the expression did not come through LaTeX (e.g. backend).
+    static QString stripFunctionPrefix(const QString &expr);
+
 private:
     /// Strip leading/trailing LaTeX wrappers like $ … $, \( … \), etc.
     static QString stripMathDelimiters(const QString &s);
