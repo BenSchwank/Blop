@@ -329,6 +329,7 @@ public:
     update();
   }
   /// High-contrast raster of ink for vision-based recognition (white background, black strokes).
+  /// Output is grayscale with aspect ratio matching BTTR/CROHME conventions (wider than tall).
   QImage inkImageForRecognition() const {
     QRectF bb;
     for (const auto &s : m_strokes) {
@@ -343,10 +344,13 @@ public:
     bb.adjust(-kMargin, -kMargin, kMargin, kMargin);
     const qreal w = qMax(bb.width(), 1.0);
     const qreal h = qMax(bb.height(), 1.0);
-    constexpr int kOutW = 720;
-    const int kOutH = qBound(160, int(kOutW * h / w + 0.5), 420);
-    QImage img(kOutW, kOutH, QImage::Format_ARGB32_Premultiplied);
-    img.fill(Qt::white);
+    // Target aspect ratio closer to BTTR input (512x128 = 4:1).
+    // Keep width at 512 and compute height preserving aspect ratio,
+    // clamped so very tall expressions still fit.
+    constexpr int kOutW = 512;
+    const int kOutH = qBound(64, int(kOutW * h / w + 0.5), 256);
+    QImage img(kOutW, kOutH, QImage::Format_Grayscale8);
+    img.fill(255);  // white
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
     const qreal sx = (kOutW - 20) / w;
@@ -354,7 +358,8 @@ public:
     const qreal sc = qMin(sx, sy);
     p.translate(10.0 - bb.left() * sc, 10.0 - bb.top() * sc);
     p.scale(sc, sc);
-    const qreal penW = qMax(1.2, 3.5 / sc);
+    // Pen width ~2-3px at final resolution, matching CROHME stroke widths
+    const qreal penW = qMax(1.5, 2.5 / sc);
     p.setPen(QPen(Qt::black, penW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     for (const auto &s : m_strokes)
       p.drawPath(s);

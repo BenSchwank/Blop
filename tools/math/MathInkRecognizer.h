@@ -5,11 +5,12 @@
 
 /// Offline handwritten math expression recognizer using ONNX Runtime.
 ///
-/// Uses a pix2tex-style encoder–decoder architecture:
-///   1. Encoder: image → feature tensor
-///   2. Decoder: autoregressive token generation (greedy)
-///   3. Token de-mapping → LaTeX string
-///   4. LaTeX → Blop syntax via LatexToBlopConverter
+/// Uses a BTTR (Bidirectional Training with Transformer) encoder-decoder
+/// architecture trained on the CROHME handwritten-math dataset:
+///   1. Encoder: DenseNet image features + 2D positional encoding
+///   2. Decoder: autoregressive token generation (greedy, L2R)
+///   3. Token de-mapping -> LaTeX string
+///   4. LaTeX -> Blop syntax via LatexToBlopConverter
 ///
 /// The recognizer is a process-wide singleton.  Model files are loaded lazily
 /// on first call to recognize().  If the model files are missing the
