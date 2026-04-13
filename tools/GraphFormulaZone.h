@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QGraphicsObject>
+#include <QGraphicsProxyWidget>
 #include <QPainterPath>
 #include <QTimer>
 #include <QVector>
+#include <QLineEdit>
 
 class GraphCanvasItem;
 class QNetworkAccessManager;
@@ -64,9 +66,18 @@ public:
 
     /// True if the small round clear button at `scenePos` was hit.
     bool hitClearButton(const QPointF &scenePos) const;
-    
+
     /// True if the checkmark commit button at `scenePos` was hit.
     bool hitCommitButton(const QPointF &scenePos) const;
+
+    /// True if the recognized-expression label was tapped → opens inline editor.
+    bool hitExpressionLabel(const QPointF &scenePos) const;
+
+    /// Opens a small inline text editor so the user can type/correct the expression.
+    void openInlineEditor();
+
+    /// Closes the inline editor (if open), applying the typed text.
+    void closeInlineEditor();
 
 signals:
     /// Emitted when a new expression was recognized (preview curve).
@@ -107,6 +118,10 @@ private:
 
     QNetworkAccessManager *m_nam{nullptr};
     QNetworkReply *m_pendingReply{nullptr};
+
+    // ── Inline expression editor ─────────────────────────────────────
+    QGraphicsProxyWidget *m_editorProxy{nullptr};
+    QLineEdit            *m_editor{nullptr};
 
     // ── Layout constants & state ─────────────────────────────────────
     qreal m_currentWidth{200.0};
