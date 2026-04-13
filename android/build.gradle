@@ -35,7 +35,8 @@ def parseAndroidSdkInt = { String key, int fallback ->
 
 def localQtGradlePluginType = project.findProperty('qtGradlePluginType') ?: 'com.android.application'
 def localAndroidPackageName = project.findProperty('androidPackageName') ?: 'com.benschwank.blop'
-def localAndroidCompileSdkVersion = parseAndroidSdkInt('androidCompileSdkVersion', 34)
+// androiddeployqt can inject API 35 from NDK defaults; GHA android-35 android.jar breaks aapt2 — never compile above 34.
+def localAndroidCompileSdkVersion = Math.min(parseAndroidSdkInt('androidCompileSdkVersion', 34), 34)
 def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '34.0.0'
 def localAndroidNdkVersion = project.findProperty('androidNdkVersion') ?: '25.1.8937393'
 def localQtAndroidDir = project.findProperty('qtAndroidDir') ?: '.'
