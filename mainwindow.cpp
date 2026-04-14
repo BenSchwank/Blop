@@ -3785,10 +3785,10 @@ void MainWindow::onModeChanged(int index) {
     m_mainContentStack->setCurrentIndex(mainStackIdx);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
-      const bool showNativeHeader = (mainStackIdx == 0);
-      m_androidHeader->setVisible(showNativeHeader);
-      if (showNativeHeader)
-        m_androidHeader->raise();
+      // Keep Android mode tabs always reachable: if Study/Web renders black,
+      // users can still switch back to Notes.
+      m_androidHeader->setVisible(true);
+      m_androidHeader->raise();
     }
 #endif
   }
@@ -3823,19 +3823,18 @@ void MainWindow::onModeChanged(int index) {
       cur->setFocus(Qt::OtherFocusReason);
     }
   }
-  if (m_androidHeader)
-    m_androidHeader->setVisible(mainStackIdx == 0);
-  if (m_androidHeader && mainStackIdx == 0)
+  if (m_androidHeader) {
+    m_androidHeader->setVisible(true);
     m_androidHeader->raise();
+  }
   syncAndroidHeaderGeometry(this);
   // Study switches can transiently report stale availableGeometry on Android.
   // Re-sync shortly after layer reordering so the top tab row stays visible.
   QTimer::singleShot(80, this, [this]() {
     syncAndroidHeaderGeometry(this);
-    const bool inNotesMode = m_mainContentStack && m_mainContentStack->currentIndex() == 0;
     if (m_androidHeader)
-      m_androidHeader->setVisible(inNotesMode);
-    if (m_androidHeader && inNotesMode)
+      m_androidHeader->setVisible(true);
+    if (m_androidHeader)
       m_androidHeader->raise();
   });
 #endif
