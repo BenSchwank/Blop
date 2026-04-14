@@ -24,10 +24,10 @@
         <!-- QtLoader resolves these keys from Application meta-data on some builds. -->
         <meta-data
             android:name="android.app.lib_name"
-            android:value="@string/qt_app_lib_name" />
+            android:resource="@string/qt_app_lib_name" />
         <meta-data
             android:name="android.app.arguments"
-            android:value="@string/qt_app_arguments" />
+            android:resource="@string/qt_app_arguments" />
         <activity
             android:name="org.qtproject.qt.android.bindings.QtActivity"
             android:theme="@style/BlopTheme"
@@ -44,11 +44,11 @@
 
           <meta-data
                 android:name="android.app.lib_name"
-                android:value="@string/qt_app_lib_name" />
+                android:resource="@string/qt_app_lib_name" />
 
           <meta-data
                 android:name="android.app.arguments"
-                android:value="@string/qt_app_arguments" />
+                android:resource="@string/qt_app_arguments" />
         </activity>
 
         <provider
