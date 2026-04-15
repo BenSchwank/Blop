@@ -11,7 +11,8 @@ Rectangle {
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
     // Slight zoom-out so auth forms fit better without vertical scrolling.
-    property real authUiScale: 0.86
+    property real authUiScale: 0.94
+    property bool cacheMissRecoveryArmed: true
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
@@ -23,6 +24,7 @@ Rectangle {
             ssoPollingEnabled = true
             oauthPending = false
             firstLoadDone = true
+            cacheMissRecoveryArmed = true
             webView.url = studyUrl
             applyAuthUiScale()
         } else {
@@ -44,6 +46,13 @@ Rectangle {
                      "    var path = (location.pathname || '').toLowerCase();" +
                      "    var authLike = path.indexOf('login') !== -1 || path.indexOf('register') !== -1 || bodyText.indexOf('passwort') !== -1 || bodyText.indexOf('benutzername') !== -1;" +
                      "    if (authLike) {" +
+                     "      var viewport = document.querySelector('meta[name=\"viewport\"]');" +
+                     "      if (!viewport && document.head) {" +
+                     "        viewport = document.createElement('meta');" +
+                     "        viewport.name = 'viewport';" +
+                     "        document.head.appendChild(viewport);" +
+                     "      }" +
+                     "      if (viewport) viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';" +
                      "      document.documentElement.style.zoom = '" + authUiScale + "';" +
                      "      if (document.body) document.body.style.zoom = '" + authUiScale + "';" +
                     "    } else {" +
@@ -62,6 +71,7 @@ Rectangle {
         if (!firstLoadDone || webView.url.toString() === "" || webView.url.toString() === "about:blank") {
             webView.url = studyUrl
             firstLoadDone = true
+            cacheMissRecoveryArmed = true
         }
     }
 
@@ -164,6 +174,23 @@ Rectangle {
 
         // Qt 6: declare loadRequest explicitly (injected implicit parameter is deprecated)
         onLoadingChanged: function(loadRequest) {
+            var isFailed = false
+            var errorText = ""
+            try {
+                isFailed = (loadRequest.status === WebView.LoadFailedStatus)
+                errorText = String(loadRequest.errorString || "")
+            } catch (e) {
+                isFailed = false
+                errorText = ""
+            }
+
+            if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && cacheMissRecoveryArmed) {
+                cacheMissRecoveryArmed = false
+                webView.url = "about:blank"
+                cacheMissRetryTimer.start()
+                return
+            }
+
             if (ssoPollingEnabled && loadRequest.url.toString().indexOf("blop://google-login") === 0) {
                 webView.stop()
                 if (typeof blopAppBridge !== "undefined") {
@@ -187,6 +214,17 @@ Rectangle {
         running: true
         repeat: false
         onTriggered: ensureStudyLoaded()
+    }
+
+    Timer {
+        id: cacheMissRetryTimer
+        interval: 220
+        running: false
+        repeat: false
+        onTriggered: {
+            webView.url = studyUrl
+            applyAuthUiScale()
+        }
     }
 
     onVisibleChanged: {
