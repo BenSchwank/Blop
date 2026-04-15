@@ -17,6 +17,7 @@ Rectangle {
     property int cacheMissRecoveryCount: 0
     readonly property int cacheMissRecoveryLimit: 3
     property bool nativeResetPending: false
+    property double lastCacheMissRecoveryMs: 0
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
@@ -93,11 +94,16 @@ Rectangle {
             return
         if (cacheMissRecoveryCount >= cacheMissRecoveryLimit)
             return
+        var nowMs = Date.now()
+        if (nowMs - lastCacheMissRecoveryMs < 1200)
+            return
+        lastCacheMissRecoveryMs = nowMs
         cacheMissRecoveryCount += 1
-        cacheMissRecoveryArmed = true
+        // Keep the guard down until we actively retry a fresh URL, otherwise
+        // the same already-visible error page can re-trigger recovery loops.
+        cacheMissRecoveryArmed = false
         oauthPending = false
         webView.stop()
-        webView.url = "about:blank"
         if (cacheMissRecoveryCount >= 2 && !nativeResetPending &&
                 typeof blopAppBridge !== "undefined" &&
                 blopAppBridge.resetAndroidWebViewStorage) {
@@ -271,6 +277,7 @@ Rectangle {
         running: false
         repeat: false
         onTriggered: {
+            cacheMissRecoveryArmed = true
             webView.url = buildFreshStudyEntryUrl()
             applyAuthUiScale()
         }
