@@ -7,6 +7,7 @@ Rectangle {
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
     property string studyUrl: "https://blop-six.vercel.app"
+    property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
@@ -89,6 +90,11 @@ Rectangle {
         oauthPending = false
         webView.stop()
         webView.url = "about:blank"
+        if (cacheMissRecoveryCount >= 2 && studyUrl.indexOf("blop-six.vercel.app") !== -1) {
+            // Runtime fallback: some Android WebView builds repeatedly fail with
+            // ERR_CACHE_MISS on the vercel alias while the canonical domain works.
+            studyUrl = studyUrlFallback
+        }
         cacheMissRetryTimer.start()
     }
 
