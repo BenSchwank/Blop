@@ -16,6 +16,7 @@ Rectangle {
     property bool cacheMissRecoveryArmed: true
     property int cacheMissRecoveryCount: 0
     readonly property int cacheMissRecoveryLimit: 3
+    property bool nativeResetPending: false
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
@@ -97,6 +98,14 @@ Rectangle {
         oauthPending = false
         webView.stop()
         webView.url = "about:blank"
+        if (cacheMissRecoveryCount >= 2 && !nativeResetPending &&
+                typeof blopAppBridge !== "undefined" &&
+                blopAppBridge.resetAndroidWebViewStorage) {
+            nativeResetPending = true
+            blopAppBridge.resetAndroidWebViewStorage()
+            nativeResetTimer.start()
+            return
+        }
         if (cacheMissRecoveryCount >= 2 && studyUrl.indexOf("blop-six.vercel.app") !== -1) {
             // Runtime fallback: some Android WebView builds repeatedly fail with
             // ERR_CACHE_MISS on the vercel alias while the canonical domain works.
@@ -242,6 +251,11 @@ Rectangle {
             if (loadRequest.url.toString().indexOf("https://") === 0 ||
                 loadRequest.url.toString().indexOf("http://") === 0) {
                 oauthPending = false
+                if (loadRequest.status === WebView.LoadSucceededStatus) {
+                    cacheMissRecoveryCount = 0
+                    cacheMissRecoveryArmed = true
+                    nativeResetPending = false
+                }
                 applyAuthUiScale()
             }
         }
@@ -264,6 +278,17 @@ Rectangle {
         onTriggered: {
             webView.url = buildFreshStudyEntryUrl()
             applyAuthUiScale()
+        }
+    }
+
+    Timer {
+        id: nativeResetTimer
+        interval: 520
+        running: false
+        repeat: false
+        onTriggered: {
+            nativeResetPending = false
+            cacheMissRetryTimer.start()
         }
     }
 

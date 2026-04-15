@@ -3900,6 +3900,21 @@ void MainWindow::requestGoogleLogin() {
     GoogleAuthManager::instance().login();
 }
 
+void MainWindow::resetAndroidWebViewStorage() {
+#ifdef Q_OS_ANDROID
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid())
+      return;
+
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "clearWebViewState",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+  });
+#endif
+}
+
 void MainWindow::switchToNotesFromWebQmlBar() {
 #ifdef Q_OS_ANDROID
   if (m_modeSelector) {
