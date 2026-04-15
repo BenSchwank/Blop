@@ -20,6 +20,13 @@ Rectangle {
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
 
+    function buildFreshStudyEntryUrl() {
+        var base = studyUrl
+        if (base.length > 0 && base.charAt(base.length - 1) === "/")
+            base = base.slice(0, -1)
+        return base + "/login?native=1&_ts=" + Date.now()
+    }
+
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
     function setWebDestination(kind, urlStr) {
         var k = Number(kind)
@@ -29,7 +36,7 @@ Rectangle {
             firstLoadDone = true
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
-            webView.url = studyUrl
+            webView.url = buildFreshStudyEntryUrl()
             applyAuthUiScale()
         } else {
             ssoPollingEnabled = false
@@ -73,7 +80,7 @@ Rectangle {
         if (!ssoPollingEnabled)
             return
         if (!firstLoadDone || webView.url.toString() === "" || webView.url.toString() === "about:blank") {
-            webView.url = studyUrl
+            webView.url = buildFreshStudyEntryUrl()
             firstLoadDone = true
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
@@ -255,7 +262,7 @@ Rectangle {
         running: false
         repeat: false
         onTriggered: {
-            webView.url = studyUrl
+            webView.url = buildFreshStudyEntryUrl()
             applyAuthUiScale()
         }
     }
