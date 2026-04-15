@@ -13,6 +13,8 @@ Rectangle {
     // Slight zoom-out so auth forms fit better without vertical scrolling.
     property real authUiScale: 0.94
     property bool cacheMissRecoveryArmed: true
+    property int cacheMissRecoveryCount: 0
+    readonly property int cacheMissRecoveryLimit: 3
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
@@ -25,6 +27,7 @@ Rectangle {
             oauthPending = false
             firstLoadDone = true
             cacheMissRecoveryArmed = true
+            cacheMissRecoveryCount = 0
             webView.url = studyUrl
             applyAuthUiScale()
         } else {
@@ -72,7 +75,21 @@ Rectangle {
             webView.url = studyUrl
             firstLoadDone = true
             cacheMissRecoveryArmed = true
+            cacheMissRecoveryCount = 0
         }
+    }
+
+    function recoverFromCacheMiss(reason) {
+        if (!ssoPollingEnabled)
+            return
+        if (cacheMissRecoveryCount >= cacheMissRecoveryLimit)
+            return
+        cacheMissRecoveryCount += 1
+        cacheMissRecoveryArmed = true
+        oauthPending = false
+        webView.stop()
+        webView.url = "about:blank"
+        cacheMissRetryTimer.start()
     }
 
     Rectangle {
@@ -176,18 +193,28 @@ Rectangle {
         onLoadingChanged: function(loadRequest) {
             var isFailed = false
             var errorText = ""
+            var urlText = ""
             try {
                 isFailed = (loadRequest.status === WebView.LoadFailedStatus)
                 errorText = String(loadRequest.errorString || "")
+                urlText = String(loadRequest.url || "")
             } catch (e) {
                 isFailed = false
                 errorText = ""
+                urlText = ""
             }
 
             if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && cacheMissRecoveryArmed) {
                 cacheMissRecoveryArmed = false
-                webView.url = "about:blank"
-                cacheMissRetryTimer.start()
+                recoverFromCacheMiss("errorString")
+                return
+            }
+
+            // Android WebView can land on chrome error pages without a classic
+            // LoadFailedStatus callback. Recover from that URL explicitly.
+            if (urlText.toLowerCase().indexOf("chrome-error://chromewebdata") === 0 && cacheMissRecoveryArmed) {
+                cacheMissRecoveryArmed = false
+                recoverFromCacheMiss("chromeErrorPage")
                 return
             }
 
@@ -218,7 +245,7 @@ Rectangle {
 
     Timer {
         id: cacheMissRetryTimer
-        interval: 220
+        interval: 420
         running: false
         repeat: false
         onTriggered: {
@@ -353,6 +380,23 @@ Rectangle {
                     }
                 }
             })
+
+            // Fallback detection for Android WebView local error pages that still
+            // report as loaded content.
+            webView.runJavaScript(
+                "(function(){ try { " +
+                "var t=((document.body&&document.body.innerText)?document.body.innerText:'').toLowerCase();" +
+                "return t.indexOf('err_cache_miss')!==-1 ? 'ERR_CACHE_MISS' : ''; " +
+                "} catch(e) { return ''; } })();",
+                function(flag) {
+                    if (!ssoPollingEnabled || !cacheMissRecoveryArmed)
+                        return
+                    if (flag && flag.toString && flag.toString() === "ERR_CACHE_MISS") {
+                        cacheMissRecoveryArmed = false
+                        recoverFromCacheMiss("domText")
+                    }
+                }
+            )
         }
     }
 }
