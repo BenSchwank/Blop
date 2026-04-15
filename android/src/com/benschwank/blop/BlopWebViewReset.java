@@ -24,25 +24,36 @@ public final class BlopWebViewReset {
             try {
                 CookieManager cookieManager = CookieManager.getInstance();
                 if (cookieManager != null) {
-                    cookieManager.removeAllCookies(null);
-                    cookieManager.flush();
+                    cookieManager.removeAllCookies(value -> {
+                        try {
+                            cookieManager.flush();
+                        } catch (Throwable flushError) {
+                            Log.w(TAG, "Cookie flush failed after removeAllCookies", flushError);
+                        }
+                        clearStorageAndActiveWebView(activity);
+                    });
+                    return;
                 }
-                WebStorage.getInstance().deleteAllData();
-                WebView activeWebView = findWebView(activity.getWindow() != null
-                        ? activity.getWindow().getDecorView() : null);
-                if (activeWebView != null) {
-                    activeWebView.stopLoading();
-                    activeWebView.clearHistory();
-                    activeWebView.clearFormData();
-                    activeWebView.clearCache(true);
-                    Log.i(TAG, "WebView cookie/storage/cache reset completed");
-                } else {
-                    Log.i(TAG, "WebView cookie/storage reset completed (no active WebView found)");
-                }
+                clearStorageAndActiveWebView(activity);
             } catch (Throwable t) {
                 Log.e(TAG, "WebView cookie/storage reset failed", t);
             }
         });
+    }
+
+    private static void clearStorageAndActiveWebView(Activity activity) {
+        WebStorage.getInstance().deleteAllData();
+        WebView activeWebView = findWebView(activity.getWindow() != null
+                ? activity.getWindow().getDecorView() : null);
+        if (activeWebView != null) {
+            activeWebView.stopLoading();
+            activeWebView.clearHistory();
+            activeWebView.clearFormData();
+            activeWebView.clearCache(true);
+            Log.i(TAG, "WebView cookie/storage/cache reset completed");
+        } else {
+            Log.i(TAG, "WebView cookie/storage reset completed (no active WebView found)");
+        }
     }
 
     private static WebView findWebView(View root) {

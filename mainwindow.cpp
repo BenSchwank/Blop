@@ -152,7 +152,7 @@ static const int FONT_SIZE_HEADER = 18;
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
 /// Embedded Blop Study (keep in sync with AndroidWebView.qml studyUrl).
-static const QString kBlopStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
+static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
 
 namespace {
 
@@ -3902,15 +3902,19 @@ void MainWindow::requestGoogleLogin() {
 
 void MainWindow::resetAndroidWebViewStorage() {
 #ifdef Q_OS_ANDROID
+  qInfo() << "Android WebView reset requested from QML bridge";
   QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
     QJniObject activity = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
-    if (!activity.isValid())
+    if (!activity.isValid()) {
+      qWarning() << "Android WebView reset skipped: invalid activity";
       return;
+    }
 
     QJniObject::callStaticMethod<void>(
         "com/benschwank/blop/BlopWebViewReset", "clearWebViewState",
         "(Landroid/app/Activity;)V", activity.object<jobject>());
+    qInfo() << "Android WebView reset JNI call dispatched";
   });
 #endif
 }

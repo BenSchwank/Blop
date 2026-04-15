@@ -6,8 +6,8 @@ Rectangle {
     color: "#0B0B1A"
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
-    property string studyUrl: "https://blop-six.vercel.app"
-    property string studyUrlFallback: "https://blop-study.com"
+    property string studyUrl: "https://blop-study.com"
+    property string studyUrlFallback: "https://blop-six.vercel.app"
     property bool firstLoadDone: false
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
@@ -112,7 +112,7 @@ Rectangle {
             nativeResetTimer.start()
             return
         }
-        if (cacheMissRecoveryCount >= 2 && studyUrl.indexOf("blop-six.vercel.app") !== -1) {
+        if (cacheMissRecoveryCount >= 2 && studyUrl.indexOf("blop-study.com") !== -1) {
             // Runtime fallback: some Android WebView builds repeatedly fail with
             // ERR_CACHE_MISS on the vercel alias while the canonical domain works.
             studyUrl = studyUrlFallback
@@ -233,7 +233,6 @@ Rectangle {
             }
 
             if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && cacheMissRecoveryArmed) {
-                cacheMissRecoveryArmed = false
                 recoverFromCacheMiss("errorString")
                 return
             }
@@ -241,7 +240,6 @@ Rectangle {
             // Android WebView can land on chrome error pages without a classic
             // LoadFailedStatus callback. Recover from that URL explicitly.
             if (urlText.toLowerCase().indexOf("chrome-error://chromewebdata") === 0 && cacheMissRecoveryArmed) {
-                cacheMissRecoveryArmed = false
                 recoverFromCacheMiss("chromeErrorPage")
                 return
             }
@@ -285,7 +283,7 @@ Rectangle {
 
     Timer {
         id: nativeResetTimer
-        interval: 520
+        interval: 1200
         running: false
         repeat: false
         onTriggered: {
@@ -432,7 +430,6 @@ Rectangle {
                     if (!ssoPollingEnabled || !cacheMissRecoveryArmed)
                         return
                     if (flag && flag.toString && flag.toString() === "ERR_CACHE_MISS") {
-                        cacheMissRecoveryArmed = false
                         recoverFromCacheMiss("domText")
                     }
                 }
