@@ -251,11 +251,6 @@ Rectangle {
             if (loadRequest.url.toString().indexOf("https://") === 0 ||
                 loadRequest.url.toString().indexOf("http://") === 0) {
                 oauthPending = false
-                if (loadRequest.status === WebView.LoadSucceededStatus) {
-                    cacheMissRecoveryCount = 0
-                    cacheMissRecoveryArmed = true
-                    nativeResetPending = false
-                }
                 applyAuthUiScale()
             }
         }
