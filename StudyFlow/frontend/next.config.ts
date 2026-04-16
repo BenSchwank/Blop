@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
         has: [{ type: "query", key: "native", value: "1" }],
         headers: nativeNoStoreHeaders,
       },
+      {
+        source: "/native-smoke",
+        headers: nativeNoStoreHeaders,
+      },
     ];
   },
   async rewrites() {
