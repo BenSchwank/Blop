@@ -3,6 +3,7 @@ import QtQuick.Controls 2.0
 import QtWebView 1.1
 
 Rectangle {
+    id: studyRoot
     color: "#0B0B1A"
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
@@ -18,9 +19,16 @@ Rectangle {
     readonly property int cacheMissRecoveryLimit: 3
     property bool nativeResetPending: false
     property double lastCacheMissRecoveryMs: 0
+    property int webViewRecreateCount: 0
+    readonly property int webViewRecreateLimit: 2
+    property bool webviewRecreatePending: false
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
+
+    function studyWeb() {
+        return studyWebLoader.item
+    }
 
     function buildFreshStudyEntryUrl() {
         var base = studyUrl
@@ -38,18 +46,28 @@ Rectangle {
             firstLoadDone = true
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
-            webView.url = buildFreshStudyEntryUrl()
+            webViewRecreateCount = 0
+            webviewRecreatePending = false
+            var w0 = studyWeb()
+            if (w0)
+                w0.url = buildFreshStudyEntryUrl()
             applyAuthUiScale()
         } else {
             ssoPollingEnabled = false
             oauthPending = false
-            if (urlStr && String(urlStr).length > 0)
-                webView.url = urlStr
+            if (urlStr && String(urlStr).length > 0) {
+                var w1 = studyWeb()
+                if (w1)
+                    w1.url = urlStr
+            }
         }
     }
 
     function applyAuthUiScale() {
         if (!ssoPollingEnabled)
+            return
+        var w = studyWeb()
+        if (!w)
             return
         var jsCode = "(function() {" +
                      "  try {" +
@@ -74,26 +92,48 @@ Rectangle {
                     "    }" +
                      "  } catch(e) {}" +
                      "  return true;" +
-                     "})();";
-        webView.runJavaScript(jsCode);
+                     "})();"
+        w.runJavaScript(jsCode)
     }
 
     function ensureStudyLoaded() {
         if (!ssoPollingEnabled)
             return
-        if (!firstLoadDone || webView.url.toString() === "" || webView.url.toString() === "about:blank") {
-            webView.url = buildFreshStudyEntryUrl()
+        var w = studyWeb()
+        if (!w)
+            return
+        if (!firstLoadDone || w.url.toString() === "" || w.url.toString() === "about:blank") {
+            w.url = buildFreshStudyEntryUrl()
             firstLoadDone = true
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
         }
     }
 
+    function scheduleStudyWebViewRecreate(reason) {
+        if (webviewRecreatePending)
+            return
+        if (webViewRecreateCount >= webViewRecreateLimit)
+            return
+        webviewRecreatePending = true
+        webViewRecreateCount += 1
+        cacheMissRecoveryCount = 0
+        cacheMissRecoveryArmed = false
+        nativeResetPending = false
+        console.log("BlopStudy: webview recreate start", reason, "n=", webViewRecreateCount)
+        webLoaderDeactivateTimer.start()
+    }
+
     function recoverFromCacheMiss(reason) {
         if (!ssoPollingEnabled)
             return
-        if (cacheMissRecoveryCount >= cacheMissRecoveryLimit)
+        if (webviewRecreatePending)
             return
+        if (cacheMissRecoveryCount >= cacheMissRecoveryLimit) {
+            if (webViewRecreateCount < webViewRecreateLimit)
+                scheduleStudyWebViewRecreate("limitReached:" + reason)
+            return
+        }
         var nowMs = Date.now()
         if (nowMs - lastCacheMissRecoveryMs < 1200)
             return
@@ -103,7 +143,16 @@ Rectangle {
         // the same already-visible error page can re-trigger recovery loops.
         cacheMissRecoveryArmed = false
         oauthPending = false
-        webView.stop()
+        var w = studyWeb()
+        if (w)
+            w.stop()
+
+        // After several soft recoveries, destroy and recreate the WebView instance in-app.
+        if (cacheMissRecoveryCount >= 3 && webViewRecreateCount < webViewRecreateLimit) {
+            scheduleStudyWebViewRecreate("cacheMissCount:" + reason)
+            return
+        }
+
         if (cacheMissRecoveryCount >= 2 && !nativeResetPending &&
                 typeof blopAppBridge !== "undefined" &&
                 blopAppBridge.resetAndroidWebViewStorage) {
@@ -209,54 +258,103 @@ Rectangle {
         }
     }
 
-    WebView {
-        id: webView
+    Component {
+        id: studyWebViewComponent
+        WebView {
+            id: embeddedStudyWebView
+            anchors.fill: parent
+            url: "about:blank"
+
+            // Qt 6: declare loadRequest explicitly (injected implicit parameter is deprecated)
+            onLoadingChanged: function(loadRequest) {
+                var isFailed = false
+                var errorText = ""
+                var urlText = ""
+                try {
+                    isFailed = (loadRequest.status === WebView.LoadFailedStatus)
+                    errorText = String(loadRequest.errorString || "")
+                    urlText = String(loadRequest.url || "")
+                } catch (e) {
+                    isFailed = false
+                    errorText = ""
+                    urlText = ""
+                }
+
+                if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && studyRoot.cacheMissRecoveryArmed) {
+                    studyRoot.recoverFromCacheMiss("errorString")
+                    return
+                }
+
+                // Android WebView can land on chrome error pages without a classic
+                // LoadFailedStatus callback. Recover from that URL explicitly.
+                if (urlText.toLowerCase().indexOf("chrome-error://chromewebdata") === 0 && studyRoot.cacheMissRecoveryArmed) {
+                    studyRoot.recoverFromCacheMiss("chromeErrorPage")
+                    return
+                }
+
+                if (studyRoot.ssoPollingEnabled && loadRequest.url.toString().indexOf("blop://google-login") === 0) {
+                    embeddedStudyWebView.stop()
+                    if (typeof blopAppBridge !== "undefined") {
+                        blopAppBridge.requestGoogleLogin()
+                    }
+                }
+                // Defensive reset: if an OAuth overlay stayed visible accidentally, clear it
+                // when normal website navigation happens.
+                if (loadRequest.url.toString().indexOf("https://") === 0 ||
+                    loadRequest.url.toString().indexOf("http://") === 0) {
+                    studyRoot.oauthPending = false
+                    studyRoot.applyAuthUiScale()
+                }
+            }
+        }
+    }
+
+    Loader {
+        id: studyWebLoader
         anchors.top: qmlTopBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        url: "about:blank"
+        active: true
+        asynchronous: false
+        sourceComponent: studyWebViewComponent
+    }
 
-        // Qt 6: declare loadRequest explicitly (injected implicit parameter is deprecated)
-        onLoadingChanged: function(loadRequest) {
-            var isFailed = false
-            var errorText = ""
-            var urlText = ""
-            try {
-                isFailed = (loadRequest.status === WebView.LoadFailedStatus)
-                errorText = String(loadRequest.errorString || "")
-                urlText = String(loadRequest.url || "")
-            } catch (e) {
-                isFailed = false
-                errorText = ""
-                urlText = ""
-            }
+    Timer {
+        id: webLoaderDeactivateTimer
+        interval: 50
+        running: false
+        repeat: false
+        onTriggered: {
+            studyWebLoader.active = false
+            webLoaderReactivateTimer.start()
+        }
+    }
 
-            if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && cacheMissRecoveryArmed) {
-                recoverFromCacheMiss("errorString")
-                return
-            }
+    Timer {
+        id: webLoaderReactivateTimer
+        interval: 80
+        running: false
+        repeat: false
+        onTriggered: {
+            studyWebLoader.active = true
+            webviewRecreatePending = false
+            console.log("BlopStudy: webview recreate done")
+            cacheMissRecoveryArmed = true
+            postRecreateLoadTimer.start()
+        }
+    }
 
-            // Android WebView can land on chrome error pages without a classic
-            // LoadFailedStatus callback. Recover from that URL explicitly.
-            if (urlText.toLowerCase().indexOf("chrome-error://chromewebdata") === 0 && cacheMissRecoveryArmed) {
-                recoverFromCacheMiss("chromeErrorPage")
-                return
-            }
-
-            if (ssoPollingEnabled && loadRequest.url.toString().indexOf("blop://google-login") === 0) {
-                webView.stop()
-                if (typeof blopAppBridge !== "undefined") {
-                    blopAppBridge.requestGoogleLogin()
-                }
-            }
-            // Defensive reset: if an OAuth overlay stayed visible accidentally, clear it
-            // when normal website navigation happens.
-            if (loadRequest.url.toString().indexOf("https://") === 0 ||
-                loadRequest.url.toString().indexOf("http://") === 0) {
-                oauthPending = false
-                applyAuthUiScale()
-            }
+    Timer {
+        id: postRecreateLoadTimer
+        interval: 0
+        running: false
+        repeat: false
+        onTriggered: {
+            var w = studyWeb()
+            if (w && ssoPollingEnabled)
+                w.url = buildFreshStudyEntryUrl()
+            applyAuthUiScale()
         }
     }
 
@@ -276,7 +374,9 @@ Rectangle {
         repeat: false
         onTriggered: {
             cacheMissRecoveryArmed = true
-            webView.url = buildFreshStudyEntryUrl()
+            var w = studyWeb()
+            if (w)
+                w.url = buildFreshStudyEntryUrl()
             applyAuthUiScale()
         }
     }
@@ -379,16 +479,21 @@ Rectangle {
             // jsCode is pre-built by C++: sets session_id + username in localStorage, then navigates to /
             console.log("QML: Injecting session from C++ backend verification...");
             oauthPending = false;  // Hide the overlay
-            webView.runJavaScript(jsCode);
+            var w = studyWeb()
+            if (w)
+                w.runJavaScript(jsCode)
         }
     }
 
     Timer {
         interval: 1000
-        running: ssoPollingEnabled
+        running: ssoPollingEnabled && !webviewRecreatePending
         repeat: true
         onTriggered: {
             if (!ssoPollingEnabled)
+                return
+            var w = studyWeb()
+            if (!w)
                 return
             var jsCode = "(function() { \n" +
                          "  window.isBlopNativeApp = true;\n" +
@@ -401,7 +506,7 @@ Rectangle {
                          "  return (u && s) ? u : '';\n" +
                          "})();"
 
-            webView.runJavaScript(jsCode, function(result) {
+            w.runJavaScript(jsCode, function(result) {
                 if (!ssoPollingEnabled)
                     return
                 if (typeof blopAppBridge !== "undefined" && result !== undefined) {
@@ -421,7 +526,7 @@ Rectangle {
 
             // Fallback detection for Android WebView local error pages that still
             // report as loaded content.
-            webView.runJavaScript(
+            w.runJavaScript(
                 "(function(){ try { " +
                 "var t=((document.body&&document.body.innerText)?document.body.innerText:'').toLowerCase();" +
                 "return t.indexOf('err_cache_miss')!==-1 ? 'ERR_CACHE_MISS' : ''; " +
