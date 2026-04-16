@@ -34,7 +34,7 @@ Rectangle {
         var base = studyUrl
         if (base.length > 0 && base.charAt(base.length - 1) === "/")
             base = base.slice(0, -1)
-        return base + "/?native=1&_ts=" + Date.now()
+        return base + "/"
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
