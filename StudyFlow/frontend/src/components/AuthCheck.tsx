@@ -23,10 +23,14 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
         // Check if user is authenticated
         const sessionId = localStorage.getItem('session_id');
         const username = localStorage.getItem('username');
+        const params = new URLSearchParams(window.location.search);
+        const isNativeEntry = params.get('native') === '1';
 
         if (!sessionId || !username) {
-            // Not authenticated, force hard redirect to fix Safari caching/race conditions
-            window.location.href = '/login';
+            // Keep native entry deterministic: preserve native hint and use replace
+            // to avoid redirect loops in embedded Android WebView.
+            const loginTarget = isNativeEntry ? '/login?native=1' : '/login';
+            window.location.replace(loginTarget);
         }
     }, [pathname]); // Removing router dependency as we no longer use it inside the effect
 
