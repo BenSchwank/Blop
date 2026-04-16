@@ -14,6 +14,31 @@ public final class BlopWebViewReset {
     private BlopWebViewReset() {
     }
 
+    /**
+     * Minimal in-process recovery for embedded WebView load failures (e.g. ERR_CACHE_MISS).
+     * Does not clear disk cache, cookies, or DOM storage — those can worsen cache-only
+     * navigation errors when retried immediately.
+     */
+    public static void clearWebViewStateLight(final Activity activity) {
+        if (activity == null) {
+            Log.w(TAG, "clearWebViewStateLight called with null activity");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            try {
+                nudgeActiveWebViewOnly(activity);
+            } catch (Throwable t) {
+                Log.e(TAG, "WebView light reset failed", t);
+            }
+        });
+    }
+
+    /**
+     * Full session reset: cookies, {@link WebStorage}, and active WebView history/forms.
+     * Avoid calling from automated retry loops; prefer {@link #clearWebViewStateLight(Activity)}
+     * for ERR_CACHE_MISS recovery. Disk cache eviction is intentionally omitted here too
+     * ({@code clearCache(true)}) because it can provoke {@code net::ERR_CACHE_MISS} on retry.
+     */
     public static void clearWebViewState(final Activity activity) {
         if (activity == null) {
             Log.w(TAG, "clearWebViewState called with null activity");
@@ -41,6 +66,19 @@ public final class BlopWebViewReset {
         });
     }
 
+    private static void nudgeActiveWebViewOnly(Activity activity) {
+        WebView activeWebView = findWebView(activity.getWindow() != null
+                ? activity.getWindow().getDecorView() : null);
+        if (activeWebView != null) {
+            activeWebView.stopLoading();
+            activeWebView.clearHistory();
+            activeWebView.clearFormData();
+            Log.i(TAG, "WebView light reset completed (stop/history/forms only)");
+        } else {
+            Log.i(TAG, "WebView light reset no-op (no active WebView found)");
+        }
+    }
+
     private static void clearStorageAndActiveWebView(Activity activity) {
         WebStorage.getInstance().deleteAllData();
         WebView activeWebView = findWebView(activity.getWindow() != null
@@ -49,8 +87,7 @@ public final class BlopWebViewReset {
             activeWebView.stopLoading();
             activeWebView.clearHistory();
             activeWebView.clearFormData();
-            activeWebView.clearCache(true);
-            Log.i(TAG, "WebView cookie/storage/cache reset completed");
+            Log.i(TAG, "WebView cookie/storage reset completed");
         } else {
             Log.i(TAG, "WebView cookie/storage reset completed (no active WebView found)");
         }

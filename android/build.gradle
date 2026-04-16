@@ -82,6 +82,7 @@ android {
      * Changing them manually might break the compilation!
      *******************************************************/
 
+    // AGP 8+: R class / manifest package come from namespace (do not set package= in AndroidManifest.xml).
     namespace = localAndroidPackageName
     compileSdkVersion localAndroidCompileSdkVersion
     buildToolsVersion localAndroidBuildToolsVersion

@@ -18,6 +18,8 @@ Rectangle {
     property int cacheMissRecoveryCount: 0
     readonly property int cacheMissRecoveryLimit: 2
     property bool nativeResetPending: false
+    property double lastNativeWebViewResetMs: 0
+    readonly property int nativeWebViewResetMinIntervalMs: 25000
     property double lastCacheMissRecoveryMs: 0
     property int webViewRecreateCount: 0
     readonly property int webViewRecreateLimit: 1
@@ -34,9 +36,8 @@ Rectangle {
         var base = studyUrl
         if (base.length > 0 && base.charAt(base.length - 1) === "/")
             base = base.slice(0, -1)
-        // Temporärer Smoke-Test-Endpunkt für ERR_CACHE_MISS-Analyse:
-        // lädt eine minimal statische Seite ohne komplexes Routing.
-        return base + "/native-smoke"
+        // Native entry: StudyFlow treats ?native=1 as embedded-app mode (headers, redirects).
+        return base + "/?native=1"
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
@@ -50,6 +51,7 @@ Rectangle {
             cacheMissRecoveryCount = 0
             webViewRecreateCount = 0
             webviewRecreatePending = false
+            lastNativeWebViewResetMs = 0
             var w0 = studyWeb()
             if (w0)
                 w0.url = buildFreshStudyEntryUrl()
@@ -122,6 +124,7 @@ Rectangle {
         cacheMissRecoveryCount = 0
         cacheMissRecoveryArmed = false
         nativeResetPending = false
+        lastNativeWebViewResetMs = 0
         console.log("BlopStudy: webview recreate start", reason, "n=", webViewRecreateCount)
         webLoaderDeactivateTimer.start()
     }
@@ -156,8 +159,10 @@ Rectangle {
         }
 
         if (cacheMissRecoveryCount >= 2 && !nativeResetPending &&
+                (Date.now() - lastNativeWebViewResetMs >= nativeWebViewResetMinIntervalMs) &&
                 typeof blopAppBridge !== "undefined" &&
                 blopAppBridge.resetAndroidWebViewStorage) {
+            lastNativeWebViewResetMs = Date.now()
             nativeResetPending = true
             blopAppBridge.resetAndroidWebViewStorage()
             nativeResetTimer.start()

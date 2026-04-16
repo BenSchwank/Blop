@@ -1,8 +1,7 @@
 <?xml version="1.0"?>
-<!-- package: Qt 6.6 androiddeployqt rejects manifest without it ("Invalid android manifest file").
-     AGP still uses namespace/applicationId from build.gradle; duplicate package here is a benign warning. -->
+<!-- package attribute removed: AGP 8+ expects R/manifest package from android.namespace in build.gradle.
+     Qt 6.10+ androiddeployqt accepts manifest without package= when namespace is set. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.benschwank.blop"
     android:installLocation="auto"
     android:versionCode="-- %%INSERT_VERSION_CODE%% --"
     android:versionName="-- %%INSERT_VERSION_NAME%% --">

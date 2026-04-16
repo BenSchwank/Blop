@@ -151,7 +151,7 @@ static const int FONT_SIZE_HEADER = 18;
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
-/// Embedded Blop Study (keep in sync with AndroidWebView.qml studyUrl).
+/// Embedded Blop Study base URL (Android QML appends "/?native=1" for embedded entry).
 static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
 
 namespace {
@@ -3424,6 +3424,38 @@ bool InterceptingWebPage::acceptNavigationRequest(const QUrl &url, NavigationTyp
 }
 #endif
 
+#ifdef Q_OS_ANDROID
+namespace {
+void logAndroidSystemWebViewPackageOnce()
+{
+  static bool sLogged = false;
+  if (sLogged)
+    return;
+  sLogged = true;
+
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject pkg = QJniObject::callStaticObjectMethod(
+        "android/webkit/WebView", "getCurrentWebViewPackage",
+        "()Landroid/content/pm/PackageInfo;");
+    if (!pkg.isValid()) {
+      qInfo() << "BlopStudy: System WebView package: (unavailable)";
+      return;
+    }
+    const QJniObject packageName =
+        pkg.getObjectField("packageName", "Ljava/lang/String;");
+    const QJniObject versionName =
+        pkg.getObjectField("versionName", "Ljava/lang/String;");
+    const QString pkgStr =
+        packageName.isValid() ? packageName.toString() : QString();
+    const QString verStr =
+        versionName.isValid() ? versionName.toString() : QString();
+    qInfo().nospace() << "BlopStudy: System WebView package: " << pkgStr << " "
+                      << verStr;
+  });
+}
+} // namespace
+#endif
+
 void MainWindow::setupWebBrowser() {
   m_studyContainer = new QWidget(this);
   // Match Study web chrome; avoids light “gaps” around the native WebView.
@@ -3472,6 +3504,8 @@ void MainWindow::setupWebBrowser() {
   container->setFocusPolicy(Qt::StrongFocus);
   container->setFocus(Qt::OtherFocusReason);
   layout->addWidget(container);
+
+  logAndroidSystemWebViewPackageOnce();
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
@@ -3902,7 +3936,7 @@ void MainWindow::requestGoogleLogin() {
 
 void MainWindow::resetAndroidWebViewStorage() {
 #ifdef Q_OS_ANDROID
-  qInfo() << "Android WebView reset requested from QML bridge";
+  qInfo() << "Android WebView light reset requested from QML bridge";
   QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
     QJniObject activity = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
@@ -3912,9 +3946,9 @@ void MainWindow::resetAndroidWebViewStorage() {
     }
 
     QJniObject::callStaticMethod<void>(
-        "com/benschwank/blop/BlopWebViewReset", "clearWebViewState",
+        "com/benschwank/blop/BlopWebViewReset", "clearWebViewStateLight",
         "(Landroid/app/Activity;)V", activity.object<jobject>());
-    qInfo() << "Android WebView reset JNI call dispatched";
+    qInfo() << "Android WebView light reset JNI call dispatched";
   });
 #endif
 }
