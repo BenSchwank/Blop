@@ -2,7 +2,7 @@ name: Android Build & Publish to Public Repo
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main", "master" ]
     tags:
       - 'v*'
 
@@ -44,12 +44,13 @@ jobs:
 
       - name: Install Qt via aqtinstall
         run: |
-          pip install aqtinstall
+          pip install --upgrade pip
+          pip install --upgrade aqtinstall
           mkdir -p ${{ runner.workspace }}/Qt
-          # Desktop Qt für Host-Tools
-          python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
-          # Android Qt MIT Modul qtwebview und qtmultimedia (WICHTIG!)
-          python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
+          # Desktop Qt für Host-Tools (must match android major.minor for qt-cmake)
+          python -m aqt install-qt linux desktop 6.10.2 gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
+          # Android Qt + qtwebview / qtmultimedia (embedded Study WebView)
+          python -m aqt install-qt linux android 6.10.2 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
 
       - name: Create Build Directory
         run: mkdir build
@@ -58,8 +59,8 @@ jobs:
       - name: Configure CMake
         working-directory: build
         run: |
-          export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
-          export QT_ANDROID_PATH=${{ runner.workspace }}/Qt/6.6.0/android_arm64_v8a
+          export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.10.2/gcc_64
+          export QT_ANDROID_PATH=${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
           ${QT_ANDROID_PATH}/bin/qt-cmake .. -G "Ninja" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
@@ -69,7 +70,7 @@ jobs:
             -DQT_HOST_PATH=$QT_HOST_PATH \
             -DANDROID_VERSION_CODE=${{ github.run_number }}
 
-      # Qt/androiddeployqt erzeugt ein eigenes Gradle-Projekt (AGP 7.x). Ohne diese Einstellungen schlagen
+      # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Ohne diese Einstellungen schlagen
       # Downloads von repo.maven.apache.org mit 403 fehl (bekanntes GHA-/IPv6-Thema).
       - name: Configure Gradle for Maven (CI)
         run: |

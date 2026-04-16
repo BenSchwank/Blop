@@ -1,3 +1,6 @@
+// Windows: Gradle warns above ~260 chars — use a short clone path (e.g. C:\dev\Blop) and/or a short
+// Qt Creator build directory outside deep OneDrive trees; optional: enable Windows long paths policy.
+
 buildscript {
     repositories {
         google()
@@ -82,7 +85,7 @@ android {
      * Changing them manually might break the compilation!
      *******************************************************/
 
-    // AGP 8+: R class package from namespace; template AndroidManifest.xml still needs package= for Qt 6.6 androiddeployqt.
+    // AGP 8+: R class / manifest package from namespace (AndroidManifest.xml must not set package=).
     namespace = localAndroidPackageName
     compileSdkVersion localAndroidCompileSdkVersion
     buildToolsVersion localAndroidBuildToolsVersion
