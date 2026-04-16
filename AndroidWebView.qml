@@ -8,7 +8,7 @@ Rectangle {
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
     property string studyUrl: "https://blop-study.com"
-    property string studyUrlFallback: "https://blop-six.vercel.app"
+    property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
@@ -16,11 +16,11 @@ Rectangle {
     property real authUiScale: 0.94
     property bool cacheMissRecoveryArmed: true
     property int cacheMissRecoveryCount: 0
-    readonly property int cacheMissRecoveryLimit: 3
+    readonly property int cacheMissRecoveryLimit: 2
     property bool nativeResetPending: false
     property double lastCacheMissRecoveryMs: 0
     property int webViewRecreateCount: 0
-    readonly property int webViewRecreateLimit: 2
+    readonly property int webViewRecreateLimit: 1
     property bool webviewRecreatePending: false
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
@@ -34,7 +34,7 @@ Rectangle {
         var base = studyUrl
         if (base.length > 0 && base.charAt(base.length - 1) === "/")
             base = base.slice(0, -1)
-        return base + "/login?native=1&_ts=" + Date.now()
+        return base + "/?native=1&_ts=" + Date.now()
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
@@ -160,11 +160,6 @@ Rectangle {
             blopAppBridge.resetAndroidWebViewStorage()
             nativeResetTimer.start()
             return
-        }
-        if (cacheMissRecoveryCount >= 2 && studyUrl.indexOf("blop-study.com") !== -1) {
-            // Runtime fallback: some Android WebView builds repeatedly fail with
-            // ERR_CACHE_MISS on the vercel alias while the canonical domain works.
-            studyUrl = studyUrlFallback
         }
         cacheMissRetryTimer.start()
     }
