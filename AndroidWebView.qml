@@ -5,6 +5,9 @@ import QtWebView 1.1
 Rectangle {
     id: studyRoot
     color: "#0B0B1A"
+    // Native Android header in MainWindow is the single source of truth for Notes/Study/+.
+    // Keep this disabled to avoid duplicated top bars.
+    readonly property bool showQmlTopBar: false
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
     property string studyUrl: "https://blop-study.com"
@@ -173,10 +176,11 @@ Rectangle {
 
     Rectangle {
         id: qmlTopBar
+        visible: showQmlTopBar
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: topBarHeight + topBarTopMargin
+        height: showQmlTopBar ? (topBarHeight + topBarTopMargin) : 0
         color: "#0F111A"
         z: 20
 
@@ -318,7 +322,7 @@ Rectangle {
 
     Loader {
         id: studyWebLoader
-        anchors.top: qmlTopBar.bottom
+        anchors.top: showQmlTopBar ? qmlTopBar.bottom : parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
