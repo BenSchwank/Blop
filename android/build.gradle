@@ -37,7 +37,18 @@ def parseAndroidSdkInt = { String key, int fallback ->
 }
 
 def localQtGradlePluginType = project.findProperty('qtGradlePluginType') ?: 'com.android.application'
-def localAndroidPackageName = project.findProperty('androidPackageName') ?: 'com.benschwank.blop'
+def sanitizeAndroidPackageName = { Object rawValue ->
+    def fallback = 'com.benschwank.blop'
+    if (rawValue == null) return fallback
+    def s = rawValue.toString().trim()
+    if (s.isEmpty()) return fallback
+    // androiddeployqt occasionally leaks this literal token into gradle properties.
+    if (s == 'localAndroidPackageName') return fallback
+    // Manifest/namespace package id must contain at least one dot.
+    if (!s.contains('.')) return fallback
+    return s
+}
+def localAndroidPackageName = sanitizeAndroidPackageName(project.findProperty('androidPackageName'))
 // androiddeployqt can inject API 35 from NDK defaults; GHA android-35 android.jar breaks aapt2 — never compile above 34.
 def localAndroidCompileSdkVersion = Math.min(parseAndroidSdkInt('androidCompileSdkVersion', 34), 34)
 def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '34.0.0'

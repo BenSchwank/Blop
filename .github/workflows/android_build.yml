@@ -60,13 +60,14 @@ jobs:
       - name: Configure CMake
         working-directory: build
         env:
-          QT_HOST_PATH: ${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64
+          QT_HOST_PATH: ${{ runner.workspace }}/Qt/6.10.2/gcc_64
           QT_ANDROID_PATH: ${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
         run: |
           # qt-cmake: all -D/-G must come BEFORE the source dir .., or QT_HOST_PATH never enters the cache.
           "$QT_ANDROID_PATH/bin/qt-cmake" \
             -G Ninja \
-            -DQT_HOST_PATH="${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64" \
+            -DQT_HOST_PATH="${{ runner.workspace }}/Qt/6.10.2/gcc_64" \
+            -DQT_HOST_PATH_CMAKE_DIR="${{ runner.workspace }}/Qt/6.10.2/gcc_64/lib/cmake" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_PLATFORM=android-34 \
@@ -103,9 +104,32 @@ jobs:
           }
           EOF
 
+      - name: Normalize Android package name in deployment settings
+        working-directory: build
+        run: |
+          # Some qt-cmake/androiddeployqt runs may emit the literal token
+          # "localAndroidPackageName" into deployment settings.
+          # Ensure androiddeployqt always gets the real Java package id.
+          test -f android-Blop-deployment-settings.json
+          sed -i 's/localAndroidPackageName/com.benschwank.blop/g' android-Blop-deployment-settings.json
+          rg -n "localAndroidPackageName|com\\.benschwank\\.blop" android-Blop-deployment-settings.json || true
+
       - name: Build APK
         working-directory: build
         run: cmake --build . --target Blop_make_apk
+
+      - name: Debug android package wiring (on failure)
+        if: failure()
+        working-directory: build
+        run: |
+          echo "----- deployment settings -----"
+          rg -n "localAndroidPackageName|androidPackageName|com\\.benschwank\\.blop" android-Blop-deployment-settings.json || true
+          echo "----- generated gradle.properties -----"
+          rg -n "androidPackageName|localAndroidPackageName|com\\.benschwank\\.blop" android-build/gradle.properties || true
+          echo "----- generated android build.gradle -----"
+          rg -n "localAndroidPackageName|androidPackageName|namespace|applicationId|com\\.benschwank\\.blop" android-build/build.gradle || true
+          echo "----- generated AndroidManifest.xml -----"
+          rg -n "manifest|package=|localAndroidPackageName|com\\.benschwank\\.blop" android-build/AndroidManifest.xml || true
 
       # Play Store verlangt ein Android App Bundle (.aab). Qt erzeugt es parallel zur APK (Target Blop_make_aab).
       # Lokal nach qt-cmake: cmake --build <build-dir> --target Blop_make_aab — .aab unter .../outputs/bundle/release/
