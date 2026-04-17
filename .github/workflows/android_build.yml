@@ -60,13 +60,14 @@ jobs:
       - name: Configure CMake
         working-directory: build
         env:
-          QT_HOST_PATH: ${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64
+          QT_HOST_PATH: ${{ runner.workspace }}/Qt/6.10.2/gcc_64
           QT_ANDROID_PATH: ${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
         run: |
           # qt-cmake: all -D/-G must come BEFORE the source dir .., or QT_HOST_PATH never enters the cache.
           "$QT_ANDROID_PATH/bin/qt-cmake" \
             -G Ninja \
-            -DQT_HOST_PATH="${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64" \
+            -DQT_HOST_PATH="${{ runner.workspace }}/Qt/6.10.2/gcc_64" \
+            -DQT_HOST_PATH_CMAKE_DIR="${{ runner.workspace }}/Qt/6.10.2/gcc_64/lib/cmake" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_PLATFORM=android-34 \
