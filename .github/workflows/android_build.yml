@@ -2,7 +2,7 @@ name: Android Build & Publish to Public Repo
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main", "master" ]
     tags:
       - 'v*'
 
@@ -44,12 +44,14 @@ jobs:
 
       - name: Install Qt via aqtinstall
         run: |
-          pip install aqtinstall
+          pip install --upgrade pip
+          pip install --upgrade aqtinstall
           mkdir -p ${{ runner.workspace }}/Qt
-          # Desktop Qt für Host-Tools
-          python -m aqt install-qt linux desktop 6.6.0 gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
-          # Android Qt MIT Modul qtwebview und qtmultimedia (WICHTIG!)
-          python -m aqt install-qt linux android 6.6.0 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
+          # Desktop Qt für Host-Tools (must match android major.minor for qt-cmake).
+          # Qt 6.10+: aqt arch is linux_gcc_64 (gcc_64 breaks Updates.xml / qt_base).
+          python -m aqt install-qt linux desktop 6.10.2 linux_gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
+          # Android Qt + qtwebview / qtmultimedia (embedded Study WebView)
+          python -m aqt install-qt linux android 6.10.2 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
 
       - name: Create Build Directory
         run: mkdir build
@@ -57,18 +59,23 @@ jobs:
       # 2. CMake Konfiguration
       - name: Configure CMake
         working-directory: build
+        env:
+          QT_HOST_PATH: ${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64
+          QT_ANDROID_PATH: ${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
         run: |
-          export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.6.0/gcc_64
-          export QT_ANDROID_PATH=${{ runner.workspace }}/Qt/6.6.0/android_arm64_v8a
-          ${QT_ANDROID_PATH}/bin/qt-cmake .. -G "Ninja" \
+          # qt-cmake: all -D/-G must come BEFORE the source dir .., or QT_HOST_PATH never enters the cache.
+          "$QT_ANDROID_PATH/bin/qt-cmake" \
+            -G Ninja \
+            -DQT_HOST_PATH="${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
+            -DANDROID_PLATFORM=android-34 \
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
-            -DQT_HOST_PATH=$QT_HOST_PATH \
-            -DANDROID_VERSION_CODE=${{ github.run_number }}
+            -DANDROID_VERSION_CODE=${{ github.run_number }} \
+            ..
 
-      # Qt/androiddeployqt erzeugt ein eigenes Gradle-Projekt (AGP 7.x). Ohne diese Einstellungen schlagen
+      # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Ohne diese Einstellungen schlagen
       # Downloads von repo.maven.apache.org mit 403 fehl (bekanntes GHA-/IPv6-Thema).
       - name: Configure Gradle for Maven (CI)
         run: |
@@ -129,7 +136,7 @@ jobs:
           cp "$apk" release-staging/Blop-signed.apk
           aab=$(find build/android-build -name 'android-build-release-signed.aab' -print -quit)
           if [[ -z "$aab" ]]; then echo 'android-build-release-signed.aab not found under build/android-build'; exit 1; fi
-          cp "$aab" release-staging/com.benschwank.blop.aab
+          cp "$aab" release-staging/blop.aab
           ls -la release-staging/
 
       - name: Release to Public Repo
@@ -138,6 +145,6 @@ jobs:
         with:
           files: |
             release-staging/Blop-signed.apk
-            release-staging/com.benschwank.blop.aab
+            release-staging/blop.aab
           repository: BenSchwank/Blop-releases
           token: ${{ secrets.RELEASE_TOKEN }}

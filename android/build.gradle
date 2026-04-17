@@ -1,3 +1,6 @@
+// Windows: Gradle warns above ~260 chars — use a short clone path (e.g. C:\dev\Blop) and/or a short
+// Qt Creator build directory outside deep OneDrive trees; optional: enable Windows long paths policy.
+
 buildscript {
     repositories {
         google()
@@ -35,7 +38,8 @@ def parseAndroidSdkInt = { String key, int fallback ->
 
 def localQtGradlePluginType = project.findProperty('qtGradlePluginType') ?: 'com.android.application'
 def localAndroidPackageName = project.findProperty('androidPackageName') ?: 'com.benschwank.blop'
-def localAndroidCompileSdkVersion = parseAndroidSdkInt('androidCompileSdkVersion', 34)
+// androiddeployqt can inject API 35 from NDK defaults; GHA android-35 android.jar breaks aapt2 — never compile above 34.
+def localAndroidCompileSdkVersion = Math.min(parseAndroidSdkInt('androidCompileSdkVersion', 34), 34)
 def localAndroidBuildToolsVersion = project.findProperty('androidBuildToolsVersion') ?: '34.0.0'
 def localAndroidNdkVersion = project.findProperty('androidNdkVersion') ?: '25.1.8937393'
 def localQtAndroidDir = project.findProperty('qtAndroidDir') ?: '.'
@@ -81,6 +85,7 @@ android {
      * Changing them manually might break the compilation!
      *******************************************************/
 
+    // AGP 8+: R class / manifest package from namespace (AndroidManifest.xml must not set package=).
     namespace = localAndroidPackageName
     compileSdkVersion localAndroidCompileSdkVersion
     buildToolsVersion localAndroidBuildToolsVersion

@@ -162,8 +162,13 @@ export default function Dashboard() {
   useEffect(() => {
     const username = localStorage.getItem('username');
     const session = localStorage.getItem('session_id');
+    const params = new URLSearchParams(window.location.search);
+    const isNativeEntry = params.get('native') === '1';
     if (!username || !session) {
-      window.location.href = '/login';
+      const loginTarget = isNativeEntry ? '/login?native=1' : '/login';
+      // Use replace to keep the native entry transition deterministic and avoid
+      // back-stack loops between "/" and "/login" in Android WebView.
+      window.location.replace(loginTarget);
       return; // Don't set authChecked — keep showing loading
     }
     setAuthChecked(true);

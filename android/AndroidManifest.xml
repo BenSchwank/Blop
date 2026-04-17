@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
-<!-- package: Qt 6.6 androiddeployqt rejects manifest without it ("Invalid android manifest file").
-     AGP still uses namespace/applicationId from build.gradle; duplicate package here is a benign warning. -->
+<!-- Do not set manifest package= here: AGP 8.3+ with android.namespace (build.gradle) rejects it;
+     Qt 6.10+ androiddeployqt is fine without it. CI must use Qt 6.10+ (see .github/workflows/android_build.yml).
+     Application id / Java package remain com.benschwank.blop via namespace + defaultConfig.applicationId. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.benschwank.blop"
     android:installLocation="auto"
     android:versionCode="-- %%INSERT_VERSION_CODE%% --"
     android:versionName="-- %%INSERT_VERSION_NAME%% --">
@@ -21,13 +21,20 @@
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
         android:fullBackupOnly="false">
+        <!-- QtLoader resolves these keys from Application meta-data on some builds. -->
+        <meta-data
+            android:name="android.app.lib_name"
+            android:value="@string/qt_app_lib_name" />
+        <meta-data
+            android:name="android.app.arguments"
+            android:value="@string/qt_app_arguments" />
         <activity
             android:name="org.qtproject.qt.android.bindings.QtActivity"
             android:theme="@style/BlopTheme"
-            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc"
             android:label="@string/app_name"
             android:launchMode="singleTop"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustPan"
             android:exported="true">
             <intent-filter>
@@ -37,11 +44,11 @@
 
           <meta-data
                 android:name="android.app.lib_name"
-                android:value="-- %%INSERT_APP_LIB_NAME%% --" />
+                android:value="@string/qt_app_lib_name" />
 
           <meta-data
                 android:name="android.app.arguments"
-                android:value="-- %%INSERT_APP_ARGUMENTS%% --" />
+                android:value="@string/qt_app_arguments" />
         </activity>
 
         <provider

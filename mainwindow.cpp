@@ -151,8 +151,8 @@ static const int FONT_SIZE_HEADER = 18;
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
-/// Embedded Blop Study (keep in sync with AndroidWebView.qml studyUrl).
-static const QString kBlopStudyUrl(QStringLiteral("https://blop-six.vercel.app"));
+/// Embedded Blop Study base URL (Android QML appends "/?native=1" for embedded entry).
+static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
 
 namespace {
 
@@ -190,6 +190,36 @@ QPushButton:hover { background: rgba(255,255,255,0.08); color: #F0EEFF; border-c
 }
 
 #ifdef Q_OS_ANDROID
+void applyAndroidImmersiveUi() {
+  // Keep system bars hidden app-wide; re-apply on key UI lifecycle moments
+  // because Android can restore bars after focus/layer transitions.
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid())
+      return;
+
+    QJniObject window =
+        activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
+    if (!window.isValid())
+      return;
+
+    window.callMethod<void>("addFlags", "(I)V", 0x80000000);
+    window.callMethod<void>("setStatusBarColor", "(I)V", 0xFF0D0B14);
+    window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0D0B14);
+
+    QJniObject decorView =
+        window.callObjectMethod("getDecorView", "()Landroid/view/View;");
+    if (decorView.isValid()) {
+      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN |
+      // HIDE_NAVIGATION | FULLSCREEN | IMMERSIVE_STICKY
+      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400 | 0x00000002 |
+                           0x00000004 | 0x00001000;
+      decorView.callMethod<void>("setSystemUiVisibility", "(I)V", uiFlags);
+    }
+  });
+}
+
 void syncAndroidHeaderGeometry(MainWindow *window) {
   if (!window)
     return;
@@ -204,8 +234,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
 
   // Keep the status-bar offset conservative and bounded so Study transitions
   // never push the tab row outside the visible top area.
-  const int rawInset = UiScale::androidTopInsetPx(window);
-  const int clampedInset = qBound(0, rawInset, UiScale::dp(32));
+  const int clampedInset = 0;
   const int topExtra = UiScale::dp(2);
   const int headerHeight = UiScale::dp(52);
   const int totalHeight = headerHeight + clampedInset + topExtra;
@@ -2896,25 +2925,8 @@ void MainWindow::setupUi() {
   mainLayout->addWidget(androidTopChrome, 0);
   syncAndroidHeaderGeometry(this);
 
-  // Status bar colors must run on Android's *UI* thread — JNI from Qt's thread
-  // triggers CalledFromWrongThreadException and can break touch/layout (see logcat).
-  QTimer::singleShot(300, this, []() {
-      QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
-        QJniObject activity = QJniObject::callStaticObjectMethod(
-            "org/qtproject/qt/android/QtNative",
-            "activity",
-            "()Landroid/app/Activity;");
-        if (activity.isValid()) {
-          QJniObject window =
-              activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
-          if (window.isValid()) {
-            window.callMethod<void>("addFlags", "(I)V", 0x80000000);
-            window.callMethod<void>("setStatusBarColor", "(I)V", 0xFF0D0B14);
-            window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0D0B14);
-          }
-        }
-      });
-  });
+  // Apply fullscreen and dark system bar styling on Android UI thread.
+  QTimer::singleShot(300, this, []() { applyAndroidImmersiveUi(); });
 
 #else
   if (m_titleBarWidget) {
@@ -3412,6 +3424,38 @@ bool InterceptingWebPage::acceptNavigationRequest(const QUrl &url, NavigationTyp
 }
 #endif
 
+#ifdef Q_OS_ANDROID
+namespace {
+void logAndroidSystemWebViewPackageOnce()
+{
+  static bool sLogged = false;
+  if (sLogged)
+    return;
+  sLogged = true;
+
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject pkg = QJniObject::callStaticObjectMethod(
+        "android/webkit/WebView", "getCurrentWebViewPackage",
+        "()Landroid/content/pm/PackageInfo;");
+    if (!pkg.isValid()) {
+      qInfo() << "BlopStudy: System WebView package: (unavailable)";
+      return;
+    }
+    const QJniObject packageName =
+        pkg.getObjectField("packageName", "Ljava/lang/String;");
+    const QJniObject versionName =
+        pkg.getObjectField("versionName", "Ljava/lang/String;");
+    const QString pkgStr =
+        packageName.isValid() ? packageName.toString() : QString();
+    const QString verStr =
+        versionName.isValid() ? versionName.toString() : QString();
+    qInfo().nospace() << "BlopStudy: System WebView package: " << pkgStr << " "
+                      << verStr;
+  });
+}
+} // namespace
+#endif
+
 void MainWindow::setupWebBrowser() {
   m_studyContainer = new QWidget(this);
   // Match Study web chrome; avoids light “gaps” around the native WebView.
@@ -3460,6 +3504,8 @@ void MainWindow::setupWebBrowser() {
   container->setFocusPolicy(Qt::StrongFocus);
   container->setFocus(Qt::OtherFocusReason);
   layout->addWidget(container);
+
+  logAndroidSystemWebViewPackageOnce();
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
@@ -3764,6 +3810,7 @@ void MainWindow::onModeChanged(int index) {
 
 #ifdef Q_OS_ANDROID
   syncAndroidHeaderGeometry(this);
+  applyAndroidImmersiveUi();
   if (m_studyVBoxLayout) {
     // Study has its own QML top bar; keep web content flush to avoid double top bars.
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
@@ -3785,10 +3832,10 @@ void MainWindow::onModeChanged(int index) {
     m_mainContentStack->setCurrentIndex(mainStackIdx);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
-      const bool showNativeHeader = (mainStackIdx == 0);
-      m_androidHeader->setVisible(showNativeHeader);
-      if (showNativeHeader)
-        m_androidHeader->raise();
+      // Keep Android mode tabs always reachable: if Study/Web renders black,
+      // users can still switch back to Notes.
+      m_androidHeader->setVisible(true);
+      m_androidHeader->raise();
     }
 #endif
   }
@@ -3823,19 +3870,19 @@ void MainWindow::onModeChanged(int index) {
       cur->setFocus(Qt::OtherFocusReason);
     }
   }
-  if (m_androidHeader)
-    m_androidHeader->setVisible(mainStackIdx == 0);
-  if (m_androidHeader && mainStackIdx == 0)
+  if (m_androidHeader) {
+    m_androidHeader->setVisible(true);
     m_androidHeader->raise();
+  }
   syncAndroidHeaderGeometry(this);
   // Study switches can transiently report stale availableGeometry on Android.
   // Re-sync shortly after layer reordering so the top tab row stays visible.
   QTimer::singleShot(80, this, [this]() {
     syncAndroidHeaderGeometry(this);
-    const bool inNotesMode = m_mainContentStack && m_mainContentStack->currentIndex() == 0;
+    applyAndroidImmersiveUi();
     if (m_androidHeader)
-      m_androidHeader->setVisible(inNotesMode);
-    if (m_androidHeader && inNotesMode)
+      m_androidHeader->setVisible(true);
+    if (m_androidHeader)
       m_androidHeader->raise();
   });
 #endif
@@ -3885,6 +3932,25 @@ void MainWindow::onModeChanged(int index) {
 
 void MainWindow::requestGoogleLogin() {
     GoogleAuthManager::instance().login();
+}
+
+void MainWindow::resetAndroidWebViewStorage() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android WebView light reset requested from QML bridge";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "Android WebView reset skipped: invalid activity";
+      return;
+    }
+
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "clearWebViewStateLight",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+    qInfo() << "Android WebView light reset JNI call dispatched";
+  });
+#endif
 }
 
 void MainWindow::switchToNotesFromWebQmlBar() {
@@ -5728,6 +5794,7 @@ void MainWindow::finishRename() {
 void MainWindow::showEvent(QShowEvent *event) {
   QMainWindow::showEvent(event);
 #ifdef Q_OS_ANDROID
+  applyAndroidImmersiveUi();
   syncAndroidHeaderGeometry(this);
   if (m_androidHeader)
     m_androidHeader->raise();
@@ -5746,6 +5813,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   int fabSize = 56;
   int bottomOffset = 80;
 #ifdef Q_OS_ANDROID
+  applyAndroidImmersiveUi();
   fabSize = FAB_SIZE_ANDROID;
   bottomOffset = FAB_DISTANCE_FROM_BOTTOM;
   syncAndroidHeaderGeometry(this);

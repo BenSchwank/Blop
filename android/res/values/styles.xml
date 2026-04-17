@@ -10,5 +10,8 @@
         <item name="android:windowBackground">#1e1e2e</item>
         <!-- Light status bar icons: false = white icons on dark background -->
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <!-- Keep app content eligible for edge-to-edge immersive drawing -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Blop</string>
+    <string name="qt_app_lib_name">Blop</string>
+    <string name="qt_app_arguments"></string>
 </resources>

@@ -47,6 +47,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def native_entry_no_store_headers(request: Request, call_next):
+    response = await call_next(request)
+    native_hint = request.query_params.get("native")
+    if native_hint == "1":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Lernvideo: lange ffmpeg/TTS-Pipeline — synchron würde Render/Proxy-Timeouts (502) auslösen
 _LEARNING_VIDEO_JOBS: dict = {}
 _LEARNING_VIDEO_JOBS_LOCK = threading.Lock()
