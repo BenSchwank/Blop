@@ -104,6 +104,16 @@ jobs:
           }
           EOF
 
+      - name: Normalize Android package name in deployment settings
+        working-directory: build
+        run: |
+          # Some qt-cmake/androiddeployqt runs may emit the literal token
+          # "localAndroidPackageName" into deployment settings.
+          # Ensure androiddeployqt always gets the real Java package id.
+          test -f android-Blop-deployment-settings.json
+          sed -i 's/localAndroidPackageName/com.benschwank.blop/g' android-Blop-deployment-settings.json
+          rg -n "localAndroidPackageName|com\\.benschwank\\.blop" android-Blop-deployment-settings.json || true
+
       - name: Build APK
         working-directory: build
         run: cmake --build . --target Blop_make_apk
