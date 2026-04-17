@@ -118,6 +118,19 @@ jobs:
         working-directory: build
         run: cmake --build . --target Blop_make_apk
 
+      - name: Debug android package wiring (on failure)
+        if: failure()
+        working-directory: build
+        run: |
+          echo "----- deployment settings -----"
+          rg -n "localAndroidPackageName|androidPackageName|com\\.benschwank\\.blop" android-Blop-deployment-settings.json || true
+          echo "----- generated gradle.properties -----"
+          rg -n "androidPackageName|localAndroidPackageName|com\\.benschwank\\.blop" android-build/gradle.properties || true
+          echo "----- generated android build.gradle -----"
+          rg -n "localAndroidPackageName|androidPackageName|namespace|applicationId|com\\.benschwank\\.blop" android-build/build.gradle || true
+          echo "----- generated AndroidManifest.xml -----"
+          rg -n "manifest|package=|localAndroidPackageName|com\\.benschwank\\.blop" android-build/AndroidManifest.xml || true
+
       # Play Store verlangt ein Android App Bundle (.aab). Qt erzeugt es parallel zur APK (Target Blop_make_aab).
       # Lokal nach qt-cmake: cmake --build <build-dir> --target Blop_make_aab — .aab unter .../outputs/bundle/release/
       - name: Build Android App Bundle (AAB)
