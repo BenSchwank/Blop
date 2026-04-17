@@ -59,16 +59,20 @@ jobs:
       # 2. CMake Konfiguration
       - name: Configure CMake
         working-directory: build
+        env:
+          QT_HOST_PATH: ${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64
+          QT_ANDROID_PATH: ${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
         run: |
-          export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64
-          export QT_ANDROID_PATH=${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
-          ${QT_ANDROID_PATH}/bin/qt-cmake .. -G "Ninja" \
+          # Qt 6.10 cross-build: QT_HOST_PATH must be a CMake cache entry before find_package(Qt6).
+          # Step env + first -D avoids empty expansion; export alone is not enough for some qt-cmake runs.
+          "$QT_ANDROID_PATH/bin/qt-cmake" .. \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -G Ninja \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_PLATFORM=android-34 \
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
-            -DQT_HOST_PATH=$QT_HOST_PATH \
             -DANDROID_VERSION_CODE=${{ github.run_number }}
 
       # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Ohne diese Einstellungen schlagen
