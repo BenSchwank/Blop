@@ -20,6 +20,7 @@ Rectangle {
     property bool cacheMissRecoveryArmed: true
     property int cacheMissRecoveryCount: 0
     readonly property int cacheMissRecoveryLimit: 2
+    property int freshLoadSerial: 0
     property bool nativeResetPending: false
     property double lastNativeWebViewResetMs: 0
     readonly property int nativeWebViewResetMinIntervalMs: 25000
@@ -35,12 +36,33 @@ Rectangle {
         return studyWebLoader.item
     }
 
-    function buildFreshStudyEntryUrl() {
+    function buildFreshStudyEntryUrl(addCacheBypass) {
         var base = studyUrl
         if (base.length > 0 && base.charAt(base.length - 1) === "/")
             base = base.slice(0, -1)
         // Native entry: StudyFlow treats ?native=1 as embedded-app mode (headers, redirects).
-        return base + "/?native=1"
+        var u = base + "/?native=1"
+        if (addCacheBypass) {
+            u += "&_src=android_webview"
+            u += "&_ts=" + Date.now()
+            u += "&_try=" + freshLoadSerial
+        }
+        return u
+    }
+
+    function loadStudyEntryFresh(reason, addCacheBypass) {
+        if (!ssoPollingEnabled)
+            return
+        var w = studyWeb()
+        if (!w)
+            return
+        freshLoadSerial += 1
+        var target = buildFreshStudyEntryUrl(addCacheBypass)
+        cacheMissRecoveryArmed = false
+        console.log("BlopStudy: fresh load pivot", reason, "url=", target)
+        w.url = "about:blank"
+        pivotLoadTimer.targetUrl = target
+        pivotLoadTimer.start()
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
@@ -55,9 +77,7 @@ Rectangle {
             webViewRecreateCount = 0
             webviewRecreatePending = false
             lastNativeWebViewResetMs = 0
-            var w0 = studyWeb()
-            if (w0)
-                w0.url = buildFreshStudyEntryUrl()
+            loadStudyEntryFresh("setWebDestination", true)
             applyAuthUiScale()
         } else {
             ssoPollingEnabled = false
@@ -110,7 +130,7 @@ Rectangle {
         if (!w)
             return
         if (!firstLoadDone || w.url.toString() === "" || w.url.toString() === "about:blank") {
-            w.url = buildFreshStudyEntryUrl()
+            loadStudyEntryFresh("ensureStudyLoaded", true)
             firstLoadDone = true
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
@@ -364,7 +384,7 @@ Rectangle {
         onTriggered: {
             var w = studyWeb()
             if (w && ssoPollingEnabled)
-                w.url = buildFreshStudyEntryUrl()
+                loadStudyEntryFresh("postRecreate", true)
             applyAuthUiScale()
         }
     }
@@ -384,11 +404,23 @@ Rectangle {
         running: false
         repeat: false
         onTriggered: {
-            cacheMissRecoveryArmed = true
-            var w = studyWeb()
-            if (w)
-                w.url = buildFreshStudyEntryUrl()
+            loadStudyEntryFresh("cacheMissRetry", true)
             applyAuthUiScale()
+        }
+    }
+
+    Timer {
+        id: pivotLoadTimer
+        interval: 140
+        running: false
+        repeat: false
+        property string targetUrl: ""
+        onTriggered: {
+            var w = studyWeb()
+            if (!w)
+                return
+            cacheMissRecoveryArmed = true
+            w.url = targetUrl
         }
     }
 
