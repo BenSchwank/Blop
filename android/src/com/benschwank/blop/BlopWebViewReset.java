@@ -5,6 +5,7 @@ import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.WebSettings;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
 
@@ -19,6 +20,36 @@ public final class BlopWebViewReset {
      * Does not clear disk cache, cookies, or DOM storage — those can worsen cache-only
      * navigation errors when retried immediately.
      */
+    /**
+     * Prefer network over HTTP cache for the embedded Study WebView. Helps avoid
+     * {@code net::ERR_CACHE_MISS} when Chromium would satisfy a navigation only from cache.
+     * Safe to call repeatedly (e.g. after QML Loader recreates the WebView).
+     */
+    public static void applyStudyWebViewNetworkCacheMode(final Activity activity) {
+        if (activity == null) {
+            Log.w(TAG, "applyStudyWebViewNetworkCacheMode called with null activity");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            try {
+                WebView w = findWebView(activity.getWindow() != null
+                        ? activity.getWindow().getDecorView() : null);
+                if (w == null) {
+                    Log.i(TAG, "applyStudyWebViewNetworkCacheMode: no WebView found yet");
+                    return;
+                }
+                WebSettings s = w.getSettings();
+                if (s != null) {
+                    s.setDomStorageEnabled(true);
+                    s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+                    Log.i(TAG, "applyStudyWebViewNetworkCacheMode: LOAD_NO_CACHE + domStorage ok");
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "applyStudyWebViewNetworkCacheMode failed", t);
+            }
+        });
+    }
+
     public static void clearWebViewStateLight(final Activity activity) {
         if (activity == null) {
             Log.w(TAG, "clearWebViewStateLight called with null activity");

@@ -372,6 +372,10 @@ Rectangle {
             webviewRecreatePending = false
             console.log("BlopStudy: webview recreate done")
             cacheMissRecoveryArmed = true
+            if (typeof blopAppBridge !== "undefined" &&
+                    blopAppBridge.applyAndroidStudyWebViewNetworkCache) {
+                blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+            }
             postRecreateLoadTimer.start()
         }
     }
