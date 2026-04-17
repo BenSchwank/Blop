@@ -47,8 +47,9 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade aqtinstall
           mkdir -p ${{ runner.workspace }}/Qt
-          # Desktop Qt für Host-Tools (must match android major.minor for qt-cmake)
-          python -m aqt install-qt linux desktop 6.10.2 gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
+          # Desktop Qt für Host-Tools (must match android major.minor for qt-cmake).
+          # Qt 6.10+: aqt arch is linux_gcc_64 (gcc_64 breaks Updates.xml / qt_base).
+          python -m aqt install-qt linux desktop 6.10.2 linux_gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
           # Android Qt + qtwebview / qtmultimedia (embedded Study WebView)
           python -m aqt install-qt linux android 6.10.2 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
 
@@ -59,7 +60,7 @@ jobs:
       - name: Configure CMake
         working-directory: build
         run: |
-          export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.10.2/gcc_64
+          export QT_HOST_PATH=${{ runner.workspace }}/Qt/6.10.2/linux_gcc_64
           export QT_ANDROID_PATH=${{ runner.workspace }}/Qt/6.10.2/android_arm64_v8a
           ${QT_ANDROID_PATH}/bin/qt-cmake .. -G "Ninja" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON \
