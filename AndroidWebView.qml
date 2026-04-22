@@ -45,6 +45,14 @@ Rectangle {
     property string bookmarkDraftUrl: ""
     property string bookmarkDraftTitle: ""
     property string bookmarkAddError: ""
+    onVisibleChanged: {
+        if (visible) {
+            ensureStudyLoaded()
+            applyAuthUiScale()
+        } else if (bookmarkSheetOpen) {
+            closeBookmarkSheet()
+        }
+    }
 
     ListModel {
         id: bookmarkModel
@@ -577,13 +585,6 @@ Rectangle {
         }
     }
 
-    onVisibleChanged: {
-        if (visible) {
-            ensureStudyLoaded()
-            applyAuthUiScale()
-        }
-    }
-
     // OAuth Waiting Overlay — shown while Chrome is open
     Rectangle {
         id: oauthOverlay
@@ -698,28 +699,28 @@ Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
-                Row {
+                Item {
                     width: parent.width
-                    spacing: Math.round(8 * uiScale)
+                    height: Math.round(34 * uiScale)
 
                     Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
                         text: "Web-Lesezeichen"
                         color: "#F4F2FF"
                         font.pixelSize: Math.round(18 * uiScale)
                         font.bold: true
                     }
 
-                    Item { width: 1; height: 1 }
-
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right
                         width: Math.round(96 * uiScale)
                         height: Math.round(30 * uiScale)
                         radius: height / 2
                         color: bookmarkManageMode ? "#5E5CE6" : "#252335"
                         border.color: bookmarkManageMode ? "#7D7AFF" : "#3A3651"
                         border.width: 1
-                        anchors.right: parent.right
 
                         Text {
                             anchors.centerIn: parent
@@ -853,10 +854,11 @@ Rectangle {
 
                 Row {
                     width: parent.width
-                    spacing: Math.round(8 * uiScale)
+                    property real actionGap: Math.round(8 * uiScale)
+                    spacing: actionGap
 
                     Rectangle {
-                        width: (parent.width - spacing) / 2
+                        width: (parent.width - actionGap) / 2
                         height: Math.round(40 * uiScale)
                         radius: Math.round(10 * uiScale)
                         color: "#262237"
@@ -874,7 +876,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: (parent.width - spacing) / 2
+                        width: (parent.width - actionGap) / 2
                         height: Math.round(40 * uiScale)
                         radius: Math.round(10 * uiScale)
                         color: "#5E5CE6"

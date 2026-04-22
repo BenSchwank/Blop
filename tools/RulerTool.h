@@ -56,9 +56,8 @@ public:
         }
 
         // 3. Konfigurieren und Anzeigen
-        if (!ruler->isVisible() && !qIsNaN(preferredScenePos.x()) && !qIsNaN(preferredScenePos.y())) {
-            ruler->setPos(preferredScenePos);
-        }
+        // Important UX rule: once the ruler exists, keep its scene position.
+        // Do not reposition it to viewport center when the tool is re-activated.
         ruler->setVisible(true);
         ruler->setConfig(config);
 

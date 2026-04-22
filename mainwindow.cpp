@@ -232,10 +232,9 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   if (!headerLay)
     return;
 
-  // Keep the status-bar offset conservative and bounded so Study transitions
-  // never push the tab row outside the visible top area.
-  const int clampedInset = 0;
-  const int topExtra = UiScale::dp(2);
+  const int clampedInset =
+      qBound(0, UiScale::androidTopInsetPx(window), UiScale::dp(32));
+  const int topExtra = UiScale::dp(4);
   const int headerHeight = UiScale::dp(52);
   const int totalHeight = headerHeight + clampedInset + topExtra;
 
@@ -2838,8 +2837,13 @@ void MainWindow::setupUi() {
       "}"
       "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
   connect(m_btnAndroidAddWebBookmark, &QPushButton::clicked, this, [this]() {
-    if (m_btnAndroidAddWebBookmark)
-      openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+    if (!m_btnAndroidAddWebBookmark)
+      return;
+#ifdef Q_OS_ANDROID
+    openWebBookmarkMenuFromWebQmlBar();
+#else
+    openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+#endif
   });
   headerLay->addWidget(m_btnAndroidAddWebBookmark);
 
@@ -3830,6 +3834,14 @@ void MainWindow::onModeChanged(int index) {
     animateSidebar(false);
 
 #ifdef Q_OS_ANDROID
+  if (mainStackIdx == 1) {
+    const auto transientOverlays = findChildren<QWidget *>(
+        QStringLiteral("AndroidTransientOverlay"), Qt::FindDirectChildrenOnly);
+    for (QWidget *overlay : transientOverlays) {
+      if (overlay && overlay->isVisible())
+        overlay->close();
+    }
+  }
   syncAndroidHeaderGeometry(this);
   applyAndroidImmersiveUi();
   const bool showAndroidHeader = !m_authNavigationLocked;
@@ -4775,19 +4787,8 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
 }
 
 void MainWindow::onNewPage() {
-  NewNoteDialog dlg(this);
-  if (dlg.exec() == QDialog::Accepted) {
-    QString name = dlg.getNoteName();
-    bool isInfinite = dlg.isInfiniteFormat();
-    A4LayoutDialogResult layoutResult;
-    const QString subtitle = isInfinite
-        ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
-        : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
-    if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), subtitle,
-                             2, UIStyles::PageBackground, &layoutResult) ||
-        !layoutResult.accepted) {
-      return;
-    }
+  auto createNote = [this](const QString &name, bool isInfinite,
+                           const A4LayoutDialogResult &layoutResult) {
     QString safeName = name;
     safeName.replace("/", "_").replace("\\", "_");
 
@@ -4825,25 +4826,242 @@ void MainWindow::onNewPage() {
         cv->setPageStyle(style);
         cv->setGridSize(40);
       }
-    } else {
-      // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
-      QString path = m_fileModel->rootPath() + "/" + safeName + ".bnote";
-      Note note;
-      note.id = QUuid::createUuid().toString();
-      note.title = name;
-      NotePage p;
-      p.paperColor = layoutResult.paperColor.isValid()
-                         ? layoutResult.paperColor
-                         : UIStyles::PageBackground;
-      p.backgroundType = qBound(0, layoutResult.backgroundType, 4);
-      note.pages.append(p);
-      NoteManager::saveNote(note, path);
-      onFileDoubleClicked(m_fileModel->index(path));
+      return;
     }
+
+    // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
+    QString path = m_fileModel->rootPath() + "/" + safeName + ".bnote";
+    Note note;
+    note.id = QUuid::createUuid().toString();
+    note.title = name;
+    NotePage p;
+    p.paperColor = layoutResult.paperColor.isValid() ? layoutResult.paperColor
+                                                      : UIStyles::PageBackground;
+    p.backgroundType = qBound(0, layoutResult.backgroundType, 4);
+    note.pages.append(p);
+    NoteManager::saveNote(note, path);
+    onFileDoubleClicked(m_fileModel->index(path));
+  };
+
+#ifdef Q_OS_ANDROID
+  auto calcAndroidCardSize = [this](QWidget *host, int minW, int maxW, int minH,
+                                    int maxH, qreal wRatio,
+                                    qreal hRatio) -> QSize {
+    const int hostW = host ? host->width() : width();
+    const int hostH = host ? host->height() : height();
+    const int w = qBound(UiScale::dp(minW),
+                         int(qreal(qMax(1, hostW)) * wRatio), UiScale::dp(maxW));
+    const int h = qBound(UiScale::dp(minH),
+                         int(qreal(qMax(1, hostH)) * hRatio), UiScale::dp(maxH));
+    return QSize(w, h);
+  };
+
+  // Android: avoid QDialog completely in this flow.
+  auto *overlay = new QWidget(this);
+  overlay->setAttribute(Qt::WA_DeleteOnClose, true);
+  overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
+  overlay->setStyleSheet("background-color: rgba(0,0,0,150);");
+  overlay->setGeometry(rect());
+  overlay->show();
+  overlay->raise();
+
+  auto *card = new QFrame(overlay);
+  card->setStyleSheet(
+      "QFrame { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+      "QLabel { color: #DDD; border: none; background: transparent; }"
+      "QLineEdit { background: #252526; color: white; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; }"
+      "QLineEdit:focus { border: 1px solid #5E5CE6; }");
+  const QSize noteCardSize =
+      calcAndroidCardSize(overlay, 300, 460, 260, 420, 0.88, 0.62);
+  card->setFixedSize(noteCardSize);
+  card->move((overlay->width() - noteCardSize.width()) / 2,
+             (overlay->height() - noteCardSize.height()) / 2);
+  card->show();
+  card->raise();
+
+  auto *layout = new QVBoxLayout(card);
+  layout->setContentsMargins(25, 25, 25, 25);
+  layout->setSpacing(16);
+
+  auto *title = new QLabel(QStringLiteral("Neue Notiz erstellen"), card);
+  title->setStyleSheet("font-size: 18px; font-weight: bold; color: white;");
+  layout->addWidget(title);
+
+  auto *lblName = new QLabel(QStringLiteral("Name"), card);
+  lblName->setStyleSheet("font-size: 13px; color: #BBB; font-weight: bold;");
+  layout->addWidget(lblName);
+
+  auto *nameInput = new QLineEdit(card);
+  nameInput->setPlaceholderText(QStringLiteral("Meine Notiz"));
+  nameInput->setFocus();
+  layout->addWidget(nameInput);
+
+  auto *lblFormat = new QLabel(QStringLiteral("Format"), card);
+  lblFormat->setStyleSheet("font-size: 13px; color: #BBB; font-weight: bold;");
+  layout->addWidget(lblFormat);
+
+  auto *formatRow = new QHBoxLayout();
+  auto mkBtn = [card](const QString &text, const QString &subtext) {
+    auto *btn = new QPushButton(text + "\n" + subtext, card);
+    btn->setCheckable(true);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedHeight(UiScale::dp(70));
+    btn->setStyleSheet(
+        "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; text-align: left; padding: 10px; line-height: 1.2; font-size: 14px; }"
+        "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
+        "QPushButton:hover:!checked { background: #333; border-color: #555; }");
+    return btn;
+  };
+  auto *btnInfinite =
+      mkBtn(QStringLiteral("Unendlich"), QStringLiteral("Freie Leinwand\n(Standard)"));
+  auto *btnA4 =
+      mkBtn(QStringLiteral("DIN A4"), QStringLiteral("Seitenbasiert\n(Druckoptimiert)"));
+  btnInfinite->setChecked(true);
+  auto *grp = new QButtonGroup(card);
+  grp->setExclusive(true);
+  grp->addButton(btnInfinite, 0);
+  grp->addButton(btnA4, 1);
+  formatRow->addWidget(btnInfinite);
+  formatRow->addWidget(btnA4);
+  layout->addLayout(formatRow);
+  layout->addStretch();
+
+  auto *actions = new QHBoxLayout();
+  actions->setSpacing(UiScale::dp(10));
+  auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
+  btnCancel->setMinimumHeight(UiScale::dp(48));
+  btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCancel->setStyleSheet(
+      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #312C45; }");
+  auto *btnCreate = new QPushButton(QStringLiteral("Erstellen"), card);
+  btnCreate->setMinimumHeight(UiScale::dp(48));
+  btnCreate->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCreate->setStyleSheet(
+      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #4b49c9; }");
+  actions->addWidget(btnCancel);
+  actions->addWidget(btnCreate);
+  layout->addLayout(actions);
+
+  connect(btnCancel, &QPushButton::clicked, overlay, &QWidget::close);
+  connect(btnCreate, &QPushButton::clicked, this,
+          [this, overlay, nameInput, btnInfinite, createNote]() {
+            const QString name = nameInput->text().trimmed().isEmpty()
+                                     ? QStringLiteral("Neue Notiz")
+                                     : nameInput->text().trimmed();
+            const bool isInfinite = btnInfinite->isChecked();
+            const QString subtitle = isInfinite
+                                         ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
+                                         : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
+            showA4LayoutOverlayAsync(
+                this, QStringLiteral("Seitenlayout"), subtitle, 2,
+                UIStyles::PageBackground,
+                [this, overlay, name, isInfinite, createNote](
+                    const A4LayoutDialogResult &layoutResult) {
+                  if (layoutResult.accepted)
+                    createNote(name, isInfinite, layoutResult);
+                  if (overlay)
+                    overlay->close();
+                });
+          });
+  overlay->raise();
+  card->raise();
+  return;
+#else
+  NewNoteDialog dlg(this);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  QString name = dlg.getNoteName();
+  bool isInfinite = dlg.isInfiniteFormat();
+  A4LayoutDialogResult layoutResult;
+  const QString subtitle = isInfinite
+      ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
+      : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
+  if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), subtitle, 2,
+                           UIStyles::PageBackground, &layoutResult) ||
+      !layoutResult.accepted) {
+    return;
   }
+  createNote(name, isInfinite, layoutResult);
+#endif
 }
 
 void MainWindow::onCreateFolder() {
+#ifdef Q_OS_ANDROID
+  auto calcAndroidCardSize = [this](QWidget *host, int minW, int maxW, int minH,
+                                    int maxH, qreal wRatio,
+                                    qreal hRatio) -> QSize {
+    const int hostW = host ? host->width() : width();
+    const int hostH = host ? host->height() : height();
+    const int w = qBound(UiScale::dp(minW),
+                         int(qreal(qMax(1, hostW)) * wRatio), UiScale::dp(maxW));
+    const int h = qBound(UiScale::dp(minH),
+                         int(qreal(qMax(1, hostH)) * hRatio), UiScale::dp(maxH));
+    return QSize(w, h);
+  };
+
+  auto *overlay = new QWidget(this);
+  overlay->setAttribute(Qt::WA_DeleteOnClose, true);
+  overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
+  overlay->setStyleSheet("background-color: rgba(0,0,0,150);");
+  overlay->setGeometry(rect());
+  overlay->show();
+  overlay->raise();
+
+  auto *card = new QFrame(overlay);
+  card->setStyleSheet(
+      "QFrame { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+      "QLabel { color: #DDD; border: none; background: transparent; }"
+      "QLineEdit { background: #252526; color: white; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; }"
+      "QLineEdit:focus { border: 1px solid #5E5CE6; }");
+  const QSize folderCardSize =
+      calcAndroidCardSize(overlay, 280, 440, 170, 240, 0.86, 0.34);
+  card->setFixedSize(folderCardSize);
+  card->move((overlay->width() - folderCardSize.width()) / 2,
+             (overlay->height() - folderCardSize.height()) / 2);
+  card->show();
+  card->raise();
+
+  auto *layout = new QVBoxLayout(card);
+  layout->setContentsMargins(20, 20, 20, 20);
+  layout->setSpacing(12);
+  auto *title = new QLabel(QStringLiteral("New Folder"), card);
+  title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;");
+  layout->addWidget(title);
+  auto *edit = new QLineEdit(card);
+  edit->setPlaceholderText(QStringLiteral("New Folder"));
+  edit->setFocus();
+  layout->addWidget(edit);
+  auto *actions = new QHBoxLayout();
+  actions->setSpacing(UiScale::dp(10));
+  auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
+  btnCancel->setMinimumHeight(UiScale::dp(48));
+  btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCancel->setStyleSheet(
+      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #312C45; }");
+  auto *btnOk = new QPushButton(QStringLiteral("Erstellen"), card);
+  btnOk->setMinimumHeight(UiScale::dp(48));
+  btnOk->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnOk->setStyleSheet(
+      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; padding: 10px 12px; font-weight: 700; font-size: 15px; }"
+      "QPushButton:hover { background: #4b49c9; }");
+  actions->addWidget(btnCancel);
+  actions->addWidget(btnOk);
+  layout->addLayout(actions);
+  connect(btnCancel, &QPushButton::clicked, overlay, &QWidget::close);
+  connect(btnOk, &QPushButton::clicked, this, [this, overlay, edit]() {
+    const QString text = edit->text().trimmed();
+    if (!text.isEmpty())
+      m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text);
+    if (overlay)
+      overlay->close();
+  });
+  overlay->raise();
+  card->raise();
+  return;
+#endif
   bool ok;
   QString text = QInputDialog::getText(
       this, "New Folder", "Name:", QLineEdit::Normal, "New Folder", &ok);
@@ -5608,9 +5826,9 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
     if (m_btnAndroidToolbarPageManager)
-      m_btnAndroidToolbarPageManager->setVisible(true);
+      m_btnAndroidToolbarPageManager->setVisible(false);
     if (m_btnAndroidToolbarExport)
-      m_btnAndroidToolbarExport->setVisible(true);
+      m_btnAndroidToolbarExport->setVisible(false);
     if (m_androidTopSearchBar) {
       m_androidTopSearchBar->clear();
       m_androidTopSearchBar->hide();
@@ -5921,6 +6139,17 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
 void MainWindow::onBackToOverview() {
   m_rightStack->setCurrentWidget(m_overviewContainer);
   updateSidebarState();
+#ifdef Q_OS_ANDROID
+  const auto transientOverlays = findChildren<QWidget *>(
+      QStringLiteral("AndroidTransientOverlay"), Qt::FindDirectChildrenOnly);
+  for (QWidget *overlay : transientOverlays) {
+    if (overlay && overlay->isVisible())
+      overlay->close();
+  }
+  syncAndroidHeaderGeometry(this);
+  if (m_androidHeader)
+    m_androidHeader->raise();
+#endif
 }
 void MainWindow::showContextMenu(const QPoint &globalPos,
                                  const QModelIndex &index) {

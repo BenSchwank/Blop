@@ -422,6 +422,10 @@ Rectangle {
                 text: "Info: Wähle das Lineal-Werkzeug, um es zu bewegen. Wähle einen Stift, um daran zu zeichnen."
                 color: "#888"; font.pixelSize: Math.round(12 * root.uiScale); wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: Math.round(10 * root.uiScale)
             }
+            Label {
+                text: "Position ist notizfest: Das Lineal bleibt an seiner Stelle auf der Seite und klebt nicht am Bildschirm beim Scrollen."
+                color: "#888"; font.pixelSize: Math.round(12 * root.uiScale); wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
         }
     }
 }

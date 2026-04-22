@@ -1,6 +1,7 @@
 #include "editoroverlays.h"
 
 #include "PageItem.h"
+#include "uiscale.h"
 
 #include <QButtonGroup>
 #include <QDialogButtonBox>
@@ -30,6 +31,7 @@
 #include <QVBoxLayout>
 
 #include <functional>
+#include <memory>
 #include <QVector>
 
 namespace {
@@ -860,5 +862,203 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 
   overlay->deleteLater();
   return out->accepted;
+}
+
+void showA4LayoutOverlayAsync(
+    QWidget *parent, const QString &windowTitle, const QString &subtitle,
+    int initialType, const QColor &initialPaper,
+    std::function<void(const A4LayoutDialogResult &)> onDone) {
+  if (!parent) {
+    if (onDone)
+      onDone(A4LayoutDialogResult{});
+    return;
+  }
+
+  auto *overlay = new OverlayHost(parent);
+  overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
+  auto *card = new QFrame(overlay);
+  card->setObjectName(QStringLiteral("A4LayoutCardAsync"));
+  card->setStyleSheet(QStringLiteral(
+      "#A4LayoutCardAsync {"
+      "  background-color: rgba(24, 26, 38, 0.985);"
+      "  border: 1px solid rgba(135, 145, 175, 0.38);"
+      "  border-radius: 20px;"
+      "}"
+      "QLabel { color: rgba(235, 237, 245, 0.95); }"
+      "QToolButton {"
+      "  border-radius: 12px;"
+      "  border: 1px solid rgba(132, 144, 182, 0.36);"
+      "  background: rgba(30, 34, 50, 0.92);"
+      "  color: rgba(236, 239, 248, 0.96);"
+      "  font-size: 11px; font-weight: 600; padding: 8px 8px;"
+      "}"
+      "QToolButton:checked {"
+      "  border: 2px solid #6BA3F5;"
+      "  background: rgba(107, 163, 245, 0.18);"
+      "}"));
+
+  int cardW = 720;
+  int cardH = 700;
+#ifdef Q_OS_ANDROID
+  cardW = qBound(UiScale::dp(300), int(qreal(qMax(1, parent->width())) * 0.94),
+                 UiScale::dp(540));
+  cardH = qBound(UiScale::dp(360), int(qreal(qMax(1, parent->height())) * 0.82),
+                 UiScale::dp(680));
+#endif
+  centerCardInOverlay(overlay, card, cardW, cardH);
+
+  auto *root = new QVBoxLayout(card);
+#ifdef Q_OS_ANDROID
+  root->setContentsMargins(UiScale::dp(20), UiScale::dp(18), UiScale::dp(20),
+                           UiScale::dp(16));
+  root->setSpacing(UiScale::dp(10));
+#else
+  root->setContentsMargins(32, 26, 32, 24);
+  root->setSpacing(14);
+#endif
+
+  auto *titleLbl = new QLabel(windowTitle, card);
+  titleLbl->setStyleSheet(QStringLiteral(
+      "font-weight: 700; font-size: 20px; letter-spacing: 0.2px;"));
+  root->addWidget(titleLbl);
+  if (!subtitle.isEmpty()) {
+    auto *sub = new QLabel(subtitle, card);
+    sub->setWordWrap(true);
+    sub->setStyleSheet(
+        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;"));
+    root->addWidget(sub);
+  }
+
+  auto chosen = std::make_shared<int>(
+      qBound(0, initialType, static_cast<int>(PageBackgroundType::Legal)));
+  auto paperColor = std::make_shared<QColor>(
+      initialPaper.isValid() ? initialPaper : QColor(Qt::white));
+
+  auto *grid = new QGridLayout();
+  grid->setHorizontalSpacing(16);
+  grid->setVerticalSpacing(16);
+  auto *tplGroup = new QButtonGroup(card);
+  tplGroup->setExclusive(true);
+  int kTplIconW = 104;
+  int kTplIconH = 84;
+  QSize tplButtonSize(132, 154);
+#ifdef Q_OS_ANDROID
+  kTplIconW = UiScale::dp(84);
+  kTplIconH = UiScale::dp(68);
+  tplButtonSize = QSize(UiScale::dp(118), UiScale::dp(136));
+#endif
+  auto addTplBtn = [&](int row, int col, const QString &name, PageBackgroundType t) {
+    auto *tb = new QToolButton(card);
+    tb->setText(name);
+    tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH));
+    tb->setIconSize(QSize(kTplIconW, kTplIconH));
+    tb->setCheckable(true);
+    tb->setFixedSize(tplButtonSize);
+    tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    const int ti = static_cast<int>(t);
+    QObject::connect(tb, &QToolButton::toggled, card, [ti, chosen](bool on) {
+      if (on)
+        *chosen = ti;
+    });
+    tplGroup->addButton(tb);
+    grid->addWidget(tb, row, col);
+    return tb;
+  };
+
+  QToolButton *bBlank =
+      addTplBtn(0, 0, QStringLiteral("Weiß / leer"), PageBackgroundType::Blank);
+  QToolButton *bLined =
+      addTplBtn(0, 1, QStringLiteral("Liniert"), PageBackgroundType::Lined);
+  QToolButton *bGrid =
+      addTplBtn(0, 2, QStringLiteral("Kariert"), PageBackgroundType::Grid);
+  QToolButton *bDot =
+      addTplBtn(1, 0, QStringLiteral("Punktiert"), PageBackgroundType::Dotted);
+  QToolButton *bLeg =
+      addTplBtn(1, 1, QStringLiteral("Legal"), PageBackgroundType::Legal);
+  QToolButton *initialTpl = bGrid;
+  switch (*chosen) {
+  case static_cast<int>(PageBackgroundType::Blank):
+    initialTpl = bBlank;
+    break;
+  case static_cast<int>(PageBackgroundType::Lined):
+    initialTpl = bLined;
+    break;
+  case static_cast<int>(PageBackgroundType::Grid):
+    initialTpl = bGrid;
+    break;
+  case static_cast<int>(PageBackgroundType::Dotted):
+    initialTpl = bDot;
+    break;
+  case static_cast<int>(PageBackgroundType::Legal):
+    initialTpl = bLeg;
+    break;
+  default:
+    break;
+  }
+  initialTpl->setChecked(true);
+  root->addLayout(grid, 1);
+
+  auto finish = [overlay, onDone](const A4LayoutDialogResult &res) {
+    if (onDone)
+      onDone(res);
+    overlay->deleteLater();
+  };
+
+#ifdef Q_OS_ANDROID
+  auto *actions = new QHBoxLayout();
+  actions->setSpacing(UiScale::dp(10));
+  auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
+  btnCancel->setMinimumHeight(UiScale::dp(48));
+  btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCancel->setStyleSheet(
+      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #312C45; }");
+  auto *btnDone = new QPushButton(QStringLiteral("Fertig"), card);
+  btnDone->setMinimumHeight(UiScale::dp(48));
+  btnDone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnDone->setStyleSheet(
+      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #4b49c9; }");
+  actions->addWidget(btnCancel);
+  actions->addWidget(btnDone);
+  root->addLayout(actions);
+#else
+  auto *bbox =
+      new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);
+  bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
+  bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
+  root->addWidget(bbox, 0, Qt::AlignRight);
+#endif
+
+  overlay->setCard(card);
+  overlay->onDismiss = [finish]() { finish(A4LayoutDialogResult{}); };
+#ifdef Q_OS_ANDROID
+  QObject::connect(btnCancel, &QPushButton::clicked, overlay,
+                   [finish]() { finish(A4LayoutDialogResult{}); });
+  QObject::connect(btnDone, &QPushButton::clicked, overlay,
+                   [finish, chosen, paperColor]() {
+                     A4LayoutDialogResult r;
+                     r.accepted = true;
+                     r.backgroundType =
+                         qBound(0, *chosen, static_cast<int>(PageBackgroundType::Legal));
+                     r.paperColor = *paperColor;
+                     finish(r);
+                   });
+#else
+  QObject::connect(bbox, &QDialogButtonBox::rejected, overlay,
+                   [finish]() { finish(A4LayoutDialogResult{}); });
+  QObject::connect(bbox, &QDialogButtonBox::accepted, overlay,
+                   [finish, chosen, paperColor]() {
+                     A4LayoutDialogResult r;
+                     r.accepted = true;
+                     r.backgroundType =
+                         qBound(0, *chosen, static_cast<int>(PageBackgroundType::Legal));
+                     r.paperColor = *paperColor;
+                     finish(r);
+                   });
+#endif
+
+  overlay->show();
+  overlay->raise();
 }
 
