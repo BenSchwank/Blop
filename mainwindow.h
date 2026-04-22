@@ -165,6 +165,10 @@ public slots:
   void showAuthOverlay(const QUrl &url);
   void switchToNotesFromWebQmlBar();
   void openWebBookmarkMenuFromWebQmlBar();
+  QVariantList webBookmarksForQml() const;
+  bool addWebBookmarkFromQml(const QString &urlInput, const QString &titleInput);
+  bool removeWebBookmarkFromQml(int index);
+  void openWebBookmarkFromQml(int index);
 
 private slots:
   void checkForUpdates();
@@ -325,6 +329,12 @@ private:
 #endif
   QVector<WebBookmark> m_webBookmarks;
   // ----------------------------
+  /// True while auth is unresolved: prevent switching from Study/Login to Notes.
+  bool m_authNavigationLocked{false};
+  /// Prevents duplicate OAuth browser launches from repeated poll triggers.
+  bool m_googleLoginInFlight{false};
+  /// Prevents multiple overlapping Android bookmark sheets.
+  bool m_androidWebMenuOpen{false};
 
   // --- Sidebar user section labels (updated on webview login) ---
   QLabel *m_lblSidebarUser{nullptr};

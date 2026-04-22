@@ -683,6 +683,7 @@ MainWindow::MainWindow(QWidget *parent)
           
   // Close the overlay when login completes successfully
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
+      m_googleLoginInFlight = false;
       if (m_authOverlay) {
           m_authOverlay->accept();
           m_authOverlay->deleteLater();
@@ -772,6 +773,7 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Warn user if OAuth fails locally or via server
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this](const QString& error) {
+      m_googleLoginInFlight = false;
       QMessageBox::warning(this, "Google Login Fehler", "Der Login über Google ist fehlgeschlagen:\n" + error);
   });
 
@@ -1267,6 +1269,11 @@ QPushButton:hover { background: rgba(232, 72, 85, 0.28); color: #FFFFFF; })"));
 void MainWindow::openWebBookmarkOverflowMenuFromWidget(QWidget *anchor) {
   if (!anchor || !m_modeSelector)
     return;
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android uses QML bookmark sheet only; widget menu suppressed";
+  return;
+#endif
+
   QMenu menu(this);
   menu.setStyleSheet(blopWebMenuStyleSheet());
   for (int i = 0; i < m_webBookmarks.size(); ++i) {
@@ -2771,11 +2778,23 @@ void MainWindow::setupUi() {
   m_btnAndroidStudy->setStyleSheet(tabInactiveStyle);
 
   connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
+    if (!m_modeSelector || m_modeSelector->count() <= 1) {
+      qWarning() << "Android Notes tap ignored: mode selector not ready";
+      return;
+    }
+    if (m_authNavigationLocked) {
+      qInfo() << "Auth gate: Notes tap ignored while login pending";
+      return;
+    }
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(0);
     onModeChanged(0);
   });
   connect(m_btnAndroidStudy, &QPushButton::clicked, this, [this]() {
+    if (!m_modeSelector || m_modeSelector->count() <= 1) {
+      qWarning() << "Android Study tap ignored: mode selector not ready";
+      return;
+    }
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(1);
     onModeChanged(1);
@@ -3819,6 +3838,7 @@ void MainWindow::onModeChanged(int index) {
 #ifdef Q_OS_ANDROID
   syncAndroidHeaderGeometry(this);
   applyAndroidImmersiveUi();
+  const bool showAndroidHeader = !m_authNavigationLocked;
   if (m_studyVBoxLayout) {
     // Study has its own QML top bar; keep web content flush to avoid double top bars.
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
@@ -3840,10 +3860,9 @@ void MainWindow::onModeChanged(int index) {
     m_mainContentStack->setCurrentIndex(mainStackIdx);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
-      // Keep Android mode tabs always reachable: if Study/Web renders black,
-      // users can still switch back to Notes.
-      m_androidHeader->setVisible(true);
-      m_androidHeader->raise();
+      m_androidHeader->setVisible(showAndroidHeader);
+      if (showAndroidHeader)
+        m_androidHeader->raise();
     }
 #endif
   }
@@ -3880,8 +3899,9 @@ void MainWindow::onModeChanged(int index) {
     }
   }
   if (m_androidHeader) {
-    m_androidHeader->setVisible(true);
-    m_androidHeader->raise();
+    m_androidHeader->setVisible(showAndroidHeader);
+    if (showAndroidHeader)
+      m_androidHeader->raise();
   }
   syncAndroidHeaderGeometry(this);
   // Study switches can transiently report stale availableGeometry on Android.
@@ -3890,8 +3910,8 @@ void MainWindow::onModeChanged(int index) {
     syncAndroidHeaderGeometry(this);
     applyAndroidImmersiveUi();
     if (m_androidHeader)
-      m_androidHeader->setVisible(true);
-    if (m_androidHeader)
+      m_androidHeader->setVisible(!m_authNavigationLocked);
+    if (m_androidHeader && !m_authNavigationLocked)
       m_androidHeader->raise();
   });
 #endif
@@ -3940,6 +3960,12 @@ void MainWindow::onModeChanged(int index) {
 }
 
 void MainWindow::requestGoogleLogin() {
+    if (m_googleLoginInFlight) {
+      qInfo() << "Google login already in flight, ignoring duplicate request";
+      return;
+    }
+    m_googleLoginInFlight = true;
+    m_authNavigationLocked = true;
     GoogleAuthManager::instance().login();
 }
 
@@ -4036,6 +4062,10 @@ void MainWindow::scheduleAndroidStudyWebViewNetworkCache() {
 
 void MainWindow::switchToNotesFromWebQmlBar() {
 #ifdef Q_OS_ANDROID
+  if (m_authNavigationLocked) {
+    qInfo() << "Auth gate: switchToNotesFromWebQmlBar ignored";
+    return;
+  }
   if (m_modeSelector) {
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(0);
@@ -4046,20 +4076,85 @@ void MainWindow::switchToNotesFromWebQmlBar() {
 
 void MainWindow::openWebBookmarkMenuFromWebQmlBar() {
 #ifdef Q_OS_ANDROID
-  if (m_btnAndroidAddWebBookmark && m_btnAndroidAddWebBookmark->isVisible()) {
-    openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+  if (!m_studyQQuickView)
     return;
-  }
-  if (m_studyContainer && m_studyContainer->isVisible()) {
-    openWebBookmarkOverflowMenuFromWidget(m_studyContainer);
+  QObject *root = m_studyQQuickView->rootObject();
+  if (!root)
     return;
+  const bool ok = QMetaObject::invokeMethod(root, "openBookmarkSheet",
+                                             Qt::QueuedConnection);
+  if (!ok)
+    qWarning() << "QML openBookmarkSheet invoke failed";
+#endif
+}
+
+QVariantList MainWindow::webBookmarksForQml() const {
+  QVariantList out;
+  out.reserve(m_webBookmarks.size());
+  for (const WebBookmark &bm : m_webBookmarks) {
+    QVariantMap row;
+    row.insert(QStringLiteral("title"), bm.title);
+    row.insert(QStringLiteral("url"), bm.url.toString());
+    out.push_back(row);
   }
-  openWebBookmarkOverflowMenuFromWidget(this);
+  return out;
+}
+
+bool MainWindow::addWebBookmarkFromQml(const QString &urlInput,
+                                       const QString &titleInput) {
+  if (!m_modeSelector)
+    return false;
+  const QUrl url = normalizedUserWebUrl(urlInput);
+  if (!url.isValid())
+    return false;
+  QString title = titleInput.trimmed();
+  if (title.isEmpty())
+    title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+  m_webBookmarks.push_back({title, url});
+  saveWebBookmarksToSettings();
+  rebuildModeSelectorItems();
+  const int newIdx = m_modeSelector->count() - 1;
+#ifdef Q_OS_ANDROID
+  QSignalBlocker b(m_modeSelector);
+  m_modeSelector->setCurrentIndex(newIdx);
+  onModeChanged(newIdx);
+#else
+  m_modeSelector->setCurrentIndex(newIdx);
+#endif
+  return true;
+}
+
+bool MainWindow::removeWebBookmarkFromQml(int index) {
+  if (index < 0 || index >= m_webBookmarks.size())
+    return false;
+  m_webBookmarks.removeAt(index);
+  saveWebBookmarksToSettings();
+  rebuildModeSelectorItems();
+  const int cur = m_modeSelector ? m_modeSelector->currentIndex() : 0;
+  onModeChanged(cur);
+  return true;
+}
+
+void MainWindow::openWebBookmarkFromQml(int index) {
+  if (!m_modeSelector)
+    return;
+  if (index < 0 || index >= m_webBookmarks.size())
+    return;
+  const int modeIdx = index + 2;
+  if (modeIdx >= m_modeSelector->count())
+    return;
+#ifdef Q_OS_ANDROID
+  QSignalBlocker b(m_modeSelector);
+  m_modeSelector->setCurrentIndex(modeIdx);
+  onModeChanged(modeIdx);
+#else
+  m_modeSelector->setCurrentIndex(modeIdx);
 #endif
 }
 
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
+        m_googleLoginInFlight = false;
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
         if (sessionData != currentUser) {
             updateSidebarUser(sessionData);
@@ -4083,6 +4178,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
   bool wasLocked = (m_topNavControls && m_topNavControls->isHidden());
 
   if (!username.isEmpty()) {
+    m_authNavigationLocked = false;
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
     
@@ -4093,6 +4189,8 @@ void MainWindow::updateSidebarUser(const QString &username) {
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
     }
 #ifdef Q_OS_ANDROID
+    if (m_androidHeader)
+      m_androidHeader->setVisible(true);
     onModeChanged(0);
     if (m_btnAndroidNotes) {
       m_btnAndroidNotes->setVisible(true);
@@ -4117,6 +4215,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
       onToggleSidebar();
     }
   } else {
+    m_authNavigationLocked = true;
     // Logged out: Switch back to Study/Login web view
     if (m_topNavControls) m_topNavControls->hide();
 
@@ -4130,16 +4229,17 @@ void MainWindow::updateSidebarUser(const QString &username) {
 #endif
     }
 #ifdef Q_OS_ANDROID
+    if (m_androidHeader)
+      m_androidHeader->setVisible(false);
     onModeChanged(1);
-    // Keep tab switch usable on Android so users can always return to Notes.
-    // (Web localStorage/session sync can be delayed on some devices.)
+    // Keep login screen clean: hide Notes/Study pills until session is confirmed.
     if (m_btnAndroidNotes) {
-      m_btnAndroidNotes->setVisible(true);
-      m_btnAndroidNotes->setEnabled(true);
+      m_btnAndroidNotes->setVisible(false);
+      m_btnAndroidNotes->setEnabled(false);
     }
     if (m_btnAndroidStudy) {
-      m_btnAndroidStudy->setVisible(true);
-      m_btnAndroidStudy->setEnabled(true);
+      m_btnAndroidStudy->setVisible(false);
+      m_btnAndroidStudy->setEnabled(false);
     }
     // Web/bookmark actions stay hidden until we have a confirmed web session.
     if (m_btnAndroidAddWebBookmark) {

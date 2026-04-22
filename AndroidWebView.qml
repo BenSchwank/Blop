@@ -10,13 +10,14 @@ Rectangle {
     readonly property bool showQmlTopBar: false
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
+    property double oauthPendingSinceMs: 0
     property string studyUrl: "https://blop-study.com"
     property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
-    // Slight zoom-out so auth forms fit better without vertical scrolling.
-    property real authUiScale: 0.94
+    // Keep native login at natural scale to avoid visible top/bottom letterboxing.
+    property real authUiScale: 1.0
     property bool cacheMissRecoveryArmed: true
     property int cacheMissRecoveryCount: 0
     readonly property int cacheMissRecoveryLimit: 7
@@ -39,6 +40,15 @@ Rectangle {
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
+    property bool bookmarkSheetOpen: false
+    property bool bookmarkManageMode: false
+    property string bookmarkDraftUrl: ""
+    property string bookmarkDraftTitle: ""
+    property string bookmarkAddError: ""
+
+    ListModel {
+        id: bookmarkModel
+    }
 
     function studyWeb() {
         return studyWebLoader.item
@@ -110,6 +120,52 @@ Rectangle {
                     w1.url = urlStr
             }
         }
+    }
+
+    function refreshBookmarkModel() {
+        bookmarkModel.clear()
+        if (typeof blopAppBridge === "undefined" || !blopAppBridge.webBookmarksForQml)
+            return
+        var rows = blopAppBridge.webBookmarksForQml()
+        if (!rows || rows.length === undefined)
+            return
+        for (var i = 0; i < rows.length; ++i) {
+            var row = rows[i]
+            bookmarkModel.append({
+                "title": String(row.title || ""),
+                "url": String(row.url || "")
+            })
+        }
+    }
+
+    function openBookmarkSheet() {
+        if (typeof blopAppBridge !== "undefined" && blopAppBridge.webBookmarksForQml)
+            refreshBookmarkModel()
+        bookmarkManageMode = false
+        bookmarkAddError = ""
+        bookmarkDraftUrl = ""
+        bookmarkDraftTitle = ""
+        bookmarkSheetOpen = true
+    }
+
+    function closeBookmarkSheet() {
+        bookmarkSheetOpen = false
+        bookmarkManageMode = false
+        bookmarkAddError = ""
+    }
+
+    function submitBookmarkFromSheet() {
+        bookmarkAddError = ""
+        if (typeof blopAppBridge === "undefined" || !blopAppBridge.addWebBookmarkFromQml) {
+            bookmarkAddError = "Lesezeichen nicht verfuegbar."
+            return
+        }
+        var ok = blopAppBridge.addWebBookmarkFromQml(bookmarkDraftUrl, bookmarkDraftTitle)
+        if (!ok) {
+            bookmarkAddError = "Bitte eine gueltige http/https-Adresse eingeben."
+            return
+        }
+        closeBookmarkSheet()
     }
 
     function applyAuthUiScale() {
@@ -345,10 +401,7 @@ Rectangle {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: {
-                        if (typeof blopAppBridge !== "undefined")
-                            blopAppBridge.openWebBookmarkMenuFromWebQmlBar()
-                    }
+                    onClicked: openBookmarkSheet()
                 }
             }
         }
@@ -598,6 +651,244 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        id: bookmarkBackdrop
+        anchors.fill: parent
+        color: "#B3000000"
+        visible: bookmarkSheetOpen
+        z: 30
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: closeBookmarkSheet()
+        }
+
+        Rectangle {
+            id: bookmarkSheet
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            radius: Math.round(18 * uiScale)
+            color: "#14121F"
+            border.color: "#4F4A70"
+            border.width: 1
+            height: Math.min(parent.height * 0.82, Math.round((bookmarkManageMode ? 500 : 420) * uiScale))
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {}
+            }
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: Math.round(14 * uiScale)
+                spacing: Math.round(10 * uiScale)
+
+                Rectangle {
+                    width: Math.round(42 * uiScale)
+                    height: Math.round(4 * uiScale)
+                    radius: height / 2
+                    color: "#5A5578"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: Math.round(8 * uiScale)
+
+                    Text {
+                        text: "Web-Lesezeichen"
+                        color: "#F4F2FF"
+                        font.pixelSize: Math.round(18 * uiScale)
+                        font.bold: true
+                    }
+
+                    Item { width: 1; height: 1 }
+
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.round(96 * uiScale)
+                        height: Math.round(30 * uiScale)
+                        radius: height / 2
+                        color: bookmarkManageMode ? "#5E5CE6" : "#252335"
+                        border.color: bookmarkManageMode ? "#7D7AFF" : "#3A3651"
+                        border.width: 1
+                        anchors.right: parent.right
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: bookmarkManageMode ? "Fertig" : "Verwalten"
+                            color: "#F0EEFF"
+                            font.pixelSize: Math.round(12 * uiScale)
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: bookmarkManageMode = !bookmarkManageMode
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: Math.round(1 * uiScale)
+                    color: "#2B2840"
+                }
+
+                Flickable {
+                    width: parent.width
+                    height: Math.round(170 * uiScale)
+                    clip: true
+                    contentWidth: width
+                    contentHeight: bookmarkColumn.implicitHeight
+
+                    Column {
+                        id: bookmarkColumn
+                        width: parent.width
+                        spacing: Math.round(8 * uiScale)
+
+                        Repeater {
+                            model: bookmarkModel
+
+                            delegate: Rectangle {
+                                width: bookmarkColumn.width
+                                height: Math.round(44 * uiScale)
+                                radius: Math.round(10 * uiScale)
+                                color: "#1B1930"
+                                border.color: "#2F2C46"
+                                border.width: 1
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Math.round(12 * uiScale)
+                                    width: bookmarkManageMode ? parent.width - Math.round(70 * uiScale) : parent.width - Math.round(24 * uiScale)
+                                    text: model.title
+                                    color: "#E9E6FF"
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Math.round(13 * uiScale)
+                                }
+
+                                Rectangle {
+                                    visible: bookmarkManageMode
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: Math.round(8 * uiScale)
+                                    width: Math.round(28 * uiScale)
+                                    height: Math.round(28 * uiScale)
+                                    radius: width / 2
+                                    color: "#3B2331"
+                                    border.color: "#8D4B67"
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "x"
+                                        color: "#FFC1D4"
+                                        font.pixelSize: Math.round(13 * uiScale)
+                                        font.bold: true
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            if (typeof blopAppBridge !== "undefined" && blopAppBridge.removeWebBookmarkFromQml) {
+                                                blopAppBridge.removeWebBookmarkFromQml(index)
+                                                refreshBookmarkModel()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !bookmarkManageMode
+                                    onClicked: {
+                                        if (typeof blopAppBridge !== "undefined" && blopAppBridge.openWebBookmarkFromQml) {
+                                            blopAppBridge.openWebBookmarkFromQml(index)
+                                            closeBookmarkSheet()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "URL hinzufuegen"
+                    color: "#D8D4F5"
+                    font.pixelSize: Math.round(13 * uiScale)
+                    font.bold: true
+                }
+
+                TextField {
+                    id: addUrlField
+                    width: parent.width
+                    placeholderText: "https://..."
+                    text: bookmarkDraftUrl
+                    onTextChanged: bookmarkDraftUrl = text
+                }
+
+                TextField {
+                    width: parent.width
+                    placeholderText: "Titel (optional)"
+                    text: bookmarkDraftTitle
+                    onTextChanged: bookmarkDraftTitle = text
+                }
+
+                Text {
+                    visible: bookmarkAddError.length > 0
+                    text: bookmarkAddError
+                    color: "#FF909D"
+                    font.pixelSize: Math.round(12 * uiScale)
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: Math.round(8 * uiScale)
+
+                    Rectangle {
+                        width: (parent.width - spacing) / 2
+                        height: Math.round(40 * uiScale)
+                        radius: Math.round(10 * uiScale)
+                        color: "#262237"
+                        border.color: "#3A3550"
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Abbrechen"
+                            color: "#E0DBFF"
+                            font.pixelSize: Math.round(13 * uiScale)
+                            font.bold: true
+                        }
+                        MouseArea { anchors.fill: parent; onClicked: closeBookmarkSheet() }
+                    }
+
+                    Rectangle {
+                        width: (parent.width - spacing) / 2
+                        height: Math.round(40 * uiScale)
+                        radius: Math.round(10 * uiScale)
+                        color: "#5E5CE6"
+                        border.color: "#7D7AFF"
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Speichern"
+                            color: "#F9F8FF"
+                            font.pixelSize: Math.round(13 * uiScale)
+                            font.bold: true
+                        }
+                        MouseArea { anchors.fill: parent; onClicked: submitBookmarkFromSheet() }
+                    }
+                }
+            }
+        }
+    }
+
     Connections {
         target: typeof blopAppBridge !== "undefined" ? blopAppBridge : null
 
@@ -605,6 +896,7 @@ Rectangle {
             // jsCode is pre-built by C++: sets session_id + username in localStorage, then navigates to /
             console.log("QML: Injecting session from C++ backend verification...");
             oauthPending = false;  // Hide the overlay
+            oauthPendingSinceMs = 0
             var w = studyWeb()
             if (w)
                 w.runJavaScript(jsCode)
@@ -638,10 +930,14 @@ Rectangle {
                 if (typeof blopAppBridge !== "undefined" && result !== undefined) {
                     var resStr = result.toString().trim();
                     if (resStr === "TRIGGER_GOOGLE_LOGIN") {
+                        if (oauthPending && (Date.now() - oauthPendingSinceMs) < 5000)
+                            return
                         oauthPending = true;  // Show overlay while Chrome is open
+                        oauthPendingSinceMs = Date.now()
                         blopAppBridge.requestGoogleLogin();
                     } else if (resStr !== "") {
                         oauthPending = false;
+                        oauthPendingSinceMs = 0
                         blopAppBridge.onSessionCheck(resStr);
                     } else {
                         // Keep the login/register page slightly zoomed out.
@@ -665,6 +961,23 @@ Rectangle {
                     }
                 }
             )
+        }
+    }
+
+    // If OAuth browser return leaves the embedded page stale, recover automatically.
+    Timer {
+        interval: 1200
+        running: ssoPollingEnabled
+        repeat: true
+        onTriggered: {
+            if (!oauthPending)
+                return
+            if (Date.now() - oauthPendingSinceMs < 20000)
+                return
+            console.warn("BlopStudy: oauth watchdog timeout, forcing fresh load")
+            oauthPending = false
+            oauthPendingSinceMs = 0
+            loadStudyEntryFresh("oauthWatchdog", true)
         }
     }
 }
