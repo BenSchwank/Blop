@@ -680,6 +680,11 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
               showAuthOverlay(url);
           });
+
+  auto failOAuthFlow = [this](const QString &reason) {
+    m_googleLoginInFlight = false;
+    emit oauthFailed(reason);
+  };
           
   // Close the overlay when login completes successfully
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
@@ -692,10 +697,15 @@ MainWindow::MainWindow(QWidget *parent)
   });
 
   // Verify the Google access token via our own backend and inject session into the WebView
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this](const QString &token) {
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this, failOAuthFlow](const QString &token) {
       qDebug() << "Received Google token in MainWindow, posting to backend for verification...";
+      if (token.trimmed().isEmpty()) {
+        qWarning() << "Google idTokenReceived was empty";
+        failOAuthFlow(QStringLiteral("empty_id_token"));
+        return;
+      }
       auto attemptVerify = std::make_shared<std::function<void(int)>>();
-      *attemptVerify = [this, token, attemptVerify](int attempt) {
+      *attemptVerify = [this, token, attemptVerify, failOAuthFlow](int attempt) {
         QNetworkAccessManager *nam = new QNetworkAccessManager(this);
         QNetworkRequest req(QUrl("https://blop-study.com/api/auth/google/verify"));
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -705,12 +715,13 @@ MainWindow::MainWindow(QWidget *parent)
         QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
         QNetworkReply *reply = nam->post(req, postData);
-        connect(reply, &QNetworkReply::finished, this, [this, reply, nam, attempt, attemptVerify]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, nam, attempt, attemptVerify, failOAuthFlow]() {
           const QString errorText = reply->errorString();
           const QByteArray raw = reply->readAll();
           const QString rawText = QString::fromUtf8(raw);
           const int statusCode =
               reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+          const QNetworkReply::NetworkError networkError = reply->error();
           const bool transientErr11 =
               errorText.contains("Resource temporarily unavailable", Qt::CaseInsensitive) ||
               rawText.contains("Errno 11", Qt::CaseInsensitive);
@@ -727,23 +738,29 @@ MainWindow::MainWindow(QWidget *parent)
             return;
           }
 
-          if (reply->error() != QNetworkReply::NoError || statusCode >= 400) {
+          if (networkError != QNetworkReply::NoError || statusCode >= 400) {
             qWarning() << "Backend Google verify failed:" << errorText
                        << "status:" << statusCode << "body:" << rawText;
+            failOAuthFlow(QStringLiteral("backend_verify_failed"));
             return;
           }
 
           QJsonDocument doc = QJsonDocument::fromJson(raw);
-          if (doc.isNull() || !doc.isObject())
+          if (doc.isNull() || !doc.isObject()) {
+            qWarning() << "Backend Google verify invalid JSON:" << rawText;
+            failOAuthFlow(QStringLiteral("invalid_backend_json"));
             return;
+          }
           QJsonObject obj = doc.object();
           QString sessionId = obj.value("session_id").toString();
           QString username = obj.value("username").toString();
           if (sessionId.isEmpty() || username.isEmpty()) {
             qWarning() << "Backend returned empty session_id or username!";
+            failOAuthFlow(QStringLiteral("missing_session_or_username"));
             return;
           }
           qDebug() << "Backend verified Google login! username:" << username;
+          m_googleLoginInFlight = false;
 
           QSettings st("Blop", "BlopApp");
           st.setValue("session_id", sessionId);
@@ -772,9 +789,13 @@ MainWindow::MainWindow(QWidget *parent)
   });
 
   // Warn user if OAuth fails locally or via server
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this](const QString& error) {
-      m_googleLoginInFlight = false;
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this, failOAuthFlow](const QString& error) {
+      failOAuthFlow(error);
+#ifdef Q_OS_ANDROID
+      qWarning() << "Google Login Fehler:" << error;
+#else
       QMessageBox::warning(this, "Google Login Fehler", "Der Login über Google ist fehlgeschlagen:\n" + error);
+#endif
   });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
@@ -2803,27 +2824,6 @@ void MainWindow::setupUi() {
   headerLay->addWidget(m_btnAndroidNotes);
   headerLay->addWidget(m_btnAndroidStudy);
 
-  m_btnAndroidStudyReset = new QPushButton(androidHeader);
-  m_btnAndroidStudyReset->setFixedSize(UiScale::dp(30), androidCompactPillH);
-  m_btnAndroidStudyReset->setCursor(Qt::PointingHandCursor);
-  m_btnAndroidStudyReset->setToolTip(tr("Study zurücksetzen"));
-  m_btnAndroidStudyReset->setIcon(
-      createModernIcon("home", QColor("#F4F5FB")));
-  m_btnAndroidStudyReset->setIconSize(
-      QSize(UiScale::dp(18), UiScale::dp(18)));
-  m_btnAndroidStudyReset->setStyleSheet(
-      "QPushButton {"
-      "  background: rgba(255,255,255,0.08);"
-      "  color: #F4F5FB;"
-      "  border-radius: 13px;"
-      "  border: 1px solid rgba(255,255,255,0.16);"
-      "}"
-      "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
-  m_btnAndroidStudyReset->hide();
-  connect(m_btnAndroidStudyReset, &QPushButton::clicked, this,
-          &MainWindow::resetEmbeddedWebToStudy);
-  headerLay->addWidget(m_btnAndroidStudyReset);
-
   m_btnAndroidAddWebBookmark = new QPushButton(QStringLiteral("+"), androidHeader);
   m_btnAndroidAddWebBookmark->setFixedSize(UiScale::dp(30), androidCompactPillH);
   m_btnAndroidAddWebBookmark->setCursor(Qt::PointingHandCursor);
@@ -3819,12 +3819,6 @@ void MainWindow::applyAndroidTabStyles(int index) {
       "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
-  if (m_btnAndroidStudyReset) {
-    const bool show =
-        m_btnAndroidStudy && m_btnAndroidStudy->isVisible() && index >= 1;
-    m_btnAndroidStudyReset->setVisible(show);
-    m_btnAndroidStudyReset->setEnabled(show);
-  }
 }
 #endif
 
@@ -4245,10 +4239,6 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_btnAndroidAddWebBookmark) {
       m_btnAndroidAddWebBookmark->setVisible(false);
       m_btnAndroidAddWebBookmark->setEnabled(false);
-    }
-    if (m_btnAndroidStudyReset) {
-      m_btnAndroidStudyReset->setVisible(false);
-      m_btnAndroidStudyReset->setEnabled(false);
     }
 #endif
     if (btnStripMenu)

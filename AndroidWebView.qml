@@ -154,6 +154,12 @@ Rectangle {
         bookmarkAddError = ""
     }
 
+    function onOAuthFailed(reason) {
+        console.warn("BlopStudy: oauth failed", reason)
+        oauthPending = false
+        oauthPendingSinceMs = 0
+    }
+
     function submitBookmarkFromSheet() {
         bookmarkAddError = ""
         if (typeof blopAppBridge === "undefined" || !blopAppBridge.addWebBookmarkFromQml) {
@@ -900,6 +906,10 @@ Rectangle {
             var w = studyWeb()
             if (w)
                 w.runJavaScript(jsCode)
+        }
+
+        function onOauthFailed(reason) {
+            onOAuthFailed(reason)
         }
     }
 
