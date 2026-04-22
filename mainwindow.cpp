@@ -1362,6 +1362,10 @@ void MainWindow::invokeAndroidWebDestination(int kind, const QString &url) {
       Q_ARG(QVariant, u));
   if (!ok)
     qWarning() << "QML setWebDestination invoke failed";
+  else {
+    // Java-side retry until WebView exists (mitigates ERR_CACHE_MISS on Play/splits).
+    scheduleAndroidStudyWebViewNetworkCache();
+  }
 }
 #endif
 
@@ -3507,11 +3511,9 @@ void MainWindow::setupWebBrowser() {
 
   logAndroidSystemWebViewPackageOnce();
 
-  // Native WebView is created asynchronously after QML loads; re-apply a few times so
-  // WebSettings.LOAD_NO_CACHE is set once the view exists (mitigates net::ERR_CACHE_MISS).
-  QTimer::singleShot(400, this, &MainWindow::applyAndroidStudyWebViewNetworkCache);
-  QTimer::singleShot(900, this, &MainWindow::applyAndroidStudyWebViewNetworkCache);
-  QTimer::singleShot(1800, this, &MainWindow::applyAndroidStudyWebViewNetworkCache);
+  // Native WebView is created asynchronously after QML loads; Java retries WebSettings
+  // until a WebView appears (mitigates net::ERR_CACHE_MISS).
+  scheduleAndroidStudyWebViewNetworkCache();
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
@@ -3856,6 +3858,7 @@ void MainWindow::onModeChanged(int index) {
     m_studyWindowContainer->show();
     if (m_studyQQuickView)
       m_studyQQuickView->show();
+    scheduleAndroidStudyWebViewNetworkCache();
     QTimer::singleShot(0, this, [this]() {
       if (m_studyWindowContainer)
         m_studyWindowContainer->lower();
@@ -3959,9 +3962,45 @@ void MainWindow::resetAndroidWebViewStorage() {
 #endif
 }
 
+void MainWindow::resetAndroidWebViewStorageFull() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android WebView full reset requested from QML bridge";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "Android WebView full reset skipped: invalid activity";
+      return;
+    }
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "clearWebViewState",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+    qInfo() << "Android WebView full reset JNI call dispatched";
+  });
+#endif
+}
+
+void MainWindow::nudgeAndroidWebViewStopOnly() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android WebView stop-only requested from QML bridge";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "Android WebView stop-only skipped: invalid activity";
+      return;
+    }
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "stopLoadingOnly",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+    qInfo() << "Android WebView stop-only JNI call dispatched";
+  });
+#endif
+}
+
 void MainWindow::applyAndroidStudyWebViewNetworkCache() {
 #ifdef Q_OS_ANDROID
-  qInfo() << "Android Study WebView: apply LOAD_NO_CACHE (JNI)";
+  qInfo() << "Android Study WebView: apply cache settings (JNI)";
   QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
     QJniObject activity = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
@@ -3972,6 +4011,25 @@ void MainWindow::applyAndroidStudyWebViewNetworkCache() {
     QJniObject::callStaticMethod<void>(
         "com/benschwank/blop/BlopWebViewReset", "applyStudyWebViewNetworkCacheMode",
         "(Landroid/app/Activity;)V", activity.object<jobject>());
+  });
+#endif
+}
+
+void MainWindow::scheduleAndroidStudyWebViewNetworkCache() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android Study WebView: schedule LOAD_NO_CACHE retries (JNI)";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "scheduleAndroidStudyWebViewNetworkCache skipped: invalid activity";
+      return;
+    }
+    // ~5.6s window at 200ms steps (late WebView attach on Play/split installs).
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "scheduleApplyStudyWebViewNetworkCacheMode",
+        "(Landroid/app/Activity;IJ)V", activity.object<jobject>(),
+        static_cast<jint>(40), static_cast<jlong>(250));
   });
 #endif
 }

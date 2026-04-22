@@ -19,15 +19,23 @@ Rectangle {
     property real authUiScale: 0.94
     property bool cacheMissRecoveryArmed: true
     property int cacheMissRecoveryCount: 0
-    readonly property int cacheMissRecoveryLimit: 2
+    readonly property int cacheMissRecoveryLimit: 7
     property int freshLoadSerial: 0
     property bool nativeResetPending: false
     property double lastNativeWebViewResetMs: 0
     readonly property int nativeWebViewResetMinIntervalMs: 25000
+    property bool nativeFullResetPending: false
+    property double lastNativeFullWebViewResetMs: 0
+    readonly property int nativeFullWebViewResetMinIntervalMs: 70000
     property double lastCacheMissRecoveryMs: 0
     property int webViewRecreateCount: 0
-    readonly property int webViewRecreateLimit: 1
+    readonly property int webViewRecreateLimit: 3
     property bool webviewRecreatePending: false
+    readonly property int cacheMissEarlyStopTierCount: 2
+    readonly property int cacheMissNativeResetTierCount: 3
+    readonly property int cacheMissFullResetTierCount: 4
+    readonly property int cacheMissRecreateTierCount: 6
+    readonly property int cacheMissRetryCooldownMs: 1200
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
@@ -59,10 +67,22 @@ Rectangle {
         freshLoadSerial += 1
         var target = buildFreshStudyEntryUrl(addCacheBypass)
         cacheMissRecoveryArmed = false
-        console.log("BlopStudy: fresh load pivot", reason, "url=", target)
-        w.url = "about:blank"
-        pivotLoadTimer.targetUrl = target
-        pivotLoadTimer.start()
+        console.log("BlopStudy: fresh load", "reason=", reason, "try=", freshLoadSerial, "url=", target)
+        if (typeof blopAppBridge !== "undefined") {
+            if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
+                blopAppBridge.scheduleAndroidStudyWebViewNetworkCache()
+            else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
+                blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+        }
+        if (Qt.platform.os === "android") {
+            pivotLoadTimer.stop()
+            cacheMissRecoveryArmed = true
+            w.url = target
+        } else {
+            w.url = "about:blank"
+            pivotLoadTimer.targetUrl = target
+            pivotLoadTimer.start()
+        }
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
@@ -77,6 +97,8 @@ Rectangle {
             webViewRecreateCount = 0
             webviewRecreatePending = false
             lastNativeWebViewResetMs = 0
+            lastNativeFullWebViewResetMs = 0
+            nativeFullResetPending = false
             loadStudyEntryFresh("setWebDestination", true)
             applyAuthUiScale()
         } else {
@@ -147,7 +169,9 @@ Rectangle {
         cacheMissRecoveryCount = 0
         cacheMissRecoveryArmed = false
         nativeResetPending = false
+        nativeFullResetPending = false
         lastNativeWebViewResetMs = 0
+        lastNativeFullWebViewResetMs = 0
         console.log("BlopStudy: webview recreate start", reason, "n=", webViewRecreateCount)
         webLoaderDeactivateTimer.start()
     }
@@ -158,12 +182,20 @@ Rectangle {
         if (webviewRecreatePending)
             return
         if (cacheMissRecoveryCount >= cacheMissRecoveryLimit) {
-            if (webViewRecreateCount < webViewRecreateLimit)
+            if (webViewRecreateCount < webViewRecreateLimit) {
+                console.warn("BlopStudy: cache-miss escalate", "stage=limitRecreate",
+                             "reason=", reason, "count=", cacheMissRecoveryCount)
                 scheduleStudyWebViewRecreate("limitReached:" + reason)
+            } else {
+                console.warn("BlopStudy: cache-miss exhausted",
+                             "reason=", reason,
+                             "count=", cacheMissRecoveryCount,
+                             "recreateCount=", webViewRecreateCount)
+            }
             return
         }
         var nowMs = Date.now()
-        if (nowMs - lastCacheMissRecoveryMs < 1200)
+        if (nowMs - lastCacheMissRecoveryMs < cacheMissRetryCooldownMs)
             return
         lastCacheMissRecoveryMs = nowMs
         cacheMissRecoveryCount += 1
@@ -175,22 +207,60 @@ Rectangle {
         if (w)
             w.stop()
 
-        // After several soft recoveries, destroy and recreate the WebView instance in-app.
-        if (cacheMissRecoveryCount >= 3 && webViewRecreateCount < webViewRecreateLimit) {
-            scheduleStudyWebViewRecreate("cacheMissCount:" + reason)
+        if (cacheMissRecoveryCount >= cacheMissRecreateTierCount &&
+                webViewRecreateCount < webViewRecreateLimit) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=recreate",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount,
+                         "recreateCount=", webViewRecreateCount)
+            scheduleStudyWebViewRecreate("tierRecreate:" + reason)
             return
         }
 
-        if (cacheMissRecoveryCount >= 2 && !nativeResetPending &&
+        if (cacheMissRecoveryCount >= cacheMissFullResetTierCount &&
+                !nativeFullResetPending &&
+                (Date.now() - lastNativeFullWebViewResetMs >= nativeFullWebViewResetMinIntervalMs) &&
+                typeof blopAppBridge !== "undefined" &&
+                blopAppBridge.resetAndroidWebViewStorageFull) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=nativeFullReset",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount)
+            lastNativeFullWebViewResetMs = Date.now()
+            nativeFullResetPending = true
+            blopAppBridge.resetAndroidWebViewStorageFull()
+            nativeResetTimer.start()
+            return
+        }
+
+        if (cacheMissRecoveryCount >= cacheMissNativeResetTierCount && !nativeResetPending &&
                 (Date.now() - lastNativeWebViewResetMs >= nativeWebViewResetMinIntervalMs) &&
                 typeof blopAppBridge !== "undefined" &&
                 blopAppBridge.resetAndroidWebViewStorage) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=nativeLightReset",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount)
             lastNativeWebViewResetMs = Date.now()
             nativeResetPending = true
             blopAppBridge.resetAndroidWebViewStorage()
             nativeResetTimer.start()
             return
         }
+        if (cacheMissRecoveryCount >= cacheMissEarlyStopTierCount &&
+                typeof blopAppBridge !== "undefined" &&
+                blopAppBridge.nudgeAndroidWebViewStopOnly) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=nativeStopOnly",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount)
+            blopAppBridge.nudgeAndroidWebViewStopOnly()
+        }
+        console.log("BlopStudy: cache-miss stage",
+                    "stage=retryLoad",
+                    "reason=", reason,
+                    "count=", cacheMissRecoveryCount)
         cacheMissRetryTimer.start()
     }
 
@@ -372,9 +442,11 @@ Rectangle {
             webviewRecreatePending = false
             console.log("BlopStudy: webview recreate done")
             cacheMissRecoveryArmed = true
-            if (typeof blopAppBridge !== "undefined" &&
-                    blopAppBridge.applyAndroidStudyWebViewNetworkCache) {
-                blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+            if (typeof blopAppBridge !== "undefined") {
+                if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.scheduleAndroidStudyWebViewNetworkCache()
+                else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.applyAndroidStudyWebViewNetworkCache()
             }
             postRecreateLoadTimer.start()
         }
@@ -423,6 +495,12 @@ Rectangle {
             var w = studyWeb()
             if (!w)
                 return
+            if (typeof blopAppBridge !== "undefined") {
+                if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.scheduleAndroidStudyWebViewNetworkCache()
+                else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+            }
             cacheMissRecoveryArmed = true
             w.url = targetUrl
         }
@@ -435,6 +513,7 @@ Rectangle {
         repeat: false
         onTriggered: {
             nativeResetPending = false
+            nativeFullResetPending = false
             cacheMissRetryTimer.start()
         }
     }

@@ -158,7 +158,10 @@ public slots:
   void requestGoogleLogin();
   void onSessionCheck(const QString &sessionData);
   void resetAndroidWebViewStorage();
+  void resetAndroidWebViewStorageFull();
+  void nudgeAndroidWebViewStopOnly();
   void applyAndroidStudyWebViewNetworkCache();
+  void scheduleAndroidStudyWebViewNetworkCache();
   void showAuthOverlay(const QUrl &url);
   void switchToNotesFromWebQmlBar();
   void openWebBookmarkMenuFromWebQmlBar();

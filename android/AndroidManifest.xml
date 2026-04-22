@@ -6,7 +6,10 @@
     android:installLocation="auto"
     android:versionCode="-- %%INSERT_VERSION_CODE%% --"
     android:versionName="-- %%INSERT_VERSION_NAME%% --">
-    <!-- %%INSERT_PERMISSIONS inserts network permissions; avoid duplicates here -->
+    <!-- Keep explicit network permissions for Play AAB/release parity. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- %%INSERT_PERMISSIONS inserts Qt defaults; duplicates are harmless -->
     <!-- %%INSERT_FEATURES -->
     <supports-screens
         android:anyDensity="true"
