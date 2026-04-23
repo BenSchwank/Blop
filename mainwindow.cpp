@@ -663,27 +663,26 @@ MainWindow::MainWindow(QWidget *parent)
     animateSidebar(true);
   }
 
+  auto failOAuthFlow = [this](const QString &reason) {
+    m_googleLoginInFlight = false;
+    m_authNavigationLocked = false;
+    emit oauthFailed(reason);
+  };
+
   // Connect GoogleAuthManager's browser prompts to custom overlay logic
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::requireBrowser,
-          this, [this](const QUrl &url) {
+          this, [this, failOAuthFlow](const QUrl &url) {
 #ifdef Q_OS_ANDROID
-              // Check TLS availability before opening browser, warn user if broken
+              // Avoid blocking dialogs on Android GL surface; fail fast and unlock UI.
               if (!QSslSocket::supportsSsl()) {
-                  QMessageBox::critical(this, "TLS Fehler",
-                      "HTTPS wird nicht unterstützt!\n\n"
-                      "OpenSSL wurde nicht gefunden. "
-                      "Der Google-Login kann nicht funktionieren.\n\n"
-                      "TLS-Version: " + QSslSocket::sslLibraryVersionString());
+                  qCritical() << "Google login aborted: TLS unsupported. OpenSSL missing?"
+                              << "TLS version:" << QSslSocket::sslLibraryVersionString();
+                  failOAuthFlow(QStringLiteral("tls_unavailable"));
                   return;
               }
 #endif
               showAuthOverlay(url);
           });
-
-  auto failOAuthFlow = [this](const QString &reason) {
-    m_googleLoginInFlight = false;
-    emit oauthFailed(reason);
-  };
           
   // Close the overlay when login completes successfully
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
@@ -3970,9 +3969,22 @@ void MainWindow::requestGoogleLogin() {
       qInfo() << "Google login already in flight, ignoring duplicate request";
       return;
     }
-    m_googleLoginInFlight = true;
-    m_authNavigationLocked = true;
-    GoogleAuthManager::instance().login();
+    // Defer OAuth start out of WebView/JS callback stack to reduce Android reentrancy crashes.
+    QTimer::singleShot(0, this, [this]() {
+      if (m_googleLoginInFlight)
+        return;
+#ifdef Q_OS_ANDROID
+      if (!QSslSocket::supportsSsl()) {
+        qCritical() << "Google login start skipped: TLS unavailable";
+        emit oauthFailed(QStringLiteral("tls_unavailable"));
+        m_authNavigationLocked = false;
+        return;
+      }
+#endif
+      m_googleLoginInFlight = true;
+      m_authNavigationLocked = true;
+      GoogleAuthManager::instance().login();
+    });
 }
 
 void MainWindow::resetAndroidWebViewStorage() {
