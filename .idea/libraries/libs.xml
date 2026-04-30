@@ -1,0 +1,14 @@
+<component name="libraryTable">
+  <library name="libs">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/build/Qt_6_10_2_f_r_Android_arm64_v8a-Debug/android-build-Blop/libs/Qt6AndroidMultimedia.jar!/" />
+      <root url="jar://$PROJECT_DIR$/build/Qt_6_10_2_f_r_Android_arm64_v8a-Debug/android-build-Blop/libs/Qt6AndroidNetworkInformationBackend.jar!/" />
+      <root url="jar://$PROJECT_DIR$/build/Qt_6_10_2_f_r_Android_arm64_v8a-Debug/android-build-Blop/libs/Qt6AndroidQuick.jar!/" />
+      <root url="jar://$PROJECT_DIR$/build/Qt_6_10_2_f_r_Android_arm64_v8a-Debug/android-build-Blop/libs/QtAndroidWebView.jar!/" />
+      <root url="jar://$PROJECT_DIR$/build/Qt_6_10_2_f_r_Android_arm64_v8a-Debug/android-build-Blop/libs/Qt6Android.jar!/" />
+      <root url="jar://$PROJECT_DIR$/build/Qt_6_10_2_f_r_Android_arm64_v8a-Debug/android-build-Blop/libs/Qt6AndroidNetwork.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

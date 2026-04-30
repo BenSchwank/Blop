@@ -40,7 +40,7 @@ struct WebBookmark {
   QUrl url;
 };
 #ifdef Q_OS_ANDROID
-class QQuickView;
+class QQuickWidget;
 class QVBoxLayout;
 #endif
 
@@ -163,7 +163,7 @@ public slots:
   void nudgeAndroidWebViewStopOnly();
   void applyAndroidStudyWebViewNetworkCache();
   void scheduleAndroidStudyWebViewNetworkCache();
-  void showAuthOverlay(const QUrl &url);
+  bool showAuthOverlay(const QUrl &url);
   void switchToNotesFromWebQmlBar();
   void openWebBookmarkMenuFromWebQmlBar();
   QVariantList webBookmarksForQml() const;
@@ -290,18 +290,18 @@ private:
   void applyDesktopWebSubviewForModeIndex(int modeIndex);
 #ifdef Q_OS_ANDROID
   void invokeAndroidWebDestination(int kind, const QString &url = QString());
+  void dismissAndroidOAuthOverlay();
 #endif
   void resetEmbeddedWebToStudy();
   QWidget *m_studyContainer{nullptr};
 #ifdef Q_OS_ANDROID
-  // Embedded Study UI (QML + QtWebView). Must be hidden when leaving Study or
-  // the native surface can stay above Qt and block taps (e.g. header tabs).
-  QQuickView *m_studyQQuickView{nullptr};
+  // Embedded Study UI (QML + QtWebView) as QWidget to avoid extra QQuickWindow/eglSurface.
+  QQuickWidget *m_studyQQuickView{nullptr};
   QWidget *m_androidHeader{nullptr};
   /// In-note top search for Android header (hidden outside editor mode).
   QLineEdit *m_androidTopSearchBar{nullptr};
   QVBoxLayout *m_studyVBoxLayout{nullptr};
-  QWidget *m_studyWindowContainer{nullptr}; // QWidget::createWindowContainer(QQuickView)
+  QWidget *m_studyWindowContainer{nullptr}; // host widget for embedded Study view
   QPushButton *m_btnAndroidNotes{nullptr};
   QPushButton *m_btnAndroidStudy{nullptr};
   QPushButton *m_btnAndroidAddWebBookmark{nullptr};
@@ -313,6 +313,8 @@ private:
   ModernButton *m_btnAndroidToolbarExport{nullptr};
   /// Dimmed overlay behind drawer; taps close the sidebar (Material-style).
   QWidget *m_androidSidebarScrim{nullptr};
+  /// Full-window in-process OAuth (AuthOverlay.qml); must dismiss before Study JNI bursts.
+  QWidget *m_androidOAuthOverlay{nullptr};
 #endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
@@ -332,6 +334,8 @@ private:
   bool m_authNavigationLocked{false};
   /// Prevents duplicate OAuth browser launches from repeated poll triggers.
   bool m_googleLoginInFlight{false};
+  /// Start timestamp for login in-flight guard; stale requests are auto-recovered.
+  qint64 m_googleLoginInFlightSinceMs{0};
   /// Prevents multiple overlapping Android bookmark sheets.
   bool m_androidWebMenuOpen{false};
 

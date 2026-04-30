@@ -24,6 +24,8 @@ int main(int argc, char *argv[]) {
   // damit das native Android-Web-Backend geladen wird.
 #ifdef Q_OS_ANDROID
   QtWebView::initialize();
+  if (qgetenv("BLOP_ANDROID_SOFTWARE_GL") == "1")
+    QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
 #endif
 
   // --- WINDOWS + Qt WebEngine (Study / Login) ---
@@ -61,6 +63,12 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+#ifdef Q_OS_ANDROID
+  qInfo() << "[BlopDiag] Native crash capture: adb logcat -d | grep -iE "
+             "\"SIGSEGV|DEBUG|AndroidRuntime|blop|Qt\" ; software GL test: "
+             "BLOP_ANDROID_SOFTWARE_GL=1 before launch";
+#endif
 
 #ifdef Q_OS_WIN
   QGuiApplication::setHighDpiScaleFactorRoundingPolicy(

@@ -1,0 +1,104 @@
+2026-04-16 22:15:51,106 - aqt.main - ERROR - installer 43812 Invalid version: 'android_arm64_v8a'! Please use the form '5.X.Y'.
+2026-04-16 22:16:01,626 - aqt.main - ERROR - installer 28252 Invalid version: 'android_arm64_v8a'! Please use the form '5.X.Y'.
+2026-04-16 22:16:24,096 - aqt.main - ERROR - installer 27100 No versions available for this request.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to check that versions of qt exist within the spec '6.10'.
+2026-04-16 22:21:33,617 - aqt.main - INFO - installer 34088 aqtinstall(aqt) v3.3.0 on Python 3.14.0 [CPython MSC v.1944 64 bit (AMD64)]
+2026-04-16 22:21:33,620 - aqt.main - WARNING - installer 34088 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.10.2 linux_gcc_64`
+2026-04-16 22:21:33,620 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-16 22:21:34,548 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:21:34,948 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:21:35,363 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:21:36,050 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:21:36,586 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:22:07,421 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtpdf/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:22:07,923 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtpdf/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:22:39,563 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtpdf/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:22:39,979 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtpdf/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:22:40,420 - aqt.helper - DEBUG - helper 34088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtpdf/6102/x86_64/Updates.xml.sha256
+2026-04-16 22:22:40,861 - aqt.main - ERROR - installer 34088 The packages ['qtcore'] were not found while parsing XML of package information!
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android --modules 6.10.2 <arch>' to show modules available.
+2026-04-17 07:24:15,854 - aqt.helper - DEBUG - helper 15432 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6102/qt6_6102/Updates.xml.sha256
+2026-04-17 07:24:30,839 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86_64/Updates.xml.sha256
+2026-04-17 07:24:31,605 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86_64/Updates.xml.sha256
+2026-04-17 07:24:32,343 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86_64/Updates.xml.sha256
+2026-04-17 07:24:33,135 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86_64/Updates.xml.sha256
+2026-04-17 07:24:33,913 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86_64/Updates.xml.sha256
+2026-04-17 07:24:34,696 - aqt.metadata - DEBUG - metadata 28568 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:24:34,696 - aqt.metadata - DEBUG - metadata 28568 Failed to retrieve arches list with extension `x86_64`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:24:34,697 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86/Updates.xml.sha256
+2026-04-17 07:24:35,512 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86/Updates.xml.sha256
+2026-04-17 07:24:36,272 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86/Updates.xml.sha256
+2026-04-17 07:24:37,055 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86/Updates.xml.sha256
+2026-04-17 07:24:37,825 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_x86/Updates.xml.sha256
+2026-04-17 07:24:38,626 - aqt.metadata - DEBUG - metadata 28568 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:24:38,626 - aqt.metadata - DEBUG - metadata 28568 Failed to retrieve arches list with extension `x86`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:24:38,627 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:24:39,387 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:24:40,152 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:24:40,914 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:24:41,683 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:24:42,469 - aqt.metadata - DEBUG - metadata 28568 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:24:42,469 - aqt.metadata - DEBUG - metadata 28568 Failed to retrieve arches list with extension `arm64_v8a`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:24:42,470 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_armv7/Updates.xml.sha256
+2026-04-17 07:24:43,229 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_armv7/Updates.xml.sha256
+2026-04-17 07:24:43,998 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_armv7/Updates.xml.sha256
+2026-04-17 07:24:44,747 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_armv7/Updates.xml.sha256
+2026-04-17 07:24:45,515 - aqt.helper - DEBUG - helper 28568 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_armv7/Updates.xml.sha256
+2026-04-17 07:24:46,282 - aqt.metadata - DEBUG - metadata 28568 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:24:46,282 - aqt.metadata - DEBUG - metadata 28568 Failed to retrieve arches list with extension `armv7`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:24:46,282 - aqt.main - ERROR - installer 28568 No architectures available for this request.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions of Qt available.
+2026-04-17 07:24:57,273 - aqt.main - ERROR - installer 1812 No versions available for this request.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to check that versions of qt exist within the spec '6.10'.
+2026-04-17 07:26:36,158 - aqt.helper - DEBUG - helper 19492 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_673/Updates.xml.sha256
+2026-04-17 07:26:56,049 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_armv7/Updates.xml.sha256
+2026-04-17 07:26:56,826 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_armv7/Updates.xml.sha256
+2026-04-17 07:26:57,710 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_armv7/Updates.xml.sha256
+2026-04-17 07:26:58,713 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_armv7/Updates.xml.sha256
+2026-04-17 07:26:59,781 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_armv7/Updates.xml.sha256
+2026-04-17 07:27:00,779 - aqt.metadata - DEBUG - metadata 22476 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:27:00,779 - aqt.metadata - DEBUG - metadata 22476 Failed to retrieve arches list with extension `armv7`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:27:00,780 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86_64/Updates.xml.sha256
+2026-04-17 07:27:01,766 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86_64/Updates.xml.sha256
+2026-04-17 07:27:02,697 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86_64/Updates.xml.sha256
+2026-04-17 07:27:03,554 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86_64/Updates.xml.sha256
+2026-04-17 07:27:04,401 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86_64/Updates.xml.sha256
+2026-04-17 07:27:05,251 - aqt.metadata - DEBUG - metadata 22476 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:27:05,252 - aqt.metadata - DEBUG - metadata 22476 Failed to retrieve arches list with extension `x86_64`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:27:05,252 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86/Updates.xml.sha256
+2026-04-17 07:27:10,333 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86/Updates.xml.sha256
+2026-04-17 07:27:11,234 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86/Updates.xml.sha256
+2026-04-17 07:27:12,088 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86/Updates.xml.sha256
+2026-04-17 07:27:13,315 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_x86/Updates.xml.sha256
+2026-04-17 07:27:14,195 - aqt.metadata - DEBUG - metadata 22476 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:27:14,195 - aqt.metadata - DEBUG - metadata 22476 Failed to retrieve arches list with extension `x86`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:27:14,196 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:15,120 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:19,738 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:20,579 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:21,915 - aqt.helper - DEBUG - helper 22476 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_673_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:22,748 - aqt.metadata - DEBUG - metadata 22476 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+2026-04-17 07:27:22,748 - aqt.metadata - DEBUG - metadata 22476 Failed to retrieve arches list with extension `arm64_v8a`. Please check that this extension exists for this version of Qt: if not, code changes will be necessary.
+2026-04-17 07:27:22,748 - aqt.main - ERROR - installer 22476 No architectures available for this request.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions of Qt available.
+2026-04-17 07:27:39,316 - aqt.helper - DEBUG - helper 21764 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6102/qt6_6102/Updates.xml.sha256
+2026-04-17 07:27:41,306 - aqt.helper - DEBUG - helper 21764 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/extensions/qtpdf/6102/x86_64/Updates.xml.sha256
+2026-04-17 07:27:44,313 - aqt.helper - DEBUG - helper 21764 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/extensions/qtwebengine/6102/x86_64/Updates.xml.sha256
+2026-04-17 07:27:56,133 - aqt.helper - DEBUG - helper 19088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:57,099 - aqt.helper - DEBUG - helper 19088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:58,100 - aqt.helper - DEBUG - helper 19088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:27:59,253 - aqt.helper - DEBUG - helper 19088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:28:00,190 - aqt.helper - DEBUG - helper 19088 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_x64/android/qt6_6102/qt6_6102_arm64_v8a/Updates.xml.sha256
+2026-04-17 07:28:01,226 - aqt.main - ERROR - installer 19088 Failed to download checksum for the file 'Updates.xml' from mirrors '['https://download.qt.io']
+==============================Suggested follow-up:==============================
+* Check your internet connection
+* Consider modifying `requests.max_retries_to_retrieve_hash` in settings.ini
+* Consider modifying `mirrors.trusted_mirrors` in settings.ini (see https://aqtinstall.readthedocs.io/en/stable/configuration.html#configuration)
+* Please use 'aqt list-qt linux android' to show versions of Qt available.
+* Please use 'aqt list-qt linux android --arch <QT_VERSION>' to list valid architectures.

@@ -1,5 +1,6 @@
 #pragma once
 #include <QList>
+#include <QPointer>
 #include <QWidget>
 #include <QIcon>
 #include <QVector>
@@ -209,4 +210,6 @@ private:
 
     QWidget* m_snapPreview{nullptr};
     QList<int> m_separatorXPositions;  // x-coords of section dividers in horizontal mode
+
+    QPointer<QWidget> m_toolSettingsSheet;
 };

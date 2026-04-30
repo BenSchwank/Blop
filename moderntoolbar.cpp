@@ -14,6 +14,7 @@
 #include "editoroverlays.h"
 #include <QDialog>
 #include <QGraphicsDropShadowEffect>
+#include <QMainWindow>
 #include <QGraphicsItem>
 #include <QGraphicsView>
 #include <QHBoxLayout>
@@ -29,8 +30,10 @@
 #include <QPushButton>
 #include <QRegion>
 #include <QSlider>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QResizeEvent>
 #include <cmath>
 #include <QtGlobal>
 #include <QtMath>
@@ -522,14 +525,13 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   p.restore();
 
   if (m_active && m_holdProgress > 0.0) {
-    QPainter ring(this);
-    ring.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::Antialiasing);
     QPen pen(QColor(216, 213, 255, 220), 3);
     pen.setCapStyle(Qt::RoundCap);
-    ring.setPen(pen);
-    ring.setBrush(Qt::NoBrush);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
     const QRectF arcRect = rect().adjusted(3, 3, -3, -3);
-    ring.drawArc(arcRect, 90 * 16, -m_holdProgress * 360.0 * 16.0);
+    p.drawArc(arcRect, 90 * 16, -m_holdProgress * 360.0 * 16.0);
   }
 }
 
@@ -640,17 +642,46 @@ private:
   ToolConfig m_config;
 };
 
-// =============================================================================
-// 3. Settings Popup
-// =============================================================================
-class ToolSettingsPopup : public QDialog {
+#ifdef Q_OS_ANDROID
+namespace {
+class AndroidToolSettingsScrim : public QWidget {
 public:
-  ToolSettingsPopup(ToolMode mode, ToolConfig config, QWidget *parent)
-      : QDialog(parent), m_mode(mode), m_config(config) {
-    setWindowFlags(Qt::Popup | Qt::FramelessWindowHint |
-                   Qt::NoDropShadowWindowHint);
+  explicit AndroidToolSettingsScrim(QWidget *layer) : QWidget(layer) {
+    setGeometry(layer->rect());
+    setStyleSheet(QStringLiteral("background:rgba(0,0,0,0.42);"));
+  }
+protected:
+  void resizeEvent(QResizeEvent *) override {
+    if (parentWidget())
+      setGeometry(parentWidget()->rect());
+  }
+  void mousePressEvent(QMouseEvent *e) override {
+    e->accept();
+    if (parentWidget())
+      parentWidget()->deleteLater();
+  }
+};
+} // namespace
+#endif
+
+// =============================================================================
+// 3. Settings sheet content (desktop: wrapped in QDialog; Android: embedded in central widget)
+// =============================================================================
+class ToolSettingsContent : public QWidget {
+public:
+  ToolSettingsContent(ToolMode mode, ToolConfig config, QWidget *parent)
+      : QWidget(parent), m_mode(mode), m_config(config) {
+#ifdef Q_OS_ANDROID
+    setObjectName(QStringLiteral("ToolSettingsSheet"));
+    setAttribute(Qt::WA_StyledBackground, true);
+#else
     setAttribute(Qt::WA_TranslucentBackground);
+#endif
     setStyleSheet(
+#ifdef Q_OS_ANDROID
+        "QWidget#ToolSettingsSheet { background-color: #252528; border-radius: 12px; "
+        "border: 1px solid rgba(255,255,255,0.12); }"
+#endif
         "QLabel { color: #DDD; font-weight: bold; font-size: 11px; background: "
         "transparent; }"
         "QSlider::groove:horizontal { height: 4px; background: #444; "
@@ -898,7 +929,9 @@ public:
               overlayHost, &c, QStringLiteral("Schnellfarbe bearbeiten"));
           show();
           raise();
+#ifndef Q_OS_ANDROID
           activateWindow();
+#endif
           if (ok) {
             b->setProperty("quickColor", c);
             if (idx >= 0 && idx < static_cast<int>(m_config.quickColors.size()))
@@ -918,7 +951,7 @@ public:
       connect(btnWheel, &QPushButton::clicked, [this]() {
         QColor c = m_config.penColor;
         // Nicht this->window(): Das wäre das kleine Popup selbst; Hauptfenster
-        // (bei ToolSettingsPopup der QObject-Parent) für Vollbild-Overlay.
+        // (Parent-Widget / Dialog) für Vollbild-Overlay.
         QWidget *overlayHost = parentWidget();
         if (!overlayHost)
           overlayHost = this->window();
@@ -929,7 +962,9 @@ public:
             showColorPickerOverlay(overlayHost, &c, QStringLiteral("Stiftfarbe"));
         show();
         raise();
+#ifndef Q_OS_ANDROID
         activateWindow();
+#endif
         if (ok) {
           m_config.penColor = c;
           updatePreview();
@@ -1162,7 +1197,9 @@ public:
             showColorPickerOverlay(overlayHost, &c, QStringLiteral("Formfarbe"));
         show();
         raise();
+#ifndef Q_OS_ANDROID
         activateWindow();
+#endif
         if (ok) {
           m_config.penColor = c;
           updatePreview();
@@ -1503,6 +1540,21 @@ private:
   QWidget *m_shapeSineParamsWidget{nullptr};
   QWidget *m_shapeGraphPanel{nullptr};
 };
+
+#ifndef Q_OS_ANDROID
+class ToolSettingsPopup : public QDialog {
+public:
+  explicit ToolSettingsPopup(ToolMode mode, ToolConfig config, QWidget *parent)
+      : QDialog(parent) {
+    setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+    setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_DeleteOnClose, true);
+    auto *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->addWidget(new ToolSettingsContent(mode, config, this));
+  }
+};
+#endif
 
 // =============================================================================
 // 4. ModernToolbar Implementation
@@ -2142,36 +2194,98 @@ void ModernToolbar::showSettingsPopup() {
       mode_ != ToolMode::Lasso && mode_ != ToolMode::Ruler &&
       mode_ != ToolMode::Shape)
     return;
+  if (!m_toolSettingsSheet.isNull()) {
+    m_toolSettingsSheet->hide();
+    m_toolSettingsSheet->deleteLater();
+    m_toolSettingsSheet = nullptr;
+  }
   ToolConfig currentConfig = ToolManager::instance().config();
-  ToolSettingsPopup *popup =
-      new ToolSettingsPopup(mode_, currentConfig, this->window());
   ToolbarBtn *btn = getButtonForMode(mode_);
-  popup->adjustSize();
+
+#ifdef Q_OS_ANDROID
+  QWidget *host = window();
+  if (auto *mw = qobject_cast<QMainWindow *>(host)) {
+    if (QWidget *cw = mw->centralWidget())
+      host = cw;
+  }
+  if (!host)
+    return;
+  auto *layer = new QWidget(host);
+  layer->setAttribute(Qt::WA_DeleteOnClose, true);
+  layer->setGeometry(host->rect());
+  auto *scrim = new AndroidToolSettingsScrim(layer);
+  auto *content = new ToolSettingsContent(mode_, currentConfig, layer);
+  content->adjustSize();
   QPoint targetPos;
   if (btn) {
     if (m_orientation == Horizontal) {
-      targetPos = btn->mapToGlobal(QPoint((btn->width() - popup->width()) / 2, btn->height() + 10));
+      targetPos = btn->mapToGlobal(
+          QPoint((btn->width() - content->width()) / 2, btn->height() + 10));
     } else {
       targetPos = btn->mapToGlobal(QPoint(btn->width() + 10, 0));
     }
   } else {
     targetPos = mapToGlobal(rect().bottomLeft()) + QPoint(0, 10);
   }
-
   if (this->window()) {
-      QRect windowRect = this->window()->geometry();
-      if (targetPos.x() + popup->width() > windowRect.right()) {
-          targetPos.setX(windowRect.right() - popup->width() - 10);
-      }
-      if (targetPos.y() + popup->height() > windowRect.bottom()) {
-          targetPos.setY(windowRect.bottom() - popup->height() - 10);
-      }
-      if (targetPos.x() < windowRect.left()) targetPos.setX(windowRect.left() + 10);
-      if (targetPos.y() < windowRect.top()) targetPos.setY(windowRect.top() + 10);
+    QRect windowRect = this->window()->geometry();
+    if (targetPos.x() + content->width() > windowRect.right())
+      targetPos.setX(windowRect.right() - content->width() - 10);
+    if (targetPos.y() + content->height() > windowRect.bottom())
+      targetPos.setY(windowRect.bottom() - content->height() - 10);
+    if (targetPos.x() < windowRect.left())
+      targetPos.setX(windowRect.left() + 10);
+    if (targetPos.y() < windowRect.top())
+      targetPos.setY(windowRect.top() + 10);
   }
-
+  const QRect hostR = host->rect();
+  QRect contentR(layer->mapFromGlobal(targetPos), content->size());
+  const int pad = 8;
+  if (contentR.right() > hostR.width() - pad)
+    contentR.moveRight(hostR.width() - pad);
+  if (contentR.bottom() > hostR.height() - pad)
+    contentR.moveBottom(hostR.height() - pad);
+  if (contentR.left() < pad)
+    contentR.moveLeft(pad);
+  if (contentR.top() < pad)
+    contentR.moveTop(pad);
+  content->setGeometry(contentR);
+  m_toolSettingsSheet = layer;
+  layer->show();
+  scrim->show();
+  scrim->lower();
+  content->show();
+  content->raise();
+#else
+  QWidget *parentForPopup = window();
+  auto *popup = new ToolSettingsPopup(mode_, currentConfig, parentForPopup);
+  m_toolSettingsSheet = popup;
+  popup->adjustSize();
+  QPoint targetPos;
+  if (btn) {
+    if (m_orientation == Horizontal) {
+      targetPos = btn->mapToGlobal(
+          QPoint((btn->width() - popup->width()) / 2, btn->height() + 10));
+    } else {
+      targetPos = btn->mapToGlobal(QPoint(btn->width() + 10, 0));
+    }
+  } else {
+    targetPos = mapToGlobal(rect().bottomLeft()) + QPoint(0, 10);
+  }
+  if (this->window()) {
+    QRect windowRect = this->window()->geometry();
+    if (targetPos.x() + popup->width() > windowRect.right())
+      targetPos.setX(windowRect.right() - popup->width() - 10);
+    if (targetPos.y() + popup->height() > windowRect.bottom())
+      targetPos.setY(windowRect.bottom() - popup->height() - 10);
+    if (targetPos.x() < windowRect.left())
+      targetPos.setX(windowRect.left() + 10);
+    if (targetPos.y() < windowRect.top())
+      targetPos.setY(windowRect.top() + 10);
+  }
   popup->move(targetPos);
   popup->show();
+#endif
 }
 
 ToolbarBtn *ModernToolbar::getButtonForMode(ToolMode m) {
