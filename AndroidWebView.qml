@@ -5,39 +5,102 @@ import QtWebView 1.1
 Rectangle {
     id: studyRoot
     color: "#0B0B1A"
+    // Native Android header in MainWindow is the single source of truth for Notes/Study/+.
+    // Keep this disabled to avoid duplicated top bars.
+    readonly property bool showQmlTopBar: false
     // Tracks whether we're currently waiting for the OAuth flow to complete in Chrome
     property bool oauthPending: false
+    property double oauthPendingSinceMs: 0
     property string studyUrl: "https://blop-study.com"
     property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
-    // Slight zoom-out so auth forms fit better without vertical scrolling.
-    property real authUiScale: 0.94
+    // Keep native login at natural scale to avoid visible top/bottom letterboxing.
+    property real authUiScale: 1.0
     property bool cacheMissRecoveryArmed: true
     property int cacheMissRecoveryCount: 0
-    readonly property int cacheMissRecoveryLimit: 2
+    readonly property int cacheMissRecoveryLimit: 7
+    property int freshLoadSerial: 0
     property bool nativeResetPending: false
     property double lastNativeWebViewResetMs: 0
     readonly property int nativeWebViewResetMinIntervalMs: 25000
+    property bool nativeFullResetPending: false
+    property double lastNativeFullWebViewResetMs: 0
+    readonly property int nativeFullWebViewResetMinIntervalMs: 70000
     property double lastCacheMissRecoveryMs: 0
     property int webViewRecreateCount: 0
-    readonly property int webViewRecreateLimit: 1
+    readonly property int webViewRecreateLimit: 3
     property bool webviewRecreatePending: false
+    readonly property int cacheMissEarlyStopTierCount: 2
+    readonly property int cacheMissNativeResetTierCount: 3
+    readonly property int cacheMissFullResetTierCount: 4
+    readonly property int cacheMissRecreateTierCount: 6
+    readonly property int cacheMissRetryCooldownMs: 1200
     readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
+    property bool bookmarkSheetOpen: false
+    property bool bookmarkManageMode: false
+    property string bookmarkDraftUrl: ""
+    property string bookmarkDraftTitle: ""
+    property string bookmarkAddError: ""
+    onVisibleChanged: {
+        if (visible) {
+            ensureStudyLoaded()
+            applyAuthUiScale()
+        } else if (bookmarkSheetOpen) {
+            closeBookmarkSheet()
+        }
+    }
+
+    ListModel {
+        id: bookmarkModel
+    }
 
     function studyWeb() {
         return studyWebLoader.item
     }
 
-    function buildFreshStudyEntryUrl() {
+    function buildFreshStudyEntryUrl(addCacheBypass) {
         var base = studyUrl
         if (base.length > 0 && base.charAt(base.length - 1) === "/")
             base = base.slice(0, -1)
         // Native entry: StudyFlow treats ?native=1 as embedded-app mode (headers, redirects).
-        return base + "/?native=1"
+        var u = base + "/?native=1"
+        if (addCacheBypass) {
+            u += "&_src=android_webview"
+            u += "&_ts=" + Date.now()
+            u += "&_try=" + freshLoadSerial
+        }
+        return u
+    }
+
+    function loadStudyEntryFresh(reason, addCacheBypass) {
+        if (!ssoPollingEnabled)
+            return
+        var w = studyWeb()
+        if (!w)
+            return
+        freshLoadSerial += 1
+        var target = buildFreshStudyEntryUrl(addCacheBypass)
+        cacheMissRecoveryArmed = false
+        console.log("BlopStudy: fresh load", "reason=", reason, "try=", freshLoadSerial, "url=", target)
+        if (typeof blopAppBridge !== "undefined") {
+            if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
+                blopAppBridge.scheduleAndroidStudyWebViewNetworkCache()
+            else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
+                blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+        }
+        if (Qt.platform.os === "android") {
+            pivotLoadTimer.stop()
+            cacheMissRecoveryArmed = true
+            w.url = target
+        } else {
+            w.url = "about:blank"
+            pivotLoadTimer.targetUrl = target
+            pivotLoadTimer.start()
+        }
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
@@ -52,9 +115,9 @@ Rectangle {
             webViewRecreateCount = 0
             webviewRecreatePending = false
             lastNativeWebViewResetMs = 0
-            var w0 = studyWeb()
-            if (w0)
-                w0.url = buildFreshStudyEntryUrl()
+            lastNativeFullWebViewResetMs = 0
+            nativeFullResetPending = false
+            loadStudyEntryFresh("setWebDestination", true)
             applyAuthUiScale()
         } else {
             ssoPollingEnabled = false
@@ -65,6 +128,58 @@ Rectangle {
                     w1.url = urlStr
             }
         }
+    }
+
+    function refreshBookmarkModel() {
+        bookmarkModel.clear()
+        if (typeof blopAppBridge === "undefined" || !blopAppBridge.webBookmarksForQml)
+            return
+        var rows = blopAppBridge.webBookmarksForQml()
+        if (!rows || rows.length === undefined)
+            return
+        for (var i = 0; i < rows.length; ++i) {
+            var row = rows[i]
+            bookmarkModel.append({
+                "title": String(row.title || ""),
+                "url": String(row.url || "")
+            })
+        }
+    }
+
+    function openBookmarkSheet() {
+        if (typeof blopAppBridge !== "undefined" && blopAppBridge.webBookmarksForQml)
+            refreshBookmarkModel()
+        bookmarkManageMode = false
+        bookmarkAddError = ""
+        bookmarkDraftUrl = ""
+        bookmarkDraftTitle = ""
+        bookmarkSheetOpen = true
+    }
+
+    function closeBookmarkSheet() {
+        bookmarkSheetOpen = false
+        bookmarkManageMode = false
+        bookmarkAddError = ""
+    }
+
+    function onOAuthFailed(reason) {
+        console.warn("BlopStudy: oauth failed", reason)
+        oauthPending = false
+        oauthPendingSinceMs = 0
+    }
+
+    function submitBookmarkFromSheet() {
+        bookmarkAddError = ""
+        if (typeof blopAppBridge === "undefined" || !blopAppBridge.addWebBookmarkFromQml) {
+            bookmarkAddError = "Lesezeichen nicht verfuegbar."
+            return
+        }
+        var ok = blopAppBridge.addWebBookmarkFromQml(bookmarkDraftUrl, bookmarkDraftTitle)
+        if (!ok) {
+            bookmarkAddError = "Bitte eine gueltige http/https-Adresse eingeben."
+            return
+        }
+        closeBookmarkSheet()
     }
 
     function applyAuthUiScale() {
@@ -107,7 +222,7 @@ Rectangle {
         if (!w)
             return
         if (!firstLoadDone || w.url.toString() === "" || w.url.toString() === "about:blank") {
-            w.url = buildFreshStudyEntryUrl()
+            loadStudyEntryFresh("ensureStudyLoaded", true)
             firstLoadDone = true
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
@@ -124,7 +239,9 @@ Rectangle {
         cacheMissRecoveryCount = 0
         cacheMissRecoveryArmed = false
         nativeResetPending = false
+        nativeFullResetPending = false
         lastNativeWebViewResetMs = 0
+        lastNativeFullWebViewResetMs = 0
         console.log("BlopStudy: webview recreate start", reason, "n=", webViewRecreateCount)
         webLoaderDeactivateTimer.start()
     }
@@ -135,12 +252,20 @@ Rectangle {
         if (webviewRecreatePending)
             return
         if (cacheMissRecoveryCount >= cacheMissRecoveryLimit) {
-            if (webViewRecreateCount < webViewRecreateLimit)
+            if (webViewRecreateCount < webViewRecreateLimit) {
+                console.warn("BlopStudy: cache-miss escalate", "stage=limitRecreate",
+                             "reason=", reason, "count=", cacheMissRecoveryCount)
                 scheduleStudyWebViewRecreate("limitReached:" + reason)
+            } else {
+                console.warn("BlopStudy: cache-miss exhausted",
+                             "reason=", reason,
+                             "count=", cacheMissRecoveryCount,
+                             "recreateCount=", webViewRecreateCount)
+            }
             return
         }
         var nowMs = Date.now()
-        if (nowMs - lastCacheMissRecoveryMs < 1200)
+        if (nowMs - lastCacheMissRecoveryMs < cacheMissRetryCooldownMs)
             return
         lastCacheMissRecoveryMs = nowMs
         cacheMissRecoveryCount += 1
@@ -152,31 +277,70 @@ Rectangle {
         if (w)
             w.stop()
 
-        // After several soft recoveries, destroy and recreate the WebView instance in-app.
-        if (cacheMissRecoveryCount >= 3 && webViewRecreateCount < webViewRecreateLimit) {
-            scheduleStudyWebViewRecreate("cacheMissCount:" + reason)
+        if (cacheMissRecoveryCount >= cacheMissRecreateTierCount &&
+                webViewRecreateCount < webViewRecreateLimit) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=recreate",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount,
+                         "recreateCount=", webViewRecreateCount)
+            scheduleStudyWebViewRecreate("tierRecreate:" + reason)
             return
         }
 
-        if (cacheMissRecoveryCount >= 2 && !nativeResetPending &&
+        if (cacheMissRecoveryCount >= cacheMissFullResetTierCount &&
+                !nativeFullResetPending &&
+                (Date.now() - lastNativeFullWebViewResetMs >= nativeFullWebViewResetMinIntervalMs) &&
+                typeof blopAppBridge !== "undefined" &&
+                blopAppBridge.resetAndroidWebViewStorageFull) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=nativeFullReset",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount)
+            lastNativeFullWebViewResetMs = Date.now()
+            nativeFullResetPending = true
+            blopAppBridge.resetAndroidWebViewStorageFull()
+            nativeResetTimer.start()
+            return
+        }
+
+        if (cacheMissRecoveryCount >= cacheMissNativeResetTierCount && !nativeResetPending &&
                 (Date.now() - lastNativeWebViewResetMs >= nativeWebViewResetMinIntervalMs) &&
                 typeof blopAppBridge !== "undefined" &&
                 blopAppBridge.resetAndroidWebViewStorage) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=nativeLightReset",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount)
             lastNativeWebViewResetMs = Date.now()
             nativeResetPending = true
             blopAppBridge.resetAndroidWebViewStorage()
             nativeResetTimer.start()
             return
         }
+        if (cacheMissRecoveryCount >= cacheMissEarlyStopTierCount &&
+                typeof blopAppBridge !== "undefined" &&
+                blopAppBridge.nudgeAndroidWebViewStopOnly) {
+            console.warn("BlopStudy: cache-miss escalate",
+                         "stage=nativeStopOnly",
+                         "reason=", reason,
+                         "count=", cacheMissRecoveryCount)
+            blopAppBridge.nudgeAndroidWebViewStopOnly()
+        }
+        console.log("BlopStudy: cache-miss stage",
+                    "stage=retryLoad",
+                    "reason=", reason,
+                    "count=", cacheMissRecoveryCount)
         cacheMissRetryTimer.start()
     }
 
     Rectangle {
         id: qmlTopBar
+        visible: showQmlTopBar
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: topBarHeight + topBarTopMargin
+        height: showQmlTopBar ? (topBarHeight + topBarTopMargin) : 0
         color: "#0F111A"
         z: 20
 
@@ -251,10 +415,7 @@ Rectangle {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: {
-                        if (typeof blopAppBridge !== "undefined")
-                            blopAppBridge.openWebBookmarkMenuFromWebQmlBar()
-                    }
+                    onClicked: openBookmarkSheet()
                 }
             }
         }
@@ -318,7 +479,7 @@ Rectangle {
 
     Loader {
         id: studyWebLoader
-        anchors.top: qmlTopBar.bottom
+        anchors.top: showQmlTopBar ? qmlTopBar.bottom : parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -348,6 +509,12 @@ Rectangle {
             webviewRecreatePending = false
             console.log("BlopStudy: webview recreate done")
             cacheMissRecoveryArmed = true
+            if (typeof blopAppBridge !== "undefined") {
+                if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.scheduleAndroidStudyWebViewNetworkCache()
+                else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+            }
             postRecreateLoadTimer.start()
         }
     }
@@ -360,7 +527,7 @@ Rectangle {
         onTriggered: {
             var w = studyWeb()
             if (w && ssoPollingEnabled)
-                w.url = buildFreshStudyEntryUrl()
+                loadStudyEntryFresh("postRecreate", true)
             applyAuthUiScale()
         }
     }
@@ -380,11 +547,29 @@ Rectangle {
         running: false
         repeat: false
         onTriggered: {
-            cacheMissRecoveryArmed = true
-            var w = studyWeb()
-            if (w)
-                w.url = buildFreshStudyEntryUrl()
+            loadStudyEntryFresh("cacheMissRetry", true)
             applyAuthUiScale()
+        }
+    }
+
+    Timer {
+        id: pivotLoadTimer
+        interval: 140
+        running: false
+        repeat: false
+        property string targetUrl: ""
+        onTriggered: {
+            var w = studyWeb()
+            if (!w)
+                return
+            if (typeof blopAppBridge !== "undefined") {
+                if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.scheduleAndroidStudyWebViewNetworkCache()
+                else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
+                    blopAppBridge.applyAndroidStudyWebViewNetworkCache()
+            }
+            cacheMissRecoveryArmed = true
+            w.url = targetUrl
         }
     }
 
@@ -395,14 +580,8 @@ Rectangle {
         repeat: false
         onTriggered: {
             nativeResetPending = false
+            nativeFullResetPending = false
             cacheMissRetryTimer.start()
-        }
-    }
-
-    onVisibleChanged: {
-        if (visible) {
-            ensureStudyLoaded()
-            applyAuthUiScale()
         }
     }
 
@@ -479,6 +658,245 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        id: bookmarkBackdrop
+        anchors.fill: parent
+        color: "#B3000000"
+        visible: bookmarkSheetOpen
+        z: 30
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: closeBookmarkSheet()
+        }
+
+        Rectangle {
+            id: bookmarkSheet
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            radius: Math.round(18 * uiScale)
+            color: "#14121F"
+            border.color: "#4F4A70"
+            border.width: 1
+            height: Math.min(parent.height * 0.82, Math.round((bookmarkManageMode ? 500 : 420) * uiScale))
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {}
+            }
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: Math.round(14 * uiScale)
+                spacing: Math.round(10 * uiScale)
+
+                Rectangle {
+                    width: Math.round(42 * uiScale)
+                    height: Math.round(4 * uiScale)
+                    radius: height / 2
+                    color: "#5A5578"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Item {
+                    width: parent.width
+                    height: Math.round(34 * uiScale)
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        text: "Web-Lesezeichen"
+                        color: "#F4F2FF"
+                        font.pixelSize: Math.round(18 * uiScale)
+                        font.bold: true
+                    }
+
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right
+                        width: Math.round(96 * uiScale)
+                        height: Math.round(30 * uiScale)
+                        radius: height / 2
+                        color: bookmarkManageMode ? "#5E5CE6" : "#252335"
+                        border.color: bookmarkManageMode ? "#7D7AFF" : "#3A3651"
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: bookmarkManageMode ? "Fertig" : "Verwalten"
+                            color: "#F0EEFF"
+                            font.pixelSize: Math.round(12 * uiScale)
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: bookmarkManageMode = !bookmarkManageMode
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: Math.round(1 * uiScale)
+                    color: "#2B2840"
+                }
+
+                Flickable {
+                    width: parent.width
+                    height: Math.round(170 * uiScale)
+                    clip: true
+                    contentWidth: width
+                    contentHeight: bookmarkColumn.implicitHeight
+
+                    Column {
+                        id: bookmarkColumn
+                        width: parent.width
+                        spacing: Math.round(8 * uiScale)
+
+                        Repeater {
+                            model: bookmarkModel
+
+                            delegate: Rectangle {
+                                width: bookmarkColumn.width
+                                height: Math.round(44 * uiScale)
+                                radius: Math.round(10 * uiScale)
+                                color: "#1B1930"
+                                border.color: "#2F2C46"
+                                border.width: 1
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Math.round(12 * uiScale)
+                                    width: bookmarkManageMode ? parent.width - Math.round(70 * uiScale) : parent.width - Math.round(24 * uiScale)
+                                    text: model.title
+                                    color: "#E9E6FF"
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Math.round(13 * uiScale)
+                                }
+
+                                Rectangle {
+                                    visible: bookmarkManageMode
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: Math.round(8 * uiScale)
+                                    width: Math.round(28 * uiScale)
+                                    height: Math.round(28 * uiScale)
+                                    radius: width / 2
+                                    color: "#3B2331"
+                                    border.color: "#8D4B67"
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "x"
+                                        color: "#FFC1D4"
+                                        font.pixelSize: Math.round(13 * uiScale)
+                                        font.bold: true
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            if (typeof blopAppBridge !== "undefined" && blopAppBridge.removeWebBookmarkFromQml) {
+                                                blopAppBridge.removeWebBookmarkFromQml(index)
+                                                refreshBookmarkModel()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !bookmarkManageMode
+                                    onClicked: {
+                                        if (typeof blopAppBridge !== "undefined" && blopAppBridge.openWebBookmarkFromQml) {
+                                            blopAppBridge.openWebBookmarkFromQml(index)
+                                            closeBookmarkSheet()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "URL hinzufuegen"
+                    color: "#D8D4F5"
+                    font.pixelSize: Math.round(13 * uiScale)
+                    font.bold: true
+                }
+
+                TextField {
+                    id: addUrlField
+                    width: parent.width
+                    placeholderText: "https://..."
+                    text: bookmarkDraftUrl
+                    onTextChanged: bookmarkDraftUrl = text
+                }
+
+                TextField {
+                    width: parent.width
+                    placeholderText: "Titel (optional)"
+                    text: bookmarkDraftTitle
+                    onTextChanged: bookmarkDraftTitle = text
+                }
+
+                Text {
+                    visible: bookmarkAddError.length > 0
+                    text: bookmarkAddError
+                    color: "#FF909D"
+                    font.pixelSize: Math.round(12 * uiScale)
+                }
+
+                Row {
+                    width: parent.width
+                    property real actionGap: Math.round(8 * uiScale)
+                    spacing: actionGap
+
+                    Rectangle {
+                        width: (parent.width - actionGap) / 2
+                        height: Math.round(40 * uiScale)
+                        radius: Math.round(10 * uiScale)
+                        color: "#262237"
+                        border.color: "#3A3550"
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Abbrechen"
+                            color: "#E0DBFF"
+                            font.pixelSize: Math.round(13 * uiScale)
+                            font.bold: true
+                        }
+                        MouseArea { anchors.fill: parent; onClicked: closeBookmarkSheet() }
+                    }
+
+                    Rectangle {
+                        width: (parent.width - actionGap) / 2
+                        height: Math.round(40 * uiScale)
+                        radius: Math.round(10 * uiScale)
+                        color: "#5E5CE6"
+                        border.color: "#7D7AFF"
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Speichern"
+                            color: "#F9F8FF"
+                            font.pixelSize: Math.round(13 * uiScale)
+                            font.bold: true
+                        }
+                        MouseArea { anchors.fill: parent; onClicked: submitBookmarkFromSheet() }
+                    }
+                }
+            }
+        }
+    }
+
     Connections {
         target: typeof blopAppBridge !== "undefined" ? blopAppBridge : null
 
@@ -486,9 +904,14 @@ Rectangle {
             // jsCode is pre-built by C++: sets session_id + username in localStorage, then navigates to /
             console.log("QML: Injecting session from C++ backend verification...");
             oauthPending = false;  // Hide the overlay
+            oauthPendingSinceMs = 0
             var w = studyWeb()
             if (w)
                 w.runJavaScript(jsCode)
+        }
+
+        function onOauthFailed(reason) {
+            onOAuthFailed(reason)
         }
     }
 
@@ -519,10 +942,14 @@ Rectangle {
                 if (typeof blopAppBridge !== "undefined" && result !== undefined) {
                     var resStr = result.toString().trim();
                     if (resStr === "TRIGGER_GOOGLE_LOGIN") {
+                        if (oauthPending && (Date.now() - oauthPendingSinceMs) < 5000)
+                            return
                         oauthPending = true;  // Show overlay while Chrome is open
+                        oauthPendingSinceMs = Date.now()
                         blopAppBridge.requestGoogleLogin();
                     } else if (resStr !== "") {
                         oauthPending = false;
+                        oauthPendingSinceMs = 0
                         blopAppBridge.onSessionCheck(resStr);
                     } else {
                         // Keep the login/register page slightly zoomed out.
@@ -546,6 +973,23 @@ Rectangle {
                     }
                 }
             )
+        }
+    }
+
+    // If OAuth browser return leaves the embedded page stale, recover automatically.
+    Timer {
+        interval: 1200
+        running: ssoPollingEnabled
+        repeat: true
+        onTriggered: {
+            if (!oauthPending)
+                return
+            if (Date.now() - oauthPendingSinceMs < 20000)
+                return
+            console.warn("BlopStudy: oauth watchdog timeout, forcing fresh load")
+            oauthPending = false
+            oauthPendingSinceMs = 0
+            loadStudyEntryFresh("oauthWatchdog", true)
         }
     }
 }

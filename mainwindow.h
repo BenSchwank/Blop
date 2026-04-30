@@ -153,14 +153,23 @@ protected:
 
 signals:
   void injectToken(const QString &token);
+  void oauthFailed(const QString &reason);
 
 public slots:
   void requestGoogleLogin();
   void onSessionCheck(const QString &sessionData);
   void resetAndroidWebViewStorage();
+  void resetAndroidWebViewStorageFull();
+  void nudgeAndroidWebViewStopOnly();
+  void applyAndroidStudyWebViewNetworkCache();
+  void scheduleAndroidStudyWebViewNetworkCache();
   void showAuthOverlay(const QUrl &url);
   void switchToNotesFromWebQmlBar();
   void openWebBookmarkMenuFromWebQmlBar();
+  QVariantList webBookmarksForQml() const;
+  bool addWebBookmarkFromQml(const QString &urlInput, const QString &titleInput);
+  bool removeWebBookmarkFromQml(int index);
+  void openWebBookmarkFromQml(int index);
 
 private slots:
   void checkForUpdates();
@@ -295,8 +304,6 @@ private:
   QWidget *m_studyWindowContainer{nullptr}; // QWidget::createWindowContainer(QQuickView)
   QPushButton *m_btnAndroidNotes{nullptr};
   QPushButton *m_btnAndroidStudy{nullptr};
-  /// Study: reset embedded web to default (invokeAndroidWebDestination(0)).
-  QPushButton *m_btnAndroidStudyReset{nullptr};
   QPushButton *m_btnAndroidAddWebBookmark{nullptr};
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};
@@ -321,6 +328,12 @@ private:
 #endif
   QVector<WebBookmark> m_webBookmarks;
   // ----------------------------
+  /// True while auth is unresolved: prevent switching from Study/Login to Notes.
+  bool m_authNavigationLocked{false};
+  /// Prevents duplicate OAuth browser launches from repeated poll triggers.
+  bool m_googleLoginInFlight{false};
+  /// Prevents multiple overlapping Android bookmark sheets.
+  bool m_androidWebMenuOpen{false};
 
   // --- Sidebar user section labels (updated on webview login) ---
   QLabel *m_lblSidebarUser{nullptr};

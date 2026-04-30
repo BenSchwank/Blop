@@ -66,7 +66,7 @@ public:
     void applyRotationDelta(qreal deltaDeg) {
         qreal a = rotation() + deltaDeg;
         if (m_config.rulerSnap)
-            a = snapToLocalGrid(a, 45.0);
+            a = snapToLocalGrid(a, 15.0);
         setRotation(normalizeAngle(a));
     }
 
@@ -175,7 +175,7 @@ public:
         const double dir = (event->delta() > 0) ? -1.0 : 1.0;
         currentAngle += dir * baseStep;
         if (m_config.rulerSnap)
-            currentAngle = snapToLocalGrid(currentAngle, 45.0);
+            currentAngle = snapToLocalGrid(currentAngle, 15.0);
         setRotation(normalizeAngle(currentAngle));
         event->accept();
     }
@@ -309,11 +309,15 @@ public:
                     qreal rotDelta = m_prevTouchAngle - lineNow.angle();
                     m_prevTouchAngle = lineNow.angle();
 
-                    // Weniger empfindlich und mit 15° Snap.
-                    rotDelta *= 0.6;
+                    // Weniger empfindlich + kleine Deadzone gegen Jitter.
+                    rotDelta *= 0.45;
+                    if (std::abs(rotDelta) < 0.35) {
+                        event->accept();
+                        return true;
+                    }
                     double a = rotation() - rotDelta;
                     if (m_config.rulerSnap)
-                        a = snapToLocalGrid(a, 45.0);
+                        a = snapToLocalGrid(a, 15.0);
                     setRotation(a);
                 }
             }
@@ -360,7 +364,8 @@ private:
     }
 
     bool isLocalPointOnResetButton(const QPointF &local) const {
-        return resetButtonRectLocal().contains(local);
+        // Keep visual size, but increase touch hit area for easier reset taps.
+        return resetButtonRectLocal().adjusted(-8.0, -8.0, 8.0, 8.0).contains(local);
     }
 
     bool isLocalPointInteractive(const QPointF &local) const {
@@ -374,8 +379,9 @@ private:
         if (isLocalPointOnResetButton(local))
             return true;
         const QRectF body(0, 0, m_width, m_height);
-        const QRectF leftHandle(-10, 6, 20, m_height - 12);
-        const QRectF rightHandle(m_width - 10, 6, 20, m_height - 12);
+        // Slightly larger touch targets improve finger usability.
+        const QRectF leftHandle(-16, 2, 32, m_height - 4);
+        const QRectF rightHandle(m_width - 16, 2, 32, m_height - 4);
         return body.contains(local) || leftHandle.contains(local) || rightHandle.contains(local);
     }
 
@@ -482,15 +488,15 @@ private:
         p->rotate(-rotation());
 
         // Hintergrund Kapsel
-        p->setBrush(QColor(0,0,0,180));
+        p->setBrush(QColor(0, 0, 0, 195));
         p->setPen(Qt::NoPen);
-        p->drawRoundedRect(-35, -12, 70, 24, 12, 12);
+        p->drawRoundedRect(-38, -13, 76, 26, 13, 13);
 
         // Text relativ zum lokalen Nullgradpunkt
-        p->setPen(Qt::white);
-        p->setFont(QFont("Segoe UI", 9, QFont::Bold));
+        p->setPen(QColor("#F4F6FF"));
+        p->setFont(QFont("Segoe UI", 10, QFont::DemiBold));
         int deg = static_cast<int>(normalizeAngle(rotation() - m_zeroAngleReference));
-        p->drawText(QRectF(-35, -12, 70, 24), Qt::AlignCenter, QString("%1°").arg(deg));
+        p->drawText(QRectF(-38, -13, 76, 26), Qt::AlignCenter, QString("%1°").arg(deg));
         p->restore();
 
         // Kleiner Reset-Button in der Mitte (setzt aktuellen Winkel als 0°).

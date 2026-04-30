@@ -39,6 +39,7 @@
 #include <QElapsedTimer>
 #include <QDesktopServices>
 #include <QDir>
+#include <QEventLoop>
 #include <QQmlContext>
 #include <QEvent>
 #include <QFile>
@@ -52,6 +53,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
@@ -98,12 +100,15 @@
 #include <QListWidgetItem>
 #include <QUrl>
 #include <QMetaObject>
+#include <QGuiApplication>
+#include <QClipboard>
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
-#include <QQuickView>
+#include <QQuickWidget>
+#include <QQmlError>
 #include <QSslSocket>
 #include <QTemporaryFile>
 #include <QWidget>
@@ -232,10 +237,9 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   if (!headerLay)
     return;
 
-  // Keep the status-bar offset conservative and bounded so Study transitions
-  // never push the tab row outside the visible top area.
-  const int clampedInset = 0;
-  const int topExtra = UiScale::dp(2);
+  const int clampedInset =
+      qBound(0, UiScale::androidTopInsetPx(window), UiScale::dp(32));
+  const int topExtra = UiScale::dp(4);
   const int headerHeight = UiScale::dp(52);
   const int totalHeight = headerHeight + clampedInset + topExtra;
 
@@ -664,25 +668,42 @@ MainWindow::MainWindow(QWidget *parent)
     animateSidebar(true);
   }
 
+  auto failOAuthFlow = [this](const QString &reason) {
+#ifdef Q_OS_ANDROID
+    dismissAndroidOAuthOverlay();
+#endif
+    m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
+    m_authNavigationLocked = false;
+    emit oauthFailed(reason);
+  };
+
   // Connect GoogleAuthManager's browser prompts to custom overlay logic
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::requireBrowser,
-          this, [this](const QUrl &url) {
+          this, [this, failOAuthFlow](const QUrl &url) {
 #ifdef Q_OS_ANDROID
-              // Check TLS availability before opening browser, warn user if broken
+              // Avoid blocking dialogs on Android GL surface; fail fast and unlock UI.
               if (!QSslSocket::supportsSsl()) {
-                  QMessageBox::critical(this, "TLS Fehler",
-                      "HTTPS wird nicht unterstützt!\n\n"
-                      "OpenSSL wurde nicht gefunden. "
-                      "Der Google-Login kann nicht funktionieren.\n\n"
-                      "TLS-Version: " + QSslSocket::sslLibraryVersionString());
+                  qCritical() << "Google login aborted: TLS unsupported. OpenSSL missing?"
+                              << "TLS version:" << QSslSocket::sslLibraryVersionString();
+                  failOAuthFlow(QStringLiteral("tls_unavailable"));
                   return;
               }
 #endif
-              showAuthOverlay(url);
+              if (!showAuthOverlay(url)) {
+                qWarning() << "Google login aborted: could not open browser URL" << url;
+                failOAuthFlow(QStringLiteral("browser_open_failed"));
+                return;
+              }
           });
           
   // Close the overlay when login completes successfully
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
+      m_googleLoginInFlight = false;
+      m_googleLoginInFlightSinceMs = 0;
+#ifdef Q_OS_ANDROID
+      dismissAndroidOAuthOverlay();
+#endif
       if (m_authOverlay) {
           m_authOverlay->accept();
           m_authOverlay->deleteLater();
@@ -691,10 +712,15 @@ MainWindow::MainWindow(QWidget *parent)
   });
 
   // Verify the Google access token via our own backend and inject session into the WebView
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this](const QString &token) {
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this, failOAuthFlow](const QString &token) {
       qDebug() << "Received Google token in MainWindow, posting to backend for verification...";
+      if (token.trimmed().isEmpty()) {
+        qWarning() << "Google idTokenReceived was empty";
+        failOAuthFlow(QStringLiteral("empty_id_token"));
+        return;
+      }
       auto attemptVerify = std::make_shared<std::function<void(int)>>();
-      *attemptVerify = [this, token, attemptVerify](int attempt) {
+      *attemptVerify = [this, token, attemptVerify, failOAuthFlow](int attempt) {
         QNetworkAccessManager *nam = new QNetworkAccessManager(this);
         QNetworkRequest req(QUrl("https://blop-study.com/api/auth/google/verify"));
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -704,12 +730,13 @@ MainWindow::MainWindow(QWidget *parent)
         QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
         QNetworkReply *reply = nam->post(req, postData);
-        connect(reply, &QNetworkReply::finished, this, [this, reply, nam, attempt, attemptVerify]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, nam, attempt, attemptVerify, failOAuthFlow]() {
           const QString errorText = reply->errorString();
           const QByteArray raw = reply->readAll();
           const QString rawText = QString::fromUtf8(raw);
           const int statusCode =
               reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+          const QNetworkReply::NetworkError networkError = reply->error();
           const bool transientErr11 =
               errorText.contains("Resource temporarily unavailable", Qt::CaseInsensitive) ||
               rawText.contains("Errno 11", Qt::CaseInsensitive);
@@ -726,23 +753,29 @@ MainWindow::MainWindow(QWidget *parent)
             return;
           }
 
-          if (reply->error() != QNetworkReply::NoError || statusCode >= 400) {
+          if (networkError != QNetworkReply::NoError || statusCode >= 400) {
             qWarning() << "Backend Google verify failed:" << errorText
                        << "status:" << statusCode << "body:" << rawText;
+            failOAuthFlow(QStringLiteral("backend_verify_failed"));
             return;
           }
 
           QJsonDocument doc = QJsonDocument::fromJson(raw);
-          if (doc.isNull() || !doc.isObject())
+          if (doc.isNull() || !doc.isObject()) {
+            qWarning() << "Backend Google verify invalid JSON:" << rawText;
+            failOAuthFlow(QStringLiteral("invalid_backend_json"));
             return;
+          }
           QJsonObject obj = doc.object();
           QString sessionId = obj.value("session_id").toString();
           QString username = obj.value("username").toString();
           if (sessionId.isEmpty() || username.isEmpty()) {
             qWarning() << "Backend returned empty session_id or username!";
+            failOAuthFlow(QStringLiteral("missing_session_or_username"));
             return;
           }
           qDebug() << "Backend verified Google login! username:" << username;
+          m_googleLoginInFlight = false;
 
           QSettings st("Blop", "BlopApp");
           st.setValue("session_id", sessionId);
@@ -771,8 +804,13 @@ MainWindow::MainWindow(QWidget *parent)
   });
 
   // Warn user if OAuth fails locally or via server
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this](const QString& error) {
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this, failOAuthFlow](const QString& error) {
+      failOAuthFlow(error);
+#ifdef Q_OS_ANDROID
+      qWarning() << "Google Login Fehler:" << error;
+#else
       QMessageBox::warning(this, "Google Login Fehler", "Der Login über Google ist fehlgeschlagen:\n" + error);
+#endif
   });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
@@ -1267,6 +1305,11 @@ QPushButton:hover { background: rgba(232, 72, 85, 0.28); color: #FFFFFF; })"));
 void MainWindow::openWebBookmarkOverflowMenuFromWidget(QWidget *anchor) {
   if (!anchor || !m_modeSelector)
     return;
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android uses QML bookmark sheet only; widget menu suppressed";
+  return;
+#endif
+
   QMenu menu(this);
   menu.setStyleSheet(blopWebMenuStyleSheet());
   for (int i = 0; i < m_webBookmarks.size(); ++i) {
@@ -1362,6 +1405,16 @@ void MainWindow::invokeAndroidWebDestination(int kind, const QString &url) {
       Q_ARG(QVariant, u));
   if (!ok)
     qWarning() << "QML setWebDestination invoke failed";
+  // JNI cache scheduling is handled by the guarded onModeChanged deferred path.
+}
+
+void MainWindow::dismissAndroidOAuthOverlay() {
+  if (!m_androidOAuthOverlay)
+    return;
+  QWidget *w = m_androidOAuthOverlay;
+  m_androidOAuthOverlay = nullptr;
+  w->hide();
+  w->deleteLater();
 }
 #endif
 
@@ -2767,11 +2820,23 @@ void MainWindow::setupUi() {
   m_btnAndroidStudy->setStyleSheet(tabInactiveStyle);
 
   connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
+    if (!m_modeSelector || m_modeSelector->count() <= 1) {
+      qWarning() << "Android Notes tap ignored: mode selector not ready";
+      return;
+    }
+    if (m_authNavigationLocked) {
+      qInfo() << "Auth gate: Notes tap ignored while login pending";
+      return;
+    }
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(0);
     onModeChanged(0);
   });
   connect(m_btnAndroidStudy, &QPushButton::clicked, this, [this]() {
+    if (!m_modeSelector || m_modeSelector->count() <= 1) {
+      qWarning() << "Android Study tap ignored: mode selector not ready";
+      return;
+    }
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(1);
     onModeChanged(1);
@@ -2779,27 +2844,6 @@ void MainWindow::setupUi() {
 
   headerLay->addWidget(m_btnAndroidNotes);
   headerLay->addWidget(m_btnAndroidStudy);
-
-  m_btnAndroidStudyReset = new QPushButton(androidHeader);
-  m_btnAndroidStudyReset->setFixedSize(UiScale::dp(30), androidCompactPillH);
-  m_btnAndroidStudyReset->setCursor(Qt::PointingHandCursor);
-  m_btnAndroidStudyReset->setToolTip(tr("Study zurücksetzen"));
-  m_btnAndroidStudyReset->setIcon(
-      createModernIcon("home", QColor("#F4F5FB")));
-  m_btnAndroidStudyReset->setIconSize(
-      QSize(UiScale::dp(18), UiScale::dp(18)));
-  m_btnAndroidStudyReset->setStyleSheet(
-      "QPushButton {"
-      "  background: rgba(255,255,255,0.08);"
-      "  color: #F4F5FB;"
-      "  border-radius: 13px;"
-      "  border: 1px solid rgba(255,255,255,0.16);"
-      "}"
-      "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
-  m_btnAndroidStudyReset->hide();
-  connect(m_btnAndroidStudyReset, &QPushButton::clicked, this,
-          &MainWindow::resetEmbeddedWebToStudy);
-  headerLay->addWidget(m_btnAndroidStudyReset);
 
   m_btnAndroidAddWebBookmark = new QPushButton(QStringLiteral("+"), androidHeader);
   m_btnAndroidAddWebBookmark->setFixedSize(UiScale::dp(30), androidCompactPillH);
@@ -2815,8 +2859,13 @@ void MainWindow::setupUi() {
       "}"
       "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
   connect(m_btnAndroidAddWebBookmark, &QPushButton::clicked, this, [this]() {
-    if (m_btnAndroidAddWebBookmark)
-      openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+    if (!m_btnAndroidAddWebBookmark)
+      return;
+#ifdef Q_OS_ANDROID
+    openWebBookmarkMenuFromWebQmlBar();
+#else
+    openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+#endif
   });
   headerLay->addWidget(m_btnAndroidAddWebBookmark);
 
@@ -3468,13 +3517,11 @@ void MainWindow::setupWebBrowser() {
 #endif
 
 #ifdef Q_OS_ANDROID
-  // IMPORTANT: QtWebView on Android uses a native Android WebView.
-  // It renders correctly with a real QQuickWindow (QQuickView), but can appear
-  // blank/gray when embedded via QQuickWidget.
-  QQuickView *view = new QQuickView();
+  // Keep Study in-app but avoid a separate QQuickWindow (eglSurface deadlock path).
+  QQuickWidget *view = new QQuickWidget(m_studyContainer);
   m_studyQQuickView = view;
-  view->setResizeMode(QQuickView::SizeRootObjectToView);
-  view->setColor(QColor(0x0b, 0x0b, 0x1a));
+  view->setResizeMode(QQuickWidget::SizeRootObjectToView);
+  view->setClearColor(QColor(0x0b, 0x0b, 0x1a));
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
@@ -3483,7 +3530,7 @@ void MainWindow::setupWebBrowser() {
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
 
   // Check if it's actually loaded
-  if (view->status() == QQuickView::Error) {
+  if (view->status() == QQuickWidget::Error) {
       QString errorStr = "Fehler: Konnte Web-Modul nicht laden.\n";
       for (const QQmlError &e : view->errors()) {
           errorStr += e.toString() + "\n";
@@ -3496,16 +3543,18 @@ void MainWindow::setupWebBrowser() {
       return;
   }
 
-  QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
+  QWidget *container = view;
   container->setObjectName("StudyQuickContainer");
   m_studyWindowContainer = container;
   // Touch/focus hardening for Android
   container->setAttribute(Qt::WA_AcceptTouchEvents, true);
   container->setFocusPolicy(Qt::StrongFocus);
-  container->setFocus(Qt::OtherFocusReason);
   layout->addWidget(container);
 
   logAndroidSystemWebViewPackageOnce();
+
+  // Do not immediately schedule JNI cache retries during startup; trigger only
+  // once the Study surface is actually shown to avoid QtThread GL contention.
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
@@ -3792,12 +3841,6 @@ void MainWindow::applyAndroidTabStyles(int index) {
       "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
-  if (m_btnAndroidStudyReset) {
-    const bool show =
-        m_btnAndroidStudy && m_btnAndroidStudy->isVisible() && index >= 1;
-    m_btnAndroidStudyReset->setVisible(show);
-    m_btnAndroidStudyReset->setEnabled(show);
-  }
 }
 #endif
 
@@ -3809,14 +3852,22 @@ void MainWindow::onModeChanged(int index) {
     animateSidebar(false);
 
 #ifdef Q_OS_ANDROID
+  if (mainStackIdx == 1) {
+    const auto transientOverlays = findChildren<QWidget *>(
+        QStringLiteral("AndroidTransientOverlay"), Qt::FindDirectChildrenOnly);
+    for (QWidget *overlay : transientOverlays) {
+      if (overlay && overlay->isVisible())
+        overlay->close();
+    }
+  }
   syncAndroidHeaderGeometry(this);
   applyAndroidImmersiveUi();
+  const bool showAndroidHeader = !m_authNavigationLocked;
   if (m_studyVBoxLayout) {
     // Study has its own QML top bar; keep web content flush to avoid double top bars.
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   }
-  // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
-  // broke re-entering Study on some devices).
+  // Embedded Study widget: hide/disable when leaving Study.
   if (mainStackIdx == 0) {
     if (m_studyWindowContainer) {
       m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -3824,18 +3875,15 @@ void MainWindow::onModeChanged(int index) {
       m_studyWindowContainer->clearFocus();
       m_studyWindowContainer->hide();
     }
-    if (m_studyQQuickView)
-      m_studyQQuickView->hide();
   }
 #endif
   if (m_mainContentStack) {
     m_mainContentStack->setCurrentIndex(mainStackIdx);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
-      // Keep Android mode tabs always reachable: if Study/Web renders black,
-      // users can still switch back to Notes.
-      m_androidHeader->setVisible(true);
-      m_androidHeader->raise();
+      m_androidHeader->setVisible(showAndroidHeader);
+      if (showAndroidHeader)
+        m_androidHeader->raise();
     }
 #endif
   }
@@ -3845,16 +3893,16 @@ void MainWindow::onModeChanged(int index) {
     m_studyWindowContainer->setEnabled(true);
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // Keep native container below toolbar hit area (tabs must stay clickable).
-    m_studyWindowContainer->lower();
-    m_studyWindowContainer->show();
-    if (m_studyQQuickView)
-      m_studyQQuickView->show();
+    // Single-stage show for QWidget-hosted Study view.
     QTimer::singleShot(0, this, [this]() {
-      if (m_studyWindowContainer)
-        m_studyWindowContainer->lower();
+      if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
+        return;
+      if (!m_studyWindowContainer || !m_studyVBoxLayout)
+        return;
+      syncAndroidHeaderGeometry(this);
       if (m_androidHeader)
         m_androidHeader->raise();
+      m_studyWindowContainer->show();
     });
   }
   if (m_mainContentStack) {
@@ -3867,12 +3915,19 @@ void MainWindow::onModeChanged(int index) {
         cur->raise();
 #endif
       cur->setEnabled(true);
+#ifdef Q_OS_ANDROID
+      // Study embeds a native SurfaceView; immediate focus here can re-enter GL paths.
+      if (mainStackIdx != 1)
+        cur->setFocus(Qt::OtherFocusReason);
+#else
       cur->setFocus(Qt::OtherFocusReason);
+#endif
     }
   }
   if (m_androidHeader) {
-    m_androidHeader->setVisible(true);
-    m_androidHeader->raise();
+    m_androidHeader->setVisible(showAndroidHeader);
+    if (showAndroidHeader)
+      m_androidHeader->raise();
   }
   syncAndroidHeaderGeometry(this);
   // Study switches can transiently report stale availableGeometry on Android.
@@ -3881,22 +3936,48 @@ void MainWindow::onModeChanged(int index) {
     syncAndroidHeaderGeometry(this);
     applyAndroidImmersiveUi();
     if (m_androidHeader)
-      m_androidHeader->setVisible(true);
-    if (m_androidHeader)
+      m_androidHeader->setVisible(!m_authNavigationLocked);
+    if (m_androidHeader && !m_authNavigationLocked)
       m_androidHeader->raise();
   });
 #endif
 
 #ifdef Q_OS_ANDROID
   applyAndroidTabStyles(index);
-  if (index == 1)
-    invokeAndroidWebDestination(0);
-  else if (index >= 2)
-    invokeAndroidWebDestination(1, m_modeSelector
-                                         ? m_modeSelector->itemData(index, Qt::UserRole)
+  const int deferredModeIndex = index;
+  QTimer::singleShot(48, this, [this, deferredModeIndex]() {
+    const int expectedStack = (deferredModeIndex <= 0) ? 0 : 1;
+    if (!m_mainContentStack || m_mainContentStack->currentIndex() != expectedStack) {
+      return;
+    }
+    if (deferredModeIndex >= 2 && m_modeSelector &&
+        m_modeSelector->currentIndex() != deferredModeIndex) {
+      return;
+    }
+    if (deferredModeIndex != 1 && deferredModeIndex < 2)
+      return;
+    if (!m_studyQQuickView || !m_studyQQuickView->rootObject()) {
+      qWarning() << "deferred invokeAndroidWebDestination: study QML not ready, mode index"
+                 << deferredModeIndex;
+      return;
+    }
+    if (deferredModeIndex == 1)
+      invokeAndroidWebDestination(0);
+    else if (deferredModeIndex >= 2)
+      invokeAndroidWebDestination(1, m_modeSelector
+                                         ? m_modeSelector->itemData(deferredModeIndex, Qt::UserRole)
                                                .toUrl()
                                                .toString()
                                          : QString());
+    if (deferredModeIndex >= 1) {
+      QTimer::singleShot(180, this, [this, deferredModeIndex]() {
+        const int expectedStackNow = (deferredModeIndex <= 0) ? 0 : 1;
+        if (!m_mainContentStack || m_mainContentStack->currentIndex() != expectedStackNow)
+          return;
+        scheduleAndroidStudyWebViewNetworkCache();
+      });
+    }
+  });
 #endif
 
 #ifndef Q_OS_ANDROID
@@ -3931,7 +4012,51 @@ void MainWindow::onModeChanged(int index) {
 }
 
 void MainWindow::requestGoogleLogin() {
-    GoogleAuthManager::instance().login();
+    if (m_googleLoginInFlight) {
+      const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+      if (m_googleLoginInFlightSinceMs > 0 &&
+          (nowMs - m_googleLoginInFlightSinceMs) > 15000) {
+        qWarning() << "Google login in-flight guard was stale, unlocking retry";
+        m_googleLoginInFlight = false;
+        m_googleLoginInFlightSinceMs = 0;
+        m_authNavigationLocked = false;
+      } else {
+        qInfo() << "Google login already in flight, ignoring duplicate request";
+        return;
+      }
+    }
+    // Defer OAuth start out of WebView/JS callback stack to reduce Android reentrancy crashes.
+    QTimer::singleShot(0, this, [this]() {
+      if (m_googleLoginInFlight)
+        return;
+#ifdef Q_OS_ANDROID
+      if (!QSslSocket::supportsSsl()) {
+        qCritical() << "Google login start skipped: TLS unavailable";
+        emit oauthFailed(QStringLiteral("tls_unavailable"));
+        m_authNavigationLocked = false;
+        return;
+      }
+#endif
+      m_googleLoginInFlight = true;
+      m_googleLoginInFlightSinceMs = QDateTime::currentMSecsSinceEpoch();
+      m_authNavigationLocked = true;
+      GoogleAuthManager::instance().login();
+
+      // Failsafe: if no browser handoff/response arrives, release lock to avoid dead button.
+      QTimer::singleShot(12000, this, [this]() {
+        if (!m_googleLoginInFlight)
+          return;
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (m_googleLoginInFlightSinceMs > 0 &&
+            (nowMs - m_googleLoginInFlightSinceMs) >= 11500) {
+          qWarning() << "Google login timeout before browser handoff; unlocking.";
+          m_googleLoginInFlight = false;
+          m_googleLoginInFlightSinceMs = 0;
+          m_authNavigationLocked = false;
+          emit oauthFailed(QStringLiteral("google_login_start_timeout"));
+        }
+      });
+    });
 }
 
 void MainWindow::resetAndroidWebViewStorage() {
@@ -3953,8 +4078,84 @@ void MainWindow::resetAndroidWebViewStorage() {
 #endif
 }
 
+void MainWindow::resetAndroidWebViewStorageFull() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android WebView full reset requested from QML bridge";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "Android WebView full reset skipped: invalid activity";
+      return;
+    }
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "clearWebViewState",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+    qInfo() << "Android WebView full reset JNI call dispatched";
+  });
+#endif
+}
+
+void MainWindow::nudgeAndroidWebViewStopOnly() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android WebView stop-only requested from QML bridge";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "Android WebView stop-only skipped: invalid activity";
+      return;
+    }
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "stopLoadingOnly",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+    qInfo() << "Android WebView stop-only JNI call dispatched";
+  });
+#endif
+}
+
+void MainWindow::applyAndroidStudyWebViewNetworkCache() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android Study WebView: apply cache settings (JNI)";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "applyAndroidStudyWebViewNetworkCache skipped: invalid activity";
+      return;
+    }
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "applyStudyWebViewNetworkCacheMode",
+        "(Landroid/app/Activity;)V", activity.object<jobject>());
+  });
+#endif
+}
+
+void MainWindow::scheduleAndroidStudyWebViewNetworkCache() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "Android Study WebView: schedule LOAD_NO_CACHE retries (JNI)";
+  QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity", "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      qWarning() << "scheduleAndroidStudyWebViewNetworkCache skipped: invalid activity";
+      return;
+    }
+    // ~5.6s window at 200ms steps (late WebView attach on Play/split installs).
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopWebViewReset", "scheduleApplyStudyWebViewNetworkCacheMode",
+        "(Landroid/app/Activity;IJ)V", activity.object<jobject>(),
+        static_cast<jint>(40), static_cast<jlong>(250));
+  });
+#endif
+}
+
 void MainWindow::switchToNotesFromWebQmlBar() {
 #ifdef Q_OS_ANDROID
+  if (m_authNavigationLocked) {
+    qInfo() << "Auth gate: switchToNotesFromWebQmlBar ignored";
+    return;
+  }
   if (m_modeSelector) {
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(0);
@@ -3965,20 +4166,86 @@ void MainWindow::switchToNotesFromWebQmlBar() {
 
 void MainWindow::openWebBookmarkMenuFromWebQmlBar() {
 #ifdef Q_OS_ANDROID
-  if (m_btnAndroidAddWebBookmark && m_btnAndroidAddWebBookmark->isVisible()) {
-    openWebBookmarkOverflowMenuFromWidget(m_btnAndroidAddWebBookmark);
+  if (!m_studyQQuickView)
     return;
-  }
-  if (m_studyContainer && m_studyContainer->isVisible()) {
-    openWebBookmarkOverflowMenuFromWidget(m_studyContainer);
+  QObject *root = m_studyQQuickView->rootObject();
+  if (!root)
     return;
+  const bool ok = QMetaObject::invokeMethod(root, "openBookmarkSheet",
+                                             Qt::QueuedConnection);
+  if (!ok)
+    qWarning() << "QML openBookmarkSheet invoke failed";
+#endif
+}
+
+QVariantList MainWindow::webBookmarksForQml() const {
+  QVariantList out;
+  out.reserve(m_webBookmarks.size());
+  for (const WebBookmark &bm : m_webBookmarks) {
+    QVariantMap row;
+    row.insert(QStringLiteral("title"), bm.title);
+    row.insert(QStringLiteral("url"), bm.url.toString());
+    out.push_back(row);
   }
-  openWebBookmarkOverflowMenuFromWidget(this);
+  return out;
+}
+
+bool MainWindow::addWebBookmarkFromQml(const QString &urlInput,
+                                       const QString &titleInput) {
+  if (!m_modeSelector)
+    return false;
+  const QUrl url = normalizedUserWebUrl(urlInput);
+  if (!url.isValid())
+    return false;
+  QString title = titleInput.trimmed();
+  if (title.isEmpty())
+    title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+  m_webBookmarks.push_back({title, url});
+  saveWebBookmarksToSettings();
+  rebuildModeSelectorItems();
+  const int newIdx = m_modeSelector->count() - 1;
+#ifdef Q_OS_ANDROID
+  QSignalBlocker b(m_modeSelector);
+  m_modeSelector->setCurrentIndex(newIdx);
+  onModeChanged(newIdx);
+#else
+  m_modeSelector->setCurrentIndex(newIdx);
+#endif
+  return true;
+}
+
+bool MainWindow::removeWebBookmarkFromQml(int index) {
+  if (index < 0 || index >= m_webBookmarks.size())
+    return false;
+  m_webBookmarks.removeAt(index);
+  saveWebBookmarksToSettings();
+  rebuildModeSelectorItems();
+  const int cur = m_modeSelector ? m_modeSelector->currentIndex() : 0;
+  onModeChanged(cur);
+  return true;
+}
+
+void MainWindow::openWebBookmarkFromQml(int index) {
+  if (!m_modeSelector)
+    return;
+  if (index < 0 || index >= m_webBookmarks.size())
+    return;
+  const int modeIdx = index + 2;
+  if (modeIdx >= m_modeSelector->count())
+    return;
+#ifdef Q_OS_ANDROID
+  QSignalBlocker b(m_modeSelector);
+  m_modeSelector->setCurrentIndex(modeIdx);
+  onModeChanged(modeIdx);
+#else
+  m_modeSelector->setCurrentIndex(modeIdx);
 #endif
 }
 
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
+        m_googleLoginInFlight = false;
+        m_googleLoginInFlightSinceMs = 0;
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
         if (sessionData != currentUser) {
             updateSidebarUser(sessionData);
@@ -4002,6 +4269,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
   bool wasLocked = (m_topNavControls && m_topNavControls->isHidden());
 
   if (!username.isEmpty()) {
+    m_authNavigationLocked = false;
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
     
@@ -4012,6 +4280,8 @@ void MainWindow::updateSidebarUser(const QString &username) {
       m_modeSelector->setCurrentIndex(0); // Switch to Notes mode
     }
 #ifdef Q_OS_ANDROID
+    if (m_androidHeader)
+      m_androidHeader->setVisible(true);
     onModeChanged(0);
     if (m_btnAndroidNotes) {
       m_btnAndroidNotes->setVisible(true);
@@ -4036,6 +4306,7 @@ void MainWindow::updateSidebarUser(const QString &username) {
       onToggleSidebar();
     }
   } else {
+    m_authNavigationLocked = true;
     // Logged out: Switch back to Study/Login web view
     if (m_topNavControls) m_topNavControls->hide();
 
@@ -4049,25 +4320,22 @@ void MainWindow::updateSidebarUser(const QString &username) {
 #endif
     }
 #ifdef Q_OS_ANDROID
+    if (m_androidHeader)
+      m_androidHeader->setVisible(false);
     onModeChanged(1);
-    // Keep tab switch usable on Android so users can always return to Notes.
-    // (Web localStorage/session sync can be delayed on some devices.)
+    // Keep login screen clean: hide Notes/Study pills until session is confirmed.
     if (m_btnAndroidNotes) {
-      m_btnAndroidNotes->setVisible(true);
-      m_btnAndroidNotes->setEnabled(true);
+      m_btnAndroidNotes->setVisible(false);
+      m_btnAndroidNotes->setEnabled(false);
     }
     if (m_btnAndroidStudy) {
-      m_btnAndroidStudy->setVisible(true);
-      m_btnAndroidStudy->setEnabled(true);
+      m_btnAndroidStudy->setVisible(false);
+      m_btnAndroidStudy->setEnabled(false);
     }
     // Web/bookmark actions stay hidden until we have a confirmed web session.
     if (m_btnAndroidAddWebBookmark) {
       m_btnAndroidAddWebBookmark->setVisible(false);
       m_btnAndroidAddWebBookmark->setEnabled(false);
-    }
-    if (m_btnAndroidStudyReset) {
-      m_btnAndroidStudyReset->setVisible(false);
-      m_btnAndroidStudyReset->setEnabled(false);
     }
 #endif
     if (btnStripMenu)
@@ -4604,19 +4872,8 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
 }
 
 void MainWindow::onNewPage() {
-  NewNoteDialog dlg(this);
-  if (dlg.exec() == QDialog::Accepted) {
-    QString name = dlg.getNoteName();
-    bool isInfinite = dlg.isInfiniteFormat();
-    A4LayoutDialogResult layoutResult;
-    const QString subtitle = isInfinite
-        ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
-        : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
-    if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), subtitle,
-                             2, UIStyles::PageBackground, &layoutResult) ||
-        !layoutResult.accepted) {
-      return;
-    }
+  auto createNote = [this](const QString &name, bool isInfinite,
+                           const A4LayoutDialogResult &layoutResult) {
     QString safeName = name;
     safeName.replace("/", "_").replace("\\", "_");
 
@@ -4654,25 +4911,242 @@ void MainWindow::onNewPage() {
         cv->setPageStyle(style);
         cv->setGridSize(40);
       }
-    } else {
-      // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
-      QString path = m_fileModel->rootPath() + "/" + safeName + ".bnote";
-      Note note;
-      note.id = QUuid::createUuid().toString();
-      note.title = name;
-      NotePage p;
-      p.paperColor = layoutResult.paperColor.isValid()
-                         ? layoutResult.paperColor
-                         : UIStyles::PageBackground;
-      p.backgroundType = qBound(0, layoutResult.backgroundType, 4);
-      note.pages.append(p);
-      NoteManager::saveNote(note, path);
-      onFileDoubleClicked(m_fileModel->index(path));
+      return;
     }
+
+    // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
+    QString path = m_fileModel->rootPath() + "/" + safeName + ".bnote";
+    Note note;
+    note.id = QUuid::createUuid().toString();
+    note.title = name;
+    NotePage p;
+    p.paperColor = layoutResult.paperColor.isValid() ? layoutResult.paperColor
+                                                      : UIStyles::PageBackground;
+    p.backgroundType = qBound(0, layoutResult.backgroundType, 4);
+    note.pages.append(p);
+    NoteManager::saveNote(note, path);
+    onFileDoubleClicked(m_fileModel->index(path));
+  };
+
+#ifdef Q_OS_ANDROID
+  auto calcAndroidCardSize = [this](QWidget *host, int minW, int maxW, int minH,
+                                    int maxH, qreal wRatio,
+                                    qreal hRatio) -> QSize {
+    const int hostW = host ? host->width() : width();
+    const int hostH = host ? host->height() : height();
+    const int w = qBound(UiScale::dp(minW),
+                         int(qreal(qMax(1, hostW)) * wRatio), UiScale::dp(maxW));
+    const int h = qBound(UiScale::dp(minH),
+                         int(qreal(qMax(1, hostH)) * hRatio), UiScale::dp(maxH));
+    return QSize(w, h);
+  };
+
+  // Android: avoid QDialog completely in this flow.
+  auto *overlay = new QWidget(this);
+  overlay->setAttribute(Qt::WA_DeleteOnClose, true);
+  overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
+  overlay->setStyleSheet("background-color: rgba(0,0,0,150);");
+  overlay->setGeometry(rect());
+  overlay->show();
+  overlay->raise();
+
+  auto *card = new QFrame(overlay);
+  card->setStyleSheet(
+      "QFrame { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+      "QLabel { color: #DDD; border: none; background: transparent; }"
+      "QLineEdit { background: #252526; color: white; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; }"
+      "QLineEdit:focus { border: 1px solid #5E5CE6; }");
+  const QSize noteCardSize =
+      calcAndroidCardSize(overlay, 300, 460, 260, 420, 0.88, 0.62);
+  card->setFixedSize(noteCardSize);
+  card->move((overlay->width() - noteCardSize.width()) / 2,
+             (overlay->height() - noteCardSize.height()) / 2);
+  card->show();
+  card->raise();
+
+  auto *layout = new QVBoxLayout(card);
+  layout->setContentsMargins(25, 25, 25, 25);
+  layout->setSpacing(16);
+
+  auto *title = new QLabel(QStringLiteral("Neue Notiz erstellen"), card);
+  title->setStyleSheet("font-size: 18px; font-weight: bold; color: white;");
+  layout->addWidget(title);
+
+  auto *lblName = new QLabel(QStringLiteral("Name"), card);
+  lblName->setStyleSheet("font-size: 13px; color: #BBB; font-weight: bold;");
+  layout->addWidget(lblName);
+
+  auto *nameInput = new QLineEdit(card);
+  nameInput->setPlaceholderText(QStringLiteral("Meine Notiz"));
+  nameInput->setFocus();
+  layout->addWidget(nameInput);
+
+  auto *lblFormat = new QLabel(QStringLiteral("Format"), card);
+  lblFormat->setStyleSheet("font-size: 13px; color: #BBB; font-weight: bold;");
+  layout->addWidget(lblFormat);
+
+  auto *formatRow = new QHBoxLayout();
+  auto mkBtn = [card](const QString &text, const QString &subtext) {
+    auto *btn = new QPushButton(text + "\n" + subtext, card);
+    btn->setCheckable(true);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedHeight(UiScale::dp(70));
+    btn->setStyleSheet(
+        "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; text-align: left; padding: 10px; line-height: 1.2; font-size: 14px; }"
+        "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
+        "QPushButton:hover:!checked { background: #333; border-color: #555; }");
+    return btn;
+  };
+  auto *btnInfinite =
+      mkBtn(QStringLiteral("Unendlich"), QStringLiteral("Freie Leinwand\n(Standard)"));
+  auto *btnA4 =
+      mkBtn(QStringLiteral("DIN A4"), QStringLiteral("Seitenbasiert\n(Druckoptimiert)"));
+  btnInfinite->setChecked(true);
+  auto *grp = new QButtonGroup(card);
+  grp->setExclusive(true);
+  grp->addButton(btnInfinite, 0);
+  grp->addButton(btnA4, 1);
+  formatRow->addWidget(btnInfinite);
+  formatRow->addWidget(btnA4);
+  layout->addLayout(formatRow);
+  layout->addStretch();
+
+  auto *actions = new QHBoxLayout();
+  actions->setSpacing(UiScale::dp(10));
+  auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
+  btnCancel->setMinimumHeight(UiScale::dp(48));
+  btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCancel->setStyleSheet(
+      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #312C45; }");
+  auto *btnCreate = new QPushButton(QStringLiteral("Erstellen"), card);
+  btnCreate->setMinimumHeight(UiScale::dp(48));
+  btnCreate->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCreate->setStyleSheet(
+      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #4b49c9; }");
+  actions->addWidget(btnCancel);
+  actions->addWidget(btnCreate);
+  layout->addLayout(actions);
+
+  connect(btnCancel, &QPushButton::clicked, overlay, &QWidget::close);
+  connect(btnCreate, &QPushButton::clicked, this,
+          [this, overlay, nameInput, btnInfinite, createNote]() {
+            const QString name = nameInput->text().trimmed().isEmpty()
+                                     ? QStringLiteral("Neue Notiz")
+                                     : nameInput->text().trimmed();
+            const bool isInfinite = btnInfinite->isChecked();
+            const QString subtitle = isInfinite
+                                         ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
+                                         : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
+            showA4LayoutOverlayAsync(
+                this, QStringLiteral("Seitenlayout"), subtitle, 2,
+                UIStyles::PageBackground,
+                [this, overlay, name, isInfinite, createNote](
+                    const A4LayoutDialogResult &layoutResult) {
+                  if (layoutResult.accepted)
+                    createNote(name, isInfinite, layoutResult);
+                  if (overlay)
+                    overlay->close();
+                });
+          });
+  overlay->raise();
+  card->raise();
+  return;
+#else
+  NewNoteDialog dlg(this);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  QString name = dlg.getNoteName();
+  bool isInfinite = dlg.isInfiniteFormat();
+  A4LayoutDialogResult layoutResult;
+  const QString subtitle = isInfinite
+      ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
+      : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
+  if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), subtitle, 2,
+                           UIStyles::PageBackground, &layoutResult) ||
+      !layoutResult.accepted) {
+    return;
   }
+  createNote(name, isInfinite, layoutResult);
+#endif
 }
 
 void MainWindow::onCreateFolder() {
+#ifdef Q_OS_ANDROID
+  auto calcAndroidCardSize = [this](QWidget *host, int minW, int maxW, int minH,
+                                    int maxH, qreal wRatio,
+                                    qreal hRatio) -> QSize {
+    const int hostW = host ? host->width() : width();
+    const int hostH = host ? host->height() : height();
+    const int w = qBound(UiScale::dp(minW),
+                         int(qreal(qMax(1, hostW)) * wRatio), UiScale::dp(maxW));
+    const int h = qBound(UiScale::dp(minH),
+                         int(qreal(qMax(1, hostH)) * hRatio), UiScale::dp(maxH));
+    return QSize(w, h);
+  };
+
+  auto *overlay = new QWidget(this);
+  overlay->setAttribute(Qt::WA_DeleteOnClose, true);
+  overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
+  overlay->setStyleSheet("background-color: rgba(0,0,0,150);");
+  overlay->setGeometry(rect());
+  overlay->show();
+  overlay->raise();
+
+  auto *card = new QFrame(overlay);
+  card->setStyleSheet(
+      "QFrame { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+      "QLabel { color: #DDD; border: none; background: transparent; }"
+      "QLineEdit { background: #252526; color: white; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; }"
+      "QLineEdit:focus { border: 1px solid #5E5CE6; }");
+  const QSize folderCardSize =
+      calcAndroidCardSize(overlay, 280, 440, 170, 240, 0.86, 0.34);
+  card->setFixedSize(folderCardSize);
+  card->move((overlay->width() - folderCardSize.width()) / 2,
+             (overlay->height() - folderCardSize.height()) / 2);
+  card->show();
+  card->raise();
+
+  auto *layout = new QVBoxLayout(card);
+  layout->setContentsMargins(20, 20, 20, 20);
+  layout->setSpacing(12);
+  auto *title = new QLabel(QStringLiteral("New Folder"), card);
+  title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;");
+  layout->addWidget(title);
+  auto *edit = new QLineEdit(card);
+  edit->setPlaceholderText(QStringLiteral("New Folder"));
+  edit->setFocus();
+  layout->addWidget(edit);
+  auto *actions = new QHBoxLayout();
+  actions->setSpacing(UiScale::dp(10));
+  auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
+  btnCancel->setMinimumHeight(UiScale::dp(48));
+  btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnCancel->setStyleSheet(
+      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton:hover { background: #312C45; }");
+  auto *btnOk = new QPushButton(QStringLiteral("Erstellen"), card);
+  btnOk->setMinimumHeight(UiScale::dp(48));
+  btnOk->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  btnOk->setStyleSheet(
+      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; padding: 10px 12px; font-weight: 700; font-size: 15px; }"
+      "QPushButton:hover { background: #4b49c9; }");
+  actions->addWidget(btnCancel);
+  actions->addWidget(btnOk);
+  layout->addLayout(actions);
+  connect(btnCancel, &QPushButton::clicked, overlay, &QWidget::close);
+  connect(btnOk, &QPushButton::clicked, this, [this, overlay, edit]() {
+    const QString text = edit->text().trimmed();
+    if (!text.isEmpty())
+      m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text);
+    if (overlay)
+      overlay->close();
+  });
+  overlay->raise();
+  card->raise();
+  return;
+#endif
   bool ok;
   QString text = QInputDialog::getText(
       this, "New Folder", "Name:", QLineEdit::Normal, "New Folder", &ok);
@@ -5437,9 +5911,9 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
     if (m_btnAndroidToolbarPageManager)
-      m_btnAndroidToolbarPageManager->setVisible(true);
+      m_btnAndroidToolbarPageManager->setVisible(false);
     if (m_btnAndroidToolbarExport)
-      m_btnAndroidToolbarExport->setVisible(true);
+      m_btnAndroidToolbarExport->setVisible(false);
     if (m_androidTopSearchBar) {
       m_androidTopSearchBar->clear();
       m_androidTopSearchBar->hide();
@@ -5665,6 +6139,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
           auto *actImg = menu->addAction("\U0001F5BC  Als Bild exportieren");
           menu->addSeparator();
           auto *actImportPdf = menu->addAction("PDF importieren");
+          auto *actShareUser = menu->addAction("Mit Username teilen...");
+          auto *actCreateLink = menu->addAction("Share-Link erstellen...");
+          auto *actImportLink = menu->addAction("Datei aus Link importieren...");
           auto *chosen = menu->exec(QCursor::pos());
           QFileInfo fi(capPath);
           if (chosen == actLayout || chosen == actOptions) {
@@ -5693,6 +6170,138 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   if (ok) QMessageBox::information(this, "Importiert", "PDF wurde in die unendliche Seite eingefuegt.");
                   else    QMessageBox::warning(this, "Fehler", "PDF konnte nicht importiert werden.");
               }
+          } else if (chosen == actShareUser) {
+              const QString username =
+                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+              if (username.isEmpty()) {
+                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  return;
+              }
+              bool ok = false;
+              const QString fileId = QInputDialog::getText(
+                  this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                  QLineEdit::Normal, fi.baseName(), &ok).trimmed();
+              if (!ok || fileId.isEmpty()) return;
+              const QString target = QInputDialog::getText(
+                  this, "Zielnutzer", "Username des Empfängers:",
+                  QLineEdit::Normal, "", &ok).trimmed();
+              if (!ok || target.isEmpty()) return;
+              const QString message = QInputDialog::getText(
+                  this, "Nachricht (optional)", "Begleitnachricht:",
+                  QLineEdit::Normal, "", &ok);
+              if (!ok) return;
+
+              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/username"));
+              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+              QJsonObject payload{
+                  {"username", username},
+                  {"file_id", fileId},
+                  {"target_username", target},
+                  {"message", message},
+              };
+              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+              QEventLoop loop;
+              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+              loop.exec();
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              const QByteArray raw = reply->readAll();
+              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+                  QMessageBox::warning(this, "Teilen fehlgeschlagen",
+                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+              } else {
+                  QMessageBox::information(this, "Request gesendet",
+                                           "Die Freigabeanfrage wurde an den Zielnutzer gesendet.");
+              }
+              reply->deleteLater();
+          } else if (chosen == actCreateLink) {
+              const QString username =
+                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+              if (username.isEmpty()) {
+                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  return;
+              }
+              bool ok = false;
+              const QString fileId = QInputDialog::getText(
+                  this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                  QLineEdit::Normal, fi.baseName(), &ok).trimmed();
+              if (!ok || fileId.isEmpty()) return;
+              const int expiresDays = QInputDialog::getInt(this, "Gueltigkeit", "Link gueltig fuer (Tage):", 7, 1, 30, 1, &ok);
+              if (!ok) return;
+              const int maxUses = QInputDialog::getInt(this, "Nutzungslimit", "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
+              if (!ok) return;
+
+              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link"));
+              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+              QJsonObject payload{
+                  {"username", username},
+                  {"file_id", fileId},
+                  {"expires_in_days", expiresDays},
+                  {"max_uses", maxUses},
+              };
+              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+              QEventLoop loop;
+              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+              loop.exec();
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              const QByteArray raw = reply->readAll();
+              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+                  QMessageBox::warning(this, "Link fehlgeschlagen",
+                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+                  reply->deleteLater();
+                  return;
+              }
+              const QJsonDocument doc = QJsonDocument::fromJson(raw);
+              const QString link = doc.object().value("url").toString();
+              if (!link.isEmpty())
+                  QGuiApplication::clipboard()->setText(link);
+              QMessageBox::information(this, "Link erstellt",
+                                       link.isEmpty() ? "Share-Link wurde erstellt."
+                                                      : QString("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
+              reply->deleteLater();
+          } else if (chosen == actImportLink) {
+              const QString username =
+                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+              if (username.isEmpty()) {
+                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  return;
+              }
+              bool ok = false;
+              QString linkOrToken = QInputDialog::getText(
+                  this, "Share-Link", "Share-Link oder Token einfügen:",
+                  QLineEdit::Normal, "", &ok).trimmed();
+              if (!ok || linkOrToken.isEmpty()) return;
+              if (linkOrToken.contains("/")) {
+                  const QString marker = "/share/";
+                  const int pos = linkOrToken.lastIndexOf(marker);
+                  if (pos >= 0) linkOrToken = linkOrToken.mid(pos + marker.size());
+                  else linkOrToken = linkOrToken.section('/', -1).trimmed();
+              }
+              const QString targetFolderId = QInputDialog::getText(
+                  this, "Zielordner-ID", "Cloud-Zielordner-ID:",
+                  QLineEdit::Normal, "", &ok).trimmed();
+              if (!ok || targetFolderId.isEmpty()) return;
+
+              const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
+              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import"));
+              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+              QJsonObject payload{
+                  {"username", username},
+                  {"folder_id", targetFolderId},
+              };
+              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+              QEventLoop loop;
+              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+              loop.exec();
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              const QByteArray raw = reply->readAll();
+              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+                  QMessageBox::warning(this, "Import fehlgeschlagen",
+                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+              } else {
+                  QMessageBox::information(this, "Import erfolgreich",
+                                           "Die geteilte Datei wurde in dein Konto importiert.");
+              }
+              reply->deleteLater();
           }
       });
 
@@ -5750,12 +6359,175 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
 void MainWindow::onBackToOverview() {
   m_rightStack->setCurrentWidget(m_overviewContainer);
   updateSidebarState();
+#ifdef Q_OS_ANDROID
+  const auto transientOverlays = findChildren<QWidget *>(
+      QStringLiteral("AndroidTransientOverlay"), Qt::FindDirectChildrenOnly);
+  for (QWidget *overlay : transientOverlays) {
+    if (overlay && overlay->isVisible())
+      overlay->close();
+  }
+  syncAndroidHeaderGeometry(this);
+  if (m_androidHeader)
+    m_androidHeader->raise();
+#endif
 }
 void MainWindow::showContextMenu(const QPoint &globalPos,
                                  const QModelIndex &index) {
   QMenu menu(this);
   menu.addAction("Open", [this, index]() { onFileDoubleClicked(index); });
   menu.addAction("Rename", [this, index]() { startRename(index); });
+  menu.addSeparator();
+  menu.addAction("Mit Username teilen...", [this, index]() {
+    const QString username =
+        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+    if (username.isEmpty()) {
+      QMessageBox::warning(this, "Nicht angemeldet",
+                           "Bitte zuerst in Blop Study anmelden.");
+      return;
+    }
+    const QString suggestedFileId = QFileInfo(m_fileModel->filePath(index)).baseName();
+    bool ok = false;
+    const QString fileId = QInputDialog::getText(
+        this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+        QLineEdit::Normal, suggestedFileId, &ok).trimmed();
+    if (!ok || fileId.isEmpty())
+      return;
+    const QString target = QInputDialog::getText(
+        this, "Zielnutzer", "Username des Empfängers:", QLineEdit::Normal, "", &ok).trimmed();
+    if (!ok || target.isEmpty())
+      return;
+    const QString message = QInputDialog::getText(
+        this, "Nachricht (optional)", "Begleitnachricht:", QLineEdit::Normal, "", &ok);
+    if (!ok)
+      return;
+
+    QUrl url(kBlopStudyUrl + "/api/shares/username");
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject payload{
+        {"username", username},
+        {"file_id", fileId},
+        {"target_username", target},
+        {"message", message},
+    };
+    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+      QMessageBox::warning(this, "Teilen fehlgeschlagen",
+                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+    } else {
+      QMessageBox::information(this, "Request gesendet",
+                               "Die Freigabeanfrage wurde an den Zielnutzer gesendet.");
+    }
+    reply->deleteLater();
+  });
+  menu.addAction("Share-Link erstellen...", [this, index]() {
+    const QString username =
+        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+    if (username.isEmpty()) {
+      QMessageBox::warning(this, "Nicht angemeldet",
+                           "Bitte zuerst in Blop Study anmelden.");
+      return;
+    }
+    const QString suggestedFileId = QFileInfo(m_fileModel->filePath(index)).baseName();
+    bool ok = false;
+    const QString fileId = QInputDialog::getText(
+        this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+        QLineEdit::Normal, suggestedFileId, &ok).trimmed();
+    if (!ok || fileId.isEmpty())
+      return;
+    const int expiresDays = QInputDialog::getInt(this, "Gültigkeit",
+                                                 "Link gültig für (Tage):", 7, 1, 30, 1, &ok);
+    if (!ok)
+      return;
+    const int maxUses = QInputDialog::getInt(this, "Nutzungslimit",
+                                             "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
+    if (!ok)
+      return;
+
+    QUrl url(kBlopStudyUrl + "/api/shares/link");
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject payload{
+        {"username", username},
+        {"file_id", fileId},
+        {"expires_in_days", expiresDays},
+        {"max_uses", maxUses},
+    };
+    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+      QMessageBox::warning(this, "Link fehlgeschlagen",
+                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+      reply->deleteLater();
+      return;
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(raw);
+    const QString link = doc.object().value("url").toString();
+    if (!link.isEmpty())
+      QGuiApplication::clipboard()->setText(link);
+    QMessageBox::information(this, "Link erstellt",
+                             link.isEmpty() ? "Share-Link wurde erstellt."
+                                            : QString("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
+    reply->deleteLater();
+  });
+  menu.addAction("Datei aus Link importieren...", [this]() {
+    const QString username =
+        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+    if (username.isEmpty()) {
+      QMessageBox::warning(this, "Nicht angemeldet",
+                           "Bitte zuerst in Blop Study anmelden.");
+      return;
+    }
+    bool ok = false;
+    QString linkOrToken = QInputDialog::getText(
+        this, "Share-Link", "Share-Link oder Token einfügen:", QLineEdit::Normal, "", &ok).trimmed();
+    if (!ok || linkOrToken.isEmpty())
+      return;
+    if (linkOrToken.contains("/")) {
+      const QString marker = "/share/";
+      const int pos = linkOrToken.lastIndexOf(marker);
+      if (pos >= 0)
+        linkOrToken = linkOrToken.mid(pos + marker.size());
+      else
+        linkOrToken = linkOrToken.section('/', -1).trimmed();
+    }
+    const QString targetFolderId = QInputDialog::getText(
+        this, "Zielordner-ID", "Cloud-Zielordner-ID:", QLineEdit::Normal, "", &ok).trimmed();
+    if (!ok || targetFolderId.isEmpty())
+      return;
+
+    const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
+    QUrl url(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import");
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject payload{
+        {"username", username},
+        {"folder_id", targetFolderId},
+    };
+    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+      QMessageBox::warning(this, "Import fehlgeschlagen",
+                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+    } else {
+      QMessageBox::information(this, "Import erfolgreich",
+                               "Die geteilte Datei wurde in dein Konto importiert.");
+    }
+    reply->deleteLater();
+  });
   menu.addAction("Delete", [this, index]() { m_fileModel->remove(index); });
   menu.exec(globalPos);
 }
@@ -5822,6 +6594,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
+  if (m_androidOAuthOverlay && m_androidOAuthOverlay->isVisible())
+    m_androidOAuthOverlay->setGeometry(rect());
   if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
 #else
@@ -6139,9 +6913,83 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   QMainWindow::closeEvent(event);
 }
 
-void MainWindow::showAuthOverlay(const QUrl &url) {
-  // Always use the system browser for OAuth. Embedded QWebEngineView in a dialog used the same
-  // Chromium stack as Study — on many Windows installs it stays black; the redirect to
-  // http://127.0.0.1:8080/ is still handled by QOAuthHttpServerReplyHandler.
-  QDesktopServices::openUrl(url);
+bool MainWindow::showAuthOverlay(const QUrl &url) {
+#ifdef Q_OS_ANDROID
+  // In-process WebView so http://127.0.0.1:8080 reaches QOAuthHttpServerReplyHandler; external
+  // Chrome often cannot loop back into the app process.
+  dismissAndroidOAuthOverlay();
+  QWidget *shell = new QWidget(this);
+  shell->setObjectName(QStringLiteral("AndroidOAuthOverlayShell"));
+  shell->setAutoFillBackground(true);
+  {
+    QPalette pal = shell->palette();
+    pal.setColor(QPalette::Window, QColor(15, 17, 26, 247));
+    shell->setPalette(pal);
+  }
+  shell->setGeometry(rect());
+  auto *outer = new QVBoxLayout(shell);
+  outer->setContentsMargins(8, 8, 8, 8);
+  outer->setSpacing(8);
+  QPushButton *cancel = new QPushButton(tr("Abbrechen"), shell);
+  cancel->setStyleSheet(
+      QStringLiteral("QPushButton { padding: 10px 16px; background: #2A2F45; color: #E6E4FF; "
+                     "border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-weight: 600; }"
+                     "QPushButton:pressed { background: rgba(255,255,255,0.08); }"));
+  outer->addWidget(cancel, 0);
+  auto *qw = new QQuickWidget(shell);
+  qw->setResizeMode(QQuickWidget::SizeRootObjectToView);
+  qw->setClearColor(QColor(15, 17, 26));
+  qw->rootContext()->setContextProperty(QStringLiteral("authUrl"), url);
+  outer->addWidget(qw, 1);
+  m_androidOAuthOverlay = shell;
+  connect(cancel, &QPushButton::clicked, this, [this]() {
+    dismissAndroidOAuthOverlay();
+    m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
+    m_authNavigationLocked = false;
+    emit oauthFailed(QStringLiteral("oauth_cancelled"));
+  });
+  const auto failOverlay = [this, shell, qw]() {
+    for (const QQmlError &err : qw->errors())
+      qWarning() << "AuthOverlay QML error:" << err.toString();
+    qWarning() << "AuthOverlay QML load failed, status" << int(qw->status());
+    if (m_androidOAuthOverlay == shell)
+      m_androidOAuthOverlay = nullptr;
+    shell->deleteLater();
+    m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
+    m_authNavigationLocked = false;
+    emit oauthFailed(QStringLiteral("auth_overlay_qml_failed"));
+  };
+  const auto finish = [shell, qw, failOverlay]() {
+    switch (qw->status()) {
+    case QQuickWidget::Ready:
+      shell->show();
+      shell->raise();
+      break;
+    case QQuickWidget::Error:
+      failOverlay();
+      break;
+    default:
+      break;
+    }
+  };
+  qw->setSource(QUrl(QStringLiteral("qrc:/AuthOverlay.qml")));
+  finish();
+  if (qw->status() != QQuickWidget::Ready && qw->status() != QQuickWidget::Error) {
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = QObject::connect(qw, &QQuickWidget::statusChanged, shell,
+                             [conn, finish](QQuickWidget::Status s) {
+                               if (s != QQuickWidget::Ready && s != QQuickWidget::Error)
+                                 return;
+                               QObject::disconnect(*conn);
+                               finish();
+                             });
+  }
+  return true;
+#else
+  // Desktop: system browser; redirect to http://127.0.0.1:8080/ is handled by
+  // QOAuthHttpServerReplyHandler.
+  return QDesktopServices::openUrl(url);
+#endif
 }

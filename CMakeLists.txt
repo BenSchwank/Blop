@@ -199,9 +199,28 @@ target_link_libraries(Blop PRIVATE
 target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
-# Ensure ANDROID_VERSION_CODE has a fallback
+# Ensure ANDROID_VERSION_CODE has a fallback (local/Qt Creator: avoid INSTALL_FAILED_VERSION_DOWNGRADE
+# when a store/CI build with higher versionCode is already installed). CI sets -DANDROID_VERSION_CODE explicitly.
 if(NOT DEFINED ANDROID_VERSION_CODE OR "${ANDROID_VERSION_CODE}" STREQUAL "")
-    set(ANDROID_VERSION_CODE "1")
+    string(TIMESTAMP _BLOP_ANDROID_VC "%s" UTC)
+    if(NOT _BLOP_ANDROID_VC MATCHES "^[1-9][0-9]*$")
+        find_program(_BLOP_PYTHON NAMES python3 python)
+        if(_BLOP_PYTHON)
+            execute_process(
+                COMMAND "${_BLOP_PYTHON}" -c "import time; print(int(time.time()))"
+                OUTPUT_VARIABLE _BLOP_ANDROID_VC
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET)
+        endif()
+    endif()
+    if(NOT _BLOP_ANDROID_VC MATCHES "^[1-9][0-9]*$")
+        set(_BLOP_ANDROID_VC "2000000")
+    endif()
+    if(_BLOP_ANDROID_VC GREATER 2100000000)
+        set(_BLOP_ANDROID_VC "2099999999")
+    endif()
+    set(ANDROID_VERSION_CODE "${_BLOP_ANDROID_VC}")
+    message(STATUS "ANDROID_VERSION_CODE (unset → dev fallback): ${ANDROID_VERSION_CODE}")
 endif()
 
 if(ANDROID)
