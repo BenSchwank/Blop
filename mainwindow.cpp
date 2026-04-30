@@ -99,6 +99,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QMetaObject>
 #include <QGuiApplication>
 #include <QClipboard>
@@ -192,6 +193,164 @@ QString blopGhostButtonStyle() {
   return QString::fromUtf8(
       R"(QPushButton { background: transparent; color: #C8C4E8; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; min-width: 92px; }
 QPushButton:hover { background: rgba(255,255,255,0.08); color: #F0EEFF; border-color: rgba(124,92,252,0.45); })");
+}
+
+QByteArray postJsonSync(QNetworkAccessManager *nam, const QUrl &url,
+                        const QJsonObject &payload, int *statusCodeOut = nullptr,
+                        QNetworkReply::NetworkError *errorOut = nullptr) {
+  if (!nam) {
+    if (statusCodeOut)
+      *statusCodeOut = 0;
+    if (errorOut)
+      *errorOut = QNetworkReply::UnknownNetworkError;
+    return QByteArray();
+  }
+  QNetworkRequest req(url);
+  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+  QNetworkReply *reply =
+      nam->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+  QEventLoop loop;
+  QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+  loop.exec();
+  if (statusCodeOut)
+    *statusCodeOut =
+        reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  if (errorOut)
+    *errorOut = reply->error();
+  const QByteArray raw = reply->readAll();
+  reply->deleteLater();
+  return raw;
+}
+
+QByteArray getSync(QNetworkAccessManager *nam, const QUrl &url,
+                   int *statusCodeOut = nullptr,
+                   QNetworkReply::NetworkError *errorOut = nullptr) {
+  if (!nam) {
+    if (statusCodeOut)
+      *statusCodeOut = 0;
+    if (errorOut)
+      *errorOut = QNetworkReply::UnknownNetworkError;
+    return QByteArray();
+  }
+  QNetworkRequest req(url);
+  QNetworkReply *reply = nam->get(req);
+  QEventLoop loop;
+  QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+  loop.exec();
+  if (statusCodeOut)
+    *statusCodeOut =
+        reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  if (errorOut)
+    *errorOut = reply->error();
+  const QByteArray raw = reply->readAll();
+  reply->deleteLater();
+  return raw;
+}
+
+QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
+                            const QString &username) {
+  int status = 0;
+  QNetworkReply::NetworkError err = QNetworkReply::NoError;
+  QUrl foldersUrl(kBlopStudyUrl + "/api/folders");
+  QUrlQuery query;
+  query.addQueryItem("username", username);
+  foldersUrl.setQuery(query);
+  const QByteArray raw = getSync(nam, foldersUrl, &status, &err);
+  if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
+    QMessageBox::warning(parent, "Ordner laden fehlgeschlagen",
+                         QString("Serverantwort (%1):\n%2")
+                             .arg(status)
+                             .arg(QString::fromUtf8(raw)));
+    return QString();
+  }
+  const QJsonDocument doc = QJsonDocument::fromJson(raw);
+  if (!doc.isArray()) {
+    QMessageBox::warning(parent, "Ordner laden fehlgeschlagen",
+                         "Unerwartete Antwort vom Server.");
+    return QString();
+  }
+  QStringList labels;
+  QHash<QString, QString> labelToId;
+  for (const QJsonValue &v : doc.array()) {
+    const QJsonObject o = v.toObject();
+    const QString id = o.value("id").toString().trimmed();
+    if (id.isEmpty())
+      continue;
+    const QString name = o.value("name").toString().trimmed();
+    const QString label = name.isEmpty() ? id : QString("%1 (%2)").arg(name, id);
+    labels << label;
+    labelToId.insert(label, id);
+  }
+  if (labels.isEmpty()) {
+    QMessageBox::information(parent, "Keine Ordner",
+                             "Es wurden keine Cloud-Ordner gefunden.");
+    return QString();
+  }
+  bool ok = false;
+  const QString chosen = QInputDialog::getItem(
+      parent, "Cloud-Zielordner", "Wähle den Zielordner:", labels, 0, false, &ok);
+  if (!ok || chosen.isEmpty())
+    return QString();
+  return labelToId.value(chosen);
+}
+
+QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
+                           const QString &username,
+                           const QString &localFilePathOrName) {
+  const QString localName = QFileInfo(localFilePathOrName).fileName().trimmed();
+  const QString localBase = QFileInfo(localFilePathOrName).baseName().trimmed();
+
+  int status = 0;
+  QNetworkReply::NetworkError err = QNetworkReply::NoError;
+  QUrl foldersUrl(kBlopStudyUrl + "/api/folders");
+  QUrlQuery folderQuery;
+  folderQuery.addQueryItem("username", username);
+  foldersUrl.setQuery(folderQuery);
+  const QByteArray foldersRaw = getSync(nam, foldersUrl, &status, &err);
+  if (err != QNetworkReply::NoError || status < 200 || status >= 300)
+    return QString();
+  const QJsonDocument foldersDoc = QJsonDocument::fromJson(foldersRaw);
+  if (!foldersDoc.isArray())
+    return QString();
+
+  QString fallbackId;
+  for (const QJsonValue &folderVal : foldersDoc.array()) {
+    const QJsonObject folderObj = folderVal.toObject();
+    const QString folderId = folderObj.value("id").toString().trimmed();
+    if (folderId.isEmpty())
+      continue;
+    QUrl filesUrl(kBlopStudyUrl + "/api/files/" + QUrl::toPercentEncoding(folderId));
+    QUrlQuery filesQuery;
+    filesQuery.addQueryItem("username", username);
+    filesUrl.setQuery(filesQuery);
+
+    int filesStatus = 0;
+    QNetworkReply::NetworkError filesErr = QNetworkReply::NoError;
+    const QByteArray filesRaw = getSync(nam, filesUrl, &filesStatus, &filesErr);
+    if (filesErr != QNetworkReply::NoError || filesStatus < 200 || filesStatus >= 300)
+      continue;
+    const QJsonDocument filesDoc = QJsonDocument::fromJson(filesRaw);
+    if (!filesDoc.isArray())
+      continue;
+    for (const QJsonValue &fileVal : filesDoc.array()) {
+      const QJsonObject fileObj = fileVal.toObject();
+      const QString cloudId = fileObj.value("id").toString().trimmed();
+      const QString cloudName = fileObj.value("name").toString().trimmed();
+      if (cloudId.isEmpty())
+        continue;
+      if (!localName.isEmpty() && cloudName.compare(localName, Qt::CaseInsensitive) == 0)
+        return cloudId;
+      if (!localBase.isEmpty() && QFileInfo(cloudName).baseName().compare(localBase, Qt::CaseInsensitive) == 0) {
+        if (fallbackId.isEmpty())
+          fallbackId = cloudId;
+      }
+    }
+  }
+  if (fallbackId.isEmpty()) {
+    QMessageBox::information(parent, "Datei nicht gefunden",
+                             "Keine passende Cloud-Datei wurde automatisch gefunden.");
+  }
+  return fallbackId;
 }
 
 #ifdef Q_OS_ANDROID
@@ -6177,11 +6336,18 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
                   return;
               }
+              const QString localPath = capPath;
+              QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
               bool ok = false;
-              const QString fileId = QInputDialog::getText(
-                  this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-                  QLineEdit::Normal, fi.baseName(), &ok).trimmed();
-              if (!ok || fileId.isEmpty()) return;
+              if (fileId.isEmpty()) {
+                  fileId = QInputDialog::getText(
+                      this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                      QLineEdit::Normal, fi.baseName(), &ok).trimmed();
+                  if (!ok || fileId.isEmpty()) return;
+              } else {
+                  QMessageBox::information(this, "Cloud-Datei erkannt",
+                                           QString("Automatisch erkannt: %1").arg(fileId));
+              }
               const QString target = QInputDialog::getText(
                   this, "Zielnutzer", "Username des Empfängers:",
                   QLineEdit::Normal, "", &ok).trimmed();
@@ -6220,11 +6386,18 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
                   return;
               }
+              const QString localPath = capPath;
+              QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
               bool ok = false;
-              const QString fileId = QInputDialog::getText(
-                  this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-                  QLineEdit::Normal, fi.baseName(), &ok).trimmed();
-              if (!ok || fileId.isEmpty()) return;
+              if (fileId.isEmpty()) {
+                  fileId = QInputDialog::getText(
+                      this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                      QLineEdit::Normal, fi.baseName(), &ok).trimmed();
+                  if (!ok || fileId.isEmpty()) return;
+              } else {
+                  QMessageBox::information(this, "Cloud-Datei erkannt",
+                                           QString("Automatisch erkannt: %1").arg(fileId));
+              }
               const int expiresDays = QInputDialog::getInt(this, "Gueltigkeit", "Link gueltig fuer (Tage):", 7, 1, 30, 1, &ok);
               if (!ok) return;
               const int maxUses = QInputDialog::getInt(this, "Nutzungslimit", "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
@@ -6276,10 +6449,8 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   if (pos >= 0) linkOrToken = linkOrToken.mid(pos + marker.size());
                   else linkOrToken = linkOrToken.section('/', -1).trimmed();
               }
-              const QString targetFolderId = QInputDialog::getText(
-                  this, "Zielordner-ID", "Cloud-Zielordner-ID:",
-                  QLineEdit::Normal, "", &ok).trimmed();
-              if (!ok || targetFolderId.isEmpty()) return;
+              const QString targetFolderId = chooseCloudFolderId(this, m_netManager, username);
+              if (targetFolderId.isEmpty()) return;
 
               const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
               QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import"));
@@ -6385,12 +6556,21 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                            "Bitte zuerst in Blop Study anmelden.");
       return;
     }
-    const QString suggestedFileId = QFileInfo(m_fileModel->filePath(index)).baseName();
+    const QString localPath = m_fileModel->filePath(index);
+    QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
     bool ok = false;
-    const QString fileId = QInputDialog::getText(
-        this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-        QLineEdit::Normal, suggestedFileId, &ok).trimmed();
-    if (!ok || fileId.isEmpty())
+    if (fileId.isEmpty()) {
+      fileId = QInputDialog::getText(
+                   this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                   QLineEdit::Normal, QFileInfo(localPath).baseName(), &ok)
+                   .trimmed();
+      if (!ok || fileId.isEmpty())
+        return;
+    } else {
+      QMessageBox::information(this, "Cloud-Datei erkannt",
+                               QString("Automatisch erkannt: %1").arg(fileId));
+    }
+    if (fileId.isEmpty())
       return;
     const QString target = QInputDialog::getText(
         this, "Zielnutzer", "Username des Empfängers:", QLineEdit::Normal, "", &ok).trimmed();
@@ -6433,12 +6613,21 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                            "Bitte zuerst in Blop Study anmelden.");
       return;
     }
-    const QString suggestedFileId = QFileInfo(m_fileModel->filePath(index)).baseName();
+    const QString localPath = m_fileModel->filePath(index);
+    QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
     bool ok = false;
-    const QString fileId = QInputDialog::getText(
-        this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-        QLineEdit::Normal, suggestedFileId, &ok).trimmed();
-    if (!ok || fileId.isEmpty())
+    if (fileId.isEmpty()) {
+      fileId = QInputDialog::getText(
+                   this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                   QLineEdit::Normal, QFileInfo(localPath).baseName(), &ok)
+                   .trimmed();
+      if (!ok || fileId.isEmpty())
+        return;
+    } else {
+      QMessageBox::information(this, "Cloud-Datei erkannt",
+                               QString("Automatisch erkannt: %1").arg(fileId));
+    }
+    if (fileId.isEmpty())
       return;
     const int expiresDays = QInputDialog::getInt(this, "Gültigkeit",
                                                  "Link gültig für (Tage):", 7, 1, 30, 1, &ok);
@@ -6500,9 +6689,8 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
       else
         linkOrToken = linkOrToken.section('/', -1).trimmed();
     }
-    const QString targetFolderId = QInputDialog::getText(
-        this, "Zielordner-ID", "Cloud-Zielordner-ID:", QLineEdit::Normal, "", &ok).trimmed();
-    if (!ok || targetFolderId.isEmpty())
+    const QString targetFolderId = chooseCloudFolderId(this, m_netManager, username);
+    if (targetFolderId.isEmpty())
       return;
 
     const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
