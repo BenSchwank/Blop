@@ -56,6 +56,17 @@ interface SubfolderRow {
     created_at: string;
 }
 
+interface IncomingShareRequest {
+    id: string;
+    sender_username: string;
+    file_id: string;
+    file?: {
+        id: string;
+        name: string;
+        type: string;
+    };
+}
+
 type PlanTask = string | { description: string; completed?: boolean };
 
 interface PlanDayRow {
@@ -169,8 +180,7 @@ type DraggableFileProps = {
     setIsRenameFileOpen: React.Dispatch<React.SetStateAction<boolean>>;
     handleDelete: (file: FileData) => void;
     onRefineFile: (file: FileData) => void;
-    onShareByUsername: (file: FileData) => void;
-    onCreateShareLink: (file: FileData) => void;
+    onOpenShareOverlay: (file: FileData) => void;
 };
 
 // Sub-component for interactive Quiz viewing
@@ -255,7 +265,7 @@ const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: SubfolderRow, o
 };
 
 // Draggable File Wrapper
-const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile, onShareByUsername, onCreateShareLink }: DraggableFileProps) => {
+const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile, onOpenShareOverlay }: DraggableFileProps) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `drag-${file.id}`,
         data: { type: 'file', file }
@@ -371,24 +381,12 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                         <button
                             onClick={() => {
                                 setOpenMenuFileId(null);
-                                onShareByUsername(file);
+                                onOpenShareOverlay(file);
                             }}
                             className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
                         >
                             <Send size={15} />
-                            Mit Username teilen
-                        </button>
-
-                        <div className="h-px bg-[#1C1C33]" />
-                        <button
-                            onClick={() => {
-                                setOpenMenuFileId(null);
-                                onCreateShareLink(file);
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
-                        >
-                            <Link2 size={15} />
-                            Share-Link erstellen
+                            Teilen
                         </button>
 
                         <div className="h-px bg-[#1C1C33]" />
@@ -644,6 +642,23 @@ export default function FolderPage() {
 
     // File context menu state
     const [openMenuFileId, setOpenMenuFileId] = useState<string | null>(null);
+    const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
+
+    // Share UI overlays
+    const [isShareOverlayOpen, setIsShareOverlayOpen] = useState(false);
+    const [shareFile, setShareFile] = useState<FileData | null>(null);
+    const [isShareByUsernameOpen, setIsShareByUsernameOpen] = useState(false);
+    const [shareTargetUsername, setShareTargetUsername] = useState("");
+    const [shareMessage, setShareMessage] = useState("");
+    const [isShareLinkCreateOpen, setIsShareLinkCreateOpen] = useState(false);
+    const [shareExpiresDays, setShareExpiresDays] = useState(7);
+    const [shareMaxUses, setShareMaxUses] = useState(1);
+    const [generatedShareLink, setGeneratedShareLink] = useState("");
+    const [isShareLinkImportOpen, setIsShareLinkImportOpen] = useState(false);
+    const [importShareLinkValue, setImportShareLinkValue] = useState("");
+    const [isShareRequestsOpen, setIsShareRequestsOpen] = useState(false);
+    const [incomingShareRequests, setIncomingShareRequests] = useState<IncomingShareRequest[]>([]);
+    const [isShareActionBusy, setIsShareActionBusy] = useState(false);
 
     // File rename state
     const [isRenameFileOpen, setIsRenameFileOpen] = useState(false);
@@ -2362,24 +2377,69 @@ export default function FolderPage() {
         else showToast('Fehler beim Löschen.');
     };
 
-    const handleShareByUsername = async (file: FileData) => {
+    const openShareOverlay = (file: FileData) => {
+        setShareFile(file);
+        setGeneratedShareLink("");
+        setShareTargetUsername("");
+        setShareMessage("");
+        setIsShareOverlayOpen(true);
+    };
+
+    const openImportByLinkOverlay = () => {
+        setImportShareLinkValue("");
+        setIsShareLinkImportOpen(true);
+        setIsHeaderMenuOpen(false);
+    };
+
+    const loadIncomingShareRequests = async () => {
         const username = localStorage.getItem("username") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
-        const targetUsername = window.prompt("Username des Empfängers:");
-        if (!targetUsername || !targetUsername.trim()) return;
-        const message = window.prompt("Nachricht (optional):") || "";
+        setIsShareActionBusy(true);
+        try {
+            const listRes = await fetch(`${API_BASE}/shares/requests?username=${encodeURIComponent(username)}`);
+            if (!listRes.ok) {
+                const err = await listRes.json().catch(() => ({}));
+                showToast(`Requests laden fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${listRes.status}`)}`);
+                return;
+            }
+            const data = await listRes.json();
+            setIncomingShareRequests(Array.isArray(data?.items) ? data.items : []);
+            setIsShareRequestsOpen(true);
+            setIsHeaderMenuOpen(false);
+        } catch {
+            showToast("Netzwerkfehler beim Laden der Requests.");
+        } finally {
+            setIsShareActionBusy(false);
+        }
+    };
+
+    const submitShareByUsername = async () => {
+        const username = localStorage.getItem("username") || "";
+        if (!username) {
+            showToast("Bitte zuerst anmelden.");
+            return;
+        }
+        if (!shareFile) {
+            showToast("Keine Datei ausgewählt.");
+            return;
+        }
+        if (!shareTargetUsername.trim()) {
+            showToast("Bitte Ziel-Username eingeben.");
+            return;
+        }
+        setIsShareActionBusy(true);
         try {
             const res = await fetch(`${API_BASE}/shares/username`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     username,
-                    file_id: file.id,
-                    target_username: targetUsername.trim(),
-                    message,
+                    file_id: shareFile.id,
+                    target_username: shareTargetUsername.trim(),
+                    message: shareMessage.trim(),
                 }),
             });
             if (!res.ok) {
@@ -2388,28 +2448,33 @@ export default function FolderPage() {
                 return;
             }
             showToast("Share-Request wurde gesendet.", "success");
+            setIsShareByUsernameOpen(false);
+            setIsShareOverlayOpen(false);
         } catch {
             showToast("Netzwerkfehler beim Teilen.");
+        } finally {
+            setIsShareActionBusy(false);
         }
     };
 
-    const handleCreateShareLink = async (file: FileData) => {
+    const submitCreateShareLink = async () => {
         const username = localStorage.getItem("username") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
-        const expiryRaw = window.prompt("Link gültig für wie viele Tage? (1-30)", "7");
-        if (expiryRaw == null) return;
-        const maxUsesRaw = window.prompt("Maximale Nutzungen? (1-100)", "1");
-        if (maxUsesRaw == null) return;
-        const expires_in_days = Math.min(30, Math.max(1, Number.parseInt(expiryRaw, 10) || 7));
-        const max_uses = Math.min(100, Math.max(1, Number.parseInt(maxUsesRaw, 10) || 1));
+        if (!shareFile) {
+            showToast("Keine Datei ausgewählt.");
+            return;
+        }
+        const expires_in_days = Math.min(30, Math.max(1, Math.round(shareExpiresDays)));
+        const max_uses = Math.min(100, Math.max(1, Math.round(shareMaxUses)));
+        setIsShareActionBusy(true);
         try {
             const res = await fetch(`${API_BASE}/shares/link`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, file_id: file.id, expires_in_days, max_uses }),
+                body: JSON.stringify({ username, file_id: shareFile.id, expires_in_days, max_uses }),
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
@@ -2418,33 +2483,37 @@ export default function FolderPage() {
             }
             const data = await res.json();
             const url = String(data?.url || "").trim();
+            setGeneratedShareLink(url);
             if (url && navigator?.clipboard?.writeText) {
                 await navigator.clipboard.writeText(url);
-                showToast("Share-Link erstellt und in Zwischenablage kopiert.", "success");
-            } else if (url) {
-                showToast(`Share-Link erstellt: ${url}`, "success");
+                showToast("Share-Link erstellt und kopiert.", "success");
             } else {
                 showToast("Share-Link erstellt.", "success");
             }
         } catch {
             showToast("Netzwerkfehler beim Link-Erstellen.");
+        } finally {
+            setIsShareActionBusy(false);
         }
     };
 
-    const handleImportByLink = async () => {
+    const submitImportByLink = async () => {
         const username = localStorage.getItem("username") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
-        const value = window.prompt("Share-Link oder Token einfügen:");
-        if (!value || !value.trim()) return;
-        let token = value.trim();
+        if (!importShareLinkValue.trim()) {
+            showToast("Bitte Link oder Token eingeben.");
+            return;
+        }
+        let token = importShareLinkValue.trim();
         if (token.includes("/")) {
             const marker = "/share/";
             const pos = token.lastIndexOf(marker);
             token = pos >= 0 ? token.slice(pos + marker.length) : token.split("/").pop() || token;
         }
+        setIsShareActionBusy(true);
         try {
             const res = await fetch(`${API_BASE}/shares/link/${encodeURIComponent(token)}/import`, {
                 method: "POST",
@@ -2457,47 +2526,25 @@ export default function FolderPage() {
                 return;
             }
             await fetchFiles();
+            setIsShareLinkImportOpen(false);
+            setImportShareLinkValue("");
             showToast("Datei wurde per Link importiert.", "success");
         } catch {
             showToast("Netzwerkfehler beim Link-Import.");
+        } finally {
+            setIsShareActionBusy(false);
         }
     };
 
-    const handleAcceptIncomingShare = async () => {
+    const acceptIncomingShare = async (requestId: string) => {
         const username = localStorage.getItem("username") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
+        setIsShareActionBusy(true);
         try {
-            const listRes = await fetch(`${API_BASE}/shares/requests?username=${encodeURIComponent(username)}`);
-            if (!listRes.ok) {
-                const err = await listRes.json().catch(() => ({}));
-                showToast(`Requests laden fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${listRes.status}`)}`);
-                return;
-            }
-            const data = await listRes.json();
-            const items = Array.isArray(data?.items) ? data.items : [];
-            if (items.length === 0) {
-                showToast("Keine offenen Share-Requests.", "info");
-                return;
-            }
-            const options = items
-                .map((it: any, idx: number) => `${idx + 1}: ${it?.sender_username || "?"} -> ${it?.file?.name || it?.file_id || "Datei"}`)
-                .join("\n");
-            const chosenRaw = window.prompt(`Welchen Request annehmen?\n${options}\n\nNummer eingeben:`);
-            if (!chosenRaw) return;
-            const chosenIdx = Number.parseInt(chosenRaw, 10) - 1;
-            if (chosenIdx < 0 || chosenIdx >= items.length) {
-                showToast("Ungültige Auswahl.");
-                return;
-            }
-            const reqId = String(items[chosenIdx]?.id || "");
-            if (!reqId) {
-                showToast("Ungültiger Request.");
-                return;
-            }
-            const acceptRes = await fetch(`${API_BASE}/shares/requests/${encodeURIComponent(reqId)}/accept`, {
+            const acceptRes = await fetch(`${API_BASE}/shares/requests/${encodeURIComponent(requestId)}/accept`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username, folder_id: folderId }),
@@ -2507,10 +2554,13 @@ export default function FolderPage() {
                 showToast(`Request annehmen fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${acceptRes.status}`)}`);
                 return;
             }
+            setIncomingShareRequests((prev) => prev.filter((it) => it.id !== requestId));
             await fetchFiles();
             showToast("Share-Request angenommen, Datei importiert.", "success");
         } catch {
-            showToast("Netzwerkfehler beim Laden/Annehmen von Requests.");
+            showToast("Netzwerkfehler beim Annehmen von Requests.");
+        } finally {
+            setIsShareActionBusy(false);
         }
     };
 
@@ -3680,23 +3730,7 @@ export default function FolderPage() {
                             </button>
                         </div>
 
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => void handleImportByLink()}
-                                className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
-                                title="Datei über Share-Link importieren"
-                            >
-                                <Link2 size={18} />
-                                <span className="hidden sm:inline">Link importieren</span>
-                            </button>
-                            <button
-                                onClick={() => void handleAcceptIncomingShare()}
-                                className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
-                                title="Eingehende Share-Requests annehmen"
-                            >
-                                <Inbox size={18} />
-                                <span className="hidden sm:inline">Requests</span>
-                            </button>
+                        <div className="flex gap-2 items-center">
                             <button
                                 onClick={() => {
                                     setSelectedFile({
@@ -3712,13 +3746,34 @@ export default function FolderPage() {
                                 <Edit size={18} />
                                 <span className="hidden sm:inline">Neues Dokument</span>
                             </button>
-                            <button
-                                onClick={() => setIsUploadOpen(true)}
-                                className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
-                            >
-                                <Plus size={18} />
-                                <span>Material</span>
-                            </button>
+                            <div className="relative">
+                                <button
+                                    onClick={() => setIsHeaderMenuOpen((v) => !v)}
+                                    className="flex items-center justify-center bg-[#151525] text-white px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
+                                    title="Mehr Aktionen"
+                                >
+                                    <MoreVertical size={18} />
+                                </button>
+                                {isHeaderMenuOpen && (
+                                    <div className="absolute right-0 top-full mt-1 w-44 bg-[#0B0B1A] border border-[#2A2A40] rounded-xl shadow-2xl z-50 overflow-hidden">
+                                        <button
+                                            onClick={() => void loadIncomingShareRequests()}
+                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                        >
+                                            <Inbox size={15} />
+                                            Requests
+                                        </button>
+                                        <div className="h-px bg-[#1C1C33]" />
+                                        <button
+                                            onClick={openImportByLinkOverlay}
+                                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                                        >
+                                            <Link2 size={15} />
+                                            Link eingeben
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3853,8 +3908,7 @@ export default function FolderPage() {
                                                 setIsRenameFileOpen={setIsRenameFileOpen}
                                                 handleDelete={handleDeleteFile}
                                                 onRefineFile={handleRefineFile}
-                                                onShareByUsername={handleShareByUsername}
-                                                onCreateShareLink={handleCreateShareLink}
+                                                onOpenShareOverlay={openShareOverlay}
                                             />
                                         ))}
                                     </AnimatePresence>
@@ -5220,6 +5274,211 @@ export default function FolderPage() {
                                 >
                                     {isSavingFlashcards ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Speichern"}
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Share Overlay (entry) */}
+                {isShareOverlayOpen && shareFile && (
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <div>
+                                    <h3 className="text-base font-semibold text-white">Datei teilen</h3>
+                                    <p className="text-xs text-gray-400 mt-1 truncate">{shareFile.name}</p>
+                                </div>
+                                <button onClick={() => setIsShareOverlayOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-3">
+                                <button
+                                    onClick={() => {
+                                        setIsShareByUsernameOpen(true);
+                                        setIsShareOverlayOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#151525] border border-[#2A2A40] hover:bg-[#1C1C33] text-left"
+                                >
+                                    <Send size={16} className="text-[#5E5CE6]" />
+                                    <span className="text-sm text-white">Per Username teilen</span>
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsShareLinkCreateOpen(true);
+                                        setGeneratedShareLink("");
+                                        setIsShareOverlayOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#151525] border border-[#2A2A40] hover:bg-[#1C1C33] text-left"
+                                >
+                                    <Link2 size={16} className="text-[#5E5CE6]" />
+                                    <span className="text-sm text-white">Share-Link erstellen</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Username Share Overlay */}
+                {isShareByUsernameOpen && shareFile && (
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-base font-semibold text-white">Per Username teilen</h3>
+                                <button onClick={() => setIsShareByUsernameOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-3">
+                                <input
+                                    type="text"
+                                    placeholder="Empfänger-Username"
+                                    value={shareTargetUsername}
+                                    onChange={(e) => setShareTargetUsername(e.target.value)}
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                />
+                                <textarea
+                                    placeholder="Nachricht (optional)"
+                                    value={shareMessage}
+                                    onChange={(e) => setShareMessage(e.target.value)}
+                                    className="w-full min-h-[90px] bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                />
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsShareByUsernameOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={() => void submitShareByUsername()}
+                                    disabled={!shareTargetUsername.trim() || isShareActionBusy}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                >
+                                    {isShareActionBusy ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Senden"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Share Link Create Overlay */}
+                {isShareLinkCreateOpen && shareFile && (
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-base font-semibold text-white">Share-Link erstellen</h3>
+                                <button onClick={() => setIsShareLinkCreateOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-3">
+                                <label className="block text-xs text-gray-400">Gültigkeit (Tage, 1-30)</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={30}
+                                    value={shareExpiresDays}
+                                    onChange={(e) => setShareExpiresDays(Number.parseInt(e.target.value || "7", 10))}
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                />
+                                <label className="block text-xs text-gray-400">Maximale Nutzungen (1-100)</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={shareMaxUses}
+                                    onChange={(e) => setShareMaxUses(Number.parseInt(e.target.value || "1", 10))}
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                />
+                                {generatedShareLink && (
+                                    <div className="bg-[#151525] border border-[#2A2A40] rounded-xl p-3">
+                                        <p className="text-xs text-gray-400 mb-1">Erstellter Link</p>
+                                        <p className="text-sm text-[#b8b5ff] break-all">{generatedShareLink}</p>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsShareLinkCreateOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                                    Schließen
+                                </button>
+                                <button
+                                    onClick={() => void submitCreateShareLink()}
+                                    disabled={isShareActionBusy}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                >
+                                    {isShareActionBusy ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Erstellen"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Import Link Overlay */}
+                {isShareLinkImportOpen && (
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-base font-semibold text-white">Link eingeben</h3>
+                                <button onClick={() => setIsShareLinkImportOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5">
+                                <input
+                                    type="text"
+                                    placeholder="Share-Link oder Token"
+                                    value={importShareLinkValue}
+                                    onChange={(e) => setImportShareLinkValue(e.target.value)}
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                />
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsShareLinkImportOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={() => void submitImportByLink()}
+                                    disabled={!importShareLinkValue.trim() || isShareActionBusy}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                >
+                                    {isShareActionBusy ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Importieren"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Incoming Requests Overlay */}
+                {isShareRequestsOpen && (
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-base font-semibold text-white">Eingehende Share-Requests</h3>
+                                <button onClick={() => setIsShareRequestsOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5 max-h-[420px] overflow-y-auto custom-scrollbar space-y-2">
+                                {incomingShareRequests.length === 0 ? (
+                                    <p className="text-sm text-gray-400">Keine offenen Requests.</p>
+                                ) : (
+                                    incomingShareRequests.map((req) => (
+                                        <div key={req.id} className="bg-[#151525] border border-[#2A2A40] rounded-xl p-3 flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm text-white truncate">
+                                                    <span className="text-[#b8b5ff]">{req.sender_username}</span> teilt <span className="font-medium">{req.file?.name || req.file_id}</span>
+                                                </p>
+                                                <p className="text-xs text-gray-500">{req.file?.type || "file"}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => void acceptIncomingShare(req.id)}
+                                                disabled={isShareActionBusy}
+                                                className="shrink-0 px-3 py-2 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-lg text-xs font-semibold disabled:opacity-50"
+                                            >
+                                                {isShareActionBusy ? <Loader2 size={14} className="animate-spin" /> : "Annehmen"}
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         </div>
                     </div>
