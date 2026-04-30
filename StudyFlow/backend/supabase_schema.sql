@@ -44,3 +44,35 @@ CREATE TABLE public.api_keys (
 
 -- 5. Storage Buckets (Run this if you prefer doing it in SQL, otherwise use Supabase Dashboard)
 -- insert into storage.buckets (id, name, public) values ('blop_documents', 'blop_documents', false);
+
+-- 6. Share Requests (username-to-username)
+CREATE TABLE IF NOT EXISTS public.share_requests (
+    id TEXT PRIMARY KEY,
+    sender_username TEXT NOT NULL REFERENCES public.users(username) ON DELETE CASCADE,
+    target_username TEXT NOT NULL REFERENCES public.users(username) ON DELETE CASCADE,
+    file_id TEXT NOT NULL REFERENCES public.files(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    accepted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS share_requests_target_status_idx
+    ON public.share_requests (target_username, status, created_at DESC);
+
+-- 7. Share Links (token-based import)
+CREATE TABLE IF NOT EXISTS public.share_links (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    sender_username TEXT NOT NULL REFERENCES public.users(username) ON DELETE CASCADE,
+    file_id TEXT NOT NULL REFERENCES public.files(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_used_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS share_links_active_expiry_idx
+    ON public.share_links (is_active, expires_at);
