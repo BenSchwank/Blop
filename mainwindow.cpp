@@ -39,6 +39,7 @@
 #include <QElapsedTimer>
 #include <QDesktopServices>
 #include <QDir>
+#include <QEventLoop>
 #include <QQmlContext>
 #include <QEvent>
 #include <QFile>
@@ -52,6 +53,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
@@ -98,12 +100,15 @@
 #include <QListWidgetItem>
 #include <QUrl>
 #include <QMetaObject>
+#include <QGuiApplication>
+#include <QClipboard>
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
-#include <QQuickView>
+#include <QQuickWidget>
+#include <QQmlError>
 #include <QSslSocket>
 #include <QTemporaryFile>
 #include <QWidget>
@@ -664,7 +669,11 @@ MainWindow::MainWindow(QWidget *parent)
   }
 
   auto failOAuthFlow = [this](const QString &reason) {
+#ifdef Q_OS_ANDROID
+    dismissAndroidOAuthOverlay();
+#endif
     m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
     m_authNavigationLocked = false;
     emit oauthFailed(reason);
   };
@@ -681,12 +690,20 @@ MainWindow::MainWindow(QWidget *parent)
                   return;
               }
 #endif
-              showAuthOverlay(url);
+              if (!showAuthOverlay(url)) {
+                qWarning() << "Google login aborted: could not open browser URL" << url;
+                failOAuthFlow(QStringLiteral("browser_open_failed"));
+                return;
+              }
           });
           
   // Close the overlay when login completes successfully
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticated, this, [this]() {
       m_googleLoginInFlight = false;
+      m_googleLoginInFlightSinceMs = 0;
+#ifdef Q_OS_ANDROID
+      dismissAndroidOAuthOverlay();
+#endif
       if (m_authOverlay) {
           m_authOverlay->accept();
           m_authOverlay->deleteLater();
@@ -1388,10 +1405,16 @@ void MainWindow::invokeAndroidWebDestination(int kind, const QString &url) {
       Q_ARG(QVariant, u));
   if (!ok)
     qWarning() << "QML setWebDestination invoke failed";
-  else {
-    // Java-side retry until WebView exists (mitigates ERR_CACHE_MISS on Play/splits).
-    scheduleAndroidStudyWebViewNetworkCache();
-  }
+  // JNI cache scheduling is handled by the guarded onModeChanged deferred path.
+}
+
+void MainWindow::dismissAndroidOAuthOverlay() {
+  if (!m_androidOAuthOverlay)
+    return;
+  QWidget *w = m_androidOAuthOverlay;
+  m_androidOAuthOverlay = nullptr;
+  w->hide();
+  w->deleteLater();
 }
 #endif
 
@@ -3494,13 +3517,11 @@ void MainWindow::setupWebBrowser() {
 #endif
 
 #ifdef Q_OS_ANDROID
-  // IMPORTANT: QtWebView on Android uses a native Android WebView.
-  // It renders correctly with a real QQuickWindow (QQuickView), but can appear
-  // blank/gray when embedded via QQuickWidget.
-  QQuickView *view = new QQuickView();
+  // Keep Study in-app but avoid a separate QQuickWindow (eglSurface deadlock path).
+  QQuickWidget *view = new QQuickWidget(m_studyContainer);
   m_studyQQuickView = view;
-  view->setResizeMode(QQuickView::SizeRootObjectToView);
-  view->setColor(QColor(0x0b, 0x0b, 0x1a));
+  view->setResizeMode(QQuickWidget::SizeRootObjectToView);
+  view->setClearColor(QColor(0x0b, 0x0b, 0x1a));
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
@@ -3509,7 +3530,7 @@ void MainWindow::setupWebBrowser() {
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
 
   // Check if it's actually loaded
-  if (view->status() == QQuickView::Error) {
+  if (view->status() == QQuickWidget::Error) {
       QString errorStr = "Fehler: Konnte Web-Modul nicht laden.\n";
       for (const QQmlError &e : view->errors()) {
           errorStr += e.toString() + "\n";
@@ -3522,20 +3543,18 @@ void MainWindow::setupWebBrowser() {
       return;
   }
 
-  QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
+  QWidget *container = view;
   container->setObjectName("StudyQuickContainer");
   m_studyWindowContainer = container;
   // Touch/focus hardening for Android
   container->setAttribute(Qt::WA_AcceptTouchEvents, true);
   container->setFocusPolicy(Qt::StrongFocus);
-  container->setFocus(Qt::OtherFocusReason);
   layout->addWidget(container);
 
   logAndroidSystemWebViewPackageOnce();
 
-  // Native WebView is created asynchronously after QML loads; Java retries WebSettings
-  // until a WebView appears (mitigates net::ERR_CACHE_MISS).
-  scheduleAndroidStudyWebViewNetworkCache();
+  // Do not immediately schedule JNI cache retries during startup; trigger only
+  // once the Study surface is actually shown to avoid QtThread GL contention.
 
 #else
 #ifdef BLOP_HAS_WEBENGINE
@@ -3848,8 +3867,7 @@ void MainWindow::onModeChanged(int index) {
     // Study has its own QML top bar; keep web content flush to avoid double top bars.
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   }
-  // Native WebView layer: hide/disable when leaving Study (no removeWidget — that
-  // broke re-entering Study on some devices).
+  // Embedded Study widget: hide/disable when leaving Study.
   if (mainStackIdx == 0) {
     if (m_studyWindowContainer) {
       m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -3857,8 +3875,6 @@ void MainWindow::onModeChanged(int index) {
       m_studyWindowContainer->clearFocus();
       m_studyWindowContainer->hide();
     }
-    if (m_studyQQuickView)
-      m_studyQQuickView->hide();
   }
 #endif
   if (m_mainContentStack) {
@@ -3877,17 +3893,16 @@ void MainWindow::onModeChanged(int index) {
     m_studyWindowContainer->setEnabled(true);
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // Keep native container below toolbar hit area (tabs must stay clickable).
-    m_studyWindowContainer->lower();
-    m_studyWindowContainer->show();
-    if (m_studyQQuickView)
-      m_studyQQuickView->show();
-    scheduleAndroidStudyWebViewNetworkCache();
+    // Single-stage show for QWidget-hosted Study view.
     QTimer::singleShot(0, this, [this]() {
-      if (m_studyWindowContainer)
-        m_studyWindowContainer->lower();
+      if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
+        return;
+      if (!m_studyWindowContainer || !m_studyVBoxLayout)
+        return;
+      syncAndroidHeaderGeometry(this);
       if (m_androidHeader)
         m_androidHeader->raise();
+      m_studyWindowContainer->show();
     });
   }
   if (m_mainContentStack) {
@@ -3900,7 +3915,13 @@ void MainWindow::onModeChanged(int index) {
         cur->raise();
 #endif
       cur->setEnabled(true);
+#ifdef Q_OS_ANDROID
+      // Study embeds a native SurfaceView; immediate focus here can re-enter GL paths.
+      if (mainStackIdx != 1)
+        cur->setFocus(Qt::OtherFocusReason);
+#else
       cur->setFocus(Qt::OtherFocusReason);
+#endif
     }
   }
   if (m_androidHeader) {
@@ -3923,14 +3944,40 @@ void MainWindow::onModeChanged(int index) {
 
 #ifdef Q_OS_ANDROID
   applyAndroidTabStyles(index);
-  if (index == 1)
-    invokeAndroidWebDestination(0);
-  else if (index >= 2)
-    invokeAndroidWebDestination(1, m_modeSelector
-                                         ? m_modeSelector->itemData(index, Qt::UserRole)
+  const int deferredModeIndex = index;
+  QTimer::singleShot(48, this, [this, deferredModeIndex]() {
+    const int expectedStack = (deferredModeIndex <= 0) ? 0 : 1;
+    if (!m_mainContentStack || m_mainContentStack->currentIndex() != expectedStack) {
+      return;
+    }
+    if (deferredModeIndex >= 2 && m_modeSelector &&
+        m_modeSelector->currentIndex() != deferredModeIndex) {
+      return;
+    }
+    if (deferredModeIndex != 1 && deferredModeIndex < 2)
+      return;
+    if (!m_studyQQuickView || !m_studyQQuickView->rootObject()) {
+      qWarning() << "deferred invokeAndroidWebDestination: study QML not ready, mode index"
+                 << deferredModeIndex;
+      return;
+    }
+    if (deferredModeIndex == 1)
+      invokeAndroidWebDestination(0);
+    else if (deferredModeIndex >= 2)
+      invokeAndroidWebDestination(1, m_modeSelector
+                                         ? m_modeSelector->itemData(deferredModeIndex, Qt::UserRole)
                                                .toUrl()
                                                .toString()
                                          : QString());
+    if (deferredModeIndex >= 1) {
+      QTimer::singleShot(180, this, [this, deferredModeIndex]() {
+        const int expectedStackNow = (deferredModeIndex <= 0) ? 0 : 1;
+        if (!m_mainContentStack || m_mainContentStack->currentIndex() != expectedStackNow)
+          return;
+        scheduleAndroidStudyWebViewNetworkCache();
+      });
+    }
+  });
 #endif
 
 #ifndef Q_OS_ANDROID
@@ -3966,8 +4013,17 @@ void MainWindow::onModeChanged(int index) {
 
 void MainWindow::requestGoogleLogin() {
     if (m_googleLoginInFlight) {
-      qInfo() << "Google login already in flight, ignoring duplicate request";
-      return;
+      const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+      if (m_googleLoginInFlightSinceMs > 0 &&
+          (nowMs - m_googleLoginInFlightSinceMs) > 15000) {
+        qWarning() << "Google login in-flight guard was stale, unlocking retry";
+        m_googleLoginInFlight = false;
+        m_googleLoginInFlightSinceMs = 0;
+        m_authNavigationLocked = false;
+      } else {
+        qInfo() << "Google login already in flight, ignoring duplicate request";
+        return;
+      }
     }
     // Defer OAuth start out of WebView/JS callback stack to reduce Android reentrancy crashes.
     QTimer::singleShot(0, this, [this]() {
@@ -3982,8 +4038,24 @@ void MainWindow::requestGoogleLogin() {
       }
 #endif
       m_googleLoginInFlight = true;
+      m_googleLoginInFlightSinceMs = QDateTime::currentMSecsSinceEpoch();
       m_authNavigationLocked = true;
       GoogleAuthManager::instance().login();
+
+      // Failsafe: if no browser handoff/response arrives, release lock to avoid dead button.
+      QTimer::singleShot(12000, this, [this]() {
+        if (!m_googleLoginInFlight)
+          return;
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (m_googleLoginInFlightSinceMs > 0 &&
+            (nowMs - m_googleLoginInFlightSinceMs) >= 11500) {
+          qWarning() << "Google login timeout before browser handoff; unlocking.";
+          m_googleLoginInFlight = false;
+          m_googleLoginInFlightSinceMs = 0;
+          m_authNavigationLocked = false;
+          emit oauthFailed(QStringLiteral("google_login_start_timeout"));
+        }
+      });
     });
 }
 
@@ -4173,6 +4245,7 @@ void MainWindow::openWebBookmarkFromQml(int index) {
 void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
         m_googleLoginInFlight = false;
+        m_googleLoginInFlightSinceMs = 0;
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
         if (sessionData != currentUser) {
             updateSidebarUser(sessionData);
@@ -6066,6 +6139,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
           auto *actImg = menu->addAction("\U0001F5BC  Als Bild exportieren");
           menu->addSeparator();
           auto *actImportPdf = menu->addAction("PDF importieren");
+          auto *actShareUser = menu->addAction("Mit Username teilen...");
+          auto *actCreateLink = menu->addAction("Share-Link erstellen...");
+          auto *actImportLink = menu->addAction("Datei aus Link importieren...");
           auto *chosen = menu->exec(QCursor::pos());
           QFileInfo fi(capPath);
           if (chosen == actLayout || chosen == actOptions) {
@@ -6094,6 +6170,138 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   if (ok) QMessageBox::information(this, "Importiert", "PDF wurde in die unendliche Seite eingefuegt.");
                   else    QMessageBox::warning(this, "Fehler", "PDF konnte nicht importiert werden.");
               }
+          } else if (chosen == actShareUser) {
+              const QString username =
+                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+              if (username.isEmpty()) {
+                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  return;
+              }
+              bool ok = false;
+              const QString fileId = QInputDialog::getText(
+                  this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                  QLineEdit::Normal, fi.baseName(), &ok).trimmed();
+              if (!ok || fileId.isEmpty()) return;
+              const QString target = QInputDialog::getText(
+                  this, "Zielnutzer", "Username des Empfängers:",
+                  QLineEdit::Normal, "", &ok).trimmed();
+              if (!ok || target.isEmpty()) return;
+              const QString message = QInputDialog::getText(
+                  this, "Nachricht (optional)", "Begleitnachricht:",
+                  QLineEdit::Normal, "", &ok);
+              if (!ok) return;
+
+              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/username"));
+              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+              QJsonObject payload{
+                  {"username", username},
+                  {"file_id", fileId},
+                  {"target_username", target},
+                  {"message", message},
+              };
+              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+              QEventLoop loop;
+              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+              loop.exec();
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              const QByteArray raw = reply->readAll();
+              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+                  QMessageBox::warning(this, "Teilen fehlgeschlagen",
+                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+              } else {
+                  QMessageBox::information(this, "Request gesendet",
+                                           "Die Freigabeanfrage wurde an den Zielnutzer gesendet.");
+              }
+              reply->deleteLater();
+          } else if (chosen == actCreateLink) {
+              const QString username =
+                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+              if (username.isEmpty()) {
+                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  return;
+              }
+              bool ok = false;
+              const QString fileId = QInputDialog::getText(
+                  this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+                  QLineEdit::Normal, fi.baseName(), &ok).trimmed();
+              if (!ok || fileId.isEmpty()) return;
+              const int expiresDays = QInputDialog::getInt(this, "Gueltigkeit", "Link gueltig fuer (Tage):", 7, 1, 30, 1, &ok);
+              if (!ok) return;
+              const int maxUses = QInputDialog::getInt(this, "Nutzungslimit", "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
+              if (!ok) return;
+
+              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link"));
+              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+              QJsonObject payload{
+                  {"username", username},
+                  {"file_id", fileId},
+                  {"expires_in_days", expiresDays},
+                  {"max_uses", maxUses},
+              };
+              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+              QEventLoop loop;
+              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+              loop.exec();
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              const QByteArray raw = reply->readAll();
+              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+                  QMessageBox::warning(this, "Link fehlgeschlagen",
+                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+                  reply->deleteLater();
+                  return;
+              }
+              const QJsonDocument doc = QJsonDocument::fromJson(raw);
+              const QString link = doc.object().value("url").toString();
+              if (!link.isEmpty())
+                  QGuiApplication::clipboard()->setText(link);
+              QMessageBox::information(this, "Link erstellt",
+                                       link.isEmpty() ? "Share-Link wurde erstellt."
+                                                      : QString("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
+              reply->deleteLater();
+          } else if (chosen == actImportLink) {
+              const QString username =
+                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+              if (username.isEmpty()) {
+                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  return;
+              }
+              bool ok = false;
+              QString linkOrToken = QInputDialog::getText(
+                  this, "Share-Link", "Share-Link oder Token einfügen:",
+                  QLineEdit::Normal, "", &ok).trimmed();
+              if (!ok || linkOrToken.isEmpty()) return;
+              if (linkOrToken.contains("/")) {
+                  const QString marker = "/share/";
+                  const int pos = linkOrToken.lastIndexOf(marker);
+                  if (pos >= 0) linkOrToken = linkOrToken.mid(pos + marker.size());
+                  else linkOrToken = linkOrToken.section('/', -1).trimmed();
+              }
+              const QString targetFolderId = QInputDialog::getText(
+                  this, "Zielordner-ID", "Cloud-Zielordner-ID:",
+                  QLineEdit::Normal, "", &ok).trimmed();
+              if (!ok || targetFolderId.isEmpty()) return;
+
+              const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
+              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import"));
+              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+              QJsonObject payload{
+                  {"username", username},
+                  {"folder_id", targetFolderId},
+              };
+              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+              QEventLoop loop;
+              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+              loop.exec();
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              const QByteArray raw = reply->readAll();
+              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+                  QMessageBox::warning(this, "Import fehlgeschlagen",
+                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+              } else {
+                  QMessageBox::information(this, "Import erfolgreich",
+                                           "Die geteilte Datei wurde in dein Konto importiert.");
+              }
+              reply->deleteLater();
           }
       });
 
@@ -6168,6 +6376,158 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   QMenu menu(this);
   menu.addAction("Open", [this, index]() { onFileDoubleClicked(index); });
   menu.addAction("Rename", [this, index]() { startRename(index); });
+  menu.addSeparator();
+  menu.addAction("Mit Username teilen...", [this, index]() {
+    const QString username =
+        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+    if (username.isEmpty()) {
+      QMessageBox::warning(this, "Nicht angemeldet",
+                           "Bitte zuerst in Blop Study anmelden.");
+      return;
+    }
+    const QString suggestedFileId = QFileInfo(m_fileModel->filePath(index)).baseName();
+    bool ok = false;
+    const QString fileId = QInputDialog::getText(
+        this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+        QLineEdit::Normal, suggestedFileId, &ok).trimmed();
+    if (!ok || fileId.isEmpty())
+      return;
+    const QString target = QInputDialog::getText(
+        this, "Zielnutzer", "Username des Empfängers:", QLineEdit::Normal, "", &ok).trimmed();
+    if (!ok || target.isEmpty())
+      return;
+    const QString message = QInputDialog::getText(
+        this, "Nachricht (optional)", "Begleitnachricht:", QLineEdit::Normal, "", &ok);
+    if (!ok)
+      return;
+
+    QUrl url(kBlopStudyUrl + "/api/shares/username");
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject payload{
+        {"username", username},
+        {"file_id", fileId},
+        {"target_username", target},
+        {"message", message},
+    };
+    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+      QMessageBox::warning(this, "Teilen fehlgeschlagen",
+                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+    } else {
+      QMessageBox::information(this, "Request gesendet",
+                               "Die Freigabeanfrage wurde an den Zielnutzer gesendet.");
+    }
+    reply->deleteLater();
+  });
+  menu.addAction("Share-Link erstellen...", [this, index]() {
+    const QString username =
+        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+    if (username.isEmpty()) {
+      QMessageBox::warning(this, "Nicht angemeldet",
+                           "Bitte zuerst in Blop Study anmelden.");
+      return;
+    }
+    const QString suggestedFileId = QFileInfo(m_fileModel->filePath(index)).baseName();
+    bool ok = false;
+    const QString fileId = QInputDialog::getText(
+        this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
+        QLineEdit::Normal, suggestedFileId, &ok).trimmed();
+    if (!ok || fileId.isEmpty())
+      return;
+    const int expiresDays = QInputDialog::getInt(this, "Gültigkeit",
+                                                 "Link gültig für (Tage):", 7, 1, 30, 1, &ok);
+    if (!ok)
+      return;
+    const int maxUses = QInputDialog::getInt(this, "Nutzungslimit",
+                                             "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
+    if (!ok)
+      return;
+
+    QUrl url(kBlopStudyUrl + "/api/shares/link");
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject payload{
+        {"username", username},
+        {"file_id", fileId},
+        {"expires_in_days", expiresDays},
+        {"max_uses", maxUses},
+    };
+    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+      QMessageBox::warning(this, "Link fehlgeschlagen",
+                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+      reply->deleteLater();
+      return;
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(raw);
+    const QString link = doc.object().value("url").toString();
+    if (!link.isEmpty())
+      QGuiApplication::clipboard()->setText(link);
+    QMessageBox::information(this, "Link erstellt",
+                             link.isEmpty() ? "Share-Link wurde erstellt."
+                                            : QString("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
+    reply->deleteLater();
+  });
+  menu.addAction("Datei aus Link importieren...", [this]() {
+    const QString username =
+        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+    if (username.isEmpty()) {
+      QMessageBox::warning(this, "Nicht angemeldet",
+                           "Bitte zuerst in Blop Study anmelden.");
+      return;
+    }
+    bool ok = false;
+    QString linkOrToken = QInputDialog::getText(
+        this, "Share-Link", "Share-Link oder Token einfügen:", QLineEdit::Normal, "", &ok).trimmed();
+    if (!ok || linkOrToken.isEmpty())
+      return;
+    if (linkOrToken.contains("/")) {
+      const QString marker = "/share/";
+      const int pos = linkOrToken.lastIndexOf(marker);
+      if (pos >= 0)
+        linkOrToken = linkOrToken.mid(pos + marker.size());
+      else
+        linkOrToken = linkOrToken.section('/', -1).trimmed();
+    }
+    const QString targetFolderId = QInputDialog::getText(
+        this, "Zielordner-ID", "Cloud-Zielordner-ID:", QLineEdit::Normal, "", &ok).trimmed();
+    if (!ok || targetFolderId.isEmpty())
+      return;
+
+    const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
+    QUrl url(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import");
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject payload{
+        {"username", username},
+        {"folder_id", targetFolderId},
+    };
+    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+      QMessageBox::warning(this, "Import fehlgeschlagen",
+                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+    } else {
+      QMessageBox::information(this, "Import erfolgreich",
+                               "Die geteilte Datei wurde in dein Konto importiert.");
+    }
+    reply->deleteLater();
+  });
   menu.addAction("Delete", [this, index]() { m_fileModel->remove(index); });
   menu.exec(globalPos);
 }
@@ -6234,6 +6594,8 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
+  if (m_androidOAuthOverlay && m_androidOAuthOverlay->isVisible())
+    m_androidOAuthOverlay->setGeometry(rect());
   if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
 #else
@@ -6551,9 +6913,83 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   QMainWindow::closeEvent(event);
 }
 
-void MainWindow::showAuthOverlay(const QUrl &url) {
-  // Always use the system browser for OAuth. Embedded QWebEngineView in a dialog used the same
-  // Chromium stack as Study — on many Windows installs it stays black; the redirect to
-  // http://127.0.0.1:8080/ is still handled by QOAuthHttpServerReplyHandler.
-  QDesktopServices::openUrl(url);
+bool MainWindow::showAuthOverlay(const QUrl &url) {
+#ifdef Q_OS_ANDROID
+  // In-process WebView so http://127.0.0.1:8080 reaches QOAuthHttpServerReplyHandler; external
+  // Chrome often cannot loop back into the app process.
+  dismissAndroidOAuthOverlay();
+  QWidget *shell = new QWidget(this);
+  shell->setObjectName(QStringLiteral("AndroidOAuthOverlayShell"));
+  shell->setAutoFillBackground(true);
+  {
+    QPalette pal = shell->palette();
+    pal.setColor(QPalette::Window, QColor(15, 17, 26, 247));
+    shell->setPalette(pal);
+  }
+  shell->setGeometry(rect());
+  auto *outer = new QVBoxLayout(shell);
+  outer->setContentsMargins(8, 8, 8, 8);
+  outer->setSpacing(8);
+  QPushButton *cancel = new QPushButton(tr("Abbrechen"), shell);
+  cancel->setStyleSheet(
+      QStringLiteral("QPushButton { padding: 10px 16px; background: #2A2F45; color: #E6E4FF; "
+                     "border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-weight: 600; }"
+                     "QPushButton:pressed { background: rgba(255,255,255,0.08); }"));
+  outer->addWidget(cancel, 0);
+  auto *qw = new QQuickWidget(shell);
+  qw->setResizeMode(QQuickWidget::SizeRootObjectToView);
+  qw->setClearColor(QColor(15, 17, 26));
+  qw->rootContext()->setContextProperty(QStringLiteral("authUrl"), url);
+  outer->addWidget(qw, 1);
+  m_androidOAuthOverlay = shell;
+  connect(cancel, &QPushButton::clicked, this, [this]() {
+    dismissAndroidOAuthOverlay();
+    m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
+    m_authNavigationLocked = false;
+    emit oauthFailed(QStringLiteral("oauth_cancelled"));
+  });
+  const auto failOverlay = [this, shell, qw]() {
+    for (const QQmlError &err : qw->errors())
+      qWarning() << "AuthOverlay QML error:" << err.toString();
+    qWarning() << "AuthOverlay QML load failed, status" << int(qw->status());
+    if (m_androidOAuthOverlay == shell)
+      m_androidOAuthOverlay = nullptr;
+    shell->deleteLater();
+    m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
+    m_authNavigationLocked = false;
+    emit oauthFailed(QStringLiteral("auth_overlay_qml_failed"));
+  };
+  const auto finish = [shell, qw, failOverlay]() {
+    switch (qw->status()) {
+    case QQuickWidget::Ready:
+      shell->show();
+      shell->raise();
+      break;
+    case QQuickWidget::Error:
+      failOverlay();
+      break;
+    default:
+      break;
+    }
+  };
+  qw->setSource(QUrl(QStringLiteral("qrc:/AuthOverlay.qml")));
+  finish();
+  if (qw->status() != QQuickWidget::Ready && qw->status() != QQuickWidget::Error) {
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = QObject::connect(qw, &QQuickWidget::statusChanged, shell,
+                             [conn, finish](QQuickWidget::Status s) {
+                               if (s != QQuickWidget::Ready && s != QQuickWidget::Error)
+                                 return;
+                               QObject::disconnect(*conn);
+                               finish();
+                             });
+  }
+  return true;
+#else
+  // Desktop: system browser; redirect to http://127.0.0.1:8080/ is handled by
+  // QOAuthHttpServerReplyHandler.
+  return QDesktopServices::openUrl(url);
+#endif
 }

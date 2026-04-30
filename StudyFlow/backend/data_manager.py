@@ -1,7 +1,8 @@
 import json
 import os
 import shutil
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta
 import uuid
 import tempfile
 from typing import Optional, List, Dict, Any
@@ -60,6 +61,15 @@ class DataManager:
         if p.startswith(prefix):
             p = p[len(prefix) :]
         return p.strip().lstrip("/")
+
+    @staticmethod
+    def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return None
 
     @staticmethod
     def _init_supabase() -> Client:
@@ -799,17 +809,248 @@ class DataManager:
         return False
 
     @staticmethod
-    def share_item(content, type, username, folder_id):
-        # Skipped for brevity / minimal viable backend. 
-        return "SHARE_NOT_IMPLEMENTED"
+    def _copy_shared_file_into_folder(file_row: Dict[str, Any], target_username: str, target_folder_id: str) -> Dict[str, Any]:
+        db = DataManager._init_supabase()
+        if not db:
+            raise RuntimeError("Supabase DB nicht initialisiert")
+
+        source_name = str(file_row.get("name") or "Freigegebene Datei")
+        source_type = str(file_row.get("type") or "unknown")
+        file_content = file_row.get("content")
+        source_file_url = file_row.get("file_url")
+        now = datetime.now().isoformat()
+        new_id = f"shared_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+
+        payload: Dict[str, Any] = {
+            "id": new_id,
+            "username": target_username,
+            "folder_id": str(target_folder_id),
+            "name": source_name,
+            "type": source_type,
+            "content": file_content,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        if source_file_url:
+            source_object_path = DataManager._normalize_bucket_object_path(source_file_url, "blop_documents")
+            if source_object_path:
+                try:
+                    binary = db.storage.from_("blop_documents").download(source_object_path)
+                    if hasattr(binary, "content"):
+                        binary = binary.content
+                    if hasattr(binary, "read"):
+                        binary = binary.read()
+                    if isinstance(binary, bytearray):
+                        binary = bytes(binary)
+                    if isinstance(binary, (bytes, memoryview)):
+                        ext = os.path.splitext(source_name)[1]
+                        safe_basename = DataManager._sanitize_filename(f"{uuid.uuid4().hex}{ext}")
+                        target_object = f"{target_username}/{target_folder_id}/shared/{safe_basename}"
+                        db.storage.from_("blop_documents").upload(
+                            target_object, bytes(binary), {"upsert": "true"}
+                        )
+                        payload["file_url"] = target_object
+                except Exception as e:
+                    print(f"_copy_shared_file_into_folder storage copy: {e}")
+
+        db.table("files").insert(payload).execute()
+        return payload
 
     @staticmethod
-    def get_shared_item(share_id):
-        return None
+    def create_share_request(source_username: str, target_username: str, file_id: str, message: str = "") -> Dict[str, Any]:
+        db = DataManager._init_supabase()
+        if not db:
+            raise RuntimeError("Supabase DB nicht initialisiert")
+        if not DataManager.user_exists(target_username):
+            raise ValueError("Zielnutzer nicht gefunden")
+
+        file_res = (
+            db.table("files")
+            .select("id,name,type,folder_id,username")
+            .eq("id", str(file_id))
+            .eq("username", source_username)
+            .limit(1)
+            .execute()
+        )
+        if not file_res.data:
+            raise ValueError("Datei wurde nicht gefunden")
+
+        request_row = {
+            "id": f"share_req_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}",
+            "sender_username": source_username,
+            "target_username": target_username,
+            "file_id": str(file_id),
+            "status": "pending",
+            "message": (message or "").strip(),
+            "created_at": datetime.now().isoformat(),
+        }
+        db.table("share_requests").insert(request_row).execute()
+        return request_row
 
     @staticmethod
-    def import_shared_plan(share_id, target_username):
-        return None, "Not implemented yet"
+    def create_share_link(source_username: str, file_id: str, expires_in_days: int = 7, max_uses: int = 1) -> Dict[str, Any]:
+        db = DataManager._init_supabase()
+        if not db:
+            raise RuntimeError("Supabase DB nicht initialisiert")
+
+        file_res = (
+            db.table("files")
+            .select("id,name,type,folder_id,username")
+            .eq("id", str(file_id))
+            .eq("username", source_username)
+            .limit(1)
+            .execute()
+        )
+        if not file_res.data:
+            raise ValueError("Datei wurde nicht gefunden")
+
+        token = f"{uuid.uuid4().hex}{uuid.uuid4().hex}"
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        ttl_days = max(1, min(int(expires_in_days or 7), 30))
+        allowed_uses = max(1, min(int(max_uses or 1), 100))
+
+        link_row = {
+            "id": f"share_link_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}",
+            "token_hash": token_hash,
+            "sender_username": source_username,
+            "file_id": str(file_id),
+            "created_at": datetime.now().isoformat(),
+            "expires_at": (datetime.now() + timedelta(days=ttl_days)).isoformat(),
+            "max_uses": allowed_uses,
+            "use_count": 0,
+            "is_active": True,
+        }
+        db.table("share_links").insert(link_row).execute()
+        return {**link_row, "token": token}
+
+    @staticmethod
+    def get_share_link_info(token: str) -> Optional[Dict[str, Any]]:
+        db = DataManager._init_supabase()
+        if not db or not token:
+            return None
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        res = (
+            db.table("share_links")
+            .select("*")
+            .eq("token_hash", token_hash)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        row = res.data[0]
+        expires_at = DataManager._parse_iso_datetime(row.get("expires_at"))
+        if expires_at and expires_at < datetime.now(expires_at.tzinfo):
+            return None
+        if int(row.get("use_count") or 0) >= int(row.get("max_uses") or 1):
+            return None
+
+        file_res = (
+            db.table("files")
+            .select("id,name,type,folder_id,username")
+            .eq("id", str(row.get("file_id")))
+            .eq("username", str(row.get("sender_username")))
+            .limit(1)
+            .execute()
+        )
+        if not file_res.data:
+            return None
+        return {**row, "file": file_res.data[0]}
+
+    @staticmethod
+    def import_share_link(token: str, target_username: str, target_folder_id: str) -> Dict[str, Any]:
+        db = DataManager._init_supabase()
+        if not db:
+            raise RuntimeError("Supabase DB nicht initialisiert")
+
+        share = DataManager.get_share_link_info(token)
+        if not share:
+            raise ValueError("Link ist ungueltig oder abgelaufen")
+
+        file_res = (
+            db.table("files")
+            .select("*")
+            .eq("id", str(share.get("file_id")))
+            .eq("username", str(share.get("sender_username")))
+            .limit(1)
+            .execute()
+        )
+        if not file_res.data:
+            raise ValueError("Freigegebene Datei existiert nicht mehr")
+
+        imported = DataManager._copy_shared_file_into_folder(file_res.data[0], target_username, target_folder_id)
+        db.table("share_links").update(
+            {
+                "use_count": int(share.get("use_count") or 0) + 1,
+                "last_used_at": datetime.now().isoformat(),
+            }
+        ).eq("id", share.get("id")).execute()
+        return imported
+
+    @staticmethod
+    def accept_share_request(share_request_id: str, target_username: str, target_folder_id: str) -> Dict[str, Any]:
+        db = DataManager._init_supabase()
+        if not db:
+            raise RuntimeError("Supabase DB nicht initialisiert")
+
+        req_res = (
+            db.table("share_requests")
+            .select("*")
+            .eq("id", share_request_id)
+            .eq("target_username", target_username)
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+        )
+        if not req_res.data:
+            raise ValueError("Share-Request nicht gefunden")
+        req = req_res.data[0]
+
+        file_res = (
+            db.table("files")
+            .select("*")
+            .eq("id", str(req.get("file_id")))
+            .eq("username", str(req.get("sender_username")))
+            .limit(1)
+            .execute()
+        )
+        if not file_res.data:
+            raise ValueError("Freigegebene Datei existiert nicht mehr")
+
+        imported = DataManager._copy_shared_file_into_folder(file_res.data[0], target_username, target_folder_id)
+        db.table("share_requests").update(
+            {"status": "accepted", "accepted_at": datetime.now().isoformat()}
+        ).eq("id", share_request_id).execute()
+        return imported
+
+    @staticmethod
+    def list_incoming_share_requests(target_username: str) -> List[Dict[str, Any]]:
+        db = DataManager._init_supabase()
+        if not db:
+            return []
+        req_res = (
+            db.table("share_requests")
+            .select("*")
+            .eq("target_username", target_username)
+            .eq("status", "pending")
+            .execute()
+        )
+        out: List[Dict[str, Any]] = []
+        for row in req_res.data or []:
+            file_res = (
+                db.table("files")
+                .select("id,name,type,folder_id,username")
+                .eq("id", str(row.get("file_id")))
+                .eq("username", str(row.get("sender_username")))
+                .limit(1)
+                .execute()
+            )
+            if not file_res.data:
+                continue
+            out.append({**row, "file": file_res.data[0]})
+        return out
 
     @staticmethod
     def save_background_job(

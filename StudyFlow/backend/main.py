@@ -1527,6 +1527,112 @@ def get_files(folder_id: str, username: str):
     return files
 
 
+class ShareToUsernameRequest(BaseModel):
+    username: str
+    file_id: str
+    target_username: str
+    message: str = ""
+
+
+class CreateShareLinkRequest(BaseModel):
+    username: str
+    file_id: str
+    expires_in_days: int = 7
+    max_uses: int = 1
+
+
+class ImportShareLinkRequest(BaseModel):
+    username: str
+    folder_id: str
+
+
+class AcceptShareRequestBody(BaseModel):
+    username: str
+    folder_id: str
+
+
+@app.post("/api/shares/username")
+def create_share_request_to_username(body: ShareToUsernameRequest):
+    """Create a share request for another username."""
+    try:
+        created = DataManager.create_share_request(
+            source_username=body.username,
+            target_username=body.target_username,
+            file_id=body.file_id,
+            message=body.message,
+        )
+        return {"status": "success", "share_request": created}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Share-Request fehlgeschlagen: {str(e)}")
+
+
+@app.get("/api/shares/requests")
+def list_share_requests(username: str):
+    """List incoming pending share requests for a user."""
+    try:
+        return {"status": "success", "items": DataManager.list_incoming_share_requests(username)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Share-Requests konnten nicht geladen werden: {str(e)}")
+
+
+@app.post("/api/shares/requests/{share_request_id}/accept")
+def accept_share_request(share_request_id: str, body: AcceptShareRequestBody):
+    """Accept pending share request and import file into target folder."""
+    try:
+        imported = DataManager.accept_share_request(share_request_id, body.username, body.folder_id)
+        return {"status": "success", "imported_file": imported}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Share-Request konnte nicht akzeptiert werden: {str(e)}")
+
+
+@app.post("/api/shares/link")
+def create_share_link(body: CreateShareLinkRequest):
+    """Create a link-based share token."""
+    try:
+        created = DataManager.create_share_link(
+            source_username=body.username,
+            file_id=body.file_id,
+            expires_in_days=body.expires_in_days,
+            max_uses=body.max_uses,
+        )
+        token = created.pop("token", "")
+        return {
+            "status": "success",
+            "share_link": created,
+            "token": token,
+            "url": f"https://blop-study.com/share/{token}",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Share-Link konnte nicht erstellt werden: {str(e)}")
+
+
+@app.get("/api/shares/link/{token}")
+def resolve_share_link(token: str):
+    """Resolve share link metadata for preview before import."""
+    info = DataManager.get_share_link_info(token)
+    if not info:
+        raise HTTPException(status_code=404, detail="Link ungültig oder abgelaufen")
+    return {"status": "success", "share": info}
+
+
+@app.post("/api/shares/link/{token}/import")
+def import_share_link(token: str, body: ImportShareLinkRequest):
+    """Import a shared file into user's folder."""
+    try:
+        imported = DataManager.import_share_link(token, body.username, body.folder_id)
+        return {"status": "success", "imported_file": imported}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Link-Import fehlgeschlagen: {str(e)}")
+
+
 class GenRequest(BaseModel):
     username: str
     folder_id: str
