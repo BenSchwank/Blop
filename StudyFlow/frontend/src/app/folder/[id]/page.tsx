@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -169,6 +169,8 @@ type DraggableFileProps = {
     setIsRenameFileOpen: React.Dispatch<React.SetStateAction<boolean>>;
     handleDelete: (file: FileData) => void;
     onRefineFile: (file: FileData) => void;
+    onShareByUsername: (file: FileData) => void;
+    onCreateShareLink: (file: FileData) => void;
 };
 
 // Sub-component for interactive Quiz viewing
@@ -253,7 +255,7 @@ const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: SubfolderRow, o
 };
 
 // Draggable File Wrapper
-const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile }: DraggableFileProps) => {
+const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile, onShareByUsername, onCreateShareLink }: DraggableFileProps) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `drag-${file.id}`,
         data: { type: 'file', file }
@@ -364,6 +366,30 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                                 </button>
                             </>
                         )}
+
+                        <div className="h-px bg-[#1C1C33]" />
+                        <button
+                            onClick={() => {
+                                setOpenMenuFileId(null);
+                                onShareByUsername(file);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                        >
+                            <Send size={15} />
+                            Mit Username teilen
+                        </button>
+
+                        <div className="h-px bg-[#1C1C33]" />
+                        <button
+                            onClick={() => {
+                                setOpenMenuFileId(null);
+                                onCreateShareLink(file);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                        >
+                            <Link2 size={15} />
+                            Share-Link erstellen
+                        </button>
 
                         <div className="h-px bg-[#1C1C33]" />
                         <button
@@ -2336,6 +2362,158 @@ export default function FolderPage() {
         else showToast('Fehler beim Löschen.');
     };
 
+    const handleShareByUsername = async (file: FileData) => {
+        const username = localStorage.getItem("username") || "";
+        if (!username) {
+            showToast("Bitte zuerst anmelden.");
+            return;
+        }
+        const targetUsername = window.prompt("Username des Empfängers:");
+        if (!targetUsername || !targetUsername.trim()) return;
+        const message = window.prompt("Nachricht (optional):") || "";
+        try {
+            const res = await fetch(`${API_BASE}/shares/username`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    file_id: file.id,
+                    target_username: targetUsername.trim(),
+                    message,
+                }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Share fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${res.status}`)}`);
+                return;
+            }
+            showToast("Share-Request wurde gesendet.", "success");
+        } catch {
+            showToast("Netzwerkfehler beim Teilen.");
+        }
+    };
+
+    const handleCreateShareLink = async (file: FileData) => {
+        const username = localStorage.getItem("username") || "";
+        if (!username) {
+            showToast("Bitte zuerst anmelden.");
+            return;
+        }
+        const expiryRaw = window.prompt("Link gültig für wie viele Tage? (1-30)", "7");
+        if (expiryRaw == null) return;
+        const maxUsesRaw = window.prompt("Maximale Nutzungen? (1-100)", "1");
+        if (maxUsesRaw == null) return;
+        const expires_in_days = Math.min(30, Math.max(1, Number.parseInt(expiryRaw, 10) || 7));
+        const max_uses = Math.min(100, Math.max(1, Number.parseInt(maxUsesRaw, 10) || 1));
+        try {
+            const res = await fetch(`${API_BASE}/shares/link`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, file_id: file.id, expires_in_days, max_uses }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Link-Erstellung fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${res.status}`)}`);
+                return;
+            }
+            const data = await res.json();
+            const url = String(data?.url || "").trim();
+            if (url && navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(url);
+                showToast("Share-Link erstellt und in Zwischenablage kopiert.", "success");
+            } else if (url) {
+                showToast(`Share-Link erstellt: ${url}`, "success");
+            } else {
+                showToast("Share-Link erstellt.", "success");
+            }
+        } catch {
+            showToast("Netzwerkfehler beim Link-Erstellen.");
+        }
+    };
+
+    const handleImportByLink = async () => {
+        const username = localStorage.getItem("username") || "";
+        if (!username) {
+            showToast("Bitte zuerst anmelden.");
+            return;
+        }
+        const value = window.prompt("Share-Link oder Token einfügen:");
+        if (!value || !value.trim()) return;
+        let token = value.trim();
+        if (token.includes("/")) {
+            const marker = "/share/";
+            const pos = token.lastIndexOf(marker);
+            token = pos >= 0 ? token.slice(pos + marker.length) : token.split("/").pop() || token;
+        }
+        try {
+            const res = await fetch(`${API_BASE}/shares/link/${encodeURIComponent(token)}/import`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, folder_id: folderId }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Import fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${res.status}`)}`);
+                return;
+            }
+            await fetchFiles();
+            showToast("Datei wurde per Link importiert.", "success");
+        } catch {
+            showToast("Netzwerkfehler beim Link-Import.");
+        }
+    };
+
+    const handleAcceptIncomingShare = async () => {
+        const username = localStorage.getItem("username") || "";
+        if (!username) {
+            showToast("Bitte zuerst anmelden.");
+            return;
+        }
+        try {
+            const listRes = await fetch(`${API_BASE}/shares/requests?username=${encodeURIComponent(username)}`);
+            if (!listRes.ok) {
+                const err = await listRes.json().catch(() => ({}));
+                showToast(`Requests laden fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${listRes.status}`)}`);
+                return;
+            }
+            const data = await listRes.json();
+            const items = Array.isArray(data?.items) ? data.items : [];
+            if (items.length === 0) {
+                showToast("Keine offenen Share-Requests.", "info");
+                return;
+            }
+            const options = items
+                .map((it: any, idx: number) => `${idx + 1}: ${it?.sender_username || "?"} -> ${it?.file?.name || it?.file_id || "Datei"}`)
+                .join("\n");
+            const chosenRaw = window.prompt(`Welchen Request annehmen?\n${options}\n\nNummer eingeben:`);
+            if (!chosenRaw) return;
+            const chosenIdx = Number.parseInt(chosenRaw, 10) - 1;
+            if (chosenIdx < 0 || chosenIdx >= items.length) {
+                showToast("Ungültige Auswahl.");
+                return;
+            }
+            const reqId = String(items[chosenIdx]?.id || "");
+            if (!reqId) {
+                showToast("Ungültiger Request.");
+                return;
+            }
+            const acceptRes = await fetch(`${API_BASE}/shares/requests/${encodeURIComponent(reqId)}/accept`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, folder_id: folderId }),
+            });
+            if (!acceptRes.ok) {
+                const err = await acceptRes.json().catch(() => ({}));
+                showToast(`Request annehmen fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${acceptRes.status}`)}`);
+                return;
+            }
+            await fetchFiles();
+            showToast("Share-Request angenommen, Datei importiert.", "success");
+        } catch {
+            showToast("Netzwerkfehler beim Laden/Annehmen von Requests.");
+        }
+    };
+
     // Drag & Drop Handlers
     const handleDragStart = (event: DragStartEvent) => {
         const { active } = event;
@@ -3504,6 +3682,22 @@ export default function FolderPage() {
 
                         <div className="flex gap-2">
                             <button
+                                onClick={() => void handleImportByLink()}
+                                className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
+                                title="Datei über Share-Link importieren"
+                            >
+                                <Link2 size={18} />
+                                <span className="hidden sm:inline">Link importieren</span>
+                            </button>
+                            <button
+                                onClick={() => void handleAcceptIncomingShare()}
+                                className="flex items-center gap-2 bg-[#151525] text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-[#2A2A40] hover:bg-[#1C1C33] transition-all"
+                                title="Eingehende Share-Requests annehmen"
+                            >
+                                <Inbox size={18} />
+                                <span className="hidden sm:inline">Requests</span>
+                            </button>
+                            <button
                                 onClick={() => {
                                     setSelectedFile({
                                         id: `draft_${Date.now()}`,
@@ -3659,6 +3853,8 @@ export default function FolderPage() {
                                                 setIsRenameFileOpen={setIsRenameFileOpen}
                                                 handleDelete={handleDeleteFile}
                                                 onRefineFile={handleRefineFile}
+                                                onShareByUsername={handleShareByUsername}
+                                                onCreateShareLink={handleCreateShareLink}
                                             />
                                         ))}
                                     </AnimatePresence>
