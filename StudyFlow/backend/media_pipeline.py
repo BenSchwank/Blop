@@ -58,7 +58,7 @@ def _openai_tts_failure_message(response: requests.Response) -> str:
     return f"OpenAI TTS API Fehler {code}: {snippet}"
 
 
-def openai_tts_speech_mp3(text: str, voice: str = "alloy") -> bytes:
+def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optional[str] = None) -> bytes:
     """Returns MP3 bytes. Requires OPENAI_API_KEY."""
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
@@ -82,14 +82,31 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy") -> bytes:
         remaining = remaining[cut:].strip()
     mp3_parts: List[bytes] = []
     for ch in chunks:
+        payload = {
+            "model": "gpt-4o-mini-tts",
+            "input": ch,
+            "voice": v,
+            "response_format": "mp3",
+        }
+        if (instructions or "").strip():
+            payload["instructions"] = instructions.strip()
         r = requests.post(
             "https://api.openai.com/v1/audio/speech",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": "tts-1", "input": ch, "voice": v, "response_format": "mp3"},
+            json=payload,
             timeout=120,
         )
         if not r.ok:
-            raise RuntimeError(_openai_tts_failure_message(r))
+            fallback = requests.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"model": "tts-1", "input": ch, "voice": v, "response_format": "mp3"},
+                timeout=120,
+            )
+            if not fallback.ok:
+                raise RuntimeError(_openai_tts_failure_message(fallback))
+            mp3_parts.append(fallback.content)
+            continue
         mp3_parts.append(r.content)
     if len(mp3_parts) == 1:
         return mp3_parts[0]
@@ -510,6 +527,16 @@ def _escape_drawtext(value: str) -> str:
     )
 
 
+def _subtitle_chunks(script_text: str, max_words_per_chunk: int = 4, max_chunks: int = 26) -> List[str]:
+    tokens = [t.strip() for t in re.split(r"\s+", (script_text or "").strip()) if t.strip()]
+    if not tokens:
+        return ["BLOP DEVLOG"]
+    chunks: List[str] = []
+    for i in range(0, len(tokens), max_words_per_chunk):
+        chunks.append(" ".join(tokens[i : i + max_words_per_chunk]).upper())
+    return chunks[:max_chunks]
+
+
 def combine_media_with_audio_and_hormozi_subtitles(
     media_path: str,
     audio_path: str,
@@ -672,26 +699,30 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
     media_paths = media_paths[:max_inputs]
     segment_duration = max(1.5, float(target_duration) / float(len(media_paths)))
 
-    script_lines = [line.strip() for line in (script_text or "").splitlines() if line.strip()]
-    script_tokens = " ".join(script_lines).split()
-    if not script_tokens:
-        script_tokens = ["BLOP", "DEVLOG"]
-    subtitle_word = _escape_drawtext(" ".join(script_tokens[:4]).upper())
-
-    drawtext = (
-        "drawtext="
-        f"text='{subtitle_word}':"
-        "fontcolor=white:"
-        "fontsize=h*0.085:"
-        "box=1:"
-        "boxcolor=black@0.58:"
-        "boxborderw=20:"
-        "x=(w-text_w)/2:"
-        "y=h*0.78"
-    )
+    subtitle_chunks = _subtitle_chunks(script_text)
+    chunk_duration = max(0.55, float(target_duration) / float(len(subtitle_chunks)))
+    subtitle_filters: List[str] = []
+    for idx, chunk in enumerate(subtitle_chunks):
+        start = idx * chunk_duration
+        end = min(float(target_duration), start + chunk_duration + 0.18)
+        subtitle_filters.append(
+            "drawtext="
+            f"text='{_escape_drawtext(chunk)}':"
+            "fontcolor=white:"
+            "fontsize=h*0.08:"
+            "borderw=3:"
+            "bordercolor=black@0.88:"
+            "box=1:"
+            "boxcolor=black@0.42:"
+            "boxborderw=16:"
+            "x=(w-text_w)/2:"
+            "y=h*0.79:"
+            f"enable='between(t,{start:.2f},{end:.2f})'"
+        )
+    subtitle_chain = ",".join(subtitle_filters)
     vertical_vf = (
         f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
-        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,{drawtext}"
+        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,{subtitle_chain}"
     )
 
     with tempfile.TemporaryDirectory(prefix="blop_marketing_segments_") as tmp:
@@ -726,6 +757,14 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     segment_path,
                 ]
             else:
+                image_frames = max(3, int(round(segment_duration * float(target_fps))))
+                image_motion_vf = (
+                    f"scale={target_w * 2}:-2,"
+                    f"zoompan=z='min(zoom+0.0022,1.12)':d={image_frames}:"
+                    f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                    f"s={target_w}x{target_h}:fps={target_fps},"
+                    f"setsar=1,{subtitle_chain}"
+                )
                 cmd = [
                     ffmpeg,
                     "-y",
@@ -736,7 +775,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     "-t",
                     f"{segment_duration:.3f}",
                     "-vf",
-                    vertical_vf,
+                    image_motion_vf,
                     "-r",
                     str(target_fps),
                     "-c:v",

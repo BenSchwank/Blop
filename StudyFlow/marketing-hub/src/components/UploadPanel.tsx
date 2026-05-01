@@ -12,6 +12,8 @@ export default function UploadPanel() {
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [bulletpoints, setBulletpoints] = useState("");
   const [videoLengthSec, setVideoLengthSec] = useState(30);
+  const [language, setLanguage] = useState("de");
+  const [emotion, setEmotion] = useState("energetic");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<GenerationResponse | null>(null);
@@ -35,6 +37,8 @@ export default function UploadPanel() {
       }
       form.append("bulletpoints", bulletpoints);
       form.append("video_length_sec", String(videoLengthSec));
+      form.append("language", language);
+      form.append("emotion", emotion);
       const response = await fetch("/api/marketing/generate", { method: "POST", body: form });
       const body = (await response.json()) as GenerationResponse & { detail?: string };
       if (!response.ok) {
@@ -87,10 +91,39 @@ export default function UploadPanel() {
           className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-3 outline-none focus:border-[#5E5CE6]"
         >
           <option value={15}>15 Sekunden</option>
-          <option value={30}>30 Sekunden</option>
+          <option value={25}>25 Sekunden</option>
+          <option value={35}>35 Sekunden</option>
           <option value={45}>45 Sekunden</option>
-          <option value={60}>60 Sekunden</option>
         </select>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <label className="text-sm text-[#C9CCE1]">Sprache</label>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-3 outline-none focus:border-[#5E5CE6]"
+          >
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+            <option value="tr">Tuerkisch</option>
+            <option value="es">Spanisch</option>
+          </select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm text-[#C9CCE1]">Stimm-Emotion (maennliche Stimme)</label>
+          <select
+            value={emotion}
+            onChange={(e) => setEmotion(e.target.value)}
+            className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-3 outline-none focus:border-[#5E5CE6]"
+          >
+            <option value="energetic">Energiegeladen</option>
+            <option value="confident">Selbstbewusst</option>
+            <option value="calm">Ruhig</option>
+            <option value="dramatic">Dramatisch</option>
+          </select>
+        </div>
       </div>
 
       <div className="space-y-2">
