@@ -655,6 +655,29 @@ def health_ready():
     except Exception as e:
         return {"status": "ok", "database": "error", "detail": str(e)[:200]}
 
+
+@app.get("/api/health/share-tables")
+def health_share_tables(token: str):
+    """
+    Ops-only: verify that PostgREST can see `public.share_requests` + `public.share_links`.
+
+    Set env `BLOP_SHARE_TABLE_DIAG_TOKEN` on Render/localhost and call:
+      GET /api/health/share-tables?token=...
+    """
+    expected = (os.environ.get("BLOP_SHARE_TABLE_DIAG_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Diagnose deaktiviert: BLOP_SHARE_TABLE_DIAG_TOKEN ist nicht gesetzt.",
+        )
+    if token != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    result = DataManager.verify_share_tables_postgrest()
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result)
+    return {"status": "ok", **result}
+
 @app.get("/api/ping")
 def ping():
     return {"status": "pong", "message": "Backend is online!"}
