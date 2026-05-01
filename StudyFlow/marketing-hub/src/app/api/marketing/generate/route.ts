@@ -8,8 +8,12 @@ export async function POST(request: NextRequest) {
     const mediaFiles = formData.getAll("media_files").filter((item) => item instanceof File) as File[];
     const bulletpoints = String(formData.get("bulletpoints") ?? "").trim();
     const videoLengthSec = Number(formData.get("video_length_sec") ?? 30);
-    const language = String(formData.get("language") ?? "de").trim().toLowerCase();
-    const emotion = String(formData.get("emotion") ?? "energetic").trim().toLowerCase();
+    const languageRaw = String(formData.get("language") ?? "de").trim().toLowerCase();
+    const emotionRaw = String(formData.get("emotion") ?? "energetic").trim().toLowerCase();
+    const language = ["de", "en", "tr", "es"].includes(languageRaw) ? languageRaw : "de";
+    const emotion = ["energetic", "confident", "calm", "dramatic"].includes(emotionRaw)
+      ? emotionRaw
+      : "energetic";
     if (!mediaFiles.length) {
       return NextResponse.json({ detail: "Keine Media-Dateien erhalten." }, { status: 400 });
     }
