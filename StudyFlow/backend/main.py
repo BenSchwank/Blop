@@ -2874,21 +2874,43 @@ def _marketing_prune_exports() -> None:
             _MARKETING_EXPORTS.pop(export_id, None)
 
 
-def _marketing_generate_script(bulletpoints: str) -> str:
-    intro = (
-        "Willkommen zum Blop-Devlog! Bleibt dran, wenn ihr sehen wollt, "
-        "welches krasse Feature heute dazugekommen ist!"
-    )
-    outro = (
-        "Was haltet ihr von diesem Feature? Habt ihr noch weitere Ideen fuer Blop? "
-        "Schreibt es mir in die Kommentare!"
-    )
+def _marketing_copy_for_language(language: str) -> Dict[str, str]:
+    lang = (language or "de").strip().lower()
+    if lang == "en":
+        return {
+            "name": "English",
+            "intro": "Welcome to the Blop devlog! Stay tuned to see which awesome feature we shipped today!",
+            "outro": "What do you think about this feature? Got more ideas for Blop? Drop them in the comments!",
+        }
+    if lang == "tr":
+        return {
+            "name": "Turkish",
+            "intro": "Blop gelistirici gunlugune hos geldiniz! Bugun hangi harika ozelligi ekledigimizi gormek icin takipte kalin!",
+            "outro": "Bu ozellik hakkinda ne dusunuyorsunuz? Blop icin baska fikirleriniz var mi? Yorumlara yazin!",
+        }
+    if lang == "es":
+        return {
+            "name": "Spanish",
+            "intro": "Bienvenidos al devlog de Blop! Quedate para ver que funcion brutal agregamos hoy!",
+            "outro": "Que opinas de esta funcion? Tienes mas ideas para Blop? Dejalas en los comentarios!",
+        }
+    return {
+        "name": "Deutsch",
+        "intro": "Willkommen zum Blop-Devlog! Bleibt dran, wenn ihr sehen wollt, welches krasse Feature heute dazugekommen ist!",
+        "outro": "Was haltet ihr von diesem Feature? Habt ihr noch weitere Ideen fuer Blop? Schreibt es mir in die Kommentare!",
+    }
+
+
+def _marketing_generate_script(bulletpoints: str, language: str) -> str:
+    copy = _marketing_copy_for_language(language)
+    intro = copy["intro"]
+    outro = copy["outro"]
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
         return f"{intro}\n\nHeute im Devlog:\n{bulletpoints.strip()}\n\n{outro}"
 
     prompt = (
-        "Schreibe ein kurzes deutsches Devlog-Skript fuer Social Media.\n"
+        f"Schreibe ein kurzes Devlog-Skript fuer Social Media in {copy['name']}.\n"
         "Nutze exakt diese Struktur:\n"
         "1) Intro-Hook als erste Zeile\n"
         "2) Hauptteil auf Basis der Stichpunkte\n"
@@ -2933,6 +2955,8 @@ async def create_marketing_short(
     media_files: List[UploadFile] = File(...),
     bulletpoints: str = Form(...),
     video_length_sec: int = Form(30),
+    language: str = Form("de"),
+    emotion: str = Form("energetic"),
 ):
     from media_pipeline import combine_media_sequence_with_audio_and_hormozi_subtitles, openai_tts_speech_mp3
 
@@ -2955,9 +2979,16 @@ async def create_marketing_short(
                 f.write(await media.read())
             source_paths.append(source_path)
 
-        script = _marketing_generate_script(bulletpoints)
-        voice = "alloy"
-        audio_bytes = openai_tts_speech_mp3(script, voice=voice)
+        script = _marketing_generate_script(bulletpoints, language)
+        voice = "onyx"
+        emotion_map = {
+            "energetic": "Energetic, expressive and engaging delivery with clear emphasis.",
+            "confident": "Confident and clear delivery with strong pacing and authority.",
+            "calm": "Calm, smooth and warm delivery with soft dynamics.",
+            "dramatic": "Dramatic, emotionally intense delivery with dynamic emphasis.",
+        }
+        tts_instruction = emotion_map.get(emotion, emotion_map["energetic"])
+        audio_bytes = openai_tts_speech_mp3(script, voice=voice, instructions=tts_instruction)
         audio_path = os.path.join(work_tmp, "narration.mp3")
         with open(audio_path, "wb") as f:
             f.write(audio_bytes)

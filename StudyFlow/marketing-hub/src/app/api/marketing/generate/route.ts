@@ -8,6 +8,8 @@ export async function POST(request: NextRequest) {
     const mediaFiles = formData.getAll("media_files").filter((item) => item instanceof File) as File[];
     const bulletpoints = String(formData.get("bulletpoints") ?? "").trim();
     const videoLengthSec = Number(formData.get("video_length_sec") ?? 30);
+    const language = String(formData.get("language") ?? "de").trim().toLowerCase();
+    const emotion = String(formData.get("emotion") ?? "energetic").trim().toLowerCase();
     if (!mediaFiles.length) {
       return NextResponse.json({ detail: "Keine Media-Dateien erhalten." }, { status: 400 });
     }
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
     }
     backendForm.append("bulletpoints", bulletpoints);
     backendForm.append("video_length_sec", String(Number.isFinite(videoLengthSec) ? videoLengthSec : 30));
+    backendForm.append("language", language);
+    backendForm.append("emotion", emotion);
     const response = await fetch(`${backendUrl}/api/ai/marketing-short`, {
       method: "POST",
       body: backendForm,
