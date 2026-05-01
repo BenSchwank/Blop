@@ -92,6 +92,30 @@ class DataManager:
             return None
 
     @staticmethod
+    def verify_share_tables_postgrest() -> Dict[str, Any]:
+        """
+        Lightweight PostgREST/Supabase table presence check for share tables.
+
+        This intentionally does a tiny `select` with `count=exact` and `limit=1` so we hit PostgREST
+        without pulling row payloads. Missing tables surface as PGRST205 in the client error string.
+        """
+        db = DataManager._init_supabase()
+        if not db:
+            return {"ok": False, "error": "Supabase nicht konfiguriert (SUPABASE_URL/SUPABASE_KEY fehlen)."}
+
+        def _probe(table: str) -> Dict[str, Any]:
+            try:
+                db.table(table).select("id", count="exact").limit(1).execute()
+                return {"ok": True, "table": table}
+            except Exception as e:
+                return {"ok": False, "table": table, "error": str(e)}
+
+        share_requests = _probe("share_requests")
+        share_links = _probe("share_links")
+        ok = bool(share_requests.get("ok")) and bool(share_links.get("ok"))
+        return {"ok": ok, "share_requests": share_requests, "share_links": share_links}
+
+    @staticmethod
     def user_exists(username):
         db = DataManager._init_supabase()
         if not db: return False
