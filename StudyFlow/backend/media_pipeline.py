@@ -498,6 +498,132 @@ def _encode_segment(
         )
 
 
+def _escape_drawtext(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+        .replace("%", "\\%")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace(",", "\\,")
+    )
+
+
+def combine_media_with_audio_and_hormozi_subtitles(
+    media_path: str,
+    audio_path: str,
+    script_text: str,
+    output_mp4_path: str,
+) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg nicht gefunden.")
+    if not ffprobe:
+        raise RuntimeError("ffprobe nicht gefunden.")
+    if not os.path.exists(media_path):
+        raise ValueError("Input-Media-Datei fehlt.")
+    if not os.path.exists(audio_path):
+        raise ValueError("Input-Audio-Datei fehlt.")
+
+    probe = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "default=nw=1:nk=1",
+            media_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    is_video = "video" in (probe.stdout or "").strip().lower()
+
+    script_lines = [line.strip() for line in (script_text or "").splitlines() if line.strip()]
+    script_tokens = " ".join(script_lines).split()
+    if not script_tokens:
+        script_tokens = ["Blop", "Devlog"]
+    subtitle_word = _escape_drawtext(" ".join(script_tokens[:4]).upper())
+
+    drawtext = (
+        "drawtext="
+        f"text='{subtitle_word}':"
+        "fontcolor=white:"
+        "fontsize=h*0.1:"
+        "box=1:"
+        "boxcolor=black@0.5:"
+        "boxborderw=18:"
+        "x=(w-text_w)/2:"
+        "y=h*0.78:"
+        "enable='between(t,0,20)'"
+    )
+    base_vf = (
+        f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=decrease,"
+        f"pad={VIDEO_W}:{VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1,{drawtext}"
+    )
+
+    if is_video:
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-i",
+            media_path,
+            "-i",
+            audio_path,
+            "-vf",
+            base_vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            output_mp4_path,
+        ]
+    else:
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            media_path,
+            "-i",
+            audio_path,
+            "-vf",
+            base_vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            output_mp4_path,
+        ]
+
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
 def _merge_segments_xfade(
     ffmpeg: str,
     segment_paths: List[str],
