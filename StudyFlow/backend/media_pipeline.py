@@ -624,6 +624,191 @@ def combine_media_with_audio_and_hormozi_subtitles(
     subprocess.run(cmd, check=True, capture_output=True)
 
 
+def _has_video_stream(path: str) -> bool:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return False
+    probe = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "default=nw=1:nk=1",
+            path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return "video" in (probe.stdout or "").strip().lower()
+
+
+def combine_media_sequence_with_audio_and_hormozi_subtitles(
+    media_paths: List[str],
+    audio_path: str,
+    script_text: str,
+    output_mp4_path: str,
+    target_duration_sec: int = 30,
+) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg nicht gefunden.")
+    if not media_paths:
+        raise ValueError("Keine Input-Medien uebergeben.")
+    if not os.path.exists(audio_path):
+        raise ValueError("Input-Audio-Datei fehlt.")
+
+    target_w = 1080
+    target_h = 1920
+    target_duration = max(15, min(90, int(target_duration_sec or 30)))
+    segment_duration = max(1.5, float(target_duration) / float(len(media_paths)))
+
+    script_lines = [line.strip() for line in (script_text or "").splitlines() if line.strip()]
+    script_tokens = " ".join(script_lines).split()
+    if not script_tokens:
+        script_tokens = ["BLOP", "DEVLOG"]
+    subtitle_word = _escape_drawtext(" ".join(script_tokens[:4]).upper())
+
+    drawtext = (
+        "drawtext="
+        f"text='{subtitle_word}':"
+        "fontcolor=white:"
+        "fontsize=h*0.085:"
+        "box=1:"
+        "boxcolor=black@0.58:"
+        "boxborderw=20:"
+        "x=(w-text_w)/2:"
+        "y=h*0.78"
+    )
+    vertical_vf = (
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,{drawtext}"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="blop_marketing_segments_") as tmp:
+        segment_paths: List[str] = []
+        for idx, media_path in enumerate(media_paths):
+            if not os.path.exists(media_path):
+                continue
+            segment_path = os.path.join(tmp, f"segment_{idx:03d}.mp4")
+            if _has_video_stream(media_path):
+                cmd = [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    media_path,
+                    "-t",
+                    f"{segment_duration:.3f}",
+                    "-vf",
+                    vertical_vf,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "23",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
+                    segment_path,
+                ]
+            else:
+                cmd = [
+                    ffmpeg,
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    media_path,
+                    "-t",
+                    f"{segment_duration:.3f}",
+                    "-vf",
+                    vertical_vf,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "23",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
+                    segment_path,
+                ]
+            subprocess.run(cmd, check=True, capture_output=True)
+            segment_paths.append(segment_path)
+
+        if not segment_paths:
+            raise RuntimeError("Keine renderbaren Media-Segmente erzeugt.")
+
+        concat_list = os.path.join(tmp, "concat.txt")
+        with open(concat_list, "w", encoding="utf-8") as f:
+            for seg in segment_paths:
+                f.write(f"file '{seg.replace(chr(92), '/')}'\n")
+
+        merged_video = os.path.join(tmp, "merged_vertical.mp4")
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                concat_list,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                merged_video,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-i",
+                merged_video,
+                "-i",
+                audio_path,
+                "-af",
+                "apad",
+                "-t",
+                str(target_duration),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                output_mp4_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+
 def _merge_segments_xfade(
     ffmpeg: str,
     segment_paths: List[str],

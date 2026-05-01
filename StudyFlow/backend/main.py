@@ -2930,22 +2930,30 @@ def _marketing_generate_script(bulletpoints: str) -> str:
 
 @app.post("/api/ai/marketing-short")
 async def create_marketing_short(
-    media: UploadFile = File(...),
+    media_files: List[UploadFile] = File(...),
     bulletpoints: str = Form(...),
+    video_length_sec: int = Form(30),
 ):
-    from media_pipeline import combine_media_with_audio_and_hormozi_subtitles, openai_tts_speech_mp3
+    from media_pipeline import combine_media_sequence_with_audio_and_hormozi_subtitles, openai_tts_speech_mp3
 
     if not bulletpoints.strip():
         raise HTTPException(status_code=400, detail="Stichpunkte fehlen.")
-    if not (media.content_type or "").startswith(("image/", "video/")):
-        raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
+    if not media_files:
+        raise HTTPException(status_code=400, detail="Keine Medien-Dateien erhalten.")
+    normalized_length = max(15, min(90, int(video_length_sec or 30)))
+    for media in media_files:
+        if not (media.content_type or "").startswith(("image/", "video/")):
+            raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
 
     _marketing_prune_exports()
     with tempfile.TemporaryDirectory(prefix="blop_marketing_") as work_tmp:
-        source_name = Path(media.filename or "upload.bin").name
-        source_path = os.path.join(work_tmp, source_name)
-        with open(source_path, "wb") as f:
-            f.write(await media.read())
+        source_paths: List[str] = []
+        for idx, media in enumerate(media_files):
+            source_name = Path(media.filename or f"upload_{idx}.bin").name
+            source_path = os.path.join(work_tmp, f"{idx:02d}_{source_name}")
+            with open(source_path, "wb") as f:
+                f.write(await media.read())
+            source_paths.append(source_path)
 
         script = _marketing_generate_script(bulletpoints)
         voice = "alloy"
@@ -2955,11 +2963,12 @@ async def create_marketing_short(
             f.write(audio_bytes)
 
         output_path = os.path.join(work_tmp, "marketing_short.mp4")
-        combine_media_with_audio_and_hormozi_subtitles(
-            media_path=source_path,
+        combine_media_sequence_with_audio_and_hormozi_subtitles(
+            media_paths=source_paths,
             audio_path=audio_path,
             script_text=script,
             output_mp4_path=output_path,
+            target_duration_sec=normalized_length,
         )
         with open(output_path, "rb") as f:
             video_bytes = f.read()

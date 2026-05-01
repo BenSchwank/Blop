@@ -9,15 +9,16 @@ type GenerationResponse = {
 };
 
 export default function UploadPanel() {
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [bulletpoints, setBulletpoints] = useState("");
+  const [videoLengthSec, setVideoLengthSec] = useState(30);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<GenerationResponse | null>(null);
 
   async function onGenerate() {
-    if (!mediaFile) {
-      setError("Bitte Bild oder Video hochladen.");
+    if (!mediaFiles.length) {
+      setError("Bitte mindestens eine Bild-/Videodatei hochladen.");
       return;
     }
     if (!bulletpoints.trim()) {
@@ -29,8 +30,11 @@ export default function UploadPanel() {
     setResult(null);
     try {
       const form = new FormData();
-      form.append("media", mediaFile);
+      for (const file of mediaFiles) {
+        form.append("media_files", file);
+      }
       form.append("bulletpoints", bulletpoints);
+      form.append("video_length_sec", String(videoLengthSec));
       const response = await fetch("/api/marketing/generate", { method: "POST", body: form });
       const body = (await response.json()) as GenerationResponse & { detail?: string };
       if (!response.ok) {
@@ -66,9 +70,27 @@ export default function UploadPanel() {
         <input
           type="file"
           accept="image/*,video/*"
-          onChange={(e) => setMediaFile(e.target.files?.[0] ?? null)}
+          multiple
+          onChange={(e) => setMediaFiles(Array.from(e.target.files ?? []))}
           className="w-full rounded-xl border border-white/20 bg-white/5 p-3"
         />
+        <p className="text-xs text-[#A9ADC8]">
+          {mediaFiles.length ? `${mediaFiles.length} Datei(en) ausgewaehlt` : "Keine Datei ausgewaehlt"}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm text-[#C9CCE1]">Videolaenge</label>
+        <select
+          value={videoLengthSec}
+          onChange={(e) => setVideoLengthSec(Number(e.target.value))}
+          className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-3 outline-none focus:border-[#5E5CE6]"
+        >
+          <option value={15}>15 Sekunden</option>
+          <option value={30}>30 Sekunden</option>
+          <option value={45}>45 Sekunden</option>
+          <option value={60}>60 Sekunden</option>
+        </select>
       </div>
 
       <div className="space-y-2">
@@ -96,7 +118,7 @@ export default function UploadPanel() {
           <p className="text-sm text-[#C9CCE1]">Generiertes Skript:</p>
           <pre className="whitespace-pre-wrap text-sm">{result.script}</pre>
           <a className="text-[#9ea2ff] underline" href={result.video_url} target="_blank" rel="noreferrer">
-            Ergebnisvideo oeffnen
+            Ergebnisvideo (MP4, 9:16) oeffnen
           </a>
           <div className="flex flex-wrap gap-3 pt-2">
             <button
