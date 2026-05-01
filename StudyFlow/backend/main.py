@@ -1,8 +1,8 @@
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 import uvicorn
 import os
 import json
@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import uuid
+import requests
 
 try:
     from dotenv import load_dotenv
@@ -70,6 +71,10 @@ _PODCAST_JOB_MAX = 256
 _ELABORATION_JOBS: dict = {}
 _ELABORATION_JOBS_LOCK = threading.Lock()
 _ELABORATION_JOB_MAX = 256
+# Marketing-Hub: temporäre Render-Ergebnisse im Speicher.
+_MARKETING_EXPORTS: Dict[str, Dict[str, Any]] = {}
+_MARKETING_EXPORTS_LOCK = threading.Lock()
+_MARKETING_EXPORT_TTL_SEC = 60 * 30
 # Multi-Instance: optional ai_background_jobs in Supabase (siehe supabase/migrations); Status-GET liest DB zuerst.
 
 
@@ -2856,6 +2861,134 @@ def learning_video_job_status(job_id: str, username: str):
         if st == "pending":
             return {"status": "pending"}
     raise HTTPException(status_code=404, detail="Unbekannter oder abgelaufener Auftrag.")
+
+
+def _marketing_prune_exports() -> None:
+    now_ts = time.time()
+    stale_ids = []
+    with _MARKETING_EXPORTS_LOCK:
+        for export_id, payload in _MARKETING_EXPORTS.items():
+            if now_ts - float(payload.get("created_at", now_ts)) > _MARKETING_EXPORT_TTL_SEC:
+                stale_ids.append(export_id)
+        for export_id in stale_ids:
+            _MARKETING_EXPORTS.pop(export_id, None)
+
+
+def _marketing_generate_script(bulletpoints: str) -> str:
+    intro = (
+        "Willkommen zum Blop-Devlog! Bleibt dran, wenn ihr sehen wollt, "
+        "welches krasse Feature heute dazugekommen ist!"
+    )
+    outro = (
+        "Was haltet ihr von diesem Feature? Habt ihr noch weitere Ideen fuer Blop? "
+        "Schreibt es mir in die Kommentare!"
+    )
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not key:
+        return f"{intro}\n\nHeute im Devlog:\n{bulletpoints.strip()}\n\n{outro}"
+
+    prompt = (
+        "Schreibe ein kurzes deutsches Devlog-Skript fuer Social Media.\n"
+        "Nutze exakt diese Struktur:\n"
+        "1) Intro-Hook als erste Zeile\n"
+        "2) Hauptteil auf Basis der Stichpunkte\n"
+        "3) Community-CTA als letzte Zeile\n\n"
+        "INTRO (muss woertlich enthalten sein):\n"
+        f"{intro}\n\n"
+        "OUTRO (muss woertlich enthalten sein):\n"
+        f"{outro}\n\n"
+        f"Stichpunkte:\n{bulletpoints.strip()}\n"
+    )
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+        },
+        timeout=120,
+    )
+    if not response.ok:
+        raise HTTPException(status_code=502, detail=f"OpenAI Script-Fehler: {response.text[:300]}")
+    text = (
+        response.json()
+        .get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+        .strip()
+    )
+    if intro not in text:
+        text = f"{intro}\n\n{text}"
+    if outro not in text:
+        text = f"{text}\n\n{outro}"
+    return text
+
+
+@app.post("/api/ai/marketing-short")
+async def create_marketing_short(
+    media: UploadFile = File(...),
+    bulletpoints: str = Form(...),
+):
+    from media_pipeline import combine_media_with_audio_and_hormozi_subtitles, openai_tts_speech_mp3
+
+    if not bulletpoints.strip():
+        raise HTTPException(status_code=400, detail="Stichpunkte fehlen.")
+    if not (media.content_type or "").startswith(("image/", "video/")):
+        raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
+
+    _marketing_prune_exports()
+    with tempfile.TemporaryDirectory(prefix="blop_marketing_") as work_tmp:
+        source_name = Path(media.filename or "upload.bin").name
+        source_path = os.path.join(work_tmp, source_name)
+        with open(source_path, "wb") as f:
+            f.write(await media.read())
+
+        script = _marketing_generate_script(bulletpoints)
+        voice = "alloy"
+        audio_bytes = openai_tts_speech_mp3(script, voice=voice)
+        audio_path = os.path.join(work_tmp, "narration.mp3")
+        with open(audio_path, "wb") as f:
+            f.write(audio_bytes)
+
+        output_path = os.path.join(work_tmp, "marketing_short.mp4")
+        combine_media_with_audio_and_hormozi_subtitles(
+            media_path=source_path,
+            audio_path=audio_path,
+            script_text=script,
+            output_mp4_path=output_path,
+        )
+        with open(output_path, "rb") as f:
+            video_bytes = f.read()
+        export_id = str(uuid.uuid4())
+        with _MARKETING_EXPORTS_LOCK:
+            _MARKETING_EXPORTS[export_id] = {
+                "video_bytes": video_bytes,
+                "script": script,
+                "created_at": time.time(),
+            }
+    return {
+        "script": script,
+        "video_url": f"/api/ai/marketing-short/video/{export_id}",
+        "subtitles_url": f"/api/ai/marketing-short/video/{export_id}",
+    }
+
+
+@app.get("/api/ai/marketing-short/video/{export_id}")
+def get_marketing_short_video(export_id: str):
+    _marketing_prune_exports()
+    with _MARKETING_EXPORTS_LOCK:
+        payload = _MARKETING_EXPORTS.get(export_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Video nicht gefunden oder abgelaufen.")
+    return Response(
+        content=payload["video_bytes"],
+        media_type="video/mp4",
+        headers={"Content-Disposition": f'inline; filename="marketing_short_{export_id}.mp4"'},
+    )
 
 
 if __name__ == "__main__":
