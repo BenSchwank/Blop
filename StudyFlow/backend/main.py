@@ -2940,7 +2940,7 @@ async def create_marketing_short(
         raise HTTPException(status_code=400, detail="Stichpunkte fehlen.")
     if not media_files:
         raise HTTPException(status_code=400, detail="Keine Medien-Dateien erhalten.")
-    normalized_length = max(15, min(90, int(video_length_sec or 30)))
+    normalized_length = max(10, min(45, int(video_length_sec or 20)))
     for media in media_files:
         if not (media.content_type or "").startswith(("image/", "video/")):
             raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")

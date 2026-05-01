@@ -662,9 +662,14 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
     if not os.path.exists(audio_path):
         raise ValueError("Input-Audio-Datei fehlt.")
 
-    target_w = 1080
-    target_h = 1920
-    target_duration = max(15, min(90, int(target_duration_sec or 30)))
+    # Low-memory short-video profile for small Render instances (512MB).
+    # Keep 9:16 but reduce pixel count and bitrate pressure significantly.
+    target_w = 540
+    target_h = 960
+    target_fps = 12
+    target_duration = max(10, min(45, int(target_duration_sec or 20)))
+    max_inputs = 6
+    media_paths = media_paths[:max_inputs]
     segment_duration = max(1.5, float(target_duration) / float(len(media_paths)))
 
     script_lines = [line.strip() for line in (script_text or "").splitlines() if line.strip()]
@@ -705,12 +710,16 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     f"{segment_duration:.3f}",
                     "-vf",
                     vertical_vf,
+                    "-r",
+                    str(target_fps),
                     "-c:v",
                     "libx264",
                     "-preset",
-                    "veryfast",
+                    "ultrafast",
                     "-crf",
-                    "23",
+                    "30",
+                    "-threads",
+                    "1",
                     "-pix_fmt",
                     "yuv420p",
                     "-an",
@@ -728,12 +737,16 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     f"{segment_duration:.3f}",
                     "-vf",
                     vertical_vf,
+                    "-r",
+                    str(target_fps),
                     "-c:v",
                     "libx264",
                     "-preset",
-                    "veryfast",
+                    "ultrafast",
                     "-crf",
-                    "23",
+                    "30",
+                    "-threads",
+                    "1",
                     "-pix_fmt",
                     "yuv420p",
                     "-an",
@@ -761,12 +774,16 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 "0",
                 "-i",
                 concat_list,
+                "-r",
+                str(target_fps),
                 "-c:v",
                 "libx264",
                 "-preset",
-                "veryfast",
+                "ultrafast",
                 "-crf",
-                "23",
+                "30",
+                "-threads",
+                "1",
                 "-pix_fmt",
                 "yuv420p",
                 "-an",
@@ -790,16 +807,20 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 "apad",
                 "-t",
                 str(target_duration),
+                "-r",
+                str(target_fps),
                 "-c:v",
                 "libx264",
                 "-preset",
-                "veryfast",
+                "ultrafast",
                 "-crf",
-                "23",
+                "30",
+                "-threads",
+                "1",
                 "-c:a",
                 "aac",
                 "-b:a",
-                "192k",
+                "96k",
                 "-movflags",
                 "+faststart",
                 output_mp4_path,
