@@ -680,6 +680,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
     script_text: str,
     output_mp4_path: str,
     target_duration_sec: int = 30,
+    emotion: str = "energetic",
 ) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -697,10 +698,16 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
     target_duration = max(10, min(45, int(target_duration_sec or 20)))
     max_inputs = 6
     media_paths = media_paths[:max_inputs]
+    video_inputs = [p for p in media_paths if _has_video_stream(p)]
+    image_inputs = [p for p in media_paths if not _has_video_stream(p)]
+    prioritized_paths = video_inputs + image_inputs
+    if not prioritized_paths:
+        raise ValueError("Keine renderbaren Input-Medien gefunden.")
+    media_paths = prioritized_paths
     segment_duration = max(1.5, float(target_duration) / float(len(media_paths)))
 
     subtitle_chunks = _subtitle_chunks(script_text)
-    chunk_duration = max(0.55, float(target_duration) / float(len(subtitle_chunks)))
+    chunk_duration = max(0.45, float(target_duration) / float(len(subtitle_chunks)))
     subtitle_filters: List[str] = []
     for idx, chunk in enumerate(subtitle_chunks):
         start = idx * chunk_duration
@@ -716,7 +723,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
             "boxcolor=black@0.42:"
             "boxborderw=16:"
             "x=(w-text_w)/2:"
-            "y=h*0.79:"
+            "y=h*0.70:"
             f"enable='between(t,{start:.2f},{end:.2f})'"
         )
     subtitle_chain = ",".join(subtitle_filters)
@@ -732,13 +739,21 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 continue
             segment_path = os.path.join(tmp, f"segment_{idx:03d}.mp4")
             if _has_video_stream(media_path):
+                media_duration = max(1.0, _probe_video_duration_sec(media_path))
+                clip_duration = min(segment_duration, media_duration)
+                clip_start = 0.0
+                if media_duration > clip_duration + 0.2:
+                    slot = (idx * 1.37) % max(0.5, media_duration - clip_duration)
+                    clip_start = max(0.0, slot)
                 cmd = [
                     ffmpeg,
                     "-y",
+                    "-ss",
+                    f"{clip_start:.3f}",
                     "-i",
                     media_path,
                     "-t",
-                    f"{segment_duration:.3f}",
+                    f"{clip_duration:.3f}",
                     "-vf",
                     vertical_vf,
                     "-r",
@@ -803,6 +818,12 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 f.write(f"file '{seg.replace(chr(92), '/')}'\n")
 
         merged_video = os.path.join(tmp, "merged_vertical.mp4")
+        emotion_tempo = {
+            "energetic": "1.16",
+            "confident": "1.1",
+            "calm": "1.02",
+            "dramatic": "1.06",
+        }.get((emotion or "energetic").strip().lower(), "1.16")
         subprocess.run(
             [
                 ffmpeg,
@@ -843,7 +864,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 "-i",
                 audio_path,
                 "-af",
-                "apad",
+                f"atempo={emotion_tempo},loudnorm=I=-16:TP=-1.5:LRA=11,apad",
                 "-t",
                 str(target_duration),
                 "-r",

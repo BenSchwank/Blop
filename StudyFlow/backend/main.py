@@ -2965,6 +2965,12 @@ async def create_marketing_short(
     if not media_files:
         raise HTTPException(status_code=400, detail="Keine Medien-Dateien erhalten.")
     normalized_length = max(10, min(45, int(video_length_sec or 20)))
+    normalized_language = (language or "de").strip().lower()
+    if normalized_language not in {"de", "en", "tr", "es"}:
+        normalized_language = "de"
+    normalized_emotion = (emotion or "energetic").strip().lower()
+    if normalized_emotion not in {"energetic", "confident", "calm", "dramatic"}:
+        normalized_emotion = "energetic"
     for media in media_files:
         if not (media.content_type or "").startswith(("image/", "video/")):
             raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
@@ -2979,15 +2985,15 @@ async def create_marketing_short(
                 f.write(await media.read())
             source_paths.append(source_path)
 
-        script = _marketing_generate_script(bulletpoints, language)
+        script = _marketing_generate_script(bulletpoints, normalized_language)
         voice = "onyx"
         emotion_map = {
-            "energetic": "Energetic, expressive and engaging delivery with clear emphasis.",
-            "confident": "Confident and clear delivery with strong pacing and authority.",
+            "energetic": "Male voice, fast and energetic, modern creator style, expressive emphasis, short pauses.",
+            "confident": "Male voice, confident and clear, medium-fast pace, charismatic and natural.",
             "calm": "Calm, smooth and warm delivery with soft dynamics.",
             "dramatic": "Dramatic, emotionally intense delivery with dynamic emphasis.",
         }
-        tts_instruction = emotion_map.get(emotion, emotion_map["energetic"])
+        tts_instruction = emotion_map.get(normalized_emotion, emotion_map["energetic"])
         audio_bytes = openai_tts_speech_mp3(script, voice=voice, instructions=tts_instruction)
         audio_path = os.path.join(work_tmp, "narration.mp3")
         with open(audio_path, "wb") as f:
@@ -3000,6 +3006,7 @@ async def create_marketing_short(
             script_text=script,
             output_mp4_path=output_path,
             target_duration_sec=normalized_length,
+            emotion=normalized_emotion,
         )
         with open(output_path, "rb") as f:
             video_bytes = f.read()
