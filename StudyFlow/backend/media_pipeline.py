@@ -113,6 +113,23 @@ def openai_tts_speech_mp3(text: str, voice: str = "alloy", instructions: Optiona
     return _concat_mp3_ffmpeg(mp3_parts)
 
 
+def openai_tts_speech_mp3_concat_segments(
+    segments: List[Tuple[str, str]],
+    voice: str = "alloy",
+) -> bytes:
+    """Concatenate multiple TTS segments (text, instructions) into one MP3."""
+    parts: List[bytes] = []
+    for text, instructions in segments:
+        if not (text or "").strip():
+            continue
+        parts.append(openai_tts_speech_mp3(text, voice=voice, instructions=instructions))
+    if not parts:
+        raise ValueError("Keine TTS-Segmente erzeugt.")
+    if len(parts) == 1:
+        return parts[0]
+    return _concat_mp3_ffmpeg(parts)
+
+
 def _concat_mp3_ffmpeg(parts: List[bytes]) -> bytes:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -674,6 +691,201 @@ def _has_video_stream(path: str) -> bool:
     return "video" in (probe.stdout or "").strip().lower()
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = (os.environ.get(name, "") or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _marketing_emotion_tempo(emotion: str) -> str:
+    # Gentler atempo keeps speech more natural (aggressive values feel "robotic").
+    return {
+        "energetic": "1.08",
+        "confident": "1.05",
+        "calm": "1.0",
+        "dramatic": "1.04",
+    }.get((emotion or "energetic").strip().lower(), "1.08")
+
+
+def _marketing_audio_filter_complex_from(speech_in: str, emotion: str, render_seconds: float) -> str:
+    """Return an ffmpeg filter_complex fragment ending at labeled output [aout]."""
+    tempo = _marketing_emotion_tempo(emotion)
+    base = f"atempo={tempo},loudnorm=I=-16.5:TP=-1.2:LRA=11,apad"
+    if not _env_flag("MARKETING_VOICE_HUMANIZE", False):
+        return f"{speech_in}{base}[aout]"
+    d = max(2.0, min(120.0, float(render_seconds or 20.0) + 2.0))
+    # Very subtle bed; if anoisesrc is unavailable, ffmpeg will fail — keep behind env flag.
+    return (
+        f"anoisesrc=d={d:.1f}:c=pink:r=48000:a=0.00012[bed];"
+        f"{speech_in}{base}[vo];"
+        f"[bed][vo]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+    )
+
+
+def _marketing_merge_audio_video_fc(video_fc: str, speech_in: str, emotion: str, render_seconds: float) -> str:
+    afc = _marketing_audio_filter_complex_from(speech_in, emotion, render_seconds)
+    return f"{video_fc};{afc}"
+
+
+def _marketing_subtitle_chain_for_window(
+    script_text: str,
+    window_start: float,
+    window_end: float,
+) -> str:
+    subtitle_chunks = _subtitle_chunks(script_text)
+    if not subtitle_chunks:
+        return ""
+    span = max(0.35, float(window_end) - float(window_start))
+    chunk_duration = max(0.45, span / float(len(subtitle_chunks)))
+    subtitle_filters: List[str] = []
+    for idx, chunk in enumerate(subtitle_chunks):
+        start = float(window_start) + idx * chunk_duration
+        end = min(float(window_end), start + chunk_duration + 0.18)
+        if start >= window_end:
+            break
+        subtitle_filters.append(
+            "drawtext="
+            f"text='{_escape_drawtext(chunk)}':"
+            "fontcolor=white:"
+            "fontsize=h*0.08:"
+            "borderw=3:"
+            "bordercolor=black@0.88:"
+            "box=1:"
+            "boxcolor=black@0.42:"
+            "boxborderw=16:"
+            "x=(w-text_w)/2:"
+            "y=h*0.70:"
+            f"enable='between(t,{start:.2f},{end:.2f})'"
+        )
+    return ",".join(subtitle_filters) if subtitle_filters else ""
+
+
+def _whiteboard_summary_lines(bulletpoints: str, script_text: str, max_lines: int = 6) -> List[str]:
+    raw_lines = [ln.strip(" \t-*•\u2022") for ln in (bulletpoints or "").splitlines()]
+    lines = [ln for ln in raw_lines if ln]
+    if len(lines) < 3:
+        fallback = [s.strip() for s in re.split(r"(?<=[.!?])\s+", (script_text or "").strip()) if s.strip()]
+        for s in fallback:
+            if s not in lines:
+                lines.append(s)
+            if len(lines) >= max_lines:
+                break
+    if not lines:
+        lines = ["Blop Devlog", "Update", "Community"]
+    return lines[:max_lines]
+
+
+def render_marketing_whiteboard_short(
+    image_paths: List[str],
+    bulletpoints: str,
+    script_text: str,
+    audio_path: str,
+    output_mp4_path: str,
+    target_duration_sec: int = 30,
+    emotion: str = "energetic",
+) -> None:
+    """Image-only marketing short: dark gradient + grain + Ken Burns + kinetic summary text."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg nicht gefunden.")
+    if not image_paths:
+        raise ValueError("Keine Bilder fuer Whiteboard-Render.")
+    if not os.path.exists(audio_path):
+        raise ValueError("Input-Audio-Datei fehlt.")
+
+    target_w = 540
+    target_h = 960
+    target_fps = 12
+    target_duration = max(10, min(45, int(target_duration_sec or 20)))
+    audio_dur = max(0.1, _audio_duration_sec(audio_path))
+    render_dur = min(float(target_duration), audio_dur + 0.25)
+
+    hero_path = image_paths[0]
+    if not os.path.exists(hero_path):
+        raise ValueError("Hero-Bild fehlt.")
+
+    summary_lines = _whiteboard_summary_lines(bulletpoints, script_text, max_lines=6)
+    phase = max(1.2, render_dur / float(len(summary_lines)))
+
+    kinetic_filters: List[str] = []
+    for i, line in enumerate(summary_lines):
+        t0 = i * phase
+        t1 = min(render_dur, t0 + phase)
+        esc = _escape_drawtext(line[:120])
+        y_base = 0.18 + 0.02 * float(i)
+        kinetic_filters.append(
+            "drawtext="
+            f"text='{esc}':"
+            "fontcolor=white:"
+            "fontsize='h*(0.065+0.01*sin(2*PI*t/3))':"
+            "borderw=3:"
+            "bordercolor=black@0.9:"
+            "box=1:"
+            "boxcolor=black@0.45:"
+            "boxborderw=14:"
+            "x=(w-text_w)/2:"
+            f"y='h*({y_base:.3f}+0.01*sin(2*PI*t/2.2))'"
+            + f":enable='between(t,{t0:.2f},{t1:.2f})'"
+        )
+
+    frames = max(3, int(round(render_dur * float(target_fps))))
+    sub_chain = _marketing_subtitle_chain_for_window(script_text, 0.0, float(render_dur))
+    sub_part = f",{sub_chain}" if sub_chain else ""
+    kin_part = f",{','.join(kinetic_filters)}" if kinetic_filters else ""
+    vf_graph = (
+        f"[0:v]scale={target_w * 2}:-2,"
+        f"zoompan=z='min(zoom+0.0016,1.10)':d={frames}:"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"s={target_w}x{target_h}:fps={target_fps},format=yuv420p[fg];"
+        f"color=c=#070b12:s={target_w}x{target_h}:d={render_dur},format=yuv420p[bg0];"
+        f"[bg0]noise=alls=6:allf=t+u,format=yuv420p[bg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2:format=auto"
+        f"{sub_part}"
+        f"{kin_part},"
+        f"format=yuv420p[vout]"
+    )
+
+    fc = _marketing_merge_audio_video_fc(vf_graph, "[1:a]", emotion, render_dur)
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-loop",
+        "1",
+        "-i",
+        hero_path,
+        "-i",
+        audio_path,
+        "-filter_complex",
+        fc,
+        "-map",
+        "[vout]",
+        "-map",
+        "[aout]",
+        "-t",
+        f"{render_dur:.3f}",
+        "-r",
+        str(target_fps),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "30",
+        "-threads",
+        "1",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        "-movflags",
+        "+faststart",
+        output_mp4_path,
+    ]
+
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
 def combine_media_sequence_with_audio_and_hormozi_subtitles(
     media_paths: List[str],
     audio_path: str,
@@ -704,47 +916,97 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
     if not prioritized_paths:
         raise ValueError("Keine renderbaren Input-Medien gefunden.")
     media_paths = prioritized_paths
-    segment_duration = max(1.5, float(target_duration) / float(len(media_paths)))
 
-    subtitle_chunks = _subtitle_chunks(script_text)
-    chunk_duration = max(0.45, float(target_duration) / float(len(subtitle_chunks)))
-    subtitle_filters: List[str] = []
-    for idx, chunk in enumerate(subtitle_chunks):
-        start = idx * chunk_duration
-        end = min(float(target_duration), start + chunk_duration + 0.18)
-        subtitle_filters.append(
-            "drawtext="
-            f"text='{_escape_drawtext(chunk)}':"
-            "fontcolor=white:"
-            "fontsize=h*0.08:"
-            "borderw=3:"
-            "bordercolor=black@0.88:"
-            "box=1:"
-            "boxcolor=black@0.42:"
-            "boxborderw=16:"
-            "x=(w-text_w)/2:"
-            "y=h*0.70:"
-            f"enable='between(t,{start:.2f},{end:.2f})'"
-        )
-    subtitle_chain = ",".join(subtitle_filters)
-    vertical_vf = (
-        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
-        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,{subtitle_chain}"
-    )
+    mixed = bool(video_inputs and image_inputs)
+    if video_inputs:
+        video_budget = float(target_duration) * (0.70 if mixed else 1.0)
+        image_budget = float(target_duration) * (0.30 if mixed else 0.0)
+    else:
+        # Images-only longer reels: still use motion slides for the full duration.
+        video_budget = 0.0
+        image_budget = float(target_duration)
+
+    timeline: List[Tuple[str, str, float, float]] = []
+    # tuple: (kind, path, duration, start_offset_for_video)
+
+    if video_inputs:
+        n_slots = min(8, max(3, int(round(video_budget / max(2.0, target_duration / 6.0)))))
+        per = max(1.2, video_budget / float(n_slots))
+        v_cycle = list(video_inputs)
+        for s in range(n_slots):
+            path = v_cycle[s % len(v_cycle)]
+            dur = max(1.0, min(per, max(1.0, _probe_video_duration_sec(path) * 0.45)))
+            media_duration = max(1.0, _probe_video_duration_sec(path))
+            dur = min(dur, media_duration)
+            span = max(0.0, media_duration - dur)
+            start = 0.0
+            if span > 0.05:
+                start = min(span, (s * 0.6180339887 * max(1.0, media_duration / max(1, n_slots))) % span)
+            timeline.append(("video", path, float(dur), float(start)))
+
+    if image_inputs and image_budget > 0.25:
+        share = max(1.0, image_budget / float(len(image_inputs)))
+        for img in image_inputs:
+            timeline.append(("image", img, float(min(5.0, max(1.0, share))), 0.0))
+
+    if not timeline:
+        raise RuntimeError("Keine Timeline-Slots erzeugt.")
+
+    total_planned = sum(d for _, _, d, _ in timeline)
+    if total_planned > target_duration + 0.05:
+        scale = float(target_duration) / total_planned
+        timeline = [(k, p, d * scale, ss) for k, p, d, ss in timeline]
+    elif total_planned < target_duration - 0.15:
+        deficit = float(target_duration) - total_planned
+        # Stretch last video slot if possible, else last entry.
+        for i in range(len(timeline) - 1, -1, -1):
+            kind, path, dur, start = timeline[i]
+            if kind != "video":
+                continue
+            media_duration = max(1.0, _probe_video_duration_sec(path))
+            room = max(0.0, media_duration - start - dur)
+            add = min(deficit, room)
+            if add > 0.05:
+                nd = dur + add
+                timeline[i] = (kind, path, nd, start)
+                deficit -= add
+                break
+        if deficit > 0.15:
+            k, p, d, ss = timeline[-1]
+            timeline[-1] = (k, p, d + deficit, ss)
+
+    videos = [t for t in timeline if t[0] == "video"]
+    images = [t for t in timeline if t[0] == "image"]
+    ordered: List[Tuple[str, str, float, float]] = []
+    if videos and images:
+        vi = ii = 0
+        while vi < len(videos) or ii < len(images):
+            if vi < len(videos):
+                ordered.append(videos[vi])
+                vi += 1
+            if ii < len(images):
+                ordered.append(images[ii])
+                ii += 1
+    else:
+        ordered = list(timeline)
 
     with tempfile.TemporaryDirectory(prefix="blop_marketing_segments_") as tmp:
         segment_paths: List[str] = []
-        for idx, media_path in enumerate(media_paths):
+        t_cursor = 0.0
+        for idx, (kind, media_path, seg_dur, clip_start) in enumerate(ordered):
             if not os.path.exists(media_path):
                 continue
             segment_path = os.path.join(tmp, f"segment_{idx:03d}.mp4")
-            if _has_video_stream(media_path):
-                media_duration = max(1.0, _probe_video_duration_sec(media_path))
-                clip_duration = min(segment_duration, media_duration)
-                clip_start = 0.0
-                if media_duration > clip_duration + 0.2:
-                    slot = (idx * 1.37) % max(0.5, media_duration - clip_duration)
-                    clip_start = max(0.0, slot)
+            win0 = t_cursor
+            win1 = t_cursor + float(seg_dur)
+            subtitle_chain = _marketing_subtitle_chain_for_window(script_text, win0, win1)
+            sub_suffix = f",{subtitle_chain}" if subtitle_chain else ""
+            vertical_vf = (
+                f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+                f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+                f"{sub_suffix}"
+            )
+            if kind == "video":
                 cmd = [
                     ffmpeg,
                     "-y",
@@ -753,7 +1015,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     "-i",
                     media_path,
                     "-t",
-                    f"{clip_duration:.3f}",
+                    f"{seg_dur:.3f}",
                     "-vf",
                     vertical_vf,
                     "-r",
@@ -772,7 +1034,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     segment_path,
                 ]
             else:
-                image_frames = max(3, int(round(segment_duration * float(target_fps))))
+                image_frames = max(3, int(round(float(seg_dur) * float(target_fps))))
                 image_motion_vf = (
                     f"scale={target_w * 2}:-2,"
                     f"zoompan=z='min(zoom+0.0022,1.12)':d={image_frames}:"
@@ -788,7 +1050,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                     "-i",
                     media_path,
                     "-t",
-                    f"{segment_duration:.3f}",
+                    f"{seg_dur:.3f}",
                     "-vf",
                     image_motion_vf,
                     "-r",
@@ -808,6 +1070,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 ]
             subprocess.run(cmd, check=True, capture_output=True)
             segment_paths.append(segment_path)
+            t_cursor += float(seg_dur)
 
         if not segment_paths:
             raise RuntimeError("Keine renderbaren Media-Segmente erzeugt.")
@@ -818,12 +1081,6 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 f.write(f"file '{seg.replace(chr(92), '/')}'\n")
 
         merged_video = os.path.join(tmp, "merged_vertical.mp4")
-        emotion_tempo = {
-            "energetic": "1.16",
-            "confident": "1.1",
-            "calm": "1.02",
-            "dramatic": "1.06",
-        }.get((emotion or "energetic").strip().lower(), "1.16")
         subprocess.run(
             [
                 ffmpeg,
@@ -853,6 +1110,7 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
             capture_output=True,
         )
 
+        afc = _marketing_audio_filter_complex_from("[1:a]", emotion, float(target_duration))
         subprocess.run(
             [
                 ffmpeg,
@@ -863,8 +1121,12 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
                 merged_video,
                 "-i",
                 audio_path,
-                "-af",
-                f"atempo={emotion_tempo},loudnorm=I=-16:TP=-1.5:LRA=11,apad",
+                "-filter_complex",
+                afc,
+                "-map",
+                "0:v",
+                "-map",
+                "[aout]",
                 "-t",
                 str(target_duration),
                 "-r",

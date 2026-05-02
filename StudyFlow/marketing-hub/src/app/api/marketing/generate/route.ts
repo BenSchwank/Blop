@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
     const videoLengthSec = Number(formData.get("video_length_sec") ?? 30);
     const languageRaw = String(formData.get("language") ?? "de").trim().toLowerCase();
     const emotionRaw = String(formData.get("emotion") ?? "energetic").trim().toLowerCase();
+    const marketingAutoModeRaw = String(formData.get("marketing_auto_mode") ?? "1").trim();
     const language = ["de", "en", "tr", "es"].includes(languageRaw) ? languageRaw : "de";
     const emotion = ["energetic", "confident", "calm", "dramatic"].includes(emotionRaw)
       ? emotionRaw
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest) {
     backendForm.append("video_length_sec", String(Number.isFinite(videoLengthSec) ? videoLengthSec : 30));
     backendForm.append("language", language);
     backendForm.append("emotion", emotion);
+    backendForm.append("marketing_auto_mode", ["0", "1"].includes(marketingAutoModeRaw) ? marketingAutoModeRaw : "1");
     const response = await fetch(`${backendUrl}/api/ai/marketing-short`, {
       method: "POST",
       body: backendForm,
