@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTa
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import uvicorn
 import os
 import json
@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 import requests
+import re
 
 try:
     from dotenv import load_dotenv
@@ -2911,6 +2912,8 @@ def _marketing_generate_script(bulletpoints: str, language: str) -> str:
 
     prompt = (
         f"Schreibe ein kurzes Devlog-Skript fuer Social Media in {copy['name']}.\n"
+        "Schreibstil: natuerlich gesprochen, wie ein echter Creator — kurze Saetze, leichte Umgangssprache, "
+        "keine steifen Formulierungen wie 'es soll'/'man soll'. Vermeide KI-Floskeln.\n"
         "Nutze exakt diese Struktur:\n"
         "1) Intro-Hook als erste Zeile\n"
         "2) Hauptteil auf Basis der Stichpunkte\n"
@@ -2950,6 +2953,54 @@ def _marketing_generate_script(bulletpoints: str, language: str) -> str:
     return text
 
 
+def _marketing_split_script_for_tts(script: str, max_segments: int = 10) -> List[str]:
+    text = (script or "").strip()
+    if not text:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    cleaned = [p.strip() for p in parts if p.strip()]
+    if not cleaned:
+        return [text]
+    if len(cleaned) <= max_segments:
+        return cleaned
+    merged: List[str] = []
+    bucket = ""
+    for p in cleaned:
+        if not bucket:
+            bucket = p
+            continue
+        if len(bucket) + 1 + len(p) < 420:
+            bucket = f"{bucket} {p}"
+        else:
+            merged.append(bucket)
+            bucket = p
+    if bucket:
+        merged.append(bucket)
+    return merged[:max_segments]
+
+
+def _marketing_tts_segment_instructions(emotion: str, idx: int, total: int) -> str:
+    emotion_map = {
+        "energetic": "Male voice, conversational creator tone, energetic but still human, micro-variations in emphasis.",
+        "confident": "Male voice, confident and friendly, natural pacing, subtle smile in the voice.",
+        "calm": "Male voice, calm and warm, natural pauses, intimate podcast vibe.",
+        "dramatic": "Male voice, dramatic but still believable, cinematic emphasis without sounding robotic.",
+    }
+    base = emotion_map.get((emotion or "energetic").strip().lower(), emotion_map["energetic"])
+    hooks = [
+        "Start slightly excited, then settle into clear storytelling.",
+        "Lean into curiosity on key words; keep it punchy.",
+        "Use a tiny pause before the biggest claim.",
+        "Sound like you are talking to a friend, not reading a script.",
+    ]
+    tail = [
+        "End this segment with forward momentum into the next idea.",
+        "Keep consonants crisp but not over-articulated.",
+        "Avoid monotone; vary energy slightly across the sentence.",
+    ]
+    return f"{base} {hooks[idx % len(hooks)]} {tail[(idx + total) % len(tail)]}"
+
+
 @app.post("/api/ai/marketing-short")
 async def create_marketing_short(
     media_files: List[UploadFile] = File(...),
@@ -2957,8 +3008,14 @@ async def create_marketing_short(
     video_length_sec: int = Form(30),
     language: str = Form("de"),
     emotion: str = Form("energetic"),
+    marketing_auto_mode: str = Form("1"),
 ):
-    from media_pipeline import combine_media_sequence_with_audio_and_hormozi_subtitles, openai_tts_speech_mp3
+    from media_pipeline import (
+        _has_video_stream,
+        combine_media_sequence_with_audio_and_hormozi_subtitles,
+        openai_tts_speech_mp3_concat_segments,
+        render_marketing_whiteboard_short,
+    )
 
     if not bulletpoints.strip():
         raise HTTPException(status_code=400, detail="Stichpunkte fehlen.")
@@ -2971,6 +3028,8 @@ async def create_marketing_short(
     normalized_emotion = (emotion or "energetic").strip().lower()
     if normalized_emotion not in {"energetic", "confident", "calm", "dramatic"}:
         normalized_emotion = "energetic"
+    auto_raw = (marketing_auto_mode or "1").strip().lower()
+    auto_mode = auto_raw not in {"0", "false", "no", "off"}
     for media in media_files:
         if not (media.content_type or "").startswith(("image/", "video/")):
             raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
@@ -2987,27 +3046,37 @@ async def create_marketing_short(
 
         script = _marketing_generate_script(bulletpoints, normalized_language)
         voice = "onyx"
-        emotion_map = {
-            "energetic": "Male voice, fast and energetic, modern creator style, expressive emphasis, short pauses.",
-            "confident": "Male voice, confident and clear, medium-fast pace, charismatic and natural.",
-            "calm": "Calm, smooth and warm delivery with soft dynamics.",
-            "dramatic": "Dramatic, emotionally intense delivery with dynamic emphasis.",
-        }
-        tts_instruction = emotion_map.get(normalized_emotion, emotion_map["energetic"])
-        audio_bytes = openai_tts_speech_mp3(script, voice=voice, instructions=tts_instruction)
+        segments = _marketing_split_script_for_tts(script)
+        tts_pairs: List[Tuple[str, str]] = []
+        total_seg = len(segments) or 1
+        for i, seg in enumerate(segments or [script]):
+            tts_pairs.append((seg, _marketing_tts_segment_instructions(normalized_emotion, i, total_seg)))
+        audio_bytes = openai_tts_speech_mp3_concat_segments(tts_pairs, voice=voice)
         audio_path = os.path.join(work_tmp, "narration.mp3")
         with open(audio_path, "wb") as f:
             f.write(audio_bytes)
 
         output_path = os.path.join(work_tmp, "marketing_short.mp4")
-        combine_media_sequence_with_audio_and_hormozi_subtitles(
-            media_paths=source_paths,
-            audio_path=audio_path,
-            script_text=script,
-            output_mp4_path=output_path,
-            target_duration_sec=normalized_length,
-            emotion=normalized_emotion,
-        )
+        all_images = all(not _has_video_stream(p) for p in source_paths)
+        if len(source_paths) <= 2 and all_images and auto_mode:
+            render_marketing_whiteboard_short(
+                image_paths=source_paths,
+                bulletpoints=bulletpoints,
+                script_text=script,
+                audio_path=audio_path,
+                output_mp4_path=output_path,
+                target_duration_sec=normalized_length,
+                emotion=normalized_emotion,
+            )
+        else:
+            combine_media_sequence_with_audio_and_hormozi_subtitles(
+                media_paths=source_paths,
+                audio_path=audio_path,
+                script_text=script,
+                output_mp4_path=output_path,
+                target_duration_sec=normalized_length,
+                emotion=normalized_emotion,
+            )
         with open(output_path, "rb") as f:
             video_bytes = f.read()
         export_id = str(uuid.uuid4())

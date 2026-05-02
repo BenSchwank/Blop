@@ -14,6 +14,7 @@ export default function UploadPanel() {
   const [videoLengthSec, setVideoLengthSec] = useState(30);
   const [language, setLanguage] = useState("de");
   const [emotion, setEmotion] = useState("energetic");
+  const [autoComposition, setAutoComposition] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<GenerationResponse | null>(null);
@@ -39,6 +40,7 @@ export default function UploadPanel() {
       form.append("video_length_sec", String(videoLengthSec));
       form.append("language", language);
       form.append("emotion", emotion);
+      form.append("marketing_auto_mode", autoComposition ? "1" : "0");
       const response = await fetch("/api/marketing/generate", { method: "POST", body: form });
       const body = (await response.json()) as GenerationResponse & { detail?: string };
       if (!response.ok) {
@@ -81,6 +83,19 @@ export default function UploadPanel() {
         <p className="text-xs text-[#A9ADC8]">
           {mediaFiles.length ? `${mediaFiles.length} Datei(en) ausgewaehlt` : "Keine Datei ausgewaehlt"}
         </p>
+        <label className="flex items-start gap-3 text-xs text-[#A9ADC8]">
+          <input
+            type="checkbox"
+            checked={autoComposition}
+            onChange={(e) => setAutoComposition(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <span className="font-semibold text-[#C9CCE1]">Auto-Modus</span> (Standard: an): 1–2 Bilder werden als
+            Whiteboard/Kinetic-Text gerendert; Video+Bilder werden video-lastig gemischt (B-Roll). Aus = klassischer
+            Slideshow-Pfad fuer Bilder.
+          </span>
+        </label>
       </div>
 
       <div className="space-y-2">
