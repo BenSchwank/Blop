@@ -2022,7 +2022,9 @@ def _get_folder_context(username: str, folder_id: str, included_file_ids: Option
             try:
                 # Get local path
                 debug_log.append(f"Fetching PDF path for {f_name}")
-                pdf_path = DataManager.get_pdf_path(f_name, username, folder_id)
+                pdf_path = DataManager.get_pdf_path(
+                    f_name, username, folder_id, file_id=f.get("id")
+                )
                 
                 if pdf_path:
                     if os.path.exists(pdf_path):

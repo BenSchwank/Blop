@@ -484,8 +484,26 @@ class DataManager:
                     path = meta.data[0].get('file_url')
                     if not filename:
                         filename = meta.data[0].get('name') or "dokument.pdf"
-            except Exception:
+            except Exception as e:
+                print(f"get_pdf_path by id: {e}")
                 path = None
+
+        if not path and filename:
+            try:
+                meta = (
+                    db.table("files")
+                    .select("file_url", "name")
+                    .eq("folder_id", str(folder_id))
+                    .eq("username", username)
+                    .eq("type", "pdf")
+                    .eq("name", filename)
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data and len(meta.data) > 0:
+                    path = meta.data[0].get("file_url")
+            except Exception as e:
+                print(f"get_pdf_path name lookup: {e}")
 
         if not path and filename:
             path = f"{username}/{folder_id}/{filename}"
@@ -503,7 +521,8 @@ class DataManager:
             with open(tmp_path, "wb") as f:
                 f.write(res)
             return tmp_path
-        except:
+        except Exception as e:
+            print(f"get_pdf_path download ({path}): {e}")
             return None
 
     @staticmethod
@@ -530,8 +549,26 @@ class DataManager:
                     path = meta.data[0].get('file_url')
                     if not resolved_name:
                         resolved_name = meta.data[0].get('name') or "dokument.pdf"
-            except Exception:
+            except Exception as e:
+                print(f"get_pdf_bytes by id: {e}")
                 path = None
+
+        if not path and filename:
+            try:
+                meta = (
+                    db.table("files")
+                    .select("file_url", "name")
+                    .eq("folder_id", str(folder_id))
+                    .eq("username", username)
+                    .eq("type", "pdf")
+                    .eq("name", filename)
+                    .limit(1)
+                    .execute()
+                )
+                if meta.data and len(meta.data) > 0:
+                    path = meta.data[0].get("file_url")
+            except Exception as e:
+                print(f"get_pdf_bytes name lookup: {e}")
 
         if not path and filename:
             path = f"{username}/{folder_id}/{filename}"
@@ -550,7 +587,8 @@ class DataManager:
             if not isinstance(payload, (bytes, memoryview)):
                 return None, None
             return bytes(payload), (resolved_name or os.path.basename(path) or "dokument.pdf")
-        except Exception:
+        except Exception as e:
+            print(f"get_pdf_bytes download ({path}): {e}")
             return None, None
 
     @staticmethod
