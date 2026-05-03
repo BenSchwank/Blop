@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import UploadPanel from "@/components/UploadPanel";
+import PackPanel from "@/components/PackPanel";
 
 export default function DashboardShell() {
   const router = useRouter();
@@ -24,6 +25,7 @@ export default function DashboardShell() {
         </button>
       </div>
       <UploadPanel />
+      <PackPanel />
     </main>
   );
 }

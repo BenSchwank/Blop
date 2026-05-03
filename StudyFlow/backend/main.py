@@ -3102,10 +3102,97 @@ def get_marketing_short_video(export_id: str):
         payload = _MARKETING_EXPORTS.get(export_id)
     if not payload:
         raise HTTPException(status_code=404, detail="Video nicht gefunden oder abgelaufen.")
+    if payload.get("kind") == "pack_zip":
+        raise HTTPException(status_code=404, detail="Ungueltige Video-ID.")
+    data = payload.get("video_bytes")
+    if not data:
+        raise HTTPException(status_code=404, detail="Video nicht gefunden oder abgelaufen.")
     return Response(
-        content=payload["video_bytes"],
+        content=data,
         media_type="video/mp4",
         headers={"Content-Disposition": f'inline; filename="marketing_short_{export_id}.mp4"'},
+    )
+
+
+@app.post("/api/ai/marketing-pack")
+async def create_marketing_pack(
+    media_files: List[UploadFile] = File(...),
+    bulletpoints: str = Form(""),
+    language: str = Form("de"),
+    emotion: str = Form("energetic"),
+):
+    from marketing_pack import build_marketing_pack
+
+    if not media_files:
+        raise HTTPException(status_code=400, detail="Keine Medien-Dateien erhalten.")
+    normalized_language = (language or "de").strip().lower()
+    if normalized_language not in {"de", "en", "tr", "es"}:
+        normalized_language = "de"
+    normalized_emotion = (emotion or "energetic").strip().lower()
+    if normalized_emotion not in {"energetic", "confident", "calm", "dramatic"}:
+        normalized_emotion = "energetic"
+    for media in media_files:
+        if not (media.content_type or "").startswith(("image/", "video/")):
+            raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
+
+    _marketing_prune_exports()
+    with tempfile.TemporaryDirectory(prefix="blop_marketing_pack_") as work_tmp:
+        source_paths: List[str] = []
+        for idx, media in enumerate(media_files[:6]):
+            source_name = Path(media.filename or f"upload_{idx}.bin").name
+            source_path = os.path.join(work_tmp, f"{idx:02d}_{source_name}")
+            with open(source_path, "wb") as f:
+                f.write(await media.read())
+            source_paths.append(source_path)
+
+        plan_out, zip_bytes, clip_exports = build_marketing_pack(
+            source_paths=source_paths,
+            bulletpoints=bulletpoints or "",
+            language=normalized_language,
+            emotion=normalized_emotion,
+            work_tmp=work_tmp,
+        )
+
+        pack_id = str(uuid.uuid4())
+        now_ts = time.time()
+        clips_list = plan_out.get("clips", [])
+        with _MARKETING_EXPORTS_LOCK:
+            for i, (eid, vid_bytes) in enumerate(clip_exports):
+                clip_meta = clips_list[i] if i < len(clips_list) and isinstance(clips_list[i], dict) else {}
+                script_snip = (clip_meta.get("script") or clip_meta.get("title") or "")[:2000]
+                _MARKETING_EXPORTS[eid] = {
+                    "video_bytes": vid_bytes,
+                    "script": script_snip,
+                    "created_at": now_ts,
+                }
+            _MARKETING_EXPORTS[pack_id] = {
+                "kind": "pack_zip",
+                "zip_bytes": zip_bytes,
+                "created_at": now_ts,
+            }
+
+    return {
+        "material_summary": plan_out.get("material_summary", ""),
+        "extracted_elements": plan_out.get("extracted_elements", []),
+        "clips": plan_out.get("clips", []),
+        "pack_download_url": f"/api/ai/marketing-pack/download/{pack_id}",
+    }
+
+
+@app.get("/api/ai/marketing-pack/download/{pack_id}")
+def download_marketing_pack_zip(pack_id: str):
+    _marketing_prune_exports()
+    with _MARKETING_EXPORTS_LOCK:
+        payload = _MARKETING_EXPORTS.get(pack_id)
+    if not payload or payload.get("kind") != "pack_zip":
+        raise HTTPException(status_code=404, detail="Pack nicht gefunden oder abgelaufen.")
+    zb = payload.get("zip_bytes") or b""
+    if not zb:
+        raise HTTPException(status_code=404, detail="Pack leer oder abgelaufen.")
+    return Response(
+        content=zb,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="marketing_pack_{pack_id}.zip"'},
     )
 
 
