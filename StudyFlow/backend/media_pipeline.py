@@ -1152,6 +1152,200 @@ def combine_media_sequence_with_audio_and_hormozi_subtitles(
         )
 
 
+def _pack_brainrot_text_filters(
+    hook_line: str,
+    list_title: str,
+    list_items: List[str],
+    cta_line: str,
+    duration_sec: float,
+) -> str:
+    """drawtext chain: hook 0-4s, list 4-11s, CTA 11-end."""
+    d = float(duration_sec)
+    parts: List[str] = []
+    esc_hook = _escape_drawtext((hook_line or "")[:80])
+    if esc_hook:
+        parts.append(
+            "drawtext=text='" + esc_hook + "':fontcolor=white:fontsize=h*0.085:borderw=3:bordercolor=black@0.9:"
+            "box=1:boxcolor=#FF00AA@0.35:boxborderw=12:x=(w-text_w)/2:y=h*0.08:"
+            f"enable='between(t,0,4)'"
+        )
+    title_esc = _escape_drawtext((list_title or "Wichtig:")[:48])
+    parts.append(
+        "drawtext=text='" + title_esc + "':fontcolor=#00FFEA:fontsize=h*0.072:borderw=2:bordercolor=black@0.85:"
+        "x=w*0.06:y=h*0.42:"
+        f"enable='between(t,4,11)'"
+    )
+    y0 = 0.50
+    for i, raw in enumerate((list_items or [])[:5]):
+        line = _escape_drawtext((raw or "")[:64])
+        if not line:
+            continue
+        y = y0 + i * 0.065
+        parts.append(
+            f"drawtext=text='{line}':fontcolor=white:fontsize=h*0.055:borderw=2:bordercolor=black@0.88:"
+            f"x=w*0.08:y=h*{y:.3f}:"
+            f"enable='between(t,4,11)'"
+        )
+    esc_cta = _escape_drawtext((cta_line or "")[:90])
+    if esc_cta:
+        parts.append(
+            "drawtext=text='" + esc_cta + "':fontcolor=yellow:fontsize=h*0.078:borderw=3:bordercolor=black@0.9:"
+            "box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=h*0.82:"
+            f"enable='between(t,11,{max(11.1, d - 0.05):.2f})'"
+        )
+    return ",".join(parts) if parts else ""
+
+
+def render_marketing_brainrot_clip(
+    hero_path: str,
+    audio_path: str,
+    output_mp4_path: str,
+    *,
+    clip_script: str,
+    hook_line: str,
+    list_title: str,
+    list_items: List[str],
+    cta_line: str,
+    emotion: str = "energetic",
+    duration_sec: float = 15.0,
+    accent_path: Optional[str] = None,
+) -> None:
+    """15s vertical clip: chaotic neon-ish background, hero overlay, timed list + TTS."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg nicht gefunden.")
+    if not os.path.exists(hero_path) or not os.path.exists(audio_path):
+        raise ValueError("Hero- oder Audio-Datei fehlt.")
+
+    target_w = 540
+    target_h = 960
+    target_fps = 12
+    d = max(5.0, min(20.0, float(duration_sec)))
+
+    sub_chain = _marketing_subtitle_chain_for_window(clip_script, 0.0, d)
+    txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d)
+    overlay_extras: List[str] = []
+    if sub_chain:
+        overlay_extras.append(sub_chain)
+    if txt_chain:
+        overlay_extras.append(txt_chain)
+    post_vm = ("," + ",".join(overlay_extras)) if overlay_extras else ""
+
+    # [0:v] is lavfi color; animate hue/noise + neon boxes.
+    bg_core = (
+        f"[0:v]hue=H='mod(t*95,360)',"
+        f"noise=alls=12:allf=t+u,"
+        f"drawbox=x='40+35*sin(2*t)':y=120:w=220:h=70:color=#FF00CC@0.45:t=fill,"
+        f"drawbox=x='280+40*cos(2.2*t)':y=640:w=180:h=50:color=#00FFCC@0.4:t=fill,"
+        f"drawbox=x=200:y='500+30*sin(3*t)':w=10:h=220:color=#FFFF00@0.55:t=fill,"
+        f"format=yuv420p[bg]"
+    )
+
+    acc_in = accent_path and os.path.isfile(accent_path)
+    if acc_in:
+        vf_graph = (
+            f"{bg_core};"
+            f"[1:v]scale=460:-1,format=yuv420p[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=auto[vm];"
+            f"[2:v]scale=130:-1,format=yuv420p[acc];"
+            f"[vm][acc]overlay=W-w-20:H-h-160:format=auto[vm2];"
+            f"[vm2]{post_vm},format=yuv420p[vout]"
+        )
+        fc = _marketing_merge_audio_video_fc(vf_graph, "[3:a]", emotion, d)
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=#1a0033:s={target_w}x{target_h}:d={d}",
+            "-loop",
+            "1",
+            "-i",
+            hero_path,
+            "-loop",
+            "1",
+            "-i",
+            accent_path,
+            "-i",
+            audio_path,
+            "-filter_complex",
+            fc,
+            "-map",
+            "[vout]",
+            "-map",
+            "[aout]",
+            "-t",
+            f"{d:.3f}",
+            "-r",
+            str(target_fps),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "30",
+            "-threads",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k",
+            "-movflags",
+            "+faststart",
+            output_mp4_path,
+        ]
+    else:
+        vf_graph = (
+            f"{bg_core};"
+            f"[1:v]scale=460:-1,format=yuv420p[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=auto[vm];"
+            f"[vm]{post_vm},format=yuv420p[vout]"
+        )
+        fc = _marketing_merge_audio_video_fc(vf_graph, "[2:a]", emotion, d)
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=#1a0033:s={target_w}x{target_h}:d={d}",
+            "-loop",
+            "1",
+            "-i",
+            hero_path,
+            "-i",
+            audio_path,
+            "-filter_complex",
+            fc,
+            "-map",
+            "[vout]",
+            "-map",
+            "[aout]",
+            "-t",
+            f"{d:.3f}",
+            "-r",
+            str(target_fps),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "30",
+            "-threads",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k",
+            "-movflags",
+            "+faststart",
+            output_mp4_path,
+        ]
+
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
 def _merge_segments_xfade(
     ffmpeg: str,
     segment_paths: List[str],
