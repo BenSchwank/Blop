@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/marketing",
+      "destination": "https://blop-marketinghub.vercel.app/"
+    },
+    {
+      "source": "/marketing/",
+      "destination": "https://blop-marketinghub.vercel.app/"
+    },
+    {
+      "source": "/marketing/:path*",
+      "destination": "https://blop-marketinghub.vercel.app/:path*"
+    },
+    {
+      "source": "/api/marketing/:path*",
+      "destination": "https://blop-marketinghub.vercel.app/api/marketing/:path*"
+    }
+  ]
+}
