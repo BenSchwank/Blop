@@ -12,7 +12,9 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
         if (
             pathname === '/login' ||
             pathname === '/datenschutz' ||
-            pathname === '/auth/reset-password'
+            pathname === '/auth/reset-password' ||
+            pathname === '/marketing' ||
+            pathname.startsWith('/marketing/')
         )
             return;
 
