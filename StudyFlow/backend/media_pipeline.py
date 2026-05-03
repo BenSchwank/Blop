@@ -544,7 +544,44 @@ def _escape_drawtext(value: str) -> str:
     )
 
 
-def _subtitle_chunks(script_text: str, max_words_per_chunk: int = 4, max_chunks: int = 26) -> List[str]:
+def _drawtext_ascii_safe(value: str) -> str:
+    """drawtext in filtergraphs is picky; avoid non-ASCII and argv blowups."""
+    v = (value or "").strip()
+    for a, b in (
+        ("ä", "ae"),
+        ("ö", "oe"),
+        ("ü", "ue"),
+        ("Ä", "Ae"),
+        ("Ö", "Oe"),
+        ("Ü", "Ue"),
+        ("ß", "ss"),
+        ("é", "e"),
+        ("è", "e"),
+        ("ê", "e"),
+        ("à", "a"),
+        ("â", "a"),
+        ("ô", "o"),
+        ("î", "i"),
+        ("ù", "u"),
+        ("ç", "c"),
+        ("ñ", "n"),
+        ("–", "-"),
+        ("—", "-"),
+        ("'", " "),
+        ('"', " "),
+        ("\n", " "),
+    ):
+        v = v.replace(a, b)
+    v = re.sub(r"[^\x20-\x7E]+", " ", v)
+    v = re.sub(r"\s+", " ", v).strip()
+    return _escape_drawtext(v)
+
+
+def _subtitle_chunks(
+    script_text: str,
+    max_words_per_chunk: int = 4,
+    max_chunks: int = 26,
+) -> List[str]:
     tokens = [t.strip() for t in re.split(r"\s+", (script_text or "").strip()) if t.strip()]
     if not tokens:
         return ["BLOP DEVLOG"]
@@ -732,8 +769,15 @@ def _marketing_subtitle_chain_for_window(
     script_text: str,
     window_start: float,
     window_end: float,
+    *,
+    max_chunks: int = 14,
+    max_words_per_chunk: int = 4,
 ) -> str:
-    subtitle_chunks = _subtitle_chunks(script_text)
+    subtitle_chunks = _subtitle_chunks(
+        script_text,
+        max_words_per_chunk=max_words_per_chunk,
+        max_chunks=max_chunks,
+    )
     if not subtitle_chunks:
         return ""
     span = max(0.35, float(window_end) - float(window_start))
@@ -746,7 +790,7 @@ def _marketing_subtitle_chain_for_window(
             break
         subtitle_filters.append(
             "drawtext="
-            f"text='{_escape_drawtext(chunk)}':"
+            f"text='{_drawtext_ascii_safe(chunk)}':"
             "fontcolor=white:"
             "fontsize=h*0.08:"
             "borderw=3:"
@@ -1162,14 +1206,14 @@ def _pack_brainrot_text_filters(
     """drawtext chain: hook 0-4s, list 4-11s, CTA 11-end."""
     d = float(duration_sec)
     parts: List[str] = []
-    esc_hook = _escape_drawtext((hook_line or "")[:80])
+    esc_hook = _drawtext_ascii_safe((hook_line or "")[:80])
     if esc_hook:
         parts.append(
             "drawtext=text='" + esc_hook + "':fontcolor=white:fontsize=h*0.085:borderw=3:bordercolor=black@0.9:"
             "box=1:boxcolor=#FF00AA@0.35:boxborderw=12:x=(w-text_w)/2:y=h*0.08:"
             f"enable='between(t,0,4)'"
         )
-    title_esc = _escape_drawtext((list_title or "Wichtig:")[:48])
+    title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:48])
     parts.append(
         "drawtext=text='" + title_esc + "':fontcolor=#00FFEA:fontsize=h*0.072:borderw=2:bordercolor=black@0.85:"
         "x=w*0.06:y=h*0.42:"
@@ -1177,7 +1221,7 @@ def _pack_brainrot_text_filters(
     )
     y0 = 0.50
     for i, raw in enumerate((list_items or [])[:5]):
-        line = _escape_drawtext((raw or "")[:64])
+        line = _drawtext_ascii_safe((raw or "")[:64])
         if not line:
             continue
         y = y0 + i * 0.065
@@ -1186,7 +1230,7 @@ def _pack_brainrot_text_filters(
             f"x=w*0.08:y=h*{y:.3f}:"
             f"enable='between(t,4,11)'"
         )
-    esc_cta = _escape_drawtext((cta_line or "")[:90])
+    esc_cta = _drawtext_ascii_safe((cta_line or "")[:90])
     if esc_cta:
         parts.append(
             "drawtext=text='" + esc_cta + "':fontcolor=yellow:fontsize=h*0.078:borderw=3:bordercolor=black@0.9:"
@@ -1222,7 +1266,13 @@ def render_marketing_brainrot_clip(
     target_fps = 12
     d = max(5.0, min(20.0, float(duration_sec)))
 
-    sub_chain = _marketing_subtitle_chain_for_window(clip_script, 0.0, d)
+    sub_chain = _marketing_subtitle_chain_for_window(
+        clip_script,
+        0.0,
+        d,
+        max_chunks=10,
+        max_words_per_chunk=3,
+    )
     txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d)
     overlay_extras: List[str] = []
     if sub_chain:
@@ -1246,64 +1296,26 @@ def render_marketing_brainrot_clip(
         vf_graph = (
             f"{bg_core};"
             f"[1:v]scale=460:-1,format=yuv420p[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=auto[vm];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420p[vm];"
             f"[2:v]scale=130:-1,format=yuv420p[acc];"
-            f"[vm][acc]overlay=W-w-20:H-h-160:format=auto[vm2];"
+            f"[vm][acc]overlay=W-w-20:H-h-160:format=yuv420p[vm2];"
             f"[vm2]{post_vm},format=yuv420p[vout]"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[3:a]", emotion, d)
-        cmd = [
-            ffmpeg,
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=c=#1a0033:s={target_w}x{target_h}:d={d}",
-            "-loop",
-            "1",
-            "-i",
-            hero_path,
-            "-loop",
-            "1",
-            "-i",
-            accent_path,
-            "-i",
-            audio_path,
-            "-filter_complex",
-            fc,
-            "-map",
-            "[vout]",
-            "-map",
-            "[aout]",
-            "-t",
-            f"{d:.3f}",
-            "-r",
-            str(target_fps),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "30",
-            "-threads",
-            "1",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "96k",
-            "-movflags",
-            "+faststart",
-            output_mp4_path,
-        ]
     else:
         vf_graph = (
             f"{bg_core};"
             f"[1:v]scale=460:-1,format=yuv420p[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=auto[vm];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420p[vm];"
             f"[vm]{post_vm},format=yuv420p[vout]"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[2:a]", emotion, d)
-        cmd = [
+
+    script_path = os.path.join(os.path.dirname(output_mp4_path), f"_fc_{os.getpid()}.txt")
+    try:
+        with open(script_path, "w", encoding="utf-8") as sf:
+            sf.write(fc)
+        cmd_base = [
             ffmpeg,
             "-y",
             "-f",
@@ -1314,36 +1326,49 @@ def render_marketing_brainrot_clip(
             "1",
             "-i",
             hero_path,
-            "-i",
-            audio_path,
-            "-filter_complex",
-            fc,
-            "-map",
-            "[vout]",
-            "-map",
-            "[aout]",
-            "-t",
-            f"{d:.3f}",
-            "-r",
-            str(target_fps),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "30",
-            "-threads",
-            "1",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "96k",
-            "-movflags",
-            "+faststart",
-            output_mp4_path,
         ]
-
-    subprocess.run(cmd, check=True, capture_output=True)
+        if acc_in:
+            cmd_base.extend(["-loop", "1", "-i", accent_path])
+        cmd_base.extend(
+            [
+                "-i",
+                audio_path,
+                "-filter_complex_script",
+                script_path,
+                "-map",
+                "[vout]",
+                "-map",
+                "[aout]",
+                "-t",
+                f"{d:.3f}",
+                "-r",
+                str(target_fps),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "30",
+                "-threads",
+                "1",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-movflags",
+                "+faststart",
+                output_mp4_path,
+            ]
+        )
+        proc = subprocess.run(cmd_base, check=False, capture_output=True, text=True)
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "")[-4000:]
+            raise RuntimeError(f"ffmpeg brainrot clip failed ({proc.returncode}): {err}")
+    finally:
+        try:
+            os.unlink(script_path)
+        except OSError:
+            pass
 
 
 def _merge_segments_xfade(
