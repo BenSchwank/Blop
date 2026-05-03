@@ -3136,24 +3136,25 @@ async def create_marketing_pack(
             raise HTTPException(status_code=400, detail="Nur Bild/Video Upload erlaubt.")
 
     _marketing_prune_exports()
-    with tempfile.TemporaryDirectory(prefix="blop_marketing_pack_") as work_tmp:
-        source_paths: List[str] = []
-        for idx, media in enumerate(media_files[:6]):
-            source_name = Path(media.filename or f"upload_{idx}.bin").name
-            source_path = os.path.join(work_tmp, f"{idx:02d}_{source_name}")
-            with open(source_path, "wb") as f:
-                f.write(await media.read())
-            source_paths.append(source_path)
+    try:
+        with tempfile.TemporaryDirectory(prefix="blop_marketing_pack_") as work_tmp:
+            source_paths: List[str] = []
+            for idx, media in enumerate(media_files[:6]):
+                source_name = Path(media.filename or f"upload_{idx}.bin").name
+                source_path = os.path.join(work_tmp, f"{idx:02d}_{source_name}")
+                with open(source_path, "wb") as f:
+                    f.write(await media.read())
+                source_paths.append(source_path)
 
-        plan_out, zip_bytes, clip_exports = build_marketing_pack(
-            source_paths=source_paths,
-            bulletpoints=bulletpoints or "",
-            language=normalized_language,
-            emotion=normalized_emotion,
-            work_tmp=work_tmp,
-        )
+            plan_out, zip_bytes, clip_exports = build_marketing_pack(
+                source_paths=source_paths,
+                bulletpoints=bulletpoints or "",
+                language=normalized_language,
+                emotion=normalized_emotion,
+                work_tmp=work_tmp,
+            )
 
-        pack_id = str(uuid.uuid4())
+            pack_id = str(uuid.uuid4())
         now_ts = time.time()
         clips_list = plan_out.get("clips", [])
         with _MARKETING_EXPORTS_LOCK:
@@ -3171,12 +3172,17 @@ async def create_marketing_pack(
                 "created_at": now_ts,
             }
 
-    return {
-        "material_summary": plan_out.get("material_summary", ""),
-        "extracted_elements": plan_out.get("extracted_elements", []),
-        "clips": plan_out.get("clips", []),
-        "pack_download_url": f"/api/ai/marketing-pack/download/{pack_id}",
-    }
+        return {
+            "material_summary": plan_out.get("material_summary", ""),
+            "extracted_elements": plan_out.get("extracted_elements", []),
+            "clips": plan_out.get("clips", []),
+            "pack_download_url": f"/api/ai/marketing-pack/download/{pack_id}",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        msg = str(e).strip() or type(e).__name__
+        raise HTTPException(status_code=500, detail=f"Marketing-Pack Fehler: {msg[:1200]}")
 
 
 @app.get("/api/ai/marketing-pack/download/{pack_id}")

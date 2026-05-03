@@ -25,6 +25,33 @@ type PackResponse = {
   detail?: string;
 };
 
+/** Browser → Render (umgeht Vercel-Body-Limit ~4.5 MB beim Proxy). Gleiche URL wie MARKETING_HUB_BACKEND_URL. */
+function publicBackendUrl(): string | undefined {
+  const u = process.env.NEXT_PUBLIC_MARKETING_HUB_BACKEND_URL?.trim();
+  return u ? u.replace(/\/$/, "") : undefined;
+}
+
+function normalizePackUrlsForHub(data: PackResponse): void {
+  const dl = data.pack_download_url;
+  if (typeof dl === "string") {
+    const m = dl.match(/\/api\/ai\/marketing-pack\/download\/([^/?#]+)/);
+    if (m?.[1]) {
+      data.pack_download_url = `/api/marketing/pack/${m[1]}`;
+    }
+  }
+  const clips = data.clips;
+  if (!Array.isArray(clips)) return;
+  for (const c of clips) {
+    if (!c || typeof c !== "object") continue;
+    const vu = c.video_url;
+    if (typeof vu !== "string") continue;
+    const vm = vu.match(/\/api\/ai\/marketing-short\/video\/([^/?#]+)/);
+    if (vm?.[1]) {
+      c.video_url = `/api/marketing/video/${vm[1]}`;
+    }
+  }
+}
+
 export default function PackPanel() {
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [bulletpoints, setBulletpoints] = useState("");
@@ -50,15 +77,38 @@ export default function PackPanel() {
       form.append("bulletpoints", bulletpoints);
       form.append("language", language);
       form.append("emotion", emotion);
-      const response = await fetch("/api/marketing/pack", { method: "POST", body: form });
-      const body = (await response.json()) as PackResponse & { detail?: string };
-      if (!response.ok) {
-        setError(body.detail ?? "Pack-Generierung fehlgeschlagen.");
+
+      const direct = publicBackendUrl();
+      const url = direct ? `${direct}/api/ai/marketing-pack` : "/api/marketing/pack";
+      const response = await fetch(url, { method: "POST", body: form });
+
+      const raw = await response.text();
+      let body: PackResponse & { detail?: string };
+      try {
+        body = raw ? (JSON.parse(raw) as PackResponse & { detail?: string }) : {};
+      } catch {
+        setError(
+          `Antwort ist kein JSON (HTTP ${response.status}). ` +
+            `Oft: Vercel-Timeout, Body zu gross, oder Backend-Fehler. ` +
+            `Tipp: NEXT_PUBLIC_MARKETING_HUB_BACKEND_URL setzen (direkter Upload zum Render). ` +
+            `Snippet: ${raw.slice(0, 280)}`,
+        );
         return;
       }
+      if (!response.ok) {
+        setError(body.detail ?? `Pack-Generierung fehlgeschlagen (HTTP ${response.status}).`);
+        return;
+      }
+      if (direct) {
+        normalizePackUrlsForHub(body);
+      }
       setResult(body);
-    } catch {
-      setError("Fehler bei der Pack-Generierung.");
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? `Fehler: ${e.message}`
+          : "Fehler bei der Pack-Generierung (Netzwerk oder abgebrochen).",
+      );
     } finally {
       setLoading(false);
     }
@@ -69,7 +119,10 @@ export default function PackPanel() {
       <h2 className="text-xl font-semibold">Social Content Pack (15s Multi-Clip)</h2>
       <p className="text-xs text-[#A9ADC8]">
         Strategischer Multi-Clip-Export mit Brainrot-Style, optional KI-Zusatzbildern (Backend:
-        MARKETING_PACK_GENERATE_IMAGES=1).
+        MARKETING_PACK_GENERATE_IMAGES=1). Viele grosse Bilder: in Vercel{" "}
+        <code className="rounded bg-black/40 px-1">NEXT_PUBLIC_MARKETING_HUB_BACKEND_URL</code> setzen (gleiche URL
+        wie <code className="rounded bg-black/40 px-1">MARKETING_HUB_BACKEND_URL</code>), sonst greift der Proxy und
+        kann bei ~4.5 MB abbrechen.
       </p>
 
       <div className="space-y-2">
