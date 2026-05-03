@@ -544,6 +544,19 @@ def _escape_drawtext(value: str) -> str:
     )
 
 
+def _ffmpeg_stderr_snippet(raw: str, *, limit: int = 4000) -> str:
+    """Skip the huge single-line 'configuration:' banner; prefer lines that look like real errors."""
+    if not raw:
+        return ""
+    keys = ("error", "invalid", "failed", "undefined", "no such", "unable", "trailing", "matches no streams")
+    lines = [ln for ln in raw.splitlines() if any(k in ln.lower() for k in keys)]
+    if lines:
+        joined = "\n".join(lines[-40:])
+        return joined[:limit] if len(joined) > limit else joined
+    tail = raw[-limit:] if len(raw) > limit else raw
+    return tail
+
+
 def _drawtext_ascii_safe(value: str) -> str:
     """drawtext in filtergraphs is picky; avoid non-ASCII and argv blowups."""
     v = (value or "").strip()
@@ -575,6 +588,26 @@ def _drawtext_ascii_safe(value: str) -> str:
     v = re.sub(r"[^\x20-\x7E]+", " ", v)
     v = re.sub(r"\s+", " ", v).strip()
     return _escape_drawtext(v)
+
+
+_FONTFILE_DRAWTEXT_PREFIX: Optional[str] = None
+
+
+def _drawtext_fontfile_prefix() -> str:
+    """Headless Debian/Render: drawtext needs a real font path when fontconfig has no default."""
+    global _FONTFILE_DRAWTEXT_PREFIX
+    if _FONTFILE_DRAWTEXT_PREFIX is not None:
+        return _FONTFILE_DRAWTEXT_PREFIX
+    for raw in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ):
+        if os.path.isfile(raw):
+            esc = raw.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+            _FONTFILE_DRAWTEXT_PREFIX = f"fontfile={esc}:"
+            return _FONTFILE_DRAWTEXT_PREFIX
+    _FONTFILE_DRAWTEXT_PREFIX = ""
+    return _FONTFILE_DRAWTEXT_PREFIX
 
 
 def _subtitle_chunks(
@@ -790,6 +823,7 @@ def _marketing_subtitle_chain_for_window(
             break
         subtitle_filters.append(
             "drawtext="
+            f"{_drawtext_fontfile_prefix()}"
             f"text='{_drawtext_ascii_safe(chunk)}':"
             "fontcolor=white:"
             "fontsize=h*0.08:"
@@ -1207,15 +1241,16 @@ def _pack_brainrot_text_filters(
     d = float(duration_sec)
     parts: List[str] = []
     esc_hook = _drawtext_ascii_safe((hook_line or "")[:80])
+    fp = _drawtext_fontfile_prefix()
     if esc_hook:
         parts.append(
-            "drawtext=text='" + esc_hook + "':fontcolor=white:fontsize=h*0.085:borderw=3:bordercolor=black@0.9:"
+            "drawtext=" + fp + "text='" + esc_hook + "':fontcolor=white:fontsize=h*0.085:borderw=3:bordercolor=black@0.9:"
             "box=1:boxcolor=#FF00AA@0.35:boxborderw=12:x=(w-text_w)/2:y=h*0.08:"
             f"enable='between(t,0,4)'"
         )
     title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:48])
     parts.append(
-        "drawtext=text='" + title_esc + "':fontcolor=#00FFEA:fontsize=h*0.072:borderw=2:bordercolor=black@0.85:"
+        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#00FFEA:fontsize=h*0.072:borderw=2:bordercolor=black@0.85:"
         "x=w*0.06:y=h*0.42:"
         f"enable='between(t,4,11)'"
     )
@@ -1226,14 +1261,14 @@ def _pack_brainrot_text_filters(
             continue
         y = y0 + i * 0.065
         parts.append(
-            f"drawtext=text='{line}':fontcolor=white:fontsize=h*0.055:borderw=2:bordercolor=black@0.88:"
+            f"drawtext={fp}text='{line}':fontcolor=white:fontsize=h*0.055:borderw=2:bordercolor=black@0.88:"
             f"x=w*0.08:y=h*{y:.3f}:"
             f"enable='between(t,4,11)'"
         )
     esc_cta = _drawtext_ascii_safe((cta_line or "")[:90])
     if esc_cta:
         parts.append(
-            "drawtext=text='" + esc_cta + "':fontcolor=yellow:fontsize=h*0.078:borderw=3:bordercolor=black@0.9:"
+            "drawtext=" + fp + "text='" + esc_cta + "':fontcolor=yellow:fontsize=h*0.078:borderw=3:bordercolor=black@0.9:"
             "box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=h*0.82:"
             f"enable='between(t,11,{max(11.1, d - 0.05):.2f})'"
         )
@@ -1279,7 +1314,9 @@ def render_marketing_brainrot_clip(
         overlay_extras.append(sub_chain)
     if txt_chain:
         overlay_extras.append(txt_chain)
-    post_vm = ("," + ",".join(overlay_extras)) if overlay_extras else ""
+    # Must be "[vm]drawtext=...,format=..." not "[vm],drawtext=..." (comma after label is invalid).
+    overlay_joined = ",".join(overlay_extras) if overlay_extras else ""
+    vm_text_tail = f"{overlay_joined},format=yuv420p[vout]" if overlay_joined else "format=yuv420p[vout]"
 
     # [0:v] is lavfi color; animate hue/noise + neon boxes.
     bg_core = (
@@ -1299,7 +1336,7 @@ def render_marketing_brainrot_clip(
             f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420p[vm];"
             f"[2:v]scale=130:-1,format=yuv420p[acc];"
             f"[vm][acc]overlay=W-w-20:H-h-160:format=yuv420p[vm2];"
-            f"[vm2]{post_vm},format=yuv420p[vout]"
+            f"[vm2]{vm_text_tail}"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[3:a]", emotion, d)
     else:
@@ -1307,7 +1344,7 @@ def render_marketing_brainrot_clip(
             f"{bg_core};"
             f"[1:v]scale=460:-1,format=yuv420p[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420p[vm];"
-            f"[vm]{post_vm},format=yuv420p[vout]"
+            f"[vm]{vm_text_tail}"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[2:a]", emotion, d)
 
@@ -1362,7 +1399,8 @@ def render_marketing_brainrot_clip(
         )
         proc = subprocess.run(cmd_base, check=False, capture_output=True, text=True)
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "")[-4000:]
+            raw = (proc.stderr or proc.stdout or "").strip()
+            err = _ffmpeg_stderr_snippet(raw, limit=4500)
             raise RuntimeError(f"ffmpeg brainrot clip failed ({proc.returncode}): {err}")
     finally:
         try:
