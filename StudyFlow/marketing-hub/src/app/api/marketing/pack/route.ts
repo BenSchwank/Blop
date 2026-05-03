@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+/** Pack baut mehrere Clips (OpenAI + ffmpeg); ohne hohes Limit bricht Vercel ab (502/504). */
+export const maxDuration = 300;
 
 function rewriteVideoUrl(backendPath: string): string | undefined {
   const exportId = backendPath.split("/").pop();
@@ -41,6 +43,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(`${backendUrl}/api/ai/marketing-pack`, {
       method: "POST",
       body: backendForm,
+      signal: AbortSignal.timeout(280_000),
     });
     const raw = await response.text();
     let data: Record<string, unknown> = {};
