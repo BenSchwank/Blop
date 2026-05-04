@@ -214,11 +214,14 @@ export default function PackPanel() {
                 <div key={idx} className="rounded-lg border border-white/10 p-3">
                   <p className="text-sm font-semibold text-[#C9CCE1]">{clip.title ?? `Clip ${idx + 1}`}</p>
                   {clip.video_url ? (
-                    <video
-                      src={clip.video_url}
-                      controls
-                      className="mt-2 max-h-80 w-full rounded-lg border border-white/10"
-                    />
+                    <div className="relative mx-auto mt-2 aspect-[9/16] w-full max-w-[min(100%,360px)] overflow-hidden rounded-lg border border-white/10 bg-black">
+                      <video
+                        src={clip.video_url}
+                        controls
+                        playsInline
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
                   ) : null}
                   {clip.hook ? <p className="mt-2 text-xs text-[#A9ADC8]">Hook: {clip.hook}</p> : null}
                   {clip.script ? (

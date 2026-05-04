@@ -614,13 +614,17 @@ def _subtitle_chunks(
     script_text: str,
     max_words_per_chunk: int = 4,
     max_chunks: int = 26,
+    max_chars_per_chunk: int = 0,
 ) -> List[str]:
     tokens = [t.strip() for t in re.split(r"\s+", (script_text or "").strip()) if t.strip()]
     if not tokens:
         return ["BLOP DEVLOG"]
     chunks: List[str] = []
     for i in range(0, len(tokens), max_words_per_chunk):
-        chunks.append(" ".join(tokens[i : i + max_words_per_chunk]).upper())
+        piece = " ".join(tokens[i : i + max_words_per_chunk]).upper()
+        if max_chars_per_chunk and len(piece) > max_chars_per_chunk:
+            piece = piece[:max_chars_per_chunk].rstrip()
+        chunks.append(piece)
     return chunks[:max_chunks]
 
 
@@ -805,11 +809,15 @@ def _marketing_subtitle_chain_for_window(
     *,
     max_chunks: int = 14,
     max_words_per_chunk: int = 4,
+    max_chars_per_chunk: int = 0,
+    fontsize_expr: str = "h*0.08",
+    text_x_expr: str = "(w-text_w)/2",
 ) -> str:
     subtitle_chunks = _subtitle_chunks(
         script_text,
         max_words_per_chunk=max_words_per_chunk,
         max_chunks=max_chunks,
+        max_chars_per_chunk=max_chars_per_chunk,
     )
     if not subtitle_chunks:
         return ""
@@ -826,13 +834,13 @@ def _marketing_subtitle_chain_for_window(
             f"{_drawtext_fontfile_prefix()}"
             f"text='{_drawtext_ascii_safe(chunk)}':"
             "fontcolor=white:"
-            "fontsize=h*0.08:"
-            "borderw=3:"
+            f"fontsize={fontsize_expr}:"
+            "borderw=2:"
             "bordercolor=black@0.88:"
             "box=1:"
             "boxcolor=black@0.42:"
-            "boxborderw=16:"
-            "x=(w-text_w)/2:"
+            "boxborderw=12:"
+            f"x={text_x_expr}:"
             "y=h*0.70:"
             f"enable='between(t,{start:.2f},{end:.2f})'"
         )
@@ -1237,39 +1245,42 @@ def _pack_brainrot_text_filters(
     cta_line: str,
     duration_sec: float,
 ) -> str:
-    """drawtext chain: hook 0-4s, list 4-11s, CTA 11-end."""
+    """drawtext chain: hook 0-4s, list 4-11s, CTA 11-end (width-aware, muted accents)."""
     d = float(duration_sec)
     parts: List[str] = []
-    esc_hook = _drawtext_ascii_safe((hook_line or "")[:80])
+    esc_hook = _drawtext_ascii_safe((hook_line or "")[:42])
     fp = _drawtext_fontfile_prefix()
+    cx = r"max(6\,min((w-text_w)/2\,w-6-text_w))"
     if esc_hook:
         parts.append(
-            "drawtext=" + fp + "text='" + esc_hook + "':fontcolor=white:fontsize=h*0.085:borderw=3:bordercolor=black@0.9:"
-            "box=1:boxcolor=#FF00AA@0.35:boxborderw=12:x=(w-text_w)/2:y=h*0.08:"
+            "drawtext=" + fp + "text='" + esc_hook + "':fontcolor=white:fontsize=w*0.036:borderw=2:bordercolor=black@0.9:"
+            "box=1:boxcolor=#3d2a5c@0.55:boxborderw=10:"
+            f"x={cx}:y=h*0.08:"
             f"enable='between(t,0,4)'"
         )
-    title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:48])
+    title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:36])
     parts.append(
-        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#00FFEA:fontsize=h*0.072:borderw=2:bordercolor=black@0.85:"
-        "x=w*0.06:y=h*0.42:"
+        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#B8C7FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.85:"
+        "x=max(8\\,w*0.05):y=h*0.42:"
         f"enable='between(t,4,11)'"
     )
     y0 = 0.50
     for i, raw in enumerate((list_items or [])[:5]):
-        line = _drawtext_ascii_safe((raw or "")[:64])
+        line = _drawtext_ascii_safe((raw or "")[:40])
         if not line:
             continue
         y = y0 + i * 0.065
         parts.append(
-            f"drawtext={fp}text='{line}':fontcolor=white:fontsize=h*0.055:borderw=2:bordercolor=black@0.88:"
-            f"x=w*0.08:y=h*{y:.3f}:"
+            f"drawtext={fp}text='{line}':fontcolor=white:fontsize=w*0.028:borderw=2:bordercolor=black@0.88:"
+            f"x=max(8\\,w*0.06):y=h*{y:.3f}:"
             f"enable='between(t,4,11)'"
         )
-    esc_cta = _drawtext_ascii_safe((cta_line or "")[:90])
+    esc_cta = _drawtext_ascii_safe((cta_line or "")[:48])
     if esc_cta:
         parts.append(
-            "drawtext=" + fp + "text='" + esc_cta + "':fontcolor=yellow:fontsize=h*0.078:borderw=3:bordercolor=black@0.9:"
-            "box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=h*0.82:"
+            "drawtext=" + fp + "text='" + esc_cta + "':fontcolor=#E8E0FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.9:"
+            "box=1:boxcolor=black@0.45:boxborderw=8:"
+            f"x={cx}:y=h*0.82:"
             f"enable='between(t,11,{max(11.1, d - 0.05):.2f})'"
         )
     return ",".join(parts) if parts else ""
@@ -1289,7 +1300,7 @@ def render_marketing_brainrot_clip(
     duration_sec: float = 15.0,
     accent_path: Optional[str] = None,
 ) -> None:
-    """15s vertical clip: chaotic neon-ish background, hero overlay, timed list + TTS."""
+    """15s vertical clip: stable brand background, center-crop hero, readable text, TTS."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg nicht gefunden.")
@@ -1305,8 +1316,11 @@ def render_marketing_brainrot_clip(
         clip_script,
         0.0,
         d,
-        max_chunks=10,
-        max_words_per_chunk=3,
+        max_chunks=14,
+        max_words_per_chunk=2,
+        max_chars_per_chunk=32,
+        fontsize_expr="w*0.038",
+        text_x_expr=r"max(6\,min((w-text_w)/2\,w-6-text_w))",
     )
     txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d)
     overlay_extras: List[str] = []
@@ -1318,21 +1332,20 @@ def render_marketing_brainrot_clip(
     overlay_joined = ",".join(overlay_extras) if overlay_extras else ""
     vm_text_tail = f"{overlay_joined},format=yuv420p[vout]" if overlay_joined else "format=yuv420p[vout]"
 
-    # [0:v] is lavfi color; animate hue/noise + neon boxes.
-    bg_core = (
-        f"[0:v]hue=H='mod(t*95,360)',"
-        f"noise=alls=12:allf=t+u,"
-        f"drawbox=x='40+35*sin(2*t)':y=120:w=220:h=70:color=#FF00CC@0.45:t=fill,"
-        f"drawbox=x='280+40*cos(2.2*t)':y=640:w=180:h=50:color=#00FFCC@0.4:t=fill,"
-        f"drawbox=x=200:y='500+30*sin(3*t)':w=10:h=220:color=#FFFF00@0.55:t=fill,"
-        f"format=yuv420p[bg]"
+    # [0:v] lavfi solid brand color (no hue/noise/neon boxes — stable for mobile preview).
+    bg_core = f"[0:v]format=yuv420p[bg]"
+
+    hero_w, hero_h = 460, 500
+    hero_vf = (
+        f"[1:v]scale={hero_w}:{hero_h}:force_original_aspect_ratio=increase,"
+        f"crop={hero_w}:{hero_h},setsar=1,format=yuv420p[fg]"
     )
 
     acc_in = accent_path and os.path.isfile(accent_path)
     if acc_in:
         vf_graph = (
             f"{bg_core};"
-            f"[1:v]scale=460:-1,format=yuv420p[fg];"
+            f"{hero_vf};"
             f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420[vm];"
             f"[2:v]scale=130:-1,format=yuv420p[acc];"
             f"[vm][acc]overlay=W-w-20:H-h-160:format=yuv420[vm2];"
@@ -1342,7 +1355,7 @@ def render_marketing_brainrot_clip(
     else:
         vf_graph = (
             f"{bg_core};"
-            f"[1:v]scale=460:-1,format=yuv420p[fg];"
+            f"{hero_vf};"
             f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420[vm];"
             f"[vm]{vm_text_tail}"
         )
