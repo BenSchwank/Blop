@@ -1333,9 +1333,9 @@ def render_marketing_brainrot_clip(
         vf_graph = (
             f"{bg_core};"
             f"[1:v]scale=460:-1,format=yuv420p[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420p[vm];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420[vm];"
             f"[2:v]scale=130:-1,format=yuv420p[acc];"
-            f"[vm][acc]overlay=W-w-20:H-h-160:format=yuv420p[vm2];"
+            f"[vm][acc]overlay=W-w-20:H-h-160:format=yuv420[vm2];"
             f"[vm2]{vm_text_tail}"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[3:a]", emotion, d)
@@ -1343,7 +1343,7 @@ def render_marketing_brainrot_clip(
         vf_graph = (
             f"{bg_core};"
             f"[1:v]scale=460:-1,format=yuv420p[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420p[vm];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420[vm];"
             f"[vm]{vm_text_tail}"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[2:a]", emotion, d)
