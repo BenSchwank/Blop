@@ -802,6 +802,48 @@ def _marketing_merge_audio_video_fc(video_fc: str, speech_in: str, emotion: str,
     return f"{video_fc};{afc}"
 
 
+def _brainrot_phase_times(duration_sec: float) -> dict:
+    """Duration-aware Hook / List / CTA windows for 5–20s clips (seconds)."""
+    d = max(5.0, min(20.0, float(duration_sec)))
+    hook_end = max(2.0, min(5.0, d * 0.26))
+    list_start = hook_end + 0.18
+    list_span = max(3.0, min(9.5, d * 0.48))
+    list_end = min(d - 1.55, list_start + list_span)
+    if list_end < list_start + 2.0:
+        list_end = min(d - 1.2, list_start + 2.0)
+    cta_start = max(list_end + 0.12, d * 0.68)
+    cta_start = min(cta_start, d - 1.05)
+    cta_end = d - 0.04
+    subtitle_end = max(list_start + 0.5, min(cta_start - 0.22, d * 0.64))
+    return {
+        "d": d,
+        "hook_end": hook_end,
+        "list_start": list_start,
+        "list_end": list_end,
+        "cta_start": cta_start,
+        "cta_end": cta_end,
+        "subtitle_end": subtitle_end,
+    }
+
+
+def _drawtext_alpha_fade_expr(t0: float, t1: float, fade_in: float, fade_out: float) -> str:
+    """Piecewise linear alpha for drawtext (commas escaped for filtergraph)."""
+    t0i, t1i = max(0.0, t0), max(t0 + 0.01, t1)
+    fi = max(0.08, min(fade_in, (t1i - t0i) * 0.45))
+    fo = max(0.08, min(fade_out, (t1i - t0i) * 0.45))
+    a = t0i + fi
+    b = t1i - fo
+    if b < a + 0.06:
+        b = min(t1i - 0.02, a + 0.06)
+    # if(t<t0,0) if(t<t0+fi, (t-t0)/fi, if(t<b,1, if(t<t1, (t1-t)/fo,0)))
+    return (
+        f"if(lt(t\\,{t0i:.3f})\\,0\\,"
+        f"if(lt(t\\,{a:.3f})\\,clip(0\\,1\\,(t-{t0i:.3f})/{fi:.3f})\\,"
+        f"if(lt(t\\,{b:.3f})\\,1\\,"
+        f"if(lt(t\\,{t1i:.3f})\\,clip(0\\,1\\,({t1i:.3f}-t)/{fo:.3f})\\,0))))"
+    )
+
+
 def _marketing_subtitle_chain_for_window(
     script_text: str,
     window_start: float,
@@ -812,6 +854,7 @@ def _marketing_subtitle_chain_for_window(
     max_chars_per_chunk: int = 0,
     fontsize_expr: str = "h*0.08",
     text_x_expr: str = "(w-text_w)/2",
+    text_y_expr: str = "h*0.70",
 ) -> str:
     subtitle_chunks = _subtitle_chunks(
         script_text,
@@ -841,7 +884,7 @@ def _marketing_subtitle_chain_for_window(
             "boxcolor=black@0.42:"
             "boxborderw=12:"
             f"x={text_x_expr}:"
-            "y=h*0.70:"
+            f"y={text_y_expr}:"
             f"enable='between(t,{start:.2f},{end:.2f})'"
         )
     return ",".join(subtitle_filters) if subtitle_filters else ""
@@ -1244,44 +1287,60 @@ def _pack_brainrot_text_filters(
     list_items: List[str],
     cta_line: str,
     duration_sec: float,
+    phases: Optional[dict] = None,
 ) -> str:
-    """drawtext chain: hook 0-4s, list 4-11s, CTA 11-end (width-aware, muted accents)."""
-    d = float(duration_sec)
+    """Hook / gestaffelte Feature-Liste / CTA mit sanften Alpha-Fades (duration-aware)."""
+    ph = phases if phases is not None else _brainrot_phase_times(duration_sec)
+    d = float(ph["d"])
+    hook_end = float(ph["hook_end"])
+    list_start = float(ph["list_start"])
+    list_end = float(ph["list_end"])
+    cta_start = float(ph["cta_start"])
+    cta_end = float(ph["cta_end"])
+
     parts: List[str] = []
     esc_hook = _drawtext_ascii_safe((hook_line or "")[:42])
     fp = _drawtext_fontfile_prefix()
     cx = r"max(6\,min((w-text_w)/2\,w-6-text_w))"
     if esc_hook:
+        a_hook = _drawtext_alpha_fade_expr(0.0, min(hook_end + 0.12, d), 0.42, 0.28)
         parts.append(
             "drawtext=" + fp + "text='" + esc_hook + "':fontcolor=white:fontsize=w*0.036:borderw=2:bordercolor=black@0.9:"
-            "box=1:boxcolor=#3d2a5c@0.55:boxborderw=10:"
-            f"x={cx}:y=h*0.08:"
-            f"enable='between(t,0,4)'"
+            "box=1:boxcolor=#2a1f45@0.58:boxborderw=10:"
+            f"x={cx}:y=h*0.08:alpha='{a_hook}':"
+            f"enable='between(t,0,{min(hook_end + 0.2, d):.2f})'"
         )
     title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:36])
+    a_title = _drawtext_alpha_fade_expr(list_start, list_end, 0.45, 0.38)
     parts.append(
-        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#B8C7FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.85:"
+        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#C8B8FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.85:"
         "x=max(8\\,w*0.05):y=h*0.42:"
-        f"enable='between(t,4,11)'"
+        f"alpha='{a_title}':"
+        f"enable='between(t,{max(0.0, list_start - 0.05):.2f},{min(list_end + 0.15, d):.2f})'"
     )
     y0 = 0.50
+    stagger = max(0.28, min(0.52, (list_end - list_start) / 8.0))
     for i, raw in enumerate((list_items or [])[:5]):
         line = _drawtext_ascii_safe((raw or "")[:40])
         if not line:
             continue
         y = y0 + i * 0.065
+        t_in = list_start + 0.22 + float(i) * stagger
+        a_line = _drawtext_alpha_fade_expr(t_in, list_end - 0.05, 0.38, 0.30)
         parts.append(
-            f"drawtext={fp}text='{line}':fontcolor=white:fontsize=w*0.028:borderw=2:bordercolor=black@0.88:"
+            f"drawtext={fp}text='{line}':fontcolor=#F0EAFF:fontsize=w*0.028:borderw=2:bordercolor=black@0.88:"
             f"x=max(8\\,w*0.06):y=h*{y:.3f}:"
-            f"enable='between(t,4,11)'"
+            f"alpha='{a_line}':"
+            f"enable='between(t,{max(0.0, t_in - 0.08):.2f},{min(list_end + 0.12, d):.2f})'"
         )
     esc_cta = _drawtext_ascii_safe((cta_line or "")[:48])
     if esc_cta:
+        a_cta = _drawtext_alpha_fade_expr(max(0.0, cta_start - 0.08), cta_end + 0.02, 0.48, 0.42)
         parts.append(
             "drawtext=" + fp + "text='" + esc_cta + "':fontcolor=#E8E0FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.9:"
-            "box=1:boxcolor=black@0.45:boxborderw=8:"
-            f"x={cx}:y=h*0.82:"
-            f"enable='between(t,11,{max(11.1, d - 0.05):.2f})'"
+            "box=1:boxcolor=#1a1428@0.52:boxborderw=8:"
+            f"x={cx}:y=h*0.82:alpha='{a_cta}':"
+            f"enable='between(t,{max(0.0, cta_start - 0.15):.2f},{d:.2f})'"
         )
     return ",".join(parts) if parts else ""
 
@@ -1300,7 +1359,7 @@ def render_marketing_brainrot_clip(
     duration_sec: float = 15.0,
     accent_path: Optional[str] = None,
 ) -> None:
-    """15s vertical clip: stable brand background, center-crop hero, readable text, TTS."""
+    """15s vertical clip: dark gradient, organic hero motion, phased fades, readable text, TTS."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg nicht gefunden.")
@@ -1311,18 +1370,20 @@ def render_marketing_brainrot_clip(
     target_h = 960
     target_fps = 12
     d = max(5.0, min(20.0, float(duration_sec)))
+    ph = _brainrot_phase_times(d)
 
     sub_chain = _marketing_subtitle_chain_for_window(
         clip_script,
         0.0,
-        d,
+        float(ph["subtitle_end"]),
         max_chunks=14,
         max_words_per_chunk=2,
         max_chars_per_chunk=32,
         fontsize_expr="w*0.038",
         text_x_expr=r"max(6\,min((w-text_w)/2\,w-6-text_w))",
+        text_y_expr="h*0.62",
     )
-    txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d)
+    txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d, phases=ph)
     overlay_extras: List[str] = []
     if sub_chain:
         overlay_extras.append(sub_chain)
@@ -1332,23 +1393,40 @@ def render_marketing_brainrot_clip(
     overlay_joined = ",".join(overlay_extras) if overlay_extras else ""
     vm_text_tail = f"{overlay_joined},format=yuv420p[vout]" if overlay_joined else "format=yuv420p[vout]"
 
-    # [0:v] lavfi solid brand color (no hue/noise/neon boxes — stable for mobile preview).
-    bg_core = f"[0:v]format=yuv420p[bg]"
+    # Subtle vertical dark-lilac gradient (deterministic, no flicker).
+    bg_core = (
+        "[0:v]format=gbrp,"
+        "geq=r='19+32*(Y/H)':g='10+24*(Y/H)':b='44+40*(Y/H)',"
+        "format=yuv420p[bg]"
+    )
 
     hero_w, hero_h = 460, 500
     hero_vf = (
         f"[1:v]scale={hero_w}:{hero_h}:force_original_aspect_ratio=increase,"
         f"crop={hero_w}:{hero_h},setsar=1,format=yuv420p[fg]"
     )
+    # Soft drift on hero overlay (organic, low amplitude).
+    ov_hero = (
+        "[bg][fg]overlay=x='max(0\\,min(W-w\\,(W-w)/2+9*sin(t*0.52)))':"
+        "y='max(0\\,min(H-h\\,(H-h)*0.34+7*cos(t*0.41)))':format=yuv420[vm]"
+    )
 
     acc_in = accent_path and os.path.isfile(accent_path)
     if acc_in:
+        acc_sparkle = (
+            "[2:v]scale=120:-1,format=yuv420p,"
+            "hue=H='2.8*sin(2.3*t)':s=0.96[acc]"
+        )
+        ov_acc = (
+            "[vm][acc]overlay=x='max(4\\,min(W-w-4\\,W*0.72-w/2+5*sin(t*0.88)))':"
+            "y='max(4\\,min(H-h-90\\,H*0.262+4*cos(t*0.63)))':format=yuv420[vm2]"
+        )
         vf_graph = (
             f"{bg_core};"
             f"{hero_vf};"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420[vm];"
-            f"[2:v]scale=130:-1,format=yuv420p[acc];"
-            f"[vm][acc]overlay=W-w-20:H-h-160:format=yuv420[vm2];"
+            f"{ov_hero};"
+            f"{acc_sparkle};"
+            f"{ov_acc};"
             f"[vm2]{vm_text_tail}"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[3:a]", emotion, d)
@@ -1356,7 +1434,7 @@ def render_marketing_brainrot_clip(
         vf_graph = (
             f"{bg_core};"
             f"{hero_vf};"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)*0.34:format=yuv420[vm];"
+            f"{ov_hero};"
             f"[vm]{vm_text_tail}"
         )
         fc = _marketing_merge_audio_video_fc(vf_graph, "[2:a]", emotion, d)

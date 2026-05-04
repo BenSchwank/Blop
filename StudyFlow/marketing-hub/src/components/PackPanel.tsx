@@ -60,6 +60,8 @@ export default function PackPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<PackResponse | null>(null);
+  /** true = object-cover (näher an Instagram-Reel-Fill), false = letterbox im 9/16-Frame */
+  const [previewReelCover, setPreviewReelCover] = useState(false);
 
   async function onGenerate() {
     if (!mediaFiles.length) {
@@ -210,6 +212,15 @@ export default function PackPanel() {
 
           {Array.isArray(result.clips) && result.clips.length ? (
             <div className="space-y-6">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-[#A9ADC8]">
+                <input
+                  type="checkbox"
+                  className="rounded border-white/30"
+                  checked={previewReelCover}
+                  onChange={(e) => setPreviewReelCover(e.target.checked)}
+                />
+                Vorschau wie Reel (Cover statt Letterbox)
+              </label>
               {result.clips.map((clip, idx) => (
                 <div key={idx} className="rounded-lg border border-white/10 p-3">
                   <p className="text-sm font-semibold text-[#C9CCE1]">{clip.title ?? `Clip ${idx + 1}`}</p>
@@ -219,7 +230,9 @@ export default function PackPanel() {
                         src={clip.video_url}
                         controls
                         playsInline
-                        className="h-full w-full object-contain"
+                        className={
+                          previewReelCover ? "h-full w-full object-cover" : "h-full w-full object-contain"
+                        }
                       />
                     </div>
                   ) : null}
