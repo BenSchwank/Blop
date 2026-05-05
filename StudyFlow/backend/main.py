@@ -188,13 +188,14 @@ def _elaboration_job_worker(
         )
         elaboration_text = elaboration_result["text"]
         file_id = f"elaboration_{int(datetime.now().timestamp())}"
+        file_name = DataManager.unique_file_name("Ausarbeitung", username, folder_id)
         DataManager.save_file_metadata(
             {
                 "id": file_id,
-                "name": "Ausarbeitung",
+                "name": file_name,
                 "type": "elaboration",
                 "content": elaboration_text,
-                "created_at": datetime.now().strftime("%Y-%m-%d"),
+                "created_at": datetime.now().isoformat(),
             },
             username,
             folder_id,
@@ -1029,12 +1030,33 @@ class MoveFileRequest(BaseModel):
     target_folder_id: str
     username: str
 
+class CopyFileRequest(BaseModel):
+    target_folder_id: str
+    username: str
+    new_name: Optional[str] = None
+
 @app.put("/api/files/{folder_id}/{file_id}/move")
 def move_file(folder_id: str, file_id: str, body: MoveFileRequest):
     """Moves a file to a different folder."""
     if DataManager.move_file(body.username, folder_id, file_id, body.target_folder_id):
         return {"status": "success", "message": "Datei verschoben"}
     raise HTTPException(status_code=404, detail="Fehler beim Verschieben der Datei")
+
+@app.post("/api/files/{file_id}/copy")
+def copy_file(file_id: str, body: CopyFileRequest):
+    """Copies a file to target folder, including storage object when needed."""
+    try:
+        copied = DataManager.copy_file_to_folder(
+            username=body.username,
+            file_id=file_id,
+            target_folder_id=body.target_folder_id,
+            new_name=body.new_name,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Datei konnte nicht kopiert werden: {str(e)}")
+    if not copied:
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden oder keine Berechtigung.")
+    return {"status": "success", "file": copied}
 
 @app.delete("/api/files/{file_id}")
 def delete_file(file_id: str, username: str, folder_id: str):
@@ -2081,9 +2103,10 @@ def create_quiz(request: GenRequest, background_tasks: BackgroundTasks):
             return_meta=True,
         )
         quiz = quiz_result["data"]
-        file_id = f"quiz_main_{request.folder_id}"
+        file_id = f"quiz_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}"
+        quiz_name = DataManager.unique_file_name("AI Quiz", request.username, request.folder_id)
         DataManager.save_file_metadata({
-            "id": file_id, "name": "AI Quiz", "type": "quiz", "content": quiz, "created_at": datetime.now().strftime("%Y-%m-%d")
+            "id": file_id, "name": quiz_name, "type": "quiz", "content": quiz, "created_at": datetime.now().isoformat()
         }, request.username, request.folder_id)
         charge = deduct_tokens_by_usage(
             request.username,
@@ -2125,12 +2148,13 @@ def create_flashcards(request: GenRequest, background_tasks: BackgroundTasks):
             return_meta=True,
         )
         cards = cards_result["data"]
+        cards_name = DataManager.unique_file_name("Generierte Karteikarten", request.username, request.folder_id)
         DataManager.save_file_metadata({
-            "id": f"cards_main_{request.folder_id}",
-            "name": "Generierte Karteikarten",
+            "id": f"cards_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}",
+            "name": cards_name,
             "type": "flashcards",
             "content": cards,
-            "created_at": datetime.now().strftime("%Y-%m-%d")
+            "created_at": datetime.now().isoformat()
         }, request.username, request.folder_id)
         background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Karteikarten")
         charge = deduct_tokens_by_usage(
@@ -2325,13 +2349,14 @@ def refine_elaboration(request: ElaborationRefineRequest):
                 }
             new_id = f"{ftype}_refined_{int(datetime.now().timestamp())}"
             base_name = target.get("name") or ftype
+            refined_name = DataManager.unique_file_name(f"{base_name} (überarbeitet)", request.username, request.folder_id)
             DataManager.save_file_metadata(
                 {
                     "id": new_id,
-                    "name": f"{base_name} (überarbeitet)",
+                    "name": refined_name,
                     "type": ftype,
                     "content": refined_payload,
-                    "created_at": datetime.now().strftime("%Y-%m-%d"),
+                    "created_at": datetime.now().isoformat(),
                 },
                 request.username,
                 request.folder_id,
@@ -2399,13 +2424,14 @@ def refine_elaboration(request: ElaborationRefineRequest):
             }
         new_id = f"elaboration_refined_{int(datetime.now().timestamp())}"
         base_name = target.get("name") or "Ausarbeitung"
+        refined_name = DataManager.unique_file_name(f"{base_name} (überarbeitet)", request.username, request.folder_id)
         DataManager.save_file_metadata(
             {
                 "id": new_id,
-                "name": f"{base_name} (überarbeitet)",
+                "name": refined_name,
                 "type": target.get("type", "summary"),
                 "content": refined_text,
-                "created_at": datetime.now().strftime("%Y-%m-%d"),
+                "created_at": datetime.now().isoformat(),
             },
             request.username,
             request.folder_id,
@@ -2451,13 +2477,14 @@ def create_repetition(request: RepetitionRequest, background_tasks: BackgroundTa
             return_meta=True,
         )
         repetition_text = repetition_result["text"]
+        repetition_name = DataManager.unique_file_name("Wiederholungsbogen", request.username, request.folder_id)
         
         DataManager.save_file_metadata({
             "id": f"repetition_{int(datetime.now().timestamp())}",
-            "name": "Wiederholungsbogen",
+            "name": repetition_name,
             "type": "repetition", 
             "content": repetition_text,
-            "created_at": datetime.now().strftime("%Y-%m-%d")
+            "created_at": datetime.now().isoformat()
         }, request.username, request.folder_id)
         background_tasks.add_task(try_notify_document_ready, request.username, request.folder_id, "Wiederholungsbogen")
         charge = deduct_tokens_by_usage(
