@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox } from "lucide-react";
+import { ArrowLeft, FileText, MoreVertical, Plus, Loader2, Youtube, Upload, BrainCircuit, X, HelpCircle, Layers, FileOutput, Calendar, Clock, BookOpen, Repeat, Maximize2, Edit, Download, ImageIcon, CheckCircle2, XCircle, ChevronDown, ChevronUp, ListTodo, ExternalLink, Shuffle, Mic, Video, Send, Link2, Inbox, Copy, ClipboardPaste, Trash2 } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -42,6 +42,19 @@ function youtubeVideoIdFromTranscriptFile(file: Pick<FileData, "name" | "type">)
     const underscored = /^YouTube_([a-zA-Z0-9_-]{11})(?:\.txt)?$/i.exec(name);
     if (underscored) return underscored[1];
     return null;
+}
+
+function formatDateTime(value?: string): string {
+    if (!value) return "Unbekannt";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("de-DE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(date);
 }
 
 interface QuizQuestion {
@@ -181,6 +194,7 @@ type DraggableFileProps = {
     handleDelete: (file: FileData) => void;
     onRefineFile: (file: FileData) => void;
     onOpenShareOverlay: (file: FileData) => void;
+    onCopyFile: (file: FileData) => void;
 };
 
 // Sub-component for interactive Quiz viewing
@@ -237,7 +251,7 @@ const QuizViewer = ({ questions }: { questions: QuizQuestion[] }) => {
 };
 
 // Subfolder Droppable Wrapper
-const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: SubfolderRow, onClick: () => void }) => {
+const DroppableSubfolder = ({ subfolder, onClick, onRename, onDelete }: { subfolder: SubfolderRow, onClick: () => void, onRename: (sf: SubfolderRow) => void, onDelete: (sf: SubfolderRow) => void }) => {
     const { isOver, setNodeRef } = useDroppable({
         id: `drop-${subfolder.id}`,
         data: { type: 'subfolder', subfolder }
@@ -260,12 +274,36 @@ const DroppableSubfolder = ({ subfolder, onClick }: { subfolder: SubfolderRow, o
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
             </div>
             <span className="text-sm text-gray-300 group-hover:text-white truncate font-medium">{subfolder.name}</span>
+            <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onRename(subfolder);
+                    }}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-[#23233b]"
+                    aria-label="Unterordner umbenennen"
+                >
+                    <Edit size={13} />
+                </button>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(subfolder);
+                    }}
+                    className="p-1.5 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    aria-label="Unterordner löschen"
+                >
+                    <Trash2 size={13} />
+                </button>
+            </div>
         </motion.button>
     );
 };
 
 // Draggable File Wrapper
-const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile, onOpenShareOverlay }: DraggableFileProps) => {
+const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelectedFile, setFileToRename, setRenameFileValue, setIsRenameFileOpen, handleDelete, onRefineFile, onOpenShareOverlay, onCopyFile }: DraggableFileProps) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `drag-${file.id}`,
         data: { type: 'file', file }
@@ -302,7 +340,7 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                 </div>
                 <div>
                     <h4 className="text-sm font-medium text-white select-none">{file.name}</h4>
-                    <p className="text-xs text-gray-500 capitalize select-none">{file.created_at} • {file.type}</p>
+                    <p className="text-xs text-gray-500 capitalize select-none">{formatDateTime(file.created_at)} • {file.type}</p>
                 </div>
             </div>
 
@@ -387,6 +425,18 @@ const DraggableFile = ({ file, icon, openMenuFileId, setOpenMenuFileId, setSelec
                         >
                             <Send size={15} />
                             Teilen
+                        </button>
+
+                        <div className="h-px bg-[#1C1C33]" />
+                        <button
+                            onClick={() => {
+                                setOpenMenuFileId(null);
+                                onCopyFile(file);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-[#1C1C33] hover:text-white transition-colors"
+                        >
+                            <Copy size={15} />
+                            Kopieren
                         </button>
 
                         <div className="h-px bg-[#1C1C33]" />
@@ -670,6 +720,12 @@ export default function FolderPage() {
     const [subfolders, setSubfolders] = useState<{ id: string; name: string; created_at: string }[]>([]);
     const [isCreateSubfolderOpen, setIsCreateSubfolderOpen] = useState(false);
     const [newSubfolderName, setNewSubfolderName] = useState('');
+    const [isRenameSubfolderOpen, setIsRenameSubfolderOpen] = useState(false);
+    const [subfolderToRename, setSubfolderToRename] = useState<SubfolderRow | null>(null);
+    const [renameSubfolderValue, setRenameSubfolderValue] = useState("");
+    const [subfolderToDelete, setSubfolderToDelete] = useState<SubfolderRow | null>(null);
+    const [isDeleteSubfolderOpen, setIsDeleteSubfolderOpen] = useState(false);
+    const [copiedFile, setCopiedFile] = useState<{ id: string; name: string } | null>(null);
 
     // Native Drag and Drop State (OS to Browser)
     const [isDraggingOverBase, setIsDraggingOverBase] = useState(false);
@@ -1437,17 +1493,17 @@ export default function FolderPage() {
 
                 // Open the result immediately from the response (no race condition)
                 if (endpoint === 'plan' && data.plan) {
-                    setSelectedFile({ id: 'plan_main', name: 'Aktueller Lernplan', type: 'plan', created_at: new Date().toISOString().split('T')[0], content: data.plan });
+                    setSelectedFile({ id: 'plan_main', name: 'Aktueller Lernplan', type: 'plan', created_at: new Date().toISOString(), content: data.plan });
                 } else if (endpoint === 'quiz' && data.quiz) {
-                    const generated = { id: `quiz_main_${folderId}`, name: 'AI Quiz', type: 'quiz', created_at: new Date().toISOString().split('T')[0], content: data.quiz };
+                    const generated = { id: `quiz_main_${folderId}`, name: 'AI Quiz', type: 'quiz', created_at: new Date().toISOString(), content: data.quiz };
                     setSelectedFile(generated);
                     upsertGeneratedFile(generated);
                 } else if (endpoint === 'flashcards' && data.flashcards) {
-                    const generated = { id: `cards_main_${folderId}`, name: 'Generierte Karteikarten', type: 'flashcards', created_at: new Date().toISOString().split('T')[0], content: data.flashcards };
+                    const generated = { id: `cards_main_${folderId}`, name: 'Generierte Karteikarten', type: 'flashcards', created_at: new Date().toISOString(), content: data.flashcards };
                     setSelectedFile(generated);
                     upsertGeneratedFile(generated);
                 } else if (endpoint === 'summary' && data.summary) {
-                    setSelectedFile({ id: 'summary_main', name: 'Zusammenfassung', type: 'summary', created_at: new Date().toISOString().split('T')[0], content: data.summary });
+                    setSelectedFile({ id: 'summary_main', name: 'Zusammenfassung', type: 'summary', created_at: new Date().toISOString(), content: data.summary });
                 }
 
                 // Also refresh the file list in background
@@ -1559,7 +1615,7 @@ export default function FolderPage() {
                     id: `quiz_main_${folderId}`,
                     name: 'AI Quiz',
                     type: 'quiz',
-                    created_at: new Date().toISOString().split('T')[0],
+                    created_at: new Date().toISOString(),
                     content: data.quiz
                 };
                 upsertGeneratedFile(generated);
@@ -1626,7 +1682,7 @@ export default function FolderPage() {
                     id: `cards_main_${folderId}`,
                     name: 'Generierte Karteikarten',
                     type: 'flashcards',
-                    created_at: new Date().toISOString().split('T')[0],
+                    created_at: new Date().toISOString(),
                     content: data.flashcards
                 };
                 upsertGeneratedFile(generated);
@@ -1696,7 +1752,7 @@ export default function FolderPage() {
                     id: `summary_${Date.now()}`, // Temporary ID for immediate viewing
                     name: 'Automatische Zusammenfassung',
                     type: 'summary',
-                    created_at: new Date().toISOString().split('T')[0],
+                    created_at: new Date().toISOString(),
                     content: data.summary
                 });
                 fetchFiles();
@@ -1812,7 +1868,7 @@ export default function FolderPage() {
                                 id: fid,
                                 name: "Ausarbeitung",
                                 type: "elaboration",
-                                created_at: new Date().toISOString().split("T")[0],
+                                created_at: new Date().toISOString(),
                                 content: data.elaboration,
                             });
                             await fetchFiles();
@@ -1831,7 +1887,7 @@ export default function FolderPage() {
                     id: `elaboration_${Date.now()}`,
                     name: 'Ausarbeitung',
                     type: 'elaboration',
-                    created_at: new Date().toISOString().split('T')[0],
+                    created_at: new Date().toISOString(),
                     content: data.elaboration
                 });
                 fetchFiles();
@@ -1899,7 +1955,7 @@ export default function FolderPage() {
                     id: `repetition_${Date.now()}`,
                     name: 'Wiederholungsbogen',
                     type: 'repetition',
-                    created_at: new Date().toISOString().split('T')[0],
+                    created_at: new Date().toISOString(),
                     content: data.repetition
                 });
                 fetchFiles();
@@ -2018,7 +2074,7 @@ export default function FolderPage() {
                             id: String(data.file_id),
                             name: (data.filename as string) || "Podcast.mp3",
                             type: "audio",
-                            created_at: new Date().toISOString().split("T")[0],
+                            created_at: new Date().toISOString(),
                         };
                         upsertGeneratedFile(generated);
                         setSelectedFile(generated);
@@ -2037,7 +2093,7 @@ export default function FolderPage() {
                     id: data.file_id,
                     name: data.filename || "Podcast.mp3",
                     type: "audio",
-                    created_at: new Date().toISOString().split("T")[0],
+                    created_at: new Date().toISOString(),
                 };
                 upsertGeneratedFile(generated);
                 setSelectedFile(generated);
@@ -2169,7 +2225,7 @@ export default function FolderPage() {
                             id: String(data.file_id),
                             name: (data.title as string) || (data.filename as string) || "Lernvideo.mp4",
                             type: "video",
-                            created_at: new Date().toISOString().split("T")[0],
+                            created_at: new Date().toISOString(),
                         };
                         upsertGeneratedFile(generated);
                         setSelectedFile(generated);
@@ -2187,7 +2243,7 @@ export default function FolderPage() {
                     id: data.file_id,
                     name: data.title || data.filename || "Lernvideo.mp4",
                     type: "video",
-                    created_at: new Date().toISOString().split("T")[0],
+                    created_at: new Date().toISOString(),
                 };
                 upsertGeneratedFile(generated);
                 setSelectedFile(generated);
@@ -2269,7 +2325,7 @@ export default function FolderPage() {
                         id: 'plan_main',
                         name: 'Aktueller Lernplan',
                         type: 'plan',
-                        created_at: new Date().toISOString().split('T')[0],
+                        created_at: new Date().toISOString(),
                         content: data.plan
                     });
                 } else {
@@ -2375,6 +2431,96 @@ export default function FolderPage() {
         const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
         if (res.ok) fetchFiles();
         else showToast('Fehler beim Löschen.');
+    };
+
+    const handleCopyFile = (file: FileData) => {
+        setCopiedFile({ id: file.id, name: file.name });
+        showToast(`"${file.name}" kopiert.`, "success");
+    };
+
+    const handlePasteCopiedFile = async () => {
+        if (!copiedFile) {
+            showToast("Keine Datei im Kopier-Buffer.");
+            return;
+        }
+        const username = localStorage.getItem("username");
+        if (!username) {
+            showToast("Bitte zuerst anmelden.");
+            return;
+        }
+        try {
+            const res = await fetch(`${API_BASE}/files/${encodeURIComponent(copiedFile.id)}/copy`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    target_folder_id: folderId,
+                }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Einfügen fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${res.status}`)}`);
+                return;
+            }
+            await fetchFiles();
+            showToast(`"${copiedFile.name}" eingefügt.`, "success");
+        } catch {
+            showToast("Netzwerkfehler beim Einfügen.");
+        }
+    };
+
+    const openRenameSubfolder = (sf: SubfolderRow) => {
+        setSubfolderToRename(sf);
+        setRenameSubfolderValue(sf.name);
+        setIsRenameSubfolderOpen(true);
+    };
+
+    const submitRenameSubfolder = async () => {
+        if (!subfolderToRename || !renameSubfolderValue.trim()) return;
+        const username = localStorage.getItem("username");
+        try {
+            const res = await fetch(`${API_BASE}/folders/${encodeURIComponent(subfolderToRename.id)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, name: renameSubfolderValue.trim() }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Unterordner umbenennen fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${res.status}`)}`);
+                return;
+            }
+            setIsRenameSubfolderOpen(false);
+            setSubfolderToRename(null);
+            setRenameSubfolderValue("");
+            await fetchFiles();
+        } catch {
+            showToast("Netzwerkfehler beim Umbenennen des Unterordners.");
+        }
+    };
+
+    const openDeleteSubfolder = (sf: SubfolderRow) => {
+        setSubfolderToDelete(sf);
+        setIsDeleteSubfolderOpen(true);
+    };
+
+    const submitDeleteSubfolder = async () => {
+        if (!subfolderToDelete) return;
+        const username = localStorage.getItem("username");
+        try {
+            const res = await fetch(`${API_BASE}/folders/${encodeURIComponent(subfolderToDelete.id)}?username=${encodeURIComponent(username || "")}`, {
+                method: "DELETE",
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast(`Unterordner löschen fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${res.status}`)}`);
+                return;
+            }
+            setIsDeleteSubfolderOpen(false);
+            setSubfolderToDelete(null);
+            await fetchFiles();
+        } catch {
+            showToast("Netzwerkfehler beim Löschen des Unterordners.");
+        }
     };
 
     const openShareOverlay = (file: FileData) => {
@@ -3737,7 +3883,7 @@ export default function FolderPage() {
                                         id: `draft_${Date.now()}`,
                                         name: "Neues Dokument",
                                         type: "summary",
-                                        created_at: new Date().toISOString().split('T')[0],
+                                        created_at: new Date().toISOString(),
                                         content: ""
                                     });
                                 }}
@@ -3852,12 +3998,28 @@ export default function FolderPage() {
                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                                             Unterordner
                                         </h3>
-                                        <button
-                                            onClick={() => setIsCreateSubfolderOpen(true)}
-                                            className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors"
-                                        >
-                                            <Plus size={13} /> Erstellen
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => void handlePasteCopiedFile()}
+                                                disabled={!copiedFile}
+                                                className="flex items-center gap-1 text-xs text-gray-300 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title={copiedFile ? `"${copiedFile.name}" hier einfügen` : "Erst eine Datei kopieren"}
+                                            >
+                                                <ClipboardPaste size={13} /> Einfügen
+                                            </button>
+                                            <button
+                                                onClick={() => setIsUploadOpen(true)}
+                                                className="flex items-center gap-1 text-xs text-white bg-[#5E5CE6] hover:bg-[#4d4ac9] px-3 py-1.5 rounded-lg border border-[#5E5CE6] transition-colors"
+                                            >
+                                                <Plus size={13} /> Material hinzufügen
+                                            </button>
+                                            <button
+                                                onClick={() => setIsCreateSubfolderOpen(true)}
+                                                className="flex items-center gap-1 text-xs text-gray-400 hover:text-white bg-[#151525] hover:bg-[#1C1C33] px-3 py-1.5 rounded-lg border border-[#2A2A40] transition-colors"
+                                            >
+                                                <Plus size={13} /> Erstellen
+                                            </button>
+                                        </div>
                                     </div>
                                     {subfolders.length === 0 ? (
                                         <p className="text-xs text-gray-600 italic">Noch keine Unterordner</p>
@@ -3865,7 +4027,13 @@ export default function FolderPage() {
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                             <AnimatePresence mode="popLayout">
                                                 {subfolders.map((sf) => (
-                                                    <DroppableSubfolder key={sf.id} subfolder={sf} onClick={() => router.push(`/folder/${sf.id}`)} />
+                                                    <DroppableSubfolder
+                                                        key={sf.id}
+                                                        subfolder={sf}
+                                                        onClick={() => router.push(`/folder/${sf.id}`)}
+                                                        onRename={openRenameSubfolder}
+                                                        onDelete={openDeleteSubfolder}
+                                                    />
                                                 ))}
                                             </AnimatePresence>
                                         </div>
@@ -3909,6 +4077,7 @@ export default function FolderPage() {
                                                 handleDelete={handleDeleteFile}
                                                 onRefineFile={handleRefineFile}
                                                 onOpenShareOverlay={openShareOverlay}
+                                                onCopyFile={handleCopyFile}
                                             />
                                         ))}
                                     </AnimatePresence>
@@ -5579,6 +5748,60 @@ export default function FolderPage() {
                                     className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                                 >
                                     Erstellen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {isRenameSubfolderOpen && subfolderToRename && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl">
+                            <div className="flex justify-between items-center p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-base font-semibold text-white">Unterordner umbenennen</h3>
+                                <button onClick={() => setIsRenameSubfolderOpen(false)} className="text-gray-400 hover:text-white p-2 hover:bg-[#1C1C33] rounded-lg">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-5">
+                                <input
+                                    type="text"
+                                    value={renameSubfolderValue}
+                                    onChange={(e) => setRenameSubfolderValue(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") void submitRenameSubfolder(); }}
+                                    className="w-full bg-[#151525] border border-[#2A2A40] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#5E5CE6]/50"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="flex gap-3 p-5 border-t border-[#2A2A40]">
+                                <button onClick={() => setIsRenameSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                                    Abbrechen
+                                </button>
+                                <button
+                                    onClick={() => void submitRenameSubfolder()}
+                                    disabled={!renameSubfolderValue.trim()}
+                                    className="flex-1 py-2.5 bg-[#5E5CE6] hover:bg-[#4d4ac9] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                                >
+                                    Speichern
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {isDeleteSubfolderOpen && subfolderToDelete && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                        <div className="bg-[#0B0B1A] border border-[#2A2A40] rounded-2xl w-full max-w-sm shadow-2xl">
+                            <div className="p-5 border-b border-[#2A2A40]">
+                                <h3 className="text-base font-semibold text-white">Unterordner löschen?</h3>
+                                <p className="text-sm text-gray-400 mt-1">"{subfolderToDelete.name}" inklusive Inhalt wird gelöscht.</p>
+                            </div>
+                            <div className="flex gap-3 p-5">
+                                <button onClick={() => setIsDeleteSubfolderOpen(false)} className="flex-1 py-2.5 bg-[#151525] hover:bg-[#1C1C33] text-gray-300 rounded-xl text-sm font-medium">
+                                    Abbrechen
+                                </button>
+                                <button onClick={() => void submitDeleteSubfolder()} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-semibold">
+                                    Löschen
                                 </button>
                             </div>
                         </div>

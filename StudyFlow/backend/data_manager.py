@@ -72,6 +72,42 @@ class DataManager:
             return None
 
     @staticmethod
+    def _split_name_suffix(name: str) -> tuple[str, str]:
+        base = (name or "").strip() or "Unbenannt"
+        root, ext = os.path.splitext(base)
+        if ext.lower() in {".pdf", ".mp3", ".wav", ".m4a", ".webm", ".mp4", ".jpg", ".jpeg", ".png", ".webp"}:
+            return (root or base), ext
+        return base, ""
+
+    @staticmethod
+    def unique_file_name(base_name: str, username: str, folder_id: str) -> str:
+        db = DataManager._init_supabase()
+        if not db:
+            return base_name
+        original = (base_name or "").strip() or "Unbenannt"
+        root, ext = DataManager._split_name_suffix(original)
+        try:
+            res = (
+                db.table("files")
+                .select("name")
+                .eq("username", username)
+                .eq("folder_id", str(folder_id))
+                .execute()
+            )
+            existing = {str(r.get("name") or "").strip() for r in (res.data or [])}
+            if original not in existing:
+                return original
+            i = 1
+            while True:
+                candidate = f"{root} ({i}){ext}"
+                if candidate not in existing:
+                    return candidate
+                i += 1
+        except Exception as e:
+            print(f"unique_file_name: {e}")
+            return original
+
+    @staticmethod
     def _init_supabase() -> Client:
         """Initializes Supabase using Env Variables. Fails hard if not found."""
         if DataManager._supabase is not None:
@@ -288,7 +324,7 @@ class DataManager:
     def save_file_metadata(file_data, username, folder_id):
         db = DataManager._init_supabase()
         if not db: return
-        
+        now_iso = datetime.now().isoformat()
         record = {
             "id": file_data["id"],
             "username": username,
@@ -296,7 +332,8 @@ class DataManager:
             "name": file_data.get("name", "Unbenannt"),
             "type": file_data.get("type", "unknown"),
             "content": json.dumps(file_data.get("content")) if isinstance(file_data.get("content"), (dict, list)) else file_data.get("content"),
-            "created_at": file_data.get("created_at", datetime.now().isoformat()),
+            "created_at": file_data.get("created_at", now_iso),
+            "updated_at": file_data.get("updated_at", file_data.get("created_at", now_iso)),
         }
         if file_data.get("file_url") is not None:
             record["file_url"] = file_data["file_url"]
@@ -345,6 +382,61 @@ class DataManager:
         if not db: return False
         res = db.table('files').update({"folder_id": target_folder_id}).eq('id', file_id).eq('username', username).execute()
         return len(res.data) > 0
+
+    @staticmethod
+    def copy_file_to_folder(username: str, file_id: str, target_folder_id: str, new_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        db = DataManager._init_supabase()
+        if not db:
+            return None
+        src = (
+            db.table("files")
+            .select("*")
+            .eq("id", file_id)
+            .eq("username", username)
+            .limit(1)
+            .execute()
+        )
+        if not src.data:
+            return None
+        row = src.data[0]
+        source_name = str(row.get("name") or "Unbenannt")
+        target_name = DataManager.unique_file_name((new_name or source_name).strip() or source_name, username, target_folder_id)
+        new_id = f"copy_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+        copied_file_url = None
+        source_url = row.get("file_url")
+        if source_url:
+            source_object_path = DataManager._normalize_bucket_object_path(str(source_url), "blop_documents")
+            if source_object_path:
+                binary = db.storage.from_("blop_documents").download(source_object_path)
+                if hasattr(binary, "content"):
+                    binary = binary.content
+                if hasattr(binary, "read"):
+                    binary = binary.read()
+                if isinstance(binary, bytearray):
+                    binary = bytes(binary)
+                if isinstance(binary, (bytes, memoryview)):
+                    _, ext = DataManager._split_name_suffix(target_name)
+                    safe_basename = DataManager._sanitize_filename(f"{uuid.uuid4().hex}{ext}")
+                    copied_object = f"{username}/{target_folder_id}/copy/{safe_basename}"
+                    db.storage.from_("blop_documents").upload(copied_object, bytes(binary), {"upsert": "true"})
+                    copied_file_url = copied_object
+        now_iso = datetime.now().isoformat()
+        payload = {
+            "id": new_id,
+            "username": username,
+            "folder_id": str(target_folder_id),
+            "name": target_name,
+            "type": row.get("type", "unknown"),
+            "content": row.get("content"),
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        if copied_file_url:
+            payload["file_url"] = copied_file_url
+        elif source_url:
+            payload["file_url"] = source_url
+        db.table("files").insert(payload).execute()
+        return payload
 
     @staticmethod
     def get_folder_name(username, folder_id) -> Optional[str]:
