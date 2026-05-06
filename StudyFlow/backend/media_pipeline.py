@@ -855,6 +855,7 @@ def _marketing_subtitle_chain_for_window(
     fontsize_expr: str = "h*0.08",
     text_x_expr: str = "(w-text_w)/2",
     text_y_expr: str = "h*0.70",
+    drawtext_preset: str = "",
 ) -> str:
     subtitle_chunks = _subtitle_chunks(
         script_text,
@@ -872,17 +873,29 @@ def _marketing_subtitle_chain_for_window(
         end = min(float(window_end), start + chunk_duration + 0.18)
         if start >= window_end:
             break
+        if drawtext_preset == "soft_brainrot":
+            fontc = "#E9E2FC"
+            bcol = "black@0.48"
+            boxc = "#1E1830@0.38"
+            bw = "1"
+            boxpad = "10"
+        else:
+            fontc = "white"
+            bcol = "black@0.88"
+            boxc = "black@0.42"
+            bw = "2"
+            boxpad = "12"
         subtitle_filters.append(
             "drawtext="
             f"{_drawtext_fontfile_prefix()}"
             f"text='{_drawtext_ascii_safe(chunk)}':"
-            "fontcolor=white:"
+            f"fontcolor={fontc}:"
             f"fontsize={fontsize_expr}:"
-            "borderw=2:"
-            "bordercolor=black@0.88:"
+            f"borderw={bw}:"
+            f"bordercolor={bcol}:"
             "box=1:"
-            "boxcolor=black@0.42:"
-            "boxborderw=12:"
+            f"boxcolor={boxc}:"
+            f"boxborderw={boxpad}:"
             f"x={text_x_expr}:"
             f"y={text_y_expr}:"
             f"enable='between(t,{start:.2f},{end:.2f})'"
@@ -1305,15 +1318,19 @@ def _pack_brainrot_text_filters(
     if esc_hook:
         a_hook = _drawtext_alpha_fade_expr(0.0, min(hook_end + 0.12, d), 0.42, 0.28)
         parts.append(
-            "drawtext=" + fp + "text='" + esc_hook + "':fontcolor=white:fontsize=w*0.036:borderw=2:bordercolor=black@0.9:"
-            "box=1:boxcolor=#2a1f45@0.58:boxborderw=10:"
+            "drawtext="
+            + fp
+            + "text='"
+            + esc_hook
+            + "':fontcolor=#E8E2F6:fontsize=w*0.034:borderw=1:bordercolor=black@0.48:"
+            "box=1:boxcolor=#232038@0.40:boxborderw=10:"
             f"x={cx}:y=h*0.08:alpha='{a_hook}':"
             f"enable='between(t,0,{min(hook_end + 0.2, d):.2f})'"
         )
     title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:36])
     a_title = _drawtext_alpha_fade_expr(list_start, list_end, 0.45, 0.38)
     parts.append(
-        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#C8B8FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.85:"
+        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#B8AACF:fontsize=w*0.032:borderw=1:bordercolor=black@0.45:"
         "x=max(8\\,w*0.05):y=h*0.42:"
         f"alpha='{a_title}':"
         f"enable='between(t,{max(0.0, list_start - 0.05):.2f},{min(list_end + 0.15, d):.2f})'"
@@ -1328,7 +1345,7 @@ def _pack_brainrot_text_filters(
         t_in = list_start + 0.22 + float(i) * stagger
         a_line = _drawtext_alpha_fade_expr(t_in, list_end - 0.05, 0.38, 0.30)
         parts.append(
-            f"drawtext={fp}text='{line}':fontcolor=#F0EAFF:fontsize=w*0.028:borderw=2:bordercolor=black@0.88:"
+            f"drawtext={fp}text='{line}':fontcolor=#D8CFEA:fontsize=w*0.028:borderw=1:bordercolor=black@0.48:"
             f"x=max(8\\,w*0.06):y=h*{y:.3f}:"
             f"alpha='{a_line}':"
             f"enable='between(t,{max(0.0, t_in - 0.08):.2f},{min(list_end + 0.12, d):.2f})'"
@@ -1337,8 +1354,12 @@ def _pack_brainrot_text_filters(
     if esc_cta:
         a_cta = _drawtext_alpha_fade_expr(max(0.0, cta_start - 0.08), cta_end + 0.02, 0.48, 0.42)
         parts.append(
-            "drawtext=" + fp + "text='" + esc_cta + "':fontcolor=#E8E0FF:fontsize=w*0.032:borderw=2:bordercolor=black@0.9:"
-            "box=1:boxcolor=#1a1428@0.52:boxborderw=8:"
+            "drawtext="
+            + fp
+            + "text='"
+            + esc_cta
+            + "':fontcolor=#DDD6F2:fontsize=w*0.031:borderw=1:bordercolor=black@0.50:"
+            "box=1:boxcolor=#1c1628@0.36:boxborderw=8:"
             f"x={cx}:y=h*0.82:alpha='{a_cta}':"
             f"enable='between(t,{max(0.0, cta_start - 0.15):.2f},{d:.2f})'"
         )
@@ -1382,6 +1403,7 @@ def render_marketing_brainrot_clip(
         fontsize_expr="w*0.038",
         text_x_expr=r"max(6\,min((w-text_w)/2\,w-6-text_w))",
         text_y_expr="h*0.62",
+        drawtext_preset="soft_brainrot",
     )
     txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d, phases=ph)
     overlay_extras: List[str] = []
@@ -1398,15 +1420,16 @@ def render_marketing_brainrot_clip(
         "[0:v]format=gbrp,"
         "geq=r='19+32*(Y/H)':g='10+24*(Y/H)':b='44+40*(Y/H)',"
         "format=yuv420p,"
-        "vignette=PI/6:eval=frame:dither=1,"
+        "vignette=PI/8:eval=frame:dither=1,"
         "format=yuv420p[bg]"
     )
 
     # Fit inside ~88% × ~79% canvas without letterbox padding → no thin strip on wide PNGs/logos.
-    box_w = 472
-    box_h = 760
+    box_w = 526
+    box_h = 820
     hero_vf = (
-        f"[1:v]scale=w='trunc(iw*min({box_w}/iw\\,{box_h}/ih))/2*2':"
+        f"[1:v]eq=contrast=0.93:saturation=0.88:brightness=0.02:gamma=0.94,"
+        f"scale=w='trunc(iw*min({box_w}/iw\\,{box_h}/ih))/2*2':"
         f"h='trunc(ih*min({box_w}/iw\\,{box_h}/ih))/2*2':"
         "flags=lanczos,setsar=1,format=yuv420p[fg]"
     )
@@ -1420,7 +1443,7 @@ def render_marketing_brainrot_clip(
     if acc_in:
         acc_sparkle = (
             "[2:v]scale=120:-1,format=yuv420p,"
-            "hue=H='2.8*sin(2.3*t)':s=0.96[acc]"
+            "hue=H='2.8*sin(2.3*t)':s=0.72[acc]"
         )
         ov_acc = (
             "[vm][acc]overlay=x='max(4\\,min(W-w-4\\,W*0.72-w/2+5*sin(t*0.88)))':"

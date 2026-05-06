@@ -381,7 +381,10 @@ def _default_plan(bulletpoints: str, language: str, max_clips: int) -> Dict[str,
                 "list_title": "Top 3:" if language == "de" else "Top 3:",
                 "list_items": ["Schneller", "Cleaner", "Mehr Wow"] if language == "de" else ["Faster", "Cleaner", "More wow"],
                 "cta_line": "Kommentar: Was shipst du als Nächstes?" if language == "de" else "Comment what you ship next.",
-                "ki_visual_brief": "Neon glitch abstract with app motif.",
+                "ki_visual_brief": (
+                    "Soft editorial social card: muted lilac palette, gentle gradients, low contrast, "
+                    "no neon, no harsh glow; calm premium feel."
+                ),
                 "hero_bbox_01": None,
             }
         )
@@ -419,15 +422,36 @@ def call_openai_pack_plan(
         {
             "type": "text",
             "text": (
-                f"You are a viral TikTok/Instagram strategist. Analyze the attached image(s). "
+                "You are a senior Instagram / Reels creative director for a product app (Blop). "
+                "The user uploaded real screenshots, photos, or video frames. Your job is to plan short clips that "
+                "SHOW that real material clearly and credibly — not to invent unrelated visuals.\n\n"
                 f"User notes (optional): {bulletpoints.strip()[:800]}\n"
-                f"Language for ALL user-facing strings: {lang_name}.\n"
-                "Return ONLY valid JSON (no markdown). Top-level keys: material_summary (string), "
-                "extracted_elements (array of {label, role, bbox_01:{x,y,w,h} 0-1 relative to FIRST image}), "
-                "clips (array). Each clip object: title, hook, script (~40-70 words for ~15s VO), caption, hashtags, "
-                "platform_hint, posting_hint, list_title, list_items, cta_line, ki_visual_brief, hero_bbox_01 (optional).\n"
-                f"Rules: exactly {max_clips} clips; each clip DISTINCT angle/hook; never ask questions; "
-                "if unsure use hero_bbox_01 null."
+                f"Language for ALL user-facing strings (title, hook, script, list, CTA, caption): {lang_name}.\n\n"
+                "VISUAL + BRAND RULES (mandatory):\n"
+                "- Aesthetic: calm, premium, editorial. Dark muted purple / lilac harmony, soft gradients, LOW CONTRAST. "
+                "Avoid neon, harsh glow, cyberpunk, glitch, high-saturation blues, or aggressive motion language.\n"
+                "- Every word, logo, and UI label in the uploads must remain fully readable in the final crop. "
+                "Never suggest crops that cut titles, slogans, or brand text at the edges.\n"
+                "- hero_bbox_01 must tightly frame the main subject BUT include generous padding (~8–12% margin on each side). "
+                "If any text or logo is near the edge, expand the box until everything fits. "
+                "If the whole frame is the subject, set hero_bbox_01 to {{\"x\":0,\"y\":0,\"w\":1,\"h\":1}}.\n"
+                "- extracted_elements: list distinct visible things (logos, headlines, buttons, icons, faces, charts) with safe "
+                "bbox_01 on the FIRST attached image; labels must match what is actually visible.\n"
+                "- ki_visual_brief: optional helper for an extra generated accent image ONLY if needed. "
+                "Describe soft, low-contrast, matte shapes that harmonize with the upload (pastel lilac, mist, soft bokeh). "
+                "Never ask for neon, laser, chrome, or high-contrast effects.\n\n"
+                "VO / STORY RULES:\n"
+                "- script: ~40–70 words, ~15s voice-over, clear structure (hook → value → CTA). Confident but not shouty.\n"
+                "- list_items: 3–5 short bullets grounded in what the images show; no fake features.\n"
+                "- Do not output markdown. No questions in captions.\n\n"
+                "Return ONLY valid JSON. Schema:\n"
+                "- Top-level keys: material_summary (string), extracted_elements (array of "
+                "{{\"label\":string,\"role\":string,\"bbox_01\":{{\"x\":number,\"y\":number,\"w\":number,\"h\":number}}}}), "
+                "clips (array of exactly N objects).\n"
+                "- Each clip: title, hook, script, caption (short), hashtags (array), platform_hint, posting_hint, "
+                "list_title, list_items (array of strings), cta_line, ki_visual_brief (string), hero_bbox_01 (object or null).\n"
+                f"N must be exactly {max_clips}. Each clip must have a DISTINCT angle/hook.\n"
+                "bbox_01 and hero_bbox_01 use NORMALIZED coords 0–1 relative to the FIRST attached image (x,y upper-left)."
             ),
         }
     ]
@@ -441,7 +465,7 @@ def call_openai_pack_plan(
         json={
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": content}],
-            "temperature": 0.85,
+            "temperature": 0.55,
             "response_format": {"type": "json_object"},
         },
         timeout=180,
@@ -500,7 +524,7 @@ def crop_hero_to_png(src_path: str, bbox: Optional[Dict[str, float]], out_png: s
             by = max(0.0, float(bbox["y"]))
             bw0 = max(0.02, float(bbox["w"]))
             bh0 = max(0.02, float(bbox["h"]))
-            pad = 0.12
+            pad = 0.18
             bx = max(0.0, bx - bw0 * pad)
             by = max(0.0, by - bh0 * pad)
             bw0 = min(1.0 - bx, bw0 * (1.0 + pad * 2.0))
@@ -546,7 +570,13 @@ def optional_openai_image(brief: str, out_png: str) -> bool:
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json={
             "model": "dall-e-3",
-            "prompt": (brief[:900] + " Pop-art neon brainrot sticker vibe, flat shapes, high contrast."),
+            "prompt": (
+                "Supplemental accent image only: "
+                + brief[:760].strip()
+                + " Editorial social aesthetic: muted dark lilac, soft matte gradients, low contrast, "
+                "dusty pastel highlights, subtle paper/grain texture, no neon, no laser, "
+                "no chrome, no holographic effects, calm premium minimalist."
+            ),
             "n": 1,
             "size": "1024x1024",
             "response_format": "b64_json",
