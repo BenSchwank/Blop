@@ -6,19 +6,25 @@ Rectangle {
     id: root
     visible: true
     color: "#0F111A"
-    readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
+    readonly property real widthScale: width / 411
+    readonly property real heightScale: height / 780
+    readonly property real uiScale: Math.max(0.86, Math.min(Math.min(widthScale, heightScale), 1.35))
+    readonly property int safeTopInset: Math.max(0, Math.round((height - Math.min(height, parent ? parent.height : height)) * 0.5))
+    readonly property int headerTopPadding: Math.max(Math.round(8 * uiScale), safeTopInset)
     
     // We expect the C++ side to provide "authUrl" as a context property
     
     // Header to allow the user to go back if something is wrong
     Rectangle {
         id: header
-        height: Math.round(50 * uiScale)
+        height: Math.round(50 * uiScale) + headerTopPadding
         width: parent.width
         color: "#1F2335"
         
         Text {
-            anchors.centerIn: parent
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: Math.round(headerTopPadding * 0.3)
             text: "Google Login"
             color: "white"
             font.bold: true

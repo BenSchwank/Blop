@@ -396,16 +396,26 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   if (!headerLay)
     return;
 
-  const int clampedInset =
-      qBound(0, UiScale::androidTopInsetPx(window), UiScale::dp(32));
+  const int clampedInset = UiScale::safeTopPx(window);
+  const int horizontalPad = UiScale::safeHorizontalPaddingPx(window);
   const int topExtra = UiScale::dp(4);
   const int headerHeight = UiScale::dp(52);
   const int totalHeight = headerHeight + clampedInset + topExtra;
 
   chrome->setFixedHeight(totalHeight);
   inner->setFixedHeight(totalHeight);
-  headerLay->setContentsMargins(UiScale::dp(10), clampedInset + topExtra,
-                                UiScale::dp(10), UiScale::dp(4));
+  headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
+                                horizontalPad, UiScale::dp(4));
+}
+
+QRect androidSafeOverlayRect(QWidget *host) {
+  if (!host)
+    return QRect();
+  QRect r = host->rect();
+  const int topInset = UiScale::safeTopPx(host);
+  const int bottomInset = UiScale::safeBottomPx(host);
+  r.adjust(0, topInset, 0, -bottomInset);
+  return r;
 }
 #endif
 
@@ -2840,12 +2850,17 @@ void MainWindow::setupUi() {
   androidTopChrome->setObjectName(QStringLiteral("AndroidTopChrome"));
   androidTopChrome->setStyleSheet(
       "QWidget#AndroidTopChrome { background-color: #0F111A; border: none; }");
-  const int androidTopInset = qBound(0, UiScale::androidTopInsetPx(this), UiScale::dp(32));
+  const int androidTopInset = UiScale::safeTopPx(this);
+  const int androidHeaderSidePad = UiScale::safeHorizontalPaddingPx(this);
   const int androidHeaderTopExtra = UiScale::dp(4);
-  const int androidHeaderHeight = UiScale::dp(52);
-  const int androidHeaderButtonW = UiScale::dp(56);
-  const int androidHeaderButtonH = UiScale::dp(32);
-  const int androidCompactPillH = UiScale::dp(28);
+  const int androidHeaderHeight =
+      qBound(UiScale::dp(46), int(width() * 0.09), UiScale::dp(60));
+  const int androidHeaderButtonW =
+      qBound(UiScale::dp(44), int(width() * 0.12), UiScale::dp(68));
+  const int androidHeaderButtonH =
+      qBound(UiScale::dp(30), int(androidHeaderHeight * 0.7), UiScale::dp(38));
+  const int androidCompactPillH =
+      qBound(UiScale::dp(26), int(androidHeaderHeight * 0.58), UiScale::dp(34));
   const int androidHeaderTotalH =
       androidHeaderHeight + androidTopInset + androidHeaderTopExtra;
 
@@ -2855,8 +2870,8 @@ void MainWindow::setupUi() {
   androidHeader->setFixedHeight(androidHeaderTotalH);
   androidHeader->setStyleSheet("background-color: #0F111A;");
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
-  headerLay->setContentsMargins(UiScale::dp(10), androidTopInset + androidHeaderTopExtra,
-                                UiScale::dp(10), UiScale::dp(4));
+  headerLay->setContentsMargins(androidHeaderSidePad, androidTopInset + androidHeaderTopExtra,
+                                androidHeaderSidePad, UiScale::dp(4));
   headerLay->setSpacing(UiScale::dp(8));
 
   auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
@@ -3039,8 +3054,8 @@ void MainWindow::setupUi() {
   m_androidTopSearchBar->setFrame(false);
   m_androidTopSearchBar->setAttribute(Qt::WA_StyledBackground, true);
   m_androidTopSearchBar->setFixedHeight(androidHeaderButtonH);
-  m_androidTopSearchBar->setMinimumWidth(UiScale::dp(170));
-  m_androidTopSearchBar->setMaximumWidth(UiScale::dp(290));
+  m_androidTopSearchBar->setMinimumWidth(qBound(UiScale::dp(130), int(width() * 0.28), UiScale::dp(240)));
+  m_androidTopSearchBar->setMaximumWidth(qBound(UiScale::dp(220), int(width() * 0.46), UiScale::dp(420)));
   m_androidTopSearchBar->setStyleSheet(
       "QLineEdit#androidTopSearchBar {"
       "  background: rgba(255,255,255,0.08);"
@@ -4886,7 +4901,11 @@ void MainWindow::setupSidebar() {
 void MainWindow::updateAndroidSidebarScrimGeometry() {
   if (!m_androidSidebarScrim || !m_centralContainer)
     return;
-  m_androidSidebarScrim->setGeometry(m_centralContainer->geometry());
+  QRect hostRect = m_centralContainer->geometry();
+  const int topInset = UiScale::safeTopPx(this);
+  const int bottomInset = UiScale::safeBottomPx(this);
+  hostRect.adjust(0, topInset, 0, -bottomInset);
+  m_androidSidebarScrim->setGeometry(hostRect);
 }
 #endif
 
@@ -5105,7 +5124,7 @@ void MainWindow::onNewPage() {
   overlay->setAttribute(Qt::WA_DeleteOnClose, true);
   overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
   overlay->setStyleSheet("background-color: rgba(0,0,0,150);");
-  overlay->setGeometry(rect());
+  overlay->setGeometry(androidSafeOverlayRect(this));
   overlay->show();
   overlay->raise();
 
@@ -5249,7 +5268,7 @@ void MainWindow::onCreateFolder() {
   overlay->setAttribute(Qt::WA_DeleteOnClose, true);
   overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
   overlay->setStyleSheet("background-color: rgba(0,0,0,150);");
-  overlay->setGeometry(rect());
+  overlay->setGeometry(androidSafeOverlayRect(this));
   overlay->show();
   overlay->raise();
 
@@ -6783,7 +6802,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
   if (m_androidOAuthOverlay && m_androidOAuthOverlay->isVisible())
-    m_androidOAuthOverlay->setGeometry(rect());
+    m_androidOAuthOverlay->setGeometry(androidSafeOverlayRect(this));
   if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
 #else
@@ -6817,7 +6836,11 @@ void MainWindow::onOpenSettings() {
     onToggleSidebar();
 
   QWidget *overlay = new QWidget(this);
+#ifdef Q_OS_ANDROID
+  overlay->setGeometry(androidSafeOverlayRect(this));
+#else
   overlay->setGeometry(this->rect());
+#endif
   overlay->setStyleSheet("background-color: rgba(0, 0, 0, 150);");
   overlay->setAttribute(Qt::WA_DeleteOnClose);
   overlay->show();
