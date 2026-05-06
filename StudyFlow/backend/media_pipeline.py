@@ -1398,9 +1398,10 @@ def render_marketing_brainrot_clip(
         "[0:v]format=gbrp,"
         "geq=r='19+32*(Y/H)':g='10+24*(Y/H)':b='44+40*(Y/H)',"
         "format=yuv420p,"
-        "drawbox=x='W*0.12+8*sin(t*0.22)':y='H*0.18':w='W*0.76':h='H*0.0028':color=#B19CFF@0.18:t=fill,"
-        "drawbox=x='W*0.16+6*cos(t*0.18)':y='H*0.79':w='W*0.68':h='H*0.0022':color=#8E7CFF@0.14:t=fill,"
-        "drawbox=x='W*0.09':y='H*0.13+5*sin(t*0.17)':w='W*0.004':h='H*0.74':color=#7F6DFF@0.10:t=fill,"
+        # drawbox uses iw/ih (not W/H like overlay) on Debian ffmpeg 5.x
+        "drawbox=x='iw*0.12+8*sin(t*0.22)':y='ih*0.18':w='iw*0.76':h='ih*0.0028':color=#B19CFF@0.18:t=fill,"
+        "drawbox=x='iw*0.16+6*cos(t*0.18)':y='ih*0.79':w='iw*0.68':h='ih*0.0022':color=#8E7CFF@0.14:t=fill,"
+        "drawbox=x='iw*0.09':y='ih*0.13+5*sin(t*0.17)':w='iw*0.004':h='ih*0.74':color=#7F6DFF@0.10:t=fill,"
         "format=yuv420p[bg]"
     )
 
