@@ -46,12 +46,9 @@ int androidTopInsetPx(QWidget *reference) {
     inset = qMax(0, avail.top() - full.top());
   }
 #if defined(Q_OS_ANDROID)
-  // QWindow::safeAreaMargins() is not available on all Qt-for-Android targets (e.g. CI Qt 6.6);
-  // rely on screen geometry and avoid synthetic minimums that can create a
-  // permanent fake top strip on devices already reporting correct geometry.
-  // Some Android/ROM combinations can report unusually large deltas during
-  // surface transitions; keep the returned inset bounded for stable layouts.
-  inset = qBound(0, inset, dp(32));
+  // On some Android devices the top inset can exceed older hardcoded values.
+  // Keep it bounded only against unrealistic transition spikes.
+  inset = qBound(0, inset, dp(72));
 #endif
   return inset;
 }
@@ -64,6 +61,36 @@ int androidBottomInsetPx(QWidget *reference) {
   const QRect full = screen->geometry();
   const QRect avail = screen->availableGeometry();
   return qMax(0, full.bottom() - avail.bottom());
+}
+
+int safeTopPx(QWidget *reference) {
+#if defined(Q_OS_ANDROID)
+  return androidTopInsetPx(reference);
+#else
+  Q_UNUSED(reference);
+  return 0;
+#endif
+}
+
+int safeBottomPx(QWidget *reference) {
+#if defined(Q_OS_ANDROID)
+  return androidBottomInsetPx(reference);
+#else
+  Q_UNUSED(reference);
+  return 0;
+#endif
+}
+
+int safeHorizontalPaddingPx(QWidget *reference) {
+  QScreen *screen = bestScreen(reference);
+  if (!screen)
+    return dp(10);
+  const int minSide = qMin(screen->availableGeometry().width(), screen->availableGeometry().height());
+  if (minSide >= dp(900))
+    return dp(24);
+  if (minSide >= dp(600))
+    return dp(18);
+  return dp(10);
 }
 
 } // namespace UiScale

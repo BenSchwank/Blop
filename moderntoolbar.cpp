@@ -2059,10 +2059,15 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
       }
       
       int idealL = calculateMinLength() + 20;
+      const int safeTop = UiScale::safeTopPx(parentWidget());
+      const int safeBottom = UiScale::safeBottomPx(parentWidget());
+      const int sidePad = UiScale::safeHorizontalPaddingPx(parentWidget());
+      const int previewTop = safeTop + UiScale::dp(8);
+      const int previewHeight = UiScale::dp(52);
 
       if (newY <= 50) {
         // Top Snap: Centered width 
-        m_snapPreview->setGeometry((parentW - idealL) / 2, 10, idealL, 52);
+        m_snapPreview->setGeometry((parentW - idealL) / 2, previewTop, idealL, previewHeight);
         m_snapPreview->setStyleSheet(QString(
             "background-color: transparent;"
             "border: 2px dashed %1;"
@@ -2071,7 +2076,9 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         m_snapPreview->raise();
       } else if (newX <= 50) {
         // Left Snap (Vertical Pill)
-        m_snapPreview->setGeometry(15, (parentH - idealL) / 2, 65, idealL);
+        const int usableH = qMax(UiScale::dp(120), parentH - safeTop - safeBottom);
+        const int y = safeTop + qMax(0, (usableH - idealL) / 2);
+        m_snapPreview->setGeometry(sidePad, y, UiScale::dp(65), idealL);
         m_snapPreview->setStyleSheet(QString(
             "background-color: transparent; border: 2px dashed %1; border-radius: 20px;")
             .arg(m_accentColor.name()));
@@ -2079,7 +2086,9 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         m_snapPreview->raise();
       } else if (newX >= parentW - 100) {
         // Right Snap (Vertical Pill)
-        m_snapPreview->setGeometry(parentW - 80, (parentH - idealL) / 2, 65, idealL);
+        const int usableH = qMax(UiScale::dp(120), parentH - safeTop - safeBottom);
+        const int y = safeTop + qMax(0, (usableH - idealL) / 2);
+        m_snapPreview->setGeometry(parentW - sidePad - UiScale::dp(65), y, UiScale::dp(65), idealL);
         m_snapPreview->setStyleSheet(QString(
             "background-color: transparent; border: 2px dashed %1; border-radius: 20px;")
             .arg(m_accentColor.name()));
@@ -2240,15 +2249,19 @@ void ModernToolbar::showSettingsPopup() {
   }
   const QRect hostR = host->rect();
   QRect contentR(layer->mapFromGlobal(targetPos), content->size());
-  const int pad = 8;
-  if (contentR.right() > hostR.width() - pad)
-    contentR.moveRight(hostR.width() - pad);
-  if (contentR.bottom() > hostR.height() - pad)
-    contentR.moveBottom(hostR.height() - pad);
-  if (contentR.left() < pad)
-    contentR.moveLeft(pad);
-  if (contentR.top() < pad)
-    contentR.moveTop(pad);
+  const int sidePad = UiScale::safeHorizontalPaddingPx(host);
+  const int topPad = UiScale::safeTopPx(host) + UiScale::dp(8);
+  const int bottomPad = UiScale::safeBottomPx(host) + UiScale::dp(8);
+  const int rightBound = hostR.width() - sidePad;
+  const int bottomBound = hostR.height() - bottomPad;
+  if (contentR.right() > rightBound)
+    contentR.moveRight(rightBound);
+  if (contentR.bottom() > bottomBound)
+    contentR.moveBottom(bottomBound);
+  if (contentR.left() < sidePad)
+    contentR.moveLeft(sidePad);
+  if (contentR.top() < topPad)
+    contentR.moveTop(topPad);
   content->setGeometry(contentR);
   m_toolSettingsSheet = layer;
   layer->show();

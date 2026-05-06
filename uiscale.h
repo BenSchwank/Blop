@@ -9,6 +9,9 @@ int dp(int px);
 int sp(int px);
 int androidTopInsetPx(QWidget *reference = nullptr);
 int androidBottomInsetPx(QWidget *reference = nullptr);
+int safeTopPx(QWidget *reference = nullptr);
+int safeBottomPx(QWidget *reference = nullptr);
+int safeHorizontalPaddingPx(QWidget *reference = nullptr);
 
 } // namespace UiScale
 

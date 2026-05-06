@@ -1,5 +1,6 @@
 #include "pagemanager.h"
 #include "editoroverlays.h"
+#include "uiscale.h"
 #include <QAbstractItemModel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -341,10 +342,15 @@ void PageManager::fillParent() {
         setGeometry(0, 0, pw, ph);
         m_scrim->setGeometry(rect());
 #ifdef Q_OS_ANDROID
-        const int w = qMin(pw - 16, qMax(360, static_cast<int>(pw * 0.92)));
-        const int h = qMin(ph - 16, 760);
+        const int sidePad = UiScale::safeHorizontalPaddingPx(parentWidget());
+        const int topPad = UiScale::safeTopPx(parentWidget()) + UiScale::dp(8);
+        const int bottomPad = UiScale::safeBottomPx(parentWidget()) + UiScale::dp(8);
+        const int availW = qMax(UiScale::dp(240), pw - (2 * sidePad));
+        const int availH = qMax(UiScale::dp(240), ph - topPad - bottomPad);
+        const int w = qBound(UiScale::dp(280), static_cast<int>(availW * 0.92), qMin(UiScale::dp(760), availW));
+        const int h = qBound(UiScale::dp(260), static_cast<int>(availH * 0.86), qMin(UiScale::dp(760), availH));
         const int x = (pw - w) / 2;
-        const int y = qMax(8, ph - h - 8);
+        const int y = qBound(topPad, ph - h - bottomPad, ph - h);
 #else
         const int w = qMin(760, qMax(460, static_cast<int>(pw * 0.44)));
         const int h = qMin(760, qMax(500, ph - 120));

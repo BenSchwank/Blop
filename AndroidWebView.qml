@@ -37,9 +37,12 @@ Rectangle {
     readonly property int cacheMissFullResetTierCount: 4
     readonly property int cacheMissRecreateTierCount: 6
     readonly property int cacheMissRetryCooldownMs: 1200
-    readonly property real uiScale: Math.max(0.9, Math.min(width / 411, 1.35))
+    readonly property real widthScale: width / 411
+    readonly property real heightScale: height / 780
+    readonly property real uiScale: Math.max(0.86, Math.min(Math.min(widthScale, heightScale), 1.35))
     readonly property int topBarHeight: Math.round(48 * uiScale)
     readonly property int topBarTopMargin: Math.round(8 * uiScale)
+    readonly property int verticalSafePad: Math.round(8 * uiScale)
     property bool bookmarkSheetOpen: false
     property bool bookmarkManageMode: false
     property string bookmarkDraftUrl: ""
@@ -596,7 +599,7 @@ Rectangle {
         Flickable {
             anchors.fill: parent
             contentWidth: width
-            contentHeight: waitingColumn.implicitHeight + Math.round(48 * uiScale)
+            contentHeight: waitingColumn.implicitHeight + Math.round(48 * uiScale) + verticalSafePad
             clip: true
 
             Column {
@@ -679,7 +682,9 @@ Rectangle {
             color: "#14121F"
             border.color: "#4F4A70"
             border.width: 1
-            height: Math.min(parent.height * 0.82, Math.round((bookmarkManageMode ? 500 : 420) * uiScale))
+                    height: Math.max(Math.round(260 * uiScale),
+                                     Math.min(parent.height - Math.round(24 * uiScale),
+                                              Math.round((bookmarkManageMode ? 500 : 420) * uiScale)))
 
             MouseArea {
                 anchors.fill: parent
