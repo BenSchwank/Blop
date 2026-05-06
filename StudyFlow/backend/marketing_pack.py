@@ -41,6 +41,163 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _runway_enabled() -> bool:
+    provider = (os.environ.get("VIDEO_API_PROVIDER", "") or "").strip().lower()
+    if provider not in {"runway", "auto"}:
+        return False
+    return bool(
+        (os.environ.get("RUNWAY_API_KEY", "") or "").strip()
+        or (os.environ.get("RUNWAYML_API_SECRET", "") or "").strip()
+    )
+
+
+def _runway_video_seconds() -> int:
+    # Runway image_to_video commonly supports short durations; keep this bounded.
+    return _env_int("RUNWAY_VIDEO_SECONDS", 10, 5, 10)
+
+
+def _runway_ratio() -> str:
+    return (os.environ.get("RUNWAY_VIDEO_RATIO", "") or "720:1280").strip()
+
+
+def _runway_model() -> str:
+    return (os.environ.get("RUNWAY_VIDEO_MODEL", "") or "gen4.5").strip()
+
+
+def _hero_to_data_uri(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    mime = "image/png" if ext == ".png" else "image/jpeg"
+    with open(path, "rb") as f:
+        raw = f.read()
+    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def _runway_prompt_for_clip(clip: Dict[str, Any], language: str) -> str:
+    title = str(clip.get("title") or "").strip()
+    hook = str(clip.get("hook") or "").strip()
+    brief = str(clip.get("ki_visual_brief") or "").strip()
+    style = (
+        "instagram reel, dark lilac gradient background, elegant motion design, subtle sparkle, "
+        "clean visual hierarchy, centered composition, no flashing, no strobe, no aggressive color shifts"
+    )
+    lang_hint = "German captions style" if language == "de" else "localized captions style"
+    pieces = [p for p in [title, hook, brief] if p]
+    body = ". ".join(pieces)[:700]
+    return f"{style}. {lang_hint}. {body}".strip()
+
+
+def _render_runway_clip_with_audio(
+    hero_png: str,
+    audio_path: str,
+    out_mp4: str,
+    *,
+    clip: Dict[str, Any],
+    language: str,
+    duration_sec: float,
+) -> bool:
+    """
+    Generate a short visual via Runway image_to_video and mux local narration.
+    Falls back to caller's local render on any error.
+    """
+    if not _runway_enabled():
+        return False
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    try:
+        from runwayml import RunwayML  # type: ignore
+    except Exception:
+        return False
+
+    key = (os.environ.get("RUNWAY_API_KEY", "") or "").strip() or (os.environ.get("RUNWAYML_API_SECRET", "") or "").strip()
+    if key:
+        os.environ["RUNWAYML_API_SECRET"] = key
+
+    try:
+        client = RunwayML()
+        task = client.image_to_video.create(
+            model=_runway_model(),
+            prompt_image=_hero_to_data_uri(hero_png),
+            prompt_text=_runway_prompt_for_clip(clip, language),
+            ratio=_runway_ratio(),
+            duration=_runway_video_seconds(),
+        ).wait_for_task_output()
+    except Exception:
+        return False
+
+    output_url = ""
+    try:
+        out = getattr(task, "output", None)
+        if isinstance(out, list) and out:
+            output_url = str(out[0] or "")
+        elif isinstance(out, str):
+            output_url = out
+        else:
+            # SDK versions may expose dict-like task payloads.
+            output_url = str(getattr(task, "output_url", "") or "")
+    except Exception:
+        output_url = ""
+    if not output_url.startswith("http"):
+        return False
+
+    tmp_runway_mp4 = out_mp4 + ".runway_src.mp4"
+    try:
+        with requests.get(output_url, timeout=180, stream=True) as resp:
+            if not resp.ok:
+                return False
+            with open(tmp_runway_mp4, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+        if not os.path.isfile(tmp_runway_mp4) or os.path.getsize(tmp_runway_mp4) < 1024:
+            return False
+        d = max(5.0, min(20.0, float(duration_sec)))
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-i",
+                tmp_runway_mp4,
+                "-i",
+                audio_path,
+                "-t",
+                f"{d:.3f}",
+                "-vf",
+                "scale=540:960:force_original_aspect_ratio=increase,crop=540:960,format=yuv420p",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "28",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-movflags",
+                "+faststart",
+                out_mp4,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return os.path.isfile(out_mp4) and os.path.getsize(out_mp4) > 1024
+    except Exception:
+        return False
+    finally:
+        try:
+            if os.path.exists(tmp_runway_mp4):
+                os.unlink(tmp_runway_mp4)
+        except OSError:
+            pass
+
+
 def _split_script_for_tts(script: str, max_segments: int = 10) -> List[str]:
     text = (script or "").strip()
     if not text:
@@ -401,6 +558,8 @@ def build_marketing_pack(
     mp4_paths: List[str] = []
     clip_exports: List[Tuple[str, bytes]] = []
 
+    provider_mode = (os.environ.get("VIDEO_API_PROVIDER", "") or "local").strip().lower()
+
     for idx, clip in enumerate(plan.get("clips", [])[:max_clips]):
         if not isinstance(clip, dict):
             continue
@@ -426,19 +585,34 @@ def build_marketing_pack(
             f.write(mp3)
 
         out_mp4 = os.path.join(work_tmp, f"clip_{idx:02d}.mp4")
-        render_marketing_brainrot_clip(
-            hero_png,
-            audio_path,
-            out_mp4,
-            clip_script=script,
-            hook_line=str(clip.get("hook") or "")[:120],
-            list_title=str(clip.get("list_title") or "Top:")[:80],
-            list_items=[str(x) for x in (clip.get("list_items") or []) if str(x).strip()][:5],
-            cta_line=str(clip.get("cta_line") or "")[:120],
-            emotion=emotion,
-            duration_sec=clip_duration,
-            accent_path=accent_path,
-        )
+        provider_used = "local"
+        use_runway = provider_mode in {"runway", "auto"}
+        runway_ok = False
+        if use_runway:
+            runway_ok = _render_runway_clip_with_audio(
+                hero_png,
+                audio_path,
+                out_mp4,
+                clip=clip,
+                language=language,
+                duration_sec=clip_duration,
+            )
+            if runway_ok:
+                provider_used = "runway"
+        if not runway_ok:
+            render_marketing_brainrot_clip(
+                hero_png,
+                audio_path,
+                out_mp4,
+                clip_script=script,
+                hook_line=str(clip.get("hook") or "")[:120],
+                list_title=str(clip.get("list_title") or "Top:")[:80],
+                list_items=[str(x) for x in (clip.get("list_items") or []) if str(x).strip()][:5],
+                cta_line=str(clip.get("cta_line") or "")[:120],
+                emotion=emotion,
+                duration_sec=clip_duration,
+                accent_path=accent_path,
+            )
         mp4_paths.append(out_mp4)
         with open(out_mp4, "rb") as f:
             b = f.read()
@@ -447,6 +621,7 @@ def build_marketing_pack(
 
         clip_response = dict(clip)
         clip_response["video_url"] = f"/api/ai/marketing-short/video/{eid}"
+        clip_response["render_provider"] = provider_used
         clips_out.append(clip_response)
 
     plan_out = {
