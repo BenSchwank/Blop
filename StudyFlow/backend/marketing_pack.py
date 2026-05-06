@@ -323,6 +323,33 @@ def extract_video_poster(video_path: str, out_path: str) -> bool:
     return os.path.isfile(out_path) and os.path.getsize(out_path) > 50
 
 
+def extract_video_frame_at(video_path: str, out_path: str, at_sec: float) -> bool:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    t = max(0.0, float(at_sec))
+    subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-ss",
+            f"{t:.3f}",
+            "-i",
+            video_path,
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=960:-1",
+            "-q:v",
+            "4",
+            out_path,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    return os.path.isfile(out_path) and os.path.getsize(out_path) > 50
+
+
 def _image_to_data_url(path: str) -> str:
     with open(path, "rb") as f:
         raw = f.read()
@@ -481,6 +508,24 @@ def crop_hero_to_png(src_path: str, bbox: Optional[Dict[str, float]], out_png: s
         cropped.save(out_png, "PNG")
 
 
+def _clip_visual_input_for_source(source_path: str, work_tmp: str, idx: int, max_clips: int) -> Tuple[str, Optional[float]]:
+    """
+    Returns (image_path_for_crop, optional_frame_time_sec_if_video).
+    For videos, choose different frame positions across clips to use real content parts.
+    """
+    if _has_video_stream(source_path):
+        dur = _probe_duration_sec(source_path)
+        pos = 0.15 + 0.7 * (float(idx % max(1, max_clips)) / float(max(1, max_clips - 1)))
+        t = max(0.0, min(max(0.0, dur - 0.15), dur * pos))
+        frame_path = os.path.join(work_tmp, f"hero_src_{idx:02d}.jpg")
+        if extract_video_frame_at(source_path, frame_path, t):
+            return frame_path, t
+        fallback = os.path.join(work_tmp, f"hero_src_fallback_{idx:02d}.jpg")
+        if extract_video_poster(source_path, fallback):
+            return fallback, None
+    return source_path, None
+
+
 def optional_openai_image(brief: str, out_png: str) -> bool:
     if not _env_flag("MARKETING_PACK_GENERATE_IMAGES", False):
         return False
@@ -559,13 +604,18 @@ def build_marketing_pack(
     clip_exports: List[Tuple[str, bytes]] = []
 
     provider_mode = (os.environ.get("VIDEO_API_PROVIDER", "") or "local").strip().lower()
+    materials_used: List[Dict[str, Any]] = []
 
     for idx, clip in enumerate(plan.get("clips", [])[:max_clips]):
         if not isinstance(clip, dict):
             continue
         bbox = _bbox_from_plan(plan, clip)
+        source_idx = idx % len(source_paths)
+        source_path = source_paths[source_idx]
+        source_kind = "video" if _has_video_stream(source_path) else "image"
+        visual_src, frame_time = _clip_visual_input_for_source(source_path, work_tmp, idx, max_clips)
         hero_png = os.path.join(work_tmp, f"hero_{idx:02d}.png")
-        crop_hero_to_png(hero_src, bbox, hero_png)
+        crop_hero_to_png(visual_src, bbox, hero_png)
 
         accent_path: Optional[str] = None
         accent_file = os.path.join(work_tmp, f"accent_{idx:02d}.png")
@@ -586,7 +636,8 @@ def build_marketing_pack(
 
         out_mp4 = os.path.join(work_tmp, f"clip_{idx:02d}.mp4")
         provider_used = "local"
-        use_runway = provider_mode in {"runway", "auto"}
+        # Keep content-faithful by default: Runway only when explicitly requested.
+        use_runway = provider_mode == "runway"
         runway_ok = False
         if use_runway:
             runway_ok = _render_runway_clip_with_audio(
@@ -622,11 +673,30 @@ def build_marketing_pack(
         clip_response = dict(clip)
         clip_response["video_url"] = f"/api/ai/marketing-short/video/{eid}"
         clip_response["render_provider"] = provider_used
+        clip_response["included_parts"] = {
+            "source_index": source_idx,
+            "source_name": os.path.basename(source_path),
+            "source_kind": source_kind,
+            "selection": "bbox_crop" if bbox else "center_crop",
+            "bbox_01": bbox if bbox else None,
+            "video_frame_time_sec": round(float(frame_time), 3) if frame_time is not None else None,
+            "accent_generated": bool(accent_path),
+        }
+        materials_used.append(
+            {
+                "clip_index": idx,
+                "source_index": source_idx,
+                "source_name": os.path.basename(source_path),
+                "source_kind": source_kind,
+                "video_frame_time_sec": round(float(frame_time), 3) if frame_time is not None else None,
+            }
+        )
         clips_out.append(clip_response)
 
     plan_out = {
         "material_summary": plan.get("material_summary", ""),
         "extracted_elements": plan.get("extracted_elements", []),
+        "included_materials": materials_used,
         "clips": clips_out,
     }
 
