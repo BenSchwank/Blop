@@ -1393,29 +1393,27 @@ def render_marketing_brainrot_clip(
     overlay_joined = ",".join(overlay_extras) if overlay_extras else ""
     vm_text_tail = f"{overlay_joined},format=yuv420p[vout]" if overlay_joined else "format=yuv420p[vout]"
 
-    # Dark-lilac gradient with subtle motion accents (stylish but non-chaotic).
+    # Dark-lilac gradient + soft vignette (calmer than stacked drawboxes).
     bg_core = (
         "[0:v]format=gbrp,"
         "geq=r='19+32*(Y/H)':g='10+24*(Y/H)':b='44+40*(Y/H)',"
         "format=yuv420p,"
-        # drawbox uses iw/ih (not W/H like overlay) on Debian ffmpeg 5.x
-        "drawbox=x='iw*0.12+8*sin(t*0.22)':y='ih*0.18':w='iw*0.76':h='ih*0.0028':color=#B19CFF@0.18:t=fill,"
-        "drawbox=x='iw*0.16+6*cos(t*0.18)':y='ih*0.79':w='iw*0.68':h='ih*0.0022':color=#8E7CFF@0.14:t=fill,"
-        "drawbox=x='iw*0.09':y='ih*0.13+5*sin(t*0.17)':w='iw*0.004':h='ih*0.74':color=#7F6DFF@0.10:t=fill,"
+        "vignette=PI/6:eval=frame:dither=1,"
         "format=yuv420p[bg]"
     )
 
-    hero_w, hero_h = 460, 500
+    # Fit inside ~88% × ~79% canvas without letterbox padding → no thin strip on wide PNGs/logos.
+    box_w = 472
+    box_h = 760
     hero_vf = (
-        # Fit+pad keeps entire screenshot/frame visible (no hard cutoffs).
-        f"[1:v]scale={hero_w}:{hero_h}:force_original_aspect_ratio=decrease,"
-        f"pad={hero_w}:{hero_h}:(ow-iw)/2:(oh-ih)/2:color=#120d23,"
-        f"setsar=1,format=yuv420p[fg]"
+        f"[1:v]scale=w='trunc(iw*min({box_w}/iw\\,{box_h}/ih))/2*2':"
+        f"h='trunc(ih*min({box_w}/iw\\,{box_h}/ih))/2*2':"
+        "flags=lanczos,setsar=1,format=yuv420p[fg]"
     )
-    # Soft drift on hero overlay (organic, low amplitude).
+    # Gentle vertical placement in upper-third; subtle drift stays small.
     ov_hero = (
-        "[bg][fg]overlay=x='max(0\\,min(W-w\\,(W-w)/2+9*sin(t*0.52)))':"
-        "y='max(0\\,min(H-h\\,(H-h)*0.34+7*cos(t*0.41)))':format=yuv420[vm]"
+        "[bg][fg]overlay=x='max(0\\,min(W-w\\,(W-w)/2+5*sin(t*0.45)))':"
+        "y='max(28\\,min(H-h-340\\,(H-h)*0.18+4*cos(t*0.38)))':format=yuv420[vm]"
     )
 
     acc_in = accent_path and os.path.isfile(accent_path)
