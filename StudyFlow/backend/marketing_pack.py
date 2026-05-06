@@ -495,15 +495,24 @@ def crop_hero_to_png(src_path: str, bbox: Optional[Dict[str, float]], out_png: s
         im = im.convert("RGBA")
         w, h = im.size
         if bbox and w > 0 and h > 0:
-            x = int(max(0, min(w - 1, bbox["x"] * w)))
-            y = int(max(0, min(h - 1, bbox["y"] * h)))
-            bw = int(max(16, min(w - x, bbox["w"] * w)))
-            bh = int(max(16, min(h - y, bbox["h"] * h)))
+            # Expand planned bbox so important context is less likely to be cut off.
+            bx = max(0.0, float(bbox["x"]))
+            by = max(0.0, float(bbox["y"]))
+            bw0 = max(0.02, float(bbox["w"]))
+            bh0 = max(0.02, float(bbox["h"]))
+            pad = 0.12
+            bx = max(0.0, bx - bw0 * pad)
+            by = max(0.0, by - bh0 * pad)
+            bw0 = min(1.0 - bx, bw0 * (1.0 + pad * 2.0))
+            bh0 = min(1.0 - by, bh0 * (1.0 + pad * 2.0))
+            x = int(max(0, min(w - 1, bx * w)))
+            y = int(max(0, min(h - 1, by * h)))
+            bw = int(max(16, min(w - x, bw0 * w)))
+            bh = int(max(16, min(h - y, bh0 * h)))
             box = (x, y, x + bw, y + bh)
         else:
-            margin_x = int(w * 0.15)
-            margin_y = int(h * 0.15)
-            box = (margin_x, margin_y, w - margin_x, h - margin_y)
+            # No bbox confidence: keep the full source so all uploaded content stays visible.
+            box = (0, 0, w, h)
         cropped = im.crop(box)
         cropped.save(out_png, "PNG")
 

@@ -1393,17 +1393,23 @@ def render_marketing_brainrot_clip(
     overlay_joined = ",".join(overlay_extras) if overlay_extras else ""
     vm_text_tail = f"{overlay_joined},format=yuv420p[vout]" if overlay_joined else "format=yuv420p[vout]"
 
-    # Subtle vertical dark-lilac gradient (deterministic, no flicker).
+    # Dark-lilac gradient with subtle motion accents (stylish but non-chaotic).
     bg_core = (
         "[0:v]format=gbrp,"
         "geq=r='19+32*(Y/H)':g='10+24*(Y/H)':b='44+40*(Y/H)',"
+        "format=yuv420p,"
+        "drawbox=x='W*0.12+8*sin(t*0.22)':y='H*0.18':w='W*0.76':h='H*0.0028':color=#B19CFF@0.18:t=fill,"
+        "drawbox=x='W*0.16+6*cos(t*0.18)':y='H*0.79':w='W*0.68':h='H*0.0022':color=#8E7CFF@0.14:t=fill,"
+        "drawbox=x='W*0.09':y='H*0.13+5*sin(t*0.17)':w='W*0.004':h='H*0.74':color=#7F6DFF@0.10:t=fill,"
         "format=yuv420p[bg]"
     )
 
     hero_w, hero_h = 460, 500
     hero_vf = (
-        f"[1:v]scale={hero_w}:{hero_h}:force_original_aspect_ratio=increase,"
-        f"crop={hero_w}:{hero_h},setsar=1,format=yuv420p[fg]"
+        # Fit+pad keeps entire screenshot/frame visible (no hard cutoffs).
+        f"[1:v]scale={hero_w}:{hero_h}:force_original_aspect_ratio=decrease,"
+        f"pad={hero_w}:{hero_h}:(ow-iw)/2:(oh-ih)/2:color=#120d23,"
+        f"setsar=1,format=yuv420p[fg]"
     )
     # Soft drift on hero overlay (organic, low amplitude).
     ov_hero = (
