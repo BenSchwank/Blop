@@ -397,19 +397,30 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     return;
 
   const int clampedInset = UiScale::safeTopPx(window);
-  const int horizontalPad = UiScale::safeHorizontalPaddingPx(window);
-  const int topExtra = UiScale::dp(4);
-  // Use the real device screen width (works even before the window has been
-  // shown) so all responsive sizing is computed against the phone viewport,
-  // not against Qt's default 640x480 fallback.
-  const int screenW = UiScale::androidScreenWidthPx(window);
+  // Anchor responsive sizing to the *usable* viewport (screen minus a small
+  // safety margin against Android system cutouts that availableGeometry
+  // doesn't always reflect). This is what guarantees the right-edge buttons
+  // (Page-Manager, Export-three-dots) stay reachable on phones.
+  const int screenW = UiScale::androidUsableViewportWidthPx(window);
   const int contentW = UiScale::androidContentWidthPx(window);
 
-  // Header row height adapts to the available viewport instead of stale width().
+  // Tighten side padding on very narrow phones so the row has more room for
+  // the right-side action buttons.
+  const bool narrowPhone = contentW < UiScale::dp(420);
+  const int horizontalPad = narrowPhone
+                                ? UiScale::dp(6)
+                                : UiScale::safeHorizontalPaddingPx(window);
+  const int topExtra = UiScale::dp(4);
+
   const int headerHeight =
       qBound(UiScale::dp(46), int(screenW * 0.09), UiScale::dp(60));
-  const int btnW =
-      qBound(UiScale::dp(40), int(screenW * 0.11), UiScale::dp(56));
+  // Smaller chrome buttons on narrow phones - mandatory headroom for tabs +
+  // searchbar + right-side menu.
+  const int btnW = narrowPhone
+                       ? qBound(UiScale::dp(34), int(screenW * 0.10),
+                                UiScale::dp(46))
+                       : qBound(UiScale::dp(40), int(screenW * 0.11),
+                                UiScale::dp(56));
   const int btnH =
       qBound(UiScale::dp(28), int(headerHeight * 0.7), UiScale::dp(38));
   const int compactPillH =
@@ -420,6 +431,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   inner->setFixedHeight(totalHeight);
   headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
                                 horizontalPad, UiScale::dp(4));
+  headerLay->setSpacing(narrowPhone ? UiScale::dp(4) : UiScale::dp(8));
 
   auto syncBtn = [&](QWidget *w) {
     if (!w)
@@ -449,15 +461,30 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   if (QLineEdit *searchBar = window->findChild<QLineEdit *>(
           QStringLiteral("androidTopSearchBar"))) {
     searchBar->setFixedHeight(btnH);
-    // Cap the search bar to the available content width so it never spills
-    // past the right edge on narrow phones.
-    const int searchMin =
-        qBound(UiScale::dp(120), int(screenW * 0.28), UiScale::dp(220));
-    const int searchMax =
-        qMin(contentW - UiScale::dp(8),
-             qBound(UiScale::dp(180), int(screenW * 0.46), UiScale::dp(380)));
-    searchBar->setMinimumWidth(qMin(searchMin, searchMax));
-    searchBar->setMaximumWidth(qMax(searchMin, searchMax));
+    // Reserve room for the two right-side editor buttons (Page-Manager +
+    // Export) plus their gaps so the search bar shrinks first instead of
+    // squeezing them off-screen.
+    const int rightReserved = 2 * btnW + 3 * headerLay->spacing();
+    const int searchMin = narrowPhone ? UiScale::dp(60) : UiScale::dp(100);
+    const int searchMaxCap = qBound(UiScale::dp(140),
+                                     int(screenW * 0.40),
+                                     UiScale::dp(360));
+    const int searchMax = qMax(searchMin,
+                               qMin(contentW - rightReserved, searchMaxCap));
+    searchBar->setMinimumWidth(searchMin);
+    searchBar->setMaximumWidth(searchMax);
+
+    // On very narrow phones (< dp(360) usable content) the search bar would
+    // crowd the right-side menu even at its minimum width; hide it entirely
+    // in that case. The user can still navigate tabs by swiping.
+    if (contentW < UiScale::dp(360)) {
+      searchBar->setProperty("blopHiddenBecauseTooNarrow", true);
+      searchBar->hide();
+    } else if (searchBar->property("blopHiddenBecauseTooNarrow").toBool()) {
+      searchBar->setProperty("blopHiddenBecauseTooNarrow", false);
+      // Don't show automatically - showing depends on editor mode logic in
+      // updateSidebarState. Just clear the override flag.
+    }
   }
 }
 
@@ -6169,8 +6196,17 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnAndroidToolbarExport)
       m_btnAndroidToolbarExport->setVisible(true);
-    if (m_androidTopSearchBar)
-      m_androidTopSearchBar->show();
+    if (m_androidTopSearchBar) {
+      // Only show the inline search bar if the device is wide enough.
+      // On very narrow phones (< dp(360) usable content) keeping it visible
+      // would force the right-side action buttons (Page-Manager, Export) off
+      // the screen.
+      const int usableContent = UiScale::androidContentWidthPx(this);
+      if (usableContent >= UiScale::dp(360))
+        m_androidTopSearchBar->show();
+      else
+        m_androidTopSearchBar->hide();
+    }
 
     if (shouldMorphTopButtons) {
       auto animateScale = [](ModernButton *btn) {

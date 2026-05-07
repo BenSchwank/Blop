@@ -119,8 +119,20 @@ int androidScreenHeightPx(QWidget *reference) {
   return 640;
 }
 
+int androidUsableViewportWidthPx(QWidget *reference) {
+  const int raw = androidScreenWidthPx(reference);
+#if defined(Q_OS_ANDROID)
+  // Reserve a small safety margin against system cutouts / gesture insets that
+  // Qt's availableGeometry does not always reflect on Android.
+  return qMax(dp(160), raw - dp(12));
+#else
+  Q_UNUSED(reference);
+  return raw;
+#endif
+}
+
 int androidContentWidthPx(QWidget *reference) {
-  const int w = androidScreenWidthPx(reference);
+  const int w = androidUsableViewportWidthPx(reference);
   const int pad = safeHorizontalPaddingPx(reference);
   return qMax(dp(160), w - 2 * pad);
 }

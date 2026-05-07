@@ -2703,33 +2703,42 @@ void ModernToolbar::setDockMode(bool docked) {
     QRect targetGeom;
     int idealW = calculateMinLength();
 #ifdef Q_OS_ANDROID
-    // Cap the parent extents to the real device screen, otherwise a parent
-    // that is mistakenly wider than the viewport (e.g. before the first
-    // resize event reaches us) would let the toolbar spill past the right
-    // edge on phones.
-    const int realScreenW = UiScale::androidScreenWidthPx(pw);
+    // Cap the parent extents to the real device usable viewport. The usable
+    // viewport already excludes a dp(12) safety margin against system
+    // cutouts/curved-edge insets that availableGeometry doesn't always
+    // report, which prevents the right-most chrome icon from clipping.
+    const int usableW = UiScale::androidUsableViewportWidthPx(pw);
     const int parentVisibleW =
-        (pw->width() > 0) ? qMin(pw->width(), realScreenW) : realScreenW;
+        (pw->width() > 0) ? qMin(pw->width(), usableW) : usableW;
+    // If the parent reports wider than the usable viewport (e.g. status bar
+    // / cutout overlap), shift the toolbar right by half the difference so
+    // it appears truly centered on the *visible* viewport.
+    const int visibleOffset =
+        qMax(0, (pw->width() - parentVisibleW) / 2);
 #else
     const int parentVisibleW = pw->width();
+    const int visibleOffset = 0;
 #endif
     if (docked) {
       m_orientation = Horizontal;
 #ifdef Q_OS_ANDROID
-      idealW = qMin(idealW, parentVisibleW - UiScale::dp(8));
+      // Generous safety margin (dp(16) here + dp(12) already baked into the
+      // usable viewport) to make sure the right-most chrome icon never
+      // clips even on phones with aggressive curved-edge cutouts.
+      idealW = qMin(idealW, parentVisibleW - UiScale::dp(16));
 #endif
-      targetGeom =
-          QRect((parentVisibleW - idealW) / 2, 0, idealW, UiScale::dp(48));
+      targetGeom = QRect(visibleOffset + (parentVisibleW - idealW) / 2, 0,
+                         idealW, UiScale::dp(48));
     } else {
       m_orientation = Horizontal;
       int idealW = calculateMinLength();
 #ifdef Q_OS_ANDROID
-      idealW = qMin(idealW, parentVisibleW - UiScale::dp(20));
-      targetGeom = QRect((parentVisibleW - idealW) / 2, UiScale::dp(56),
-                         idealW, UiScale::dp(46));
+      idealW = qMin(idealW, parentVisibleW - UiScale::dp(24));
+      targetGeom = QRect(visibleOffset + (parentVisibleW - idealW) / 2,
+                         UiScale::dp(56), idealW, UiScale::dp(46));
 #else
-      targetGeom = QRect((parentVisibleW - idealW) / 2, UiScale::dp(60),
-                         idealW, UiScale::dp(52));
+      targetGeom = QRect(visibleOffset + (parentVisibleW - idealW) / 2,
+                         UiScale::dp(60), idealW, UiScale::dp(52));
 #endif
     }
 

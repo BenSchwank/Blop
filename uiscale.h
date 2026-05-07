@@ -18,7 +18,13 @@ int safeHorizontalPaddingPx(QWidget *reference = nullptr);
 int androidScreenWidthPx(QWidget *reference = nullptr);
 int androidScreenHeightPx(QWidget *reference = nullptr);
 
-// Usable horizontal width = screen width minus 2 * safeHorizontalPaddingPx.
+// Like androidScreenWidthPx but reduced by a small safety margin (dp(12)) to
+// account for system cutouts / curved-edge insets that Qt's availableGeometry
+// does not always report on Android. Use this whenever you would otherwise
+// place widgets all the way to the right edge.
+int androidUsableViewportWidthPx(QWidget *reference = nullptr);
+
+// Usable horizontal width = usable viewport minus 2 * safeHorizontalPaddingPx.
 // Use this for any widget that should fit within the device viewport.
 int androidContentWidthPx(QWidget *reference = nullptr);
 
