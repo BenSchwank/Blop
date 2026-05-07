@@ -21,13 +21,13 @@ public class BlopActivity extends QtActivity {
     private static final String TAG = "BlopActivity";
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         forwardOAuthIntent(getIntent(), "onCreate");
     }
 
     @Override
-    protected void onNewIntent(Intent intent) {
+    public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Update the activity's intent so getIntent() returns the latest data.
         setIntent(intent);
