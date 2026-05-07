@@ -805,16 +805,16 @@ def _marketing_merge_audio_video_fc(video_fc: str, speech_in: str, emotion: str,
 def _brainrot_phase_times(duration_sec: float) -> dict:
     """Duration-aware Hook / List / CTA windows for 5–20s clips (seconds)."""
     d = max(5.0, min(20.0, float(duration_sec)))
-    hook_end = max(2.0, min(5.0, d * 0.26))
-    list_start = hook_end + 0.18
-    list_span = max(3.0, min(9.5, d * 0.48))
-    list_end = min(d - 1.55, list_start + list_span)
+    hook_end = max(1.7, min(4.0, d * 0.20))
+    list_start = hook_end + 0.10
+    list_span = max(3.1, min(9.8, d * 0.54))
+    list_end = min(d - 1.35, list_start + list_span)
     if list_end < list_start + 2.0:
         list_end = min(d - 1.2, list_start + 2.0)
-    cta_start = max(list_end + 0.12, d * 0.68)
+    cta_start = max(list_end + 0.08, d * 0.74)
     cta_start = min(cta_start, d - 1.05)
     cta_end = d - 0.04
-    subtitle_end = max(list_start + 0.5, min(cta_start - 0.22, d * 0.64))
+    subtitle_end = max(list_start + 0.6, min(cta_start - 0.30, d * 0.70))
     return {
         "d": d,
         "hook_end": hook_end,
@@ -1322,31 +1322,31 @@ def _pack_brainrot_text_filters(
             + fp
             + "text='"
             + esc_hook
-            + "':fontcolor=#E8E2F6:fontsize=w*0.034:borderw=1:bordercolor=black@0.48:"
-            "box=1:boxcolor=#232038@0.40:boxborderw=10:"
-            f"x={cx}:y=h*0.08:alpha='{a_hook}':"
+            + "':fontcolor=#F1EBFF:fontsize=w*0.035:borderw=1:bordercolor=black@0.58:"
+            "box=1:boxcolor=#191424@0.52:boxborderw=9:"
+            f"x={cx}:y=h*0.055:alpha='{a_hook}':"
             f"enable='between(t,0,{min(hook_end + 0.2, d):.2f})'"
         )
     title_esc = _drawtext_ascii_safe((list_title or "Wichtig:")[:36])
     a_title = _drawtext_alpha_fade_expr(list_start, list_end, 0.45, 0.38)
     parts.append(
-        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#B8AACF:fontsize=w*0.032:borderw=1:bordercolor=black@0.45:"
-        "x=max(8\\,w*0.05):y=h*0.42:"
+        "drawtext=" + fp + "text='" + title_esc + "':fontcolor=#D7C8F2:fontsize=w*0.031:borderw=1:bordercolor=black@0.52:"
+        "x=max(10\\,w*0.07):y=h*0.56:"
         f"alpha='{a_title}':"
         f"enable='between(t,{max(0.0, list_start - 0.05):.2f},{min(list_end + 0.15, d):.2f})'"
     )
-    y0 = 0.50
-    stagger = max(0.28, min(0.52, (list_end - list_start) / 8.0))
+    y0 = 0.61
+    stagger = max(0.22, min(0.44, (list_end - list_start) / 9.0))
     for i, raw in enumerate((list_items or [])[:5]):
         line = _drawtext_ascii_safe((raw or "")[:40])
         if not line:
             continue
-        y = y0 + i * 0.065
-        t_in = list_start + 0.22 + float(i) * stagger
+        y = y0 + i * 0.052
+        t_in = list_start + 0.12 + float(i) * stagger
         a_line = _drawtext_alpha_fade_expr(t_in, list_end - 0.05, 0.38, 0.30)
         parts.append(
-            f"drawtext={fp}text='{line}':fontcolor=#D8CFEA:fontsize=w*0.028:borderw=1:bordercolor=black@0.48:"
-            f"x=max(8\\,w*0.06):y=h*{y:.3f}:"
+            f"drawtext={fp}text='{line}':fontcolor=#EEE7FF:fontsize=w*0.027:borderw=1:bordercolor=black@0.58:"
+            f"x=max(10\\,w*0.08):y=h*{y:.3f}:"
             f"alpha='{a_line}':"
             f"enable='between(t,{max(0.0, t_in - 0.08):.2f},{min(list_end + 0.12, d):.2f})'"
         )
@@ -1358,9 +1358,9 @@ def _pack_brainrot_text_filters(
             + fp
             + "text='"
             + esc_cta
-            + "':fontcolor=#DDD6F2:fontsize=w*0.031:borderw=1:bordercolor=black@0.50:"
-            "box=1:boxcolor=#1c1628@0.36:boxborderw=8:"
-            f"x={cx}:y=h*0.82:alpha='{a_cta}':"
+            + "':fontcolor=#F4EEFF:fontsize=w*0.032:borderw=1:bordercolor=black@0.62:"
+            "box=1:boxcolor=#1a1425@0.56:boxborderw=9:"
+            f"x={cx}:y=h*0.885:alpha='{a_cta}':"
             f"enable='between(t,{max(0.0, cta_start - 0.15):.2f},{d:.2f})'"
         )
     return ",".join(parts) if parts else ""
@@ -1402,7 +1402,7 @@ def render_marketing_brainrot_clip(
         max_chars_per_chunk=32,
         fontsize_expr="w*0.038",
         text_x_expr=r"max(6\,min((w-text_w)/2\,w-6-text_w))",
-        text_y_expr="h*0.62",
+        text_y_expr="h*0.74",
         drawtext_preset="soft_brainrot",
     )
     txt_chain = _pack_brainrot_text_filters(hook_line, list_title, list_items, cta_line, d, phases=ph)
@@ -1424,19 +1424,19 @@ def render_marketing_brainrot_clip(
         "format=yuv420p[bg]"
     )
 
-    # Fit inside ~88% × ~79% canvas without letterbox padding → no thin strip on wide PNGs/logos.
-    box_w = 526
-    box_h = 820
+    # Fit with stronger central presence while keeping safe room for title and CTA overlays.
+    box_w = 534
+    box_h = 760
     hero_vf = (
         f"[1:v]eq=contrast=0.93:saturation=0.88:brightness=0.02:gamma=0.94,"
         f"scale=w='trunc(iw*min({box_w}/iw\\,{box_h}/ih))/2*2':"
         f"h='trunc(ih*min({box_w}/iw\\,{box_h}/ih))/2*2':"
         "flags=lanczos,setsar=1,format=yuv420p[fg]"
     )
-    # Gentle vertical placement in upper-third; subtle drift stays small.
+    # Center hero vertically to avoid top clipping and excessive empty lower area.
     ov_hero = (
         "[bg][fg]overlay=x='max(0\\,min(W-w\\,(W-w)/2+5*sin(t*0.45)))':"
-        "y='max(28\\,min(H-h-340\\,(H-h)*0.18+4*cos(t*0.38)))':format=yuv420[vm]"
+        "y='max(72\\,min(H-h-120\\,(H-h)*0.32+3*cos(t*0.35)))':format=yuv420[vm]"
     )
 
     acc_in = accent_path and os.path.isfile(accent_path)
@@ -1446,8 +1446,8 @@ def render_marketing_brainrot_clip(
             "hue=H='2.8*sin(2.3*t)':s=0.72[acc]"
         )
         ov_acc = (
-            "[vm][acc]overlay=x='max(4\\,min(W-w-4\\,W*0.72-w/2+5*sin(t*0.88)))':"
-            "y='max(4\\,min(H-h-90\\,H*0.262+4*cos(t*0.63)))':format=yuv420[vm2]"
+            "[vm][acc]overlay=x='max(4\\,min(W-w-4\\,W*0.78-w/2+4*sin(t*0.88)))':"
+            "y='max(6\\,min(H-h-84\\,H*0.30+3*cos(t*0.63)))':format=yuv420[vm2]"
         )
         vf_graph = (
             f"{bg_core};"

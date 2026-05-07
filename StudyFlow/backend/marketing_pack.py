@@ -432,9 +432,9 @@ def call_openai_pack_plan(
                 "Avoid neon, harsh glow, cyberpunk, glitch, high-saturation blues, or aggressive motion language.\n"
                 "- Every word, logo, and UI label in the uploads must remain fully readable in the final crop. "
                 "Never suggest crops that cut titles, slogans, or brand text at the edges.\n"
-                "- hero_bbox_01 must tightly frame the main subject BUT include generous padding (~8–12% margin on each side). "
+                "- hero_bbox_01 must tightly frame the main subject BUT include generous padding (~10–16% margin on each side). "
                 "If any text or logo is near the edge, expand the box until everything fits. "
-                "If the whole frame is the subject, set hero_bbox_01 to {{\"x\":0,\"y\":0,\"w\":1,\"h\":1}}.\n"
+                "If uncertain, always prefer full frame over risky crops and set hero_bbox_01 to {{\"x\":0,\"y\":0,\"w\":1,\"h\":1}}.\n"
                 "- extracted_elements: list distinct visible things (logos, headlines, buttons, icons, faces, charts) with safe "
                 "bbox_01 on the FIRST attached image; labels must match what is actually visible.\n"
                 "- ki_visual_brief: optional helper for an extra generated accent image ONLY if needed. "
@@ -519,21 +519,38 @@ def crop_hero_to_png(src_path: str, bbox: Optional[Dict[str, float]], out_png: s
         im = im.convert("RGBA")
         w, h = im.size
         if bbox and w > 0 and h > 0:
-            # Expand planned bbox so important context is less likely to be cut off.
+            # Expand planned bbox and enforce a safe minimum crop area to avoid cut-off logos/text.
             bx = max(0.0, float(bbox["x"]))
             by = max(0.0, float(bbox["y"]))
             bw0 = max(0.02, float(bbox["w"]))
             bh0 = max(0.02, float(bbox["h"]))
-            pad = 0.18
+            pad = 0.22
             bx = max(0.0, bx - bw0 * pad)
             by = max(0.0, by - bh0 * pad)
             bw0 = min(1.0 - bx, bw0 * (1.0 + pad * 2.0))
             bh0 = min(1.0 - by, bh0 * (1.0 + pad * 2.0))
-            x = int(max(0, min(w - 1, bx * w)))
-            y = int(max(0, min(h - 1, by * h)))
-            bw = int(max(16, min(w - x, bw0 * w)))
-            bh = int(max(16, min(h - y, bh0 * h)))
-            box = (x, y, x + bw, y + bh)
+            # Keep minimum visible area so narrow/edge bboxes do not produce over-zoomed crops.
+            min_w = 0.68
+            min_h = 0.62
+            if bw0 < min_w:
+                grow = (min_w - bw0) * 0.5
+                bx = max(0.0, bx - grow)
+                bw0 = min(1.0 - bx, min_w)
+            if bh0 < min_h:
+                grow = (min_h - bh0) * 0.5
+                by = max(0.0, by - grow)
+                bh0 = min(1.0 - by, min_h)
+            # If the planned box hugs edges too much or remains tiny, fail safe to full frame.
+            if bx < 0.04 or by < 0.04 or (bx + bw0) > 0.96 or (by + bh0) > 0.96:
+                box = (0, 0, w, h)
+            elif bw0 < 0.45 or bh0 < 0.42:
+                box = (0, 0, w, h)
+            else:
+                x = int(max(0, min(w - 1, bx * w)))
+                y = int(max(0, min(h - 1, by * h)))
+                bw = int(max(16, min(w - x, bw0 * w)))
+                bh = int(max(16, min(h - y, bh0 * h)))
+                box = (x, y, x + bw, y + bh)
         else:
             # No bbox confidence: keep the full source so all uploaded content stays visible.
             box = (0, 0, w, h)
