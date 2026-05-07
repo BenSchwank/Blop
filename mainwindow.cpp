@@ -3303,12 +3303,13 @@ void MainWindow::setupUi() {
   QVBoxLayout *headerLayout = new QVBoxLayout();
 
 #ifdef Q_OS_ANDROID
-  // ── Android: same structure & styles as Windows (welcome → search row) ────
-  headerLayout->setContentsMargins(UiScale::dp(10), UiScale::dp(20), UiScale::dp(10),
-                                   UiScale::dp(30));
-  headerLayout->setSpacing(UiScale::dp(15));
+  // ── Android: compact welcome page (phone + tablet friendly). Buttons stay
+  //    side-by-side, sized to comfortable Material touch targets (~40 dp), and
+  //    the entire welcome card centres + caps at dp(560) on tablets.
+  headerLayout->setContentsMargins(UiScale::dp(10), UiScale::dp(16),
+                                   UiScale::dp(10), UiScale::dp(24));
+  headerLayout->setSpacing(UiScale::dp(12));
 
-  // Hamburger top-left, title below — matches Windows reference layout
   btnEditorMenu = new ModernButton(m_overviewContainer);
   btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
   btnEditorMenu->setFixedSize(UiScale::dp(40), UiScale::dp(40));
@@ -3322,7 +3323,9 @@ void MainWindow::setupUi() {
 
   QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
   lblWelcome->setStyleSheet(
-      "color: white; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';");
+      "color: white; font-size: 22px; font-weight: 700;"
+      " font-family: 'Roboto', 'Segoe UI', sans-serif;"
+      " letter-spacing: -0.2px;");
   headerLayout->addWidget(lblWelcome);
 
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
@@ -3330,15 +3333,15 @@ void MainWindow::setupUi() {
   searchBar->setPlaceholderText("Notizen durchsuchen...");
   searchBar->setFrame(false);
   searchBar->setAttribute(Qt::WA_StyledBackground, true);
-  searchBar->setFixedHeight(44);
+  searchBar->setFixedHeight(UiScale::dp(40));
   searchBar->setStyleSheet(
       "QLineEdit {"
       "  background-color: #1A1829;"
       "  color: white;"
       "  border: 1px solid #201E2E;"
-      "  border-radius: 22px;"
-      "  padding: 0 20px;"
-      "  font-size: 13px;"
+      "  border-radius: 20px;"
+      "  padding: 0 14px;"
+      "  font-size: 12px;"
       "}"
       "QLineEdit:focus {"
       "  border: 1px solid #5E5CE6;"
@@ -3347,7 +3350,7 @@ void MainWindow::setupUi() {
 
   QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
-  btnNewNote->setFixedHeight(40);
+  btnNewNote->setFixedHeight(UiScale::dp(40));
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
   btnNewNote->setStyleSheet(
@@ -3355,18 +3358,18 @@ void MainWindow::setupUi() {
       "  background-color: #5E5CE6;"
       "  color: white;"
       "  border-radius: 20px;"
-      "  padding: 0 24px;"
-      "  font-weight: bold;"
-      "  font-size: 13px;"
+      "  padding: 0 14px;"
+      "  font-weight: 600;"
+      "  font-size: 12px;"
       "  border: none;"
       "}"
-      "QPushButton:hover { background-color: #7D7AFF; }"
+      "QPushButton:pressed { background-color: #4F4DCF; }"
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
   QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setObjectName("overviewBtnNewFolder");
-  btnNewFolder->setFixedHeight(40);
+  btnNewFolder->setFixedHeight(UiScale::dp(40));
   btnNewFolder->setCursor(Qt::PointingHandCursor);
   btnNewFolder->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
   btnNewFolder->setStyleSheet(
@@ -3374,44 +3377,47 @@ void MainWindow::setupUi() {
       "  background-color: transparent;"
       "  color: white;"
       "  border-radius: 20px;"
-      "  padding: 0 24px;"
-      "  font-weight: bold;"
-      "  font-size: 13px;"
-      "  border: 1px solid #333;"
+      "  padding: 0 14px;"
+      "  font-weight: 600;"
+      "  font-size: 12px;"
+      "  border: 1px solid rgba(255,255,255,0.18);"
       "}"
-      "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }"
+      "QPushButton:pressed { background-color: rgba(255,255,255,0.06); }"
   );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
 
-  // Cap the welcome row to the real device viewport so nothing can spill past
-  // the right edge on narrow phones, regardless of any stale parent width.
+  // Cap individual elements to the device viewport so nothing spills.
   const int welcomeContentW = UiScale::androidContentWidthPx(this);
   searchBar->setMaximumWidth(welcomeContentW);
   btnNewNote->setMaximumWidth(welcomeContentW);
   btnNewFolder->setMaximumWidth(welcomeContentW);
-  btnNewNote->setMinimumHeight(UiScale::dp(44));
-  btnNewFolder->setMinimumHeight(UiScale::dp(44));
 
+  // Always horizontal action row - phones get smaller buttons, never wrap.
   QVBoxLayout *searchBlock = new QVBoxLayout();
   searchBlock->setSpacing(UiScale::dp(10));
   searchBlock->addWidget(searchBar);
-  // On narrow phones (< dp(480) usable) stack the action buttons vertically so
-  // "Neuer Ordner" never gets clipped by the right edge.
-  if (welcomeContentW < UiScale::dp(480)) {
-    QVBoxLayout *actionsCol = new QVBoxLayout();
-    actionsCol->setSpacing(UiScale::dp(10));
-    actionsCol->addWidget(btnNewNote);
-    actionsCol->addWidget(btnNewFolder);
-    searchBlock->addLayout(actionsCol);
-  } else {
-    QHBoxLayout *actionsRow = new QHBoxLayout();
-    actionsRow->setSpacing(UiScale::dp(10));
-    actionsRow->addWidget(btnNewNote, 1);
-    actionsRow->addWidget(btnNewFolder, 1);
-    searchBlock->addLayout(actionsRow);
-  }
+  QHBoxLayout *actionsRow = new QHBoxLayout();
+  actionsRow->setSpacing(UiScale::dp(8));
+  actionsRow->addWidget(btnNewNote, 1);
+  actionsRow->addWidget(btnNewFolder, 1);
+  searchBlock->addLayout(actionsRow);
 
-  headerLayout->addLayout(searchBlock);
+  // On wide screens (tablets / landscape) cap the welcome card at dp(560) and
+  // centre it horizontally so the buttons don't stretch ridiculously wide.
+  const int welcomeCardMaxW = UiScale::dp(560);
+  if (welcomeContentW > welcomeCardMaxW) {
+    QWidget *cardWrap = new QWidget(m_overviewContainer);
+    cardWrap->setMaximumWidth(welcomeCardMaxW);
+    cardWrap->setLayout(searchBlock);
+    QHBoxLayout *centerRow = new QHBoxLayout();
+    centerRow->setContentsMargins(0, 0, 0, 0);
+    centerRow->addStretch(1);
+    centerRow->addWidget(cardWrap, 0);
+    centerRow->addStretch(1);
+    headerLayout->addLayout(centerRow);
+  } else {
+    headerLayout->addLayout(searchBlock);
+  }
 
 #else
   // ── Desktop/Windows: Original layout unchanged ───────────────────────────

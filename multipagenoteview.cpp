@@ -2151,34 +2151,66 @@ void MultiPageNoteView::ensureSceneRectCoversViewport() {
 
 #ifdef Q_OS_ANDROID
 // Compute and apply a transform so a single A4 page fits horizontally inside
-// the current viewport. Centers the page horizontally afterwards. No-op if the
-// user has already pinch/wheel-zoomed (m_userTouchedZoom).
+// the current viewport. Uses the horizontal scrollbar (cheap, no layout pass)
+// instead of centerOn(mapToScene(...)) which can trigger reentrant resize
+// events while the scene is being rebuilt by setNote().
+//
+// Defensive: only runs when the note + pages are actually present, the
+// viewport has a sensible width, and we're not already auto-fitting.
 void MultiPageNoteView::autoFitPageToViewportWidth() {
   if (m_userTouchedZoom)
+    return;
+  if (m_isAutoFitting)
+    return;
+  if (!note_)
+    return;
+  if (pageItems_.isEmpty())
     return;
   if (!viewport())
     return;
   const int viewW = viewport()->width();
-  if (viewW <= 0)
+  if (viewW <= UiScale::dp(80))
     return;
   const int pageW = a4wPx();
   if (pageW <= 0)
     return;
-  // Slight horizontal margin so strokes near the page edge stay visible.
+
+  m_isAutoFitting = true;
+
   const qreal targetPageW =
       qreal(viewW) - qreal(qMax(0, UiScale::safeHorizontalPaddingPx(this)));
   qreal scaleFactor = targetPageW / qreal(pageW);
-  // Keep the auto-fit conservative - never zoom in past 1.0 even on tablets,
-  // never below 0.25.
-  scaleFactor = qBound<qreal>(0.25, scaleFactor, 1.0);
+  scaleFactor = qBound<qreal>(0.30, scaleFactor, 1.0);
+
   QTransform t;
   t.scale(scaleFactor, scaleFactor);
   setTransform(t);
   zoom_ = scaleFactor;
-  // Center the first page horizontally inside the viewport.
-  centerOn(QPointF(qreal(pageW) / 2.0,
-                   qreal(mapToScene(viewport()->rect().center()).y())));
+
+  // Position via horizontal scrollbar so the first page is centred. Avoid
+  // centerOn(mapToScene(...)) which forces a layout pass and can recurse.
+  const qreal pageCenterScene = qreal(pageW) / 2.0;
+  const int targetScrollX =
+      qRound(pageCenterScene * scaleFactor - qreal(viewW) / 2.0);
+  if (QScrollBar *hb = horizontalScrollBar()) {
+    hb->setValue(qBound(hb->minimum(), targetScrollX, hb->maximum()));
+  }
+
   ensureSceneRectCoversViewport();
+  m_isAutoFitting = false;
+}
+
+void MultiPageNoteView::requestAutoFit() {
+  // Re-arm the one-shot fit so a new note opens at "page fits viewport".
+  m_pendingInitialFit = true;
+  // Note: do NOT reset m_userTouchedZoom here - if the user explicitly zoomed,
+  // they probably want the same zoom to persist across notes within a session.
+  if (isVisible()) {
+    QTimer::singleShot(0, this, [this]() {
+      m_pendingInitialFit = false;
+      autoFitPageToViewportWidth();
+    });
+  }
 }
 #endif
 
@@ -2189,10 +2221,9 @@ void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   repositionGraphEntryBar();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
-  // Re-fit on rotation / window resize as long as the user hasn't manually
-  // zoomed yet, so the canvas always opens at "page fits viewport" on phones.
-  if (!m_userTouchedZoom)
-    autoFitPageToViewportWidth();
+  // We intentionally do NOT auto-fit on resize: that can recurse with
+  // scrollbar toggles caused by setTransform and has been the source of a
+  // crash when opening a note. requestAutoFit() handles the deliberate cases.
 #endif
 }
 

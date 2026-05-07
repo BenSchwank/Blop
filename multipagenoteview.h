@@ -90,6 +90,14 @@ public slots:
     void screenshotSelection();
 
 
+public:
+#ifdef Q_OS_ANDROID
+    /// Request a one-shot auto-fit-to-width on the next show / next event-loop
+    /// cycle. Call this from the editor when a fresh note has been wired up.
+    /// No-op if the user has already manually zoomed.
+    void requestAutoFit();
+#endif
+
 protected:
     void resizeEvent(QResizeEvent*) override;
     void showEvent(QShowEvent *event) override;
@@ -124,6 +132,9 @@ private:
     /// True until the very first auto-fit has been applied on Android, so we
     /// don't override an already-restored zoom from a saved session.
     bool m_pendingInitialFit{true};
+    /// Reentrancy lock for autoFitPageToViewportWidth() so a scrollbar toggle
+    /// inside setTransform() cannot recursively trigger another auto-fit pass.
+    bool m_isAutoFitting{false};
 #endif
 
     NoteSelectionMenu* m_selectionMenu{nullptr};

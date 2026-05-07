@@ -151,4 +151,10 @@ void NoteEditor::setupShortcuts() {
 void NoteEditor::setNote(Note *note) {
     note_ = note;
     canvas_->setNote(note);
+#ifdef Q_OS_ANDROID
+    // Open every note at "A4 fits viewport" on phones. requestAutoFit() is a
+    // no-op once the user has manually pinch/wheel-zoomed in this session.
+    if (canvas_)
+        canvas_->requestAutoFit();
+#endif
 }
