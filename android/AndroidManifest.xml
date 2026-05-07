@@ -33,17 +33,29 @@
             android:name="android.app.arguments"
             android:value="@string/qt_app_arguments" />
         <activity
-            android:name="org.qtproject.qt.android.bindings.QtActivity"
+            android:name="com.benschwank.blop.BlopActivity"
             android:theme="@style/BlopTheme"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc"
             android:label="@string/app_name"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustPan"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Google OAuth PKCE deep-link callback. The custom scheme matches
+                 the redirect URI configured for the Android OAuth client and
+                 used by GoogleAuthManager::startPkceLogin(). -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.benschwank.blop"
+                    android:host="oauth2redirect" />
             </intent-filter>
 
           <meta-data

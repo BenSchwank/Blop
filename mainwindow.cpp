@@ -7126,78 +7126,16 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
 bool MainWindow::showAuthOverlay(const QUrl &url) {
 #ifdef Q_OS_ANDROID
-  // In-process WebView so http://127.0.0.1:8080 reaches QOAuthHttpServerReplyHandler; external
-  // Chrome often cannot loop back into the app process.
+  // Google blocks OAuth inside embedded WebViews (disallowed_useragent). For
+  // the Android PKCE flow we open the auth URL with the system browser, which
+  // Android resolves to a Chrome Custom Tab when available. The redirect
+  // returns to the app via the com.benschwank.blop://oauth2redirect deep link
+  // handled by BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
   dismissAndroidOAuthOverlay();
-  QWidget *shell = new QWidget(this);
-  shell->setObjectName(QStringLiteral("AndroidOAuthOverlayShell"));
-  shell->setAutoFillBackground(true);
-  {
-    QPalette pal = shell->palette();
-    pal.setColor(QPalette::Window, QColor(15, 17, 26, 247));
-    shell->setPalette(pal);
-  }
-  shell->setGeometry(rect());
-  auto *outer = new QVBoxLayout(shell);
-  outer->setContentsMargins(8, 8, 8, 8);
-  outer->setSpacing(8);
-  QPushButton *cancel = new QPushButton(tr("Abbrechen"), shell);
-  cancel->setStyleSheet(
-      QStringLiteral("QPushButton { padding: 10px 16px; background: #2A2F45; color: #E6E4FF; "
-                     "border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-weight: 600; }"
-                     "QPushButton:pressed { background: rgba(255,255,255,0.08); }"));
-  outer->addWidget(cancel, 0);
-  auto *qw = new QQuickWidget(shell);
-  qw->setResizeMode(QQuickWidget::SizeRootObjectToView);
-  qw->setClearColor(QColor(15, 17, 26));
-  qw->rootContext()->setContextProperty(QStringLiteral("authUrl"), url);
-  outer->addWidget(qw, 1);
-  m_androidOAuthOverlay = shell;
-  connect(cancel, &QPushButton::clicked, this, [this]() {
-    dismissAndroidOAuthOverlay();
-    m_googleLoginInFlight = false;
-    m_googleLoginInFlightSinceMs = 0;
-    m_authNavigationLocked = false;
-    emit oauthFailed(QStringLiteral("oauth_cancelled"));
-  });
-  const auto failOverlay = [this, shell, qw]() {
-    for (const QQmlError &err : qw->errors())
-      qWarning() << "AuthOverlay QML error:" << err.toString();
-    qWarning() << "AuthOverlay QML load failed, status" << int(qw->status());
-    if (m_androidOAuthOverlay == shell)
-      m_androidOAuthOverlay = nullptr;
-    shell->deleteLater();
-    m_googleLoginInFlight = false;
-    m_googleLoginInFlightSinceMs = 0;
-    m_authNavigationLocked = false;
-    emit oauthFailed(QStringLiteral("auth_overlay_qml_failed"));
-  };
-  const auto finish = [shell, qw, failOverlay]() {
-    switch (qw->status()) {
-    case QQuickWidget::Ready:
-      shell->show();
-      shell->raise();
-      break;
-    case QQuickWidget::Error:
-      failOverlay();
-      break;
-    default:
-      break;
-    }
-  };
-  qw->setSource(QUrl(QStringLiteral("qrc:/AuthOverlay.qml")));
-  finish();
-  if (qw->status() != QQuickWidget::Ready && qw->status() != QQuickWidget::Error) {
-    auto conn = std::make_shared<QMetaObject::Connection>();
-    *conn = QObject::connect(qw, &QQuickWidget::statusChanged, shell,
-                             [conn, finish](QQuickWidget::Status s) {
-                               if (s != QQuickWidget::Ready && s != QQuickWidget::Error)
-                                 return;
-                               QObject::disconnect(*conn);
-                               finish();
-                             });
-  }
-  return true;
+  const bool opened = QDesktopServices::openUrl(url);
+  if (!opened)
+    qWarning() << "showAuthOverlay: QDesktopServices::openUrl failed for" << url;
+  return opened;
 #else
   // Desktop: system browser; redirect to http://127.0.0.1:8080/ is handled by
   // QOAuthHttpServerReplyHandler.
