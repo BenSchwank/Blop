@@ -21,11 +21,12 @@
 
 namespace {
 #ifdef Q_OS_ANDROID
-// Android OAuth client (no client secret). Configure as "Android" client in
-// Google Cloud Console with the package name + Play App Signing SHA-1 + upload
-// SHA-1 fingerprints. Custom scheme matches the AndroidManifest intent filter.
+// Android OAuth client (no client secret). Configured as "Android" client in
+// Google Cloud Console with package com.benschwank.blop + Play App Signing
+// SHA-1 (and Upload SHA-1). Custom scheme matches the AndroidManifest intent
+// filter (com.benschwank.blop://oauth2redirect).
 constexpr const char *kAndroidClientId =
-    "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com";
+    "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com";
 constexpr const char *kAndroidRedirectUri = "com.benschwank.blop:/oauth2redirect";
 constexpr const char *kGoogleAuthEndpoint =
     "https://accounts.google.com/o/oauth2/v2/auth";
