@@ -2149,6 +2149,39 @@ void MultiPageNoteView::ensureSceneRectCoversViewport() {
 #endif
 }
 
+#ifdef Q_OS_ANDROID
+// Compute and apply a transform so a single A4 page fits horizontally inside
+// the current viewport. Centers the page horizontally afterwards. No-op if the
+// user has already pinch/wheel-zoomed (m_userTouchedZoom).
+void MultiPageNoteView::autoFitPageToViewportWidth() {
+  if (m_userTouchedZoom)
+    return;
+  if (!viewport())
+    return;
+  const int viewW = viewport()->width();
+  if (viewW <= 0)
+    return;
+  const int pageW = a4wPx();
+  if (pageW <= 0)
+    return;
+  // Slight horizontal margin so strokes near the page edge stay visible.
+  const qreal targetPageW =
+      qreal(viewW) - qreal(qMax(0, UiScale::safeHorizontalPaddingPx(this)));
+  qreal scaleFactor = targetPageW / qreal(pageW);
+  // Keep the auto-fit conservative - never zoom in past 1.0 even on tablets,
+  // never below 0.25.
+  scaleFactor = qBound<qreal>(0.25, scaleFactor, 1.0);
+  QTransform t;
+  t.scale(scaleFactor, scaleFactor);
+  setTransform(t);
+  zoom_ = scaleFactor;
+  // Center the first page horizontally inside the viewport.
+  centerOn(QPointF(qreal(pageW) / 2.0,
+                   qreal(mapToScene(viewport()->rect().center()).y())));
+  ensureSceneRectCoversViewport();
+}
+#endif
+
 void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   QGraphicsView::resizeEvent(e);
   syncPagesBarVisibility();
@@ -2156,6 +2189,10 @@ void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   repositionGraphEntryBar();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
+  // Re-fit on rotation / window resize as long as the user hasn't manually
+  // zoomed yet, so the canvas always opens at "page fits viewport" on phones.
+  if (!m_userTouchedZoom)
+    autoFitPageToViewportWidth();
 #endif
 }
 
@@ -2164,6 +2201,12 @@ void MultiPageNoteView::showEvent(QShowEvent *e) {
   syncPagesBarVisibility();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
+  if (m_pendingInitialFit && !m_userTouchedZoom) {
+    m_pendingInitialFit = false;
+    // Defer one event-loop cycle so the viewport has its final size after the
+    // first show / layout pass.
+    QTimer::singleShot(0, this, [this]() { autoFitPageToViewportWidth(); });
+  }
 #endif
 }
 
@@ -2191,6 +2234,7 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
     scale(factor, factor);
     zoom_ *= factor;
 #ifdef Q_OS_ANDROID
+    m_userTouchedZoom = true;
     ensureSceneRectCoversViewport();
 #endif
     syncPagesBarVisibility();
@@ -2297,6 +2341,7 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
       scale(factor, factor);
       zoom_ *= factor;
 #ifdef Q_OS_ANDROID
+      m_userTouchedZoom = true;
       ensureSceneRectCoversViewport();
 #endif
       syncPagesBarVisibility();

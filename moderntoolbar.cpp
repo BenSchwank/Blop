@@ -2353,6 +2353,41 @@ bool ModernToolbar::supportsAdaptiveDockedScroll() const {
 }
 int ModernToolbar::effectiveButtonSize(int w, int h) const {
 #ifdef Q_OS_ANDROID
+  // On Android Normal-style horizontal toolbars we additionally cap the
+  // button size based on the available horizontal width / total button count.
+  // This guarantees the entire row fits on narrow phones instead of spilling
+  // past the right edge (the existing center-scroll fallback then handles
+  // even narrower viewports gracefully).
+  if (m_style == Normal && m_orientation == Horizontal) {
+    const int gap = UiScale::dp(5);
+    int totalBtns = 0;
+    int extras = 0;
+    if (m_isDockedMode) {
+      QList<ToolbarBtn *> leftGroup = leftChromeButtons();
+      const QList<ToolbarBtn *> rightGroup = {btnPalette, btnBrushSize, btnSave,
+                                              btnDockToggle};
+      const int centerGroupSize = qMax(
+          0, m_buttons.size() - leftGroup.size() - rightGroup.size());
+      totalBtns = leftGroup.size() + rightGroup.size() + centerGroupSize;
+      extras = UiScale::dp(20) + UiScale::dp(30) + UiScale::dp(30) +
+               UiScale::dp(20) + UiScale::dp(24);
+      if (leftGroup.size() > 1) extras += (leftGroup.size() - 1) * gap;
+      if (rightGroup.size() > 1) extras += (rightGroup.size() - 1) * gap;
+      if (centerGroupSize > 1) extras += (centerGroupSize - 1) * gap;
+    } else {
+      for (auto *b : m_buttons)
+        if (!m_dockedOnlyButtons.contains(b))
+          ++totalBtns;
+      extras = UiScale::dp(30) + 16; // drag handle + side margin
+      if (totalBtns > 1) extras += (totalBtns - 1) * gap;
+    }
+    const int widthCap =
+        (totalBtns > 0) ? qMax(24, (w - extras) / totalBtns) : 30;
+    const int verticalCap = qBound(26, h - UiScale::dp(10), 38);
+    const int lower = m_isDockedMode ? 26 : 28;
+    const int upper = m_isDockedMode ? 38 : 36;
+    return qBound(lower, qMin(verticalCap, widthCap), upper);
+  }
   if (m_style == Normal && !m_isDockedMode) {
     const int axis = (m_orientation == Vertical) ? qMin(w, h) : h;
     return qBound(30, axis - UiScale::dp(16), 36);
@@ -2667,22 +2702,34 @@ void ModernToolbar::setDockMode(bool docked) {
   if (QWidget *pw = parentWidget()) {
     QRect targetGeom;
     int idealW = calculateMinLength();
+#ifdef Q_OS_ANDROID
+    // Cap the parent extents to the real device screen, otherwise a parent
+    // that is mistakenly wider than the viewport (e.g. before the first
+    // resize event reaches us) would let the toolbar spill past the right
+    // edge on phones.
+    const int realScreenW = UiScale::androidScreenWidthPx(pw);
+    const int parentVisibleW =
+        (pw->width() > 0) ? qMin(pw->width(), realScreenW) : realScreenW;
+#else
+    const int parentVisibleW = pw->width();
+#endif
     if (docked) {
       m_orientation = Horizontal;
 #ifdef Q_OS_ANDROID
-      idealW = qMin(idealW, pw->width() - UiScale::dp(8));
+      idealW = qMin(idealW, parentVisibleW - UiScale::dp(8));
 #endif
-      targetGeom = QRect((pw->width() - idealW) / 2, 0, idealW, UiScale::dp(48));
+      targetGeom =
+          QRect((parentVisibleW - idealW) / 2, 0, idealW, UiScale::dp(48));
     } else {
       m_orientation = Horizontal;
       int idealW = calculateMinLength();
 #ifdef Q_OS_ANDROID
-      idealW = qMin(idealW, pw->width() - UiScale::dp(20));
-      targetGeom = QRect((pw->width() - idealW) / 2, UiScale::dp(56), idealW,
-                         UiScale::dp(46));
+      idealW = qMin(idealW, parentVisibleW - UiScale::dp(20));
+      targetGeom = QRect((parentVisibleW - idealW) / 2, UiScale::dp(56),
+                         idealW, UiScale::dp(46));
 #else
-      targetGeom = QRect((pw->width() - idealW) / 2, UiScale::dp(60), idealW,
-                         UiScale::dp(52));
+      targetGeom = QRect((parentVisibleW - idealW) / 2, UiScale::dp(60),
+                         idealW, UiScale::dp(52));
 #endif
     }
 

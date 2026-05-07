@@ -93,4 +93,36 @@ int safeHorizontalPaddingPx(QWidget *reference) {
   return dp(10);
 }
 
+int androidScreenWidthPx(QWidget *reference) {
+  QScreen *screen = bestScreen(reference);
+  if (screen) {
+    const int w = screen->availableGeometry().width();
+    if (w > 0)
+      return w;
+  }
+  // Fallback: widget geometry if available, otherwise a sensible default that
+  // still produces non-collapsed layouts.
+  if (reference && reference->width() > 0)
+    return reference->width();
+  return 360;
+}
+
+int androidScreenHeightPx(QWidget *reference) {
+  QScreen *screen = bestScreen(reference);
+  if (screen) {
+    const int h = screen->availableGeometry().height();
+    if (h > 0)
+      return h;
+  }
+  if (reference && reference->height() > 0)
+    return reference->height();
+  return 640;
+}
+
+int androidContentWidthPx(QWidget *reference) {
+  const int w = androidScreenWidthPx(reference);
+  const int pad = safeHorizontalPaddingPx(reference);
+  return qMax(dp(160), w - 2 * pad);
+}
+
 } // namespace UiScale

@@ -399,13 +399,66 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   const int clampedInset = UiScale::safeTopPx(window);
   const int horizontalPad = UiScale::safeHorizontalPaddingPx(window);
   const int topExtra = UiScale::dp(4);
-  const int headerHeight = UiScale::dp(52);
+  // Use the real device screen width (works even before the window has been
+  // shown) so all responsive sizing is computed against the phone viewport,
+  // not against Qt's default 640x480 fallback.
+  const int screenW = UiScale::androidScreenWidthPx(window);
+  const int contentW = UiScale::androidContentWidthPx(window);
+
+  // Header row height adapts to the available viewport instead of stale width().
+  const int headerHeight =
+      qBound(UiScale::dp(46), int(screenW * 0.09), UiScale::dp(60));
+  const int btnW =
+      qBound(UiScale::dp(40), int(screenW * 0.11), UiScale::dp(56));
+  const int btnH =
+      qBound(UiScale::dp(28), int(headerHeight * 0.7), UiScale::dp(38));
+  const int compactPillH =
+      qBound(UiScale::dp(26), int(headerHeight * 0.58), UiScale::dp(34));
   const int totalHeight = headerHeight + clampedInset + topExtra;
 
   chrome->setFixedHeight(totalHeight);
   inner->setFixedHeight(totalHeight);
   headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
                                 horizontalPad, UiScale::dp(4));
+
+  auto syncBtn = [&](QWidget *w) {
+    if (!w)
+      return;
+    w->setFixedSize(btnW, btnH);
+  };
+  syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnMenu")));
+  syncBtn(
+      window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPageMgr")));
+  syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnExport")));
+
+  auto syncPill = [&](QWidget *w) {
+    if (!w)
+      return;
+    w->setFixedHeight(compactPillH);
+  };
+  syncPill(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabNotes")));
+  syncPill(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabStudy")));
+
+  if (QWidget *plus =
+          window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPlus"))) {
+    plus->setFixedSize(qBound(UiScale::dp(28), int(screenW * 0.085),
+                              UiScale::dp(36)),
+                       compactPillH);
+  }
+
+  if (QLineEdit *searchBar = window->findChild<QLineEdit *>(
+          QStringLiteral("androidTopSearchBar"))) {
+    searchBar->setFixedHeight(btnH);
+    // Cap the search bar to the available content width so it never spills
+    // past the right edge on narrow phones.
+    const int searchMin =
+        qBound(UiScale::dp(120), int(screenW * 0.28), UiScale::dp(220));
+    const int searchMax =
+        qMin(contentW - UiScale::dp(8),
+             qBound(UiScale::dp(180), int(screenW * 0.46), UiScale::dp(380)));
+    searchBar->setMinimumWidth(qMin(searchMin, searchMax));
+    searchBar->setMaximumWidth(qMax(searchMin, searchMax));
+  }
 }
 
 QRect androidSafeOverlayRect(QWidget *host) {
@@ -415,6 +468,14 @@ QRect androidSafeOverlayRect(QWidget *host) {
   const int topInset = UiScale::safeTopPx(host);
   const int bottomInset = UiScale::safeBottomPx(host);
   r.adjust(0, topInset, 0, -bottomInset);
+  // Clamp the horizontal extents to the actual device viewport so that on
+  // phones where the host widget is reported wider than the visible screen
+  // (e.g. cutouts, gesture insets) overlays don't spill past the right edge.
+  const int realW = UiScale::androidScreenWidthPx(host);
+  if (realW > 0 && r.width() > realW) {
+    r.setX(qMax(0, (host->width() - realW) / 2));
+    r.setWidth(realW);
+  }
   return r;
 }
 #endif
@@ -2853,12 +2914,16 @@ void MainWindow::setupUi() {
   const int androidTopInset = UiScale::safeTopPx(this);
   const int androidHeaderSidePad = UiScale::safeHorizontalPaddingPx(this);
   const int androidHeaderTopExtra = UiScale::dp(4);
+  // Anchor responsive sizing to the actual device screen width (works even
+  // before the window has been shown), so we don't get oversized buttons
+  // because width() still returns the Qt default 640px.
+  const int androidScreenW = UiScale::androidScreenWidthPx(this);
   const int androidHeaderHeight =
-      qBound(UiScale::dp(46), int(width() * 0.09), UiScale::dp(60));
+      qBound(UiScale::dp(46), int(androidScreenW * 0.09), UiScale::dp(60));
   const int androidHeaderButtonW =
-      qBound(UiScale::dp(44), int(width() * 0.12), UiScale::dp(68));
+      qBound(UiScale::dp(40), int(androidScreenW * 0.11), UiScale::dp(56));
   const int androidHeaderButtonH =
-      qBound(UiScale::dp(30), int(androidHeaderHeight * 0.7), UiScale::dp(38));
+      qBound(UiScale::dp(28), int(androidHeaderHeight * 0.7), UiScale::dp(38));
   const int androidCompactPillH =
       qBound(UiScale::dp(26), int(androidHeaderHeight * 0.58), UiScale::dp(34));
   const int androidHeaderTotalH =
@@ -2922,6 +2987,7 @@ void MainWindow::setupUi() {
 
   // Hamburger only while a note is open (overview uses floating menu next to welcome)
   m_btnAndroidToolbarMenu = new ModernButton(androidHeader);
+  m_btnAndroidToolbarMenu->setObjectName(QStringLiteral("AndroidHeaderBtnMenu"));
   {
     QIcon menuIcon = loadTightIcon(":/assets/android_btn_menu.png",
                                    createModernIcon("menu_pill", QColor("#A0A0C8")),
@@ -2984,11 +3050,13 @@ void MainWindow::setupUi() {
       "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
 
   m_btnAndroidNotes = new QPushButton("Notizen", androidHeader);
+  m_btnAndroidNotes->setObjectName(QStringLiteral("AndroidHeaderTabNotes"));
   m_btnAndroidNotes->setFixedHeight(androidCompactPillH);
   m_btnAndroidNotes->setCursor(Qt::PointingHandCursor);
   m_btnAndroidNotes->setStyleSheet(tabActiveStyle); // default: notes active
 
   m_btnAndroidStudy = new QPushButton("Study", androidHeader);
+  m_btnAndroidStudy->setObjectName(QStringLiteral("AndroidHeaderTabStudy"));
   m_btnAndroidStudy->setFixedHeight(androidCompactPillH);
   m_btnAndroidStudy->setCursor(Qt::PointingHandCursor);
   m_btnAndroidStudy->setStyleSheet(tabInactiveStyle);
@@ -3020,7 +3088,11 @@ void MainWindow::setupUi() {
   headerLay->addWidget(m_btnAndroidStudy);
 
   m_btnAndroidAddWebBookmark = new QPushButton(QStringLiteral("+"), androidHeader);
-  m_btnAndroidAddWebBookmark->setFixedSize(UiScale::dp(30), androidCompactPillH);
+  m_btnAndroidAddWebBookmark->setObjectName(
+      QStringLiteral("AndroidHeaderBtnPlus"));
+  m_btnAndroidAddWebBookmark->setFixedSize(
+      qBound(UiScale::dp(28), int(androidScreenW * 0.085), UiScale::dp(36)),
+      androidCompactPillH);
   m_btnAndroidAddWebBookmark->setCursor(Qt::PointingHandCursor);
   m_btnAndroidAddWebBookmark->setToolTip(tr("Web-Lesezeichen"));
   m_btnAndroidAddWebBookmark->setStyleSheet(
@@ -3054,8 +3126,12 @@ void MainWindow::setupUi() {
   m_androidTopSearchBar->setFrame(false);
   m_androidTopSearchBar->setAttribute(Qt::WA_StyledBackground, true);
   m_androidTopSearchBar->setFixedHeight(androidHeaderButtonH);
-  m_androidTopSearchBar->setMinimumWidth(qBound(UiScale::dp(130), int(width() * 0.28), UiScale::dp(240)));
-  m_androidTopSearchBar->setMaximumWidth(qBound(UiScale::dp(220), int(width() * 0.46), UiScale::dp(420)));
+  // Width is finalised in syncAndroidHeaderGeometry() against the real screen
+  // width so it cannot spill past the right edge on phones.
+  m_androidTopSearchBar->setMinimumWidth(
+      qBound(UiScale::dp(120), int(androidScreenW * 0.28), UiScale::dp(220)));
+  m_androidTopSearchBar->setMaximumWidth(
+      qBound(UiScale::dp(180), int(androidScreenW * 0.46), UiScale::dp(380)));
   m_androidTopSearchBar->setStyleSheet(
       "QLineEdit#androidTopSearchBar {"
       "  background: rgba(255,255,255,0.08);"
@@ -3103,6 +3179,8 @@ void MainWindow::setupUi() {
 #ifdef Q_OS_ANDROID
   // Page manager (only for A4 notes) - orange button.
   m_btnAndroidToolbarPageManager = new ModernButton(androidHeader);
+  m_btnAndroidToolbarPageManager->setObjectName(
+      QStringLiteral("AndroidHeaderBtnPageMgr"));
   {
     QIcon pagesIcon = loadTightIcon(":/assets/android_btn_pages.png",
                                     createModernIcon("pages_pill", QColor("#C8CDDC")),
@@ -3122,6 +3200,8 @@ void MainWindow::setupUi() {
   headerLay->addWidget(m_btnAndroidToolbarPageManager, 0, Qt::AlignVCenter);
 
   m_btnAndroidToolbarExport = new ModernButton(androidHeader);
+  m_btnAndroidToolbarExport->setObjectName(
+      QStringLiteral("AndroidHeaderBtnExport"));
   m_btnAndroidToolbarExport->setToolTip(QStringLiteral("Notiz-Menü"));
   m_btnAndroidToolbarExport->setHoverScaleEnabled(false);
   m_btnAndroidToolbarExport->setStyleSheet(
@@ -3303,14 +3383,33 @@ void MainWindow::setupUi() {
   );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
 
+  // Cap the welcome row to the real device viewport so nothing can spill past
+  // the right edge on narrow phones, regardless of any stale parent width.
+  const int welcomeContentW = UiScale::androidContentWidthPx(this);
+  searchBar->setMaximumWidth(welcomeContentW);
+  btnNewNote->setMaximumWidth(welcomeContentW);
+  btnNewFolder->setMaximumWidth(welcomeContentW);
+  btnNewNote->setMinimumHeight(UiScale::dp(44));
+  btnNewFolder->setMinimumHeight(UiScale::dp(44));
+
   QVBoxLayout *searchBlock = new QVBoxLayout();
   searchBlock->setSpacing(UiScale::dp(10));
   searchBlock->addWidget(searchBar);
-  QHBoxLayout *actionsRow = new QHBoxLayout();
-  actionsRow->setSpacing(UiScale::dp(10));
-  actionsRow->addWidget(btnNewNote, 1);
-  actionsRow->addWidget(btnNewFolder, 1);
-  searchBlock->addLayout(actionsRow);
+  // On narrow phones (< dp(480) usable) stack the action buttons vertically so
+  // "Neuer Ordner" never gets clipped by the right edge.
+  if (welcomeContentW < UiScale::dp(480)) {
+    QVBoxLayout *actionsCol = new QVBoxLayout();
+    actionsCol->setSpacing(UiScale::dp(10));
+    actionsCol->addWidget(btnNewNote);
+    actionsCol->addWidget(btnNewFolder);
+    searchBlock->addLayout(actionsCol);
+  } else {
+    QHBoxLayout *actionsRow = new QHBoxLayout();
+    actionsRow->setSpacing(UiScale::dp(10));
+    actionsRow->addWidget(btnNewNote, 1);
+    actionsRow->addWidget(btnNewFolder, 1);
+    searchBlock->addLayout(actionsRow);
+  }
 
   headerLayout->addLayout(searchBlock);
 
@@ -3723,6 +3822,10 @@ void MainWindow::setupWebBrowser() {
   // Touch/focus hardening for Android
   container->setAttribute(Qt::WA_AcceptTouchEvents, true);
   container->setFocusPolicy(Qt::StrongFocus);
+  // Cap the embedded Study container to the real device viewport so the
+  // Bookmark sheet (anchored to QML parent.left/right) cannot extend past
+  // the right edge if the host window is sized wider than the screen.
+  container->setMaximumWidth(UiScale::androidScreenWidthPx(this));
   layout->addWidget(container);
 
   logAndroidSystemWebViewPackageOnce();
@@ -6799,6 +6902,11 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   syncSidebarPushLayout();
   if (m_studyVBoxLayout)
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
+  // Re-clamp embedded Study container to the (possibly rotated) screen width
+  // so the Bookmark sheet anchored to parent.left/right stays inside.
+  if (m_studyWindowContainer)
+    m_studyWindowContainer->setMaximumWidth(
+        UiScale::androidScreenWidthPx(this));
   if (m_androidSidebarScrim && m_androidSidebarScrim->isVisible())
     updateAndroidSidebarScrimGeometry();
   if (m_androidOAuthOverlay && m_androidOAuthOverlay->isVisible())

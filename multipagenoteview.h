@@ -94,6 +94,12 @@ protected:
     void resizeEvent(QResizeEvent*) override;
     void showEvent(QShowEvent *event) override;
     void wheelEvent(QWheelEvent*) override;
+
+#ifdef Q_OS_ANDROID
+    /// Apply a fit-to-width transform so the A4 page exactly fits the current
+    /// viewport horizontally. No-op if the user has manually zoomed.
+    void autoFitPageToViewportWidth();
+#endif
     void tabletEvent(QTabletEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
@@ -111,6 +117,14 @@ private:
     qreal zoom_{1.0};
     bool drawing_{false};
     int currentPage_{0};
+#ifdef Q_OS_ANDROID
+    /// True once the user has pinched/wheel-zoomed the canvas. Suppresses the
+    /// auto-fit-to-width behaviour that otherwise re-fits the page on resize.
+    bool m_userTouchedZoom{false};
+    /// True until the very first auto-fit has been applied on Android, so we
+    /// don't override an already-restored zoom from a saved session.
+    bool m_pendingInitialFit{true};
+#endif
 
     NoteSelectionMenu* m_selectionMenu{nullptr};
 
