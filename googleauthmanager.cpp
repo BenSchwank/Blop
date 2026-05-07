@@ -73,13 +73,11 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   static bool s_jniRegistered = false;
   if (!s_jniRegistered) {
     QJniEnvironment env;
-    JNINativeMethod methods[] = {{
-        "nativeNotifyAuthCallback",
-        "(Ljava/lang/String;)V",
-        reinterpret_cast<void *>(
-            Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthCallback)}};
-    if (env.registerNativeMethods("com/benschwank/blop/BlopOAuthBridge",
-                                  methods, 1)) {
+    if (env.registerNativeMethods(
+            "com/benschwank/blop/BlopOAuthBridge",
+            {{"nativeNotifyAuthCallback", "(Ljava/lang/String;)V",
+              reinterpret_cast<void *>(
+                  &Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthCallback)}})) {
       s_jniRegistered = true;
       qInfo() << "GoogleAuthManager: registered BlopOAuthBridge JNI methods";
     } else {
