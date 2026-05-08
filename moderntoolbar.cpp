@@ -2359,7 +2359,10 @@ int ModernToolbar::effectiveButtonSize(int w, int h) const {
   // past the right edge (the existing center-scroll fallback then handles
   // even narrower viewports gracefully).
   if (m_style == Normal && m_orientation == Horizontal) {
-    const int gap = UiScale::dp(5);
+    // Tighter inter-button gap on Android - the docked toolbar is now
+    // dp(40) tall (instead of dp(48)), so buttons + gaps need to scale
+    // down with it to keep the row balanced.
+    const int gap = UiScale::dp(3);
     int totalBtns = 0;
     int extras = 0;
     if (m_isDockedMode) {
@@ -2382,10 +2385,13 @@ int ModernToolbar::effectiveButtonSize(int w, int h) const {
       if (totalBtns > 1) extras += (totalBtns - 1) * gap;
     }
     const int widthCap =
-        (totalBtns > 0) ? qMax(24, (w - extras) / totalBtns) : 30;
-    const int verticalCap = qBound(26, h - UiScale::dp(10), 38);
-    const int lower = m_isDockedMode ? 26 : 28;
-    const int upper = m_isDockedMode ? 38 : 36;
+        (totalBtns > 0) ? qMax(22, (w - extras) / totalBtns) : 28;
+    // Compact bounds: docked tools = 22..32 dp (was 26..38), floating tools
+    // = 24..30 (was 28..36). Material guidance allows 24-dp action icons
+    // in dense toolbars, so 22-32 stays comfortably tap-friendly.
+    const int verticalCap = qBound(22, h - UiScale::dp(8), 32);
+    const int lower = m_isDockedMode ? 22 : 24;
+    const int upper = m_isDockedMode ? 32 : 30;
     return qBound(lower, qMin(verticalCap, widthCap), upper);
   }
   if (m_style == Normal && !m_isDockedMode) {
@@ -2731,7 +2737,11 @@ void ModernToolbar::setDockMode(bool docked) {
       // home/undo icons don't kiss the screen border on phones where the
       // parent reports a width equal to the viewport.
       const int xPos = qMax(xCentered, UiScale::dp(8));
-      targetGeom = QRect(xPos, 0, idealW, UiScale::dp(48));
+      // Compact 40 dp container (was 48) - the editor stacks header
+      // (~dp(60)) on top, so every saved dp at the top is visible canvas
+      // for the user. Buttons are clamped to 22..32 dp by
+      // effectiveButtonSize() to fit the new height comfortably.
+      targetGeom = QRect(xPos, 0, idealW, UiScale::dp(40));
 #else
       targetGeom = QRect((parentVisibleW - idealW) / 2, 0,
                          idealW, UiScale::dp(48));

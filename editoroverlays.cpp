@@ -100,8 +100,17 @@ OverlayHost::OverlayHost(QWidget *anchor) : QWidget(anchor), m_anchor(anchor) {
   setWindowFlags(Qt::Widget);
   setAttribute(Qt::WA_TranslucentBackground, true);
   setFocusPolicy(Qt::StrongFocus);
+#ifdef Q_OS_ANDROID
+  // On Android we want a true modal feel - phones are smaller than the
+  // 780x830 fixed card we draw on desktop, so a 0.52 alpha backdrop lets
+  // the welcome / new-note dialog bleed through visually. Use a near-
+  // opaque scrim so only the card itself is visible.
+  setStyleSheet(QStringLiteral(
+      "#EditorOverlayHost { background-color: rgba(8, 10, 16, 0.96); }"));
+#else
   setStyleSheet(QStringLiteral(
       "#EditorOverlayHost { background-color: rgba(10, 12, 20, 0.52); }"));
+#endif
   setGeometry(anchor->rect());
   anchor->installEventFilter(this);
 }
@@ -586,13 +595,34 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   if (!screen)
     screen = QGuiApplication::primaryScreen();
   const QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1280, 800);
+#ifdef Q_OS_ANDROID
+  // Phones are narrower than the 780-px desktop card, so let the card
+  // grow to fill almost the whole screen with just a small dp(12) margin
+  // on each side. Account for the system top/bottom insets so we don't
+  // overlap the status bar or gesture bar.
+  const int marginH = UiScale::dp(12);
+  const int safeTop = UiScale::safeTopPx(parent);
+  const int safeBot = UiScale::safeBottomPx(parent);
+  const int cardW = qMax(280, avail.width() - 2 * marginH);
+  const int cardH =
+      qMax(420, avail.height() - safeTop - safeBot - 2 * marginH);
+#else
   const int cardW = qMin(780, qMax(620, avail.width() * 86 / 100));
   const int cardH = qMin(830, qMax(620, avail.height() * 88 / 100));
+#endif
   centerCardInOverlay(overlay, card, cardW, cardH);
 
   auto *root = new QVBoxLayout(card);
+#ifdef Q_OS_ANDROID
+  // Tighter card padding on Android so the layout option grid still fits
+  // comfortably even on a 360-dp wide phone.
+  root->setContentsMargins(UiScale::dp(20), UiScale::dp(18),
+                           UiScale::dp(20), UiScale::dp(16));
+  root->setSpacing(UiScale::dp(14));
+#else
   root->setContentsMargins(40, 34, 40, 30);
   root->setSpacing(26);
+#endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
   titleLbl->setStyleSheet(QStringLiteral(

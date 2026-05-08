@@ -2,6 +2,8 @@
 
 #include <QApplication>
 #include <QCursor>
+#include <QFileInfo>
+#include <QFileSystemModel>
 #include <QFont>
 #include <QFontMetrics>
 #include <QMouseEvent>
@@ -26,20 +28,32 @@ struct TileVisual {
 
 TileVisual visualFor(const QModelIndex &index, MainWindow *win) {
   TileVisual v;
-  const QString fileName = index.data(Qt::DisplayRole).toString();
-  const bool isFolder = index.data(Qt::UserRole + 1).toBool();
-  if (isFolder || (!fileName.endsWith(QStringLiteral(".bnote"),
-                                       Qt::CaseInsensitive) &&
-                   !fileName.endsWith(QStringLiteral(".blop"),
-                                       Qt::CaseInsensitive))) {
+  // Primary: ask the QFileSystemModel directly. UserRole+1 is a fallback
+  // that QFileSystemModel doesn't actually populate, and Qt::DisplayRole
+  // can hide the file extension (e.g. when the OS / model strips it),
+  // both of which used to send notes through the folder branch.
+  bool isDir = false;
+  QString suffix;
+  const auto *fsm = qobject_cast<const QFileSystemModel *>(index.model());
+  if (fsm) {
+    isDir = fsm->isDir(index);
+    suffix = fsm->fileInfo(index).suffix().toLower();
+  } else {
+    const QString fn = index.data(Qt::DisplayRole).toString();
+    const int dot = fn.lastIndexOf(QLatin1Char('.'));
+    if (dot >= 0)
+      suffix = fn.mid(dot + 1).toLower();
+  }
+
+  if (isDir) {
     v.iconName = QStringLiteral("folder");
     v.iconColor = QColor(QStringLiteral("#A8B0DA"));
-  } else if (fileName.endsWith(QStringLiteral(".blop"),
-                                Qt::CaseInsensitive)) {
+  } else if (suffix == QLatin1String("blop")) {
     v.iconName = QStringLiteral("note_blop");
     v.iconColor = win ? win->currentAccentColor()
                       : QColor(QStringLiteral("#7C6CFF"));
   } else {
+    // .bnote and any other non-folder gets the standard note glyph.
     v.iconName = QStringLiteral("note_bnote");
     v.iconColor = QColor(QStringLiteral("#C8CCE8"));
   }
