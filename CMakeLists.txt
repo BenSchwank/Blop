@@ -96,6 +96,10 @@ qt_add_executable(Blop
     uiprofilemanager.cpp
     uiscale.h
     uiscale.cpp
+    androidicons.h
+    androidicons.cpp
+    androidtiledelegate.h
+    androidtiledelegate.cpp
     moderntoolbar.cpp
     moderntoolbar.h
     modetoolbar.cpp

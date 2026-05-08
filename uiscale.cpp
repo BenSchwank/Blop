@@ -142,16 +142,18 @@ bool isAndroidTablet(QWidget *reference) {
   QScreen *screen = bestScreen(reference);
   if (!screen)
     return false;
-  // Convert raw available pixels to material design DP via the actual
-  // logicalDotsPerInch (1 dp = 1 px at 160 dpi). This is robust regardless
-  // of whether Qt's HighDPI auto-scaling is currently active, because we
-  // never go through dp() (which clamps the density at 2.2).
-  const qreal logicalDpi = screen->logicalDotsPerInch();
-  const int rawW = screen->availableGeometry().width();
-  if (rawW <= 0)
+  // Material design defines the tablet breakpoint as >=600 dp wide.
+  // Translated into physical units that's roughly 95 mm
+  // (600 dp / 160 dp/in * 25.4 mm/in). screen->physicalSize() comes
+  // straight from the Android display metrics and is unaffected by
+  // Qt's HighDPI scaling mode or by OEM-specific logicalDpi quirks
+  // (some Samsung / cheap-OEM devices report logicalDpi=96 even on
+  // 480 dpi panels), so it's the most reliable phone-vs-tablet check.
+  const QSizeF mm = screen->physicalSize();
+  if (mm.isEmpty())
     return false;
-  const int dpW = int(rawW * 160.0 / qMax<qreal>(96.0, logicalDpi));
-  return dpW >= 600;
+  const qreal widthMm = qMin(mm.width(), mm.height());
+  return widthMm >= 90.0;
 #else
   Q_UNUSED(reference);
   return false;

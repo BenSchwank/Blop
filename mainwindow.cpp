@@ -18,6 +18,10 @@
 #include "uiscale.h"
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
+#ifdef Q_OS_ANDROID
+#include "androidicons.h"
+#include "androidtiledelegate.h"
+#endif
 
 // Tools Includes
 #include "tools/EraserTool.h"
@@ -404,24 +408,18 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   const int screenW = UiScale::androidUsableViewportWidthPx(window);
   const int contentW = UiScale::androidContentWidthPx(window);
 
-  // On any typical phone (under dp(420) of content width) we go into a
-  // dedicated narrow layout: tighter padding, more compact pills, smaller
-  // spacing, and hidden inline search bar.
-  const bool narrowPhone = contentW < UiScale::dp(420);
-  // SearchBar visibility uses a DPI-robust check (raw pixels via the
-  // screen's logicalDotsPerInch) so that phones whose Qt HighDPI scaling is
-  // disabled don't accidentally test as "tablet wide" against the dp(420)
-  // threshold. Anything < 600 dp is a phone -> hide the inline search.
+  // Tablet vs phone via physical screen size (mm) - independent of any
+  // OEM logicalDpi quirks. Phones get the compact layout; tablets keep
+  // the roomier desktop-style layout with the inline search bar.
   const bool isTablet = UiScale::isAndroidTablet(window);
+  const bool narrowPhone = !isTablet;
   const int horizontalPad = narrowPhone
                                 ? UiScale::dp(8)
                                 : UiScale::safeHorizontalPaddingPx(window);
-  // Reserve explicit breathing room on narrow phones so the right-most
-  // header button (Export-three-dots) never sits flush against the
-  // physical edge or a curved-corner / gesture inset.
-  const int rightPad = narrowPhone
-                           ? UiScale::dp(12)
-                           : UiScale::safeHorizontalPaddingPx(window);
+  // Always reserve dp(12) on the right edge on Android so the Export
+  // three-dots / Page-Manager pill never sits flush against a curved
+  // corner or gesture inset.
+  const int rightPad = UiScale::dp(12);
   const int topExtra = UiScale::dp(4);
 
   const int headerHeight =
@@ -789,26 +787,7 @@ void ModernItemDelegate::paint(QPainter *painter,
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
     QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim, iconDim);
 
-#ifdef Q_OS_ANDROID
-    // QIcon::paint picks the closest stored pixmap and may upscale a 64-px
-    // source to ~110 px (-> blurry, visually tiny). Ask the icon for a
-    // pixmap at the actual target size so the high-res source from
-    // createModernIcon (~352 px on Android) is downscaled smoothly.
-    {
-      const qreal dpr = painter->device()->devicePixelRatioF();
-      const QSize targetPx = iconRect.size() * dpr;
-      QPixmap pm = icon.pixmap(targetPx);
-      if (!pm.isNull()) {
-        pm.setDevicePixelRatio(dpr);
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-        painter->drawPixmap(iconRect, pm);
-      } else {
-        icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
-      }
-    }
-#else
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
-#endif
 
     if (textH > 0) {
       QRect textRect(rect.left() + 4, iconRect.bottom() + 5, rect.width() - 8,
@@ -2801,22 +2780,28 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 
 QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
 #ifdef Q_OS_ANDROID
-  // High-DPI phones render iconRect at >100 px on Welcome tiles; a fixed
-  // 64-px source pixmap looks tiny when scaled. Render at ~160 dp
-  // (clamped to >= 96 px) and scale the painter so existing 64-coordinate
-  // drawing code stays untouched.
-  const int size = qMax(96, UiScale::dp(160));
-#else
-  const int size = 64;
+  // Android takes a completely separate path: a Material-Design icon
+  // library that renders into the requested pixel size on demand and
+  // caches the result. This avoids the 64-coordinate Windows-flavoured
+  // glyphs - they look tiny / blocky when QListView upscales them for
+  // touch-sized welcome tiles. AndroidIcons covers every name used by
+  // the Android UI (notes, folders, header pills, dialog buttons, etc.).
+  // If a name isn't recognised we fall through to the Windows painter so
+  // we never regress an existing call site.
+  {
+    QIcon androidIc = AndroidIcons::icon(name, color, /*dpSize=*/48);
+    if (!androidIc.isNull()) {
+      QPixmap pm = androidIc.pixmap(96, 96);
+      if (!pm.isNull())
+        return androidIc;
+    }
+  }
 #endif
+  const int size = 64;
   QPixmap pixmap(size, size);
   pixmap.fill(Qt::transparent);
   QPainter p(&pixmap);
   p.setRenderHint(QPainter::Antialiasing);
-#ifdef Q_OS_ANDROID
-  if (size != 64)
-    p.scale(size / 64.0, size / 64.0);
-#endif
   if (name == "menu_pill" || name == "settings_pill" || name == "pages_pill" || name == "more_pill") {
     // Capsule matches Android top-bar assets; glyph tint follows `color` (same on Win/Android).
     const QRectF capsule(3, 14, 58, 36);
@@ -3608,7 +3593,14 @@ void MainWindow::setupUi() {
       "QListView { background: transparent; border: none; }"
       "QListView::item { background: transparent; }");
 #endif
+#ifdef Q_OS_ANDROID
+  // Android uses a dedicated Material-Design delegate that pulls glyphs
+  // from the cached AndroidIcons library; the Windows path stays on the
+  // legacy painter-driven ModernItemDelegate.
+  m_fileListView->setItemDelegate(new AndroidTileDelegate(this, this));
+#else
   m_fileListView->setItemDelegate(new ModernItemDelegate(this));
+#endif
   // On Android, use TouchGesture; LeftMouseButtonGesture can cause "stuck" interactions
   // and mis-detected taps when using finger input.
 #ifdef Q_OS_ANDROID
