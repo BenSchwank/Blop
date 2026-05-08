@@ -22,14 +22,10 @@ public:
         setZValue(0);
         setFlag(QGraphicsItem::ItemIsSelectable, false);
         setFlag(QGraphicsItem::ItemIsMovable, false);
-#ifdef Q_OS_ANDROID
-        // Cache the page (paper + grid + optional PDF backing image) onto an
-        // offscreen pixmap so panning the canvas just blits cached frames
-        // instead of re-drawing dozens of grid lines per item per frame.
-        // setBackgroundImage / setType / setPaperColor invalidate the cache
-        // automatically via update().
-        setCacheMode(QGraphicsItem::DeviceCoordinateCache);
-#endif
+        // No cache mode: with the OpenGL viewport active in MultiPageNoteView
+        // (Android), the bare paint is fast enough that caching adds zero
+        // pan benefit while invalidating on every pinch-zoom step (which
+        // made zoom janky in v3.15.4.111).
     }
 
     void setType(PageBackgroundType type) {

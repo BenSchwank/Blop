@@ -20,6 +20,10 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
+#ifdef Q_OS_ANDROID
+#include <QOpenGLWidget>
+#include <QSurfaceFormat>
+#endif
 #include <QPainter>
 #include <QPainterPath>
 #include <QPdfWriter>
@@ -1115,10 +1119,10 @@ static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
   const QColor bg = UIStyles::SceneBackground;
   view->setBackgroundBrush(bg);
   view->setFrameShape(QFrame::NoFrame);
-  // CacheBackground caches the static background brush onto an offscreen
-  // pixmap so it doesn't get re-painted on every pan/scroll frame. This is
-  // a major frame-time win on Android phones.
-  view->setCacheMode(QGraphicsView::CacheBackground);
+  // No cache: with the OpenGL viewport in place the GPU clears each frame
+  // anyway, and CacheBackground would just waste memory on a pixmap that
+  // is never reused.
+  view->setCacheMode(QGraphicsView::CacheNone);
   if (QWidget *vp = view->viewport()) {
     vp->setAutoFillBackground(true);
     QPalette pal = vp->palette();
@@ -1135,12 +1139,25 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   setScene(&scene_);
   scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
 #ifdef Q_OS_ANDROID
+  // Hardware-accelerated viewport: an OpenGL ES surface dramatically beats
+  // the software raster engine on phone-class CPUs for both pan and zoom.
+  // setViewport() must be called BEFORE any other viewport-attribute setter
+  // (the old viewport widget is replaced and re-parented).
+  {
+    auto *gl = new QOpenGLWidget(this);
+    QSurfaceFormat fmt = gl->format();
+    fmt.setSamples(0);
+    fmt.setSwapInterval(1);
+    fmt.setRenderableType(QSurfaceFormat::OpenGLES);
+    gl->setFormat(fmt);
+    setViewport(gl);
+  }
   applyGraphicsViewCanvasBackground(this);
 #else
   setBackgroundBrush(UIStyles::SceneBackground);
 #endif
 
-  // Gesten auf dem Viewport registrieren
+  // Gesten auf dem Viewport registrieren (now the GL viewport on Android).
   viewport()->grabGesture(Qt::PinchGesture);
 
   setOptimizationFlags(QGraphicsView::DontSavePainterState |
@@ -1150,7 +1167,13 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
 #else
   setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
 #endif
+  // SmartViewportUpdate is fastest with an OpenGL viewport because the GPU
+  // discards regions outside the dirty rect for free.
+#ifdef Q_OS_ANDROID
+  setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
+#else
   setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
+#endif
 
   setDragMode(QGraphicsView::NoDrag);
   setTransformationAnchor(QGraphicsView::AnchorUnderMouse);

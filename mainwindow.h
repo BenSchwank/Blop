@@ -132,6 +132,13 @@ public:
 
   bool isTouchMode() const { return m_currentProfile.isTouchOptimized(); }
 
+#ifdef Q_OS_ANDROID
+  /// Sync Notizen/Study tab visuals (narrow-aware: smaller padding/font on
+  /// phones). Called from the free-function syncAndroidHeaderGeometry on
+  /// every resize, and from onModeChanged on tab switches.
+  void applyAndroidTabStyles(int index);
+#endif
+
   void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
   void startRename(const QModelIndex &index);
 
@@ -249,10 +256,6 @@ private:
   void updateGrid();
   void updateSidebarState();
   void updateOverviewBackButton();
-#ifdef Q_OS_ANDROID
-  /// Sync Notizen/Study tab visuals (combo does not drive onModeChanged on Android).
-  void applyAndroidTabStyles(int index);
-#endif
   /// Sidebar rect in MainWindow coords (below title bar on desktop, under toolbar on Android).
   QRect sidebarPushContentRect() const;
   /// Drawer width: capped on narrow Android screens so the panel never exceeds ~86% of window width.

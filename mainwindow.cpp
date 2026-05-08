@@ -444,23 +444,24 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
       window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPageMgr")));
   syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnExport")));
 
-  // Compact pills on narrow phones: smaller font + a width cap. We touch
-  // QFont directly (not the stylesheet) so the active/inactive colour
-  // switches done elsewhere don't have to know about it.
-  const int pillFontPx = narrowPhone ? 11 : 12;
-  const int pillMaxW = narrowPhone ? UiScale::dp(70) : UiScale::dp(110);
-  auto syncPill = [&](QWidget *w) {
+  // Pill height is the only purely-geometric value here. Padding/font-size/
+  // max-width live in applyAndroidTabStyles() (narrow-phone-aware QSS) so
+  // they survive tab-switch resets that re-apply colour-state stylesheets.
+  auto syncPillHeight = [&](QWidget *w) {
     if (!w)
       return;
     w->setFixedHeight(compactPillH);
-    w->setMaximumWidth(pillMaxW);
-    QFont f = w->font();
-    f.setPixelSize(pillFontPx);
-    f.setWeight(QFont::DemiBold);
-    w->setFont(f);
   };
-  syncPill(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabNotes")));
-  syncPill(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabStudy")));
+  syncPillHeight(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabNotes")));
+  syncPillHeight(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabStudy")));
+  // Re-apply the narrow-aware QSS in case orientation/inset changed.
+  if (QStackedWidget *stack =
+          window->findChild<QStackedWidget *>(QStringLiteral("MainContentStack"))) {
+    window->applyAndroidTabStyles(stack->currentIndex());
+  } else {
+    // Fallback: assume Notes-active if stack not found yet (early setup).
+    window->applyAndroidTabStyles(0);
+  }
 
   if (QWidget *plus =
           window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPlus"))) {
@@ -486,14 +487,18 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     searchBar->setMaximumWidth(searchMax);
 
     // On any typical phone (< dp(420) usable content) the search bar would
-    // crowd the right-side menu even at its minimum width; hide it entirely.
-    // The user can still tap the Notizen/Study pills directly.
+    // crowd the right-side menu even at its minimum width; hide it entirely
+    // AND switch its size policy to Ignored so the layout treats it as
+    // zero-width (otherwise an Expanding QLineEdit can keep claiming
+    // horizontal space even while invisible).
     if (narrowPhone) {
       searchBar->setProperty("blopHiddenBecauseTooNarrow", true);
       searchBar->hide();
-    } else if (searchBar->property("blopHiddenBecauseTooNarrow").toBool()) {
+      searchBar->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    } else {
       searchBar->setProperty("blopHiddenBecauseTooNarrow", false);
-      // Visibility is owned by editor-mode logic in updateSidebarState.
+      searchBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+      // Visibility owned by editor-mode logic in updateSidebarState.
     }
   }
 }
@@ -730,6 +735,11 @@ void ModernItemDelegate::paint(QPainter *painter,
   // Android so the glyph fills the touch target the user actually sees.
 #ifdef Q_OS_ANDROID
   const double iconShrink = 0.95;
+  // QListView in IconMode can collapse to a single column when the model
+  // contains very few items, which then triggers the "wide list" code path
+  // (tiny icon + text on the right). On Android we always want the proper
+  // square-tile rendering, so force the grid branch unconditionally.
+  isWideList = false;
 #else
   const double iconShrink = 0.65;
 #endif
@@ -758,6 +768,12 @@ void ModernItemDelegate::paint(QPainter *painter,
     int maxIconW = rect.width() - 20;
     int iconDim = qMin(maxIconW, maxIconH);
     iconDim = qMax(18, (int)(iconDim * iconShrink));
+#ifdef Q_OS_ANDROID
+    // Hard floor: even on cramped tile-rect calculations the glyph should
+    // never be smaller than dp(80) so the user can actually recognise the
+    // note/folder icon. The tile itself will grow as needed via updateGrid.
+    iconDim = qMax(iconDim, qMin(maxIconW, qMin(maxIconH, UiScale::dp(80))));
+#endif
 
     int contentHeight = iconDim + textH + 5;
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
@@ -2660,12 +2676,20 @@ void MainWindow::updateGrid() {
     totalSpacing = (columns + 1) * spacing;
     itemWidth = (avail - totalSpacing) / columns;
   }
+  // Hard minimum so a single-column fallback (small viewport, few items)
+  // still produces a visibly-sized tile instead of a tiny pill.
+  itemWidth = qMax(itemWidth, UiScale::dp(120));
 
+  // Force a perfectly square tile: itemHeight == itemWidth. Combined with
+  // the matching gridSize this prevents Qt from stretching items horizontally
+  // when only one column fits, which previously triggered the "wide list"
+  // delegate branch with shrunken icons.
   const int itemHeight = itemWidth;
 
   m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
   m_fileListView->setIconSize(QSize(itemWidth, itemWidth));
   m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
+  m_fileListView->setUniformItemSizes(true);
 
 #else
   int s = m_currentProfile.iconSize;
@@ -3078,42 +3102,23 @@ void MainWindow::setupUi() {
           this, &MainWindow::onModeChanged);
 #endif
 
-  // Visible tab-style toggle buttons
-  QString tabActiveStyle =
-      "QPushButton {"
-      "  background: rgba(255,255,255,0.08);"
-      "  color: #F4F5FB;"
-      "  border-radius: 13px;"
-      "  padding: 3px 12px;"
-      "  font-weight: 600;"
-      "  font-size: 12px;"
-      "  border: 1px solid rgba(255,255,255,0.16);"
-      "}"
-      "QPushButton:pressed { background: rgba(255,255,255,0.14); }";
-  QString tabInactiveStyle =
-      "QPushButton {"
-      "  background: transparent;"
-      "  color: #A7ACBB;"
-      "  border-radius: 13px;"
-      "  padding: 3px 12px;"
-      "  font-weight: 600;"
-      "  font-size: 12px;"
-      "  border: 1px solid rgba(255,255,255,0.08);"
-      "}"
-      "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
-      "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
-
+  // Visible tab-style toggle buttons. The actual stylesheets are applied via
+  // applyAndroidTabStyles() which is narrow-phone-aware (compact padding +
+  // smaller font on phones so the right-side menu stays reachable). That
+  // function is also re-invoked from syncAndroidHeaderGeometry() on every
+  // resize and from onModeChanged() on tab switches, so the compact
+  // override survives both kinds of state transitions.
   m_btnAndroidNotes = new QPushButton("Notizen", androidHeader);
   m_btnAndroidNotes->setObjectName(QStringLiteral("AndroidHeaderTabNotes"));
   m_btnAndroidNotes->setFixedHeight(androidCompactPillH);
   m_btnAndroidNotes->setCursor(Qt::PointingHandCursor);
-  m_btnAndroidNotes->setStyleSheet(tabActiveStyle); // default: notes active
 
   m_btnAndroidStudy = new QPushButton("Study", androidHeader);
   m_btnAndroidStudy->setObjectName(QStringLiteral("AndroidHeaderTabStudy"));
   m_btnAndroidStudy->setFixedHeight(androidCompactPillH);
   m_btnAndroidStudy->setCursor(Qt::PointingHandCursor);
-  m_btnAndroidStudy->setStyleSheet(tabInactiveStyle);
+
+  applyAndroidTabStyles(0); // default: notes active
 
   connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
     if (!m_modeSelector || m_modeSelector->count() <= 1) {
@@ -3171,9 +3176,10 @@ void MainWindow::setupUi() {
 
   headerLay->addWidget(m_modeSelector); // hidden 0x0, logic only
 
-  // Slightly right-centered in-note search bar for Android top header.
-  headerLay->addSpacing(10);
-  headerLay->addStretch(8);
+  // Symmetric stretches around the search bar so the right-side action
+  // buttons (Page-Manager, Export) always sit flush to the right edge,
+  // regardless of search bar visibility / pill widths.
+  headerLay->addStretch(1);
   m_androidTopSearchBar = new QLineEdit(androidHeader);
   m_androidTopSearchBar->setObjectName("androidTopSearchBar");
   m_androidTopSearchBar->setPlaceholderText("Notiz suchen...");
@@ -3295,6 +3301,7 @@ void MainWindow::setupUi() {
 #endif
 
   m_mainContentStack = new QStackedWidget(this);
+  m_mainContentStack->setObjectName(QStringLiteral("MainContentStack"));
 
   QWidget *notesPage = new QWidget(m_mainContentStack);
   QHBoxLayout *notesLayout = new QHBoxLayout(notesPage);
@@ -4149,35 +4156,50 @@ void MainWindow::setupWebBrowser() {
 void MainWindow::applyAndroidTabStyles(int index) {
   if (!m_btnAndroidNotes || !m_btnAndroidStudy)
     return;
+  // The compact branch shrinks both the padding AND the font-size so the
+  // Notizen / Study pills stop pushing the right-side header buttons
+  // (Page-Manager, Export-three-dots) off the screen on phones.
+  const int contentW = UiScale::androidContentWidthPx(this);
+  const bool narrow = contentW < UiScale::dp(420);
+  const QString sizeStyle =
+      narrow
+          ? QStringLiteral("padding: 1px 6px; font-size: 10px;")
+          : QStringLiteral("padding: 3px 12px; font-size: 12px;");
   const QString accentSoft = m_currentAccentColor.lighter(130).name(QColor::HexArgb);
   const QString tabActive =
       QString("QPushButton {"
       "  background: %1;"
       "  color: #F4F5FB;"
       "  border-radius: 13px;"
-      "  padding: 3px 12px;"
+      "  %4"
       "  font-weight: 600;"
-      "  font-size: 12px;"
       "  border: 1px solid %2;"
       "}"
       "QPushButton:pressed { background: %3; }")
           .arg(m_currentAccentColor.darker(150).name(QColor::HexArgb),
                accentSoft,
-               m_currentAccentColor.darker(120).name(QColor::HexArgb));
+               m_currentAccentColor.darker(120).name(QColor::HexArgb),
+               sizeStyle);
   const QString tabInactive =
-      "QPushButton {"
+      QString("QPushButton {"
       "  background: transparent;"
       "  color: #A7ACBB;"
       "  border-radius: 13px;"
-      "  padding: 3px 12px;"
+      "  %1"
       "  font-weight: 600;"
-      "  font-size: 12px;"
       "  border: 1px solid rgba(255,255,255,0.08);"
       "}"
       "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
-      "QPushButton:pressed { background: rgba(255,255,255,0.08); }";
+      "QPushButton:pressed { background: rgba(255,255,255,0.08); }")
+          .arg(sizeStyle);
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
+
+  // Cap the maximum width so even with the narrow text we don't accidentally
+  // expand on resize. Without a cap, "Notizen" still claims ~80 dp.
+  const int pillMaxW = narrow ? UiScale::dp(64) : UiScale::dp(110);
+  m_btnAndroidNotes->setMaximumWidth(pillMaxW);
+  m_btnAndroidStudy->setMaximumWidth(pillMaxW);
 }
 #endif
 

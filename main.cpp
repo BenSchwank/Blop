@@ -3,6 +3,9 @@
 #include <QDir>
 #include <QGuiApplication>
 #include <QStandardPaths>
+#ifdef Q_OS_ANDROID
+#include <QSurfaceFormat>
+#endif
 #include <QUrl>
 
 // --- ANDROID WEBVIEW INCLUDE ---
@@ -24,8 +27,21 @@ int main(int argc, char *argv[]) {
   // damit das native Android-Web-Backend geladen wird.
 #ifdef Q_OS_ANDROID
   QtWebView::initialize();
-  if (qgetenv("BLOP_ANDROID_SOFTWARE_GL") == "1")
+  if (qgetenv("BLOP_ANDROID_SOFTWARE_GL") == "1") {
     QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
+  } else {
+    // Make every QOpenGLWidget instance share the same low-overhead format
+    // (no MSAA, vsync on, GLES). The MultiPageNoteView's GL viewport is
+    // dramatically faster than the software raster engine for pan/zoom.
+    QSurfaceFormat fmt;
+    fmt.setSamples(0);
+    fmt.setSwapInterval(1);
+    fmt.setRenderableType(QSurfaceFormat::OpenGLES);
+    QSurfaceFormat::setDefaultFormat(fmt);
+  }
+  // Share GL contexts across QOpenGLWidget / QQuickWidget so background
+  // texture uploads from QML (Study) don't fight the canvas viewport.
+  QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 #endif
 
   // --- WINDOWS + Qt WebEngine (Study / Login) ---
