@@ -404,11 +404,12 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   const int screenW = UiScale::androidUsableViewportWidthPx(window);
   const int contentW = UiScale::androidContentWidthPx(window);
 
-  // Tighten side padding on very narrow phones so the row has more room for
-  // the right-side action buttons.
+  // On any typical phone (under dp(420) of content width) we go into a
+  // dedicated narrow layout: tighter padding, more compact pills, smaller
+  // spacing, and hidden inline search bar.
   const bool narrowPhone = contentW < UiScale::dp(420);
   const int horizontalPad = narrowPhone
-                                ? UiScale::dp(6)
+                                ? UiScale::dp(8)
                                 : UiScale::safeHorizontalPaddingPx(window);
   const int topExtra = UiScale::dp(4);
 
@@ -431,7 +432,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   inner->setFixedHeight(totalHeight);
   headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
                                 horizontalPad, UiScale::dp(4));
-  headerLay->setSpacing(narrowPhone ? UiScale::dp(4) : UiScale::dp(8));
+  headerLay->setSpacing(narrowPhone ? UiScale::dp(3) : UiScale::dp(8));
 
   auto syncBtn = [&](QWidget *w) {
     if (!w)
@@ -443,10 +444,20 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
       window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPageMgr")));
   syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnExport")));
 
+  // Compact pills on narrow phones: smaller font + a width cap. We touch
+  // QFont directly (not the stylesheet) so the active/inactive colour
+  // switches done elsewhere don't have to know about it.
+  const int pillFontPx = narrowPhone ? 11 : 12;
+  const int pillMaxW = narrowPhone ? UiScale::dp(70) : UiScale::dp(110);
   auto syncPill = [&](QWidget *w) {
     if (!w)
       return;
     w->setFixedHeight(compactPillH);
+    w->setMaximumWidth(pillMaxW);
+    QFont f = w->font();
+    f.setPixelSize(pillFontPx);
+    f.setWeight(QFont::DemiBold);
+    w->setFont(f);
   };
   syncPill(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabNotes")));
   syncPill(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderTabStudy")));
@@ -474,16 +485,15 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     searchBar->setMinimumWidth(searchMin);
     searchBar->setMaximumWidth(searchMax);
 
-    // On very narrow phones (< dp(360) usable content) the search bar would
-    // crowd the right-side menu even at its minimum width; hide it entirely
-    // in that case. The user can still navigate tabs by swiping.
-    if (contentW < UiScale::dp(360)) {
+    // On any typical phone (< dp(420) usable content) the search bar would
+    // crowd the right-side menu even at its minimum width; hide it entirely.
+    // The user can still tap the Notizen/Study pills directly.
+    if (narrowPhone) {
       searchBar->setProperty("blopHiddenBecauseTooNarrow", true);
       searchBar->hide();
     } else if (searchBar->property("blopHiddenBecauseTooNarrow").toBool()) {
       searchBar->setProperty("blopHiddenBecauseTooNarrow", false);
-      // Don't show automatically - showing depends on editor mode logic in
-      // updateSidebarState. Just clear the override flag.
+      // Visibility is owned by editor-mode logic in updateSidebarState.
     }
   }
 }
@@ -715,12 +725,20 @@ void ModernItemDelegate::paint(QPainter *painter,
 
   bool isWideList = rect.width() > (rect.height() * 1.5);
 
+  // Aggressive shrink (0.65x) on desktop felt cramped on phones, where the
+  // tiles are larger and the icon should look prominent. Use 0.95x on
+  // Android so the glyph fills the touch target the user actually sees.
+#ifdef Q_OS_ANDROID
+  const double iconShrink = 0.95;
+#else
+  const double iconShrink = 0.65;
+#endif
+
   if (isWideList) {
     int iconDim = rect.height() - 20;
     if (iconDim < 16)
       iconDim = 16;
-    // Visually shrink the icon inside the touch cell.
-    iconDim = qMax(16, (int)(iconDim * 0.65));
+    iconDim = qMax(16, (int)(iconDim * iconShrink));
     QRect iconRect(rect.left() + 12, rect.center().y() - iconDim / 2, iconDim,
                    iconDim);
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
@@ -739,8 +757,7 @@ void ModernItemDelegate::paint(QPainter *painter,
     int maxIconH = rect.height() - textH - 10;
     int maxIconW = rect.width() - 20;
     int iconDim = qMin(maxIconW, maxIconH);
-    // Visually shrink the icon inside the touch cell.
-    iconDim = qMax(18, (int)(iconDim * 0.65));
+    iconDim = qMax(18, (int)(iconDim * iconShrink));
 
     int contentHeight = iconDim + textH + 5;
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
@@ -763,8 +780,13 @@ void ModernItemDelegate::paint(QPainter *painter,
 
   QIcon menuIcon = m_window->createModernIcon(
       QStringLiteral("more_pill"), QColor(QStringLiteral("#C8CDDC")));
+#ifdef Q_OS_ANDROID
+  const int pillW = UiScale::dp(28);
+  const int pillH = UiScale::dp(20);
+#else
   const int pillW = 30;
   const int pillH = 20;
+#endif
   QRect menuRect(rect.right() - pillW - 4, rect.top() + 4, pillW, pillH);
   if (isWideList)
     menuRect.moveTop(rect.center().y() - pillH / 2);
@@ -2609,13 +2631,18 @@ void MainWindow::updateGrid() {
   if (screenWidth <= 0)
     screenWidth = QApplication::primaryScreen()->availableGeometry().width();
 
+  // Floor the iconSize to a touch-friendly value on Android. The desktop
+  // default of 100px renders embarrassingly small on phones - bump to dp(140)
+  // so each tile is comfortably tappable.
   int s = m_currentProfile.iconSize;
   if (s <= 20)
     s = 100;
+  s = qMax(s, UiScale::dp(140));
 
   int spacing = m_currentProfile.gridSpacing;
   if (spacing <= 0)
     spacing = 20;
+  spacing = qMax(spacing, UiScale::dp(16));
 
   m_fileListView->setSpacing(spacing);
 
@@ -6197,12 +6224,12 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidToolbarExport)
       m_btnAndroidToolbarExport->setVisible(true);
     if (m_androidTopSearchBar) {
-      // Only show the inline search bar if the device is wide enough.
-      // On very narrow phones (< dp(360) usable content) keeping it visible
-      // would force the right-side action buttons (Page-Manager, Export) off
-      // the screen.
+      // Only show the inline search bar on tablets / wide phones. Below that
+      // it would crowd the right-side action buttons (Page-Manager, Export)
+      // off the screen, even at its minimum width. Phone users access tabs
+      // by tapping the Notizen/Study pills directly.
       const int usableContent = UiScale::androidContentWidthPx(this);
-      if (usableContent >= UiScale::dp(360))
+      if (usableContent >= UiScale::dp(420))
         m_androidTopSearchBar->show();
       else
         m_androidTopSearchBar->hide();

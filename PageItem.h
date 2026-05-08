@@ -22,6 +22,14 @@ public:
         setZValue(0);
         setFlag(QGraphicsItem::ItemIsSelectable, false);
         setFlag(QGraphicsItem::ItemIsMovable, false);
+#ifdef Q_OS_ANDROID
+        // Cache the page (paper + grid + optional PDF backing image) onto an
+        // offscreen pixmap so panning the canvas just blits cached frames
+        // instead of re-drawing dozens of grid lines per item per frame.
+        // setBackgroundImage / setType / setPaperColor invalidate the cache
+        // automatically via update().
+        setCacheMode(QGraphicsItem::DeviceCoordinateCache);
+#endif
     }
 
     void setType(PageBackgroundType type) {
@@ -58,7 +66,12 @@ protected:
 
         // 3. Hintergrundbild (z.B. importierte PDF-Seite)
         if (!m_backgroundImage.isNull()) {
+#ifndef Q_OS_ANDROID
+            // Skip bilinear filtering on Android - the page is rendered
+            // through DeviceCoordinateCache anyway, and SmoothPixmapTransform
+            // burns measurable frame time on phones with no visible benefit.
             painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+#endif
             painter->drawImage(rect(), m_backgroundImage);
         }
 

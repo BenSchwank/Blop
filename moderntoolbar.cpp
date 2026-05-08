@@ -2726,18 +2726,26 @@ void ModernToolbar::setDockMode(bool docked) {
       // usable viewport) to make sure the right-most chrome icon never
       // clips even on phones with aggressive curved-edge cutouts.
       idealW = qMin(idealW, parentVisibleW - UiScale::dp(16));
-#endif
-      targetGeom = QRect(visibleOffset + (parentVisibleW - idealW) / 2, 0,
+      const int xCentered = visibleOffset + (parentVisibleW - idealW) / 2;
+      // Always leave at least dp(8) breathing room on the left edge so the
+      // home/undo icons don't kiss the screen border on phones where the
+      // parent reports a width equal to the viewport.
+      const int xPos = qMax(xCentered, UiScale::dp(8));
+      targetGeom = QRect(xPos, 0, idealW, UiScale::dp(48));
+#else
+      targetGeom = QRect((parentVisibleW - idealW) / 2, 0,
                          idealW, UiScale::dp(48));
+#endif
     } else {
       m_orientation = Horizontal;
       int idealW = calculateMinLength();
 #ifdef Q_OS_ANDROID
       idealW = qMin(idealW, parentVisibleW - UiScale::dp(24));
-      targetGeom = QRect(visibleOffset + (parentVisibleW - idealW) / 2,
-                         UiScale::dp(56), idealW, UiScale::dp(46));
+      const int xCentered = visibleOffset + (parentVisibleW - idealW) / 2;
+      const int xPos = qMax(xCentered, UiScale::dp(8));
+      targetGeom = QRect(xPos, UiScale::dp(56), idealW, UiScale::dp(46));
 #else
-      targetGeom = QRect(visibleOffset + (parentVisibleW - idealW) / 2,
+      targetGeom = QRect((parentVisibleW - idealW) / 2,
                          UiScale::dp(60), idealW, UiScale::dp(52));
 #endif
     }

@@ -1115,7 +1115,10 @@ static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
   const QColor bg = UIStyles::SceneBackground;
   view->setBackgroundBrush(bg);
   view->setFrameShape(QFrame::NoFrame);
-  view->setCacheMode(QGraphicsView::CacheNone);
+  // CacheBackground caches the static background brush onto an offscreen
+  // pixmap so it doesn't get re-painted on every pan/scroll frame. This is
+  // a major frame-time win on Android phones.
+  view->setCacheMode(QGraphicsView::CacheBackground);
   if (QWidget *vp = view->viewport()) {
     vp->setAutoFillBackground(true);
     QPalette pal = vp->palette();
