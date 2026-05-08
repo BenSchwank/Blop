@@ -22,10 +22,13 @@ public:
         setZValue(0);
         setFlag(QGraphicsItem::ItemIsSelectable, false);
         setFlag(QGraphicsItem::ItemIsMovable, false);
-        // No cache mode: with the OpenGL viewport active in MultiPageNoteView
-        // (Android), the bare paint is fast enough that caching adds zero
-        // pan benefit while invalidating on every pinch-zoom step (which
-        // made zoom janky in v3.15.4.111).
+#ifdef Q_OS_ANDROID
+        // ItemCoordinateCache renders the page once into an item-local
+        // pixmap of ~A4-at-1.0x. View-zoom only blits/scales that pixmap
+        // (cheap GPU op), and pan does the same — no cache invalidation
+        // per pinch step (which DeviceCoordinateCache would force).
+        setCacheMode(QGraphicsItem::ItemCoordinateCache, QSize(800, 1100));
+#endif
     }
 
     void setType(PageBackgroundType type) {

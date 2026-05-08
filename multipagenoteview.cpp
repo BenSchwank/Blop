@@ -20,10 +20,6 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
-#ifdef Q_OS_ANDROID
-#include <QOpenGLWidget>
-#include <QSurfaceFormat>
-#endif
 #include <QPainter>
 #include <QPainterPath>
 #include <QPdfWriter>
@@ -1139,25 +1135,16 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   setScene(&scene_);
   scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
 #ifdef Q_OS_ANDROID
-  // Hardware-accelerated viewport: an OpenGL ES surface dramatically beats
-  // the software raster engine on phone-class CPUs for both pan and zoom.
-  // setViewport() must be called BEFORE any other viewport-attribute setter
-  // (the old viewport widget is replaced and re-parented).
-  {
-    auto *gl = new QOpenGLWidget(this);
-    QSurfaceFormat fmt = gl->format();
-    fmt.setSamples(0);
-    fmt.setSwapInterval(1);
-    fmt.setRenderableType(QSurfaceFormat::OpenGLES);
-    gl->setFormat(fmt);
-    setViewport(gl);
-  }
   applyGraphicsViewCanvasBackground(this);
 #else
   setBackgroundBrush(UIStyles::SceneBackground);
 #endif
 
-  // Gesten auf dem Viewport registrieren (now the GL viewport on Android).
+  // Gesten auf dem Viewport registrieren. NOTE: a QOpenGLWidget viewport was
+  // tried in v3.15.4.112 but broke pinch-zoom on Android because touch
+  // events get re-routed through the SurfaceView and the gesture recogniser
+  // never sees them. Reverted to the default raster viewport; canvas
+  // performance comes from the per-PageItem ItemCoordinateCache instead.
   viewport()->grabGesture(Qt::PinchGesture);
 
   setOptimizationFlags(QGraphicsView::DontSavePainterState |
@@ -1167,8 +1154,6 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
 #else
   setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
 #endif
-  // SmartViewportUpdate is fastest with an OpenGL viewport because the GPU
-  // discards regions outside the dirty rect for free.
 #ifdef Q_OS_ANDROID
   setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
 #else

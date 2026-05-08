@@ -45,7 +45,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- BASIS-PAKETE ---
 # Hier wird nach Qt6Config.cmake gesucht.
 # Durch den Fix im YAML wird dieser Pfad nun korrekt via CMAKE_PREFIX_PATH gefunden.
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidgets QuickControls2 Qml Multimedia MultimediaWidgets OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidgets QuickControls2 Qml Multimedia MultimediaWidgets)
 
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
@@ -193,7 +193,6 @@ target_link_libraries(Blop PRIVATE
     Qt6::Qml
     Qt6::Multimedia
     Qt6::MultimediaWidgets
-    Qt6::OpenGLWidgets
 )
 
 # Export BLOP_VERSION_STR for runtime usage in mainwindow.cpp

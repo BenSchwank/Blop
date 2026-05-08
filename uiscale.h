@@ -28,6 +28,13 @@ int androidUsableViewportWidthPx(QWidget *reference = nullptr);
 // Use this for any widget that should fit within the device viewport.
 int androidContentWidthPx(QWidget *reference = nullptr);
 
+// True if the current Android screen is at least 600 dp wide (material
+// "tablet" threshold). Implementation uses the screen's logicalDotsPerInch
+// to convert raw available pixels to DP, which is robust against Qt's
+// HighDPI auto-scaling being on or off (raw screen->availableGeometry()
+// values can otherwise leak through unscaled).
+bool isAndroidTablet(QWidget *reference = nullptr);
+
 } // namespace UiScale
 
 #endif // UISCALE_H

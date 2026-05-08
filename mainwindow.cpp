@@ -408,9 +408,20 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   // dedicated narrow layout: tighter padding, more compact pills, smaller
   // spacing, and hidden inline search bar.
   const bool narrowPhone = contentW < UiScale::dp(420);
+  // SearchBar visibility uses a DPI-robust check (raw pixels via the
+  // screen's logicalDotsPerInch) so that phones whose Qt HighDPI scaling is
+  // disabled don't accidentally test as "tablet wide" against the dp(420)
+  // threshold. Anything < 600 dp is a phone -> hide the inline search.
+  const bool isTablet = UiScale::isAndroidTablet(window);
   const int horizontalPad = narrowPhone
                                 ? UiScale::dp(8)
                                 : UiScale::safeHorizontalPaddingPx(window);
+  // Reserve explicit breathing room on narrow phones so the right-most
+  // header button (Export-three-dots) never sits flush against the
+  // physical edge or a curved-corner / gesture inset.
+  const int rightPad = narrowPhone
+                           ? UiScale::dp(12)
+                           : UiScale::safeHorizontalPaddingPx(window);
   const int topExtra = UiScale::dp(4);
 
   const int headerHeight =
@@ -431,7 +442,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   chrome->setFixedHeight(totalHeight);
   inner->setFixedHeight(totalHeight);
   headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
-                                horizontalPad, UiScale::dp(4));
+                                rightPad, UiScale::dp(4));
   headerLay->setSpacing(narrowPhone ? UiScale::dp(3) : UiScale::dp(8));
 
   auto syncBtn = [&](QWidget *w) {
@@ -486,12 +497,11 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     searchBar->setMinimumWidth(searchMin);
     searchBar->setMaximumWidth(searchMax);
 
-    // On any typical phone (< dp(420) usable content) the search bar would
-    // crowd the right-side menu even at its minimum width; hide it entirely
-    // AND switch its size policy to Ignored so the layout treats it as
-    // zero-width (otherwise an Expanding QLineEdit can keep claiming
-    // horizontal space even while invisible).
-    if (narrowPhone) {
+    // Phones (anything < 600 dp wide via DPI-robust check) hide the search
+    // bar entirely so the right-side menu always has room. Switch its size
+    // policy to Ignored too — an Expanding QLineEdit can keep claiming
+    // horizontal space even while invisible.
+    if (!isTablet) {
       searchBar->setProperty("blopHiddenBecauseTooNarrow", true);
       searchBar->hide();
       searchBar->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -779,7 +789,26 @@ void ModernItemDelegate::paint(QPainter *painter,
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
     QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim, iconDim);
 
+#ifdef Q_OS_ANDROID
+    // QIcon::paint picks the closest stored pixmap and may upscale a 64-px
+    // source to ~110 px (-> blurry, visually tiny). Ask the icon for a
+    // pixmap at the actual target size so the high-res source from
+    // createModernIcon (~352 px on Android) is downscaled smoothly.
+    {
+      const qreal dpr = painter->device()->devicePixelRatioF();
+      const QSize targetPx = iconRect.size() * dpr;
+      QPixmap pm = icon.pixmap(targetPx);
+      if (!pm.isNull()) {
+        pm.setDevicePixelRatio(dpr);
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter->drawPixmap(iconRect, pm);
+      } else {
+        icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+      }
+    }
+#else
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+#endif
 
     if (textH > 0) {
       QRect textRect(rect.left() + 4, iconRect.bottom() + 5, rect.width() - 8,
@@ -2771,11 +2800,23 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 }
 
 QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
-  int size = 64;
+#ifdef Q_OS_ANDROID
+  // High-DPI phones render iconRect at >100 px on Welcome tiles; a fixed
+  // 64-px source pixmap looks tiny when scaled. Render at ~160 dp
+  // (clamped to >= 96 px) and scale the painter so existing 64-coordinate
+  // drawing code stays untouched.
+  const int size = qMax(96, UiScale::dp(160));
+#else
+  const int size = 64;
+#endif
   QPixmap pixmap(size, size);
   pixmap.fill(Qt::transparent);
   QPainter p(&pixmap);
   p.setRenderHint(QPainter::Antialiasing);
+#ifdef Q_OS_ANDROID
+  if (size != 64)
+    p.scale(size / 64.0, size / 64.0);
+#endif
   if (name == "menu_pill" || name == "settings_pill" || name == "pages_pill" || name == "more_pill") {
     // Capsule matches Android top-bar assets; glyph tint follows `color` (same on Win/Android).
     const QRectF capsule(3, 14, 58, 36);
@@ -6246,12 +6287,12 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidToolbarExport)
       m_btnAndroidToolbarExport->setVisible(true);
     if (m_androidTopSearchBar) {
-      // Only show the inline search bar on tablets / wide phones. Below that
-      // it would crowd the right-side action buttons (Page-Manager, Export)
-      // off the screen, even at its minimum width. Phone users access tabs
-      // by tapping the Notizen/Study pills directly.
-      const int usableContent = UiScale::androidContentWidthPx(this);
-      if (usableContent >= UiScale::dp(420))
+      // Only show the inline search bar on real tablets (>= 600 dp wide via
+      // a DPI-robust raw-pixel check). Phones — even ones whose Qt HighDPI
+      // mode reports >dp(420) of usable width — would still crowd the
+      // right-side action buttons off the screen. Phone users navigate via
+      // the Notizen/Study pills directly.
+      if (UiScale::isAndroidTablet(this))
         m_androidTopSearchBar->show();
       else
         m_androidTopSearchBar->hide();

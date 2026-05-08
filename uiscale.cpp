@@ -137,4 +137,25 @@ int androidContentWidthPx(QWidget *reference) {
   return qMax(dp(160), w - 2 * pad);
 }
 
+bool isAndroidTablet(QWidget *reference) {
+#if defined(Q_OS_ANDROID)
+  QScreen *screen = bestScreen(reference);
+  if (!screen)
+    return false;
+  // Convert raw available pixels to material design DP via the actual
+  // logicalDotsPerInch (1 dp = 1 px at 160 dpi). This is robust regardless
+  // of whether Qt's HighDPI auto-scaling is currently active, because we
+  // never go through dp() (which clamps the density at 2.2).
+  const qreal logicalDpi = screen->logicalDotsPerInch();
+  const int rawW = screen->availableGeometry().width();
+  if (rawW <= 0)
+    return false;
+  const int dpW = int(rawW * 160.0 / qMax<qreal>(96.0, logicalDpi));
+  return dpW >= 600;
+#else
+  Q_UNUSED(reference);
+  return false;
+#endif
+}
+
 } // namespace UiScale
