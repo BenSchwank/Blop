@@ -2394,13 +2394,18 @@ int ModernToolbar::effectiveButtonSize(int w, int h) const {
     const int upper = m_isDockedMode ? 32 : 30;
     return qBound(lower, qMin(verticalCap, widthCap), upper);
   }
+  // Reached when m_orientation == Vertical on Android (horizontal handled
+  // above). Keep the same compact 22..30 / 22..32 dp range as the
+  // horizontal Android variant so an edge-snap or orientation flip
+  // doesn't suddenly produce ~36 dp buttons that look oversized on a
+  // phone.
   if (m_style == Normal && !m_isDockedMode) {
     const int axis = (m_orientation == Vertical) ? qMin(w, h) : h;
-    return qBound(30, axis - UiScale::dp(16), 36);
+    return qBound(22, axis - UiScale::dp(8), 30);
   }
   if (m_style == Normal && m_isDockedMode) {
     const int axis = (m_orientation == Vertical) ? qMin(w, h) : h;
-    return qBound(30, axis - UiScale::dp(12), 38);
+    return qBound(22, axis - UiScale::dp(6), 32);
   }
 #endif
   if (m_orientation == Vertical)
@@ -2728,20 +2733,22 @@ void ModernToolbar::setDockMode(bool docked) {
     if (docked) {
       m_orientation = Horizontal;
 #ifdef Q_OS_ANDROID
-      // Generous safety margin (dp(16) here + dp(12) already baked into the
-      // usable viewport) to make sure the right-most chrome icon never
-      // clips even on phones with aggressive curved-edge cutouts.
-      idealW = qMin(idealW, parentVisibleW - UiScale::dp(16));
-      const int xCentered = visibleOffset + (parentVisibleW - idealW) / 2;
-      // Always leave at least dp(8) breathing room on the left edge so the
-      // home/undo icons don't kiss the screen border on phones where the
-      // parent reports a width equal to the viewport.
-      const int xPos = qMax(xCentered, UiScale::dp(8));
+      // Stretch the docked toolbar across the full usable viewport
+      // (minus a small dp(8) breathing margin on each side) so it looks
+      // like a native Android top-bar instead of a centered Windows
+      // ribbon. The internal layout already inserts addStretch() between
+      // the left button-group and the right cluster, so widening the
+      // container just spreads the content edge-to-edge instead of
+      // leaving big empty gutters. qMax keeps the natural width as a
+      // floor so an oversized button row never gets clipped.
+      const int sideMargin = UiScale::dp(8);
+      const int stretchedW = qMax(idealW, parentVisibleW - 2 * sideMargin);
+      const int xPos = visibleOffset + sideMargin;
       // Compact 40 dp container (was 48) - the editor stacks header
       // (~dp(60)) on top, so every saved dp at the top is visible canvas
       // for the user. Buttons are clamped to 22..32 dp by
       // effectiveButtonSize() to fit the new height comfortably.
-      targetGeom = QRect(xPos, 0, idealW, UiScale::dp(40));
+      targetGeom = QRect(xPos, 0, stretchedW, UiScale::dp(40));
 #else
       targetGeom = QRect((parentVisibleW - idealW) / 2, 0,
                          idealW, UiScale::dp(48));
@@ -2760,6 +2767,25 @@ void ModernToolbar::setDockMode(bool docked) {
 #endif
     }
 
+#ifdef Q_OS_ANDROID
+    // Clear any leftover setFixedSize / size-cap constraints planted by
+    // a previous edge-snap so the new targetGeom can actually take
+    // effect. Without this the toolbar stays at the snapped vertical
+    // size when the user toggles back to docked, which produced the
+    // "verglitcht" intermediate frames the user reported.
+    setMinimumSize(0, 0);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    // Snap directly to the target geometry on Android - the 300 ms
+    // QPropertyAnimation produced a half-collapsed mid-frame layout
+    // when transitioning between docked and floating orientations,
+    // which is what the user described as "verglitcht" with missing
+    // space + visibility. An instant snap matches Material's discrete
+    // state transitions and feels native on touch devices.
+    setGeometry(targetGeom);
+    updateLayout(false);
+    update();
+#else
     QPropertyAnimation *anim = new QPropertyAnimation(this, "geometry");
     anim->setDuration(300);
     anim->setEasingCurve(QEasingCurve::OutCubic);
@@ -2769,6 +2795,7 @@ void ModernToolbar::setDockMode(bool docked) {
       update();
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
   } else {
     updateLayout(false);
     update();

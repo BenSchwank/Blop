@@ -183,7 +183,11 @@ bool AndroidTileDelegate::editorEvent(QEvent *event,
     const int hitH = qMax(UiScale::dp(40), UiScale::dp(20) + UiScale::dp(20));
     const QRect hit(rect.right() - hitW, rect.top(), hitW, hitH);
     if (hit.contains(me->pos())) {
-      m_window->showContextMenu(QCursor::pos(), index);
+      // QCursor::pos() is unreliable on Android touch devices (no real
+      // mouse cursor). Use the actual touch global position so the popup
+      // menu anchors where the user tapped instead of off-screen.
+      const QPoint anchor = me->globalPosition().toPoint();
+      m_window->showContextMenu(anchor, index);
       return true;
     }
   }
