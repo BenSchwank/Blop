@@ -8,10 +8,13 @@
 #include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPersistentModelIndex>
 #include <QPixmap>
+#include <QPointer>
 #include <QStyle>
 #include <QStyledItemDelegate>
 #include <QTextOption>
+#include <QTimer>
 
 #include "androidicons.h"
 #include "mainwindow.h"
@@ -200,7 +203,18 @@ bool AndroidTileDelegate::editorEvent(QEvent *event,
       } else {
         anchor = me->globalPosition().toPoint();
       }
-      m_window->showContextMenu(anchor, index);
+      // CRITICAL: defer the menu open. Calling QMenu::exec() (inside
+      // showContextMenu) from inside QStyledItemDelegate::editorEvent
+      // while a touch event is mid-delivery deadlocks Qt's Android
+      // touch synthesiser - the user sees this as an instant crash on
+      // tap. Posting via singleShot lets the current touch chain
+      // finish first; the menu then opens on the next event-loop tick.
+      QPointer<MainWindow> safeWin(m_window);
+      QPersistentModelIndex safeIdx(index);
+      QTimer::singleShot(0, m_window, [safeWin, safeIdx, anchor]() {
+        if (safeWin && safeIdx.isValid())
+          safeWin->showContextMenu(anchor, QModelIndex(safeIdx));
+      });
       return true;
     }
   }

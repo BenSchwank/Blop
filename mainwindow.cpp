@@ -372,13 +372,25 @@ void applyAndroidImmersiveUi() {
     if (!window.isValid())
       return;
 
-    window.callMethod<void>("addFlags", "(I)V", 0x80000000);
-    // Transparent system bars so the app draws behind them (no more
-    // dark "Balkenplatz" above the app). The styles.xml theme also
-    // sets windowLayoutInDisplayCutoutMode=shortEdges so notches /
-    // cutouts get filled too.
+    // NOTE: deliberately NOT calling addFlags(FLAG_DRAWS_SYSTEM_BAR_
+    // BACKGROUNDS, 0x80000000). With it, OEM SystemUI (especially on
+    // Samsung One UI) ends up re-tinting a "protected" strip at the
+    // top - that black bar the user kept reporting. Without the flag
+    // plus the transparent statusBarColor below, the app's own
+    // background fills the top edge.
     window.callMethod<void>("setStatusBarColor", "(I)V", 0x00000000);
     window.callMethod<void>("setNavigationBarColor", "(I)V", 0x00000000);
+
+    // Modern edge-to-edge: tell the window not to fit system bars so
+    // app content extends into the area where the status bar / nav
+    // bar are drawn. API 30+, no-op on older versions (the
+    // IMMERSIVE_STICKY decorView flags below cover those).
+    const int sdkInt = QJniObject::getStaticField<jint>(
+        "android/os/Build$VERSION", "SDK_INT");
+    if (sdkInt >= 30) {
+      window.callMethod<void>("setDecorFitsSystemWindows", "(Z)V",
+                              jboolean(false));
+    }
 
     QJniObject decorView =
         window.callObjectMethod("getDecorView", "()Landroid/view/View;");

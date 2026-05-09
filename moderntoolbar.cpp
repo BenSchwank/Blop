@@ -1738,37 +1738,10 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
-#ifdef Q_OS_ANDROID
-        // iPhone Dynamic Island look: a true pill with all 4 corners
-        // rounded (radius = h/2). This replaces the desktop "notch
-        // flush at top" style because on Android the toolbar floats
-        // dp(6) below the parent edge and is centered, so it needs to
-        // look like a self-contained capsule rather than a tab clipped
-        // by the screen border.
-        const int r = h / 2;
-        QLinearGradient grad(0, 0, w, h);
-        grad.setColorAt(0, QColor(30, 28, 52, 245));
-        grad.setColorAt(1, QColor(20, 18, 40, 245));
-        p.setBrush(grad);
-        p.setPen(Qt::NoPen);
-        p.drawRoundedRect(0, 0, w, h, r, r);
-
-        // Subtle accent outline so the pill reads against the canvas.
-        p.setBrush(Qt::NoBrush);
-        QColor accentBorder = m_accentColor;
-        accentBorder.setAlpha(80);
-        p.setPen(QPen(accentBorder, 1));
-        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0),
-                          r - 0.5, r - 0.5);
-
-        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
-        for (int sx : m_separatorXPositions) {
-          p.drawLine(sx, h / 4, sx, h - h / 4);
-        }
-#else
-        // Desktop / Windows: keep the original "Notch attached to top
-        // edge" appearance - rounded bottom corners only, top corners
-        // clipped by the widget bounds via negative-y rect.
+        // Notch appearance for all platforms: flush on top, rounded
+        // bottom corners only. Drawing at y = -r lets the widget
+        // bounds clip the top corners square so the toolbar visually
+        // attaches to the parent's top edge.
         QLinearGradient grad(0, 0, w, h);
         grad.setColorAt(0, QColor(30, 28, 52, 255));
         grad.setColorAt(1, QColor(20, 18, 40, 255));
@@ -1788,7 +1761,6 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
         for (int sx : m_separatorXPositions) {
           p.drawLine(sx, 12, sx, h - 12);
         }
-#endif
       } else {
         // Floating pill container
         int radius = std::min(w, h) / 2;
@@ -2079,6 +2051,13 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
     int newX = qBound(minX, newTopLeft.x(), maxX);
     
     // Docking Previews
+#ifdef Q_OS_ANDROID
+    // Edge-snap is disabled on Android: dragging is already disabled
+    // (setDraggable(false)) and the side-snap path produced the
+    // broken vertical-sliver state shown in image 2 of the user's
+    // report. Skip the entire preview/show pipeline.
+    if (m_snapPreview) m_snapPreview->hide();
+#else
     if (m_style == Normal) {
       if (!m_snapPreview) {
         m_snapPreview = new QWidget(parentWidget());
@@ -2126,6 +2105,7 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
         m_snapPreview->hide();
       }
     }
+#endif
 
     move(newX, newY);
     return;
@@ -2176,7 +2156,14 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
   if (m_isDragging) {
     m_cachedMask = QRegion();
     updateHitbox();
-    
+
+#ifdef Q_OS_ANDROID
+    // Edge-snap is disabled on Android (matches the disabled snap
+    // preview in mouseMoveEvent) - the side-snap path produces a
+    // broken vertical sliver. Just hide any stray preview and skip
+    // both the snap commit and the orientation check.
+    if (m_snapPreview) m_snapPreview->hide();
+#else
     if (m_style == Normal && m_snapPreview && m_snapPreview->isVisible()) {
         QRect snapGeom = m_snapPreview->geometry();
         m_snapPreview->hide();
@@ -2206,6 +2193,7 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         if (m_snapPreview) m_snapPreview->hide();
         if (m_style == Normal) checkOrientation(e->globalPosition().toPoint());
     }
+#endif
   }
   m_isDragging = false;
   m_isResizing = false;
@@ -2761,23 +2749,20 @@ void ModernToolbar::setDockMode(bool docked) {
     if (docked) {
       m_orientation = Horizontal;
 #ifdef Q_OS_ANDROID
-      // iPhone Dynamic Island look: a narrow centered floating pill
-      // that does NOT span the screen. Width follows the natural
-      // button-row width (so the pill is only as wide as it needs to
-      // be) and is capped to leave dp(24) breathing space on each side.
-      // Floating dp(6) below the parent's top edge gives the
-      // Dynamic-Island-on-iPhone "hovering capsule" feel; the parent
-      // (m_editorCenterWidget) already starts under the safe-top inset,
-      // so dp(6) is room from the status bar / cutout border.
-      const int sideMargin = UiScale::dp(24);
-      const int maxPillW = qMax(UiScale::dp(180),
-                                parentVisibleW - 2 * sideMargin);
-      const int pillW = qMin(idealW, maxPillW);
-      const int xPos = visibleOffset + (parentVisibleW - pillW) / 2;
-      const int yPos = UiScale::dp(6);
+      // Anchored top-edge "notch": flush against the parent's top
+      // (y=0) so the painter's negative-y rounded rect clips the top
+      // corners square and only the bottom corners read as rounded.
+      // Width follows the natural button-row, capped at usable width
+      // minus dp(8) on each side so it never overflows the right edge
+      // (the regression in image 3 of the user's report).
+      const int sideMargin = UiScale::dp(8);
+      const int maxBarW = qMax(UiScale::dp(180),
+                               parentVisibleW - 2 * sideMargin);
+      const int barW = qMin(idealW, maxBarW);
+      const int xPos = visibleOffset + (parentVisibleW - barW) / 2;
       // Compact 40 dp container - matches the touch-friendly Material
       // 22..32 dp button bounds in effectiveButtonSize().
-      targetGeom = QRect(xPos, yPos, pillW, UiScale::dp(40));
+      targetGeom = QRect(xPos, 0, barW, UiScale::dp(40));
 #else
       targetGeom = QRect((parentVisibleW - idealW) / 2, 0,
                          idealW, UiScale::dp(48));
@@ -2799,12 +2784,15 @@ void ModernToolbar::setDockMode(bool docked) {
 #ifdef Q_OS_ANDROID
     // Clear any leftover setFixedSize / size-cap constraints planted by
     // a previous edge-snap so the new targetGeom can actually take
-    // effect. Without this the toolbar stays at the snapped vertical
-    // size when the user toggles back to docked, which produced the
-    // "verglitcht" intermediate frames the user reported.
+    // effect. setFixedSize() pins both min AND max, so we also call
+    // it explicitly here with QWIDGETSIZE_MAX before clearing min/max
+    // again - otherwise the next docked geometry can't widen back
+    // (image 3 of the user's report: re-docked toolbar overflowed
+    // the right edge because a leftover snap-fixed-size pinned it).
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     setMinimumSize(0, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     // Snap directly to the target geometry on Android - the 300 ms
     // QPropertyAnimation produced a half-collapsed mid-frame layout
     // when transitioning between docked and floating orientations,
