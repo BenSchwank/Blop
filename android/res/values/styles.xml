@@ -2,16 +2,22 @@
 <resources>
     <!-- Blop Dark Theme: matches the app's dark background color -->
     <style name="BlopTheme" parent="Theme.AppCompat.NoActionBar">
-        <!-- Status bar color: matches the dark app background exactly -->
-        <item name="android:statusBarColor">#1e1e2e</item>
-        <!-- Navigation bar color: also dark -->
-        <item name="android:navigationBarColor">#1e1e2e</item>
-        <!-- Window background: dark -->
-        <item name="android:windowBackground">#1e1e2e</item>
+        <!-- Status + nav bar painted by the app itself, so we make the
+             system overlays transparent and let the Qt window background
+             extend behind them. This eliminates the dark "Balkenplatz"
+             that used to show above the app on phones with a status bar. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Window background: dark, matches the JNI status-bar tint -->
+        <item name="android:windowBackground">#0D0B14</item>
         <!-- Light status bar icons: false = white icons on dark background -->
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <!-- Keep app content eligible for edge-to-edge immersive drawing -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- Allow content to render into the cutout / notch area on
+             Android 9+. shortEdges fills the top cutout in portrait
+             without losing pixels in landscape. -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

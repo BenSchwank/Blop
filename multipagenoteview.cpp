@@ -2302,12 +2302,69 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
 }
 
 bool MultiPageNoteView::viewportEvent(QEvent *ev) {
+#ifdef Q_OS_ANDROID
+  // Direct two-finger pinch handling - Qt's QPinchGesture recogniser
+  // routinely misses the second finger on Android because the drawing
+  // tool already consumed the first touch as a synthesised mouse-press,
+  // so we read the touchpoints ourselves and compute the scale.
+  switch (ev->type()) {
+  case QEvent::TouchBegin:
+  case QEvent::TouchUpdate:
+  case QEvent::TouchEnd: {
+    auto *te = static_cast<QTouchEvent *>(ev);
+    int activeCount = 0;
+    for (const auto &p : te->points()) {
+      if (p.state() != QEventPoint::Released)
+        ++activeCount;
+    }
+    if (activeCount >= 2)
+      return handleAndroidPinch(te);
+    if (m_androidPinchActive)
+      m_androidPinchActive = false;
+    break;
+  }
+  default:
+    break;
+  }
+#endif
   if (ev->type() == QEvent::Gesture) {
     gestureEvent(static_cast<QGestureEvent *>(ev));
     return true;
   }
   return QGraphicsView::viewportEvent(ev);
 }
+
+#ifdef Q_OS_ANDROID
+bool MultiPageNoteView::handleAndroidPinch(QTouchEvent *te) {
+  const auto pts = te->points();
+  if (pts.size() < 2)
+    return false;
+  const QPointF p1 = pts[0].position();
+  const QPointF p2 = pts[1].position();
+  const qreal dist = QLineF(p1, p2).length();
+  if (!m_androidPinchActive) {
+    if (dist < 4.0)
+      return true;
+    m_androidPinchActive = true;
+    m_androidPinchInitialDistance = dist;
+    m_androidPinchInitialScale = transform().m11();
+    m_androidPinchAnchorScene =
+        mapToScene(((p1 + p2) / 2.0).toPoint());
+    m_userTouchedZoom = true;
+    return true;
+  }
+  if (m_androidPinchInitialDistance < 1.0)
+    return true;
+  const qreal ratio = dist / m_androidPinchInitialDistance;
+  const qreal target =
+      qBound(qreal(0.05), m_androidPinchInitialScale * ratio, qreal(12.0));
+  QTransform t;
+  t.scale(target, target);
+  setTransform(t);
+  centerOn(m_androidPinchAnchorScene);
+  return true;
+}
+#endif
 
 void MultiPageNoteView::gestureEvent(QGestureEvent *event) {
   bool handledByRuler = false;

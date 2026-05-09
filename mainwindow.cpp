@@ -373,8 +373,12 @@ void applyAndroidImmersiveUi() {
       return;
 
     window.callMethod<void>("addFlags", "(I)V", 0x80000000);
-    window.callMethod<void>("setStatusBarColor", "(I)V", 0xFF0D0B14);
-    window.callMethod<void>("setNavigationBarColor", "(I)V", 0xFF0D0B14);
+    // Transparent system bars so the app draws behind them (no more
+    // dark "Balkenplatz" above the app). The styles.xml theme also
+    // sets windowLayoutInDisplayCutoutMode=shortEdges so notches /
+    // cutouts get filled too.
+    window.callMethod<void>("setStatusBarColor", "(I)V", 0x00000000);
+    window.callMethod<void>("setNavigationBarColor", "(I)V", 0x00000000);
 
     QJniObject decorView =
         window.callObjectMethod("getDecorView", "()Landroid/view/View;");
@@ -3615,6 +3619,16 @@ void MainWindow::setupUi() {
   // doppeltes Öffnen bei schnellem Doppelklick auf dieselbe Notiz.
   connect(m_fileListView, &QListView::clicked, this,
           [this](const QModelIndex &index) {
+#ifdef Q_OS_ANDROID
+            // The AndroidTileDelegate has already opened the context
+            // menu for a tap on the three-dots pill - consume the
+            // matching click so we don't *also* open the note in the
+            // background and occlude the menu.
+            if (m_androidPillClickPending) {
+              m_androidPillClickPending = false;
+              return;
+            }
+#endif
             if (!m_fileModel || !index.isValid())
               return;
             if (m_fileModel->isDir(index))

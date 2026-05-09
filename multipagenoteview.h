@@ -135,6 +135,13 @@ private:
     /// Reentrancy lock for autoFitPageToViewportWidth() so a scrollbar toggle
     /// inside setTransform() cannot recursively trigger another auto-fit pass.
     bool m_isAutoFitting{false};
+    /// Direct two-finger pinch tracking - bypasses Qt's QPinchGesture
+    /// recogniser which is unreliable on Android when an active drawing
+    /// tool consumes the first touch as a synthesised mouse-press.
+    bool m_androidPinchActive{false};
+    qreal m_androidPinchInitialDistance{0.0};
+    qreal m_androidPinchInitialScale{1.0};
+    QPointF m_androidPinchAnchorScene;
 #endif
 
     NoteSelectionMenu* m_selectionMenu{nullptr};
@@ -198,6 +205,12 @@ private:
 
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);
+#ifdef Q_OS_ANDROID
+    /// Direct two-finger pinch handler invoked from viewportEvent() when
+    /// at least two touchpoints are active. Returns true if the event
+    /// was consumed (always true once a pinch has begun).
+    bool handleAndroidPinch(QTouchEvent *te);
+#endif
     void pushUndoSnapshot(const QVector<NotePage>& beforeState);
 
     /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.

@@ -183,10 +183,23 @@ bool AndroidTileDelegate::editorEvent(QEvent *event,
     const int hitH = qMax(UiScale::dp(40), UiScale::dp(20) + UiScale::dp(20));
     const QRect hit(rect.right() - hitW, rect.top(), hitW, hitH);
     if (hit.contains(me->pos())) {
-      // QCursor::pos() is unreliable on Android touch devices (no real
-      // mouse cursor). Use the actual touch global position so the popup
-      // menu anchors where the user tapped instead of off-screen.
-      const QPoint anchor = me->globalPosition().toPoint();
+      // Tell MainWindow to swallow the matching QListView::clicked
+      // signal that fires immediately after this editorEvent - without
+      // this guard the note is opened underneath the menu and the menu
+      // never becomes visible to the user.
+      m_window->setAndroidPillClickPending(true);
+      // Anchor under the pill via the actual viewport widget instead of
+      // QMouseEvent::globalPosition() - the latter can be (0,0) when Qt
+      // synthesises the mouse from a touch on Android. Mapping the
+      // option.rect avoids that whole class of issues.
+      QPoint anchor;
+      if (option.widget) {
+        anchor = option.widget->mapToGlobal(
+            QPoint(option.rect.right() - UiScale::dp(8),
+                   option.rect.top() + UiScale::dp(28)));
+      } else {
+        anchor = me->globalPosition().toPoint();
+      }
       m_window->showContextMenu(anchor, index);
       return true;
     }

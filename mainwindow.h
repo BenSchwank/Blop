@@ -142,6 +142,13 @@ public:
   void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
   void startRename(const QModelIndex &index);
 
+#ifdef Q_OS_ANDROID
+  // Set by AndroidTileDelegate::editorEvent when the user taps the
+  // three-dots pill so the QListView::clicked handler knows to skip
+  // opening the note (which would otherwise occlude the menu).
+  void setAndroidPillClickPending(bool v) { m_androidPillClickPending = v; }
+#endif
+
   void switchToSelectTool();
 
   void restoreWindowState();
@@ -398,6 +405,14 @@ private:
   FreeGridView *m_fileListView{nullptr};
   QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote{nullptr};
+
+#ifdef Q_OS_ANDROID
+  // Set true by AndroidTileDelegate when the user taps the three-dots
+  // pill on a Welcome tile. Consumed by the QListView::clicked lambda
+  // so that a single tap on the pill opens the context menu instead of
+  // also auto-opening the underlying note.
+  bool m_androidPillClickPending{false};
+#endif
 
   QWidget *m_editorContainer{nullptr};
   QWidget *m_editorCenterWidget{nullptr};

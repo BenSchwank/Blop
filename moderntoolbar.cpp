@@ -1738,29 +1738,57 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
-        // Notch appearance: Flush on top, rounded on the bottom corners.
+#ifdef Q_OS_ANDROID
+        // iPhone Dynamic Island look: a true pill with all 4 corners
+        // rounded (radius = h/2). This replaces the desktop "notch
+        // flush at top" style because on Android the toolbar floats
+        // dp(6) below the parent edge and is centered, so it needs to
+        // look like a self-contained capsule rather than a tab clipped
+        // by the screen border.
+        const int r = h / 2;
+        QLinearGradient grad(0, 0, w, h);
+        grad.setColorAt(0, QColor(30, 28, 52, 245));
+        grad.setColorAt(1, QColor(20, 18, 40, 245));
+        p.setBrush(grad);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(0, 0, w, h, r, r);
+
+        // Subtle accent outline so the pill reads against the canvas.
+        p.setBrush(Qt::NoBrush);
+        QColor accentBorder = m_accentColor;
+        accentBorder.setAlpha(80);
+        p.setPen(QPen(accentBorder, 1));
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0),
+                          r - 0.5, r - 0.5);
+
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        for (int sx : m_separatorXPositions) {
+          p.drawLine(sx, h / 4, sx, h - h / 4);
+        }
+#else
+        // Desktop / Windows: keep the original "Notch attached to top
+        // edge" appearance - rounded bottom corners only, top corners
+        // clipped by the widget bounds via negative-y rect.
         QLinearGradient grad(0, 0, w, h);
         grad.setColorAt(0, QColor(30, 28, 52, 255));
         grad.setColorAt(1, QColor(20, 18, 40, 255));
         p.setBrush(grad);
         p.setPen(Qt::NoPen);
-        
-        int r = 16; // Notch radius
-        // Drawing slightly higher so the top corners are un-rounded (cut off by widget bounds)
+
+        int r = 16;
         p.drawRoundedRect(0, -r, w, h + r, r, r);
 
-        // Subtler bottom border for "leichte Hervorhebung"
         p.setBrush(Qt::NoBrush);
         QColor accentBorder = m_accentColor;
         accentBorder.setAlpha(100);
         p.setPen(QPen(accentBorder, 2));
         p.drawRoundedRect(1, -r, w - 2, h + r - 1, r, r);
-        
-        // Separators for docked mode
+
         p.setPen(QPen(QColor(255, 255, 255, 30), 1));
         for (int sx : m_separatorXPositions) {
           p.drawLine(sx, 12, sx, h - 12);
         }
+#endif
       } else {
         // Floating pill container
         int radius = std::min(w, h) / 2;
@@ -2733,22 +2761,23 @@ void ModernToolbar::setDockMode(bool docked) {
     if (docked) {
       m_orientation = Horizontal;
 #ifdef Q_OS_ANDROID
-      // Stretch the docked toolbar across the full usable viewport
-      // (minus a small dp(8) breathing margin on each side) so it looks
-      // like a native Android top-bar instead of a centered Windows
-      // ribbon. The internal layout already inserts addStretch() between
-      // the left button-group and the right cluster, so widening the
-      // container just spreads the content edge-to-edge instead of
-      // leaving big empty gutters. qMax keeps the natural width as a
-      // floor so an oversized button row never gets clipped.
-      const int sideMargin = UiScale::dp(8);
-      const int stretchedW = qMax(idealW, parentVisibleW - 2 * sideMargin);
-      const int xPos = visibleOffset + sideMargin;
-      // Compact 40 dp container (was 48) - the editor stacks header
-      // (~dp(60)) on top, so every saved dp at the top is visible canvas
-      // for the user. Buttons are clamped to 22..32 dp by
-      // effectiveButtonSize() to fit the new height comfortably.
-      targetGeom = QRect(xPos, 0, stretchedW, UiScale::dp(40));
+      // iPhone Dynamic Island look: a narrow centered floating pill
+      // that does NOT span the screen. Width follows the natural
+      // button-row width (so the pill is only as wide as it needs to
+      // be) and is capped to leave dp(24) breathing space on each side.
+      // Floating dp(6) below the parent's top edge gives the
+      // Dynamic-Island-on-iPhone "hovering capsule" feel; the parent
+      // (m_editorCenterWidget) already starts under the safe-top inset,
+      // so dp(6) is room from the status bar / cutout border.
+      const int sideMargin = UiScale::dp(24);
+      const int maxPillW = qMax(UiScale::dp(180),
+                                parentVisibleW - 2 * sideMargin);
+      const int pillW = qMin(idealW, maxPillW);
+      const int xPos = visibleOffset + (parentVisibleW - pillW) / 2;
+      const int yPos = UiScale::dp(6);
+      // Compact 40 dp container - matches the touch-friendly Material
+      // 22..32 dp button bounds in effectiveButtonSize().
+      targetGeom = QRect(xPos, yPos, pillW, UiScale::dp(40));
 #else
       targetGeom = QRect((parentVisibleW - idealW) / 2, 0,
                          idealW, UiScale::dp(48));
