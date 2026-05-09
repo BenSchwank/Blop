@@ -142,12 +142,13 @@ public:
   void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
   void startRename(const QModelIndex &index);
 
-#ifdef Q_OS_ANDROID
   // Set by AndroidTileDelegate::editorEvent when the user taps the
-  // three-dots pill so the QListView::clicked handler knows to skip
-  // opening the note (which would otherwise occlude the menu).
+  // three-dots pill on a Welcome tile so the QListView::clicked handler
+  // knows to skip opening the note (which would otherwise occlude the
+  // menu). Declared unconditionally because androidtiledelegate.cpp
+  // compiles on every platform via BLOP_SOURCES even though the click
+  // suppression only ever fires on Android.
   void setAndroidPillClickPending(bool v) { m_androidPillClickPending = v; }
-#endif
 
   void switchToSelectTool();
 
@@ -406,13 +407,12 @@ private:
   QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote{nullptr};
 
-#ifdef Q_OS_ANDROID
   // Set true by AndroidTileDelegate when the user taps the three-dots
   // pill on a Welcome tile. Consumed by the QListView::clicked lambda
   // so that a single tap on the pill opens the context menu instead of
-  // also auto-opening the underlying note.
+  // also auto-opening the underlying note. Defined unconditionally so
+  // the inline setter above compiles on Windows too.
   bool m_androidPillClickPending{false};
-#endif
 
   QWidget *m_editorContainer{nullptr};
   QWidget *m_editorCenterWidget{nullptr};
