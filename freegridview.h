@@ -34,6 +34,7 @@ protected:
 
 private:
   QRect m_ghostRect;
+  QRect m_lastGhostRect; // v119: union'd with m_ghostRect for partial update
   bool m_showGhost;
   QColor m_accentColor;
   QSize m_itemSize; // The size of the content (folder)

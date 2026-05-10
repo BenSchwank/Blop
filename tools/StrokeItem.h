@@ -53,20 +53,28 @@ public:
         }
 
         if (!m_points.isEmpty() && m_points.size() > 1 && m_style != Highlighter) {
-            QPen basePen = pen();
-            qreal baseWidth = basePen.widthF();
-
+            // v119 perf: reuse a single QPen across all segments instead
+            // of constructing a fresh pen per segment. setWidthF mutates
+            // the existing pen in-place; the painter only needs to be
+            // re-set when the width actually changes (cuts allocations
+            // and unnecessary state changes by ~Nx for an N-segment
+            // pressure stroke).
+            QPen segPen = pen();
+            const qreal baseWidth = segPen.widthF();
+            qreal lastWidth = -1.0;
             for (int i = 0; i < m_points.size() - 1; ++i) {
                 const StrokePoint& p1 = m_points[i];
                 const StrokePoint& p2 = m_points[i+1];
-                
+
                 // Pressure usually 0.0 to 1.0. Wir cappen bei 0.1, damit es nicht unsichtbar wird.
                 qreal avgPressure = (p1.pressure + p2.pressure) / 2.0;
                 qreal w = baseWidth * qMax(0.1, avgPressure);
-                
-                QPen segPen = basePen;
-                segPen.setWidthF(w);
-                painter->setPen(segPen);
+
+                if (w != lastWidth) {
+                    segPen.setWidthF(w);
+                    painter->setPen(segPen);
+                    lastWidth = w;
+                }
                 painter->drawLine(p1.pos, p2.pos);
             }
         } else {

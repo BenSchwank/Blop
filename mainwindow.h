@@ -414,6 +414,11 @@ private:
   // the inline setter above compiles on Windows too.
   bool m_androidPillClickPending{false};
 
+  // v119 perf: dedupe QEvent::Move bursts on the floating toolbar
+  // (eventFilter); only re-evaluate the dock condition when y crosses
+  // an 8-px threshold instead of on every pixel of a drag.
+  int m_lastDockCheckY{-1000};
+
   QWidget *m_editorContainer{nullptr};
   QWidget *m_editorCenterWidget{nullptr};
   QTabWidget *m_editorTabs{nullptr};

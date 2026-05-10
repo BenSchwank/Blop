@@ -2094,10 +2094,19 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       return true;
     }
   } else if (obj == m_floatingTools && event->type() == QEvent::Move) {
-    // Re-dock when floating toolbar is dragged to the top (y <= 10)
-    if (m_floatingTools->y() <= 10) {
-      if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-        tb->setDockMode(true);
+    // v119 perf: QEvent::Move fires on EVERY pixel of a drag and was
+    // re-evaluating the dock condition + (when triggered) running an
+    // animation 60+ times per second. Gate on a small y-threshold so
+    // we only re-evaluate when the toolbar's y actually crossed a
+    // meaningful boundary.
+    const int newY = m_floatingTools->y();
+    if (qAbs(newY - m_lastDockCheckY) >= 8) {
+      m_lastDockCheckY = newY;
+      // Re-dock when floating toolbar is dragged to the top (y <= 10)
+      if (newY <= 10) {
+        if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+          tb->setDockMode(true);
+        }
       }
     }
   }

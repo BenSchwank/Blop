@@ -107,8 +107,19 @@ void FreeGridView::dragLeaveEvent(QDragLeaveEvent *e) {
 void FreeGridView::dragMoveEvent(QDragMoveEvent *e) {
   QPoint pos = e->position().toPoint();
   QPoint snapPos = calculateSnapPosition(pos);
-  m_ghostRect = QRect(snapPos, gridSize());
-  viewport()->update();
+  const QRect newGhost(snapPos, gridSize());
+  if (newGhost != m_ghostRect) {
+    // v119 perf: only repaint the union of the old + new ghost
+    // rectangles (with a small inflate for the dashed border) instead
+    // of the entire viewport. Cuts dragMoveEvent cost from O(viewport
+    // pixels) to O(ghost cell pixels) and is what makes the ghost
+    // glide smoothly even on slower Android devices.
+    QRect dirty = newGhost.united(m_ghostRect.isNull() ? newGhost : m_ghostRect);
+    dirty.adjust(-2, -2, 2, 2);
+    m_lastGhostRect = m_ghostRect;
+    m_ghostRect = newGhost;
+    viewport()->update(dirty);
+  }
   QListView::dragMoveEvent(e);
 }
 

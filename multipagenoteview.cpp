@@ -1861,12 +1861,8 @@ void MultiPageNoteView::toggleRuler(bool active) {
         const QPointF spawn = mapToScene(viewport()->rect().center());
         RulerTool::ensureRulerExists(&scene_, config, spawn);
     } else {
-        for (QGraphicsItem *item : scene_.items()) {
-            if (item->type() == RulerItem::Type) {
-                item->setVisible(false);
-                break;
-            }
-        }
+        if (RulerItem* ruler = findActiveRuler(&scene_))
+            ruler->setVisible(false);
     }
 }
 
@@ -2255,13 +2251,7 @@ void MultiPageNoteView::showEvent(QShowEvent *e) {
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
     const QPointF scenePos = mapToScene(e->position().toPoint());
-    RulerItem *ruler = nullptr;
-    for (QGraphicsItem *item : scene_.items()) {
-      if (item->type() == RulerItem::Type) {
-        ruler = static_cast<RulerItem *>(item);
-        break;
-      }
-    }
+    RulerItem *ruler = findActiveRuler(&scene_);
     if (ruler && ruler->isVisible() &&
         ruler->canStartInteractionAtScenePos(scenePos)) {
       ruler->applyWheelDelta(e->angleDelta().y(), e->modifiers());
@@ -2372,13 +2362,7 @@ void MultiPageNoteView::gestureEvent(QGestureEvent *event) {
     if (QGesture *pinch = event->gesture(Qt::PinchGesture)) {
       auto *pg = static_cast<QPinchGesture *>(pinch);
       const QPointF cScene = mapToScene(pg->centerPoint().toPoint());
-      RulerItem *ruler = nullptr;
-      for (QGraphicsItem *item : scene_.items()) {
-        if (item->type() == RulerItem::Type) {
-          ruler = static_cast<RulerItem *>(item);
-          break;
-        }
-      }
+      RulerItem *ruler = findActiveRuler(&scene_);
       if (ruler && ruler->isVisible() && ruler->canStartInteractionAtScenePos(cScene)) {
         event->accept(pinch);
         event->accept();
@@ -2401,13 +2385,7 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
   // Wenn das Ruler-Tool aktiv ist, sollen Pinch/Rotate-Gesten ausschließlich
   // das Lineal beeinflussen – die Seite selbst soll nicht zoomen oder scrollen.
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
-    RulerItem *ruler = nullptr;
-    for (QGraphicsItem *item : scene()->items()) {
-      if (item->type() == RulerItem::Type) {
-        ruler = static_cast<RulerItem *>(item);
-        break;
-      }
-    }
+    RulerItem *ruler = findActiveRuler(scene());
     if (ruler && ruler->isVisible() &&
         ruler->canStartInteractionAtScenePos(scenePos)) {
       qreal rotationDelta =
@@ -2520,13 +2498,7 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
   if (isTouch) {
     if (rulerMode) {
       const QPointF scenePos = mapToScene(e->pos());
-      RulerItem *ruler = nullptr;
-      for (QGraphicsItem *item : scene_.items()) {
-        if (item->type() == RulerItem::Type) {
-          ruler = static_cast<RulerItem *>(item);
-          break;
-        }
-      }
+      RulerItem *ruler = findActiveRuler(&scene_);
       m_isPanning = !(ruler && ruler->isVisible() &&
                       ruler->canStartInteractionAtScenePos(scenePos));
     } else if (m_penOnlyMode) {
@@ -3122,6 +3094,10 @@ void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
   AbstractTool *tool = ToolManager::instance().activeTool();
   if (tool) {
     painter->save();
+    // v119 perf: clip overlay drawing to the exposed rect so a
+    // full-viewport overlay (e.g. cursor / ruler crosshair) cannot
+    // dirty the entire viewport on every move.
+    painter->setClipRect(rect, Qt::IntersectClip);
     tool->drawOverlay(painter, rect);
     painter->restore();
   }

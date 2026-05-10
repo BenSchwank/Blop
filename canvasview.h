@@ -132,7 +132,6 @@ private:
     QString m_filePath;
 
     QUndoStack *m_undoStack;
-    QSet<QGraphicsItem *> m_preStrokeItems; // snapshot before a stroke begins
     GraphCanvasItem *m_graphPlusBypassItem{nullptr}; // "+" on graph bypasses tool until release
     GraphCanvasItem *m_graphPlotBypassItem{nullptr}; // graph chrome tap bypasses tool until release
     QPointer<GraphCanvasItem> m_graphTabletPendingItem;

@@ -7,6 +7,7 @@
 #include <QPainterPath>
 #include <QPainterPathStroker>
 #include <QPointer>
+#include <QSet>
 
 class EraserTool : public AbstractStrokeTool {
     Q_OBJECT
@@ -56,8 +57,11 @@ private:
         // Bereich um die Maus
         QRectF rect(pos.x() - r, pos.y() - r, 2*r, 2*r);
 
-        // Suche Items, die den Radierer berühren
-        QList<QGraphicsItem*> items = scene->items(rect, Qt::IntersectsItemShape);
+        // v119 perf: bbox prefilter first (cheap O(log N) tree query),
+        // then the precise IntersectsItemShape test only on the
+        // candidates. On dense scenes the difference adds up - the
+        // shape test allocates a QPainterPath per item.
+        QList<QGraphicsItem*> items = scene->items(rect, Qt::IntersectsItemBoundingRect);
 
         // Radierer-Form (Kreis)
         QPainterPath eraserShape;
@@ -65,7 +69,10 @@ private:
 
         // Items die komplett gelöscht werden sollen – NACH der Schleife löschen,
         // nie während der Iteration (verhindert use-after-free / Absturz).
+        // QSet for O(1) "already queued" lookup; the original QList::contains
+        // was O(N) and dominated for large erase sweeps.
         QList<QGraphicsItem*> toDelete;
+        QSet<QGraphicsItem*> toDeleteSet;
 
         for (QGraphicsItem* item : items) {
             // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
@@ -76,7 +83,12 @@ private:
             if (m_currentItem && pathItem == m_currentItem) continue;
 
             // Bereits zum Löschen vorgemerkt – überspringen
-            if (toDelete.contains(item)) continue;
+            if (toDeleteSet.contains(item)) continue;
+
+            // Precise hit test (replaces the IntersectsItemShape on
+            // scene->items): only continue if the eraser ellipse
+            // actually intersects the item's shape.
+            if (!item->shape().intersects(item->mapFromScene(eraserShape))) continue;
 
             // FEATURE: "Nur Textmarker löschen"
             // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
@@ -85,6 +97,7 @@ private:
             // --- MODUS 1: OBJEKT RADIERER (Ganzes Item weg) ---
             if (m_config.eraserMode == EraserMode::Object) {
                 toDelete.append(item);
+                toDeleteSet.insert(item);
             }
 
             // --- MODUS 2: PIXEL RADIERER (Schneiden) ---
@@ -127,6 +140,7 @@ private:
                     StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
                     if (strokeItem) strokeItem->setPoints({});
                     toDelete.append(item);
+                    toDeleteSet.insert(item);
                 }
             }
         }

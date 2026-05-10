@@ -1,6 +1,7 @@
 #pragma once
 #include "AbstractTool.h"
 #include "RulerItem.h"
+#include "RulerTool.h"
 #include "StrokeItem.h"
 #include <QElapsedTimer>
 #include <QGraphicsPathItem>
@@ -84,6 +85,11 @@ public:
         if (m_currentItem) {
             if (m_holdStillTimer)
                 m_holdStillTimer->stop();
+            // v119 perf: throttling in handleMouseMove may have skipped
+            // the very last setPath() call. Force a final commit here so
+            // the stroke always renders complete to its release point.
+            m_currentItem->setPath(m_currentPath);
+            m_pathPaintTimer.invalidate();
             m_currentItem->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
             m_lastCompletedItem = m_currentItem;
             m_currentItem = nullptr;
@@ -134,6 +140,11 @@ protected:
     QPainterPath m_currentPath;
     QList<StrokePoint> m_pointsBuffer;
     QElapsedTimer m_lastMotionTimer;
+    // v119 perf: per-stroke ~60Hz throttle for QGraphicsPathItem::setPath
+    // calls; appending to m_pointsBuffer is unaffected (cheap), only the
+    // visible path-update call is rate-limited. Reset on press, forced
+    // commit on release. See handleMoveOrPress / handleMouseRelease.
+    QElapsedTimer m_pathPaintTimer;
     QPointF m_lastMotionPos;
     QPointF m_pressStartPos;
     bool m_longPressStraightMode{false};
@@ -194,6 +205,9 @@ protected:
 
             if (m_sceneRef) m_sceneRef->addItem(m_currentItem);
             m_lastKnownScenePos = startPos;
+            // v119 perf: reset the per-stroke paint throttle so the
+            // very first move event triggers a setPath immediately.
+            m_pathPaintTimer.invalidate();
             if (m_holdStillTimer)
                 m_holdStillTimer->start(holdStillMs());
             return true;
@@ -251,13 +265,23 @@ protected:
                     newPos = lastPos * factor + newPos * (1.0 - factor);
                 }
 
-                if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last().pos).length() > 1.0) {
+                if (m_pointsBuffer.isEmpty() || QLineF(newPos, m_pointsBuffer.last().pos).length() > 1.5) {
                     m_pointsBuffer.append({newPos, m_lastPressure});
                     m_currentPath.lineTo(newPos);
-                    
-                    m_currentItem->setPath(m_currentPath);
                     auto* typedItem = static_cast<StrokeItem*>(m_currentItem);
                     typedItem->addPoint({newPos, m_lastPressure});
+
+                    // v119 perf: throttle the visible setPath() to ~60fps.
+                    // Appending to the points buffer is cheap; the cost is
+                    // QGraphicsPathItem::setPath which recomputes the
+                    // boundingRect + queues a paint. On a 240Hz tablet
+                    // this used to fire 4 times per vsync; now we batch.
+                    // The release path always commits the final path so
+                    // the last few points are never lost.
+                    if (!m_pathPaintTimer.isValid() || m_pathPaintTimer.elapsed() >= 16) {
+                        m_currentItem->setPath(m_currentPath);
+                        m_pathPaintTimer.restart();
+                    }
                 }
                 return true;
             }
@@ -484,11 +508,7 @@ protected:
     }
 
     RulerItem* findRuler(QGraphicsScene* scene) {
-        if (!scene) return nullptr;
-        for (QGraphicsItem* item : scene->items()) {
-            if (item->type() == RulerItem::Type) return static_cast<RulerItem*>(item);
-        }
-        return nullptr;
+        return findActiveRuler(scene);
     }
 
     static qreal clamp01(qreal v) {

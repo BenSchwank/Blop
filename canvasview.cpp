@@ -689,6 +689,11 @@ void CanvasView::drawForeground(QPainter *painter, const QRectF &rect) {
   // Hier nutzen wir jetzt den m_toolManager
   if (m_toolManager && m_toolManager->activeTool()) {
     painter->save();
+    // v119 perf: clip overlay drawing to the actual exposed rect so
+    // tools that paint a "full viewport" decoration (cursor halo,
+    // ruler crosshair, lasso preview, ...) cannot inflate the dirty
+    // region beyond what was actually invalidated.
+    painter->setClipRect(rect, Qt::IntersectClip);
     m_toolManager->activeTool()->drawOverlay(painter, rect);
     painter->restore();
   }
@@ -902,12 +907,8 @@ void CanvasView::toggleRuler(bool active) {
             RulerTool::ensureRulerExists(scene(), m_toolManager->config(), spawn);
         }
     } else {
-        for (QGraphicsItem *item : m_scene->items()) {
-            if (item->type() == RulerItem::Type) {
-                item->setVisible(false);
-                break;
-            }
-        }
+        if (RulerItem* ruler = findActiveRuler(m_scene))
+            ruler->setVisible(false);
     }
 }
 
@@ -1243,13 +1244,7 @@ void CanvasView::clearSelection() {
 
 void CanvasView::wheelEvent(QWheelEvent *event) {
   if (m_toolManager && m_toolManager->activeToolMode() == ToolMode::Ruler) {
-      RulerItem* ruler = nullptr;
-      for (QGraphicsItem* item : m_scene->items()) {
-          if (item->type() == RulerItem::Type) {
-              ruler = static_cast<RulerItem*>(item);
-              break;
-          }
-      }
+      RulerItem* ruler = findActiveRuler(m_scene);
       if (ruler && ruler->isVisible()) {
           qreal delta = event->angleDelta().y();
           qreal step = (event->modifiers() & Qt::ShiftModifier) ? 1.0 : 15.0;
@@ -1503,11 +1498,11 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     scEvent.setButtons(event->buttons());
     scEvent.setModifiers(event->modifiers());
 
-    // Snapshot current items so we can detect newly added items on release.
-    // Important: build from one stable list instance to avoid UB.
-    const QList<QGraphicsItem *> beforeItems = m_scene->items();
-    m_preStrokeItems = QSet<QGraphicsItem *>(beforeItems.begin(), beforeItems.end());
-
+    // NOTE: removed the previous full-scene snapshot used for the
+    // "items added during this stroke" diff. Every concrete tool now
+    // exposes lastCompletedItem() for that purpose (see release path
+    // below), which is O(1) instead of an O(N) scene walk + N hash
+    // lookups on every stroke press.
     if (m_toolManager->activeTool()->handleMousePress(&scEvent, m_scene)) {
       m_isDrawing = true;
       event->accept();
@@ -1660,15 +1655,10 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
       }
       emit contentModified();
 
-      // Push undo commands for any items added since the stroke started
-      if (!m_preStrokeItems.isEmpty()) {
-          for (QGraphicsItem *item : m_scene->items()) {
-              if (!m_preStrokeItems.contains(item)) {
-                  m_undoStack->push(new AddItemCommand(m_scene, item));
-              }
-          }
-          m_preStrokeItems.clear();
-      }
+      // NOTE: the prior O(N) "diff scene against m_preStrokeItems
+      // snapshot" loop was redundant - every concrete tool already
+      // reports its single newly-created item via lastCompletedItem()
+      // above. Removed here as part of the v119 perf pass.
 
       if (m_toolManager->activeTool()->mode() == ToolMode::Lasso) {
         finishLasso();
