@@ -1,7 +1,7 @@
 #pragma once
 #include "AbstractStrokeTool.h"
 #include "StrokeItem.h"
-#include "../UIStyles.h"
+#include "UIStyles.h"
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 #include <QPainterPath>

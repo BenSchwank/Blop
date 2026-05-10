@@ -9,7 +9,7 @@
 #include <QString>
 #include <QTransform>
 #include <QGraphicsItem>
-#include "../ToolMode.h"
+#include "ToolMode.h"
 
 class TextTool : public AbstractTool {
 

@@ -1,6 +1,6 @@
 #include "GraphFormulaZone.h"
 #include "GraphCanvasItem.h"
-#include "../uiscale.h"
+#include "uiscale.h"
 #include "math/MathInkRecognizer.h"
 #include "math/LatexToBlopConverter.h"
 

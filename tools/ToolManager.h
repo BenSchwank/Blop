@@ -2,8 +2,8 @@
 #include <QObject>
 #include <QMap>
 #include "AbstractTool.h"
-#include "../ToolSettings.h"
-#include "../ToolMode.h"
+#include "ToolSettings.h"
+#include "ToolMode.h"
 
 // Forward declaration
 class CanvasView;

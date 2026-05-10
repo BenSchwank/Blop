@@ -2,7 +2,7 @@
 #include <QObject>
 #include <QStringList>
 #include "ToolManager.h"
-#include "../ToolSettings.h"
+#include "ToolSettings.h"
 #include "AbstractTool.h"
 
 class ToolUIBridge : public QObject {

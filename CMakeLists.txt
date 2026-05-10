@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Android Setup
 if(ANDROID)
@@ -29,7 +29,37 @@ if(NOT SAFE_VERSION)
     set(SAFE_VERSION "3.13.5.6")
 endif()
 
-project(Blop VERSION ${SAFE_VERSION} LANGUAGES CXX)
+project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
+
+# Observability overrides (crash backend release matching & CI stamping)
+set(BLOP_OVERRIDE_GIT_SHA "" CACHE STRING "Git SHA stamped into binaries (recommended in CI)")
+if(BLOP_OVERRIDE_GIT_SHA STREQUAL "")
+    execute_process(
+        COMMAND git rev-parse HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE BLOP_RESOLVED_GIT_SHA
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+else()
+    set(BLOP_RESOLVED_GIT_SHA "${BLOP_OVERRIDE_GIT_SHA}")
+endif()
+if(NOT BLOP_RESOLVED_GIT_SHA)
+    set(BLOP_RESOLVED_GIT_SHA "unknown")
+endif()
+
+set(BLOP_OBS_BUILD_NUMBER "0" CACHE STRING "Build id/run number surfaced in observability envelope")
+set(BLOP_OBS_BUILD_FLAVOR "dev" CACHE STRING "Build flavor identifier (release, ci_release, …)")
+option(BLOP_OBS_CONSENT_CRASH_UPLOAD "Bake crash-upload consent=true into binaries" OFF)
+option(BLOP_OBS_CONSENT_ANALYTICS "Bake analytics consent=true into binaries" OFF)
+
+option(BLOP_ENABLE_SENTRY "Link sentry-native for native crash reporting (FetchContent pinned tag)" OFF)
+
+if(BLOP_ENABLE_SENTRY)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/blop_sentry.cmake")
+else()
+    set(BLOP_SENTRY_COMPILE_DSN_ESC "")
+endif()
 
 if(MSVC)
     add_compile_options(/utf-8)
@@ -60,56 +90,86 @@ endif()
 
 qt_add_executable(Blop
     main.cpp
-    mainwindow.cpp
-    mainwindow.h
-    mainwindow.ui
-    canvasview.cpp
-    canvasview.h
-    freegridview.h
-    freegridview.cpp
-    multipagenoteview.cpp
-    multipagenoteview.h
-    editoroverlays.cpp
-    editoroverlays.h
-    settingsdialog.cpp
-    settingsdialog.h
-    SettingsDialog.ui
-    graphaxissettingsdialog.cpp
-    graphaxissettingsdialog.h
-    graphlegenddock.cpp
-    graphlegenddock.h
-    graphquickactionpopup.cpp
-    graphquickactionpopup.h
-    newnotedialog.h
-    newnotedialog.cpp
-    profileeditordialog.h
-    profileeditordialog.cpp
-    notemanager.cpp
-    notemanager.h
-    googleauthmanager.cpp
-    googleauthmanager.h
-    noteeditor.cpp
-    noteeditor.h
-    markdowneditor.cpp
-    markdowneditor.h
-    uiprofilemanager.h
-    uiprofilemanager.cpp
-    uiscale.h
-    uiscale.cpp
-    androidicons.h
-    androidicons.cpp
-    androidtiledelegate.h
-    androidtiledelegate.cpp
-    moderntoolbar.cpp
-    moderntoolbar.h
-    modetoolbar.cpp
-    modetoolbar.h
 
-    # PageManager
-    pagemanager.h
-    pagemanager.cpp
+    # Observability (crash backend, build metadata, runtime envelope)
+    src/observability/blop_observability.h
+    src/observability/blop_observability.cpp
+    src/observability/blop_crash_backend.h
+    src/observability/blop_crash_backend.cpp
 
-    # Tools
+    # UI (windows, dialogs, overlays, custom views, toolbars)
+    src/ui/mainwindow.ui
+    src/ui/SettingsDialog.ui
+    src/ui/mainwindow.cpp
+    src/ui/mainwindow.h
+    src/ui/canvasview.cpp
+    src/ui/canvasview.h
+    src/ui/freegridview.h
+    src/ui/freegridview.cpp
+    src/ui/multipagenoteview.cpp
+    src/ui/multipagenoteview.h
+    src/ui/editoroverlays.cpp
+    src/ui/editoroverlays.h
+    src/ui/settingsdialog.cpp
+    src/ui/settingsdialog.h
+    src/ui/graphaxissettingsdialog.cpp
+    src/ui/graphaxissettingsdialog.h
+    src/ui/graphlegenddock.cpp
+    src/ui/graphlegenddock.h
+    src/ui/graphquickactionpopup.cpp
+    src/ui/graphquickactionpopup.h
+    src/ui/newnotedialog.h
+    src/ui/newnotedialog.cpp
+    src/ui/profileeditordialog.h
+    src/ui/profileeditordialog.cpp
+    src/ui/markdowneditor.cpp
+    src/ui/markdowneditor.h
+    src/ui/moderntoolbar.cpp
+    src/ui/moderntoolbar.h
+    src/ui/modetoolbar.cpp
+    src/ui/modetoolbar.h
+    src/ui/introscreen.h
+    src/ui/introscreen.cpp
+
+    # Core (note model, page management, profiles, helper headers)
+    src/core/notemanager.cpp
+    src/core/notemanager.h
+    src/core/noteeditor.cpp
+    src/core/noteeditor.h
+    src/core/pagemanager.h
+    src/core/pagemanager.cpp
+    src/core/uiprofilemanager.h
+    src/core/uiprofilemanager.cpp
+    src/core/Note.h
+    src/core/PageItem.h
+    src/core/ToolMode.h
+    src/core/ToolSettings.h
+    src/core/TransformOverlay.h
+    src/core/UIStyles.h
+    src/core/SelectionMenuIcons.h
+    src/core/uiprofile.h
+
+    # Android-specific rendering pipeline
+    src/android/androidicons.h
+    src/android/androidicons.cpp
+    src/android/androidtiledelegate.h
+    src/android/androidtiledelegate.cpp
+
+    # Auth (Google OAuth)
+    src/auth/googleauthmanager.cpp
+    src/auth/googleauthmanager.h
+
+    # Util
+    src/util/uiscale.h
+    src/util/uiscale.cpp
+
+    # QML async image provider
+    src/imageprovider/BlopAsyncImageProvider.h
+    src/imageprovider/BlopAsyncImageProvider.cpp
+    src/imageprovider/BlopImageResponse.h
+    src/imageprovider/BlopImageResponse.cpp
+
+    # Tools (already organized under tools/)
     tools/AbstractTool.h
     tools/ToolManager.h
     tools/ToolManager.cpp
@@ -140,25 +200,6 @@ qt_add_executable(Blop
     tools/RulerItem.h
     tools/RulerTool.h
 
-    # Helper
-    Note.h
-    PageItem.h
-    ToolMode.h
-    ToolSettings.h
-    TransformOverlay.h
-    UIStyles.h
-    SelectionMenuIcons.h
-    uiprofile.h
-
-    # Intro Animation
-    introscreen.h
-    introscreen.cpp
-
-    # Image-Provider
-    BlopAsyncImageProvider.h
-    BlopAsyncImageProvider.cpp
-    BlopImageResponse.h
-    BlopImageResponse.cpp
     resources.qrc
 )
 
@@ -182,8 +223,20 @@ endif()
 
 # MOC outputs (e.g. canvasview.moc for Q_OBJECT classes in .cpp) live under
 # Blop_autogen/include — ensure the compiler always sees that path (Android/IDE).
+# Plus: every src/<bucket>/ folder is on the include path so all the existing
+# `#include "foo.h"` lines (which assume root-relative discovery) keep
+# working unchanged after the v119 folder restructure.
 target_include_directories(Blop PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/Blop_autogen/include"
+    "${CMAKE_CURRENT_BINARY_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/android"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/auth"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/observability"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/util"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/imageprovider"
 )
 
 # Core Libraries verlinken
@@ -201,6 +254,25 @@ target_link_libraries(Blop PRIVATE
 
 # Export BLOP_VERSION_STR for runtime usage in mainwindow.cpp
 target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
+
+if(BLOP_ENABLE_SENTRY)
+    target_compile_definitions(Blop PRIVATE BLOP_SENTRY_ENABLED=1)
+    target_link_libraries(Blop PRIVATE sentry::sentry)
+    if(BLOP_SENTRY_FORCE_TEST_CRASH)
+        target_compile_definitions(Blop PRIVATE BLOP_SENTRY_FORCE_TEST_CRASH=1)
+    endif()
+    if(WIN32 AND TARGET crashpad_handler)
+        add_custom_command(
+            TARGET Blop
+            POST_BUILD
+            COMMAND
+                "${CMAKE_COMMAND}" -E copy_if_different
+                "$<TARGET_FILE:crashpad_handler>"
+                "$<TARGET_FILE_DIR:Blop>/"
+            COMMENT "Bundling Crashpad handler next to Blop (Sentry)"
+        )
+    endif()
+endif()
 
 # --- PLATTFORM-SPEZIFISCHES LINKING ---
 # Ensure ANDROID_VERSION_CODE has a fallback (local/Qt Creator: avoid INSTALL_FAILED_VERSION_DOWNGRADE
@@ -226,6 +298,50 @@ if(NOT DEFINED ANDROID_VERSION_CODE OR "${ANDROID_VERSION_CODE}" STREQUAL "")
     set(ANDROID_VERSION_CODE "${_BLOP_ANDROID_VC}")
     message(STATUS "ANDROID_VERSION_CODE (unset → dev fallback): ${ANDROID_VERSION_CODE}")
 endif()
+
+# --- Generated observability metadata (after ANDROID_VERSION_CODE + Qt are known) ---
+if(ANDROID)
+    set(BLOP_OBS_PLATFORM_SLUG "android")
+elseif(WIN32)
+    set(BLOP_OBS_PLATFORM_SLUG "windows")
+elseif(APPLE)
+    set(BLOP_OBS_PLATFORM_SLUG "darwin")
+elseif(UNIX)
+    set(BLOP_OBS_PLATFORM_SLUG "linux")
+else()
+    set(BLOP_OBS_PLATFORM_SLUG "unknown")
+endif()
+
+set(BLOP_OBS_PLATFORM_SLUG_ESC "${BLOP_OBS_PLATFORM_SLUG}")
+set(BLOP_SENTRY_RELEASE_ESC "${GIT_VERSION}+${BLOP_RESOLVED_GIT_SHA}+build${BLOP_OBS_BUILD_NUMBER}")
+
+set(BLOP_OBS_APP_VERSION_ESC "${GIT_VERSION}")
+set(BLOP_OBS_PROJECT_VERSION_ESC "${PROJECT_VERSION}")
+set(BLOP_OBS_GIT_SHA_ESC "${BLOP_RESOLVED_GIT_SHA}")
+set(BLOP_OBS_BUILD_NUMBER_ESC "${BLOP_OBS_BUILD_NUMBER}")
+set(BLOP_OBS_BUILD_FLAVOR_ESC "${BLOP_OBS_BUILD_FLAVOR}")
+if(BLOP_OBS_CONSENT_CRASH_UPLOAD)
+    set(BLOP_OBS_CONSENT_CRASH_INT 1)
+else()
+    set(BLOP_OBS_CONSENT_CRASH_INT 0)
+endif()
+if(BLOP_OBS_CONSENT_ANALYTICS)
+    set(BLOP_OBS_CONSENT_ANALYTICS_INT 1)
+else()
+    set(BLOP_OBS_CONSENT_ANALYTICS_INT 0)
+endif()
+if(ANDROID)
+    set(BLOP_OBS_ANDROID_VERSION_CODE_ESC "${ANDROID_VERSION_CODE}")
+else()
+    set(BLOP_OBS_ANDROID_VERSION_CODE_ESC "")
+endif()
+set(BLOP_OBS_QT_PKG_VERSION_ESC "${Qt6_VERSION}")
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/src/observability/blop_observability_build.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/blop_observability_build.h"
+    @ONLY
+)
 
 if(ANDROID)
     target_link_libraries(Blop PRIVATE Qt6::WebView)
@@ -295,4 +411,13 @@ endif()
 if(WIN32)
     set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
+
+# --- Additive automation (benchmarks, future headless tools): never linked into Blop ---
+option(BLOP_BUILD_AUTOMATION "Register headless tooling targets (e.g. blop_benchmark_math); does not change Blop behavior" OFF)
+if(BLOP_BUILD_AUTOMATION AND NOT ANDROID)
+    add_subdirectory(benchmarks)
+elseif(BLOP_BUILD_AUTOMATION AND ANDROID)
+    message(STATUS "BLOP_BUILD_AUTOMATION=ON: skipping benchmarks subdirectory on Android toolchain (desktop CI only)")
+endif()
+
 # Forcing CMake refresh for AUTOMOC

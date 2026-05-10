@@ -4,8 +4,8 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsScene>
 #include <QPainter>
-#include "../ToolMode.h"
-#include "../ToolSettings.h"
+#include "ToolMode.h"
+#include "ToolSettings.h"
 
 class AbstractTool : public QObject {
     Q_OBJECT

@@ -1,0 +1,19 @@
+#pragma once
+/* CMake-generated observability constants (configure_file @ONLY).
+ * Do not edit by hand — see CMakeLists.txt and docs/ADR-observability.md */
+
+#define BLOP_OBS_APP_VERSION_STR "@BLOP_OBS_APP_VERSION_ESC@"
+#define BLOP_OBS_PROJECT_VERSION_STR "@BLOP_OBS_PROJECT_VERSION_ESC@"
+#define BLOP_OBS_GIT_SHA "@BLOP_OBS_GIT_SHA_ESC@"
+#define BLOP_OBS_BUILD_NUMBER "@BLOP_OBS_BUILD_NUMBER_ESC@"
+#define BLOP_OBS_BUILD_FLAVOR "@BLOP_OBS_BUILD_FLAVOR_ESC@"
+#define BLOP_OBS_ANDROID_VERSION_CODE "@BLOP_OBS_ANDROID_VERSION_CODE_ESC@"
+#define BLOP_OBS_PLATFORM_SLUG "@BLOP_OBS_PLATFORM_SLUG_ESC@"
+#define BLOP_OBS_QT_PKG_VERSION "@BLOP_OBS_QT_PKG_VERSION_ESC@"
+#define BLOP_OBS_CONSENT_CRASH_UPLOAD @BLOP_OBS_CONSENT_CRASH_INT@
+#define BLOP_OBS_CONSENT_ANALYTICS @BLOP_OBS_CONSENT_ANALYTICS_INT@
+
+/** Release string for Sentry; must match CI SENTRY_RELEASE when uploading debug files. */
+#define BLOP_SENTRY_RELEASE_STR "@BLOP_SENTRY_RELEASE_ESC@"
+/** Optional compile-time DSN; runtime SENTRY_DSN overrides when non-empty (see ADR). */
+#define BLOP_SENTRY_COMPILE_DSN "@BLOP_SENTRY_COMPILE_DSN_ESC@"

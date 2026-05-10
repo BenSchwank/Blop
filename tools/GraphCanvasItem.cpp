@@ -1,5 +1,5 @@
 #include "GraphCanvasItem.h"
-#include "../uiscale.h"
+#include "uiscale.h"
 #include "math/MathEvaluator.h"
 #include "math/MathExpressionParser.h"
 #include "math/NumericAnalysis.h"

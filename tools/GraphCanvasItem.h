@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Note.h"
+#include "Note.h"
 #include <QElapsedTimer>
 #include <QGraphicsObject>
 

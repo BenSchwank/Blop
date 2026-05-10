@@ -2,8 +2,8 @@
 #include <QGraphicsObject>
 #include <QPainter>
 #include <QtMath>
-#include "../ToolSettings.h"
-#include "../UIStyles.h"
+#include "ToolSettings.h"
+#include "UIStyles.h"
 #include <QGraphicsSceneWheelEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QEvent>
