@@ -89,3 +89,29 @@ externals/onnxruntime/
 # ONNX model files (generated via scripts/export_math_ocr_model.py)
 assets/models/*.onnx
 assets/models/tokens.json
+
+# Stray crash dumps / logs (the previous process used to scatter
+# blop_*.txt + crash_*.txt across the repo root)
+blop_*.txt
+crash_*.txt
+*_pid.txt
+pkg_dump.txt
+installed_dexdump.txt
+aqtinstall.log
+
+# Node modules (StudyFlow side ships its own; the root tree should
+# never have a node_modules folder again)
+node_modules/
+
+# Windows oddities
+desktop.ini
+
+# Qt Creator / clangd / qmltypes caches (defensive; /build*/ already
+# covers the build dirs themselves)
+.qtc_clangd/
+.qt/
+
+# Gradle / APK / AAB artifacts
+.gradle/
+*.apk
+*.aab
