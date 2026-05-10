@@ -3,6 +3,7 @@
 #include <QKeySequence>
 #include <QShortcut>
 #include <QVBoxLayout>
+#include <utility>
 
 
 MarkdownHighlighter::MarkdownHighlighter(QTextDocument *parent)
@@ -36,7 +37,7 @@ MarkdownHighlighter::MarkdownHighlighter(QTextDocument *parent)
 
   // Code
   codeFormat.setForeground(QColor("#A6E22E"));
-  codeFormat.setFontFamily("Consolas");
+  codeFormat.setFontFamilies({QStringLiteral("Consolas")});
   rule.pattern = QRegularExpression("`[^`]+`");
   rule.format = codeFormat;
   highlightingRules.append(rule);
@@ -55,7 +56,7 @@ MarkdownHighlighter::MarkdownHighlighter(QTextDocument *parent)
 }
 
 void MarkdownHighlighter::highlightBlock(const QString &text) {
-  for (const HighlightingRule &rule : qAsConst(highlightingRules)) {
+  for (const HighlightingRule &rule : std::as_const(highlightingRules)) {
     QRegularExpressionMatchIterator matchIterator =
         rule.pattern.globalMatch(text);
     while (matchIterator.hasNext()) {

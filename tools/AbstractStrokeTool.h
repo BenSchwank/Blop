@@ -44,7 +44,7 @@ public:
 
     /// Call from the view before each tablet gesture event so strokes are added to the scene
     /// (tablet callbacks pass no QGraphicsScene* to handleMoveOrPress).
-    void setStrokeSceneForTablet(QGraphicsScene* scene) {
+    void setStrokeSceneForTablet(QGraphicsScene* scene) override {
         if (scene)
             m_sceneRef = scene;
     }
