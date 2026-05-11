@@ -2093,6 +2093,16 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       setPageSettingsOverlayVisible(false);
       return true;
     }
+  } else if (obj == m_tileContextOverlay &&
+             event->type() == QEvent::MouseButtonPress) {
+    // Android: tap outside the centered card dismisses the overlay.
+    // Touch events arrive here as synthesised mouse presses.
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (m_tileContextCard &&
+        !m_tileContextCard->geometry().contains(me->pos())) {
+      hideAndroidTileContextOverlay();
+      return true;
+    }
   } else if (obj == m_floatingTools && event->type() == QEvent::Move) {
     // v119 perf: QEvent::Move fires on EVERY pixel of a drag and was
     // re-evaluating the dock condition + (when triggered) running an
@@ -7000,6 +7010,141 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   menu.addAction("Delete", [this, index]() { m_fileModel->remove(index); });
   menu.exec(globalPos);
 }
+
+// ---------------------------------------------------------------------------
+// Android-only tile context overlay
+//
+// Replaces the QMenu::exec() path entirely on Android. QMenu spawns a new
+// top-level QWindow and runs a nested event loop - on Android (single-
+// window) this crashed the app the instant the user tapped the pill.
+//
+// The overlay is a plain QWidget parented to the MainWindow, so it lives
+// in the same QWindow as everything else. No nested loops, no new windows,
+// just a styled card with three buttons.
+// ---------------------------------------------------------------------------
+void MainWindow::showAndroidTileContextOverlay(
+    const QPersistentModelIndex &index) {
+  if (!index.isValid() || !m_fileModel)
+    return;
+
+  // Lazy build on first use.
+  if (!m_tileContextOverlay) {
+    m_tileContextOverlay = new QWidget(this);
+    m_tileContextOverlay->setObjectName(QStringLiteral("TileContextOverlay"));
+    m_tileContextOverlay->setAttribute(Qt::WA_StyledBackground, true);
+    m_tileContextOverlay->setStyleSheet(QStringLiteral(
+        "QWidget#TileContextOverlay { background-color: rgba(8, 6, 18, 220); }"));
+    m_tileContextOverlay->hide();
+    m_tileContextOverlay->installEventFilter(this);
+
+    auto *outer = new QVBoxLayout(m_tileContextOverlay);
+    outer->setContentsMargins(UiScale::dp(24), UiScale::dp(24),
+                              UiScale::dp(24), UiScale::dp(24));
+    outer->addStretch(1);
+    auto *midRow = new QHBoxLayout();
+    midRow->addStretch(1);
+
+    m_tileContextCard = new QWidget(m_tileContextOverlay);
+    m_tileContextCard->setObjectName(QStringLiteral("TileContextCard"));
+    m_tileContextCard->setMinimumWidth(UiScale::dp(280));
+    m_tileContextCard->setMaximumWidth(UiScale::dp(360));
+    m_tileContextCard->setStyleSheet(QStringLiteral(
+        "QWidget#TileContextCard { background: #1A1830; border: 1px solid "
+        "rgba(124, 92, 252, 0.45); border-radius: 18px; }"
+        "QPushButton#TileCtxBtn {"
+        "  background: transparent;"
+        "  color: #E8E6F4;"
+        "  border: none;"
+        "  border-radius: 12px;"
+        "  padding: 14px 18px;"
+        "  font-size: 15px;"
+        "  font-weight: 500;"
+        "  text-align: left;"
+        "}"
+        "QPushButton#TileCtxBtn:pressed { background: rgba(124, 92, 252, 0.25); }"
+        "QPushButton#TileCtxBtnDanger { color: #FF7878; }"));
+
+    auto *card = new QVBoxLayout(m_tileContextCard);
+    card->setContentsMargins(UiScale::dp(8), UiScale::dp(12),
+                             UiScale::dp(8), UiScale::dp(12));
+    card->setSpacing(UiScale::dp(2));
+
+    m_tileContextTitle = new QLabel(QString(), m_tileContextCard);
+    m_tileContextTitle->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.55); font-size: 12px; font-weight: 600;"
+        "padding: 4px 14px 10px 14px; background: transparent;"));
+    m_tileContextTitle->setWordWrap(true);
+    card->addWidget(m_tileContextTitle);
+
+    auto makeBtn = [this, card](const QString &label, const char *style,
+                                std::function<void()> onClick) {
+      auto *btn = new QPushButton(label, m_tileContextCard);
+      btn->setObjectName(QString::fromLatin1(style));
+      btn->setMinimumHeight(UiScale::dp(48));
+      btn->setCursor(Qt::PointingHandCursor);
+      connect(btn, &QPushButton::clicked, this, [this, onClick]() {
+        // Dismiss first so the action's own dialogs (rename overlay,
+        // QMessageBox) don't fight the overlay backdrop, then defer the
+        // action to the next tick so any in-flight touch chain finishes
+        // cleanly (same reason we defer the original tap).
+        hideAndroidTileContextOverlay();
+        QPointer<MainWindow> safeThis(this);
+        QTimer::singleShot(0, this, [safeThis, onClick]() {
+          if (safeThis) onClick();
+        });
+      });
+      card->addWidget(btn);
+      return btn;
+    };
+
+    makeBtn(QStringLiteral("\u00d6ffnen"), "TileCtxBtn", [this]() {
+      if (m_tileContextIndex.isValid())
+        onFileDoubleClicked(QModelIndex(m_tileContextIndex));
+    });
+    makeBtn(QStringLiteral("Umbenennen"), "TileCtxBtn", [this]() {
+      if (m_tileContextIndex.isValid())
+        startRename(QModelIndex(m_tileContextIndex));
+    });
+
+    auto *separator = new QFrame(m_tileContextCard);
+    separator->setFrameShape(QFrame::HLine);
+    separator->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.08); background: rgba(255,255,255,0.08);"
+        "border: none; max-height: 1px; margin: 4px 12px;"));
+    card->addWidget(separator);
+
+    makeBtn(QStringLiteral("L\u00f6schen"), "TileCtxBtnDanger", [this]() {
+      if (m_tileContextIndex.isValid() && m_fileModel)
+        m_fileModel->remove(QModelIndex(m_tileContextIndex));
+    });
+
+    midRow->addWidget(m_tileContextCard);
+    midRow->addStretch(1);
+    outer->addLayout(midRow);
+    outer->addStretch(1);
+  }
+
+  m_tileContextIndex = index;
+  if (m_tileContextTitle) {
+    QString name = index.data(Qt::DisplayRole).toString();
+    if (name.endsWith(QStringLiteral(".blop"), Qt::CaseInsensitive))
+      name.chop(5);
+    else if (name.endsWith(QStringLiteral(".bnote"), Qt::CaseInsensitive))
+      name.chop(6);
+    m_tileContextTitle->setText(name);
+  }
+
+  m_tileContextOverlay->setGeometry(rect());
+  m_tileContextOverlay->show();
+  m_tileContextOverlay->raise();
+}
+
+void MainWindow::hideAndroidTileContextOverlay() {
+  if (m_tileContextOverlay)
+    m_tileContextOverlay->hide();
+  m_tileContextIndex = QPersistentModelIndex();
+}
+
 void MainWindow::startRename(const QModelIndex &index) {
   m_indexToRename = index;
   showRenameOverlay(index.data().toString());
@@ -7072,6 +7217,10 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     m_androidOAuthOverlay->setGeometry(androidSafeOverlayRect(this));
   if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
+  if (m_tileContextOverlay && m_tileContextOverlay->isVisible()) {
+    m_tileContextOverlay->setGeometry(rect());
+    m_tileContextOverlay->raise();
+  }
 #else
   if (isTouchMode())
     bottomOffset = 100;

@@ -191,29 +191,20 @@ bool AndroidTileDelegate::editorEvent(QEvent *event,
       // this guard the note is opened underneath the menu and the menu
       // never becomes visible to the user.
       m_window->setAndroidPillClickPending(true);
-      // Anchor under the pill via the actual viewport widget instead of
-      // QMouseEvent::globalPosition() - the latter can be (0,0) when Qt
-      // synthesises the mouse from a touch on Android. Mapping the
-      // option.rect avoids that whole class of issues.
-      QPoint anchor;
-      if (option.widget) {
-        anchor = option.widget->mapToGlobal(
-            QPoint(option.rect.right() - UiScale::dp(8),
-                   option.rect.top() + UiScale::dp(28)));
-      } else {
-        anchor = me->globalPosition().toPoint();
-      }
-      // CRITICAL: defer the menu open. Calling QMenu::exec() (inside
-      // showContextMenu) from inside QStyledItemDelegate::editorEvent
-      // while a touch event is mid-delivery deadlocks Qt's Android
-      // touch synthesiser - the user sees this as an instant crash on
-      // tap. Posting via singleShot lets the current touch chain
-      // finish first; the menu then opens on the next event-loop tick.
+      // CRITICAL: defer the overlay open. Showing it from inside
+      // QStyledItemDelegate::editorEvent while a touch event is still
+      // being dispatched can re-enter Qt's Android touch synthesiser
+      // and crash. Posting via singleShot lets the current touch chain
+      // unwind cleanly; the overlay then shows on the next event-loop
+      // tick. We use the in-window QWidget overlay instead of QMenu
+      // because QMenu::exec() creates a new top-level QWindow + nested
+      // event loop - on Android (single-window) that path crashed the
+      // app the instant the user tapped (v118 regression).
       QPointer<MainWindow> safeWin(m_window);
       QPersistentModelIndex safeIdx(index);
-      QTimer::singleShot(0, m_window, [safeWin, safeIdx, anchor]() {
+      QTimer::singleShot(0, m_window, [safeWin, safeIdx]() {
         if (safeWin && safeIdx.isValid())
-          safeWin->showContextMenu(anchor, QModelIndex(safeIdx));
+          safeWin->showAndroidTileContextOverlay(safeIdx);
       });
       return true;
     }
