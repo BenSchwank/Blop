@@ -442,6 +442,21 @@ public:
     setFocusPolicy(Qt::NoFocus);
   }
 
+  // v3.16.1: alpha is applied directly in paintEvent instead of via
+  // QGraphicsOpacityEffect, because QGraphicsOpacityEffect rasterises the
+  // entire widget tree into an offscreen pixmap every frame on Windows -
+  // combined with the simultaneous geometry animation this caused a very
+  // visible stutter when the tray opened. Painting alpha into the fill
+  // ourselves keeps the geometry animation on the cheap path.
+  void setAlpha(double a) {
+    a = qBound(0.0, a, 1.0);
+    if (qFuzzyCompare(a + 1.0, m_alpha + 1.0))
+      return;
+    m_alpha = a;
+    update();
+  }
+  double alpha() const { return m_alpha; }
+
 protected:
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
@@ -456,11 +471,16 @@ protected:
     path.lineTo(r.left() + br, r.bottom());
     path.quadTo(r.left(), r.bottom(), r.left(), r.bottom() - br);
     path.closeSubpath();
-    p.fillPath(path, QColor(30, 28, 52, 240));
-    QPen border(QColor(124, 92, 252, 110), 1.0);
+    QColor fill(30, 28, 52, qRound(240 * m_alpha));
+    p.fillPath(path, fill);
+    QColor borderC(124, 92, 252, qRound(110 * m_alpha));
+    QPen border(borderC, 1.0);
     p.setPen(border);
     p.drawPath(path);
   }
+
+private:
+  double m_alpha{1.0};
 };
 
 // =============================================================================
@@ -509,10 +529,12 @@ void ToolbarBtn::setDrawFloatingBg(bool draw) {
   update();
 }
 void ToolbarBtn::setActive(bool active) {
-  if (m_active == active) {
-    update();
+  // v3.16.1: full early-out (no update()) so that ModernToolbar::setToolMode's
+  // sweeping setActive(false) over all 11 buttons is essentially free for the
+  // ones that were already inactive. Previously every miss still scheduled a
+  // repaint, which added up to dozens of paints per tool change.
+  if (m_active == active)
     return;
-  }
   m_active = active;
 
   // v3.16.0: animate the lift offset. Active -> lift up ~6dp with OutBack
@@ -2245,9 +2267,16 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
       if (!m_snapPreview) {
         m_snapPreview = new QWidget(parentWidget());
         m_snapPreview->setAttribute(Qt::WA_TransparentForMouseEvents);
-        m_snapPreview->setStyleSheet("background-color: transparent; border: 2px dashed rgba(255, 255, 255, 120); border-radius: 20px;");
+        // v3.16.1: stylesheet set ONCE here, not on every mouse-move. Setting
+        // stylesheet on Windows triggers a full style-recompute; doing that
+        // at native mouse polling rate (~125 Hz) starved the paint thread
+        // during toolbar drag and was a major source of the choppiness.
+        m_snapPreview->setStyleSheet(QString(
+            "background-color: transparent;"
+            "border: 2px dashed %1;"
+            "border-radius: 20px;").arg(m_accentColor.name()));
       }
-      
+
       int idealL = calculateMinLength() + 20;
       const int safeTop = UiScale::safeTopPx(parentWidget());
       const int safeBottom = UiScale::safeBottomPx(parentWidget());
@@ -2256,36 +2285,33 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
       const int previewHeight = UiScale::dp(52);
 
       if (newY <= 50) {
-        // Top Snap: Centered width 
+        // Top Snap: Centered width
         m_snapPreview->setGeometry((parentW - idealL) / 2, previewTop, idealL, previewHeight);
-        m_snapPreview->setStyleSheet(QString(
-            "background-color: transparent;"
-            "border: 2px dashed %1;"
-            "border-radius: 20px;").arg(m_accentColor.name()));
-        m_snapPreview->show();
-        m_snapPreview->raise();
+        if (!m_snapPreview->isVisible()) {
+          m_snapPreview->show();
+          m_snapPreview->raise();
+        }
       } else if (newX <= 50) {
         // Left Snap (Vertical Pill)
         const int usableH = qMax(UiScale::dp(120), parentH - safeTop - safeBottom);
         const int y = safeTop + qMax(0, (usableH - idealL) / 2);
         m_snapPreview->setGeometry(sidePad, y, UiScale::dp(65), idealL);
-        m_snapPreview->setStyleSheet(QString(
-            "background-color: transparent; border: 2px dashed %1; border-radius: 20px;")
-            .arg(m_accentColor.name()));
-        m_snapPreview->show();
-        m_snapPreview->raise();
+        if (!m_snapPreview->isVisible()) {
+          m_snapPreview->show();
+          m_snapPreview->raise();
+        }
       } else if (newX >= parentW - 100) {
         // Right Snap (Vertical Pill)
         const int usableH = qMax(UiScale::dp(120), parentH - safeTop - safeBottom);
         const int y = safeTop + qMax(0, (usableH - idealL) / 2);
         m_snapPreview->setGeometry(parentW - sidePad - UiScale::dp(65), y, UiScale::dp(65), idealL);
-        m_snapPreview->setStyleSheet(QString(
-            "background-color: transparent; border: 2px dashed %1; border-radius: 20px;")
-            .arg(m_accentColor.name()));
-        m_snapPreview->show();
-        m_snapPreview->raise();
+        if (!m_snapPreview->isVisible()) {
+          m_snapPreview->show();
+          m_snapPreview->raise();
+        }
       } else {
-        m_snapPreview->hide();
+        if (m_snapPreview->isVisible())
+          m_snapPreview->hide();
       }
     }
 #endif
@@ -2489,9 +2515,13 @@ void ModernToolbar::showSettingsPopup() {
   // only the height animates.
   tray->setGeometry(QRect(targetX, targetY, targetW, 0));
 
-  auto *fx = new QGraphicsOpacityEffect(tray);
-  fx->setOpacity(0.0);
-  tray->setGraphicsEffect(fx);
+  // v3.16.1: paint-based alpha instead of QGraphicsOpacityEffect. The effect
+  // forces Qt to render the whole subtree (tray + content) into an offscreen
+  // pixmap every frame. Combined with the geometry animation that destroyed
+  // performance on Windows. Now the tray paints its own translucent fill
+  // with this alpha; the inner content stays at 100% opacity (acceptable -
+  // it gets revealed by the growing height anyway).
+  tray->setAlpha(0.0);
 
   layer->show();
   tray->show();
@@ -2504,12 +2534,17 @@ void ModernToolbar::showSettingsPopup() {
   geomAnim->setEasingCurve(QEasingCurve::OutCubic);
   geomAnim->start(QAbstractAnimation::DeleteWhenStopped);
 
-  auto *opAnim = new QPropertyAnimation(fx, "opacity", tray);
-  opAnim->setDuration(200);
-  opAnim->setStartValue(0.0);
-  opAnim->setEndValue(1.0);
-  opAnim->setEasingCurve(QEasingCurve::OutCubic);
-  opAnim->start(QAbstractAnimation::DeleteWhenStopped);
+  auto *alphaAnim = new QVariantAnimation(tray);
+  alphaAnim->setDuration(160);
+  alphaAnim->setStartValue(0.0);
+  alphaAnim->setEndValue(1.0);
+  alphaAnim->setEasingCurve(QEasingCurve::OutCubic);
+  QObject::connect(alphaAnim, &QVariantAnimation::valueChanged, tray,
+                   [tray](const QVariant &v) {
+                     if (tray)
+                       tray->setAlpha(v.toDouble());
+                   });
+  alphaAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 ToolbarBtn *ModernToolbar::getButtonForMode(ToolMode m) {
@@ -2814,6 +2849,21 @@ void ModernToolbar::applyActiveLift(ToolbarBtn *target) {
 void ModernToolbar::setStyle(Style style) {
   if (style == Radial)
     m_radialCollapseTimer.stop();
+  // v3.16.1: cancel any in-flight per-button position animations from a
+  // previous fan-out / collapse. Without this, switching styles mid-anim
+  // leaves the QSequentialAnimationGroups racing the new layout pass, which
+  // produced the "buttons drift while the new layout snaps in" stutter the
+  // user reported.
+  for (auto *b : m_buttons) {
+    if (!b) continue;
+    for (QPropertyAnimation *anim : b->findChildren<QPropertyAnimation *>())
+      anim->stop();
+    for (QSequentialAnimationGroup *seq :
+         b->findChildren<QSequentialAnimationGroup *>())
+      seq->stop();
+  }
+  if (m_activeIndicatorAnim)
+    m_activeIndicatorAnim->stop();
   m_style = style;
   m_cachedMask = QRegion();
   m_showRadialSettings = false; // Hide settings rings when changing main styles
@@ -3502,9 +3552,11 @@ void ModernToolbar::updateLayout(bool animate) {
     }
   }
 
-  // v3.16.0: keep the active-indicator pill aligned to the active button's
-  // new position whenever the layout changes. Use a non-animated reposition
-  // here because updateLayout often runs during resize / orientation flips,
-  // where an animation would lag behind the parent geometry change.
-  updateActiveIndicator(animate);
+  // v3.16.1: ALWAYS reposition the indicator instantly from updateLayout.
+  // Previously this passed `animate` through, so every resize / drag / dock
+  // flip kept restarting the 240ms pos-animation and the indicator looked
+  // like it was lagging behind the buttons. The animated path is only
+  // triggered from setToolMode() / setStyle() where the user explicitly
+  // changes the active tool or layout style.
+  updateActiveIndicator(false);
 }
