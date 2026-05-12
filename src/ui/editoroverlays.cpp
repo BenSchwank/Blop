@@ -1,6 +1,7 @@
 #include "editoroverlays.h"
 
 #include "PageItem.h"
+#include "overlayscrollindicator.h"
 #include "uiscale.h"
 
 #include <QButtonGroup>
@@ -262,10 +263,9 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   auto *scroll = new QScrollArea(card);
   scroll->setFrameShape(QFrame::NoFrame);
   scroll->setWidgetResizable(true);
-  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   scroll->setStyleSheet(QStringLiteral(
       "QScrollArea { background: transparent; border: none; }"));
+  OverlayScrollIndicator::install(scroll);
 
   auto *inner = new QWidget(scroll);
   scroll->setWidget(inner);
@@ -840,10 +840,10 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *scroll = new QScrollArea(card);
   scroll->setFrameShape(QFrame::NoFrame);
   scroll->setWidgetResizable(true);
-  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   scroll->setWidget(content);
   scroll->setStyleSheet(QStringLiteral(
       "QScrollArea { background: transparent; border: none; }"));
+  OverlayScrollIndicator::install(scroll);
   root->addWidget(scroll, 1);
 
   auto *bbox =

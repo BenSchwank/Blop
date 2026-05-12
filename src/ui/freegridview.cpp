@@ -1,4 +1,5 @@
 #include "freegridview.h"
+#include "overlayscrollindicator.h"
 #include <QDrag>
 #include <QMimeData>
 #include <QScrollBar>
@@ -22,6 +23,8 @@ FreeGridView::FreeGridView(QWidget *parent)
   setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
   horizontalScrollBar()->setSingleStep(10);
   verticalScrollBar()->setSingleStep(10);
+
+  OverlayScrollIndicator::install(this);
 }
 
 void FreeGridView::setItemSize(const QSize &size) {

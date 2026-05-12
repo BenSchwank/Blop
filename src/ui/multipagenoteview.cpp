@@ -3,6 +3,7 @@
 #include "TransformOverlay.h"
 #include "editoroverlays.h"
 #include "UIStyles.h"
+#include "overlayscrollindicator.h"
 #include "uiscale.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
@@ -1165,6 +1166,9 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   setAcceptDrops(false);
 
   viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+
+  // v3.16.0: keine nativen Scrollbars, dafuer ein duenner Auto-Hide-Indikator.
+  OverlayScrollIndicator::install(this);
 
   // NEU: Tool-Handling inkl. Lineal
   connect(&ToolManager::instance(), &ToolManager::toolChanged, this,

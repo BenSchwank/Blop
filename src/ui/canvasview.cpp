@@ -3,6 +3,7 @@
 #include "TransformOverlay.h"
 #include "UIStyles.h"
 #include "mainwindow.h"
+#include "overlayscrollindicator.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
@@ -471,6 +472,8 @@ CanvasView::CanvasView(QWidget *parent)
   setMouseTracking(true);
   setDragMode(QGraphicsView::NoDrag);
 
+  OverlayScrollIndicator::install(this);
+
   updateBackgroundTile();
 
   connect(this, &CanvasView::contentModified, this,
@@ -524,13 +527,13 @@ void CanvasView::setToolManager(ToolManager *manager) {
 void CanvasView::setPageFormat(bool isInfinite) {
   m_isInfinite = isInfinite;
   if (m_isInfinite) {
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     updateSceneRect();
   } else {
     m_scene->setSceneRect(m_a4Rect);
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   }
   m_scene->update();
   viewport()->update();

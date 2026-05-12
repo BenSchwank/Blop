@@ -3,6 +3,7 @@
 #include "canvasview.h"
 #include "moderntoolbar.h"
 #include "newnotedialog.h"
+#include "overlayscrollindicator.h"
 #include "profileeditordialog.h"
 #include "settingsdialog.h"
 #include "editoroverlays.h"
@@ -3632,7 +3633,7 @@ void MainWindow::setupUi() {
   // Android uses a dedicated Material-Design delegate that pulls glyphs
   // from the cached AndroidIcons library; the Windows path stays on the
   // legacy painter-driven ModernItemDelegate.
-  m_fileListView->setItemDelegate(new AndroidTileDelegate(this, this));
+  m_fileListView->setItemDelegate(new AndroidTileDelegate(this, m_fileListView));
 #else
   m_fileListView->setItemDelegate(new ModernItemDelegate(this));
 #endif
@@ -5755,11 +5756,8 @@ void MainWindow::setupRightSidebar() {
   QScrollArea *optScroll = new QScrollArea(tabOptions);
   optScroll->setWidgetResizable(true);
   optScroll->setFrameShape(QFrame::NoFrame);
-  optScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  optScroll->setStyleSheet(
-      "QScrollArea { background: transparent; } QScrollBar { width: 4px; "
-      "background: transparent; } QScrollBar::handle { background: #333; "
-      "border-radius: 2px; }");
+  optScroll->setStyleSheet("QScrollArea { background: transparent; }");
+  OverlayScrollIndicator::install(optScroll);
 
   QWidget *optContent = new QWidget();
   optContent->setStyleSheet("background: transparent;");
