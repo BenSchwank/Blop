@@ -134,6 +134,8 @@ qt_add_executable(Blop
     src/ui/overlayscrollindicator.cpp
     src/ui/blopripple.h
     src/ui/blopripple.cpp
+    src/ui/blopstyle.h
+    src/ui/blopstyle.cpp
 
     # Core (note model, page management, profiles, helper headers)
     src/core/notemanager.cpp

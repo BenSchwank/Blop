@@ -1,6 +1,7 @@
 #include "multipagenoteview.h"
 #include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
+#include "blopstyle.h"
 #include "editoroverlays.h"
 #include "UIStyles.h"
 #include "overlayscrollindicator.h"
@@ -1503,12 +1504,10 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_pagesBarCard = new QFrame(m_bottomSheet);
   m_pagesBarCard->setObjectName(QStringLiteral("PagesBarStrip"));
   m_pagesBarCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  m_pagesBarCard->setStyleSheet(QStringLiteral(
-      "#PagesBarStrip {"
-      "  background-color: rgba(38, 40, 52, 0.96);"
-      "  border: 1px solid rgba(120, 130, 160, 0.28);"
-      "  border-radius: 20px;"
-      "}"
+  // v3.16.1: unify the pages-bar surface with the rest of the overlays.
+  m_pagesBarCard->setStyleSheet(
+      BlopStyle::surfaceStyle(QStringLiteral("PagesBarStrip")) +
+      QStringLiteral(
       "#PagesBarStrip QPushButton#PagesBarPrimary {"
       "  background-color: rgba(58, 60, 72, 0.98);"
       "  border: 1px solid rgba(120, 130, 160, 0.35);"

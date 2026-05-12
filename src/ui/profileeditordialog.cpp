@@ -1,4 +1,5 @@
 #include "profileeditordialog.h"
+#include "blopstyle.h"
 #include "moderntoolbar.h"
 
 #include <QVBoxLayout>
@@ -30,15 +31,18 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
         move(parentCenter.x() - width() / 2, parentCenter.y() - height() / 2);
     }
 
-    setStyleSheet("QDialog { background-color: #1E1E1E; border: 1px solid #555; border-radius: 12px; }"
+    // v3.16.1: surface from BlopStyle; controls keep their existing palette
+    // but the QDialog body now matches every other overlay.
+    setObjectName(QStringLiteral("ProfileEditorDialog"));
+    setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("ProfileEditorDialog")) +
                   "QLabel { color: #DDD; font-weight: bold; border: none; background: transparent; }"
                   "QSlider::groove:horizontal { height: 6px; background: #333; border-radius: 3px; }"
-                  "QSlider::handle:horizontal { background: #5E5CE6; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
-                  "QPushButton { background: #333; color: white; border: 1px solid #555; padding: 8px 16px; border-radius: 5px; }"
-                  "QPushButton:hover { background: #444; }"
+                  "QSlider::handle:horizontal { background: #7C5CFC; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
+                  "QPushButton { background: #2A2C42; color: white; border: 1px solid rgba(120,130,160,0.32); padding: 8px 16px; border-radius: 8px; }"
+                  "QPushButton:hover { background: #353756; }"
                   "QCheckBox { color: #DDD; background: transparent; }"
-                  "QGroupBox { border: 1px solid #333; border-radius: 5px; margin-top: 10px; }"
-                  "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #888; }");
+                  "QGroupBox { border: 1px solid rgba(120,130,160,0.22); border-radius: 8px; margin-top: 10px; }"
+                  "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #BFC1D8; }");
 
     setupUi();
 
@@ -329,11 +333,12 @@ void ProfileEditorDialog::showEvent(QShowEvent *event) {
     if (m_dialogIntroDone)
         return;
     m_dialogIntroDone = true;
+    // v3.16.1: unified slide-in (280ms OutCubic + 220ms opacity).
     const QPoint dest = pos();
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(180);
+    opAnim->setDuration(220);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
     opAnim->setEasingCurve(QEasingCurve::OutCubic);
@@ -341,7 +346,7 @@ void ProfileEditorDialog::showEvent(QShowEvent *event) {
 #endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(220);
+    posAnim->setDuration(280);
     posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
     posAnim->setEndValue(dest);
     posAnim->setEasingCurve(QEasingCurve::OutCubic);

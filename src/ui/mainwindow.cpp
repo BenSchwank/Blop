@@ -16,6 +16,7 @@
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "pagemanager.h"
+#include "blopstyle.h"
 #include "uiscale.h"
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
@@ -7030,8 +7031,10 @@ void MainWindow::showAndroidTileContextOverlay(
     m_tileContextOverlay = new QWidget(this);
     m_tileContextOverlay->setObjectName(QStringLiteral("TileContextOverlay"));
     m_tileContextOverlay->setAttribute(Qt::WA_StyledBackground, true);
-    m_tileContextOverlay->setStyleSheet(QStringLiteral(
-        "QWidget#TileContextOverlay { background-color: rgba(8, 6, 18, 220); }"));
+    // v3.16.1: unified backdrop alpha so every in-window overlay dims to the
+    // same level as A4Layout / ColorPicker / OverlayHost.
+    BlopStyle::applyBackdrop(m_tileContextOverlay, /*forAndroid=*/true);
+    m_tileContextOverlay->setObjectName(QStringLiteral("TileContextOverlay"));
     m_tileContextOverlay->hide();
     m_tileContextOverlay->installEventFilter(this);
 
@@ -7046,9 +7049,10 @@ void MainWindow::showAndroidTileContextOverlay(
     m_tileContextCard->setObjectName(QStringLiteral("TileContextCard"));
     m_tileContextCard->setMinimumWidth(UiScale::dp(280));
     m_tileContextCard->setMaximumWidth(UiScale::dp(360));
-    m_tileContextCard->setStyleSheet(QStringLiteral(
-        "QWidget#TileContextCard { background: #1A1830; border: 1px solid "
-        "rgba(124, 92, 252, 0.45); border-radius: 18px; }"
+    // v3.16.1: surface comes from BlopStyle (same radius/border as A4Layout).
+    m_tileContextCard->setStyleSheet(
+        BlopStyle::surfaceStyle(QStringLiteral("TileContextCard")) +
+        QStringLiteral(
         "QPushButton#TileCtxBtn {"
         "  background: transparent;"
         "  color: #E8E6F4;"

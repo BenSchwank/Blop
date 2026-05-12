@@ -1,4 +1,5 @@
 #include "newnotedialog.h"
+#include "blopstyle.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -18,21 +19,22 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 
 void NewNoteDialog::setupUi()
 {
-    // Haupt-Container mit Styling
+    // v3.16.1: container uses BlopStyle surface so the new-note dialog shares
+    // bg/border/radius with every other overlay.
     QWidget *container = new QWidget(this);
-    container->setGeometry(5, 5, width()-10, height()-10); // Platz für Schatten
+    container->setObjectName(QStringLiteral("NewNoteCard"));
+    container->setGeometry(5, 5, width()-10, height()-10);
     container->setStyleSheet(
-        "QWidget { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+        BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
         "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
-        "QLineEdit { background: #252526; color: white; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; selection-background-color: #5E5CE6; }"
-        "QLineEdit:focus { border: 1px solid #5E5CE6; }"
+        "QLineEdit { background: rgba(22, 24, 36, 0.95); color: white; border: 1px solid rgba(120,130,160,0.32); border-radius: 8px; padding: 8px; font-size: 14px; selection-background-color: #7C5CFC; }"
+        "QLineEdit:focus { border: 1px solid #7C5CFC; }"
         );
 
-    // Schatten
     QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect(this);
-    shadow->setBlurRadius(15);
-    shadow->setColor(QColor(0,0,0,150));
-    shadow->setOffset(0, 4);
+    shadow->setBlurRadius(32);
+    shadow->setColor(BlopStyle::surfaceShadow());
+    shadow->setOffset(0, 12);
     container->setGraphicsEffect(shadow);
 
     QVBoxLayout *layout = new QVBoxLayout(container);
@@ -136,11 +138,13 @@ void NewNoteDialog::showEvent(QShowEvent *event) {
     if (m_dialogIntroDone)
         return;
     m_dialogIntroDone = true;
+    // v3.16.1: unified slide-in curve (280ms OutCubic + 220ms opacity) so all
+    // dialogs read as one design language.
     const QPoint dest = pos();
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(180);
+    opAnim->setDuration(220);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
     opAnim->setEasingCurve(QEasingCurve::OutCubic);
@@ -148,7 +152,7 @@ void NewNoteDialog::showEvent(QShowEvent *event) {
 #endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(220);
+    posAnim->setDuration(280);
     posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
     posAnim->setEndValue(dest);
     posAnim->setEasingCurve(QEasingCurve::OutCubic);

@@ -1,4 +1,5 @@
 #include "settingsdialog.h"
+#include "blopstyle.h"
 #include "ui_SettingsDialog.h"
 #include <QVBoxLayout>
 #include <QLabel>
@@ -25,6 +26,10 @@ SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
     ui->setupUi(this);
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground);
+    // v3.16.1: apply BlopStyle surface to the dialog itself so this dialog
+    // looks visually identical to ProfileEditor / NewNote / A4Layout.
+    setObjectName(QStringLiteral("SettingsDialog"));
+    setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("SettingsDialog")));
 
     QWidget* tabDesign = ui->tabWidget->widget(0);
     if (tabDesign) {
@@ -122,11 +127,12 @@ void SettingsDialog::showEvent(QShowEvent *event) {
     if (m_dialogIntroDone)
         return;
     m_dialogIntroDone = true;
+    // v3.16.1: unified slide-in (280ms OutCubic + 220ms opacity).
     const QPoint dest = pos();
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(180);
+    opAnim->setDuration(220);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
     opAnim->setEasingCurve(QEasingCurve::OutCubic);
@@ -134,7 +140,7 @@ void SettingsDialog::showEvent(QShowEvent *event) {
 #endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(220);
+    posAnim->setDuration(280);
     posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
     posAnim->setEndValue(dest);
     posAnim->setEasingCurve(QEasingCurve::OutCubic);

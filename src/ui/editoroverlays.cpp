@@ -1,6 +1,7 @@
 #include "editoroverlays.h"
 
 #include "PageItem.h"
+#include "blopstyle.h"
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
 
@@ -101,16 +102,13 @@ OverlayHost::OverlayHost(QWidget *anchor) : QWidget(anchor), m_anchor(anchor) {
   setWindowFlags(Qt::Widget);
   setAttribute(Qt::WA_TranslucentBackground, true);
   setFocusPolicy(Qt::StrongFocus);
+  // v3.16.1: backdrop alpha pulled from BlopStyle so every in-window overlay
+  // dims to the same level. Android keeps a darker scrim because phone
+  // screens are smaller and the content behind would otherwise stay visible.
 #ifdef Q_OS_ANDROID
-  // On Android we want a true modal feel - phones are smaller than the
-  // 780x830 fixed card we draw on desktop, so a 0.52 alpha backdrop lets
-  // the welcome / new-note dialog bleed through visually. Use a near-
-  // opaque scrim so only the card itself is visible.
-  setStyleSheet(QStringLiteral(
-      "#EditorOverlayHost { background-color: rgba(8, 10, 16, 0.96); }"));
+  BlopStyle::applyBackdrop(this, /*forAndroid=*/true);
 #else
-  setStyleSheet(QStringLiteral(
-      "#EditorOverlayHost { background-color: rgba(10, 12, 20, 0.52); }"));
+  BlopStyle::applyBackdrop(this, /*forAndroid=*/false);
 #endif
   setGeometry(anchor->rect());
   anchor->installEventFilter(this);
@@ -198,12 +196,12 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
 
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("ColorPickerCard"));
-  card->setStyleSheet(QStringLiteral(
-      "#ColorPickerCard {"
-      "  background-color: rgba(30, 32, 44, 0.98);"
-      "  border: 1px solid rgba(120, 130, 160, 0.35);"
-      "  border-radius: 20px;"
-      "}"
+  // v3.16.1: card surface comes from BlopStyle. The local stylesheet only
+  // styles the children (labels, line edits) so every overlay shares one
+  // surface bg / border / radius set.
+  card->setStyleSheet(
+      BlopStyle::surfaceStyle(QStringLiteral("ColorPickerCard")) +
+      QStringLiteral(
       "QLabel { color: rgba(235, 237, 245, 0.95); }"
       "QLineEdit {"
       "  background: rgba(22, 24, 36, 0.95);"
@@ -545,12 +543,11 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("A4LayoutCard"));
-  card->setStyleSheet(QStringLiteral(
-      "#A4LayoutCard {"
-      "  background-color: rgba(24, 26, 38, 0.985);"
-      "  border: 1px solid rgba(135, 145, 175, 0.38);"
-      "  border-radius: 20px;"
-      "}"
+  // v3.16.1: card surface from BlopStyle so the A4 layout overlay shares the
+  // visual surface with all other overlays.
+  card->setStyleSheet(
+      BlopStyle::surfaceStyle(QStringLiteral("A4LayoutCard")) +
+      QStringLiteral(
       "#LayoutPanel {"
       "  background: rgba(18, 21, 32, 0.72);"
       "  border: 1px solid rgba(120, 132, 165, 0.22);"

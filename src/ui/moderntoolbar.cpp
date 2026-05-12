@@ -471,9 +471,11 @@ protected:
     path.lineTo(r.left() + br, r.bottom());
     path.quadTo(r.left(), r.bottom(), r.left(), r.bottom() - br);
     path.closeSubpath();
-    QColor fill(30, 28, 52, qRound(240 * m_alpha));
+    // v3.16.1: match BlopStyle::surfaceBg / surfaceBorder so MorphTray looks
+    // identical to all other overlays.
+    QColor fill(28, 30, 46, qRound(240 * m_alpha));
     p.fillPath(path, fill);
-    QColor borderC(124, 92, 252, qRound(110 * m_alpha));
+    QColor borderC(124, 92, 252, qRound(56 * m_alpha));
     QPen border(borderC, 1.0);
     p.setPen(border);
     p.drawPath(path);
