@@ -1,4 +1,5 @@
 #include "moderntoolbar.h"
+#include "blopripple.h"
 #include "UIStyles.h"
 #include "tools/ToolManager.h"
 #include "tools/ToolUIBridge.h"
@@ -14,6 +15,7 @@
 #include "editoroverlays.h"
 #include <QDialog>
 #include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
 #include <QMainWindow>
 #include <QGraphicsItem>
 #include <QGraphicsView>
@@ -26,7 +28,9 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QParallelAnimationGroup>
+#include <QPauseAnimation>
 #include <QPropertyAnimation>
+#include <QSequentialAnimationGroup>
 #include <QPushButton>
 #include <QRegion>
 #include <QSlider>
@@ -389,6 +393,74 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
 } // namespace
 
 // =============================================================================
+// v3.16.0: Active-Indicator Pill
+// Small 28dp x 3dp accent-Lila pill that slides horizontally under the
+// currently active tool button, Material-3-style. Pure paint, no logic.
+// =============================================================================
+class ActiveIndicatorPill : public QWidget {
+public:
+  explicit ActiveIndicatorPill(QWidget *parent, const QColor &accent)
+      : QWidget(parent), m_accent(accent) {
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    setAttribute(Qt::WA_NoSystemBackground, true);
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setFocusPolicy(Qt::NoFocus);
+  }
+  void setAccent(const QColor &c) {
+    m_accent = c;
+    update();
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(m_accent);
+    const qreal r = std::min(width(), height()) / 2.0;
+    p.drawRoundedRect(rect(), r, r);
+  }
+
+private:
+  QColor m_accent;
+};
+
+// =============================================================================
+// v3.16.0: Morph-Tray container
+// Custom-painted container that holds the tool settings widgets and visually
+// continues the notch by having square top corners and rounded bottom
+// corners. Background is the same translucent indigo as the toolbar pill.
+// =============================================================================
+class MorphTray : public QWidget {
+public:
+  explicit MorphTray(QWidget *parent = nullptr) : QWidget(parent) {
+    setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_NoSystemBackground);
+    setFocusPolicy(Qt::NoFocus);
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPainterPath path;
+    const qreal br = UiScale::dp(24);
+    QRectF r = rect();
+    path.moveTo(r.topLeft());
+    path.lineTo(r.topRight());
+    path.lineTo(r.right(), r.bottom() - br);
+    path.quadTo(r.right(), r.bottom(), r.right() - br, r.bottom());
+    path.lineTo(r.left() + br, r.bottom());
+    path.quadTo(r.left(), r.bottom(), r.left(), r.bottom() - br);
+    path.closeSubpath();
+    p.fillPath(path, QColor(30, 28, 52, 240));
+    QPen border(QColor(124, 92, 252, 110), 1.0);
+    p.setPen(border);
+    p.drawPath(path);
+  }
+};
+
+// =============================================================================
 // 1. ToolbarBtn Implementation
 // =============================================================================
 ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
@@ -396,6 +468,12 @@ ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
   setBtnSize(UiScale::dp(40));
   setCursor(Qt::PointingHandCursor);
   setAttribute(Qt::WA_AcceptTouchEvents, true);
+  // v3.16.0: let the parent toolbar's painted notch (and the sliding
+  // active-indicator pill that sits below the active button) show through
+  // the button. Without translucency Qt fills the rectangle with the palette
+  // window color, which hides the indicator's bottom slice and the notch's
+  // rounded corners on small button cells.
+  setAttribute(Qt::WA_TranslucentBackground, true);
 #if BLOP_TOOLBAR_LONGPRESS
   m_holdTimer.setInterval(16);
   connect(&m_holdTimer, &QTimer::timeout, this, [this]() {
@@ -428,7 +506,31 @@ void ToolbarBtn::setDrawFloatingBg(bool draw) {
   update();
 }
 void ToolbarBtn::setActive(bool active) {
+  if (m_active == active) {
+    update();
+    return;
+  }
   m_active = active;
+
+  // v3.16.0: animate the lift offset. Active -> lift up ~6dp with OutBack
+  // overshoot. Inactive -> settle back down with OutCubic. The animation
+  // pointer is parented to this widget; QPointer prevents dangling.
+  if (!m_liftAnim) {
+    m_liftAnim = new QPropertyAnimation(this, "liftOffset", this);
+  } else {
+    m_liftAnim->stop();
+  }
+  m_liftAnim->setStartValue(m_liftOffset);
+  if (active) {
+    m_liftAnim->setEndValue((double)UiScale::dp(6));
+    m_liftAnim->setDuration(260);
+    m_liftAnim->setEasingCurve(QEasingCurve::OutBack);
+  } else {
+    m_liftAnim->setEndValue(0.0);
+    m_liftAnim->setDuration(200);
+    m_liftAnim->setEasingCurve(QEasingCurve::OutCubic);
+  }
+  m_liftAnim->start();
   update();
 }
 void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
@@ -444,9 +546,10 @@ void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
   }
   QWidget::mousePressEvent(e);
 #else
-  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton)
+  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton) {
+    BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
     emit clicked();
-  else
+  } else
     QWidget::mousePressEvent(e);
 #endif
 }
@@ -462,6 +565,7 @@ void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
   m_holdProgress = 0.0;
   update();
   if (shouldClick) {
+    BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
     emit clicked();
     e->accept();
     return;
@@ -488,6 +592,12 @@ void ToolbarBtn::animateSelect() {
   anim->setEasingCurve(QEasingCurve::OutBack);
   anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
+
+void ToolbarBtn::triggerClick() {
+  BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
+  animateSelect();
+  emit clicked();
+}
 void ToolbarBtn::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
@@ -500,7 +610,28 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.drawEllipse(rect().adjusted(2, 2, -2, -2));
   }
 
+  const int w = width();
+  const int h = height();
   const int r = m_size / 2 - 4;
+
+  // v3.16.0: while the active button is lifted, paint a soft shadow at the
+  // original (un-lifted) position to keep the visual link to the pill.
+  if (m_active && m_liftOffset > 0.5) {
+    const QPointF shadowCenter(w / 2.0, h / 2.0 + 1.0);
+    const qreal shadowR = r + 4.0;
+    QRadialGradient grad(shadowCenter, shadowR);
+    grad.setColorAt(0.0, QColor(0, 0, 0, 80));
+    grad.setColorAt(0.7, QColor(0, 0, 0, 28));
+    grad.setColorAt(1.0, QColor(0, 0, 0, 0));
+    p.setBrush(grad);
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(shadowCenter, shadowR, shadowR);
+  }
+
+  p.save();
+  if (m_liftOffset > 0.0)
+    p.translate(0.0, -m_liftOffset);
+
   if (m_active) {
     p.setBrush(m_accentColor);
     p.setPen(Qt::NoPen);
@@ -511,8 +642,6 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.drawEllipse(rect().center(), r, r);
   }
 
-  const int w = width();
-  const int h = height();
   const QColor fg =
       m_active ? QColor(255, 255, 255, 255) : QColor(236, 240, 252, 250);
   p.save();
@@ -533,6 +662,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     const QRectF arcRect = rect().adjusted(3, 3, -3, -3);
     p.drawArc(arcRect, 90 * 16, -m_holdProgress * 360.0 * 16.0);
   }
+  p.restore();
 }
 
 // =============================================================================
@@ -664,6 +794,28 @@ protected:
 } // namespace
 #endif
 
+// Click-outside-to-dismiss scrim for the desktop morph tray. Transparent
+// (no dimming) but catches the press and closes its parent layer.
+namespace {
+class DesktopTraySCrim : public QWidget {
+public:
+  explicit DesktopTraySCrim(QWidget *layer) : QWidget(layer) {
+    setGeometry(layer->rect());
+    setAttribute(Qt::WA_TranslucentBackground);
+  }
+protected:
+  void resizeEvent(QResizeEvent *) override {
+    if (parentWidget())
+      setGeometry(parentWidget()->rect());
+  }
+  void mousePressEvent(QMouseEvent *e) override {
+    e->accept();
+    if (parentWidget())
+      parentWidget()->deleteLater();
+  }
+};
+} // namespace
+
 // =============================================================================
 // 3. Settings sheet content (desktop: wrapped in QDialog; Android: embedded in central widget)
 // =============================================================================
@@ -671,17 +823,12 @@ class ToolSettingsContent : public QWidget {
 public:
   ToolSettingsContent(ToolMode mode, ToolConfig config, QWidget *parent)
       : QWidget(parent), m_mode(mode), m_config(config) {
-#ifdef Q_OS_ANDROID
-    setObjectName(QStringLiteral("ToolSettingsSheet"));
-    setAttribute(Qt::WA_StyledBackground, true);
-#else
+    // v3.16.0: content widget is always transparent now; the surrounding
+    // MorphTray paints the notch-continuation background so the inner
+    // content does not need its own card. This avoids the double-card
+    // look that the Android stylesheet previously produced.
     setAttribute(Qt::WA_TranslucentBackground);
-#endif
     setStyleSheet(
-#ifdef Q_OS_ANDROID
-        "QWidget#ToolSettingsSheet { background-color: #252528; border-radius: 12px; "
-        "border: 1px solid rgba(255,255,255,0.12); }"
-#endif
         "QLabel { color: #DDD; font-weight: bold; font-size: 11px; background: "
         "transparent; }"
         "QSlider::groove:horizontal { height: 4px; background: #444; "
@@ -1541,20 +1688,11 @@ private:
   QWidget *m_shapeGraphPanel{nullptr};
 };
 
-#ifndef Q_OS_ANDROID
-class ToolSettingsPopup : public QDialog {
-public:
-  explicit ToolSettingsPopup(ToolMode mode, ToolConfig config, QWidget *parent)
-      : QDialog(parent) {
-    setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
-    setAttribute(Qt::WA_TranslucentBackground);
-    setAttribute(Qt::WA_DeleteOnClose, true);
-    auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(0, 0, 0, 0);
-    lay->addWidget(new ToolSettingsContent(mode, config, this));
-  }
-};
-#endif
+// v3.16.0: legacy ToolSettingsPopup (desktop QDialog with Qt::Popup flag)
+// removed. The unified morph-tray path in showSettingsPopup() now handles
+// both Android and desktop with an in-window MorphTray container, which is
+// what "no Windows-like chrome" requires (the popup was the last QDialog-
+// driven floating window in the editor surface).
 
 // =============================================================================
 // 4. ModernToolbar Implementation
@@ -1567,6 +1705,20 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   setMouseTracking(true);
   if (parent)
     parent->installEventFilter(this);
+
+  m_radialCollapseTimer.setSingleShot(true);
+  connect(&m_radialCollapseTimer, &QTimer::timeout, this, [this]() {
+    if (m_style == Radial)
+      setStyle(Normal);
+  });
+
+  // v3.16.0: sliding active-tool indicator pill (Material-3 style). Created
+  // before the buttons so it sits behind them in the z-order and never
+  // intercepts mouse / touch events.
+  auto *indicator = new ActiveIndicatorPill(this, m_accentColor);
+  indicator->resize(UiScale::dp(28), UiScale::dp(3));
+  indicator->hide();
+  m_activeIndicator = indicator;
 
   btnPen = new ToolbarBtn("pen", this);
   btnPencil = new ToolbarBtn("pencil", this);
@@ -1627,6 +1779,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     }
     ToolManager::instance().selectTool(m);
     setToolMode(m);
+    if (m_style == Radial)
+      m_radialCollapseTimer.start(180);
   };
   
   // Initialize Secondary Settings Ring (Colors & Sizes)
@@ -1713,6 +1867,32 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           [this]() { emit redoRequested(); });
   connect(btnDockToggle, &ToolbarBtn::clicked,
           [this]() { setDockMode(!m_isDockedMode); });
+#if BLOP_TOOLBAR_LONGPRESS
+  // v3.16.0: long-press on the dock-toggle button opens the radial wheel as
+  // a quick-switcher. The wheel uses HalfEdge automatically when the toolbar
+  // is anchored near a screen edge so the half not visible off-screen never
+  // appears. Releasing on a button selects it; tapping elsewhere closes.
+  connect(btnDockToggle, &ToolbarBtn::longPressed, this, [this]() {
+    if (m_style == Radial) {
+      setStyle(Normal);
+      return;
+    }
+    // Pick HalfEdge when toolbar's center is within a wheel-radius of any
+    // edge of its parent; otherwise FullCircle in the screen center area.
+    if (auto *p = parentWidget()) {
+      const QPoint c = mapToParent(rect().center());
+      const int wheelR = UiScale::dp(180);
+      const int edgeBand = UiScale::dp(40);
+      const bool nearEdge =
+          c.x() < wheelR + edgeBand ||
+          c.x() > p->width() - wheelR - edgeBand ||
+          c.y() < wheelR + edgeBand ||
+          c.y() > p->height() - wheelR - edgeBand;
+      setRadialType(nearEdge ? HalfEdge : FullCircle);
+    }
+    setStyle(Radial);
+  });
+#endif
 
   connect(btnPalette, &ToolbarBtn::clicked, this,
           [this]() { toggleRadialSettings(); });
@@ -2227,94 +2407,106 @@ void ModernToolbar::showSettingsPopup() {
   ToolConfig currentConfig = ToolManager::instance().config();
   ToolbarBtn *btn = getButtonForMode(mode_);
 
-#ifdef Q_OS_ANDROID
+  // v3.16.0: unified morph-tray. The tray grows out of the bottom edge of
+  // the toolbar (or to the side, when the toolbar is in vertical orientation)
+  // with a height + opacity animation, so the rounded-bottom shape visually
+  // continues the notch. Both platforms share this path; only the scrim is
+  // Android-only because phones benefit from the dim-everything-behind UX
+  // while desktops do not.
   QWidget *host = window();
+#ifdef Q_OS_ANDROID
   if (auto *mw = qobject_cast<QMainWindow *>(host)) {
     if (QWidget *cw = mw->centralWidget())
       host = cw;
   }
+#endif
   if (!host)
     return;
+
   auto *layer = new QWidget(host);
   layer->setAttribute(Qt::WA_DeleteOnClose, true);
+  layer->setAttribute(Qt::WA_TranslucentBackground);
+  layer->setFocusPolicy(Qt::NoFocus);
   layer->setGeometry(host->rect());
+  m_toolSettingsSheet = layer;
+
+#ifdef Q_OS_ANDROID
   auto *scrim = new AndroidToolSettingsScrim(layer);
-  auto *content = new ToolSettingsContent(mode_, currentConfig, layer);
-  content->adjustSize();
-  QPoint targetPos;
-  if (btn) {
-    if (m_orientation == Horizontal) {
-      targetPos = btn->mapToGlobal(
-          QPoint((btn->width() - content->width()) / 2, btn->height() + 10));
-    } else {
-      targetPos = btn->mapToGlobal(QPoint(btn->width() + 10, 0));
-    }
-  } else {
-    targetPos = mapToGlobal(rect().bottomLeft()) + QPoint(0, 10);
+#else
+  auto *scrim = new DesktopTraySCrim(layer);
+#endif
+  scrim->setGeometry(layer->rect());
+  scrim->show();
+  scrim->lower();
+
+  auto *tray = new MorphTray(layer);
+  auto *trayLayout = new QVBoxLayout(tray);
+  trayLayout->setContentsMargins(UiScale::dp(6), UiScale::dp(2),
+                                 UiScale::dp(6), UiScale::dp(14));
+  trayLayout->setSpacing(0);
+  auto *content = new ToolSettingsContent(mode_, currentConfig, tray);
+  trayLayout->addWidget(content);
+  tray->adjustSize();
+
+  const int targetW = qMax(UiScale::dp(280), tray->sizeHint().width());
+  const int targetH = tray->sizeHint().height();
+
+  const QPoint toolbarTL = host->mapFromGlobal(mapToGlobal(QPoint(0, 0)));
+  const QPoint toolbarBR =
+      host->mapFromGlobal(mapToGlobal(QPoint(width(), height())));
+  const int toolbarCx = (toolbarTL.x() + toolbarBR.x()) / 2;
+  int targetX = toolbarCx - targetW / 2;
+  int targetY = toolbarBR.y();
+
+  // When the toolbar is in vertical orientation (floating side), grow the
+  // tray to the right of the active button instead of below; keep it bound
+  // inside the host with safe-area margins on all sides.
+  if (m_orientation == Vertical && btn) {
+    const QPoint btnTL = host->mapFromGlobal(btn->mapToGlobal(QPoint(0, 0)));
+    targetX = btnTL.x() + btn->width() + UiScale::dp(8);
+    targetY = btnTL.y();
   }
-  if (this->window()) {
-    QRect windowRect = this->window()->geometry();
-    if (targetPos.x() + content->width() > windowRect.right())
-      targetPos.setX(windowRect.right() - content->width() - 10);
-    if (targetPos.y() + content->height() > windowRect.bottom())
-      targetPos.setY(windowRect.bottom() - content->height() - 10);
-    if (targetPos.x() < windowRect.left())
-      targetPos.setX(windowRect.left() + 10);
-    if (targetPos.y() < windowRect.top())
-      targetPos.setY(windowRect.top() + 10);
-  }
+
   const QRect hostR = host->rect();
-  QRect contentR(layer->mapFromGlobal(targetPos), content->size());
   const int sidePad = UiScale::safeHorizontalPaddingPx(host);
   const int topPad = UiScale::safeTopPx(host) + UiScale::dp(8);
   const int bottomPad = UiScale::safeBottomPx(host) + UiScale::dp(8);
-  const int rightBound = hostR.width() - sidePad;
-  const int bottomBound = hostR.height() - bottomPad;
-  if (contentR.right() > rightBound)
-    contentR.moveRight(rightBound);
-  if (contentR.bottom() > bottomBound)
-    contentR.moveBottom(bottomBound);
-  if (contentR.left() < sidePad)
-    contentR.moveLeft(sidePad);
-  if (contentR.top() < topPad)
-    contentR.moveTop(topPad);
-  content->setGeometry(contentR);
-  m_toolSettingsSheet = layer;
+  if (targetX + targetW > hostR.width() - sidePad)
+    targetX = hostR.width() - sidePad - targetW;
+  if (targetX < sidePad)
+    targetX = sidePad;
+  if (targetY + targetH > hostR.height() - bottomPad)
+    targetY = hostR.height() - bottomPad - targetH;
+  if (targetY < topPad)
+    targetY = topPad;
+
+  const QRect finalGeom(targetX, targetY, targetW, targetH);
+  // Start collapsed (height = 0) so the tray appears to grow out of the
+  // notch's bottom edge. Both width and x start at their final values so
+  // only the height animates.
+  tray->setGeometry(QRect(targetX, targetY, targetW, 0));
+
+  auto *fx = new QGraphicsOpacityEffect(tray);
+  fx->setOpacity(0.0);
+  tray->setGraphicsEffect(fx);
+
   layer->show();
-  scrim->show();
-  scrim->lower();
-  content->show();
-  content->raise();
-#else
-  QWidget *parentForPopup = window();
-  auto *popup = new ToolSettingsPopup(mode_, currentConfig, parentForPopup);
-  m_toolSettingsSheet = popup;
-  popup->adjustSize();
-  QPoint targetPos;
-  if (btn) {
-    if (m_orientation == Horizontal) {
-      targetPos = btn->mapToGlobal(
-          QPoint((btn->width() - popup->width()) / 2, btn->height() + 10));
-    } else {
-      targetPos = btn->mapToGlobal(QPoint(btn->width() + 10, 0));
-    }
-  } else {
-    targetPos = mapToGlobal(rect().bottomLeft()) + QPoint(0, 10);
-  }
-  if (this->window()) {
-    QRect windowRect = this->window()->geometry();
-    if (targetPos.x() + popup->width() > windowRect.right())
-      targetPos.setX(windowRect.right() - popup->width() - 10);
-    if (targetPos.y() + popup->height() > windowRect.bottom())
-      targetPos.setY(windowRect.bottom() - popup->height() - 10);
-    if (targetPos.x() < windowRect.left())
-      targetPos.setX(windowRect.left() + 10);
-    if (targetPos.y() < windowRect.top())
-      targetPos.setY(windowRect.top() + 10);
-  }
-  popup->move(targetPos);
-  popup->show();
-#endif
+  tray->show();
+  tray->raise();
+
+  auto *geomAnim = new QPropertyAnimation(tray, "geometry", tray);
+  geomAnim->setDuration(320);
+  geomAnim->setStartValue(tray->geometry());
+  geomAnim->setEndValue(finalGeom);
+  geomAnim->setEasingCurve(QEasingCurve::OutCubic);
+  geomAnim->start(QAbstractAnimation::DeleteWhenStopped);
+
+  auto *opAnim = new QPropertyAnimation(fx, "opacity", tray);
+  opAnim->setDuration(200);
+  opAnim->setStartValue(0.0);
+  opAnim->setEndValue(1.0);
+  opAnim->setEasingCurve(QEasingCurve::OutCubic);
+  opAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 ToolbarBtn *ModernToolbar::getButtonForMode(ToolMode m) {
@@ -2539,10 +2731,86 @@ void ModernToolbar::setToolMode(ToolMode mode) {
   if (m_style == Radial && m_radialType == FullCircle && changed) {
     updateLayout(true);
   }
+  updateActiveIndicator(true);
   update();
   updateHitbox();
 }
+
+void ModernToolbar::updateActiveIndicator(bool animate) {
+  if (!m_activeIndicator)
+    return;
+  // Indicator only makes sense for the linear (Normal) toolbar; hide in Radial.
+  if (m_style != Normal) {
+    m_activeIndicator->hide();
+    return;
+  }
+  ToolbarBtn *btn = getButtonForMode(mode_);
+  if (!btn || !btn->isVisible() || btn->geometry().isEmpty()) {
+    m_activeIndicator->hide();
+    return;
+  }
+
+  const QPoint btnTL = btn->pos();
+  const int btnW = btn->width();
+  const int btnH = btn->height();
+  const int indW = UiScale::dp(28);
+  const int indH = UiScale::dp(3);
+
+  QPoint target;
+  if (m_orientation == Horizontal) {
+    // Pill sits inside the bottom of the button row, ~4 dp above the pill's
+    // bottom edge so the active button visually anchors the indicator.
+    target = QPoint(btnTL.x() + (btnW - indW) / 2,
+                    btnTL.y() + btnH - indH - UiScale::dp(4));
+  } else {
+    target = QPoint(btnTL.x() + btnW - indH - UiScale::dp(4),
+                    btnTL.y() + (btnH - indW) / 2);
+  }
+
+  // Swap dimensions for vertical orientation.
+  if (m_orientation == Horizontal)
+    m_activeIndicator->resize(indW, indH);
+  else
+    m_activeIndicator->resize(indH, indW);
+
+  if (!m_activeIndicator->isVisible()) {
+    m_activeIndicator->move(target);
+    m_activeIndicator->show();
+    m_activeIndicator->raise();
+    return;
+  }
+  if (!animate) {
+    m_activeIndicator->move(target);
+    m_activeIndicator->raise();
+    return;
+  }
+  if (!m_activeIndicatorAnim) {
+    m_activeIndicatorAnim =
+        new QPropertyAnimation(m_activeIndicator, "pos", this);
+  } else {
+    m_activeIndicatorAnim->stop();
+  }
+  m_activeIndicatorAnim->setDuration(240);
+  m_activeIndicatorAnim->setEasingCurve(QEasingCurve::OutCubic);
+  m_activeIndicatorAnim->setStartValue(m_activeIndicator->pos());
+  m_activeIndicatorAnim->setEndValue(target);
+  m_activeIndicatorAnim->start();
+  m_activeIndicator->raise();
+}
+
+// v3.16.0: applyActiveLift is folded into setToolMode (the existing loop
+// over m_buttons + setActive on the matched button already drives the
+// per-button QPropertyAnimation(liftOffset)).
+void ModernToolbar::applyActiveLift(ToolbarBtn *target) {
+  for (auto *b : m_buttons) {
+    if (!b)
+      continue;
+    b->setActive(b == target);
+  }
+}
 void ModernToolbar::setStyle(Style style) {
+  if (style == Radial)
+    m_radialCollapseTimer.stop();
   m_style = style;
   m_cachedMask = QRegion();
   m_showRadialSettings = false; // Hide settings rings when changing main styles
@@ -2573,7 +2841,13 @@ void ModernToolbar::setStyle(Style style) {
     snapToEdge();
   else
     constrainToParent();
-  updateLayout();
+  if (style == Radial) {
+    m_radialColdFan = true;
+    updateLayout(true);
+    m_radialColdFan = false;
+  } else {
+    updateLayout();
+  }
   updateHitbox();
   update();
 }
@@ -3094,58 +3368,73 @@ void ModernToolbar::updateLayout(bool animate) {
     }
     
     activeBtn->setBtnSize(btnS + 12);
-    
-    if (m_radialType == FullCircle) {
-        if (animate) {
-          QPropertyAnimation *anim = new QPropertyAnimation(activeBtn, "pos");
-          anim->setDuration(200);
-          anim->setEndValue(QPoint(cx - (btnS+12)/2, cy - (btnS+12)/2));
-          anim->start(QAbstractAnimation::DeleteWhenStopped);
-        } else {
-          activeBtn->move(cx - (btnS+12)/2, cy - (btnS+12)/2);
-        }
-        activeBtn->show();
+
+    if (animate && m_radialColdFan) {
+      for (auto *b : radialBtns) {
+        if (!b)
+          continue;
+        b->move(cx - b->width() / 2, cy - b->height() / 2);
+      }
     }
 
-    // Absolute slot positioning reduces staggering layout animations by 90%
+    // v3.16.0 staggered fan-out: when entering radial mode (animate=true),
+    // each button briefly waits its index*30ms before its OutBack position
+    // animation runs. The slight stagger reads as a wave that "spreads"
+    // out from the center, instead of all icons popping out at once.
+    auto spreadTo = [this](ToolbarBtn *b, QPoint target, int idx, bool doAnim,
+                           int cx, int cy) {
+      const QPoint center(cx - b->width() / 2, cy - b->height() / 2);
+      if (!doAnim) {
+        b->move(target);
+        return;
+      }
+      if (b->isHidden())
+        b->move(center);
+      auto *seq = new QSequentialAnimationGroup(b);
+      if (idx > 0)
+        seq->addPause(idx * 30);
+      auto *anim = new QPropertyAnimation(b, "pos");
+      anim->setDuration(260);
+      anim->setEasingCurve(QEasingCurve::OutBack);
+      anim->setStartValue(b->isHidden() ? center : b->pos());
+      anim->setEndValue(target);
+      seq->addAnimation(anim);
+      seq->start(QAbstractAnimation::DeleteWhenStopped);
+    };
+
+    if (m_radialType == FullCircle) {
+      const QPoint activeTarget(cx - (btnS + 12) / 2, cy - (btnS + 12) / 2);
+      spreadTo(activeBtn, activeTarget, 0, animate, cx, cy);
+      activeBtn->show();
+    }
+
     if (m_radialType == HalfEdge) {
       int r = 110 * m_scale;
       for (int i = 0; i < radialBtns.size(); ++i) {
         auto *b = radialBtns[i];
-        double angle = (m_isDockedLeft ? 0.0 : 180.0) + ((i - 2) * 35.0) + m_scrollAngle;
+        double angle =
+            (m_isDockedLeft ? 0.0 : 180.0) + ((i - 2) * 35.0) + m_scrollAngle;
         double rad = angle * 3.14159 / 180.0;
         int currentSize = (b == activeBtn) ? (btnS + 12) : btnS;
-        
         int targetX = paintCx + r * cos(rad) - currentSize / 2;
         int targetY = cy + r * sin(rad) - currentSize / 2;
-        
-        if (animate) {
-          QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
-          anim->setDuration(200);
-          anim->setEndValue(QPoint(targetX, targetY));
-          anim->start(QAbstractAnimation::DeleteWhenStopped);
-        } else {
-          b->move(targetX, targetY);
-        }
+        spreadTo(b, QPoint(targetX, targetY), i, animate, paintCx, cy);
         b->setVisible(m_isDockedLeft ? cos(rad) > 0.05 : cos(rad) < -0.05);
       }
     } else {
       int r = 90 * m_scale;
       double angleStep = 360.0 / radialBtns.size();
+      int visibleIdx = 0;
       for (int i = 0; i < radialBtns.size(); ++i) {
-        if (radialBtns[i] == activeBtn) continue;
+        if (radialBtns[i] == activeBtn)
+          continue;
         double rad = (-90.0 + i * angleStep) * 3.14159 / 180.0;
         int targetX = cx + r * cos(rad) - btnS / 2;
         int targetY = cy + r * sin(rad) - btnS / 2;
-        
-        if (animate) {
-          QPropertyAnimation *anim = new QPropertyAnimation(radialBtns[i], "pos");
-          anim->setDuration(200);
-          anim->setEndValue(QPoint(targetX, targetY));
-          anim->start(QAbstractAnimation::DeleteWhenStopped);
-        } else {
-          radialBtns[i]->move(targetX, targetY);
-        }
+        // visibleIdx instead of i so the stagger sees a contiguous sequence
+        // (active button counts as idx=0 above, others start at idx=1).
+        spreadTo(radialBtns[i], QPoint(targetX, targetY), ++visibleIdx,
+                 animate, cx, cy);
         radialBtns[i]->show();
       }
     }
@@ -3209,4 +3498,10 @@ void ModernToolbar::updateLayout(bool animate) {
         }
     }
   }
+
+  // v3.16.0: keep the active-indicator pill aligned to the active button's
+  // new position whenever the layout changes. Use a non-animated reposition
+  // here because updateLayout often runs during resize / orientation flips,
+  // where an animation would lag behind the parent geometry change.
+  updateActiveIndicator(animate);
 }

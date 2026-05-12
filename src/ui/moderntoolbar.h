@@ -17,6 +17,7 @@ class QPushButton;
 class ToolbarBtn : public QWidget {
     Q_OBJECT
     Q_PROPERTY(double animScale READ animScale WRITE setAnimScale)
+    Q_PROPERTY(double liftOffset READ liftOffset WRITE setLiftOffset)
 
 public:
     explicit ToolbarBtn(const QString& iconName, QWidget* parent = nullptr);
@@ -32,7 +33,12 @@ public:
     double animScale() const { return m_animScale; }
     void setAnimScale(double s) { m_animScale = s; update(); }
 
-    void triggerClick() { animateSelect(); emit clicked(); }
+    // v3.16.0: "active lift" — the active tool floats ~6dp above the pill
+    // (Samsung-Notes style), driven by a QPropertyAnimation in setActive.
+    double liftOffset() const { return m_liftOffset; }
+    void setLiftOffset(double v) { m_liftOffset = v; update(); }
+
+    void triggerClick();
 
 signals:
     void clicked();
@@ -58,6 +64,8 @@ private:
     bool m_longPressTriggered{false};
     double m_holdProgress{0.0};
     QColor m_accentColor{QColor("#7C5CFC")};
+    double m_liftOffset{0.0};
+    QPointer<QPropertyAnimation> m_liftAnim;
 };
 
 // --- Main Toolbar Class ---
@@ -212,4 +220,20 @@ private:
     QList<int> m_separatorXPositions;  // x-coords of section dividers in horizontal mode
 
     QPointer<QWidget> m_toolSettingsSheet;
+
+    // v3.16.0 morph pieces:
+    // m_activeIndicator: 28dp x 3dp accent-Lila pill that slides under the
+    //   currently active tool button (Material 3-style sliding indicator).
+    //   Hidden in Radial style.
+    // m_activeIndicatorAnim: position animation driving it on tool changes.
+    QPointer<QWidget> m_activeIndicator;
+    QPointer<QPropertyAnimation> m_activeIndicatorAnim;
+    void updateActiveIndicator(bool animate = true);
+
+    // Helper that performs the Q_PROPERTY(liftOffset) animation on the
+    // active button (and resets every other button to 0).
+    void applyActiveLift(ToolbarBtn *target);
+
+    QTimer m_radialCollapseTimer;
+    bool m_radialColdFan{false};
 };
