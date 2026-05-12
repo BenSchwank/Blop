@@ -129,14 +129,23 @@ private:
     QColor m_paperColor{Qt::white};
 };
 
-/// Leiste in der Szene direkt unter der letzten Seite (Anker für die Seiten-UI)
+/// "Plus"-Karte direkt unter der letzten Seite. Sichtbar als Affordance fuer
+/// "Neue Seite", dient gleichzeitig als Ankerleiste fuer die Pages-UI. Wird
+/// per Klick / Tap von MultiPageNoteView in addNewPage() gewandelt.
+///
+/// v3.16.1: vorher war das nur ein dotted-border Schlitz; jetzt zeichnen wir
+/// ein zentriertes "+" plus Caption "Neue Seite", damit User auf den ersten
+/// Blick sehen, dass hier eine Aktion lebt. Der Pull-Up-Zustand (m_pullProgress
+/// 0..1) modifiziert Label und Skalierung.
 class SkeletonPageItem : public QGraphicsRectItem {
 public:
     SkeletonPageItem(qreal x, qreal y, qreal w, qreal h, QGraphicsItem *parent = nullptr)
         : QGraphicsRectItem(0, 0, w, h, parent), m_w(w), m_h(h) {
         setPos(x, y);
         setZValue(0);
-        setAcceptedMouseButtons(Qt::NoButton);
+        // Akzeptiere Mouse-Events so dass MultiPageNoteView::mousePressEvent
+        // den Klick detektieren kann (ueber QGraphicsView->itemAt).
+        setAcceptedMouseButtons(Qt::LeftButton);
         setFlag(QGraphicsItem::ItemIsSelectable, false);
     }
 
@@ -148,23 +157,71 @@ public:
         return p;
     }
 
+    void setPullProgress(double p) {
+        const double v = qBound(0.0, p, 1.0);
+        if (qFuzzyCompare(v + 1.0, m_pullProgress + 1.0)) return;
+        m_pullProgress = v;
+        update();
+    }
+    double pullProgress() const { return m_pullProgress; }
+
 protected:
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override {
         Q_UNUSED(option);
         Q_UNUSED(widget);
         const QRectF r = boundingRect();
-        const qreal rad = 12.0;
-        // Nur punktierter Rahmen (kleiner A4-Bereich) — kein Hintergrund
+        const qreal rad = 14.0;
         painter->setRenderHint(QPainter::Antialiasing);
-        QPen borderPen(QColor(QStringLiteral("#9A9AA8")), 1.0, Qt::DotLine);
+
+        // v3.16.1: hover/pull-progress tint -> the card lights up as the user
+        // pulls past the page bottom, signalling "release to create".
+        const qreal pull = m_pullProgress;
+        QColor border = pull > 0.0
+                            ? QColor::fromRgbF(0.49, 0.36, 0.99, 0.55 + 0.45 * pull)
+                            : QColor(QStringLiteral("#9A9AA8"));
+        QPen borderPen(border, 1.0 + pull * 1.4, Qt::DashLine);
         borderPen.setCosmetic(true);
         painter->setPen(borderPen);
-        painter->setBrush(Qt::NoBrush);
+
+        // Soft fill that fades in with the pull.
+        if (pull > 0.0) {
+            QColor fill = QColor::fromRgbF(0.49, 0.36, 0.99, 0.06 * pull);
+            painter->setBrush(fill);
+        } else {
+            painter->setBrush(Qt::NoBrush);
+        }
         painter->drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), rad, rad);
+
+        // Centered "+" glyph + caption. Painted in scene units so it scales
+        // with the rest of the page. The caption changes once pull crosses
+        // the threshold (>= 0.7 ~ 80dp pull).
+        const QString caption = (pull >= 0.7)
+                                    ? QStringLiteral("Loslassen f\u00FCr neue Seite")
+                                    : QStringLiteral("Neue Seite");
+        const QColor txtColor = pull > 0.0
+                                    ? QColor::fromRgbF(0.49, 0.36, 0.99, 1.0)
+                                    : QColor(QStringLiteral("#7A7A88"));
+        painter->setPen(txtColor);
+        QFont plusFont = painter->font();
+        plusFont.setPointSizeF(qMax(14.0, r.height() * 0.32));
+        plusFont.setWeight(QFont::Bold);
+        painter->setFont(plusFont);
+        const QRectF plusRect(r.left(), r.top() + r.height() * 0.10,
+                              r.width(), r.height() * 0.55);
+        painter->drawText(plusRect, Qt::AlignCenter, QStringLiteral("+"));
+
+        QFont capFont = painter->font();
+        capFont.setPointSizeF(qMax(9.0, r.height() * 0.12));
+        capFont.setWeight(QFont::Medium);
+        painter->setFont(capFont);
+        const QRectF capRect(r.left(), r.top() + r.height() * 0.60,
+                             r.width(), r.height() * 0.30);
+        painter->drawText(capRect, Qt::AlignCenter, caption);
     }
 
 private:
     qreal m_w;
     qreal m_h;
+    double m_pullProgress{0.0};
 };

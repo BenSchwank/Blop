@@ -2280,15 +2280,31 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && e->angleDelta().y() < 0) {
       m_pullDistance += std::abs(e->angleDelta().y()) * 0.5f;
+      // v3.16.1: visual pull-progress on the Plus-Card (SkeletonPageItem).
+      const double prog =
+          qMin(1.0, double(m_pullDistance) / double(kBottomRevealPull()));
+      if (m_pagesBarAnchorStrip)
+        m_pagesBarAnchorStrip->setPullProgress(prog);
       if (m_pullDistance >= kBottomRevealPull()) {
-        showBottomSheetFromPull();
+        // v3.16.1: pull-up beyond threshold commits a NEW page directly
+        // instead of just scrolling the bottom sheet into view. The PagesBar
+        // QWidget remains accessible at note-end for templates/import/etc.
+        m_pullDistance = 0.f;
+        if (m_pagesBarAnchorStrip)
+          m_pagesBarAnchorStrip->setPullProgress(0.0);
+        addNewPage();
+        if (note_)
+          scrollToPage(note_->pages.size() - 1);
       }
       e->accept();
       return;
     }
 
-    if (m_pullDistance > 0.f && e->angleDelta().y() > 0)
+    if (m_pullDistance > 0.f && e->angleDelta().y() > 0) {
       m_pullDistance = 0.f;
+      if (m_pagesBarAnchorStrip)
+        m_pagesBarAnchorStrip->setPullProgress(0.0);
+    }
 
     QGraphicsView::wheelEvent(e);
   }
@@ -2488,6 +2504,18 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
         return;
       }
     }
+
+    // v3.16.1: tap on the Plus-Card (SkeletonPageItem) creates a new page
+    // directly. The QGraphicsView itemAt() check finds the strip even when
+    // it's outside the page rect.
+    if (m_pagesBarAnchorStrip && m_pagesBarAnchorStrip->isVisible() &&
+        m_pagesBarAnchorStrip->sceneBoundingRect().contains(scenePos)) {
+      addNewPage();
+      if (note_)
+        scrollToPage(note_->pages.size() - 1);
+      e->accept();
+      return;
+    }
   }
 
   const QInputDevice *dev = e->device();
@@ -2574,14 +2602,30 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     QScrollBar *vb = verticalScrollBar();
     if (vb->value() >= vb->maximum() && delta.y() < 0) {
       m_pullDistance += std::abs(delta.y()) * 0.5f;
-      if (m_pullDistance >= kBottomRevealPull())
-        showBottomSheetFromPull();
+      // v3.16.1: drive the Plus-Card visual feedback during touch pull-up.
+      const double prog =
+          qMin(1.0, double(m_pullDistance) / double(kBottomRevealPull()));
+      if (m_pagesBarAnchorStrip)
+        m_pagesBarAnchorStrip->setPullProgress(prog);
+      if (m_pullDistance >= kBottomRevealPull()) {
+        // v3.16.1: threshold commits a new page directly instead of just
+        // surfacing the existing PagesBar sheet.
+        m_pullDistance = 0.f;
+        if (m_pagesBarAnchorStrip)
+          m_pagesBarAnchorStrip->setPullProgress(0.0);
+        addNewPage();
+        if (note_)
+          scrollToPage(note_->pages.size() - 1);
+      }
     } else {
       horizontalScrollBar()->setValue(horizontalScrollBar()->value() -
                                       delta.x());
       verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
-      if (m_pullDistance > 0.f)
+      if (m_pullDistance > 0.f) {
         m_pullDistance = 0.f;
+        if (m_pagesBarAnchorStrip)
+          m_pagesBarAnchorStrip->setPullProgress(0.0);
+      }
     }
 
     e->accept();
