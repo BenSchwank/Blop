@@ -61,7 +61,10 @@ public:
     void movePage(int fromIndex, int toIndex);
     void duplicatePage(int pageIndex);
     void deletePage(int pageIndex);
-    void scrollToPage(int pageIndex);
+    // v3.16.1: `animate=true` slides the vertical scrollbar from its current
+    // position to the target page with a 280ms OutCubic curve, so jumping
+    // between pages reads as a smooth transition instead of a hard cut.
+    void scrollToPage(int pageIndex, bool animate = true);
     int pageCount() const;
     QString pageTitle(int pageIndex) const;
     void renamePage(int pageIndex, const QString &title);

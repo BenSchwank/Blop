@@ -6477,8 +6477,12 @@ void MainWindow::onTogglePageManager() {
     }
     if (mpv) {
       m_pageManager->setNoteView(mpv);
+      // v3.16.1: scrollToPage now takes a `bool animate=true` default arg, so
+      // the bare member-function pointer no longer matches the int-only signal
+      // signature. Wrap in a lambda that explicitly passes animate=true.
       connect(m_pageManager, &PageManager::pageSelected, mpv,
-              &MultiPageNoteView::scrollToPage, Qt::UniqueConnection);
+              [mpv](int idx) { mpv->scrollToPage(idx, true); },
+              Qt::UniqueConnection);
       QObject::disconnect(m_pageManager, &PageManager::pageOrderChanged, nullptr,
                           nullptr);
       connect(m_pageManager, &PageManager::pageOrderChanged, [mpv, this]() {

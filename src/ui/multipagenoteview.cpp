@@ -3070,11 +3070,27 @@ void MultiPageNoteView::deletePage(int pageIndex) {
   if (onSaveRequested)
     onSaveRequested(note_);
 }
-void MultiPageNoteView::scrollToPage(int pageIndex) {
+void MultiPageNoteView::scrollToPage(int pageIndex, bool animate) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return;
   QRectF r = pageRect(pageIndex);
-  verticalScrollBar()->setValue(r.top());
+  const int target = qRound(r.top());
+  QScrollBar *vb = verticalScrollBar();
+  if (!animate || !vb) {
+    if (vb)
+      vb->setValue(target);
+    return;
+  }
+  // v3.16.1: animated jump between pages. 280ms OutCubic matches the rest
+  // of the v3.16.1 unified animation language (BlopStyle slide-in, MorphTray
+  // geometry anim, etc.). The animation is parented to vb so it's cleaned
+  // up automatically if the view goes away mid-anim.
+  auto *anim = new QPropertyAnimation(vb, "value", vb);
+  anim->setDuration(280);
+  anim->setEasingCurve(QEasingCurve::OutCubic);
+  anim->setStartValue(vb->value());
+  anim->setEndValue(target);
+  anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 int MultiPageNoteView::pageCount() const {
