@@ -41,4 +41,8 @@ struct UiProfile {
     }
 
     bool isTouchOptimized() const { return buttonSize >= 50; }
+
+    /// When false, skip decorative GPU-heavy overlays (e.g. BlopRipple) on
+    /// constrained Android devices. Defaults permissive until profiles tune it.
+    bool shouldAnimateRich() const { return true; }
 };

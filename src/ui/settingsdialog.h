@@ -11,6 +11,7 @@ class SettingsDialog;
 
 class QListWidget;
 class QListWidgetItem;
+class QShowEvent;
 
 class SettingsDialog : public QDialog
 {
@@ -43,6 +44,7 @@ private slots:
     void onProfileClicked(QListWidgetItem* item);
 
 private:
+    bool m_dialogIntroDone{false};
     Ui::SettingsDialog *ui;
     UiProfileManager *m_profileManager;
     QListWidget *m_profileList;

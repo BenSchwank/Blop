@@ -4,6 +4,9 @@
 #include <QLabel>
 #include <QGraphicsDropShadowEffect>
 #include <QMouseEvent>
+#include <QPropertyAnimation>
+#include <QEasingCurve>
+#include <QShowEvent>
 
 NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 {
@@ -122,6 +125,34 @@ QString NewNoteDialog::getNoteName() const {
 
 bool NewNoteDialog::isInfiniteFormat() const {
     return m_btnFormatInfinite->isChecked();
+}
+
+void NewNoteDialog::showEvent(QShowEvent *event) {
+    QDialog::showEvent(event);
+    if (!parentWidget()) {
+        setWindowOpacity(1.0);
+        return;
+    }
+    if (m_dialogIntroDone)
+        return;
+    m_dialogIntroDone = true;
+    const QPoint dest = pos();
+#ifndef Q_OS_ANDROID
+    setWindowOpacity(0.0);
+    auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
+    opAnim->setDuration(180);
+    opAnim->setStartValue(0.0);
+    opAnim->setEndValue(1.0);
+    opAnim->setEasingCurve(QEasingCurve::OutCubic);
+    opAnim->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
+    move(dest.x(), dest.y() + 24);
+    auto *posAnim = new QPropertyAnimation(this, "pos", this);
+    posAnim->setDuration(220);
+    posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
+    posAnim->setEndValue(dest);
+    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void NewNoteDialog::mousePressEvent(QMouseEvent *event) {

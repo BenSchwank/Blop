@@ -7,6 +7,9 @@
 #include <QButtonGroup>
 #include <QPoint>
 
+class QMouseEvent;
+class QShowEvent;
+
 class NewNoteDialog : public QDialog
 {
     Q_OBJECT
@@ -18,6 +21,7 @@ public:
     bool isInfiniteFormat() const;
 
 protected:
+    void showEvent(QShowEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
 
@@ -35,6 +39,7 @@ private:
 
     // Helper for dragging (Frameless Window)
     QPoint m_dragPos;
+    bool m_dialogIntroDone{false};
 };
 
 #endif // NEWNOTEDIALOG_H

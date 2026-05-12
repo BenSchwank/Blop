@@ -48,6 +48,9 @@
 #define BLOP_TOOLBAR_LONGPRESS 0
 #endif
 
+// v3.16.1 UI roadmap (deferred): bottom-sheet style for Settings/Profile/NewNote,
+// tab bar reskin, swipe page transitions in the editor, sidebar push animation.
+
 namespace {
 
 // 64×64 logical coords (same convention as MainWindow::createModernIcon) — identical on all platforms.

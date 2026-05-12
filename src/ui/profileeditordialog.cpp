@@ -13,6 +13,9 @@
 #include <cmath>
 #include <QScrollArea> // NEU
 #include <QScroller>   // NEU
+#include <QPropertyAnimation>
+#include <QEasingCurve>
+#include <QShowEvent>
 
 ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     : QDialog(parent), m_profile(profile), m_previewToolbar(nullptr)
@@ -317,4 +320,30 @@ void ProfileEditorDialog::mouseMoveEvent(QMouseEvent *event) {
         move(event->globalPosition().toPoint() - m_dragPos);
         event->accept();
     }
+}
+
+void ProfileEditorDialog::showEvent(QShowEvent *event) {
+    QDialog::showEvent(event);
+    if (!parentWidget())
+        return;
+    if (m_dialogIntroDone)
+        return;
+    m_dialogIntroDone = true;
+    const QPoint dest = pos();
+#ifndef Q_OS_ANDROID
+    setWindowOpacity(0.0);
+    auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
+    opAnim->setDuration(180);
+    opAnim->setStartValue(0.0);
+    opAnim->setEndValue(1.0);
+    opAnim->setEasingCurve(QEasingCurve::OutCubic);
+    opAnim->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
+    move(dest.x(), dest.y() + 24);
+    auto *posAnim = new QPropertyAnimation(this, "pos", this);
+    posAnim->setDuration(220);
+    posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
+    posAnim->setEndValue(dest);
+    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }

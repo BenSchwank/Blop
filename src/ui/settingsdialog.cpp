@@ -8,7 +8,9 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QPropertyAnimation>
+#include <QEasingCurve>
 #include <QScrollArea>
+#include <QShowEvent>
 #include <QGroupBox>
 #include <QButtonGroup>
 #include <QRadioButton>
@@ -113,9 +115,30 @@ SettingsDialog::~SettingsDialog() { delete ui; }
 
 void SettingsDialog::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
-    QPropertyAnimation *anim = new QPropertyAnimation(this, "windowOpacity");
-    anim->setDuration(200); anim->setStartValue(0.0); anim->setEndValue(1.0);
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
+    if (!parentWidget()) {
+        setWindowOpacity(1.0);
+        return;
+    }
+    if (m_dialogIntroDone)
+        return;
+    m_dialogIntroDone = true;
+    const QPoint dest = pos();
+#ifndef Q_OS_ANDROID
+    setWindowOpacity(0.0);
+    auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
+    opAnim->setDuration(180);
+    opAnim->setStartValue(0.0);
+    opAnim->setEndValue(1.0);
+    opAnim->setEasingCurve(QEasingCurve::OutCubic);
+    opAnim->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
+    move(dest.x(), dest.y() + 24);
+    auto *posAnim = new QPropertyAnimation(this, "pos", this);
+    posAnim->setDuration(220);
+    posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
+    posAnim->setEndValue(dest);
+    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void SettingsDialog::refreshProfileList() {

@@ -2,6 +2,7 @@
 #define ANDROIDTILEDELEGATE_H
 
 #include <QStyledItemDelegate>
+#include <QPersistentModelIndex>
 
 class MainWindow;
 
@@ -33,6 +34,7 @@ public:
 
 private:
   MainWindow *m_window;
+  QPersistentModelIndex m_tilePressIndex;
 };
 
 #endif // ANDROIDTILEDELEGATE_H

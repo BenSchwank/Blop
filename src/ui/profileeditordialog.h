@@ -10,6 +10,8 @@ class ModernToolbar;
 class QGroupBox;
 class QPushButton;
 class QButtonGroup; // New
+class QShowEvent;
+class QMouseEvent;
 
 class ProfileEditorDialog : public QDialog {
     Q_OBJECT
@@ -21,6 +23,7 @@ signals:
     void previewRequested(UiProfile p);
 
 protected:
+    void showEvent(QShowEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
 
@@ -57,6 +60,8 @@ private:
     QGroupBox* m_previewBox;
 
     QPoint m_dragPos;
+
+    bool m_dialogIntroDone{false};
 
     // Factors for the 5 steps: XS, S, M, L, XL
     const QVector<double> m_stepFactors = {0.75, 0.85, 1.0, 1.25, 1.5};

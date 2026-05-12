@@ -16,7 +16,13 @@
 #include <QTextOption>
 #include <QTimer>
 
+#include <QAbstractAnimation>
+#include <QAbstractItemView>
+#include <QEasingCurve>
+#include <QVariantAnimation>
+
 #include "androidicons.h"
+#include "blopripple.h"
 #include "mainwindow.h"
 #include "uiscale.h"
 
@@ -63,6 +69,49 @@ TileVisual visualFor(const QModelIndex &index, MainWindow *win) {
   return v;
 }
 
+static QHash<QPersistentModelIndex, double> s_tilePressScale;
+static QHash<QPersistentModelIndex, QPointer<QVariantAnimation>> s_tilePressAnim;
+
+static void stopTilePressAnim(const QPersistentModelIndex &pmi) {
+  QPointer<QVariantAnimation> a = s_tilePressAnim.take(pmi);
+  if (a) {
+    a->stop();
+    a->deleteLater();
+  }
+}
+
+static void runTilePressScaleAnim(const QPersistentModelIndex &pmi,
+                                  QAbstractItemView *view, qreal from, qreal to,
+                                  int ms, const QEasingCurve &curve) {
+  if (!pmi.isValid() || !view)
+    return;
+  stopTilePressAnim(pmi);
+  auto *anim = new QVariantAnimation(view);
+  anim->setDuration(ms);
+  anim->setStartValue(from);
+  anim->setEndValue(to);
+  anim->setEasingCurve(curve);
+  s_tilePressAnim.insert(pmi, anim);
+  QObject::connect(anim, &QVariantAnimation::valueChanged, view,
+                   [pmi, view](const QVariant &v) {
+                     if (pmi.isValid())
+                       s_tilePressScale[pmi] = v.toDouble();
+                     if (view && pmi.isValid())
+                       view->update(pmi);
+                   });
+  QObject::connect(anim, &QVariantAnimation::finished, view, [pmi, view, anim]() {
+    s_tilePressAnim.remove(pmi);
+    const qreal endV = anim->endValue().toDouble();
+    if (qAbs(endV - 1.0) < 1e-3)
+      s_tilePressScale.remove(pmi);
+    else if (pmi.isValid())
+      s_tilePressScale[pmi] = endV;
+    if (view && pmi.isValid())
+      view->update(pmi);
+  });
+  anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 } // namespace
 
 AndroidTileDelegate::AndroidTileDelegate(MainWindow *win, QObject *parent)
@@ -84,6 +133,15 @@ void AndroidTileDelegate::paint(QPainter *painter,
   painter->save();
   painter->setRenderHint(QPainter::Antialiasing, true);
   painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+  const QPersistentModelIndex pi(index);
+  const qreal pressScale = s_tilePressScale.value(pi, 1.0);
+  if (qAbs(pressScale - 1.0) > 1e-6) {
+    const QPointF c = option.rect.center();
+    painter->translate(c);
+    painter->scale(pressScale, pressScale);
+    painter->translate(-c);
+  }
 
   const QRect rect = option.rect.adjusted(UiScale::dp(4), UiScale::dp(4),
                                           -UiScale::dp(4), -UiScale::dp(4));
@@ -172,34 +230,33 @@ void AndroidTileDelegate::paint(QPainter *painter,
   painter->restore();
 }
 
-bool AndroidTileDelegate::editorEvent(QEvent *event,
-                                       QAbstractItemModel *model,
-                                       const QStyleOptionViewItem &option,
-                                       const QModelIndex &index) {
+bool AndroidTileDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
+                                      const QStyleOptionViewItem &option,
+                                      const QModelIndex &index) {
+  auto *view = qobject_cast<QAbstractItemView *>(parent());
+  const QRect rect = option.rect.adjusted(UiScale::dp(4), UiScale::dp(4),
+                                          -UiScale::dp(4), -UiScale::dp(4));
+  const int hitW = qMax(UiScale::dp(48), UiScale::dp(28) + UiScale::dp(20));
+  const int hitH = qMax(UiScale::dp(40), UiScale::dp(20) + UiScale::dp(20));
+  const QRect pillHit(option.rect.right() - hitW, option.rect.top(), hitW,
+                        hitH);
+
+  if (event->type() == QEvent::MouseButtonPress && m_window && view) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() == Qt::LeftButton && rect.contains(me->pos()) &&
+        !pillHit.contains(me->pos())) {
+      m_tilePressIndex = QPersistentModelIndex(index);
+      const qreal from = s_tilePressScale.value(m_tilePressIndex, 1.0);
+      runTilePressScaleAnim(m_tilePressIndex, view, from, 0.96, 90,
+                            QEasingCurve::OutCubic);
+    }
+    return QStyledItemDelegate::editorEvent(event, model, option, index);
+  }
+
   if (event->type() == QEvent::MouseButtonRelease && m_window) {
     auto *me = static_cast<QMouseEvent *>(event);
-    const QRect rect = option.rect.adjusted(UiScale::dp(4), UiScale::dp(4),
-                                             -UiScale::dp(4), -UiScale::dp(4));
-    // Generous click area so the user only needs to land somewhere in the
-    // top-right corner rather than precisely on the small pill graphic.
-    const int hitW = qMax(UiScale::dp(48), UiScale::dp(28) + UiScale::dp(20));
-    const int hitH = qMax(UiScale::dp(40), UiScale::dp(20) + UiScale::dp(20));
-    const QRect hit(rect.right() - hitW, rect.top(), hitW, hitH);
-    if (hit.contains(me->pos())) {
-      // Tell MainWindow to swallow the matching QListView::clicked
-      // signal that fires immediately after this editorEvent - without
-      // this guard the note is opened underneath the menu and the menu
-      // never becomes visible to the user.
+    if (pillHit.contains(me->pos())) {
       m_window->setAndroidPillClickPending(true);
-      // CRITICAL: defer the overlay open. Showing it from inside
-      // QStyledItemDelegate::editorEvent while a touch event is still
-      // being dispatched can re-enter Qt's Android touch synthesiser
-      // and crash. Posting via singleShot lets the current touch chain
-      // unwind cleanly; the overlay then shows on the next event-loop
-      // tick. We use the in-window QWidget overlay instead of QMenu
-      // because QMenu::exec() creates a new top-level QWindow + nested
-      // event loop - on Android (single-window) that path crashed the
-      // app the instant the user tapped (v118 regression).
       QPointer<MainWindow> safeWin(m_window);
       QPersistentModelIndex safeIdx(index);
       QTimer::singleShot(0, m_window, [safeWin, safeIdx]() {
@@ -207,6 +264,19 @@ bool AndroidTileDelegate::editorEvent(QEvent *event,
           safeWin->showAndroidTileContextOverlay(safeIdx);
       });
       return true;
+    }
+    if (view && m_tilePressIndex.isValid()) {
+      const QPersistentModelIndex pressed = m_tilePressIndex;
+      m_tilePressIndex = QPersistentModelIndex();
+      const qreal from = s_tilePressScale.value(pressed, 1.0);
+      runTilePressScaleAnim(pressed, view, from, 1.0, 220, QEasingCurve::OutBack);
+      if (pressed == QPersistentModelIndex(index) &&
+          me->button() == Qt::LeftButton && rect.contains(me->pos()) &&
+          !pillHit.contains(me->pos()) && view->viewport()) {
+        const QPoint g = view->viewport()->mapToGlobal(
+            view->visualRect(index).center());
+        BlopRipple::spawn(m_window, g);
+      }
     }
   }
   return QStyledItemDelegate::editorEvent(event, model, option, index);
