@@ -1,117 +1,435 @@
 #include "settingsdialog.h"
 #include "blopstyle.h"
 #include "ui_SettingsDialog.h"
-#include <QVBoxLayout>
-#include <QLabel>
-#include <QListWidget>
-#include <QPushButton>
-#include <QMenu>
+
+#include <QButtonGroup>
+#include <QEasingCurve>
+#include <QFrame>
+#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPropertyAnimation>
-#include <QEasingCurve>
-#include <QScrollArea>
-#include <QShowEvent>
-#include <QGroupBox>
-#include <QButtonGroup>
+#include <QPushButton>
 #include <QRadioButton>
-#include <QLineEdit>
-#include <QScroller> // Hinzugefügt für Kinetic Scrolling
+#include <QScrollArea>
+#include <QScroller>
+#include <QShowEvent>
+#include <QToolButton>
+#include <QVBoxLayout>
+#include <QVariantAnimation>
 
-SettingsDialog::SettingsDialog(UiProfileManager* profileMgr, QWidget *parent) :
-    QDialog(parent),
-    ui(new Ui::SettingsDialog),
-    m_profileManager(profileMgr)
-{
+// v3.16.1: Settings overhaul.
+//
+// Old layout was a single QFormLayout-like dump of fields inside the tab
+// designed in Qt Designer. New layout uses a Hero section (current profile
+// + "Profil bearbeiten") on top, a search bar, and four collapsible
+// BlopSheet-skinned cards (Konto / Erscheinungsbild / Verhalten / Erweitert).
+// Wide-mode (>=720px) lays the four cards in a 2-col grid; narrow-mode
+// stacks them. Animations are limited to the section expand/collapse so
+// the dialog itself stays responsive and there are no Windows-style
+// off-screen-pixmap costs (same lesson learnt during Phase A for MorphTray).
+
+namespace {
+
+// Collapsible card with title bar, chevron and animated body. Used for the
+// four section cards. The card itself adopts BlopStyle::surfaceStyle so it
+// reads as part of the unified design language.
+class BlopSettingsCard : public QFrame {
+public:
+    BlopSettingsCard(const QString &title, const QString &subtitle, QWidget *parent)
+        : QFrame(parent), m_title(title), m_subtitle(subtitle) {
+        setObjectName(QStringLiteral("BlopSettingsCard"));
+        setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("BlopSettingsCard")));
+
+        auto *root = new QVBoxLayout(this);
+        root->setContentsMargins(20, 14, 20, 16);
+        root->setSpacing(0);
+
+        auto *header = new QWidget(this);
+        header->setCursor(Qt::PointingHandCursor);
+        auto *hl = new QHBoxLayout(header);
+        hl->setContentsMargins(0, 0, 0, 0);
+        hl->setSpacing(12);
+
+        m_titleLbl = new QLabel(m_title, header);
+        m_titleLbl->setStyleSheet(QStringLiteral(
+            "color: #ECEEFD; font-size: 15px; font-weight: 700; background: transparent;"));
+        m_subtitleLbl = new QLabel(m_subtitle, header);
+        m_subtitleLbl->setStyleSheet(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.78); font-size: 12px; background: transparent;"));
+
+        auto *titleColumn = new QVBoxLayout();
+        titleColumn->setContentsMargins(0, 0, 0, 0);
+        titleColumn->setSpacing(2);
+        titleColumn->addWidget(m_titleLbl);
+        if (!m_subtitle.isEmpty())
+            titleColumn->addWidget(m_subtitleLbl);
+        else
+            m_subtitleLbl->hide();
+        hl->addLayout(titleColumn, 1);
+
+        m_chevron = new QLabel(QStringLiteral("\u25BE"), header);
+        m_chevron->setStyleSheet(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.85); font-size: 14px; background: transparent;"));
+        hl->addWidget(m_chevron, 0, Qt::AlignVCenter);
+        root->addWidget(header);
+
+        m_body = new QWidget(this);
+        m_bodyLay = new QVBoxLayout(m_body);
+        m_bodyLay->setContentsMargins(0, 12, 0, 0);
+        m_bodyLay->setSpacing(10);
+        root->addWidget(m_body);
+
+        header->installEventFilter(new HeaderClickFilter(this));
+    }
+
+    void addBodyWidget(QWidget *w) { m_bodyLay->addWidget(w); }
+    void addBodyLayout(QLayout *l) { m_bodyLay->addLayout(l); }
+
+    QString title() const { return m_title; }
+    QString subtitle() const { return m_subtitle; }
+
+    void setExpanded(bool on) {
+        if (on == m_expanded) return;
+        m_expanded = on;
+        // Animate via maxHeight rather than visible toggle so the layout
+        // pushes the cards below this one smoothly. Use a QVariantAnimation
+        // calling setMaximumHeight; we cache the body's natural height so
+        // we don't measure it during the animation.
+        const int target = on ? m_body->sizeHint().height() : 0;
+        const int current = m_body->maximumHeight() == QWIDGETSIZE_MAX
+                                ? m_body->sizeHint().height()
+                                : m_body->maximumHeight();
+        if (on) m_body->setVisible(true);
+        auto *anim = new QVariantAnimation(this);
+        anim->setDuration(240);
+        anim->setEasingCurve(QEasingCurve::OutCubic);
+        anim->setStartValue(current);
+        anim->setEndValue(target);
+        QObject::connect(anim, &QVariantAnimation::valueChanged, this,
+                         [this](const QVariant &v) {
+                             m_body->setMaximumHeight(v.toInt());
+                         });
+        QObject::connect(anim, &QVariantAnimation::finished, this, [this, on]() {
+            if (on)
+                m_body->setMaximumHeight(QWIDGETSIZE_MAX);
+            else
+                m_body->setVisible(false);
+        });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+        m_chevron->setText(on ? QStringLiteral("\u25BE")
+                              : QStringLiteral("\u25B8"));
+    }
+
+    bool expanded() const { return m_expanded; }
+
+private:
+    class HeaderClickFilter : public QObject {
+    public:
+        explicit HeaderClickFilter(BlopSettingsCard *card)
+            : QObject(card), m_card(card) {}
+    protected:
+        bool eventFilter(QObject *watched, QEvent *event) override {
+            if (event->type() == QEvent::MouseButtonRelease)
+                m_card->setExpanded(!m_card->expanded());
+            return QObject::eventFilter(watched, event);
+        }
+    private:
+        BlopSettingsCard *m_card;
+    };
+
+    QString m_title;
+    QString m_subtitle;
+    QLabel *m_titleLbl{nullptr};
+    QLabel *m_subtitleLbl{nullptr};
+    QLabel *m_chevron{nullptr};
+    QWidget *m_body{nullptr};
+    QVBoxLayout *m_bodyLay{nullptr};
+    bool m_expanded{true};
+};
+
+} // namespace
+
+SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
+    : QDialog(parent), ui(new Ui::SettingsDialog), m_profileManager(profileMgr) {
     ui->setupUi(this);
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground);
-    // v3.16.1: apply BlopStyle surface to the dialog itself so this dialog
-    // looks visually identical to ProfileEditor / NewNote / A4Layout.
     setObjectName(QStringLiteral("SettingsDialog"));
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("SettingsDialog")));
 
-    QWidget* tabDesign = ui->tabWidget->widget(0);
+    // Replace the Designer-generated tab with our overhauled layout. The
+    // old QFormLayout dump is replaced by a Hero card + 4 section cards.
+    QWidget *tabDesign = ui->tabWidget->widget(0);
     if (tabDesign) {
         qDeleteAll(tabDesign->children());
-        if (tabDesign->layout()) delete tabDesign->layout();
+        if (tabDesign->layout())
+            delete tabDesign->layout();
     }
 
-    QVBoxLayout* mainTabLay = new QVBoxLayout(tabDesign);
-    mainTabLay->setContentsMargins(0,0,0,0);
+    auto *root = new QVBoxLayout(tabDesign);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    QScrollArea* scroll = new QScrollArea(tabDesign);
+    // ----- Hero strip ---------------------------------------------------
+    auto *hero = new QFrame(tabDesign);
+    hero->setObjectName(QStringLiteral("SettingsHero"));
+    hero->setStyleSheet(QStringLiteral(
+        "#SettingsHero {"
+        "  background-color: rgba(124, 92, 252, 0.10);"
+        "  border-bottom: 1px solid rgba(124, 92, 252, 0.20);"
+        "}"));
+    auto *heroLay = new QHBoxLayout(hero);
+    heroLay->setContentsMargins(24, 18, 24, 18);
+    heroLay->setSpacing(14);
+
+    auto *avatar = new QLabel(hero);
+    avatar->setFixedSize(56, 56);
+    avatar->setStyleSheet(QStringLiteral(
+        "border-radius: 28px; background-color: rgba(124, 92, 252, 0.35);"
+        "color: #ECEEFD; font-size: 22px; font-weight: 700;"));
+    avatar->setAlignment(Qt::AlignCenter);
+    UiProfile currentP = m_profileManager ? m_profileManager->currentProfile() : UiProfile();
+    QString initial = currentP.name.left(1).toUpper();
+    if (initial.isEmpty()) initial = QStringLiteral("B");
+    avatar->setText(initial);
+    heroLay->addWidget(avatar);
+
+    auto *heroText = new QVBoxLayout();
+    heroText->setContentsMargins(0, 0, 0, 0);
+    heroText->setSpacing(2);
+    auto *heroName = new QLabel(currentP.name.isEmpty() ? QStringLiteral("Blop") : currentP.name, hero);
+    heroName->setStyleSheet(QStringLiteral(
+        "color: #ECEEFD; font-size: 18px; font-weight: 700; background: transparent;"));
+    auto *heroSub = new QLabel(QStringLiteral("Aktives UI-Profil"), hero);
+    heroSub->setStyleSheet(QStringLiteral(
+        "color: rgba(180, 188, 215, 0.85); font-size: 13px; background: transparent;"));
+    heroText->addWidget(heroName);
+    heroText->addWidget(heroSub);
+    heroLay->addLayout(heroText, 1);
+
+    auto *heroEditBtn = new QPushButton(QStringLiteral("Profil bearbeiten"), hero);
+    heroEditBtn->setCursor(Qt::PointingHandCursor);
+    heroEditBtn->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  background-color: rgba(124, 92, 252, 0.85);"
+        "  color: #FFFFFF;"
+        "  border: none; border-radius: 10px;"
+        "  padding: 9px 14px; font-weight: 600;"
+        "}"
+        "QPushButton:hover { background-color: rgba(124, 92, 252, 1.0); }"));
+    connect(heroEditBtn, &QPushButton::clicked, this, [this]() {
+        openEditor(m_profileManager ? m_profileManager->currentProfile().id : QString());
+    });
+    heroLay->addWidget(heroEditBtn);
+
+    root->addWidget(hero);
+
+    // ----- Search bar ---------------------------------------------------
+    auto *searchRow = new QFrame(tabDesign);
+    auto *searchLay = new QHBoxLayout(searchRow);
+    searchLay->setContentsMargins(24, 14, 24, 6);
+    auto *search = new QLineEdit(searchRow);
+    search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
+    search->setStyleSheet(QStringLiteral(
+        "QLineEdit {"
+        "  background: rgba(22, 24, 36, 0.92);"
+        "  color: #ECEEFD;"
+        "  border: 1px solid rgba(120, 130, 160, 0.32);"
+        "  border-radius: 10px;"
+        "  padding: 9px 12px; font-size: 13px;"
+        "}"
+        "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.75); }"));
+    searchLay->addWidget(search);
+    root->addWidget(searchRow);
+
+    // ----- Scrollable section area --------------------------------------
+    auto *scroll = new QScrollArea(tabDesign);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setStyleSheet("background: transparent;");
-
-    // KINETIC SCROLLING: Geste für ScrollArea aktivieren
+    scroll->setStyleSheet(QStringLiteral("background: transparent;"));
     QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
 
-    QWidget* contentWidget = new QWidget();
-    contentWidget->setStyleSheet("background: transparent;");
-    QVBoxLayout* contentLay = new QVBoxLayout(contentWidget);
-    contentLay->setSpacing(20);
-    contentLay->setContentsMargins(20,20,20,20);
+    auto *contentWidget = new QWidget();
+    contentWidget->setStyleSheet(QStringLiteral("background: transparent;"));
+    auto *contentLay = new QVBoxLayout(contentWidget);
+    contentLay->setContentsMargins(20, 12, 20, 24);
+    contentLay->setSpacing(14);
 
     scroll->setWidget(contentWidget);
-    mainTabLay->addWidget(scroll);
+    root->addWidget(scroll, 1);
 
-    QGroupBox* grpProfiles = new QGroupBox("UI-Modi (Profile)", contentWidget);
-    grpProfiles->setStyleSheet("QGroupBox { border: 1px solid #333; border-radius: 8px; font-weight: bold; color: #888; padding-top: 15px; }");
-    QVBoxLayout* layProfiles = new QVBoxLayout(grpProfiles);
-
-    m_profileList = new QListWidget(grpProfiles);
-    m_profileList->setStyleSheet("QListWidget { background: #222; border: 1px solid #333; border-radius: 5px; color: white; } QListWidget::item { padding: 8px; } QListWidget::item:selected { background: #5E5CE6; }");
-    m_profileList->setFixedHeight(120);
-    m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
-
-    // KINETIC SCROLLING: Geste für die Profil-Liste aktivieren
-    QScroller::grabGesture(m_profileList, QScroller::LeftMouseButtonGesture);
-
-    connect(m_profileList, &QListWidget::customContextMenuRequested, this, &SettingsDialog::onProfileContextMenu);
-    connect(m_profileList, &QListWidget::itemClicked, this, &SettingsDialog::onProfileClicked);
-
-    layProfiles->addWidget(m_profileList);
-
-    QPushButton* btnNewProfile = new QPushButton("Neuen Modus erstellen", grpProfiles);
-    btnNewProfile->setCursor(Qt::PointingHandCursor);
-    connect(btnNewProfile, &QPushButton::clicked, this, &SettingsDialog::onCreateProfile);
-    layProfiles->addWidget(btnNewProfile);
-
-    contentLay->addWidget(grpProfiles);
-
-    QGroupBox* grpToolbar = new QGroupBox("Werkzeugleiste Stil", contentWidget);
-    grpToolbar->setStyleSheet("QGroupBox { border: 1px solid #333; border-radius: 8px; font-weight: bold; color: #888; padding-top: 15px; }");
-    QVBoxLayout* tbLay = new QVBoxLayout(grpToolbar);
-
-    QRadioButton* rNorm = new QRadioButton("Vertikal / Adaptiv", grpToolbar);
-    rNorm->setObjectName("radioVert");
-
-    QRadioButton* rFull = new QRadioButton("Radial", grpToolbar);
-    rFull->setObjectName("radioRadial");
-
-    tbLay->addWidget(rNorm);
-    tbLay->addWidget(rFull);
-    contentLay->addWidget(grpToolbar);
-
-    QButtonGroup* bgToolbar = new QButtonGroup(this);
-    bgToolbar->addButton(rNorm, 0);
-    bgToolbar->addButton(rFull, 1);
-    connect(bgToolbar, &QButtonGroup::idClicked, [this](int id){ emit toolbarStyleChanged(id > 0); });
-
-    contentLay->addWidget(new QLabel("Akzentfarbe:", contentWidget));
-    QWidget* colorW = new QWidget(contentWidget);
-    QHBoxLayout* colorL = new QHBoxLayout(colorW);
-    QList<QString> cNames = {"#2D62ED", "#5E5CE6", "#FF2D55", "#30D158"};
-    for(auto c : cNames) {
-        QPushButton* b = new QPushButton(colorW); b->setFixedSize(40,40);
-        b->setStyleSheet(QString("background-color: %1; border-radius: 20px; border: 2px solid #333;").arg(c));
-        connect(b, &QPushButton::clicked, [this, c](){ emit accentColorChanged(QColor(c)); });
-        colorL->addWidget(b);
+    // ----- Card: Konto --------------------------------------------------
+    auto *cardKonto = new BlopSettingsCard(
+        QStringLiteral("Konto"),
+        QStringLiteral("Profil verwalten, abmelden"),
+        contentWidget);
+    {
+        auto *btnEdit = new QPushButton(
+            QStringLiteral("Aktuelles Profil bearbeiten"), cardKonto);
+        btnEdit->setCursor(Qt::PointingHandCursor);
+        btnEdit->setStyleSheet(QStringLiteral(
+            "QPushButton { background-color: rgba(40,42,60,0.92); color: #ECEEFD;"
+            "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
+            "  padding: 11px 14px; text-align: left; font-weight: 600; }"
+            "QPushButton:hover { border-color: rgba(124,92,252,0.65); }"));
+        connect(btnEdit, &QPushButton::clicked, this, [this]() {
+            openEditor(m_profileManager ? m_profileManager->currentProfile().id
+                                        : QString());
+        });
+        cardKonto->addBodyWidget(btnEdit);
     }
-    contentLay->addWidget(colorW);
+    contentLay->addWidget(cardKonto);
+
+    // ----- Card: Erscheinungsbild ---------------------------------------
+    auto *cardLook = new BlopSettingsCard(
+        QStringLiteral("Erscheinungsbild"),
+        QStringLiteral("Akzentfarbe und Werkzeugleiste"),
+        contentWidget);
+    {
+        auto *lblTb = new QLabel(QStringLiteral("Werkzeugleiste"), cardLook);
+        lblTb->setStyleSheet(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent;"));
+        cardLook->addBodyWidget(lblTb);
+
+        auto *rNorm = new QRadioButton(QStringLiteral("Vertikal / Adaptiv"), cardLook);
+        rNorm->setObjectName(QStringLiteral("radioVert"));
+        auto *rFull = new QRadioButton(QStringLiteral("Radial"), cardLook);
+        rFull->setObjectName(QStringLiteral("radioRadial"));
+        const QString radioStyle = QStringLiteral(
+            "QRadioButton { color: #ECEEFD; background: transparent; "
+            "padding: 4px 0; font-size: 13px; }");
+        rNorm->setStyleSheet(radioStyle);
+        rFull->setStyleSheet(radioStyle);
+        cardLook->addBodyWidget(rNorm);
+        cardLook->addBodyWidget(rFull);
+
+        auto *bgToolbar = new QButtonGroup(this);
+        bgToolbar->addButton(rNorm, 0);
+        bgToolbar->addButton(rFull, 1);
+        connect(bgToolbar, &QButtonGroup::idClicked, this,
+                [this](int id) { emit toolbarStyleChanged(id > 0); });
+
+        auto *lblAccent = new QLabel(QStringLiteral("Akzentfarbe"), cardLook);
+        lblAccent->setStyleSheet(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent; padding-top: 8px;"));
+        cardLook->addBodyWidget(lblAccent);
+
+        auto *colorRow = new QWidget(cardLook);
+        auto *colorL = new QHBoxLayout(colorRow);
+        colorL->setContentsMargins(0, 0, 0, 0);
+        colorL->setSpacing(10);
+        const QStringList cNames = {QStringLiteral("#7C5CFC"),
+                                    QStringLiteral("#6BA3F5"),
+                                    QStringLiteral("#FF6B9D"),
+                                    QStringLiteral("#34D399"),
+                                    QStringLiteral("#FBBF24")};
+        for (const QString &c : cNames) {
+            auto *b = new QPushButton(colorRow);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFixedSize(36, 36);
+            b->setStyleSheet(QStringLiteral(
+                                 "QPushButton { background-color: %1;"
+                                 "  border-radius: 18px;"
+                                 "  border: 2px solid rgba(255,255,255,0.10); }"
+                                 "QPushButton:hover { border: 2px solid rgba(255,255,255,0.55); }")
+                                 .arg(c));
+            connect(b, &QPushButton::clicked, this,
+                    [this, c]() { emit accentColorChanged(QColor(c)); });
+            colorL->addWidget(b);
+        }
+        colorL->addStretch();
+        cardLook->addBodyWidget(colorRow);
+    }
+    contentLay->addWidget(cardLook);
+
+    // ----- Card: Verhalten (Profile list) -------------------------------
+    auto *cardBehavior = new BlopSettingsCard(
+        QStringLiteral("Verhalten"),
+        QStringLiteral("UI-Profile / Modi"),
+        contentWidget);
+    {
+        m_profileList = new QListWidget(cardBehavior);
+        m_profileList->setStyleSheet(QStringLiteral(
+            "QListWidget {"
+            "  background: rgba(22, 24, 36, 0.78);"
+            "  border: 1px solid rgba(120, 130, 160, 0.28);"
+            "  border-radius: 10px;"
+            "  color: #ECEEFD;"
+            "  padding: 4px;"
+            "}"
+            "QListWidget::item {"
+            "  padding: 8px 10px;"
+            "  border-radius: 6px;"
+            "  margin: 2px;"
+            "}"
+            "QListWidget::item:selected {"
+            "  background: rgba(124, 92, 252, 0.55);"
+            "}"));
+        m_profileList->setFixedHeight(132);
+        m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
+        QScroller::grabGesture(m_profileList, QScroller::LeftMouseButtonGesture);
+        connect(m_profileList, &QListWidget::customContextMenuRequested, this,
+                &SettingsDialog::onProfileContextMenu);
+        connect(m_profileList, &QListWidget::itemClicked, this,
+                &SettingsDialog::onProfileClicked);
+        cardBehavior->addBodyWidget(m_profileList);
+
+        auto *btnNewProfile = new QPushButton(
+            QStringLiteral("Neuen Modus erstellen"), cardBehavior);
+        btnNewProfile->setCursor(Qt::PointingHandCursor);
+        btnNewProfile->setStyleSheet(QStringLiteral(
+            "QPushButton { background-color: rgba(40,42,60,0.92); color: #ECEEFD;"
+            "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
+            "  padding: 10px 14px; font-weight: 600; }"
+            "QPushButton:hover { border-color: rgba(124,92,252,0.65); }"));
+        connect(btnNewProfile, &QPushButton::clicked, this,
+                &SettingsDialog::onCreateProfile);
+        cardBehavior->addBodyWidget(btnNewProfile);
+    }
+    contentLay->addWidget(cardBehavior);
+
+    // ----- Card: Erweitert ----------------------------------------------
+    auto *cardAdv = new BlopSettingsCard(
+        QStringLiteral("Erweitert"),
+        QStringLiteral("Version, Informationen"),
+        contentWidget);
+    {
+        auto *info = new QLabel(QStringLiteral("Blop v3.16.1"), cardAdv);
+        info->setStyleSheet(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
+            "background: transparent; padding: 4px 0;"));
+        cardAdv->addBodyWidget(info);
+    }
+    contentLay->addWidget(cardAdv);
+    cardAdv->setExpanded(false);
     contentLay->addStretch();
+
+    // Search: hide cards whose title doesn't match the filter (simple
+    // top-level filter; deeper filtering could match labels inside the
+    // card body but the four sections + their subtitles cover the most
+    // common use case).
+    connect(search, &QLineEdit::textChanged, this, [=](const QString &q) {
+        const QString needle = q.trimmed().toLower();
+        const QList<BlopSettingsCard *> cards = {cardKonto, cardLook,
+                                                 cardBehavior, cardAdv};
+        for (BlopSettingsCard *c : cards) {
+            if (needle.isEmpty()) {
+                c->setVisible(true);
+                continue;
+            }
+            const bool hit = c->title().toLower().contains(needle) ||
+                             c->subtitle().toLower().contains(needle);
+            c->setVisible(hit);
+        }
+    });
 
     refreshProfileList();
 }
@@ -148,25 +466,30 @@ void SettingsDialog::showEvent(QShowEvent *event) {
 }
 
 void SettingsDialog::refreshProfileList() {
+    if (!m_profileList) return;
     m_profileList->clear();
     QString currentId = m_profileManager->currentProfile().id;
-    for(const auto& p : m_profileManager->profiles()) {
-        QListWidgetItem* item = new QListWidgetItem(p.name);
+    for (const auto &p : m_profileManager->profiles()) {
+        QListWidgetItem *item = new QListWidgetItem(p.name);
         item->setData(Qt::UserRole, p.id);
         m_profileList->addItem(item);
-        if (p.id == currentId) m_profileList->setCurrentItem(item);
+        if (p.id == currentId)
+            m_profileList->setCurrentItem(item);
     }
 }
 
-void SettingsDialog::onProfileClicked(QListWidgetItem* item) {
-    if(!item) return;
+void SettingsDialog::onProfileClicked(QListWidgetItem *item) {
+    if (!item) return;
     QString id = item->data(Qt::UserRole).toString();
     m_profileManager->setCurrentProfile(id);
 }
 
 void SettingsDialog::onCreateProfile() {
     bool ok;
-    QString text = QInputDialog::getText(this, "Neuer Modus", "Name:", QLineEdit::Normal, "Mein Modus", &ok);
+    QString text = QInputDialog::getText(this, QStringLiteral("Neuer Modus"),
+                                         QStringLiteral("Name:"),
+                                         QLineEdit::Normal,
+                                         QStringLiteral("Mein Modus"), &ok);
     if (ok && !text.isEmpty()) {
         m_profileManager->createProfile(text);
         refreshProfileList();
@@ -177,19 +500,26 @@ void SettingsDialog::onProfileContextMenu(const QPoint &pos) {
     QListWidgetItem *item = m_profileList->itemAt(pos);
     if (!item) return;
     QMenu menu(this);
-    menu.addAction("Bearbeiten", [this, item](){ openEditor(item->data(Qt::UserRole).toString()); });
-    menu.addAction("Umbenennen", [this, item](){
+    menu.addAction(QStringLiteral("Bearbeiten"), [this, item]() {
+        openEditor(item->data(Qt::UserRole).toString());
+    });
+    menu.addAction(QStringLiteral("Umbenennen"), [this, item]() {
         bool ok;
-        QString text = QInputDialog::getText(this, "Umbenennen", "Name:", QLineEdit::Normal, item->text(), &ok);
-        if(ok && !text.isEmpty()) {
-            UiProfile p = m_profileManager->profileById(item->data(Qt::UserRole).toString());
+        QString text = QInputDialog::getText(
+            this, QStringLiteral("Umbenennen"), QStringLiteral("Name:"),
+            QLineEdit::Normal, item->text(), &ok);
+        if (ok && !text.isEmpty()) {
+            UiProfile p =
+                m_profileManager->profileById(item->data(Qt::UserRole).toString());
             p.name = text;
             m_profileManager->updateProfile(p);
             refreshProfileList();
         }
     });
-    menu.addAction("Löschen", [this, item](){
-        if(QMessageBox::question(this, "Löschen", "Modus wirklich löschen?") == QMessageBox::Yes) {
+    menu.addAction(QStringLiteral("L\u00F6schen"), [this, item]() {
+        if (QMessageBox::question(this, QStringLiteral("L\u00F6schen"),
+                                  QStringLiteral("Modus wirklich l\u00F6schen?")) ==
+            QMessageBox::Yes) {
             m_profileManager->deleteProfile(item->data(Qt::UserRole).toString());
             refreshProfileList();
         }
@@ -202,9 +532,9 @@ void SettingsDialog::openEditor(const QString &profileId) {
     done(EditProfileCode);
 }
 
-void SettingsDialog::setToolbarConfig(bool isRadial, bool) { // 2. Parameter ignoriert
-    QRadioButton* rVert = this->findChild<QRadioButton*>("radioVert");
-    QRadioButton* rFull = this->findChild<QRadioButton*>("radioRadial");
+void SettingsDialog::setToolbarConfig(bool isRadial, bool) {
+    QRadioButton *rVert = this->findChild<QRadioButton *>("radioVert");
+    QRadioButton *rFull = this->findChild<QRadioButton *>("radioRadial");
 
     if (isRadial) {
         if (rFull) rFull->setChecked(true);
