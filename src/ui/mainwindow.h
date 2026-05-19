@@ -143,14 +143,6 @@ public:
   void showContextMenu(const QPoint &globalPos, const QModelIndex &index);
   void startRename(const QModelIndex &index);
 
-  // Android-only: in-window overlay used instead of QMenu::exec(), which
-  // crashes immediately on Android because Qt's QMenu wants its own
-  // top-level QWindow (and Android is single-window). Built lazily.
-  // Declared unconditionally so the compile of androidtiledelegate.cpp
-  // (built on every platform) sees a uniform signature.
-  void showAndroidTileContextOverlay(const QPersistentModelIndex &index);
-  void hideAndroidTileContextOverlay();
-
   // Set by AndroidTileDelegate::editorEvent when the user taps the
   // three-dots pill on a Welcome tile so the QListView::clicked handler
   // knows to skip opening the note (which would otherwise occlude the
@@ -427,16 +419,6 @@ private:
   // (eventFilter); only re-evaluate the dock condition when y crosses
   // an 8-px threshold instead of on every pixel of a drag.
   int m_lastDockCheckY{-1000};
-
-  // Android-only context overlay for the Welcome-screen tile pill. See
-  // showAndroidTileContextOverlay() / hideAndroidTileContextOverlay().
-  // Built lazily, parented to the MainWindow, fills the window with a
-  // semi-transparent backdrop and a centered card. Tap outside the
-  // card dismisses; the three actions are Open / Rename / Delete.
-  QWidget *m_tileContextOverlay{nullptr};
-  QWidget *m_tileContextCard{nullptr};
-  QLabel *m_tileContextTitle{nullptr};
-  QPersistentModelIndex m_tileContextIndex;
 
   QWidget *m_editorContainer{nullptr};
   QWidget *m_editorCenterWidget{nullptr};

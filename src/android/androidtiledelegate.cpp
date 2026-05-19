@@ -258,10 +258,17 @@ bool AndroidTileDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
     if (pillHit.contains(me->pos())) {
       m_window->setAndroidPillClickPending(true);
       QPointer<MainWindow> safeWin(m_window);
-      QPersistentModelIndex safeIdx(index);
-      QTimer::singleShot(0, m_window, [safeWin, safeIdx]() {
-        if (safeWin && safeIdx.isValid())
-          safeWin->showAndroidTileContextOverlay(safeIdx);
+      const QModelIndex safeIdx(index);
+      QPointer<QAbstractItemView> safeView(view);
+      const QRect pillRect = pillHit;
+      QTimer::singleShot(0, m_window, [safeWin, safeIdx, safeView, pillRect]() {
+        if (!safeWin || !safeIdx.isValid() || !safeView || !safeView->viewport())
+          return;
+        // Anchor the dropdown at the three-dots pill (same UX as Windows
+        // context menu at click position), not a centered full-screen card.
+        const QPoint globalPos =
+            safeView->viewport()->mapToGlobal(pillRect.bottomRight());
+        safeWin->showContextMenu(globalPos, safeIdx);
       });
       return true;
     }
