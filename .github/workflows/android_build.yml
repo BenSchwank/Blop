@@ -71,10 +71,15 @@ jobs:
             exit 1
           fi
           echo "Using NDK ${NDK}"
+          # Only build the ABIs that the Qt Android install actually ships. Currently
+          # aqt installs android_arm64_v8a only (see 'Install Qt via aqtinstall' step).
+          # Building x86/armeabi-v7a here is wasted CI time and exposes us to mbedTLS
+          # x86 -mpclmul/-msse2/-maes build errors (MBEDTLS_AESNI_C). Add ABIs here as
+          # the Qt install list grows.
           chmod +x "${GITHUB_WORKSPACE}/scripts/ci/build_android_curl_mbedtls.sh"
           bash "${GITHUB_WORKSPACE}/scripts/ci/build_android_curl_mbedtls.sh" \
             "${NDK}" "34" "${GITHUB_WORKSPACE}/.deps/curlmbed" \
-            arm64-v8a armeabi-v7a x86 x86_64
+            arm64-v8a
 
       - name: Install Qt via aqtinstall
         run: |
