@@ -1,0 +1,14 @@
+# Minimal workflow_dispatch target for Control Center connectivity tests (no Qt build).
+name: Automation smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: OK
+        run: |
+          echo "Control Center dispatch succeeded."
+          echo "Use this workflow to verify PAT + Actions permissions before triggering heavy builds."

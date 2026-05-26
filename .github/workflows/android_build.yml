@@ -5,6 +5,7 @@ on:
     branches: [ "main", "master" ]
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -42,6 +43,33 @@ jobs:
       - name: Install Ninja
         run: sudo apt-get install -y ninja-build
 
+      - name: Build mbedTLS + static libcurl for Android (Sentry HTTP transport)
+        env:
+          WORKDIR: ${{ runner.temp }}/curl-mbedtls-src
+        run: |
+          set -euo pipefail
+          NDK="${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}"
+          if [[ -z "${NDK}" || ! -d "${NDK}" ]]; then
+            SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+            if [[ -n "${SDK}" ]]; then
+              PIN="${SDK}/ndk/25.1.8937393"
+              if [[ -d "${PIN}" ]]; then
+                NDK="${PIN}"
+              else
+                NDK="$(ls -d "${SDK}/ndk/"* 2>/dev/null | sort -V | tail -n1)"
+              fi
+            fi
+          fi
+          if [[ -z "${NDK}" || ! -d "${NDK}" ]]; then
+            echo "Could not locate Android NDK (set ANDROID_NDK_ROOT)." >&2
+            exit 1
+          fi
+          echo "Using NDK ${NDK}"
+          chmod +x "${GITHUB_WORKSPACE}/scripts/ci/build_android_curl_mbedtls.sh"
+          bash "${GITHUB_WORKSPACE}/scripts/ci/build_android_curl_mbedtls.sh" \
+            "${NDK}" "34" "${GITHUB_WORKSPACE}/.deps/curlmbed" \
+            arm64-v8a armeabi-v7a x86 x86_64
+
       - name: Install Qt via aqtinstall
         run: |
           pip install --upgrade pip
@@ -74,6 +102,11 @@ jobs:
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
             -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
             -DANDROID_VERSION_CODE=${{ github.run_number }} \
+            -DBLOP_OVERRIDE_GIT_SHA="${{ github.sha }}" \
+            -DBLOP_OBS_BUILD_NUMBER="${{ github.run_number }}" \
+            -DBLOP_OBS_BUILD_FLAVOR=ci_release \
+            -DBLOP_ENABLE_SENTRY=ON \
+            -DBLOP_ANDROID_CURL_INSTALL_ROOT="${GITHUB_WORKSPACE}/.deps/curlmbed" \
             ..
 
       # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Ohne diese Einstellungen schlagen
@@ -136,6 +169,36 @@ jobs:
       - name: Build Android App Bundle (AAB)
         working-directory: build
         run: cmake --build . --target Blop_make_aab
+
+      # Optional native debug uploads for Sentry (sentry-native). Secrets: SENTRY_AUTH_TOKEN,
+      # SENTRY_ORG, SENTRY_PROJECT — optional self-host: SENTRY_URL.
+      # Release tag must match BLOP_SENTRY_RELEASE_STR in CMake (adr). Strict CI: drop continue-on-error below.
+      - name: Upload Android native debug artifacts to Sentry (optional)
+        if: ${{ secrets.SENTRY_AUTH_TOKEN != '' && secrets.SENTRY_ORG != '' && secrets.SENTRY_PROJECT != '' }}
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_URL: ${{ secrets.SENTRY_URL }}
+        run: |
+          set -euo pipefail
+          curl -sL https://sentry.io/get-cli/ | bash
+          RELEASE="$(git describe --tags --always)+${GITHUB_SHA}+build${GITHUB_RUN_NUMBER}"
+          mapfile -t native_libs < <(find "${GITHUB_WORKSPACE}/build" -type f -name 'libBlop.so' -print)
+          if ((${#native_libs[@]} == 0)); then
+            echo "No libBlop.so under build/ — listing .so for diagnostics"
+            find "${GITHUB_WORKSPACE}/build" -type f -name '*.so' | head -n 50 || true
+            exit 1
+          fi
+          printf 'Uploading (%d) libs for release %s:\n' "${#native_libs[@]}" "${RELEASE}"
+          printf ' - %s\n' "${native_libs[@]}"
+          sentry-cli debug-files upload \
+            --include-sources \
+            --release "${RELEASE}" \
+            --org "${SENTRY_ORG}" \
+            --project "${SENTRY_PROJECT}" \
+            "${native_libs[@]}"
 
       # 3. Signieren (rekursiv alle *.apk und *.aab unter android-build; Ausgabe *-signed.apk / *-signed.aab)
       - name: Sign release APK and AAB
