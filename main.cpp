@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QObject>
 #include <QGuiApplication>
 #include <QStandardPaths>
 #ifdef Q_OS_ANDROID
@@ -14,6 +15,8 @@
 #include <QtWebView/QtWebView>
 #endif
 
+#include "blop_crash_backend.h"
+#include "blop_observability.h"
 #include "introscreen.h"
 #include "mainwindow.h"
 #include <QFont>
@@ -79,6 +82,12 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+  blopLogObservabilityBootstrap();
+  blopInitCrashReporting();
+  QObject::connect(&a, &QCoreApplication::aboutToQuit, []() {
+    blopShutdownCrashReporting();
+  });
 
 #ifdef Q_OS_ANDROID
   qInfo() << "[BlopDiag] Native crash capture: adb logcat -d | grep -iE "

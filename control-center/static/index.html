@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blop Control Center</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Blop Control Center</h1>
+    <p class="sub">Lokale Oberfläche für CI: Workflows starten, Runs auslesen. Kein Token im Browser — nur Server-seitig.</p>
+  </header>
+
+  <section class="panel">
+    <h2>Voraussetzungen</h2>
+    <p id="health" class="status">Lade Status…</p>
+    <p id="repo-info" class="muted"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Workflow starten</h2>
+    <label>Ziel-Branch:</label>
+    <input id="ref" type="text" value="main" />
+    <div class="row">
+      <button type="button" data-workflow="automation_smoke.yml">Smoke (schnell)</button>
+      <button type="button" data-workflow="windows_build.yml">Windows Build (+ Bench)</button>
+      <button type="button" data-workflow="android_build.yml">Android Build</button>
+    </div>
+    <pre id="dispatch-out"></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Letzte Runs</h2>
+    <button type="button" id="refresh-runs">Aktualisieren</button>
+    <div id="runs"></div>
+  </section>
+
+  <footer>
+    <small>Token per Umgebungsvariable <code>GITHUB_TOKEN</code> oder <code>CONTROL_CENTER_TOKEN</code>; Repo per <code>CONTROL_CENTER_REPOSITORY=owner/repo</code>.</small>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>
