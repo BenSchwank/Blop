@@ -80,7 +80,7 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          & .\blop_benchmark_math.exe | Tee-Object -FilePath benchmark_math.log
+          & .\benchmarks\blop_benchmark_math.exe | Tee-Object -FilePath benchmark_math.log
           "---" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           Get-Content benchmark_math.log -Raw | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 

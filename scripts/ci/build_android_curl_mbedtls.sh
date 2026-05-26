@@ -78,11 +78,23 @@ build_one_abi() {
   cmake --build "${mb_build}"
   cmake --install "${mb_build}"
 
+  # curl's bundled CMake/FindMbedTLS.cmake uses find_path/find_library, which
+  # the Android NDK toolchain restricts to the NDK sysroot (CMAKE_FIND_ROOT_PATH_MODE_*=ONLY).
+  # That hides our ${inst}/{include,lib}, so we pre-set the cache variables it expects
+  # and additionally widen the find-root-mode to BOTH for this sub-build only.
   cmake -S curl-src -B "${curl_build}" \
     "${CMAKE_COMMON[@]}" \
     -DANDROID_ABI="${abi}" \
     -DCMAKE_INSTALL_PREFIX="${inst}" \
     -DCMAKE_PREFIX_PATH="${inst}" \
+    -DCMAKE_FIND_ROOT_PATH="${inst}" \
+    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
+    -DMBEDTLS_INCLUDE_DIRS="${inst}/include" \
+    -DMBEDTLS_LIBRARY="${inst}/lib/libmbedtls.a" \
+    -DMBEDX509_LIBRARY="${inst}/lib/libmbedx509.a" \
+    -DMBEDCRYPTO_LIBRARY="${inst}/lib/libmbedcrypto.a" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_CURL_EXE=OFF \
     -DCURL_STATICLIB=ON \

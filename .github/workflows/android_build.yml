@@ -159,8 +159,13 @@ jobs:
 
       - name: Debug android package wiring (on failure)
         if: failure()
-        working-directory: build
         run: |
+          # Guard against early failures (e.g. mbedTLS/curl step before build/ exists).
+          if [ ! -d build ]; then
+            echo "build/ does not exist - failure occurred before CMake configure; nothing to diagnose."
+            exit 0
+          fi
+          cd build
           echo "----- deployment settings -----"
           rg -n "localAndroidPackageName|androidPackageName|com\\.benschwank\\.blop" android-Blop-deployment-settings.json || true
           echo "----- generated gradle.properties -----"
