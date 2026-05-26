@@ -1,0 +1,318 @@
+#include "androidphonetoolbar.h"
+
+#include "moderntoolbar.h"
+#include "blopstyle.h"
+#include "editoroverlays.h"
+#include "tools/ToolUIBridge.h"
+#include "uiscale.h"
+
+#include <QAction>
+#include <QColor>
+#include <QDialog>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMenu>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPointer>
+#include <QPushButton>
+#include <QResizeEvent>
+#include <QSlider>
+#include <QVBoxLayout>
+
+namespace {
+
+// Local copy of the Blop menu QSS so this class doesn't reach into mainwindow.cpp.
+// Kept in sync with blopWebMenuStyleSheet() in src/ui/mainwindow.cpp ~171.
+QString phoneMenuStyleSheet() {
+  return QString::fromUtf8(
+      R"(QMenu { background-color: #14121F; border: 1px solid rgba(124, 92, 252, 0.42); border-radius: 12px; padding: 6px; }
+QMenu::separator { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 12px; }
+QMenu::item { color: #E8E4FF; padding: 12px 22px; border-radius: 8px; font-size: 14px; font-weight: 500; }
+QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })");
+}
+
+} // namespace
+
+AndroidPhoneToolbar::AndroidPhoneToolbar(QWidget *parent) : QWidget(parent) {
+  setAttribute(Qt::WA_StyledBackground, false);
+  setAttribute(Qt::WA_TranslucentBackground, true);
+  setFocusPolicy(Qt::NoFocus);
+  setupButtons();
+  setToolMode(ToolMode::Pen);
+}
+
+void AndroidPhoneToolbar::setupButtons() {
+  btnPen = new ToolbarBtn(QStringLiteral("pen"), this);
+  btnEraser = new ToolbarBtn(QStringLiteral("eraser"), this);
+  btnLasso = new ToolbarBtn(QStringLiteral("lasso"), this);
+  btnUndo = new ToolbarBtn(QStringLiteral("undo"), this);
+  btnRedo = new ToolbarBtn(QStringLiteral("redo"), this);
+  btnColor = new ToolbarBtn(QStringLiteral("palette"), this);
+  btnBrush = new ToolbarBtn(QStringLiteral("brush_size"), this);
+  btnOverflow = new ToolbarBtn(QStringLiteral("more"), this);
+
+  const int btnSize = UiScale::dp(32);
+  for (auto *b : {btnPen, btnEraser, btnLasso, btnUndo, btnRedo, btnColor,
+                  btnBrush, btnOverflow}) {
+    b->setBtnSize(btnSize);
+    b->setAccentColor(m_accentColor);
+    b->setDrawFloatingBg(false);
+  }
+
+  m_toolButtons = {btnPen, btnEraser, btnLasso};
+
+  connect(btnPen, &ToolbarBtn::clicked, this, [this]() { selectTool(ToolMode::Pen); });
+  connect(btnEraser, &ToolbarBtn::clicked, this, [this]() { selectTool(ToolMode::Eraser); });
+  connect(btnLasso, &ToolbarBtn::clicked, this, [this]() { selectTool(ToolMode::Lasso); });
+  connect(btnUndo, &ToolbarBtn::clicked, this, &AndroidPhoneToolbar::undoRequested);
+  connect(btnRedo, &ToolbarBtn::clicked, this, &AndroidPhoneToolbar::redoRequested);
+  connect(btnColor, &ToolbarBtn::clicked, this, [this]() { showColorPicker(); });
+  connect(btnBrush, &ToolbarBtn::clicked, this, [this]() { showBrushSizeSheet(); });
+  connect(btnOverflow, &ToolbarBtn::clicked, this, [this]() { showOverflowMenu(); });
+}
+
+void AndroidPhoneToolbar::setToolMode(ToolMode mode) {
+  const bool changed = (m_mode != mode);
+  m_mode = mode;
+  // Only "tool" buttons (Pen/Eraser/Lasso) carry the active highlight in the
+  // visible row. Other modes (selected via overflow) are reflected on the
+  // overflow button via a small accent dot in paintEvent.
+  for (auto *b : m_toolButtons)
+    b->setActive(false);
+  ToolbarBtn *active = nullptr;
+  if (mode == ToolMode::Pen)
+    active = btnPen;
+  else if (mode == ToolMode::Eraser)
+    active = btnEraser;
+  else if (mode == ToolMode::Lasso)
+    active = btnLasso;
+  if (active) {
+    active->setActive(true);
+    active->animateSelect();
+  }
+  if (changed)
+    update();
+}
+
+void AndroidPhoneToolbar::setAccentColor(const QColor &color) {
+  if (!color.isValid() || m_accentColor == color)
+    return;
+  m_accentColor = color;
+  for (QObject *child : children()) {
+    if (auto *b = qobject_cast<ToolbarBtn *>(child))
+      b->setAccentColor(m_accentColor);
+  }
+  update();
+}
+
+int AndroidPhoneToolbar::preferredHeightPx() const {
+  return UiScale::dp(44);
+}
+
+void AndroidPhoneToolbar::selectTool(ToolMode mode) {
+  setToolMode(mode);
+  emit toolChanged(mode);
+}
+
+void AndroidPhoneToolbar::emitPenConfig() {
+  emit penConfigChanged(m_config.penColor, m_config.penWidth);
+  ToolUIBridge::instance().setPenColor(m_config.penColor);
+  ToolUIBridge::instance().setPenWidth(m_config.penWidth);
+}
+
+void AndroidPhoneToolbar::showOverflowMenu() {
+  QPointer<AndroidPhoneToolbar> safe(this);
+  auto *menu = new QMenu(this);
+  menu->setAttribute(Qt::WA_DeleteOnClose);
+  menu->setStyleSheet(phoneMenuStyleSheet());
+
+  auto addToolEntry = [&](const QString &label, ToolMode mode) {
+    QAction *a = menu->addAction(label);
+    QObject::connect(a, &QAction::triggered, this, [safe, mode]() {
+      if (safe)
+        safe->selectTool(mode);
+    });
+  };
+
+  addToolEntry(QStringLiteral("Bleistift"), ToolMode::Pencil);
+  addToolEntry(QStringLiteral("Marker"), ToolMode::Highlighter);
+  addToolEntry(QStringLiteral("Lineal"), ToolMode::Ruler);
+  addToolEntry(QStringLiteral("Form"), ToolMode::Shape);
+  addToolEntry(QStringLiteral("Notizzettel"), ToolMode::StickyNote);
+  addToolEntry(QStringLiteral("Text"), ToolMode::Text);
+  addToolEntry(QStringLiteral("Bild"), ToolMode::Image);
+  addToolEntry(QStringLiteral("Hand"), ToolMode::Hand);
+  menu->addSeparator();
+  QAction *back = menu->addAction(QStringLiteral("Zur Übersicht"));
+  QObject::connect(back, &QAction::triggered, this, [safe]() {
+    if (safe)
+      emit safe->backToOverviewRequested();
+  });
+
+  const QPoint anchor =
+      btnOverflow->mapToGlobal(QPoint(btnOverflow->width() / 2, 0));
+  // Pre-size so we can offset upward by hint.height() (phone toolbar sits at
+  // the bottom of the screen; we want the menu above the pill, not below).
+  menu->adjustSize();
+  const QSize hint = menu->sizeHint();
+  QPoint pos(anchor.x() - hint.width() / 2, anchor.y() - hint.height() - UiScale::dp(6));
+  if (pos.x() < UiScale::dp(8))
+    pos.setX(UiScale::dp(8));
+  menu->popup(pos);
+}
+
+void AndroidPhoneToolbar::showColorPicker() {
+  QColor c = m_config.penColor;
+  QWidget *host = parentWidget() ? parentWidget() : window();
+  if (showColorPickerOverlay(host, &c, QStringLiteral("Stiftfarbe"))) {
+    m_config.penColor = c;
+    emitPenConfig();
+    update();
+  }
+}
+
+void AndroidPhoneToolbar::showBrushSizeSheet() {
+  // Lightweight sheet with one slider 1..30 driving penWidth.
+  // Anchored above the pill, dismissed on outside-click.
+  QWidget *host = parentWidget() ? parentWidget() : window();
+  auto *sheet = new QDialog(host, Qt::Popup | Qt::FramelessWindowHint);
+  sheet->setAttribute(Qt::WA_DeleteOnClose);
+  sheet->setAttribute(Qt::WA_TranslucentBackground, true);
+  sheet->setModal(false);
+
+  auto *frame = new QFrame(sheet);
+  frame->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
+  frame->setStyleSheet(QStringLiteral(
+      "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
+      "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
+      "QLabel { color: #E8E4FF; font-size: 13px; }"));
+  auto *outer = new QVBoxLayout(sheet);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->addWidget(frame);
+
+  auto *layout = new QVBoxLayout(frame);
+  layout->setContentsMargins(UiScale::dp(14), UiScale::dp(12),
+                             UiScale::dp(14), UiScale::dp(12));
+  layout->setSpacing(UiScale::dp(6));
+  auto *title = new QLabel(QStringLiteral("Strichstärke"), frame);
+  layout->addWidget(title);
+
+  auto *valueLabel = new QLabel(QString::number(m_config.penWidth) +
+                                    QStringLiteral(" px"),
+                                frame);
+  valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+  auto *slider = new QSlider(Qt::Horizontal, frame);
+  slider->setRange(1, 30);
+  slider->setValue(m_config.penWidth);
+  slider->setStyleSheet(QStringLiteral(
+      "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
+      "background: #121212; margin: 2px 0; border-radius: 3px; }"
+      "QSlider::handle:horizontal { background: #7C5CFC; border: 1px solid "
+      "#7C5CFC; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
+      "QSlider::sub-page:horizontal { background: rgba(124,92,252,0.6); "
+      "border-radius: 3px; }"));
+
+  auto *row = new QHBoxLayout;
+  row->addWidget(slider);
+  row->addWidget(valueLabel);
+  layout->addLayout(row);
+
+  QPointer<AndroidPhoneToolbar> safe(this);
+  QObject::connect(slider, &QSlider::valueChanged, sheet,
+                   [safe, valueLabel](int v) {
+                     valueLabel->setText(QString::number(v) +
+                                         QStringLiteral(" px"));
+                     if (safe) {
+                       safe->m_config.penWidth = v;
+                       safe->emitPenConfig();
+                     }
+                   });
+
+  const int sheetW = UiScale::dp(260);
+  const int sheetH = UiScale::dp(86);
+  sheet->resize(sheetW, sheetH);
+
+  const QPoint anchor =
+      btnBrush->mapToGlobal(QPoint(btnBrush->width() / 2, 0));
+  QPoint pos(anchor.x() - sheetW / 2,
+             anchor.y() - sheetH - UiScale::dp(8));
+  if (pos.x() < UiScale::dp(8))
+    pos.setX(UiScale::dp(8));
+  sheet->move(pos);
+  sheet->show();
+}
+
+void AndroidPhoneToolbar::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing, true);
+
+  // Bottom pill surface (matches BlopStyle::surfaceBg / surfaceBorder).
+  const QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
+  const int radius = UiScale::dp(BlopStyle::surfaceRadiusDp() - 4);
+  QPainterPath path;
+  path.addRoundedRect(r, radius, radius);
+  p.fillPath(path, BlopStyle::surfaceBg());
+  p.setPen(QPen(BlopStyle::surfaceBorder(), 1.0));
+  p.drawPath(path);
+
+  // Vertical separators between groups.
+  p.setPen(QPen(QColor(255, 255, 255, 40), 1.0));
+  const int sepTop = UiScale::dp(8);
+  const int sepBot = height() - UiScale::dp(8);
+  for (int x : m_separatorX) {
+    p.drawLine(x, sepTop, x, sepBot);
+  }
+}
+
+void AndroidPhoneToolbar::resizeEvent(QResizeEvent *) {
+  // Reihenfolge: Pen Eraser Lasso | Undo Redo | Color Brush | Overflow
+  // Buttons werden in 3 Gruppen + Overflow gerendert.
+  const int btnSize = UiScale::dp(32);
+  const int gap = UiScale::dp(4);
+  const int sepPad = UiScale::dp(6);
+
+  struct Group {
+    QVector<ToolbarBtn *> btns;
+    bool drawSepAfter;
+  };
+  const QVector<Group> groups = {
+      {{btnPen, btnEraser, btnLasso}, true},
+      {{btnUndo, btnRedo}, true},
+      {{btnColor, btnBrush}, true},
+      {{btnOverflow}, false},
+  };
+
+  int totalW = 0;
+  for (int gi = 0; gi < groups.size(); ++gi) {
+    const auto &g = groups[gi];
+    totalW += g.btns.size() * btnSize + (g.btns.size() - 1) * gap;
+    if (g.drawSepAfter)
+      totalW += 2 * sepPad + 1; // padding around 1px separator
+  }
+
+  int x = (width() - totalW) / 2;
+  if (x < UiScale::dp(8))
+    x = UiScale::dp(8);
+  const int y = (height() - btnSize) / 2;
+
+  m_separatorX.clear();
+  for (int gi = 0; gi < groups.size(); ++gi) {
+    const auto &g = groups[gi];
+    for (int i = 0; i < g.btns.size(); ++i) {
+      ToolbarBtn *b = g.btns[i];
+      b->move(x, y);
+      x += btnSize;
+      if (i < g.btns.size() - 1)
+        x += gap;
+    }
+    if (g.drawSepAfter) {
+      x += sepPad;
+      m_separatorX.append(x);
+      x += 1 + sepPad;
+    }
+  }
+  update();
+}

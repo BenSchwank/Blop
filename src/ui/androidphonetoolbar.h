@@ -1,0 +1,73 @@
+#pragma once
+
+// AndroidPhoneToolbar - schlanke Bottom-Pille fuer Android Phones.
+//
+// Wird im Editor instanziiert wenn UiScale::isAndroidTablet() == false.
+// Auf Desktop und Android-Tablets bleibt ModernToolbar.
+//
+// Sichtbare Werkzeuge: Pen, Eraser, Lasso, |, Undo, Redo, |, Color, Brush, |, Overflow
+// Overflow-QMenu: Pencil, Highlighter, Ruler, Shape, Sticky, Text, Image, Hand, Save, Back
+
+#include <QColor>
+#include <QPointer>
+#include <QVector>
+#include <QWidget>
+
+#include "ToolMode.h"
+#include "ToolSettings.h"
+
+class ToolbarBtn;
+class QPaintEvent;
+class QResizeEvent;
+
+class AndroidPhoneToolbar : public QWidget {
+  Q_OBJECT
+public:
+  explicit AndroidPhoneToolbar(QWidget *parent = nullptr);
+
+  void setToolMode(ToolMode mode);
+  ToolMode toolMode() const { return m_mode; }
+
+  void setAccentColor(const QColor &color);
+
+  // Same hint that ModernToolbar exposes - callers don't care which
+  // toolbar variant they have, they can just call this.
+  int preferredHeightPx() const;
+
+signals:
+  void toolChanged(ToolMode mode);
+  void undoRequested();
+  void redoRequested();
+  void penConfigChanged(QColor c, int w);
+  void backToOverviewRequested();
+
+protected:
+  void paintEvent(QPaintEvent *) override;
+  void resizeEvent(QResizeEvent *) override;
+
+private:
+  ToolbarBtn *btnPen{nullptr};
+  ToolbarBtn *btnEraser{nullptr};
+  ToolbarBtn *btnLasso{nullptr};
+  ToolbarBtn *btnUndo{nullptr};
+  ToolbarBtn *btnRedo{nullptr};
+  ToolbarBtn *btnColor{nullptr};
+  ToolbarBtn *btnBrush{nullptr};
+  ToolbarBtn *btnOverflow{nullptr};
+
+  QVector<ToolbarBtn *> m_toolButtons;
+
+  ToolMode m_mode{ToolMode::Pen};
+  ToolConfig m_config;
+  QColor m_accentColor{QColor("#7C5CFC")};
+
+  void setupButtons();
+  void selectTool(ToolMode mode);
+  void emitPenConfig();
+  void showOverflowMenu();
+  void showColorPicker();
+  void showBrushSizeSheet();
+
+  // X-positions of vertical separators after layout (drawn in paintEvent).
+  QVector<int> m_separatorX;
+};

@@ -386,6 +386,17 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(53, 32, 42, 30);
     return;
   }
+  if (name == QLatin1String("more")) {
+    // Drei vertikale Punkte (Material "more vertical") - oberer + unterer in
+    // primary, mittlerer in Accent, damit es zur Toolbar-Palette passt.
+    p->setPen(Qt::NoPen);
+    p->setBrush(primary);
+    p->drawEllipse(QPointF(32, 18), 3.4, 3.4);
+    p->drawEllipse(QPointF(32, 46), 3.4, 3.4);
+    p->setBrush(accent);
+    p->drawEllipse(QPointF(32, 32), 3.4, 3.4);
+    return;
+  }
   // Fallback: single-character / unknown (legacy)
   QFont f = p->font();
   f.setPixelSize(28);

@@ -2,6 +2,7 @@
 #include "UIStyles.h"
 #include "canvasview.h"
 #include "moderntoolbar.h"
+#include "androidphonetoolbar.h"
 #include "newnotedialog.h"
 #include "overlayscrollindicator.h"
 #include "profileeditordialog.h"
@@ -2059,7 +2060,16 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
   }
 #endif
   if (obj == m_editorCenterWidget && event->type() == QEvent::Resize && m_floatingTools) {
-    if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+      const int h = phone->preferredHeightPx();
+      const int margin = UiScale::dp(8);
+      const int avail = qMax(UiScale::dp(180), m_editorCenterWidget->width());
+      const int w = qMin(avail - 2 * margin, UiScale::dp(360));
+      const int y = qMax(0, m_editorCenterWidget->height() - h -
+                                UiScale::safeBottomPx(this) - UiScale::dp(8));
+      phone->setGeometry((avail - w) / 2, y, w, h);
+      phone->raise();
+    } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       if (tb->isDockedMode()) {
         int idealW = tb->calculateMinLength();
         // Slightly shorter docked toolbar at full width.
@@ -2427,6 +2437,8 @@ void MainWindow::applyTheme() {
     m_fileListView->setAccentColor(m_currentAccentColor);
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
     tb->setAccentColor(m_currentAccentColor);
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
+    phone->setAccentColor(m_currentAccentColor);
 
   // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
   // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
@@ -3706,20 +3718,34 @@ void MainWindow::setupUi() {
   centerLayout->setSpacing(0);
 
   // ── Floating Toolbar ─────────────────────────────────────────────────────
-  ModernToolbar *topToolbar = new ModernToolbar(m_editorCenterWidget);
-  topToolbar->setOrientation(ModernToolbar::Horizontal);
+  ModernToolbar *topToolbar = nullptr;
+  AndroidPhoneToolbar *phoneToolbar = nullptr;
 #ifdef Q_OS_ANDROID
-  // Android: keep toolbar behavior deterministic (fixed/docked).
-  topToolbar->setDraggable(false);
+  const bool usePhoneToolbar = !UiScale::isAndroidTablet(this);
 #else
-  topToolbar->setDraggable(true);
+  const bool usePhoneToolbar = false;
 #endif
-  topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  int idealW = topToolbar->calculateMinLength();
-  topToolbar->resize(idealW, 52);
-  m_floatingTools = topToolbar;
-  topToolbar->setDockMode(true);
-  topToolbar->raise();
+  if (usePhoneToolbar) {
+    phoneToolbar = new AndroidPhoneToolbar(m_editorCenterWidget);
+    phoneToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    phoneToolbar->resize(UiScale::dp(360), UiScale::dp(44));
+    m_floatingTools = phoneToolbar;
+  } else {
+    topToolbar = new ModernToolbar(m_editorCenterWidget);
+    topToolbar->setOrientation(ModernToolbar::Horizontal);
+#ifdef Q_OS_ANDROID
+    // Android Tablet: keep toolbar behavior deterministic (fixed/docked).
+    topToolbar->setDraggable(false);
+#else
+    topToolbar->setDraggable(true);
+#endif
+    topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    int idealW = topToolbar->calculateMinLength();
+    topToolbar->resize(idealW, 52);
+    m_floatingTools = topToolbar;
+    topToolbar->setDockMode(true);
+  }
+  m_floatingTools->raise();
 
   // Install event filter to center the floating tools automatically on resize
   m_editorCenterWidget->installEventFilter(this);
@@ -3753,77 +3779,99 @@ void MainWindow::setupUi() {
           &MainWindow::onTabChanged);
   centerLayout->addWidget(m_editorTabs);
 
-  connect(topToolbar, &ModernToolbar::toolChanged,
-          [this](ToolMode m) { 
-              CanvasView::ToolType type = CanvasView::ToolType::Pen;
-              switch (m) {
-                  case ToolMode::Eraser: type = CanvasView::ToolType::Eraser; break;
-                  case ToolMode::Lasso: type = CanvasView::ToolType::Lasso; break;
-                  case ToolMode::Highlighter: type = CanvasView::ToolType::Highlighter; break;
-                  case ToolMode::Ruler: type = CanvasView::ToolType::Ruler; break;
-                  case ToolMode::Image: type = CanvasView::ToolType::Image; break;
-                  case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
-                  case ToolMode::Text: type = CanvasView::ToolType::Text; break;
-                  default: type = CanvasView::ToolType::Pen; break;
-              }
-              setActiveTool(type); 
-          });
-
-  connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
-          [this, topToolbar](AbstractTool *tool) {
-            if (tool && topToolbar->toolMode() != tool->mode()) {
-              // Ensure the topToolbar's own state updates, so icon highlights
-              // and double-click radial menus actually trigger.
-              topToolbar->setToolMode(tool->mode());
-
-              CanvasView::ToolType type = CanvasView::ToolType::Pen;
-              switch (tool->mode()) {
-                  case ToolMode::Eraser: type = CanvasView::ToolType::Eraser; break;
-                  case ToolMode::Lasso: type = CanvasView::ToolType::Lasso; break;
-                  case ToolMode::Highlighter: type = CanvasView::ToolType::Highlighter; break;
-                  case ToolMode::Ruler: type = CanvasView::ToolType::Ruler; break;
-                  case ToolMode::Image: type = CanvasView::ToolType::Image; break;
-                  case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
-                  case ToolMode::Text: type = CanvasView::ToolType::Text; break;
-                  default: type = CanvasView::ToolType::Pen; break;
-              }
-              setActiveTool(type);
-            }
-          });
-
-  connect(topToolbar, &ModernToolbar::rulerToggled, [this](bool active) {
-      if (CanvasView *cv = getCurrentCanvas()) {
-          cv->toggleRuler(active);
-      }
-      auto* activeEditor = qobject_cast<NoteEditor*>(m_editorTabs->currentWidget());
-      if (activeEditor) {
-          if (auto* view = activeEditor->findChild<MultiPageNoteView*>()) {
-              view->toggleRuler(active);
-          }
-      }
-  });
-  connect(topToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo);
-  connect(topToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
-  connect(topToolbar, &ModernToolbar::backToOverviewRequested, this,
-          &MainWindow::onBackToOverview);
-
-  connect(topToolbar, &ModernToolbar::penConfigChanged,
-          [this](QColor c, int w) {
-            m_penColor = c;
-            m_penWidth = w;
-            CanvasView *cv = getCurrentCanvas();
-            if (cv) {
-              cv->setPenColor(c);
-              cv->setPenWidth(w);
-            }
-          });
-  connect(topToolbar, &ModernToolbar::scaleChanged, [this](qreal newScale) {
-    if (m_sliderToolbarScale) {
-      m_sliderToolbarScale->blockSignals(true);
-      m_sliderToolbarScale->setValue(newScale * 100);
-      m_sliderToolbarScale->blockSignals(false);
+  // Shared handlers: the same code runs whether the active toolbar is
+  // ModernToolbar (desktop / Android tablet) or AndroidPhoneToolbar (phone).
+  const auto onToolModeChanged = [this](ToolMode m) {
+    CanvasView::ToolType type = CanvasView::ToolType::Pen;
+    switch (m) {
+      case ToolMode::Eraser: type = CanvasView::ToolType::Eraser; break;
+      case ToolMode::Lasso: type = CanvasView::ToolType::Lasso; break;
+      case ToolMode::Highlighter: type = CanvasView::ToolType::Highlighter; break;
+      case ToolMode::Ruler: type = CanvasView::ToolType::Ruler; break;
+      case ToolMode::Image: type = CanvasView::ToolType::Image; break;
+      case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
+      case ToolMode::Text: type = CanvasView::ToolType::Text; break;
+      default: type = CanvasView::ToolType::Pen; break;
     }
-  });
+    setActiveTool(type);
+    // The phone toolbar has no separate rulerToggled signal; reproduce the
+    // ModernToolbar behavior so the on-screen ruler appears/disappears too.
+    const bool rulerActive = (m == ToolMode::Ruler);
+    if (CanvasView *cv = getCurrentCanvas())
+      cv->toggleRuler(rulerActive);
+    if (m_editorTabs) {
+      if (auto *activeEditor =
+              qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+        if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
+          view->toggleRuler(rulerActive);
+      }
+    }
+  };
+  const auto onPenConfigChanged = [this](QColor c, int w) {
+    m_penColor = c;
+    m_penWidth = w;
+    if (CanvasView *cv = getCurrentCanvas()) {
+      cv->setPenColor(c);
+      cv->setPenWidth(w);
+    }
+  };
+
+  if (topToolbar) {
+    connect(topToolbar, &ModernToolbar::toolChanged, this, onToolModeChanged);
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
+            [this, topToolbar, onToolModeChanged](AbstractTool *tool) {
+              if (tool && topToolbar->toolMode() != tool->mode()) {
+                // Ensure the topToolbar's own state updates, so icon highlights
+                // and double-click radial menus actually trigger.
+                topToolbar->setToolMode(tool->mode());
+                onToolModeChanged(tool->mode());
+              }
+            });
+
+    connect(topToolbar, &ModernToolbar::rulerToggled, [this](bool active) {
+        if (CanvasView *cv = getCurrentCanvas()) {
+            cv->toggleRuler(active);
+        }
+        auto* activeEditor = qobject_cast<NoteEditor*>(m_editorTabs->currentWidget());
+        if (activeEditor) {
+            if (auto* view = activeEditor->findChild<MultiPageNoteView*>()) {
+                view->toggleRuler(active);
+            }
+        }
+    });
+    connect(topToolbar, &ModernToolbar::undoRequested, this, &MainWindow::onUndo);
+    connect(topToolbar, &ModernToolbar::redoRequested, this, &MainWindow::onRedo);
+    connect(topToolbar, &ModernToolbar::backToOverviewRequested, this,
+            &MainWindow::onBackToOverview);
+
+    connect(topToolbar, &ModernToolbar::penConfigChanged, this, onPenConfigChanged);
+    connect(topToolbar, &ModernToolbar::scaleChanged, [this](qreal newScale) {
+      if (m_sliderToolbarScale) {
+        m_sliderToolbarScale->blockSignals(true);
+        m_sliderToolbarScale->setValue(newScale * 100);
+        m_sliderToolbarScale->blockSignals(false);
+      }
+    });
+  }
+  if (phoneToolbar) {
+    connect(phoneToolbar, &AndroidPhoneToolbar::toolChanged, this,
+            onToolModeChanged);
+    connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
+            [this, phoneToolbar, onToolModeChanged](AbstractTool *tool) {
+              if (tool && phoneToolbar->toolMode() != tool->mode()) {
+                phoneToolbar->setToolMode(tool->mode());
+                onToolModeChanged(tool->mode());
+              }
+            });
+    connect(phoneToolbar, &AndroidPhoneToolbar::undoRequested, this,
+            &MainWindow::onUndo);
+    connect(phoneToolbar, &AndroidPhoneToolbar::redoRequested, this,
+            &MainWindow::onRedo);
+    connect(phoneToolbar, &AndroidPhoneToolbar::backToOverviewRequested, this,
+            &MainWindow::onBackToOverview);
+    connect(phoneToolbar, &AndroidPhoneToolbar::penConfigChanged, this,
+            onPenConfigChanged);
+  }
   editorMainLayout->addWidget(m_editorCenterWidget);
   setupRightSidebar();
   qDebug() << "setupUi() nach setupRightSidebar";
@@ -4437,6 +4485,23 @@ void MainWindow::onModeChanged(int index) {
       if (auto *tbNow = qobject_cast<ModernToolbar *>(m_floatingTools))
         tbNow->requestAdaptiveReflow();
     });
+  }
+  // Phone toolbar reflows via parent resize event - nudge it the same way
+  // ModernToolbar gets nudged on mode switches so geometry stays correct
+  // immediately and on the next event loop tick.
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    if (m_editorCenterWidget) {
+      const int h = phone->preferredHeightPx();
+      const int margin = UiScale::dp(8);
+      const int avail =
+          qMax(UiScale::dp(180), m_editorCenterWidget->width());
+      const int w = qMin(avail - 2 * margin, UiScale::dp(360));
+      const int y = qMax(0, m_editorCenterWidget->height() - h -
+                                UiScale::safeBottomPx(this) -
+                                UiScale::dp(8));
+      phone->setGeometry((avail - w) / 2, y, w, h);
+      phone->raise();
+    }
   }
 }
 
@@ -5896,7 +5961,14 @@ void MainWindow::setupRightSidebar() {
   optLayout->addWidget(m_btnInputPen);
   optLayout->addWidget(m_btnInputTouch);
 
-  optLayout->addWidget(new QLabel("Toolbar Style:", optContent));
+  // Toolbar-Style + Scale only apply to ModernToolbar (Radial/Normal switch
+  // and continuous scaling). On Android phones we ship AndroidPhoneToolbar,
+  // which is a fixed bottom-pill with no style or scale knobs - so we still
+  // create the controls (preserving layout indices) but disable them.
+  const bool phoneToolbarActive =
+      qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
+  QLabel *lblToolbarStyle = new QLabel("Toolbar Style:", optContent);
+  optLayout->addWidget(lblToolbarStyle);
   m_comboToolbarStyle = new QComboBox();
   m_comboToolbarStyle->addItems({"Vertical", "Radial (Full)", "Radial (Half)"});
   m_comboToolbarStyle->setStyleSheet(
@@ -5921,6 +5993,12 @@ void MainWindow::setupRightSidebar() {
               }
             }
           });
+  if (phoneToolbarActive) {
+    lblToolbarStyle->setEnabled(false);
+    m_comboToolbarStyle->setEnabled(false);
+    m_comboToolbarStyle->setToolTip(
+        "Toolbar-Style ist auf Android Phones fest (Bottom-Pille).");
+  }
   optLayout->addWidget(m_comboToolbarStyle);
 
   optLayout->addWidget(new QLabel("UI Profile:", optContent));
@@ -5949,7 +6027,8 @@ void MainWindow::setupRightSidebar() {
   });
   optLayout->addWidget(m_comboProfiles);
 
-  optLayout->addWidget(new QLabel("Toolbar Size:", optContent));
+  QLabel *lblToolbarSize = new QLabel("Toolbar Size:", optContent);
+  optLayout->addWidget(lblToolbarSize);
   m_sliderToolbarScale = new QSlider(Qt::Horizontal);
   m_sliderToolbarScale->setRange(50, 150);
   m_sliderToolbarScale->setValue(100);
@@ -5964,6 +6043,12 @@ void MainWindow::setupRightSidebar() {
     if (tb)
       tb->setScale(val / 100.0);
   });
+  if (phoneToolbarActive) {
+    lblToolbarSize->setEnabled(false);
+    m_sliderToolbarScale->setEnabled(false);
+    m_sliderToolbarScale->setToolTip(
+        "Toolbar-Skala auf Android Phones fest (Bottom-Pille).");
+  }
   optLayout->addWidget(m_sliderToolbarScale);
 
   optLayout->addStretch();
@@ -6149,7 +6234,20 @@ void MainWindow::animateSidebar(bool show) {
 #endif
             // Keep docked toolbar fully visible while sidebar animates.
             if (m_floatingTools) {
-              if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+              if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+                if (m_editorCenterWidget) {
+                  const int h = phone->preferredHeightPx();
+                  const int margin = UiScale::dp(8);
+                  const int avail =
+                      qMax(UiScale::dp(180), m_editorCenterWidget->width());
+                  const int dockW = qMin(avail - 2 * margin, UiScale::dp(360));
+                  const int y = qMax(0, m_editorCenterWidget->height() - h -
+                                            UiScale::safeBottomPx(this) -
+                                            UiScale::dp(8));
+                  phone->setGeometry((avail - dockW) / 2, y, dockW, h);
+                  phone->raise();
+                }
+              } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
                 if (tb->isDockedMode() && m_editorCenterWidget) {
                   int idealW = tb->calculateMinLength();
                   idealW = qMax(220, int(idealW * 0.90));
@@ -7117,8 +7215,21 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
       m_renameInput->move(width() / 2 - 150, height() / 2 - 20);
   }
   if (m_editorTabs && m_floatingTools) {
-    ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
-    if (tb) {
+    if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+      if (m_editorCenterWidget) {
+        const int h = phone->preferredHeightPx();
+        const int margin = UiScale::dp(8);
+        const int avail =
+            qMax(UiScale::dp(180), m_editorCenterWidget->width());
+        const int w = qMin(avail - 2 * margin, UiScale::dp(360));
+        const int y = qMax(0, m_editorCenterWidget->height() - h -
+                                  UiScale::safeBottomPx(this) -
+                                  UiScale::dp(8));
+        phone->setGeometry((avail - w) / 2, y, w, h);
+        phone->raise();
+      }
+    } else if (ModernToolbar *tb =
+                   qobject_cast<ModernToolbar *>(m_floatingTools)) {
       tb->setTopBound(0);
       tb->requestAdaptiveReflow();
       // Let the toolbar govern its own dragged docking position seamlessly.
@@ -7232,6 +7343,9 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
 
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
     tb->setToolMode(tm);
+  }
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    phone->setToolMode(tm);
   }
   QWidget *current = m_editorTabs ? m_editorTabs->currentWidget() : nullptr;
   // Direct or inside-wrapper
