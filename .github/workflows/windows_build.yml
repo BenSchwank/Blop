@@ -11,6 +11,13 @@ jobs:
   build:
     name: Build & Deploy
     runs-on: windows-latest
+    env:
+      # Sentry secrets exposed at job-level so steps can use env.* in `if:` conditions
+      # (secrets.* is not allowed in conditionals; this is the documented workaround).
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
 
     steps:
       - name: Checkout code
@@ -81,13 +88,8 @@ jobs:
       # optional SENTRY_URL for self-hosted. Release string must match BLOP_SENTRY_RELEASE_STR in the binary
       # (see docs/ADR-observability.md). Strict mode: remove continue-on-error below so failed uploads fail the job.
       - name: Upload Windows debug files to Sentry (optional)
-        if: ${{ secrets.SENTRY_AUTH_TOKEN != '' && secrets.SENTRY_ORG != '' && secrets.SENTRY_PROJECT != '' }}
+        if: env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT != ''
         continue-on-error: true
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          SENTRY_URL: ${{ secrets.SENTRY_URL }}
         shell: bash
         run: |
           set -euo pipefail

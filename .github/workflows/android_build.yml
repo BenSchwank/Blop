@@ -17,6 +17,12 @@ jobs:
     # Maven Central liefert auf GHA manchmal 403 (IPv6/Bot-Filter); IPv4 + explizite Gradle-Config mildert das.
     env:
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
+      # Sentry secrets exposed at job-level so steps can use env.* in `if:` conditions
+      # (secrets.* is not allowed in conditionals; this is the documented workaround).
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
 
     steps:
       - name: Checkout code
@@ -174,13 +180,8 @@ jobs:
       # SENTRY_ORG, SENTRY_PROJECT — optional self-host: SENTRY_URL.
       # Release tag must match BLOP_SENTRY_RELEASE_STR in CMake (adr). Strict CI: drop continue-on-error below.
       - name: Upload Android native debug artifacts to Sentry (optional)
-        if: ${{ secrets.SENTRY_AUTH_TOKEN != '' && secrets.SENTRY_ORG != '' && secrets.SENTRY_PROJECT != '' }}
+        if: env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT != ''
         continue-on-error: true
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          SENTRY_URL: ${{ secrets.SENTRY_URL }}
         run: |
           set -euo pipefail
           curl -sL https://sentry.io/get-cli/ | bash
