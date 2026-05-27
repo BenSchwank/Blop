@@ -256,9 +256,12 @@ bool AndroidTileDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
   if (event->type() == QEvent::MouseButtonRelease && m_window) {
     auto *me = static_cast<QMouseEvent *>(event);
     if (pillHit.contains(me->pos())) {
-      m_window->setAndroidPillClickPending(true);
+      // Note: we intentionally do NOT set m_androidPillClickPending here.
+      // Returning true below already prevents QListView from emitting
+      // clicked(); setting the flag in addition would leak true across to
+      // the next genuine tile tap and swallow the open action.
       QPointer<MainWindow> safeWin(m_window);
-      const QModelIndex safeIdx(index);
+      const QPersistentModelIndex safeIdx(index);
       QPointer<QAbstractItemView> safeView(view);
       const QRect pillRect = pillHit;
       QTimer::singleShot(0, m_window, [safeWin, safeIdx, safeView, pillRect]() {
@@ -268,7 +271,7 @@ bool AndroidTileDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
         // context menu at click position), not a centered full-screen card.
         const QPoint globalPos =
             safeView->viewport()->mapToGlobal(pillRect.bottomRight());
-        safeWin->showContextMenu(globalPos, safeIdx);
+        safeWin->showContextMenu(globalPos, QModelIndex(safeIdx));
       });
       return true;
     }

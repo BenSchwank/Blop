@@ -6929,13 +6929,26 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   if (!index.isValid())
     return;
 
-  // Shared with Windows (exec) and Android (popup). Lambdas capture index
-  // by value so actions stay valid after the menu closes.
-  const auto populateMenu = [this, index](QMenu *menu) {
-  menu->addAction("Open", [this, index]() { onFileDoubleClicked(index); });
-  menu->addAction("Rename", [this, index]() { startRename(index); });
+  // Shared with Windows (exec) and Android (popup). Lambdas capture a
+  // QPersistentModelIndex so action bodies stay safe if the QFileSystemModel
+  // refreshes its internal nodes between menu-open and the user picking an
+  // item (the file watcher can fire at any time on Android).
+  const QPersistentModelIndex persistent(index);
+  const auto populateMenu = [this, persistent](QMenu *menu) {
+  menu->addAction("Open", [this, persistent]() {
+    if (!persistent.isValid())
+      return;
+    onFileDoubleClicked(QModelIndex(persistent));
+  });
+  menu->addAction("Rename", [this, persistent]() {
+    if (!persistent.isValid())
+      return;
+    startRename(QModelIndex(persistent));
+  });
   menu->addSeparator();
-  menu->addAction("Mit Username teilen...", [this, index]() {
+  menu->addAction("Mit Username teilen...", [this, persistent]() {
+    if (!persistent.isValid())
+      return;
     const QString username =
         QSettings("Blop", "BlopApp").value("username").toString().trimmed();
     if (username.isEmpty()) {
@@ -6943,7 +6956,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                            "Bitte zuerst in Blop Study anmelden.");
       return;
     }
-    const QString localPath = m_fileModel->filePath(index);
+    const QString localPath = m_fileModel->filePath(QModelIndex(persistent));
     QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
     bool ok = false;
     if (fileId.isEmpty()) {
@@ -6992,7 +7005,9 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     }
     reply->deleteLater();
   });
-  menu->addAction("Share-Link erstellen...", [this, index]() {
+  menu->addAction("Share-Link erstellen...", [this, persistent]() {
+    if (!persistent.isValid())
+      return;
     const QString username =
         QSettings("Blop", "BlopApp").value("username").toString().trimmed();
     if (username.isEmpty()) {
@@ -7000,7 +7015,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                            "Bitte zuerst in Blop Study anmelden.");
       return;
     }
-    const QString localPath = m_fileModel->filePath(index);
+    const QString localPath = m_fileModel->filePath(QModelIndex(persistent));
     QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
     bool ok = false;
     if (fileId.isEmpty()) {
@@ -7103,7 +7118,11 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     }
     reply->deleteLater();
   });
-  menu->addAction("Delete", [this, index]() { m_fileModel->remove(index); });
+  menu->addAction("Delete", [this, persistent]() {
+    if (!persistent.isValid())
+      return;
+    m_fileModel->remove(QModelIndex(persistent));
+  });
   };
 
 #ifdef Q_OS_ANDROID

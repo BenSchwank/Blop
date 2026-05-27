@@ -1,9 +1,6 @@
 #include "blopripple.h"
 
 #include "uiscale.h"
-#ifdef Q_OS_ANDROID
-#include "uiprofile.h"
-#endif
 
 #include <QGuiApplication>
 #include <QPainter>
@@ -60,11 +57,15 @@ void BlopRipple::paintEvent(QPaintEvent *) {
 void BlopRipple::spawn(QWidget *host, const QPoint &globalPos,
                        const QColor &accent) {
 #ifdef Q_OS_ANDROID
-  if (!UiProfile().shouldAnimateRich())
-    return;
+  // Top-level Qt::Tool widgets crash on Android's single-window surface
+  // (Qt 6.10 inproc). The tile-press scale animation gives enough haptic
+  // feedback; we skip the ripple entirely on phones/tablets.
+  Q_UNUSED(host);
+  Q_UNUSED(globalPos);
+  Q_UNUSED(accent);
+  return;
 #else
   Q_UNUSED(host);
-#endif
 
   QWidget *rip = new BlopRipple(accent, nullptr);
   const int w = UiScale::dp(96);
@@ -96,4 +97,5 @@ void BlopRipple::spawn(QWidget *host, const QPoint &globalPos,
   QObject::connect(grp, &QParallelAnimationGroup::finished, rip,
                    &QWidget::close);
   grp->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
 }

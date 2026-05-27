@@ -8,11 +8,11 @@
 
 #include <QAction>
 #include <QColor>
-#include <QDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointer>
@@ -32,6 +32,30 @@ QMenu::separator { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 
 QMenu::item { color: #E8E4FF; padding: 12px 22px; border-radius: 8px; font-size: 14px; font-weight: 500; }
 QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })");
 }
+
+// Transparent full-window child that catches outside-taps for the brush sheet.
+// The actual sheet is a SIBLING positioned above the backdrop in z-order, so
+// taps on the sheet area reach the sheet first (slider, label) and never come
+// down to the backdrop. Taps anywhere else hit the backdrop and dismiss both.
+// Plain QWidget subclass (no Q_OBJECT) - AUTOMOC skips it cleanly.
+class PhoneBrushBackdrop : public QWidget {
+public:
+  explicit PhoneBrushBackdrop(QWidget *parent) : QWidget(parent) {
+    setAttribute(Qt::WA_DeleteOnClose);
+    setAttribute(Qt::WA_NoSystemBackground, true);
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setFocusPolicy(Qt::NoFocus);
+  }
+  QPointer<QWidget> sheet;
+
+protected:
+  void mousePressEvent(QMouseEvent *e) override {
+    Q_UNUSED(e);
+    if (sheet)
+      sheet->deleteLater();
+    close();
+  }
+};
 
 } // namespace
 
@@ -174,37 +198,43 @@ void AndroidPhoneToolbar::showColorPicker() {
 }
 
 void AndroidPhoneToolbar::showBrushSizeSheet() {
-  // Lightweight sheet with one slider 1..30 driving penWidth.
-  // Anchored above the pill, dismissed on outside-click.
-  QWidget *host = parentWidget() ? parentWidget() : window();
-  auto *sheet = new QDialog(host, Qt::Popup | Qt::FramelessWindowHint);
-  sheet->setAttribute(Qt::WA_DeleteOnClose);
-  sheet->setAttribute(Qt::WA_TranslucentBackground, true);
-  sheet->setModal(false);
+  // Lightweight in-window sheet with one slider 1..30 driving penWidth.
+  // Anchored above the brush button, dismissed by tapping outside.
+  //
+  // Why in-window instead of QDialog(Qt::Popup): on Android (Qt 6.10 inproc,
+  // single window surface) creating a top-level popup widget crashes the
+  // process. Backdrop + sheet are both plain children of window().
+  QWidget *win = window();
+  if (!win)
+    return;
 
-  auto *frame = new QFrame(sheet);
-  frame->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
-  frame->setStyleSheet(QStringLiteral(
+  auto *backdrop = new PhoneBrushBackdrop(win);
+  backdrop->resize(win->size());
+  backdrop->move(0, 0);
+
+  auto *sheet = new QFrame(win);
+  sheet->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
+  sheet->setAttribute(Qt::WA_DeleteOnClose);
+  sheet->setAttribute(Qt::WA_StyledBackground, true);
+  sheet->setStyleSheet(QStringLiteral(
       "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
       "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
       "QLabel { color: #E8E4FF; font-size: 13px; }"));
-  auto *outer = new QVBoxLayout(sheet);
-  outer->setContentsMargins(0, 0, 0, 0);
-  outer->addWidget(frame);
+  backdrop->sheet = sheet;
 
-  auto *layout = new QVBoxLayout(frame);
+  auto *layout = new QVBoxLayout(sheet);
   layout->setContentsMargins(UiScale::dp(14), UiScale::dp(12),
                              UiScale::dp(14), UiScale::dp(12));
   layout->setSpacing(UiScale::dp(6));
-  auto *title = new QLabel(QStringLiteral("Strichstärke"), frame);
+  auto *title = new QLabel(QStringLiteral("Strichstärke"), sheet);
   layout->addWidget(title);
 
   auto *valueLabel = new QLabel(QString::number(m_config.penWidth) +
                                     QStringLiteral(" px"),
-                                frame);
+                                sheet);
   valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
-  auto *slider = new QSlider(Qt::Horizontal, frame);
+  auto *slider = new QSlider(Qt::Horizontal, sheet);
   slider->setRange(1, 30);
   slider->setValue(m_config.penWidth);
   slider->setStyleSheet(QStringLiteral(
@@ -235,14 +265,18 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   const int sheetH = UiScale::dp(86);
   sheet->resize(sheetW, sheetH);
 
+  // Position in window-local coordinates (mapTo(win, ...)) instead of global.
   const QPoint anchor =
-      btnBrush->mapToGlobal(QPoint(btnBrush->width() / 2, 0));
-  QPoint pos(anchor.x() - sheetW / 2,
-             anchor.y() - sheetH - UiScale::dp(8));
-  if (pos.x() < UiScale::dp(8))
-    pos.setX(UiScale::dp(8));
+      btnBrush->mapTo(win, QPoint(btnBrush->width() / 2, 0));
+  QPoint pos(anchor.x() - sheetW / 2, anchor.y() - sheetH - UiScale::dp(8));
+  const int margin = UiScale::dp(8);
+  pos.setX(qBound(margin, pos.x(), win->width() - sheetW - margin));
+  pos.setY(qBound(margin, pos.y(), win->height() - sheetH - margin));
   sheet->move(pos);
+
+  backdrop->show();
   sheet->show();
+  sheet->raise();
 }
 
 void AndroidPhoneToolbar::paintEvent(QPaintEvent *) {
