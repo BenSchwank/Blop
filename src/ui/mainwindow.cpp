@@ -177,6 +177,36 @@ QMenu::item { color: #E8E4FF; padding: 10px 22px; border-radius: 8px; font-size:
 QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })");
 }
 
+#ifdef Q_OS_ANDROID
+// Lightweight in-window toast. Replaces QMessageBox on Android, where any
+// QDialog::exec() crashes the single-window surface (Qt 6.10 inproc). The
+// toast is a plain QLabel child of window() (no top-level flags), auto-hides
+// after `durationMs`, and never blocks the event loop.
+void showAndroidToast(QWidget *anchor, const QString &text,
+                      int durationMs = 2200) {
+  QWidget *win = anchor ? anchor->window() : nullptr;
+  if (!win)
+    return;
+  auto *toast = new QLabel(text, win);
+  toast->setAttribute(Qt::WA_DeleteOnClose);
+  toast->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  toast->setAlignment(Qt::AlignCenter);
+  toast->setWordWrap(true);
+  toast->setStyleSheet(QStringLiteral(
+      "QLabel { background: rgba(20,20,30,0.92); color: #E8E4FF;"
+      " border: 1px solid rgba(124,92,252,0.45); border-radius: 10px;"
+      " padding: 10px 18px; font-size: 14px; }"));
+  const int maxW = qMin(win->width() - UiScale::dp(40), UiScale::dp(360));
+  toast->setMaximumWidth(maxW);
+  toast->adjustSize();
+  toast->move((win->width() - toast->width()) / 2,
+              win->height() - toast->height() - UiScale::dp(60));
+  toast->show();
+  toast->raise();
+  QTimer::singleShot(durationMs, toast, &QWidget::close);
+}
+#endif // Q_OS_ANDROID
+
 void applyBlopWebSheetStyle(QDialog *dlg) {
   dlg->setStyleSheet(QString::fromUtf8(
       R"(QDialog { background-color: #14121F; }
@@ -6580,9 +6610,14 @@ void MainWindow::onTogglePageManager() {
       m_pageManager->show();
       m_pageManager->refreshThumbnails();
     } else {
+#ifdef Q_OS_ANDROID
+      showAndroidToast(this,
+                       QStringLiteral("Seitenmanager nur für A4-Notizen"));
+#else
       QMessageBox::information(
           this, "Nicht verfügbar",
           "Der Seitenmanager ist nur für A4-Notizen verfügbar.");
+#endif
     }
   }
 }
@@ -6631,7 +6666,15 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       cwLay->setSpacing(0);
       cwLay->addWidget(canvas);
 
-      // Floating 3-dot note action button (top-right, pinned via Move)
+#ifndef Q_OS_ANDROID
+      // Floating 3-dot note action button (top-right, pinned via Move).
+      // Desktop-only: on Android the same actions are exposed via
+      // m_btnAndroidToolbarExport (header `more_pill`) which calls into
+      // MainWindow::onEditorNoteOverflowMenu -> NoteEditor::showOverflowMenuFromAnchor.
+      // Keeping the canvas-floating button on Android would (a) duplicate the
+      // header `more_pill` visually and (b) crash because the click handler
+      // below uses menu->exec / QFileDialog / QMessageBox / QInputDialog,
+      // which are all top-level widgets on Android's single-window surface.
       QPushButton *noteBtn = new QPushButton("\u22EF", canvasWrapper);
       noteBtn->setFixedSize(36, 36);
       noteBtn->setCursor(Qt::PointingHandCursor);
@@ -6857,6 +6900,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               reply->deleteLater();
           }
       });
+#endif // !Q_OS_ANDROID
 
       m_editorTabs->addTab(canvasWrapper, fileName);
       m_editorTabs->setCurrentWidget(canvasWrapper);
@@ -6946,6 +6990,11 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     startRename(QModelIndex(persistent));
   });
   menu->addSeparator();
+#ifndef Q_OS_ANDROID
+  // Cloud-share actions use QInputDialog / QMessageBox / nested QEventLoop -
+  // all top-level on Android's single-window surface (same crash family as
+  // QMenu::exec). Hide these items on Android until we have in-window
+  // equivalents; Android users have the same workflows via Blop Study.
   menu->addAction("Mit Username teilen...", [this, persistent]() {
     if (!persistent.isValid())
       return;
@@ -7118,6 +7167,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     }
     reply->deleteLater();
   });
+#endif // !Q_OS_ANDROID
   menu->addAction("Delete", [this, persistent]() {
     if (!persistent.isValid())
       return;

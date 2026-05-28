@@ -5,6 +5,7 @@
 #include <QKeySequence>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QShortcut>
 #include <QVBoxLayout>
 #include "UIStyles.h"
@@ -29,6 +30,10 @@ void NoteEditor::setupUi() {
 }
 
 void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
+    // Heap-allocated menu so popup() (used on Android to avoid a nested event
+    // loop on the single-window surface) can outlive this function. Actions
+    // are wired via QAction::triggered lambdas, NOT a single exec() return
+    // value, so the same code path works for both popup() and exec().
     QMenu *menu = new QMenu(this);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     const QString accent = UIStyles::Accent.name();
@@ -43,23 +48,98 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                              "color: white; }")
                              .arg(accent));
 
+    QPointer<NoteEditor> safe(this);
+
     QAction *actLayout =
         menu->addAction(QStringLiteral("Seitenlayout…"));
     actLayout->setIcon(SelectionMenuIcons::pageLayoutIcon());
+    QObject::connect(actLayout, &QAction::triggered, this, [safe]() {
+        if (safe && safe->canvas_)
+            safe->canvas_->openPageLayoutForVisiblePage();
+    });
+
     QAction *actNoteOptions =
         menu->addAction(QStringLiteral("Optionen & Tags…"));
     actNoteOptions->setIcon(SelectionMenuIcons::gearIcon());
+    QObject::connect(actNoteOptions, &QAction::triggered, this, [safe]() {
+        if (safe && safe->onOpenNoteOptionsRequested)
+            safe->onOpenNoteOptionsRequested();
+    });
+
+#ifndef Q_OS_ANDROID
+    // QFileDialog and QMessageBox are top-level QDialog subclasses; on Android
+    // they crash the single-window surface (same crash family as QMenu::exec).
+    // Until we have in-window equivalents, hide these items on Android.
     menu->addSeparator();
     QAction *actExportPdf =
         menu->addAction(QStringLiteral("Als PDF exportieren"));
     actExportPdf->setIcon(SelectionMenuIcons::pdfDocIcon());
+    QObject::connect(actExportPdf, &QAction::triggered, this, [safe]() {
+        if (!safe)
+            return;
+        QString path = QFileDialog::getSaveFileName(
+            safe, QStringLiteral("Als PDF exportieren"),
+            safe->note_ ? safe->note_->title + ".pdf" : "Notiz.pdf",
+            QStringLiteral("PDF Dokument (*.pdf)"));
+        if (path.isEmpty() || !safe || !safe->canvas_)
+            return;
+        bool ok = safe->canvas_->exportPageToPdf(0, path);
+        if (ok)
+            QMessageBox::information(safe, QStringLiteral("Exportiert"),
+                                     QStringLiteral("PDF wurde gespeichert!"));
+        else
+            QMessageBox::warning(safe, QStringLiteral("Fehler"),
+                                 QStringLiteral("PDF konnte nicht gespeichert werden."));
+    });
+
     QAction *actExportImg =
         menu->addAction(QStringLiteral("Als Bild exportieren"));
     actExportImg->setIcon(SelectionMenuIcons::screenshotIcon());
+    QObject::connect(actExportImg, &QAction::triggered, this, [safe]() {
+        if (!safe)
+            return;
+        QString path = QFileDialog::getSaveFileName(
+            safe, QStringLiteral("Als Bild exportieren"),
+            safe->note_ ? safe->note_->title + ".png" : "Notiz.png",
+            QStringLiteral("Bilder (*.png *.jpg)"));
+        if (path.isEmpty() || !safe || !safe->canvas_)
+            return;
+        bool ok = safe->canvas_->exportPageToPng(0, path);
+        if (ok)
+            QMessageBox::information(safe, QStringLiteral("Exportiert"),
+                                     QStringLiteral("Bild wurde gespeichert!"));
+        else
+            QMessageBox::warning(safe, QStringLiteral("Fehler"),
+                                 QStringLiteral("Bild konnte nicht gespeichert werden."));
+    });
+
     menu->addSeparator();
     QAction *actImportPdf =
         menu->addAction(QStringLiteral("PDF importieren"));
     actImportPdf->setIcon(SelectionMenuIcons::importIcon());
+    QObject::connect(actImportPdf, &QAction::triggered, this, [safe]() {
+        if (!safe)
+            return;
+        QString path = QFileDialog::getOpenFileName(
+            safe, QStringLiteral("PDF importieren"), QString(),
+            QStringLiteral("PDF Dokument (*.pdf)"));
+        if (path.isEmpty() || !safe || !safe->canvas_)
+            return;
+        bool ok = safe->canvas_->importPdfPages(path);
+        if (ok)
+            QMessageBox::information(
+                safe, QStringLiteral("Importiert"),
+                QStringLiteral(
+                    "PDF wurde seitenweise importiert.\nJede PDF-Seite erscheint als "
+                    "eigene Notizseite."));
+        else
+            QMessageBox::warning(
+                safe, QStringLiteral("Fehler"),
+                QStringLiteral(
+                    "PDF konnte nicht importiert werden.\n"
+                    "Bitte stelle sicher, dass Qt mit PDF-Unterstützung kompiliert ist."));
+    });
+#endif // !Q_OS_ANDROID
 
     QPoint pos;
     if (anchor && anchor->isVisible())
@@ -67,62 +147,12 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     else
         pos = QCursor::pos();
 
-    QAction *chosen = menu->exec(pos);
-
-    if (chosen == actLayout) {
-        if (canvas_)
-            canvas_->openPageLayoutForVisiblePage();
-    } else if (chosen == actNoteOptions) {
-        if (onOpenNoteOptionsRequested)
-            onOpenNoteOptionsRequested();
-    } else if (chosen == actExportPdf) {
-        QString path = QFileDialog::getSaveFileName(
-            this, QStringLiteral("Als PDF exportieren"),
-            note_ ? note_->title + ".pdf" : "Notiz.pdf",
-            QStringLiteral("PDF Dokument (*.pdf)"));
-        if (!path.isEmpty()) {
-            bool ok = canvas_->exportPageToPdf(0, path);
-            if (ok)
-                QMessageBox::information(this, QStringLiteral("Exportiert"),
-                                         QStringLiteral("PDF wurde gespeichert!"));
-            else
-                QMessageBox::warning(this, QStringLiteral("Fehler"),
-                                     QStringLiteral("PDF konnte nicht gespeichert werden."));
-        }
-    } else if (chosen == actExportImg) {
-        QString path = QFileDialog::getSaveFileName(
-            this, QStringLiteral("Als Bild exportieren"),
-            note_ ? note_->title + ".png" : "Notiz.png",
-            QStringLiteral("Bilder (*.png *.jpg)"));
-        if (!path.isEmpty()) {
-            bool ok = canvas_->exportPageToPng(0, path);
-            if (ok)
-                QMessageBox::information(this, QStringLiteral("Exportiert"),
-                                         QStringLiteral("Bild wurde gespeichert!"));
-            else
-                QMessageBox::warning(this, QStringLiteral("Fehler"),
-                                     QStringLiteral("Bild konnte nicht gespeichert werden."));
-        }
-    } else if (chosen == actImportPdf) {
-        QString path = QFileDialog::getOpenFileName(
-            this, QStringLiteral("PDF importieren"), QString(),
-            QStringLiteral("PDF Dokument (*.pdf)"));
-        if (!path.isEmpty()) {
-            bool ok = canvas_->importPdfPages(path);
-            if (ok)
-                QMessageBox::information(
-                    this, QStringLiteral("Importiert"),
-                    QStringLiteral(
-                        "PDF wurde seitenweise importiert.\nJede PDF-Seite erscheint als "
-                        "eigene Notizseite."));
-            else
-                QMessageBox::warning(
-                    this, QStringLiteral("Fehler"),
-                    QStringLiteral(
-                        "PDF konnte nicht importiert werden.\n"
-                        "Bitte stelle sicher, dass Qt mit PDF-Unterstützung kompiliert ist."));
-        }
-    }
+#ifdef Q_OS_ANDROID
+    // Non-blocking show: no nested event loop on Android's single-window surface.
+    menu->popup(pos);
+#else
+    menu->exec(pos);
+#endif
 }
 
 void NoteEditor::resizeEvent(QResizeEvent *event) {
