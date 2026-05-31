@@ -17,7 +17,7 @@ execute_process(
 
 # Fallback if git fails
 if(NOT GIT_VERSION)
-    set(GIT_VERSION "3.16.8")
+    set(GIT_VERSION "3.16.9")
 endif()
 
 # Remove 'v' prefix if it exists for the project() call
@@ -26,7 +26,7 @@ string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
 # We'll just extract the numeric part x.y.z.w
 string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
 if(NOT SAFE_VERSION)
-    set(SAFE_VERSION "3.16.8")
+    set(SAFE_VERSION "3.16.9")
 endif()
 
 project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
@@ -140,6 +140,8 @@ qt_add_executable(Blop
     src/ui/blopripple.cpp
     src/ui/blopstyle.h
     src/ui/blopstyle.cpp
+    src/ui/blop_inwindow_menu.h
+    src/ui/blop_inwindow_menu.cpp
 
     # Core (note model, page management, profiles, helper headers)
     src/core/notemanager.cpp

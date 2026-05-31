@@ -1,6 +1,7 @@
 #include "androidphonetoolbar.h"
 
 #include "blop_diag.h"
+#include "blop_inwindow_menu.h"
 #include "moderntoolbar.h"
 #include "blopstyle.h"
 #include "editoroverlays.h"
@@ -149,6 +150,37 @@ void AndroidPhoneToolbar::emitPenConfig() {
 
 void AndroidPhoneToolbar::showOverflowMenu() {
   QPointer<AndroidPhoneToolbar> safe(this);
+
+#ifdef Q_OS_ANDROID
+  // QMenu allocates a top-level QWindow which triggers
+  //   "Failed to acquire deadlock protector for QAndroidPlatformOpenGLWindow"
+  // when a background accessibility service holds the EGL surface
+  // (Qt 6.10 + Android 16). Use the in-window QFrame replacement instead.
+  QList<BlopInWindowMenu::Item> items;
+  auto addToolEntry = [&](const QString &label, ToolMode mode) {
+    items.append({label, QIcon(), [safe, mode]() {
+                    if (safe) safe->selectTool(mode);
+                  }, false, false});
+  };
+  addToolEntry(QStringLiteral("Bleistift"), ToolMode::Pencil);
+  addToolEntry(QStringLiteral("Marker"), ToolMode::Highlighter);
+  addToolEntry(QStringLiteral("Lineal"), ToolMode::Ruler);
+  addToolEntry(QStringLiteral("Form"), ToolMode::Shape);
+  addToolEntry(QStringLiteral("Notizzettel"), ToolMode::StickyNote);
+  addToolEntry(QStringLiteral("Text"), ToolMode::Text);
+  addToolEntry(QStringLiteral("Bild"), ToolMode::Image);
+  addToolEntry(QStringLiteral("Hand"), ToolMode::Hand);
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("Zur Übersicht"), QIcon(), [safe]() {
+                  if (safe) emit safe->backToOverviewRequested();
+                }, false, false});
+
+  // Anchor at the top-center of the overflow pill; helper clamps to window.
+  const QPoint anchor =
+      btnOverflow->mapToGlobal(QPoint(btnOverflow->width() / 2, 0));
+  BlopInWindowMenu::show(this, anchor, items);
+  return;
+#else
   auto *menu = new QMenu(this);
   menu->setAttribute(Qt::WA_DeleteOnClose);
   menu->setStyleSheet(phoneMenuStyleSheet());
@@ -178,14 +210,13 @@ void AndroidPhoneToolbar::showOverflowMenu() {
 
   const QPoint anchor =
       btnOverflow->mapToGlobal(QPoint(btnOverflow->width() / 2, 0));
-  // Pre-size so we can offset upward by hint.height() (phone toolbar sits at
-  // the bottom of the screen; we want the menu above the pill, not below).
   menu->adjustSize();
   const QSize hint = menu->sizeHint();
   QPoint pos(anchor.x() - hint.width() / 2, anchor.y() - hint.height() - UiScale::dp(6));
   if (pos.x() < UiScale::dp(8))
     pos.setX(UiScale::dp(8));
   menu->popup(pos);
+#endif
 }
 
 void AndroidPhoneToolbar::showColorPicker() {

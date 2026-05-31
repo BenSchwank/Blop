@@ -1,6 +1,7 @@
 #include "noteeditor.h"
 #include "SelectionMenuIcons.h"
 #include "blop_diag.h"
+#include "blop_inwindow_menu.h"
 #include <QApplication>
 #include <QFileDialog>
 #include <QKeySequence>
@@ -32,6 +33,41 @@ void NoteEditor::setupUi() {
 
 void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     BlopDiag::recordUiAction(QStringLiteral("note_overflow"));
+
+#ifdef Q_OS_ANDROID
+    {
+        // QMenu spawns a top-level QWindow whose backing store allocation runs
+        // QOpenGLContext::makeCurrent. Combined with QtAndroidAccessibility
+        // holding the EGL surface on Android 16 this triggers the deadlock
+        // protector and aborts the process (verified by tombstone v3.16.7).
+        // Route to the in-window QFrame menu replacement on Android.
+        QPointer<NoteEditor> safeNote(this);
+        QList<BlopInWindowMenu::Item> items;
+        items.append({QStringLiteral("Seitenlayout…"),
+                      SelectionMenuIcons::pageLayoutIcon(),
+                      [safeNote]() {
+                          if (safeNote && safeNote->canvas_)
+                              safeNote->canvas_->openPageLayoutForVisiblePage();
+                      },
+                      false, false});
+        items.append({QStringLiteral("Optionen & Tags…"),
+                      SelectionMenuIcons::gearIcon(),
+                      [safeNote]() {
+                          if (safeNote && safeNote->onOpenNoteOptionsRequested)
+                              safeNote->onOpenNoteOptionsRequested();
+                      },
+                      false, false});
+
+        QPoint pos;
+        if (anchor && anchor->isVisible())
+            pos = anchor->mapToGlobal(QPoint(0, anchor->height() + 4));
+        else
+            pos = QCursor::pos();
+        BlopInWindowMenu::show(this, pos, items);
+        return;
+    }
+#endif
+
     // Heap-allocated menu so popup() (used on Android to avoid a nested event
     // loop on the single-window surface) can outlive this function. Actions
     // are wired via QAction::triggered lambdas, NOT a single exec() return
@@ -149,12 +185,9 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     else
         pos = QCursor::pos();
 
-#ifdef Q_OS_ANDROID
-    // Non-blocking show: no nested event loop on Android's single-window surface.
-    menu->popup(pos);
-#else
+    // Desktop only -- the Android path returned early above through the
+    // BlopInWindowMenu helper to dodge the EGL/QWindow deadlock.
     menu->exec(pos);
-#endif
 }
 
 void NoteEditor::resizeEvent(QResizeEvent *event) {

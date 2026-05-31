@@ -30,6 +30,18 @@ int main(int argc, char *argv[]) {
   // Muss zwingend VOR der Erstellung der QApplication aufgerufen werden,
   // damit das native Android-Web-Backend geladen wird.
 #ifdef Q_OS_ANDROID
+  // Belt-and-braces: disable Qt's Android accessibility bridge before
+  // QApplication is constructed. Background TalkBack-style services on
+  // Android 16 (Nothing Pong et al.) hold the EGL surface lock via
+  // QtAndroidAccessibility::runInObjectContext(), and any subsequent
+  // top-level QWindow creation (QMenu, QDialog, ...) trips the Qt 6.10
+  // deadlock protector -> qFatal -> abort. The v3.16.9 menu refactor
+  // already removes the QMenu code paths; this env var prevents the
+  // EGL-lock contention from arising in the first place. Cheap; no-op
+  // if the env var name changes in a future Qt release.
+  qputenv("QT_ANDROID_NO_ACCESSIBILITY", "1");
+  qputenv("QT_ACCESSIBILITY", "0");
+
   QtWebView::initialize();
   if (qgetenv("BLOP_ANDROID_SOFTWARE_GL") == "1") {
     QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);

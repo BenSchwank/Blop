@@ -115,6 +115,7 @@
 #include <QPushButton>
 
 #include "blop_diag.h"
+#include "blop_inwindow_menu.h"
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
@@ -165,7 +166,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.16.8"
+#define BLOP_VERSION_STR "3.16.9"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -7347,23 +7348,33 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   };
 
 #ifdef Q_OS_ANDROID
-  // exec() nests an event loop and used to crash on single-window Android;
-  // popup() is non-blocking and must use a heap menu with WA_DeleteOnClose.
-  auto *menu = new QMenu(this);
-  menu->setAttribute(Qt::WA_DeleteOnClose);
-  populateMenu(menu);
-  menu->setStyleSheet(blopWebMenuStyleSheet());
-  QPoint pos = globalPos;
-  if (QScreen *screen = QGuiApplication::screenAt(pos)) {
-    menu->adjustSize();
-    const QSize hint = menu->sizeHint();
-    const QRect ag = screen->availableGeometry();
-    if (pos.x() + hint.width() > ag.right())
-      pos.setX(qMax(ag.left(), ag.right() - hint.width()));
-    if (pos.y() + hint.height() > ag.bottom())
-      pos.setY(qMax(ag.top(), pos.y() - hint.height()));
-  }
-  menu->popup(pos);
+  // QMenu allocates a top-level QWindow whose backing-store creation calls
+  // QOpenGLContext::makeCurrent. When QtAndroidAccessibility holds the
+  // EGL surface lock (TalkBack & friends on Android 16) Qt's deadlock
+  // protector aborts the process. We confirmed this in v3.16.7 with a
+  // tombstone showing this exact stack. Use the in-window QFrame menu
+  // replacement instead -- no top-level QWindow, no EGL allocation.
+  QList<BlopInWindowMenu::Item> items;
+  items.append({QStringLiteral("Open"), QIcon(),
+                [this, persistent]() {
+                  if (!persistent.isValid()) return;
+                  onFileDoubleClicked(QModelIndex(persistent));
+                },
+                false, false});
+  items.append({QStringLiteral("Rename"), QIcon(),
+                [this, persistent]() {
+                  if (!persistent.isValid()) return;
+                  startRename(QModelIndex(persistent));
+                },
+                false, false});
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("Delete"), QIcon(),
+                [this, persistent]() {
+                  if (!persistent.isValid()) return;
+                  m_fileModel->remove(QModelIndex(persistent));
+                },
+                true, false});
+  BlopInWindowMenu::show(this, globalPos, items);
 #else
   QMenu menu(this);
   populateMenu(&menu);
