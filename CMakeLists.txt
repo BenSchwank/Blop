@@ -17,7 +17,7 @@ execute_process(
 
 # Fallback if git fails
 if(NOT GIT_VERSION)
-    set(GIT_VERSION "3.13.5.6")
+    set(GIT_VERSION "3.16.8")
 endif()
 
 # Remove 'v' prefix if it exists for the project() call
@@ -26,7 +26,7 @@ string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
 # We'll just extract the numeric part x.y.z.w
 string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
 if(NOT SAFE_VERSION)
-    set(SAFE_VERSION "3.13.5.6")
+    set(SAFE_VERSION "3.16.8")
 endif()
 
 project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
@@ -96,6 +96,8 @@ qt_add_executable(Blop
     src/observability/blop_observability.cpp
     src/observability/blop_crash_backend.h
     src/observability/blop_crash_backend.cpp
+    src/observability/blop_diag.h
+    src/observability/blop_diag.cpp
 
     # UI (windows, dialogs, overlays, custom views, toolbars)
     src/ui/mainwindow.ui

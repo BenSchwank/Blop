@@ -16,6 +16,7 @@
 #endif
 
 #include "blop_crash_backend.h"
+#include "blop_diag.h"
 #include "blop_observability.h"
 #include "introscreen.h"
 #include "mainwindow.h"
@@ -82,6 +83,12 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+  // Install in-app crash diagnostics (Qt msg handler + POSIX signal handler).
+  // Must run as early as possible after QApplication so we capture early
+  // crashes; before blopInitCrashReporting() so our async-signal-safe writer
+  // is the first responder for SIGSEGV/etc.
+  BlopDiag::install();
 
   blopLogObservabilityBootstrap();
   blopInitCrashReporting();

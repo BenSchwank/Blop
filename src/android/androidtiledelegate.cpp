@@ -1,4 +1,5 @@
 #include "androidtiledelegate.h"
+#include "blop_diag.h"
 
 #include <QApplication>
 #include <QCursor>
@@ -256,6 +257,7 @@ bool AndroidTileDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
   if (event->type() == QEvent::MouseButtonRelease && m_window) {
     auto *me = static_cast<QMouseEvent *>(event);
     if (pillHit.contains(me->pos())) {
+      BlopDiag::recordUiAction(QStringLiteral("tile_pill_tap"));
       // Note: we intentionally do NOT set m_androidPillClickPending here.
       // Returning true below already prevents QListView from emitting
       // clicked(); setting the flag in addition would leak true across to

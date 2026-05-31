@@ -110,6 +110,11 @@
 #include <QMetaObject>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QFrame>
+#include <QPlainTextEdit>
+#include <QPushButton>
+
+#include "blop_diag.h"
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
@@ -160,7 +165,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.13.5.6"
+#define BLOP_VERSION_STR "3.16.8"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -206,6 +211,131 @@ void showAndroidToast(QWidget *anchor, const QString &text,
   QTimer::singleShot(durationMs, toast, &QWidget::close);
 }
 #endif // Q_OS_ANDROID
+
+// In-window crash report overlay. Reads the previous run's crash dump via
+// BlopDiag::takeCrashReportIfPresent() and displays it as a child QWidget of
+// the parent window (NOT a top-level QDialog -- that path is exactly what
+// crashes on Android). Provides Copy/Mail/Dismiss buttons.
+void showCrashReportOverlay(QWidget *parent, const QString &report) {
+  if (!parent || report.isEmpty()) {
+    return;
+  }
+  QWidget *win = parent->window();
+  if (!win) {
+    return;
+  }
+
+  auto *backdrop = new QWidget(win);
+  backdrop->setObjectName(QStringLiteral("BlopCrashBackdrop"));
+  backdrop->setAttribute(Qt::WA_DeleteOnClose);
+  backdrop->setStyleSheet(
+      "QWidget#BlopCrashBackdrop { background: rgba(0,0,0,0.65); }");
+  backdrop->setGeometry(win->rect());
+  backdrop->show();
+  backdrop->raise();
+
+  auto *frame = new QFrame(backdrop);
+  frame->setObjectName(QStringLiteral("BlopCrashFrame"));
+  frame->setStyleSheet(
+      "QFrame#BlopCrashFrame {"
+      "  background: #14121F;"
+      "  border: 1px solid rgba(124,92,252,0.5);"
+      "  border-radius: 12px;"
+      "}"
+      "QLabel { color: #E8E4FF; background: transparent; }"
+      "QLabel#BlopCrashTitle { font-size: 15px; font-weight: 700;"
+      " color: #FF6B6B; }"
+      "QLabel#BlopCrashSubtitle { font-size: 12px; color: #A09FB8; }"
+      "QPlainTextEdit {"
+      "  background: #0D0B14; color: #DCDCFF;"
+      "  border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;"
+      "  font-family: 'Consolas','Courier New',monospace; font-size: 11px;"
+      "}"
+      "QPushButton {"
+      "  background: rgba(124,92,252,0.20); color: #E8E4FF;"
+      "  border: 1px solid rgba(124,92,252,0.45); border-radius: 8px;"
+      "  padding: 8px 14px; font-size: 12px; font-weight: 600;"
+      "}"
+      "QPushButton:pressed { background: rgba(124,92,252,0.35); }"
+      "QPushButton#BlopCrashDismiss {"
+      "  background: rgba(255,255,255,0.06);"
+      "  border: 1px solid rgba(255,255,255,0.15);"
+      "}");
+
+  auto *vlay = new QVBoxLayout(frame);
+  vlay->setContentsMargins(UiScale::dp(16), UiScale::dp(14),
+                           UiScale::dp(16), UiScale::dp(14));
+  vlay->setSpacing(UiScale::dp(8));
+
+  auto *title = new QLabel(QObject::tr("Letzter Lauf ist abgestürzt"), frame);
+  title->setObjectName(QStringLiteral("BlopCrashTitle"));
+  vlay->addWidget(title);
+
+  auto *subtitle = new QLabel(
+      QObject::tr("Der Stack Trace unten hilft uns, die Ursache zu finden. "
+                  "Bitte mit \"Kopieren\" einsenden."),
+      frame);
+  subtitle->setObjectName(QStringLiteral("BlopCrashSubtitle"));
+  subtitle->setWordWrap(true);
+  vlay->addWidget(subtitle);
+
+  auto *textEdit = new QPlainTextEdit(frame);
+  textEdit->setReadOnly(true);
+  textEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
+  textEdit->setPlainText(report);
+  textEdit->setMinimumHeight(UiScale::dp(220));
+  vlay->addWidget(textEdit, 1);
+
+  auto *btnRow = new QHBoxLayout();
+  btnRow->setSpacing(UiScale::dp(8));
+
+  auto *btnCopy = new QPushButton(QObject::tr("Kopieren"), frame);
+  auto *btnMail = new QPushButton(QObject::tr("Per Mail senden"), frame);
+  auto *btnDismiss = new QPushButton(QObject::tr("Verwerfen"), frame);
+  btnDismiss->setObjectName(QStringLiteral("BlopCrashDismiss"));
+
+  btnRow->addWidget(btnCopy);
+  btnRow->addWidget(btnMail);
+  btnRow->addStretch(1);
+  btnRow->addWidget(btnDismiss);
+  vlay->addLayout(btnRow);
+
+  QObject::connect(btnCopy, &QPushButton::clicked, [report]() {
+    if (auto *cb = QGuiApplication::clipboard()) {
+      cb->setText(report);
+    }
+  });
+  QObject::connect(btnMail, &QPushButton::clicked, [report]() {
+    QUrl mailto;
+    mailto.setScheme(QStringLiteral("mailto"));
+    mailto.setPath(QStringLiteral(""));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("subject"),
+                   QStringLiteral("Blop Crash Report"));
+    // mailto bodies have a hard length limit (~2000 chars on Android Gmail).
+    QString body = report;
+    if (body.size() > 1800) {
+      body = body.left(1800) + QStringLiteral("\n... (truncated)");
+    }
+    q.addQueryItem(QStringLiteral("body"), body);
+    mailto.setQuery(q);
+    QDesktopServices::openUrl(mailto);
+  });
+  QObject::connect(btnDismiss, &QPushButton::clicked, backdrop,
+                   &QWidget::close);
+
+  // Position frame: 90% width, centered, max ~80% height.
+  const int margin = UiScale::dp(16);
+  const int frameW = qMin(win->width() - 2 * margin, UiScale::dp(560));
+  const int frameH = qMin(int(win->height() * 0.84),
+                          UiScale::dp(560));
+  frame->setGeometry((win->width() - frameW) / 2,
+                     (win->height() - frameH) / 2, frameW, frameH);
+
+  // Re-position with the backdrop on resize.
+  backdrop->installEventFilter(backdrop);
+  QObject::connect(win, &QObject::destroyed, backdrop, &QWidget::deleteLater);
+}
 
 void applyBlopWebSheetStyle(QDialog *dlg) {
   dlg->setStyleSheet(QString::fromUtf8(
@@ -1171,6 +1301,18 @@ MainWindow::MainWindow(QWidget *parent)
 #ifndef Q_OS_ANDROID
   QTimer::singleShot(5000, this, &MainWindow::checkForUpdates);
 #endif
+
+  // Crash-Replay: if the previous run was killed by SIGSEGV/SIGABRT/etc.,
+  // BlopDiag wrote /AppData/last_crash.txt; install() rotated it to
+  // previous_crash.txt at startup. Show its contents in an in-window overlay
+  // so the user can copy the stack trace for triage. 600ms delay so we land
+  // AFTER the first paint (overlay would otherwise sit behind chrome).
+  QTimer::singleShot(600, this, [this]() {
+    const QString report = BlopDiag::takeCrashReportIfPresent();
+    if (!report.isEmpty()) {
+      showCrashReportOverlay(this, report);
+    }
+  });
 }
 MainWindow::~MainWindow() {}
 
@@ -3112,6 +3254,29 @@ void MainWindow::setupUi() {
                                 androidHeaderSidePad, UiScale::dp(4));
   headerLay->setSpacing(UiScale::dp(8));
 
+  // Visible version pin (top-left). Lets the user verify in 2 seconds which
+  // build is actually running on the device, eliminating "is this even the
+  // new APK?" doubt during crash diagnosis.
+  {
+    QString verStr = QString::fromUtf8(BLOP_VERSION);
+    if (verStr.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+      verStr = verStr.mid(1);
+    auto *verPin = new QLabel(QStringLiteral("v") + verStr, androidHeader);
+    verPin->setObjectName(QStringLiteral("AndroidHeaderVerPin"));
+    verPin->setAlignment(Qt::AlignCenter);
+    verPin->setStyleSheet(
+        "QLabel#AndroidHeaderVerPin {"
+        "  color: #B7AEFF;"
+        "  background: rgba(124,92,252,0.15);"
+        "  border: 1px solid rgba(124,92,252,0.40);"
+        "  border-radius: 8px;"
+        "  padding: 2px 8px;"
+        "  font-size: 11px; font-weight: 600;"
+        "}");
+    verPin->setFixedHeight(androidCompactPillH);
+    headerLay->addWidget(verPin, 0, Qt::AlignVCenter);
+  }
+
   auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
                           const QColor &tint) -> QIcon {
     QPixmap pm(resourcePath);
@@ -3216,6 +3381,7 @@ void MainWindow::setupUi() {
   applyAndroidTabStyles(0); // default: notes active
 
   connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
+    BlopDiag::recordUiAction(QStringLiteral("tab_click:notes"));
     if (!m_modeSelector || m_modeSelector->count() <= 1) {
       qWarning() << "Android Notes tap ignored: mode selector not ready";
       return;
@@ -3229,6 +3395,7 @@ void MainWindow::setupUi() {
     onModeChanged(0);
   });
   connect(m_btnAndroidStudy, &QPushButton::clicked, this, [this]() {
+    BlopDiag::recordUiAction(QStringLiteral("tab_click:study"));
     if (!m_modeSelector || m_modeSelector->count() <= 1) {
       qWarning() << "Android Study tap ignored: mode selector not ready";
       return;
@@ -4352,6 +4519,8 @@ void MainWindow::applyAndroidTabStyles(int index) {
 #endif
 
 void MainWindow::onModeChanged(int index) {
+  BlopDiag::recordUiAction(
+      QStringLiteral("onModeChanged:%1").arg(index));
   const int mainStackIdx = (index <= 0) ? 0 : 1;
 
   // Linke Notizen-Sidebar schließen, wenn wir zu Study/Web wechseln — sonst zwei „Sidebars“.
@@ -6623,6 +6792,7 @@ void MainWindow::onTogglePageManager() {
 }
 
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
+  BlopDiag::recordUiAction(QStringLiteral("open_note"));
   if (m_fileModel->isDir(index)) {
     m_fileListView->setRootIndex(index);
     m_fileModel->setRootPath(m_fileModel->filePath(index));
@@ -6970,6 +7140,7 @@ void MainWindow::onBackToOverview() {
 }
 void MainWindow::showContextMenu(const QPoint &globalPos,
                                  const QModelIndex &index) {
+  BlopDiag::recordUiAction(QStringLiteral("ctx_menu_show"));
   if (!index.isValid())
     return;
 

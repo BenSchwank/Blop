@@ -1,5 +1,6 @@
 #include "noteeditor.h"
 #include "SelectionMenuIcons.h"
+#include "blop_diag.h"
 #include <QApplication>
 #include <QFileDialog>
 #include <QKeySequence>
@@ -30,6 +31,7 @@ void NoteEditor::setupUi() {
 }
 
 void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
+    BlopDiag::recordUiAction(QStringLiteral("note_overflow"));
     // Heap-allocated menu so popup() (used on Android to avoid a nested event
     // loop on the single-window surface) can outlive this function. Actions
     // are wired via QAction::triggered lambdas, NOT a single exec() return

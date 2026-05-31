@@ -1,5 +1,6 @@
 #include "androidphonetoolbar.h"
 
+#include "blop_diag.h"
 #include "moderntoolbar.h"
 #include "blopstyle.h"
 #include "editoroverlays.h"
@@ -87,14 +88,14 @@ void AndroidPhoneToolbar::setupButtons() {
 
   m_toolButtons = {btnPen, btnEraser, btnLasso};
 
-  connect(btnPen, &ToolbarBtn::clicked, this, [this]() { selectTool(ToolMode::Pen); });
-  connect(btnEraser, &ToolbarBtn::clicked, this, [this]() { selectTool(ToolMode::Eraser); });
-  connect(btnLasso, &ToolbarBtn::clicked, this, [this]() { selectTool(ToolMode::Lasso); });
-  connect(btnUndo, &ToolbarBtn::clicked, this, &AndroidPhoneToolbar::undoRequested);
-  connect(btnRedo, &ToolbarBtn::clicked, this, &AndroidPhoneToolbar::redoRequested);
-  connect(btnColor, &ToolbarBtn::clicked, this, [this]() { showColorPicker(); });
-  connect(btnBrush, &ToolbarBtn::clicked, this, [this]() { showBrushSizeSheet(); });
-  connect(btnOverflow, &ToolbarBtn::clicked, this, [this]() { showOverflowMenu(); });
+  connect(btnPen, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:pen")); selectTool(ToolMode::Pen); });
+  connect(btnEraser, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:eraser")); selectTool(ToolMode::Eraser); });
+  connect(btnLasso, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:lasso")); selectTool(ToolMode::Lasso); });
+  connect(btnUndo, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:undo")); emit undoRequested(); });
+  connect(btnRedo, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:redo")); emit redoRequested(); });
+  connect(btnColor, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:color")); showColorPicker(); });
+  connect(btnBrush, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:brush")); showBrushSizeSheet(); });
+  connect(btnOverflow, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:overflow")); showOverflowMenu(); });
 }
 
 void AndroidPhoneToolbar::setToolMode(ToolMode mode) {
