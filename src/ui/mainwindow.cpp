@@ -166,7 +166,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.16.9"
+#define BLOP_VERSION_STR "3.16.10"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -7373,7 +7373,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                   if (!persistent.isValid()) return;
                   m_fileModel->remove(QModelIndex(persistent));
                 },
-                true, false});
+                false, false});
   BlopInWindowMenu::show(this, globalPos, items);
 #else
   QMenu menu(this);

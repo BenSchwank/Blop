@@ -52,28 +52,28 @@ private:
   std::function<void()> m_onDismiss;
 };
 
-QString itemStyle(bool destructive) {
-  const QString color =
-      destructive ? QStringLiteral("#FF6B6B") : QStringLiteral("#E8E4FF");
-  // Match the QMenu styling used elsewhere in the app: dark surface with the
-  // Blop purple accent on press, slightly tinted text.
+QString itemStyle(bool /*destructive*/) {
+  // 1:1 match for blopWebMenuStyleSheet() QMenu::item (mainwindow.cpp:182):
+  // padding 10px 22px, font-size 13px, weight 500, color #E8E4FF, radius 8px,
+  // pressed background rgba(124,92,252,0.38) with white text. The destructive
+  // parameter is accepted for API stability but ignored -- Windows context
+  // menu uses one color for every item including Delete.
   return QStringLiteral(
-             "QPushButton {"
-             "  background: transparent;"
-             "  color: %1;"
-             "  border: none;"
-             "  text-align: left;"
-             "  padding: 12px 18px;"
-             "  font-size: 14px;"
-             "  font-weight: 500;"
-             "  border-radius: 8px;"
-             "}"
-             "QPushButton:pressed {"
-             "  background: rgba(124,92,252,0.38);"
-             "  color: #FFFFFF;"
-             "}"
-             "QPushButton:focus { outline: none; }")
-      .arg(color);
+      "QPushButton {"
+      "  background: transparent;"
+      "  color: #E8E4FF;"
+      "  border: none;"
+      "  text-align: left;"
+      "  padding: 10px 22px;"
+      "  font-size: 13px;"
+      "  font-weight: 500;"
+      "  border-radius: 8px;"
+      "}"
+      "QPushButton:pressed {"
+      "  background: rgba(124,92,252,0.38);"
+      "  color: #FFFFFF;"
+      "}"
+      "QPushButton:focus { outline: none; }");
 }
 
 } // namespace
@@ -99,7 +99,7 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   frame->setStyleSheet(QStringLiteral(
       "QFrame#BlopInWindowMenuFrame {"
       "  background: #14121F;"
-      "  border: 1px solid rgba(124,92,252,0.40);"
+      "  border: 1px solid rgba(124,92,252,0.42);"
       "  border-radius: 12px;"
       "}"));
 
@@ -120,7 +120,7 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
 
   int totalContentHeight = vlay->contentsMargins().top() +
                            vlay->contentsMargins().bottom();
-  const int separatorH = UiScale::dp(1) + UiScale::dp(8); // line + margins
+  const int separatorH = UiScale::dp(1) + UiScale::dp(12); // 1px line + 6px top/bottom margin (matches blopWebMenuStyleSheet)
   const int itemH = UiScale::dp(44);
   int filledRows = 0;
 
@@ -131,7 +131,7 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
       sep->setStyleSheet(QStringLiteral(
           "QFrame { color: rgba(255,255,255,0.08); background: "
           "rgba(255,255,255,0.08); border: none; min-height: 1px; max-height: "
-          "1px; margin: 4px 12px; }"));
+          "1px; margin: 6px 12px; }"));
       vlay->addWidget(sep);
       totalContentHeight += separatorH;
       continue;
@@ -171,10 +171,11 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
     return;
   }
 
-  // Size the frame. Prefer the natural width but cap to fit inside the window
-  // with a small safety margin.
+  // Use the natural sizeHint -- Windows QMenu sizes itself tightly to the
+  // longest item, no artificial minimum. The window-rect cap remains so the
+  // menu can't bleed outside the parent on small screens.
   frame->adjustSize();
-  int targetW = qMax(frame->sizeHint().width(), UiScale::dp(220));
+  int targetW = frame->sizeHint().width();
   const int margin = UiScale::dp(12);
   targetW = qMin(targetW, win->width() - 2 * margin);
   int targetH = qMin(totalContentHeight, win->height() - 2 * margin);

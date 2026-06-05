@@ -258,22 +258,34 @@ bool AndroidTileDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
     auto *me = static_cast<QMouseEvent *>(event);
     if (pillHit.contains(me->pos())) {
       BlopDiag::recordUiAction(QStringLiteral("tile_pill_tap"));
-      // Note: we intentionally do NOT set m_androidPillClickPending here.
-      // Returning true below already prevents QListView from emitting
-      // clicked(); setting the flag in addition would leak true across to
-      // the next genuine tile tap and swallow the open action.
+      // QAbstractItemView::mouseReleaseEvent emits clicked() regardless of
+      // what this editorEvent returns -- the delegate's return value only
+      // controls edit-triggering, NOT click suppression. So set the
+      // pill-click-pending flag to make MainWindow's clicked() lambda
+      // swallow the immediately-following clicked(index) instead of
+      // opening the note. The Timer-Lambda below also clears the flag as
+      // a safety net for the edge case where release happens outside the
+      // item (no clicked() emission) -- both paths converge on false so
+      // the flag can never leak to the next tap.
+      m_window->setAndroidPillClickPending(true);
       QPointer<MainWindow> safeWin(m_window);
       const QPersistentModelIndex safeIdx(index);
       QPointer<QAbstractItemView> safeView(view);
       const QRect pillRect = pillHit;
       QTimer::singleShot(0, m_window, [safeWin, safeIdx, safeView, pillRect]() {
-        if (!safeWin || !safeIdx.isValid() || !safeView || !safeView->viewport())
+        if (!safeWin || !safeIdx.isValid() || !safeView || !safeView->viewport()) {
+          if (safeWin)
+            safeWin->setAndroidPillClickPending(false);
           return;
+        }
         // Anchor the dropdown at the three-dots pill (same UX as Windows
         // context menu at click position), not a centered full-screen card.
         const QPoint globalPos =
             safeView->viewport()->mapToGlobal(pillRect.bottomRight());
         safeWin->showContextMenu(globalPos, QModelIndex(safeIdx));
+        // Defensive reset: if clicked() never fired (release outside item)
+        // the flag would otherwise stay true and swallow the next tap.
+        safeWin->setAndroidPillClickPending(false);
       });
       return true;
     }
