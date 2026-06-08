@@ -1,4 +1,6 @@
 #include "pagemanager.h"
+#include "blop_theme.h"
+#include "blopripple.h"
 #include "editoroverlays.h"
 #include "uiscale.h"
 #include <QAbstractItemModel>
@@ -16,8 +18,9 @@
 #include <QCheckBox>
 
 namespace {
-constexpr int kPanelMinWidth = 420;
-constexpr int kPanelMaxWidth = 860;
+// v3.17.0: kPanelMinWidth/MaxWidth removed -- the rigid 420 px floor
+// clipped on 360-dp phones. fillParent() now computes width responsively
+// based on parent size + safe insets.
 
 // Aligned with MultiPageNoteView #PagesBarStrip — modern neutral + accent
 static const QColor kCardIdle(52, 54, 64, 249);
@@ -142,26 +145,38 @@ PageManager::PageManager(QWidget* parent) : QWidget(parent) {
 }
 
 void PageManager::setupUi() {
+    // v3.17.0: theme-aware scrim + panel. The hard 420 px min-width that
+    // used to clip on 360-dp phones is gone -- fillParent() computes the
+    // correct width responsively. Scrim/panel colors come from BlopTheme
+    // so the Light-mode toggle in Settings reskins the manager too.
+    auto rgba = [](const QColor &c) {
+      return QStringLiteral("rgba(%1,%2,%3,%4)")
+          .arg(c.red()).arg(c.green()).arg(c.blue())
+          .arg(QString::number(c.alphaF(), 'f', 3));
+    };
     m_scrim = new QPushButton(this);
     m_scrim->setFlat(true);
     m_scrim->setCursor(Qt::PointingHandCursor);
     m_scrim->setFocusPolicy(Qt::NoFocus);
     m_scrim->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_scrim->setStyleSheet(
-        "QPushButton { background-color: rgba(12, 14, 22, 0.52); border: none; }"
-        "QPushButton:hover { background-color: rgba(12, 14, 22, 0.58); }");
+        QStringLiteral(
+            "QPushButton { background-color: %1; border: none; }"
+            "QPushButton:hover { background-color: %1; }")
+            .arg(rgba(BlopTheme::scrimColor())));
     connect(m_scrim, &QPushButton::clicked, this, &QWidget::hide);
 
     m_panel = new QWidget(this);
-    m_panel->setMinimumWidth(kPanelMinWidth);
-    m_panel->setMaximumWidth(kPanelMaxWidth);
     m_panel->setObjectName(QStringLiteral("PageManagerPanel"));
     m_panel->setStyleSheet(
-        "#PageManagerPanel {"
-        "  background-color: rgba(30, 32, 44, 0.985);"
-        "  border: 1px solid rgba(120, 130, 160, 0.30);"
-        "  border-radius: 18px;"
-        "}");
+        QStringLiteral(
+            "#PageManagerPanel {"
+            "  background-color: %1;"
+            "  border: 1px solid %2;"
+            "  border-radius: 18px;"
+            "}")
+            .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+                 rgba(BlopTheme::borderDefault())));
 
     auto *contentLay = new QVBoxLayout(m_panel);
     contentLay->setContentsMargins(0, 0, 0, 0);
@@ -326,6 +341,9 @@ void PageManager::setupUi() {
         "  border-color: rgba(140, 150, 185, 0.5);"
         "}");
     connect(m_fabAdd, &QPushButton::clicked, this, &PageManager::onAddPage);
+    // v3.17.0: small press-bounce on the prominent FAB for tactile feel.
+    QObject::connect(m_fabAdd, &QPushButton::pressed, m_fabAdd,
+                     [this]() { BlopRipple::animatePress(m_fabAdd, 0.92); });
 
     addRow->addWidget(m_fabAdd);
     footerLay->addLayout(addRow);

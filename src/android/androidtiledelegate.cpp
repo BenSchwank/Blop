@@ -1,5 +1,6 @@
 #include "androidtiledelegate.h"
 #include "blop_diag.h"
+#include "blop_theme.h"
 
 #include <QApplication>
 #include <QCursor>
@@ -147,14 +148,18 @@ void AndroidTileDelegate::paint(QPainter *painter,
   const QRect rect = option.rect.adjusted(UiScale::dp(4), UiScale::dp(4),
                                           -UiScale::dp(4), -UiScale::dp(4));
 
-  // Card background (Material elevated surface).
-  QColor bg(QStringLiteral("#161423"));
+  // Card background (Material elevated surface). v3.17.0: pulled from
+  // BlopTheme so Light-mode tiles get the right neutral surface instead of
+  // the hard-coded near-black previously baked in.
+  QColor bg = BlopTheme::surfaceElevated();
   if (option.state & QStyle::State_Selected) {
     QColor accent = m_window ? m_window->currentAccentColor()
-                              : QColor(QStringLiteral("#7C6CFF"));
-    bg = accent.darker(160);
+                              : BlopTheme::accentPrimary();
+    bg = BlopTheme::instance().isDark() ? accent.darker(160) : accent.lighter(160);
   } else if (option.state & QStyle::State_MouseOver) {
-    bg = QColor(QStringLiteral("#1C1A2A"));
+    bg = BlopTheme::instance().isDark()
+             ? BlopTheme::surfaceElevated().lighter(108)
+             : BlopTheme::surfaceMuted();
   }
   painter->setPen(Qt::NoPen);
   painter->setBrush(bg);
@@ -189,7 +194,7 @@ void AndroidTileDelegate::paint(QPainter *painter,
   font.setPointSize(11);
   font.setWeight(QFont::Medium);
   painter->setFont(font);
-  painter->setPen(QColor(QStringLiteral("#E8E6F4")));
+  painter->setPen(BlopTheme::textPrimary());
 
   const QRect textRect(rect.left() + UiScale::dp(6),
                        iconRect.bottom() + gap,

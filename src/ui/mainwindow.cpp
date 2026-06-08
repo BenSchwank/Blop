@@ -116,6 +116,9 @@
 
 #include "blop_diag.h"
 #include "blop_inwindow_menu.h"
+#include "blop_modal.h"
+#include "blop_theme.h"
+#include "blopripple.h"
 
 #ifdef Q_OS_ANDROID
 #include <QQmlContext>
@@ -166,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.16.10"
+#define BLOP_VERSION_STR "3.17.0"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -176,11 +179,30 @@ static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
 namespace {
 
 QString blopWebMenuStyleSheet() {
-  return QString::fromUtf8(
-      R"(QMenu { background-color: #14121F; border: 1px solid rgba(124, 92, 252, 0.42); border-radius: 12px; padding: 6px; }
-QMenu::separator { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 12px; }
-QMenu::item { color: #E8E4FF; padding: 10px 22px; border-radius: 8px; font-size: 13px; font-weight: 500; }
-QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })");
+  // v3.17.0: theme-aware. Reads live tokens from BlopTheme so Light/Dark
+  // mode reskins menus without a separate codepath. Composing per-call is
+  // cheap (string formatting) and keeps the QMenu-vs-BlopInWindowMenu
+  // visual parity that v3.16.10 introduced.
+  auto rgba = [](const QColor &c) {
+    return QStringLiteral("rgba(%1,%2,%3,%4)")
+        .arg(c.red()).arg(c.green()).arg(c.blue())
+        .arg(QString::number(c.alphaF(), 'f', 3));
+  };
+  const QString surface = BlopTheme::surfaceElevated().name(QColor::HexRgb);
+  const QString border = rgba(BlopTheme::accentBorder());
+  const QString sepBg = rgba(BlopTheme::borderDefault());
+  const QString textCol = BlopTheme::textPrimary().name(QColor::HexRgb);
+  const QString accentSel = rgba(BlopTheme::accentSubtle());
+  const QString onAccent = BlopTheme::textOnAccent().name(QColor::HexRgb);
+  return QStringLiteral(
+             "QMenu { background-color: %1; border: 1px solid %2; "
+             "border-radius: 12px; padding: 6px; }"
+             "QMenu::separator { height: 1px; background: %3; "
+             "margin: 6px 12px; }"
+             "QMenu::item { color: %4; padding: 10px 22px; border-radius: 8px; "
+             "font-size: 13px; font-weight: 500; }"
+             "QMenu::item:selected { background-color: %5; color: %6; }")
+      .arg(surface, border, sepBg, textCol, accentSel, onAccent);
 }
 
 #ifdef Q_OS_ANDROID
@@ -1314,8 +1336,43 @@ MainWindow::MainWindow(QWidget *parent)
       showCrashReportOverlay(this, report);
     }
   });
+
+  // v3.17.0: re-skin theme-aware surfaces whenever the user toggles
+  // Light/Dark mode in the Settings dialog. The slot is intentionally
+  // narrow -- it touches only the surfaces we have already converted to
+  // theme tokens (Phase B3). Other widgets still using hard-coded hex
+  // values will be migrated incrementally in v3.17.1+.
+  connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
+          &MainWindow::applyThemeRefresh);
 }
 MainWindow::~MainWindow() {}
+
+void MainWindow::applyThemeRefresh() {
+  if (m_centralContainer) {
+    m_centralContainer->setStyleSheet(
+        QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
+            .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+  }
+#ifdef Q_OS_ANDROID
+  if (m_androidHeader) {
+    m_androidHeader->setStyleSheet(
+        QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
+                       "border: none; }")
+            .arg(BlopTheme::surfaceBase().name(QColor::HexRgb)));
+  }
+#endif
+  // Nudge the file-list viewport so AndroidTileDelegate re-paints with the
+  // new card color.
+  if (m_fileListView && m_fileListView->viewport())
+    m_fileListView->viewport()->update();
+  // Force a polish pass on the entire MainWindow so any QSS-tagged widgets
+  // pick up the new tokens without needing per-widget churn.
+  if (style()) {
+    style()->unpolish(this);
+    style()->polish(this);
+  }
+  update();
+}
 
 void MainWindow::setupTools() {
   // FIX: Konkrete Tool-Instanzen erstellen und ToolMode enum nutzen
@@ -3218,15 +3275,20 @@ void MainWindow::setupUi() {
   // QtWebView on Android uses a SurfaceView that can draw above unrelated Qt
   // siblings (including QToolBar). Keep Notizen/Study tabs inside centralWidget,
   // stacked above the content, so the tab row stays visible and tappable.
+  // v3.17.0: theme-aware background. CentralContainer is the page-level
+  // surface; AndroidTopChrome is the chrome strip above it.
   m_centralContainer->setStyleSheet(
-      "QWidget#CentralContainer { background-color: #0D0B14; }");
+      QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
+          .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
   m_centralContainer->setObjectName(QStringLiteral("CentralContainer"));
 
   QWidget *androidTopChrome = new QWidget(m_centralContainer);
   m_androidHeader = androidTopChrome;
   androidTopChrome->setObjectName(QStringLiteral("AndroidTopChrome"));
   androidTopChrome->setStyleSheet(
-      "QWidget#AndroidTopChrome { background-color: #0F111A; border: none; }");
+      QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
+                     "border: none; }")
+          .arg(BlopTheme::surfaceBase().name(QColor::HexRgb)));
   const int androidTopInset = UiScale::safeTopPx(this);
   const int androidHeaderSidePad = UiScale::safeHorizontalPaddingPx(this);
   const int androidHeaderTopExtra = UiScale::dp(4);
@@ -3254,29 +3316,6 @@ void MainWindow::setupUi() {
   headerLay->setContentsMargins(androidHeaderSidePad, androidTopInset + androidHeaderTopExtra,
                                 androidHeaderSidePad, UiScale::dp(4));
   headerLay->setSpacing(UiScale::dp(8));
-
-  // Visible version pin (top-left). Lets the user verify in 2 seconds which
-  // build is actually running on the device, eliminating "is this even the
-  // new APK?" doubt during crash diagnosis.
-  {
-    QString verStr = QString::fromUtf8(BLOP_VERSION);
-    if (verStr.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
-      verStr = verStr.mid(1);
-    auto *verPin = new QLabel(QStringLiteral("v") + verStr, androidHeader);
-    verPin->setObjectName(QStringLiteral("AndroidHeaderVerPin"));
-    verPin->setAlignment(Qt::AlignCenter);
-    verPin->setStyleSheet(
-        "QLabel#AndroidHeaderVerPin {"
-        "  color: #B7AEFF;"
-        "  background: rgba(124,92,252,0.15);"
-        "  border: 1px solid rgba(124,92,252,0.40);"
-        "  border-radius: 8px;"
-        "  padding: 2px 8px;"
-        "  font-size: 11px; font-weight: 600;"
-        "}");
-    verPin->setFixedHeight(androidCompactPillH);
-    headerLay->addWidget(verPin, 0, Qt::AlignVCenter);
-  }
 
   auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
                           const QColor &tint) -> QIcon {
@@ -3380,6 +3419,12 @@ void MainWindow::setupUi() {
   m_btnAndroidStudy->setCursor(Qt::PointingHandCursor);
 
   applyAndroidTabStyles(0); // default: notes active
+
+  // v3.17.0: light press-bounce on the Android tab pills.
+  connect(m_btnAndroidNotes, &QPushButton::pressed, m_btnAndroidNotes,
+          [this]() { BlopRipple::animatePress(m_btnAndroidNotes, 0.95); });
+  connect(m_btnAndroidStudy, &QPushButton::pressed, m_btnAndroidStudy,
+          [this]() { BlopRipple::animatePress(m_btnAndroidStudy, 0.95); });
 
   connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
     BlopDiag::recordUiAction(QStringLiteral("tab_click:notes"));
@@ -4544,14 +4589,20 @@ void MainWindow::onModeChanged(int index) {
     // Study has its own QML top bar; keep web content flush to avoid double top bars.
     m_studyVBoxLayout->setContentsMargins(0, 0, 0, 0);
   }
-  // Embedded Study widget: hide/disable when leaving Study.
+  // Leaving Study: only disable input + clear focus. Do NOT hide() the
+  // container -- the QStackedWidget swap below already paints the other
+  // page over it. Hiding the QQuickWidget that hosts QtWebView's native
+  // SurfaceView causes the surface to detach; on re-show the SurfaceView
+  // re-attaches without a valid surface and paints black. v3.16.x users
+  // saw exactly this regression. We track the deactivation timestamp so
+  // re-entry can decide whether a surface refresh is needed.
   if (mainStackIdx == 0) {
     if (m_studyWindowContainer) {
       m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
       m_studyWindowContainer->setEnabled(false);
       m_studyWindowContainer->clearFocus();
-      m_studyWindowContainer->hide();
     }
+    m_lastStudyDeactivationMs = QDateTime::currentMSecsSinceEpoch();
   }
 #endif
   if (m_mainContentStack) {
@@ -4570,7 +4621,23 @@ void MainWindow::onModeChanged(int index) {
     m_studyWindowContainer->setEnabled(true);
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // Single-stage show for QWidget-hosted Study view.
+    // No hide() was called when leaving, so no show() needed here. Only
+    // refresh the SurfaceView if we've been away long enough that the
+    // native compositor may have detached our surface anyway (foreground
+    // GPU pressure, screen-off, etc.). 1500 ms threshold avoids flicker
+    // on quick toggles.
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const qint64 awayMs = (m_lastStudyDeactivationMs > 0)
+                              ? nowMs - m_lastStudyDeactivationMs
+                              : -1;
+    const bool needsRefresh =
+        m_studyQQuickView && m_studyQQuickView->rootObject() &&
+        awayMs >= 0 && awayMs > 1500;
+    if (needsRefresh) {
+      QMetaObject::invokeMethod(
+          m_studyQQuickView->rootObject(), "refreshStudySurface",
+          Q_ARG(QVariant, QString("manual_tab_switch")));
+    }
     QTimer::singleShot(0, this, [this]() {
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
         return;
@@ -4579,7 +4646,6 @@ void MainWindow::onModeChanged(int index) {
       syncAndroidHeaderGeometry(this);
       if (m_androidHeader)
         m_androidHeader->raise();
-      m_studyWindowContainer->show();
     });
   }
   if (m_mainContentStack) {
@@ -6676,19 +6742,46 @@ void MainWindow::updateSidebarState() {
 }
 
 void MainWindow::setPageSettingsOverlayVisible(bool show) {
-  if (!m_pageSettingsOverlay || !m_editorCenterWidget)
+  // v3.17.0: route through BlopModal. On Android phones this gives us a
+  // proper bottom-sheet (rounded top corners, drag-to-dismiss); on desktop
+  // and tablets we get a centered card with backdrop fade-in. The legacy
+  // m_pageSettingsOverlay scrim is no longer used -- BlopModal supplies
+  // its own backdrop and outside-tap dismissal.
+  if (!m_pageSettingsCard)
     return;
+
   if (show) {
-    m_pageSettingsOverlay->setGeometry(
-        0, 0, m_editorCenterWidget->width(), m_editorCenterWidget->height());
-    if (m_pageSettingsCard)
-      m_pageSettingsCard->setMaximumHeight(
-          qMax(200, m_editorCenterWidget->height() - 64));
+    if (m_pageSettingsModal)
+      return; // already presented
     syncPageSettingsPanelFromEditor();
-    m_pageSettingsOverlay->show();
-    m_pageSettingsOverlay->raise();
+    // BlopModal will size the card via its layout; release the fixed-width
+    // constraint that the legacy scrim used.
+    m_pageSettingsCard->setMinimumWidth(0);
+    m_pageSettingsCard->setMaximumWidth(QWIDGETSIZE_MAX);
+    m_pageSettingsCard->setMaximumHeight(QWIDGETSIZE_MAX);
+    // Strip the legacy outer card stylesheet -- BlopModal hosts the card
+    // inside a themed surface, so a second border would look chunky.
+    m_pageSettingsCard->setStyleSheet(
+        QStringLiteral("QWidget#PageSettingsCard { background: transparent; }"));
+    m_pageSettingsCard->show();
+    m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
+                                             BlopModal::Mode::Auto);
+    if (m_pageSettingsModal) {
+      m_pageSettingsModal->setPreferredCardWidth(520);
+      connect(m_pageSettingsModal, &BlopModal::dismissed, this, [this]() {
+        if (m_pageSettingsCard && m_pageSettingsOverlay) {
+          // Re-parent the card back to its original home so the next show
+          // finds it where setupRightSidebar() expects.
+          m_pageSettingsCard->setParent(m_pageSettingsOverlay);
+          m_pageSettingsCard->hide();
+        }
+        m_pageSettingsModal = nullptr;
+      });
+    }
   } else {
-    m_pageSettingsOverlay->hide();
+    if (m_pageSettingsModal) {
+      m_pageSettingsModal->dismiss();
+    }
   }
 }
 

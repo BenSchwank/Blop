@@ -172,6 +172,8 @@ signals:
   void oauthFailed(const QString &reason);
 
 public slots:
+  /// Re-apply theme-aware stylesheets after BlopTheme::themeChanged. v3.17.0.
+  void applyThemeRefresh();
   void requestGoogleLogin();
   void onSessionCheck(const QString &sessionData);
   void resetAndroidWebViewStorage();
@@ -314,6 +316,11 @@ private:
   QLineEdit *m_androidTopSearchBar{nullptr};
   QVBoxLayout *m_studyVBoxLayout{nullptr};
   QWidget *m_studyWindowContainer{nullptr}; // host widget for embedded Study view
+  /// Timestamp (ms since epoch) of when the user last left the Study tab.
+  /// Used by onModeChanged() to decide whether the SurfaceView likely lost
+  /// its surface during the absence and needs a budget-free refresh. Zero
+  /// means "never deactivated since startup".
+  qint64 m_lastStudyDeactivationMs{0};
   QPushButton *m_btnAndroidNotes{nullptr};
   QPushButton *m_btnAndroidStudy{nullptr};
   QPushButton *m_btnAndroidAddWebBookmark{nullptr};
@@ -426,6 +433,10 @@ private:
 
   QWidget *m_pageSettingsOverlay{nullptr};
   QWidget *m_pageSettingsCard{nullptr};
+  /// v3.17.0: BlopModal hosting the PageSettings card while visible. Null
+  /// when the panel is dismissed. The card is reparented back to
+  /// `m_pageSettingsOverlay` after dismissal so the next show finds it.
+  class BlopModal *m_pageSettingsModal{nullptr};
   QLabel *m_lblActiveNote{nullptr};
 
   // Quick-Tags Sidebar

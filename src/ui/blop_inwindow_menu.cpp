@@ -1,5 +1,6 @@
 #include "blop_inwindow_menu.h"
 
+#include "blop_theme.h"
 #include "uiscale.h"
 
 #include <QApplication>
@@ -24,8 +25,14 @@ public:
   explicit Backdrop(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_DeleteOnClose);
     setObjectName(QStringLiteral("BlopInWindowMenuBackdrop"));
+    // v3.17.0: theme-aware scrim. Slightly lighter than the modal scrim
+    // because menus dismiss instantly; we keep the original ~25% feel.
+    QColor scrim = BlopTheme::scrimColor();
+    scrim.setAlpha(qMin(scrim.alpha(), 64)); // ~25%
     setStyleSheet(QStringLiteral(
-        "QWidget#BlopInWindowMenuBackdrop { background: rgba(0,0,0,0.25); }"));
+        "QWidget#BlopInWindowMenuBackdrop { background: rgba(%1,%2,%3,%4); }")
+        .arg(scrim.red()).arg(scrim.green()).arg(scrim.blue())
+        .arg(QString::number(scrim.alphaF(), 'f', 3)));
     setMouseTracking(true);
   }
 
@@ -53,27 +60,36 @@ private:
 };
 
 QString itemStyle(bool /*destructive*/) {
-  // 1:1 match for blopWebMenuStyleSheet() QMenu::item (mainwindow.cpp:182):
-  // padding 10px 22px, font-size 13px, weight 500, color #E8E4FF, radius 8px,
-  // pressed background rgba(124,92,252,0.38) with white text. The destructive
-  // parameter is accepted for API stability but ignored -- Windows context
-  // menu uses one color for every item including Delete.
+  // v3.17.0: theme-aware -- reads tokens from BlopTheme so Light/Dark mode
+  // reskins automatically. Geometry (padding/font-size/radius) matches the
+  // historical look that v3.16.10 aligned to blopWebMenuStyleSheet(). The
+  // destructive parameter is accepted for API stability but ignored --
+  // Windows context menu uses one color for every item including Delete.
+  auto rgba = [](const QColor &c) {
+    return QStringLiteral("rgba(%1,%2,%3,%4)")
+        .arg(c.red()).arg(c.green()).arg(c.blue())
+        .arg(QString::number(c.alphaF(), 'f', 3));
+  };
+  const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
+  const QString press = rgba(BlopTheme::accentSubtle());
+  const QString onAccent = BlopTheme::textOnAccent().name(QColor::HexRgb);
   return QStringLiteral(
-      "QPushButton {"
-      "  background: transparent;"
-      "  color: #E8E4FF;"
-      "  border: none;"
-      "  text-align: left;"
-      "  padding: 10px 22px;"
-      "  font-size: 13px;"
-      "  font-weight: 500;"
-      "  border-radius: 8px;"
-      "}"
-      "QPushButton:pressed {"
-      "  background: rgba(124,92,252,0.38);"
-      "  color: #FFFFFF;"
-      "}"
-      "QPushButton:focus { outline: none; }");
+             "QPushButton {"
+             "  background: transparent;"
+             "  color: %1;"
+             "  border: none;"
+             "  text-align: left;"
+             "  padding: 10px 22px;"
+             "  font-size: 13px;"
+             "  font-weight: 500;"
+             "  border-radius: 8px;"
+             "}"
+             "QPushButton:pressed {"
+             "  background: %2;"
+             "  color: %3;"
+             "}"
+             "QPushButton:focus { outline: none; }")
+      .arg(text, press, onAccent);
 }
 
 } // namespace
@@ -94,14 +110,23 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   auto *frame = new QFrame(backdrop);
   frame->setObjectName(QStringLiteral("BlopInWindowMenuFrame"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
-  // Mirror the BlopWebMenuStyleSheet QMenu appearance for visual consistency
-  // with the desktop right-click menu.
-  frame->setStyleSheet(QStringLiteral(
-      "QFrame#BlopInWindowMenuFrame {"
-      "  background: #14121F;"
-      "  border: 1px solid rgba(124,92,252,0.42);"
-      "  border-radius: 12px;"
-      "}"));
+  // v3.17.0: theme-aware. Mirrors blopWebMenuStyleSheet() (desktop QMenu)
+  // by reading the same BlopTheme tokens.
+  {
+    auto rgba = [](const QColor &c) {
+      return QStringLiteral("rgba(%1,%2,%3,%4)")
+          .arg(c.red()).arg(c.green()).arg(c.blue())
+          .arg(QString::number(c.alphaF(), 'f', 3));
+    };
+    const QString bg = BlopTheme::surfaceElevated().name(QColor::HexRgb);
+    const QString border = rgba(BlopTheme::accentBorder());
+    frame->setStyleSheet(QStringLiteral(
+        "QFrame#BlopInWindowMenuFrame {"
+        "  background: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 12px;"
+        "}").arg(bg, border));
+  }
 
   auto *vlay = new QVBoxLayout(frame);
   vlay->setContentsMargins(UiScale::dp(6), UiScale::dp(6), UiScale::dp(6),
@@ -128,10 +153,17 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
     if (it.separator) {
       auto *sep = new QFrame(frame);
       sep->setFrameShape(QFrame::HLine);
-      sep->setStyleSheet(QStringLiteral(
-          "QFrame { color: rgba(255,255,255,0.08); background: "
-          "rgba(255,255,255,0.08); border: none; min-height: 1px; max-height: "
-          "1px; margin: 6px 12px; }"));
+      {
+        auto rgba = [](const QColor &c) {
+          return QStringLiteral("rgba(%1,%2,%3,%4)")
+              .arg(c.red()).arg(c.green()).arg(c.blue())
+              .arg(QString::number(c.alphaF(), 'f', 3));
+        };
+        const QString sepCol = rgba(BlopTheme::borderDefault());
+        sep->setStyleSheet(QStringLiteral(
+            "QFrame { color: %1; background: %1; border: none; min-height: "
+            "1px; max-height: 1px; margin: 6px 12px; }").arg(sepCol));
+      }
       vlay->addWidget(sep);
       totalContentHeight += separatorH;
       continue;

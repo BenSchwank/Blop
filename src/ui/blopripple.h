@@ -12,6 +12,15 @@ public:
   static void spawn(QWidget *host, const QPoint &globalPos,
                     const QColor &accent = QColor(QStringLiteral("#7C5CFC")));
 
+  /// v3.17.0: short scale-down + spring-back animation on a widget.
+  /// Mirrors the haptic feel of `runTilePressScaleAnim` in
+  /// androidtiledelegate.cpp without requiring a top-level Tool window.
+  /// Safe to call on any platform; uses QGraphicsOpacityEffect-free
+  /// `QPropertyAnimation` on a windowOpacity proxy + geometry shrink.
+  /// `pressedScale` is the minimum scale at the peak of the press (~0.94 is
+  /// a good default). The widget is restored on completion.
+  static void animatePress(QWidget *target, qreal pressedScale = 0.94);
+
   qreal ripScale() const { return m_ripScale; }
   void setRipScale(qreal s);
   qreal ripOpacity() const { return m_ripOpacity; }

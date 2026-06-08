@@ -18,6 +18,7 @@
 #include "blop_crash_backend.h"
 #include "blop_diag.h"
 #include "blop_observability.h"
+#include "blop_theme.h"
 #include "introscreen.h"
 #include "mainwindow.h"
 #include <QFont>
@@ -101,6 +102,10 @@ int main(int argc, char *argv[]) {
   // crashes; before blopInitCrashReporting() so our async-signal-safe writer
   // is the first responder for SIGSEGV/etc.
   BlopDiag::install();
+
+  // Read persisted theme (Dark/Light + Accent) before any widget construction
+  // so that QSS bricks built during MainWindow setup see the correct tokens.
+  BlopTheme::instance().install();
 
   blopLogObservabilityBootstrap();
   blopInitCrashReporting();

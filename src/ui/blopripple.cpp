@@ -2,12 +2,17 @@
 
 #include "uiscale.h"
 
+#include <QEasingCurve>
 #include <QGuiApplication>
 #include <QPainter>
 #include <QPainterPath>
 #include <QParallelAnimationGroup>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QScreen>
+#include <QSequentialAnimationGroup>
+#include <QVariantAnimation>
+#include <QWidget>
 
 void BlopRipple::setRipScale(qreal s) {
   m_ripScale = s;
@@ -98,4 +103,55 @@ void BlopRipple::spawn(QWidget *host, const QPoint &globalPos,
                    &QWidget::close);
   grp->start(QAbstractAnimation::DeleteWhenStopped);
 #endif
+}
+
+void BlopRipple::animatePress(QWidget *target, qreal pressedScale) {
+  if (!target)
+    return;
+  // Anchored on the widget's current geometry. We animate the geometry
+  // toward a shrunk-around-center rectangle and back, giving the user a
+  // light bounce. Cheap (one QVariantAnimation), safe on any platform,
+  // and doesn't fight QGraphicsEffect (which can hit Android GL paths).
+  const QRect base = target->geometry();
+  if (base.isEmpty())
+    return;
+  const qreal s = qBound(0.5, pressedScale, 1.0);
+  const int shrinkW = int(base.width() * (1.0 - s) * 0.5);
+  const int shrinkH = int(base.height() * (1.0 - s) * 0.5);
+  const QRect pressed =
+      base.adjusted(shrinkW, shrinkH, -shrinkW, -shrinkH);
+
+  QPointer<QWidget> safe(target);
+
+  auto *down = new QVariantAnimation(target);
+  down->setDuration(90);
+  down->setEasingCurve(QEasingCurve::OutCubic);
+  down->setStartValue(base);
+  down->setEndValue(pressed);
+  QObject::connect(down, &QVariantAnimation::valueChanged, target,
+                   [safe](const QVariant &v) {
+                     if (safe)
+                       safe->setGeometry(v.toRect());
+                   });
+
+  auto *up = new QVariantAnimation(target);
+  up->setDuration(220);
+  up->setEasingCurve(QEasingCurve::OutBack);
+  up->setStartValue(pressed);
+  up->setEndValue(base);
+  QObject::connect(up, &QVariantAnimation::valueChanged, target,
+                   [safe](const QVariant &v) {
+                     if (safe)
+                       safe->setGeometry(v.toRect());
+                   });
+
+  auto *seq = new QSequentialAnimationGroup(target);
+  seq->addAnimation(down);
+  seq->addAnimation(up);
+  QObject::connect(seq, &QSequentialAnimationGroup::finished, target,
+                   [safe, base]() {
+                     if (safe)
+                       safe->setGeometry(base);
+                   });
+  seq->start(QAbstractAnimation::DeleteWhenStopped);
 }

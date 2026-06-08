@@ -249,6 +249,19 @@ Rectangle {
         webLoaderDeactivateTimer.start()
     }
 
+    // Budget-free surface refresh used when the user manually re-enters the
+    // Study tab. Native Android SurfaceView occasionally loses its surface
+    // after Qt's QStackedWidget swap; toggling the Loader forces a fresh
+    // SurfaceView attach without consuming the cache-miss recreate budget
+    // (which exists to bound infinite recovery loops, not manual UI events).
+    function refreshStudySurface(reason) {
+        if (webviewRecreatePending)
+            return
+        webviewRecreatePending = true
+        console.log("BlopStudy: surface refresh", reason)
+        webLoaderDeactivateTimer.start()
+    }
+
     function recoverFromCacheMiss(reason) {
         if (!ssoPollingEnabled)
             return

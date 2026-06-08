@@ -1,4 +1,5 @@
 #include "settingsdialog.h"
+#include "blop_theme.h"
 #include "blopstyle.h"
 #include "ui_SettingsDialog.h"
 
@@ -286,6 +287,80 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     contentLay->addWidget(cardKonto);
 
+    // ----- Card: Darstellung (Light/Dark Mode) --------------------------
+    // v3.17.0: new theme switcher backed by BlopTheme. Lets the user pick
+    // a light or dark surface palette while the accent (Blop purple by
+    // default) stays the same in both modes.
+    auto *cardTheme = new BlopSettingsCard(
+        QStringLiteral("Darstellung"),
+        QStringLiteral("Helles oder dunkles Design"),
+        contentWidget);
+    {
+        auto *lblMode = new QLabel(QStringLiteral("Modus"), cardTheme);
+        lblMode->setStyleSheet(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent;"));
+        cardTheme->addBodyWidget(lblMode);
+
+        auto *modeRow = new QWidget(cardTheme);
+        auto *modeLay = new QHBoxLayout(modeRow);
+        modeLay->setContentsMargins(0, 0, 0, 0);
+        modeLay->setSpacing(8);
+
+        auto *btnDark = new QPushButton(QStringLiteral("Dunkel"), modeRow);
+        auto *btnLight = new QPushButton(QStringLiteral("Hell"), modeRow);
+        btnDark->setCheckable(true);
+        btnLight->setCheckable(true);
+        btnDark->setCursor(Qt::PointingHandCursor);
+        btnLight->setCursor(Qt::PointingHandCursor);
+        btnDark->setMinimumHeight(40);
+        btnLight->setMinimumHeight(40);
+        const QString segStyle = QStringLiteral(
+            "QPushButton {"
+            "  background: rgba(40,42,60,0.65);"
+            "  color: #ECEEFD;"
+            "  border: 1px solid rgba(120,130,160,0.32);"
+            "  border-radius: 10px;"
+            "  padding: 8px 14px;"
+            "  font-weight: 600;"
+            "}"
+            "QPushButton:checked {"
+            "  background: rgba(124,92,252,0.85);"
+            "  color: #FFFFFF;"
+            "  border: 1px solid rgba(124,92,252,1.0);"
+            "}"
+            "QPushButton:hover:!checked {"
+            "  border-color: rgba(124,92,252,0.65);"
+            "}");
+        btnDark->setStyleSheet(segStyle);
+        btnLight->setStyleSheet(segStyle);
+        modeLay->addWidget(btnDark, 1);
+        modeLay->addWidget(btnLight, 1);
+        cardTheme->addBodyWidget(modeRow);
+
+        auto *bgMode = new QButtonGroup(this);
+        bgMode->setExclusive(true);
+        bgMode->addButton(btnDark, 0);
+        bgMode->addButton(btnLight, 1);
+        const bool startLight = BlopTheme::instance().isLight();
+        btnDark->setChecked(!startLight);
+        btnLight->setChecked(startLight);
+        connect(bgMode, &QButtonGroup::idClicked, this, [](int id) {
+            BlopTheme::instance().setMode(id == 1 ? BlopTheme::Mode::Light
+                                                  : BlopTheme::Mode::Dark);
+        });
+
+        auto *hint = new QLabel(
+            QStringLiteral("Die Akzentfarbe bleibt in beiden Modi erhalten."),
+            cardTheme);
+        hint->setWordWrap(true);
+        hint->setStyleSheet(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
+            "background: transparent; padding-top: 6px;"));
+        cardTheme->addBodyWidget(hint);
+    }
+    contentLay->addWidget(cardTheme);
+
     // ----- Card: Erscheinungsbild ---------------------------------------
     auto *cardLook = new BlopSettingsCard(
         QStringLiteral("Erscheinungsbild"),
@@ -402,7 +477,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.16.1"), cardAdv);
+        auto *info = new QLabel(QStringLiteral("Blop v3.17.0"), cardAdv);
         info->setStyleSheet(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;"));
@@ -418,7 +493,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // common use case).
     connect(search, &QLineEdit::textChanged, this, [=](const QString &q) {
         const QString needle = q.trimmed().toLower();
-        const QList<BlopSettingsCard *> cards = {cardKonto, cardLook,
+        const QList<BlopSettingsCard *> cards = {cardKonto, cardTheme, cardLook,
                                                  cardBehavior, cardAdv};
         for (BlopSettingsCard *c : cards) {
             if (needle.isEmpty()) {
