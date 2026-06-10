@@ -4,7 +4,9 @@ import QtWebView 1.1
 
 Rectangle {
     id: studyRoot
-    color: "#0B0B1A"
+    // v3.18.2+: driven from C++ (syncStudyChromeTheme) for Light/Dark parity.
+    property color studyChromeColor: "#0B0B1A"
+    color: studyChromeColor
     // v3.17.6: set from C++ (MainWindow tab switch) so the poll timers can
     // suspend while Study is hidden behind the Notes tab. The QQuickWidget
     // intentionally stays visible at the Qt level to avoid SurfaceView
@@ -54,8 +56,13 @@ Rectangle {
     property string bookmarkDraftUrl: ""
     property string bookmarkDraftTitle: ""
     property string bookmarkAddError: ""
+    onTabActiveChanged: {
+        if (tabActive && visible)
+            ensureStudyLoaded()
+    }
+
     onVisibleChanged: {
-        if (visible) {
+        if (visible && tabActive) {
             ensureStudyLoaded()
             applyAuthUiScale()
         } else if (bookmarkSheetOpen) {
@@ -558,9 +565,12 @@ Rectangle {
     // occasional gray/blank starts on Android.
     Timer {
         interval: 120
-        running: true
+        running: tabActive
         repeat: false
-        onTriggered: ensureStudyLoaded()
+        onTriggered: {
+            if (tabActive)
+                ensureStudyLoaded()
+        }
     }
 
     Timer {

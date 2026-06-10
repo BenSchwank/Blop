@@ -182,8 +182,15 @@ void BlopModal::setPreferredCardWidth(int px) {
 void BlopModal::applyTheme() {
   setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
 
+  if (m_content) {
+    m_content->setStyleSheet(
+        QStringLiteral("background-color: %1;")
+            .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)));
+  }
+
   if (m_mode == Mode::BottomSheet) {
     QString qss = BlopTheme::bottomSheetQss(QStringLiteral("BlopModalSheet"));
+    m_card->setAutoFillBackground(true);
     qss += QStringLiteral(
                "QFrame#BlopModalDragHandleGrip {"
                "  background: %1;"
@@ -225,6 +232,7 @@ void BlopModal::applyTheme() {
   } else {
     QString qss = BlopTheme::cardQss(QStringLiteral("BlopModalCard"));
     m_card->setStyleSheet(qss);
+    m_card->setAutoFillBackground(true);
     if (BlopTheme::instance().isLight()) {
       auto *shadow = new QGraphicsDropShadowEffect(m_card);
       shadow->setBlurRadius(28);

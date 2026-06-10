@@ -174,6 +174,7 @@ signals:
 public slots:
   /// Re-apply theme-aware stylesheets after BlopTheme::themeChanged. v3.17.0.
   void applyThemeRefresh();
+  void refreshOpenEditorSceneBackgrounds();
   void requestGoogleLogin();
   void onSessionCheck(const QString &sessionData);
   void resetAndroidWebViewStorage();
@@ -321,8 +322,11 @@ private:
   QPushButton *m_btnAndroidNotes{nullptr};
   QPushButton *m_btnAndroidStudy{nullptr};
   QPushButton *m_btnAndroidAddWebBookmark{nullptr};
+  /// Overview/editor shortcut back to the file list (left of hamburger).
+  ModernButton *m_btnAndroidHome{nullptr};
   /// Shown only while editing a note (overview uses floating btnEditorMenu).
   ModernButton *m_btnAndroidToolbarMenu{nullptr};
+  void syncStudyChromeTheme();
   /// Orange page manager button (only for A4 notes).
   ModernButton *m_btnAndroidToolbarPageManager{nullptr};
   /// Export current note while editing on Android.

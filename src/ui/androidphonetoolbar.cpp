@@ -165,8 +165,10 @@ void AndroidPhoneToolbar::setAccentColor(const QColor &color) {
     return;
   m_accentColor = color;
   for (QObject *child : children()) {
-    if (auto *b = qobject_cast<ToolbarBtn *>(child))
+    if (auto *b = qobject_cast<ToolbarBtn *>(child)) {
       b->setAccentColor(m_accentColor);
+      b->update();
+    }
   }
   update();
 }

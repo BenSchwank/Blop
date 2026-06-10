@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.2"
+#define BLOP_VERSION_STR "3.18.3"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -652,6 +652,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
       return;
     w->setFixedSize(btnW, btnH);
   };
+  syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnHome")));
   syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnMenu")));
   syncBtn(
       window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPageMgr")));
@@ -1349,6 +1350,49 @@ MainWindow::MainWindow(QWidget *parent)
 }
 MainWindow::~MainWindow() {}
 
+void MainWindow::refreshOpenEditorSceneBackgrounds() {
+  if (!m_editorTabs)
+    return;
+  const QColor sceneBg = UIStyles::SceneBackground;
+  for (int i = 0; i < m_editorTabs->count(); ++i) {
+    QWidget *tab = m_editorTabs->widget(i);
+    if (!tab)
+      continue;
+    if (auto *editor = qobject_cast<NoteEditor *>(tab)) {
+      if (auto *view = editor->findChild<MultiPageNoteView *>()) {
+        view->setBackgroundBrush(sceneBg);
+        view->viewport()->update();
+        view->update();
+      }
+    } else if (auto *canvas = qobject_cast<CanvasView *>(tab)) {
+      canvas->setBackgroundBrush(sceneBg);
+      if (canvas->viewport())
+        canvas->viewport()->update();
+      canvas->update();
+    } else if (auto *wrapper = tab->findChild<CanvasView *>()) {
+      wrapper->setBackgroundBrush(sceneBg);
+      if (wrapper->viewport())
+        wrapper->viewport()->update();
+      wrapper->update();
+    }
+  }
+}
+
+#ifdef Q_OS_ANDROID
+void MainWindow::syncStudyChromeTheme() {
+  const QColor chrome = BlopTheme::surfaceBackground();
+  if (m_studyContainer) {
+    m_studyContainer->setStyleSheet(
+        QStringLiteral("background-color: %1;").arg(chrome.name(QColor::HexRgb)));
+  }
+  if (m_studyQQuickView) {
+    m_studyQQuickView->setClearColor(chrome);
+    if (QObject *root = m_studyQQuickView->rootObject())
+      root->setProperty("studyChromeColor", chrome);
+  }
+}
+#endif
+
 void MainWindow::applyThemeRefresh() {
   if (m_centralContainer) {
     m_centralContainer->setStyleSheet(
@@ -1362,7 +1406,9 @@ void MainWindow::applyThemeRefresh() {
                        "border: none; }")
             .arg(BlopTheme::surfaceBase().name(QColor::HexRgb)));
   }
+  syncStudyChromeTheme();
 #endif
+  refreshOpenEditorSceneBackgrounds();
   // v3.17.1: re-run the whole stylesheet construction so every QSS
   // wrapped in BlopTheme::themed() (mainwindow chrome, sidebar, title
   // bar, overview, editor tab strip) picks up the new token values.
@@ -1397,6 +1443,15 @@ void MainWindow::applyThemeRefresh() {
     style()->unpolish(this);
     style()->polish(this);
   }
+#ifdef Q_OS_ANDROID
+  if (m_mainContentStack)
+    applyAndroidTabStyles(m_mainContentStack->currentIndex());
+  if (m_btnAndroidHome) {
+    const QColor fg = BlopTheme::textPrimary();
+    m_btnAndroidHome->setIcon(
+        createModernIcon(QStringLiteral("home"), fg));
+  }
+#endif
   update();
 }
 
@@ -3414,7 +3469,29 @@ void MainWindow::setupUi() {
     return QIcon(QPixmap::fromImage(out));
   };
 
-  // Hamburger only while a note is open (overview uses floating menu next to welcome)
+  m_btnAndroidHome = new ModernButton(androidHeader);
+  m_btnAndroidHome->setObjectName(QStringLiteral("AndroidHeaderBtnHome"));
+  m_btnAndroidHome->setIcon(
+      createModernIcon(QStringLiteral("home"), BlopTheme::textPrimary()));
+  m_btnAndroidHome->setFixedSize(androidHeaderButtonW, androidHeaderButtonH);
+  m_btnAndroidHome->setIconSize(QSize(androidHeaderButtonW, androidHeaderButtonH));
+  m_btnAndroidHome->setHoverScaleEnabled(false);
+  m_btnAndroidHome->setToolTip(tr("Zur Übersicht"));
+  m_btnAndroidHome->setStyleSheet(
+      "QToolButton { background: transparent; border: none; padding: 0; }"
+      "QToolButton:hover { background: transparent; }"
+      "QToolButton:pressed { background: transparent; }");
+  connect(m_btnAndroidHome, &QAbstractButton::clicked, this, [this]() {
+    if (m_rightStack && m_rightStack->currentWidget() == m_editorContainer) {
+      onBackToOverview();
+      return;
+    }
+    if (m_isSidebarOpen)
+      animateSidebar(false);
+  });
+  headerLay->addWidget(m_btnAndroidHome, 0, Qt::AlignVCenter);
+
+  // Hamburger: sidebar in overview + editor (separate from home).
   m_btnAndroidToolbarMenu = new ModernButton(androidHeader);
   m_btnAndroidToolbarMenu->setObjectName(QStringLiteral("AndroidHeaderBtnMenu"));
   {
@@ -3471,12 +3548,6 @@ void MainWindow::setupUi() {
 
   applyAndroidTabStyles(0); // default: notes active
 
-  // v3.17.0: light press-bounce on the Android tab pills.
-  connect(m_btnAndroidNotes, &QPushButton::pressed, m_btnAndroidNotes,
-          [this]() { BlopRipple::animatePress(m_btnAndroidNotes, 0.95); });
-  connect(m_btnAndroidStudy, &QPushButton::pressed, m_btnAndroidStudy,
-          [this]() { BlopRipple::animatePress(m_btnAndroidStudy, 0.95); });
-
   connect(m_btnAndroidNotes, &QPushButton::clicked, this, [this]() {
     BlopDiag::recordUiAction(QStringLiteral("tab_click:notes"));
     if (!m_modeSelector || m_modeSelector->count() <= 1) {
@@ -3522,10 +3593,6 @@ void MainWindow::setupUi() {
       "  border: 1px solid rgba(255,255,255,0.16);"
       "}"
       "QPushButton:pressed { background: rgba(255,255,255,0.14); }"));
-  connect(m_btnAndroidAddWebBookmark, &QPushButton::pressed, this, [this]() {
-    if (m_btnAndroidAddWebBookmark)
-      BlopRipple::animatePress(m_btnAndroidAddWebBookmark, 0.92);
-  });
   connect(m_btnAndroidAddWebBookmark, &QPushButton::clicked, this, [this]() {
     if (!m_btnAndroidAddWebBookmark)
       return;
@@ -4270,9 +4337,6 @@ void logAndroidSystemWebViewPackageOnce()
 
 void MainWindow::setupWebBrowser() {
   m_studyContainer = new QWidget(this);
-  // Match Study web chrome; avoids light “gaps” around the native WebView.
-  m_studyContainer->setStyleSheet(
-      "background-color: #0B0B1A;");
   QVBoxLayout *layout = new QVBoxLayout(m_studyContainer);
   layout->setContentsMargins(0, 0, 0, 0);
 #ifdef Q_OS_ANDROID
@@ -4284,7 +4348,7 @@ void MainWindow::setupWebBrowser() {
   QQuickWidget *view = new QQuickWidget(m_studyContainer);
   m_studyQQuickView = view;
   view->setResizeMode(QQuickWidget::SizeRootObjectToView);
-  view->setClearColor(QColor(0x0b, 0x0b, 0x1a));
+  view->setClearColor(BlopTheme::surfaceBackground());
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
@@ -4317,6 +4381,7 @@ void MainWindow::setupWebBrowser() {
   // the right edge if the host window is sized wider than the screen.
   container->setMaximumWidth(UiScale::androidScreenWidthPx(this));
   layout->addWidget(container);
+  syncStudyChromeTheme();
 
   logAndroidSystemWebViewPackageOnce();
 
@@ -4590,32 +4655,32 @@ void MainWindow::applyAndroidTabStyles(int index) {
           ? QStringLiteral("padding: 1px 6px; font-size: 10px;")
           : QStringLiteral("padding: 3px 12px; font-size: 12px;");
   const QString accentSoft = m_currentAccentColor.lighter(130).name(QColor::HexArgb);
-  const QString tabActive =
+  const QString tabActive = BlopTheme::themed(
       QString("QPushButton {"
-      "  background: %1;"
-      "  color: #F4F5FB;"
-      "  border-radius: 13px;"
-      "  %4"
-      "  font-weight: 600;"
-      "  border: 1px solid %2;"
-      "}"
-      "QPushButton:pressed { background: %3; }")
+              "  background: %1;"
+              "  color: #F4F5FB;"
+              "  border-radius: 13px;"
+              "  %4"
+              "  font-weight: 600;"
+              "  border: 1px solid %2;"
+              "}"
+              "QPushButton:pressed { background: %3; }")
           .arg(m_currentAccentColor.darker(150).name(QColor::HexArgb),
                accentSoft,
                m_currentAccentColor.darker(120).name(QColor::HexArgb),
-               sizeStyle);
-  const QString tabInactive =
+               sizeStyle));
+  const QString tabInactive = BlopTheme::themed(
       QString("QPushButton {"
-      "  background: transparent;"
-      "  color: #A7ACBB;"
-      "  border-radius: 13px;"
-      "  %1"
-      "  font-weight: 600;"
-      "  border: 1px solid rgba(255,255,255,0.08);"
-      "}"
-      "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
-      "QPushButton:pressed { background: rgba(255,255,255,0.08); }")
-          .arg(sizeStyle);
+              "  background: transparent;"
+              "  color: #A7ACBB;"
+              "  border-radius: 13px;"
+              "  %1"
+              "  font-weight: 600;"
+              "  border: 1px solid rgba(255,255,255,0.08);"
+              "}"
+              "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
+              "QPushButton:pressed { background: rgba(255,255,255,0.08); }")
+          .arg(sizeStyle));
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
 
@@ -4737,16 +4802,10 @@ void MainWindow::onModeChanged(int index) {
   }
 #endif
   if (m_mainContentStack) {
-    // v3.18.2: stack crossfade. Never grab/fade the Study page (SurfaceView /
-    // QQuickWidget); hard-switch when entering Study, crossfade when leaving.
+    // v3.18.2+: Android hard-switches the main stack (no grab() — SurfaceView
+    // + performance). Desktop crossfades around native embeds the same way.
 #ifdef Q_OS_ANDROID
-    if (mainStackIdx == 1) {
-      m_mainContentStack->setCurrentIndex(1);
-    } else if (m_mainContentStack->currentIndex() == 1) {
-      crossfadeStackTo(m_mainContentStack, 0);
-    } else {
-      crossfadeStackTo(m_mainContentStack, 0);
-    }
+    m_mainContentStack->setCurrentIndex(mainStackIdx);
 #else
     crossfadeStackTo(m_mainContentStack, mainStackIdx);
 #endif
@@ -4768,22 +4827,21 @@ void MainWindow::onModeChanged(int index) {
     }
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // No hide() was called when leaving, so no show() needed here. Only
-    // refresh the SurfaceView if we've been away long enough that the
-    // native compositor may have detached our surface anyway (foreground
-    // GPU pressure, screen-off, etc.). 1500 ms threshold avoids flicker
-    // on quick toggles.
+    // v3.18.2+: always ensure the WebView loads + refresh the SurfaceView on
+    // tab enter. Skip only ultra-fast double-toggles (<300 ms) to avoid
+    // loader flicker.
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     const qint64 awayMs = (m_lastStudyDeactivationMs > 0)
                               ? nowMs - m_lastStudyDeactivationMs
                               : -1;
-    const bool needsRefresh =
-        m_studyQQuickView && m_studyQQuickView->rootObject() &&
-        awayMs >= 0 && awayMs > 1500;
-    if (needsRefresh) {
-      QMetaObject::invokeMethod(
-          m_studyQQuickView->rootObject(), "refreshStudySurface",
-          Q_ARG(QVariant, QString("manual_tab_switch")));
+    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+      QObject *root = m_studyQQuickView->rootObject();
+      QMetaObject::invokeMethod(root, "ensureStudyLoaded");
+      if (awayMs < 0 || awayMs > 300) {
+        QMetaObject::invokeMethod(
+            root, "refreshStudySurface",
+            Q_ARG(QVariant, QStringLiteral("tab_enter")));
+      }
     }
     QTimer::singleShot(0, this, [this]() {
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
@@ -6799,11 +6857,15 @@ void MainWindow::updateSidebarState() {
     m_lastIsEditor = isEditor;
   }
 #ifdef Q_OS_ANDROID
+  if (m_btnAndroidHome)
+    m_btnAndroidHome->setVisible(inNotesMode);
   // Overview: floating menu next to welcome; Editor: compact hamburger in top bar
   if (!inNotesMode) {
     m_sidebarStrip->hide();
     if (btnEditorMenu)
       btnEditorMenu->hide();
+    if (m_btnAndroidHome)
+      m_btnAndroidHome->hide();
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->hide();
     if (m_btnAndroidToolbarPageManager)
@@ -7368,7 +7430,11 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
     }
     if (m_rightStack) {
       const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+#ifdef Q_OS_ANDROID
+      m_rightStack->setCurrentIndex(editorIdx);
+#else
       crossfadeStackTo(m_rightStack, editorIdx);
+#endif
     }
     setActiveTool(m_activeToolType);
     updateSidebarState();
@@ -7378,7 +7444,11 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
 void MainWindow::onBackToOverview() {
   if (m_rightStack) {
     const int overviewIdx = m_rightStack->indexOf(m_overviewContainer);
+#ifdef Q_OS_ANDROID
+    m_rightStack->setCurrentIndex(overviewIdx);
+#else
     crossfadeStackTo(m_rightStack, overviewIdx);
+#endif
   }
   updateSidebarState();
 #ifdef Q_OS_ANDROID

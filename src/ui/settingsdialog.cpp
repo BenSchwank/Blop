@@ -15,6 +15,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QRadioButton>
@@ -37,6 +38,46 @@
 // off-screen-pixmap costs (same lesson learnt during Phase A for MorphTray).
 
 namespace {
+
+// Painted chevron — Unicode ▾/▸ often renders as tofu on Android fonts.
+class SettingsChevronLabel : public QLabel {
+public:
+    explicit SettingsChevronLabel(QWidget *parent = nullptr) : QLabel(parent) {
+        setFixedSize(18, 18);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+    }
+    void setExpanded(bool expanded) {
+        if (m_expanded == expanded)
+            return;
+        m_expanded = expanded;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        QColor c = BlopTheme::textSecondary();
+        c.setAlpha(220);
+        p.setBrush(c);
+        const QPointF cpt(width() / 2.0, height() / 2.0);
+        QPolygonF tri;
+        if (m_expanded) {
+            tri << QPointF(cpt.x() - 5, cpt.y() - 2)
+                << QPointF(cpt.x() + 5, cpt.y() - 2)
+                << QPointF(cpt.x(), cpt.y() + 4);
+        } else {
+            tri << QPointF(cpt.x() - 2, cpt.y() - 5)
+                << QPointF(cpt.x() - 2, cpt.y() + 5)
+                << QPointF(cpt.x() + 4, cpt.y());
+        }
+        p.drawPolygon(tri);
+    }
+
+private:
+    bool m_expanded{true};
+};
 
 // Collapsible card with title bar, chevron and animated body. Used for the
 // four section cards. The card itself adopts BlopStyle::surfaceStyle so it
@@ -77,9 +118,7 @@ public:
             m_subtitleLbl->hide();
         hl->addLayout(titleColumn, 1);
 
-        m_chevron = new QLabel(QStringLiteral("\u25BE"), header);
-        m_chevron->setStyleSheet(QStringLiteral(
-            "color: rgba(180, 188, 215, 0.85); font-size: 14px; background: transparent;"));
+        m_chevron = new SettingsChevronLabel(header);
         hl->addWidget(m_chevron, 0, Qt::AlignVCenter);
         root->addWidget(header);
 
@@ -126,8 +165,7 @@ public:
                 m_body->setVisible(false);
         });
         anim->start(QAbstractAnimation::DeleteWhenStopped);
-        m_chevron->setText(on ? QStringLiteral("\u25BE")
-                              : QStringLiteral("\u25B8"));
+        m_chevron->setExpanded(on);
     }
 
     bool expanded() const { return m_expanded; }
@@ -151,7 +189,7 @@ private:
     QString m_subtitle;
     QLabel *m_titleLbl{nullptr};
     QLabel *m_subtitleLbl{nullptr};
-    QLabel *m_chevron{nullptr};
+    SettingsChevronLabel *m_chevron{nullptr};
     QWidget *m_body{nullptr};
     QVBoxLayout *m_bodyLay{nullptr};
     bool m_expanded{true};
@@ -527,7 +565,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.18.2"), cardAdv);
+        auto *info = new QLabel(QStringLiteral("Blop v3.18.3"), cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));

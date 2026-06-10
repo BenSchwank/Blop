@@ -95,9 +95,15 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   const QPen accentThick(accent, 5.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
 
   auto drawAccentDot = [&](qreal x, qreal y, qreal r) {
+#ifndef Q_OS_ANDROID
     p->setPen(Qt::NoPen);
     p->setBrush(accent);
     p->drawEllipse(QPointF(x, y), r, r);
+#else
+    Q_UNUSED(x);
+    Q_UNUSED(y);
+    Q_UNUSED(r);
+#endif
   };
 
   p->setPen(primaryPen);
