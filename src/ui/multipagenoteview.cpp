@@ -429,13 +429,15 @@ protected:
         m_drawing = true;
         m_current = QPainterPath();
         m_current.moveTo(pos);
-        update();
+        m_lastPos = pos;
+        updatePointRegion(pos);
         te->accept();
         return true;
       case QEvent::TouchUpdate:
         if (m_drawing && m_touchActive) {
           m_current.lineTo(pos);
-          update();
+          updateSegmentRegion(m_lastPos, pos);
+          m_lastPos = pos;
         }
         te->accept();
         return true;
@@ -467,13 +469,15 @@ protected:
     m_drawing = true;
     m_current = QPainterPath();
     m_current.moveTo(e->pos());
-    update();
+    m_lastPos = e->pos();
+    updatePointRegion(e->pos());
   }
   void mouseMoveEvent(QMouseEvent* e) override {
     if (!m_drawing || m_touchActive)
       return;
     m_current.lineTo(e->pos());
-    update();
+    updateSegmentRegion(m_lastPos, e->pos());
+    m_lastPos = e->pos();
   }
   void mouseReleaseEvent(QMouseEvent*) override {
     if (!m_drawing || m_touchActive)
@@ -497,8 +501,24 @@ protected:
 public:
   std::function<void()> onInkChanged;
 private:
+  // v3.17.4: per-segment dirty-rect repaints. Stylus sampling on Android
+  // hits 120-240 Hz; the previous full-widget update() per touch-move
+  // forced a full repaint of the entire ink surface every sample. With
+  // dirty-rect updates Qt only invalidates the small rectangle between
+  // the previous and the new touch point (padded by stroke width).
+  static constexpr int kPenPad = 4;
+  void updatePointRegion(const QPoint &p) {
+    update(QRect(p, p).adjusted(-kPenPad, -kPenPad, kPenPad, kPenPad));
+  }
+  void updateSegmentRegion(const QPoint &a, const QPoint &b) {
+    QRect r(a, b);
+    r = r.normalized().adjusted(-kPenPad, -kPenPad, kPenPad, kPenPad);
+    update(r);
+  }
+
   QVector<QPainterPath> m_strokes;
   QPainterPath m_current;
+  QPoint m_lastPos;
   bool m_drawing{false};
   bool m_touchActive{false};
 };
@@ -939,11 +959,16 @@ public:
       : QWidget(view), m_view(view), m_onCommit(std::move(onCommit)) {
     setObjectName(QStringLiteral("GraphTangentXPopup"));
     setAttribute(Qt::WA_StyledBackground, true);
+#ifndef Q_OS_ANDROID
+    // v3.17.4: drop the shadow on Android. The popup hovers above the canvas
+    // and would otherwise force a per-frame offscreen rasterisation while the
+    // user drags the tangent. The border alone is enough visual separation.
     auto *shadow = new QGraphicsDropShadowEffect(this);
     shadow->setBlurRadius(22);
     shadow->setOffset(0, 4);
     shadow->setColor(QColor(0, 0, 0, 130));
     setGraphicsEffect(shadow);
+#endif
     const QString bg = UIStyles::Sidebar.name();
     const QString accent = UIStyles::Accent.name();
     const QString text = UIStyles::Text.name();
@@ -3540,24 +3565,49 @@ void MultiPageNoteView::updateGraphChromeIfVisible() {
   syncGraphLegendLayout();
 }
 
+// v3.17.4: opacity-effect lifecycle is now bounded to the brief fade
+// animation (140 ms). After the animation ends the effect is removed via
+// setGraphicsEffect(nullptr), so the widget paints natively in steady-state.
+// Previously the QGraphicsOpacityEffect lived for the lifetime of the dock
+// and forced an offscreen pixmap rasterisation per frame -- on the Android
+// software path that was responsible for ~6-8 dropped frames every time the
+// graph chrome was visible.
+
 void MultiPageNoteView::ensureGraphLegendFadeSetup() {
-  if (!m_graphLegendDock || m_graphLegendOpacityFx)
+  if (!m_graphLegendDock || m_graphLegendFadeAnim)
     return;
-  m_graphLegendOpacityFx = new QGraphicsOpacityEffect(m_graphLegendDock);
-  m_graphLegendDock->setGraphicsEffect(m_graphLegendOpacityFx);
-  m_graphLegendFadeAnim = new QPropertyAnimation(m_graphLegendOpacityFx, "opacity", this);
+  m_graphLegendFadeAnim = new QPropertyAnimation(this);
   m_graphLegendFadeAnim->setDuration(140);
   m_graphLegendFadeAnim->setEasingCurve(QEasingCurve::OutCubic);
+  m_graphLegendFadeAnim->setPropertyName("opacity");
+  connect(m_graphLegendFadeAnim, &QPropertyAnimation::finished, this, [this]() {
+    if (!m_graphLegendDock)
+      return;
+    if (m_graphLegendOpacityFx && m_graphLegendOpacityFx->opacity() <= 0.02) {
+      m_graphLegendDock->hide();
+    }
+    // Drop the effect so steady-state paints take the fast path.
+    m_graphLegendDock->setGraphicsEffect(nullptr);
+    m_graphLegendOpacityFx = nullptr;
+  });
 }
 
 void MultiPageNoteView::ensureGraphEntryBarFadeSetup() {
-  if (!m_graphEntryBar || m_graphEntryBarOpacityFx)
+  if (!m_graphEntryBar || m_graphEntryBarFadeAnim)
     return;
-  m_graphEntryBarOpacityFx = new QGraphicsOpacityEffect(m_graphEntryBar);
-  m_graphEntryBar->setGraphicsEffect(m_graphEntryBarOpacityFx);
-  m_graphEntryBarFadeAnim = new QPropertyAnimation(m_graphEntryBarOpacityFx, "opacity", this);
+  m_graphEntryBarFadeAnim = new QPropertyAnimation(this);
   m_graphEntryBarFadeAnim->setDuration(140);
   m_graphEntryBarFadeAnim->setEasingCurve(QEasingCurve::OutCubic);
+  m_graphEntryBarFadeAnim->setPropertyName("opacity");
+  connect(m_graphEntryBarFadeAnim, &QPropertyAnimation::finished, this, [this]() {
+    if (!m_graphEntryBar)
+      return;
+    if (m_graphEntryBarOpacityFx && m_graphEntryBarOpacityFx->opacity() <= 0.02) {
+      m_graphEntryBar->hide();
+    }
+    m_graphEntryBar->setGraphicsEffect(nullptr);
+    m_graphEntryBarOpacityFx = nullptr;
+  });
 }
 
 void MultiPageNoteView::hideGraphQuickPopup() {
@@ -3569,40 +3619,46 @@ void MultiPageNoteView::hideGraphQuickPopup() {
 void MultiPageNoteView::hideGraphLegendQuick() {
   if (m_graphLegendFadeAnim)
     m_graphLegendFadeAnim->stop();
-  if (m_graphLegendOpacityFx)
-    m_graphLegendOpacityFx->setOpacity(1.0);
-  if (m_graphLegendDock)
+  if (m_graphLegendDock) {
+    m_graphLegendDock->setGraphicsEffect(nullptr);
+    m_graphLegendOpacityFx = nullptr;
     m_graphLegendDock->hide();
+  }
   hideGraphQuickPopup();
 }
 
 void MultiPageNoteView::hideGraphEntryBarQuick() {
   if (m_graphEntryBarFadeAnim)
     m_graphEntryBarFadeAnim->stop();
-  if (m_graphEntryBarOpacityFx)
-    m_graphEntryBarOpacityFx->setOpacity(1.0);
-  if (m_graphEntryBar)
+  if (m_graphEntryBar) {
+    m_graphEntryBar->setGraphicsEffect(nullptr);
+    m_graphEntryBarOpacityFx = nullptr;
     m_graphEntryBar->hide();
+  }
 }
 
 void MultiPageNoteView::presentGraphLegendAnimated() {
   if (!m_graphLegendDock)
     return;
   ensureGraphLegendFadeSetup();
-  const bool alreadyVisible =
-      m_graphLegendDock->isVisible() && m_graphLegendOpacityFx->opacity() > 0.02;
-  if (alreadyVisible) {
+  const bool alreadyVisible = m_graphLegendDock->isVisible();
+  if (alreadyVisible && !m_graphLegendOpacityFx) {
+    // Steady-state fully opaque, just sync layout.
     syncGraphLegendLayout();
-    m_graphLegendFadeAnim->stop();
-    m_graphLegendOpacityFx->setOpacity(1.0);
     m_graphLegendDock->raise();
     if (m_graphQuickPopupWanted && m_graphQuickPopup)
       m_graphQuickPopup->raise();
     return;
   }
   m_graphLegendFadeAnim->stop();
-  m_graphLegendOpacityFx->setOpacity(0.0);
-  m_graphLegendDock->show();
+  // Install a transient opacity effect that only lives for the fade.
+  m_graphLegendOpacityFx = new QGraphicsOpacityEffect(m_graphLegendDock);
+  m_graphLegendOpacityFx->setOpacity(alreadyVisible ? 1.0 : 0.0);
+  m_graphLegendDock->setGraphicsEffect(m_graphLegendOpacityFx);
+  m_graphLegendFadeAnim->setTargetObject(m_graphLegendOpacityFx);
+  if (!alreadyVisible) {
+    m_graphLegendDock->show();
+  }
   m_graphLegendDock->raise();
   syncGraphLegendLayout();
   if (m_graphQuickPopupWanted && m_graphQuickPopup) {
@@ -3610,7 +3666,7 @@ void MultiPageNoteView::presentGraphLegendAnimated() {
     syncGraphLegendLayout();
     m_graphQuickPopup->raise();
   }
-  m_graphLegendFadeAnim->setStartValue(0.0);
+  m_graphLegendFadeAnim->setStartValue(m_graphLegendOpacityFx->opacity());
   m_graphLegendFadeAnim->setEndValue(1.0);
   m_graphLegendFadeAnim->start();
   QTimer::singleShot(0, this, [this]() {
@@ -3624,17 +3680,20 @@ void MultiPageNoteView::presentGraphEntryBarAnimated() {
     return;
   ensureGraphEntryBarFadeSetup();
   repositionGraphEntryBar();
-  if (m_graphEntryBar->isVisible() && m_graphEntryBarOpacityFx->opacity() > 0.02) {
-    m_graphEntryBarFadeAnim->stop();
-    m_graphEntryBarOpacityFx->setOpacity(1.0);
+  const bool alreadyVisible = m_graphEntryBar->isVisible();
+  if (alreadyVisible && !m_graphEntryBarOpacityFx) {
     m_graphEntryBar->raise();
     return;
   }
   m_graphEntryBarFadeAnim->stop();
-  m_graphEntryBarOpacityFx->setOpacity(0.0);
-  m_graphEntryBar->show();
+  m_graphEntryBarOpacityFx = new QGraphicsOpacityEffect(m_graphEntryBar);
+  m_graphEntryBarOpacityFx->setOpacity(alreadyVisible ? 1.0 : 0.0);
+  m_graphEntryBar->setGraphicsEffect(m_graphEntryBarOpacityFx);
+  m_graphEntryBarFadeAnim->setTargetObject(m_graphEntryBarOpacityFx);
+  if (!alreadyVisible)
+    m_graphEntryBar->show();
   m_graphEntryBar->raise();
-  m_graphEntryBarFadeAnim->setStartValue(0.0);
+  m_graphEntryBarFadeAnim->setStartValue(m_graphEntryBarOpacityFx->opacity());
   m_graphEntryBarFadeAnim->setEndValue(1.0);
   m_graphEntryBarFadeAnim->start();
 }

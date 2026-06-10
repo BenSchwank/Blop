@@ -17,11 +17,19 @@
 
 namespace {
 void applyListShadow(QFrame *card) {
+#ifdef Q_OS_ANDROID
+    // v3.17.4: Android software path makes the offscreen pixmap from
+    // QGraphicsDropShadowEffect a permanent per-frame cost while the dock
+    // is visible. The dock has a 1px border via its stylesheet already;
+    // skipping the shadow buys back ~3-4 ms/frame on mid-range devices.
+    Q_UNUSED(card);
+#else
     auto *shadow = new QGraphicsDropShadowEffect(card);
     shadow->setBlurRadius(20);
     shadow->setOffset(0, 4);
     shadow->setColor(QColor(0, 0, 0, 72));
     card->setGraphicsEffect(shadow);
+#endif
 }
 } // namespace
 

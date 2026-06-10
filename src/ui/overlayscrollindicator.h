@@ -5,7 +5,6 @@
 #include <QWidget>
 
 class QAbstractScrollArea;
-class QGraphicsOpacityEffect;
 class QPropertyAnimation;
 class QTimer;
 
@@ -19,8 +18,16 @@ class QTimer;
 // Installs both axes and forces ScrollBarAlwaysOff on the host so the native
 // chrome disappears. Indicators are parented to the viewport so they pan with
 // it and never intercept mouse / touch events.
+//
+// v3.17.4: opacity is driven by a Q_PROPERTY + a QPainter::setOpacity call in
+// paintEvent. The previous QGraphicsOpacityEffect implementation forced Qt to
+// rasterise the indicator into an offscreen pixmap each frame, which on
+// Android (software path) caused visible scroll stutter across every
+// ScrollArea in the app.
 class OverlayScrollIndicator : public QWidget {
   Q_OBJECT
+  Q_PROPERTY(qreal indicatorOpacity READ indicatorOpacity WRITE
+                 setIndicatorOpacity)
 public:
   enum Orientation { Vertical, Horizontal };
 
@@ -29,6 +36,9 @@ public:
   static void install(QAbstractScrollArea *area);
 
   explicit OverlayScrollIndicator(QAbstractScrollArea *area, Orientation o);
+
+  qreal indicatorOpacity() const { return m_opacity; }
+  void setIndicatorOpacity(qreal o);
 
 protected:
   void paintEvent(QPaintEvent *) override;
@@ -45,7 +55,7 @@ private:
 
   QPointer<QAbstractScrollArea> m_area;
   Orientation m_orientation;
-  QGraphicsOpacityEffect *m_opacity{nullptr};
+  qreal m_opacity{0.0};
   QPropertyAnimation *m_fadeAnim{nullptr};
   QTimer *m_hideTimer{nullptr};
 };

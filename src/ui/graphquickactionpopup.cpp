@@ -13,11 +13,18 @@
 
 namespace {
 void applyPopupShadow(QFrame *card) {
+#ifdef Q_OS_ANDROID
+    // v3.17.4: skip drop-shadow on Android. The popup stays visible while
+    // the user interacts with the graph; its offscreen rasterisation pass
+    // costs ~3 ms/frame on the software path.
+    Q_UNUSED(card);
+#else
     auto *shadow = new QGraphicsDropShadowEffect(card);
     shadow->setBlurRadius(20);
     shadow->setOffset(0, 4);
     shadow->setColor(QColor(0, 0, 0, 72));
     card->setGraphicsEffect(shadow);
+#endif
 }
 } // namespace
 

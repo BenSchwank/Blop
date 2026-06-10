@@ -18,6 +18,11 @@ class ToolbarBtn : public QWidget {
     Q_OBJECT
     Q_PROPERTY(double animScale READ animScale WRITE setAnimScale)
     Q_PROPERTY(double liftOffset READ liftOffset WRITE setLiftOffset)
+    // v3.17.4: holdProgress driven by a QPropertyAnimation instead of a
+    // 16 ms QTimer. On Android the timer-driven update() loop competed
+    // with the composer; the animation runs on Qt's animation clock and
+    // is frame-aligned.
+    Q_PROPERTY(double holdProgress READ holdProgress WRITE setHoldProgress)
 
 public:
     explicit ToolbarBtn(const QString& iconName, QWidget* parent = nullptr);
@@ -37,6 +42,9 @@ public:
     // (Samsung-Notes style), driven by a QPropertyAnimation in setActive.
     double liftOffset() const { return m_liftOffset; }
     void setLiftOffset(double v) { m_liftOffset = v; update(); }
+
+    double holdProgress() const { return m_holdProgress; }
+    void setHoldProgress(double v);
 
     void triggerClick();
 
@@ -59,13 +67,13 @@ private:
     int m_size{40};
 
     double m_animScale{1.0};
-    QTimer m_holdTimer;
     bool m_pressing{false};
     bool m_longPressTriggered{false};
     double m_holdProgress{0.0};
     QColor m_accentColor{QColor("#7C5CFC")};
     double m_liftOffset{0.0};
     QPointer<QPropertyAnimation> m_liftAnim;
+    QPointer<QPropertyAnimation> m_holdAnim;
 };
 
 // --- Main Toolbar Class ---

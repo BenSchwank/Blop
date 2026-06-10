@@ -511,21 +511,17 @@ ToolbarBtn::ToolbarBtn(const QString &iconName, QWidget *parent)
   // window color, which hides the indicator's bottom slice and the notch's
   // rounded corners on small button cells.
   setAttribute(Qt::WA_TranslucentBackground, true);
-#if BLOP_TOOLBAR_LONGPRESS
-  m_holdTimer.setInterval(16);
-  connect(&m_holdTimer, &QTimer::timeout, this, [this]() {
-    if (!m_pressing)
-      return;
-    m_holdProgress += (double)m_holdTimer.interval() / 700.0;
-    if (m_holdProgress >= 1.0) {
-      m_holdProgress = 1.0;
-      m_holdTimer.stop();
-      m_longPressTriggered = true;
-      emit longPressed();
-    }
-    update();
-  });
-#endif
+}
+
+void ToolbarBtn::setHoldProgress(double v) {
+  if (qFuzzyCompare(v + 1.0, m_holdProgress + 1.0))
+    return;
+  m_holdProgress = v;
+  update();
+  if (m_pressing && !m_longPressTriggered && v >= 1.0) {
+    m_longPressTriggered = true;
+    emit longPressed();
+  }
 }
 void ToolbarBtn::setBtnSize(int s) {
   if (m_size != s) {
@@ -578,7 +574,16 @@ void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
     m_pressing = true;
     m_longPressTriggered = false;
     m_holdProgress = 0.0;
-    m_holdTimer.start();
+    if (!m_holdAnim) {
+      m_holdAnim = new QPropertyAnimation(this, "holdProgress", this);
+      m_holdAnim->setEasingCurve(QEasingCurve::Linear);
+    } else {
+      m_holdAnim->stop();
+    }
+    m_holdAnim->setStartValue(0.0);
+    m_holdAnim->setEndValue(1.0);
+    m_holdAnim->setDuration(700);
+    m_holdAnim->start();
     update();
     e->accept();
     return;
@@ -598,7 +603,8 @@ void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
   const bool shouldClick = m_pressing && !m_longPressTriggered && inside &&
                            (e->button() == Qt::LeftButton ||
                             e->button() == Qt::NoButton);
-  m_holdTimer.stop();
+  if (m_holdAnim)
+    m_holdAnim->stop();
   m_pressing = false;
   m_longPressTriggered = false;
   m_holdProgress = 0.0;

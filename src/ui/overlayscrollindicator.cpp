@@ -4,7 +4,6 @@
 
 #include <QAbstractScrollArea>
 #include <QEvent>
-#include <QGraphicsOpacityEffect>
 #include <QPainter>
 #include <QPropertyAnimation>
 #include <QResizeEvent>
@@ -37,11 +36,10 @@ OverlayScrollIndicator::OverlayScrollIndicator(QAbstractScrollArea *area,
   setAttribute(Qt::WA_TranslucentBackground, true);
   setFocusPolicy(Qt::NoFocus);
 
-  m_opacity = new QGraphicsOpacityEffect(this);
-  m_opacity->setOpacity(0.0);
-  setGraphicsEffect(m_opacity);
-
-  m_fadeAnim = new QPropertyAnimation(m_opacity, "opacity", this);
+  // v3.17.4: animate a Q_PROPERTY instead of installing a QGraphicsOpacityEffect.
+  // The effect forced an offscreen pixmap rasterisation per frame which on the
+  // Android software path showed up as visible scroll-stutter.
+  m_fadeAnim = new QPropertyAnimation(this, "indicatorOpacity", this);
   m_hideTimer = new QTimer(this);
   m_hideTimer->setSingleShot(true);
   m_hideTimer->setInterval(600);
@@ -63,6 +61,14 @@ OverlayScrollIndicator::OverlayScrollIndicator(QAbstractScrollArea *area,
 
   positionSelf();
   hide();
+}
+
+void OverlayScrollIndicator::setIndicatorOpacity(qreal o) {
+  o = std::clamp(o, 0.0, 1.0);
+  if (qFuzzyCompare(o + 1.0, m_opacity + 1.0))
+    return;
+  m_opacity = o;
+  update();
 }
 
 bool OverlayScrollIndicator::eventFilter(QObject *obj, QEvent *event) {
@@ -139,7 +145,7 @@ void OverlayScrollIndicator::showIndicator() {
   raise();
   m_fadeAnim->stop();
   m_fadeAnim->setDuration(80);
-  m_fadeAnim->setStartValue(m_opacity->opacity());
+  m_fadeAnim->setStartValue(m_opacity);
   m_fadeAnim->setEndValue(0.78);
   m_fadeAnim->setEasingCurve(QEasingCurve::OutCubic);
   m_fadeAnim->start();
@@ -149,15 +155,18 @@ void OverlayScrollIndicator::showIndicator() {
 void OverlayScrollIndicator::scheduleHide() {
   m_fadeAnim->stop();
   m_fadeAnim->setDuration(200);
-  m_fadeAnim->setStartValue(m_opacity->opacity());
+  m_fadeAnim->setStartValue(m_opacity);
   m_fadeAnim->setEndValue(0.0);
   m_fadeAnim->setEasingCurve(QEasingCurve::OutCubic);
   m_fadeAnim->start();
 }
 
 void OverlayScrollIndicator::paintEvent(QPaintEvent *) {
+  if (m_opacity <= 0.0)
+    return;
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
+  p.setOpacity(m_opacity);
   p.setPen(Qt::NoPen);
   p.setBrush(QColor(160, 168, 195, 200));
   const qreal r = std::min(width(), height()) / 2.0;
