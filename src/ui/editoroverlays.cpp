@@ -1,6 +1,7 @@
 #include "editoroverlays.h"
 
 #include "PageItem.h"
+#include "blop_theme.h"
 #include "blopstyle.h"
 #include "overlayscrollindicator.h"
 #include "uiscale.h"

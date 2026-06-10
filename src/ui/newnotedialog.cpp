@@ -1,4 +1,5 @@
 #include "newnotedialog.h"
+#include "blop_theme.h"
 #include "blopstyle.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -26,9 +27,10 @@ void NewNoteDialog::setupUi()
     container->setGeometry(5, 5, width()-10, height()-10);
     container->setStyleSheet(
         BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
-        "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
-        "QLineEdit { background: rgba(22, 24, 36, 0.95); color: white; border: 1px solid rgba(120,130,160,0.32); border-radius: 8px; padding: 8px; font-size: 14px; selection-background-color: #7C5CFC; }"
-        "QLineEdit:focus { border: 1px solid #7C5CFC; }"
+        BlopTheme::themed(QStringLiteral(
+            "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
+            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: white; border: 1px solid rgba(120,130,160,0.32); border-radius: 8px; padding: 8px; font-size: 14px; selection-background-color: #7C5CFC; }"
+            "QLineEdit:focus { border: 1px solid #7C5CFC; }"))
         );
 
     QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect(this);
@@ -43,14 +45,16 @@ void NewNoteDialog::setupUi()
 
     // Titel
     QLabel *lblTitle = new QLabel("Neue Notiz erstellen", container);
-    lblTitle->setStyleSheet("font-size: 18px; font-weight: bold; color: white;");
+    lblTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "font-size: 18px; font-weight: bold; color: #F4F5FB;")));
     layout->addWidget(lblTitle);
 
     // Name Input
     QVBoxLayout *nameLay = new QVBoxLayout;
     nameLay->setSpacing(8);
     QLabel *lblName = new QLabel("Name", container);
-    lblName->setStyleSheet("font-size: 13px; color: #BBB; font-weight: bold;");
+    lblName->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "font-size: 13px; color: #BBB; font-weight: bold;")));
     m_nameInput = new QLineEdit(container);
     m_nameInput->setPlaceholderText("Meine Notiz");
     m_nameInput->setFocus();
@@ -62,7 +66,8 @@ void NewNoteDialog::setupUi()
     QVBoxLayout *formatLay = new QVBoxLayout;
     formatLay->setSpacing(8);
     QLabel *lblFormat = new QLabel("Format (nicht änderbar)", container);
-    lblFormat->setStyleSheet("font-size: 13px; color: #BBB; font-weight: bold;");
+    lblFormat->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "font-size: 13px; color: #BBB; font-weight: bold;")));
 
     QHBoxLayout *btnsLay = new QHBoxLayout;
     btnsLay->setSpacing(10);
@@ -74,11 +79,11 @@ void NewNoteDialog::setupUi()
         btn->setCursor(Qt::PointingHandCursor);
         btn->setFixedHeight(70);
         btn->setText(text + "\n" + subtext);
-        btn->setStyleSheet(
+        btn->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; text-align: left; padding: 10px; line-height: 1.2; font-size: 14px; }"
             "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
             "QPushButton:hover:!checked { background: #333; border-color: #555; }"
-            );
+            )));
         return btn;
     };
 
@@ -106,7 +111,8 @@ void NewNoteDialog::setupUi()
 
     m_btnCancel = new QPushButton("Abbrechen", container);
     m_btnCancel->setCursor(Qt::PointingHandCursor);
-    m_btnCancel->setStyleSheet("QPushButton { background: transparent; color: #AAA; border: none; font-weight: bold; font-size: 14px; } QPushButton:hover { color: white; }");
+    m_btnCancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "QPushButton { background: transparent; color: #AAA; border: none; font-weight: bold; font-size: 14px; } QPushButton:hover { color: white; }")));
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
 
     m_btnCreate = new QPushButton("Erstellen", container);

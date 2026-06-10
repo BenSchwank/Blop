@@ -118,8 +118,27 @@ public:
   /// Backdrop / scrim color rule for a QWidget objectName.
   static QString scrimQss(const QString &objectName);
 
+  /// v3.17.1: rewrite the well-known dark-surface hex values inside a raw
+  /// QSS string to the live theme tokens. Used by the file-by-file
+  /// migration so callers can keep their original stylesheet strings
+  /// intact and just wrap them:
+  ///   widget->setStyleSheet(BlopTheme::themed(R"(... raw qss ...)"));
+  /// In Dark mode this is a near no-op (existing hex values already match
+  /// the dark palette). In Light mode the helper swaps backgrounds,
+  /// surfaces, borders and primary/secondary text to their light tokens
+  /// and inverts subtle `rgba(255,255,255,X)` overlays to
+  /// `rgba(0,0,0,X)` so they remain visible on light surfaces.
+  /// Brand/accent colors (#7C5CFC, #5E5CE6, #4285F4 etc.), error red,
+  /// success green and graph plot colors are NOT touched.
+  static QString themed(const QString &rawQss);
+
 signals:
+  /// Emitted on Dark/Light mode change AND on accent change. Callers
+  /// that need to re-apply stylesheets should always connect to this.
   void themeChanged();
+  /// Emitted only on accent change (subset of themeChanged). Useful for
+  /// surfaces that only depend on the accent (e.g. brand-only buttons).
+  void accentChanged();
 
 private:
   BlopTheme();

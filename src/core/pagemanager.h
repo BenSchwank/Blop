@@ -34,6 +34,10 @@ public:
 
     void setNoteView(MultiPageNoteView* view);
     void refreshThumbnails();
+    /// v3.17.1: re-skin the scrim + panel + child controls using the
+    /// current BlopTheme tokens. Hooked from MainWindow::applyThemeRefresh()
+    /// so Light/Dark toggles take effect without reopening the manager.
+    void applyThemeRefresh();
 
 signals:
     void pageSelected(int index);

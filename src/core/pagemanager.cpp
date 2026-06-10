@@ -211,17 +211,18 @@ void PageManager::setupUi() {
     titleRow->addWidget(m_btnClose, 0, Qt::AlignTop);
 
     m_lblSubtitle = new QLabel(QStringLiteral("Drag & Drop · Mehrfachauswahl · Vorlagen"), header);
-    m_lblSubtitle->setStyleSheet("color: rgba(160, 168, 190, 0.85); font-size: 11px;");
+    m_lblSubtitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "color: rgba(160, 168, 190, 0.85); font-size: 11px;")));
 
     headLay->addLayout(titleRow);
     headLay->addWidget(m_lblSubtitle);
 
     m_search = new QLineEdit(header);
     m_search->setPlaceholderText(QStringLiteral("Seiten suchen..."));
-    m_search->setStyleSheet(
+    m_search->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QLineEdit { background: rgba(22,24,34,0.92); color: #E8EAFF; border: 1px solid rgba(120,130,160,0.35);"
         "border-radius: 10px; padding: 8px 10px; }"
-        "QLineEdit:focus { border-color: rgba(107,163,245,0.68); }");
+        "QLineEdit:focus { border-color: rgba(107,163,245,0.68); }")));
     connect(m_search, &QLineEdit::textChanged, this, &PageManager::onSearchChanged);
     headLay->addWidget(m_search);
 
@@ -235,19 +236,19 @@ void PageManager::setupUi() {
     m_groupFilter->addItem(QStringLiteral("Kariert"), QStringLiteral("grid"));
     m_groupFilter->addItem(QStringLiteral("Punktiert"), QStringLiteral("dotted"));
     m_groupFilter->addItem(QStringLiteral("Legal"), QStringLiteral("legal"));
-    m_groupFilter->setStyleSheet(
+    m_groupFilter->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QComboBox { background: rgba(22,24,34,0.9); color: #E8EAFF; border: 1px solid rgba(120,130,160,0.35);"
-        "border-radius: 9px; padding: 6px 10px; }");
+        "border-radius: 9px; padding: 6px 10px; }")));
     connect(m_groupFilter, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &PageManager::onGroupFilterChanged);
     m_btnSelectMode = new QPushButton(QStringLiteral("☑"), header);
     m_btnSelectMode->setToolTip(QStringLiteral("Mehrfachauswahl umschalten"));
     m_btnSelectMode->setCheckable(true);
     m_btnSelectMode->setFixedSize(36, 32);
-    m_btnSelectMode->setStyleSheet(
+    m_btnSelectMode->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: rgba(255,255,255,0.06); color: #D8DEF2; border: 1px solid rgba(120,130,160,0.35);"
         "border-radius: 9px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
-        "QPushButton:checked { background: rgba(107,163,245,0.22); border-color: rgba(107,163,245,0.62); color: #EEF4FF; }");
+        "QPushButton:checked { background: rgba(107,163,245,0.22); border-color: rgba(107,163,245,0.62); color: #EEF4FF; }")));
     connect(m_btnSelectMode, &QPushButton::clicked, this, &PageManager::onToggleSelectMode);
     filterRow->addWidget(m_groupFilter, 1);
     filterRow->addWidget(m_btnSelectMode);
@@ -290,10 +291,10 @@ void PageManager::setupUi() {
       auto *b = new QPushButton(txt, m_panel);
       b->setToolTip(tooltip);
       b->setFixedSize(34, 30);
-      b->setStyleSheet(
+      b->setStyleSheet(BlopTheme::themed(QStringLiteral(
           "QPushButton { background: rgba(255,255,255,0.06); color: #D6DDF4; border: 1px solid rgba(120,130,160,0.3);"
           "border-radius: 8px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
-          "QPushButton:hover { background: rgba(255,255,255,0.10); }");
+          "QPushButton:hover { background: rgba(255,255,255,0.10); }")));
       return b;
     };
     m_btnSelectAll = mkBtn(QStringLiteral("☑"), QStringLiteral("Alle Seiten auswählen"));
@@ -424,6 +425,45 @@ void PageManager::setNoteView(MultiPageNoteView* view) {
 
 void PageManager::refreshThumbnails() {
     rebuildList();
+}
+
+void PageManager::applyThemeRefresh() {
+    // Helper copied from setupUi(): convert a QColor with alpha to a QSS rgba() string.
+    auto rgba = [](const QColor &c) {
+        return QStringLiteral("rgba(%1,%2,%3,%4)")
+            .arg(c.red())
+            .arg(c.green())
+            .arg(c.blue())
+            .arg(QString::number(c.alphaF(), 'f', 3));
+    };
+    if (m_scrim) {
+        m_scrim->setStyleSheet(
+            QStringLiteral(
+                "QPushButton { background-color: %1; border: none; }"
+                "QPushButton:hover { background-color: %1; }")
+                .arg(rgba(BlopTheme::scrimColor())));
+    }
+    if (m_panel) {
+        m_panel->setStyleSheet(
+            QStringLiteral(
+                "#PageManagerPanel {"
+                "  background-color: %1;"
+                "  border: 1px solid %2;"
+                "  border-radius: 18px;"
+                "}")
+                .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+                     rgba(BlopTheme::borderDefault())));
+    }
+    // Force the list viewport to repaint with the new card colors and let
+    // QStyle re-polish the children so the QSS-tagged inner buttons pick
+    // up the refreshed BlopTheme tokens.
+    if (m_listWidget && m_listWidget->viewport())
+        m_listWidget->viewport()->update();
+    if (style()) {
+        style()->unpolish(this);
+        style()->polish(this);
+    }
+    update();
 }
 
 void PageManager::onAddPage() {

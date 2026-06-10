@@ -1,4 +1,5 @@
 #include "moderntoolbar.h"
+#include "blop_theme.h"
 #include "blopripple.h"
 #include "UIStyles.h"
 #include "tools/ToolManager.h"
@@ -866,7 +867,7 @@ public:
     // content does not need its own card. This avoids the double-card
     // look that the Android stylesheet previously produced.
     setAttribute(Qt::WA_TranslucentBackground);
-    setStyleSheet(
+    setStyleSheet(BlopTheme::themed(
         "QLabel { color: #DDD; font-weight: bold; font-size: 11px; background: "
         "transparent; }"
         "QSlider::groove:horizontal { height: 4px; background: #444; "
@@ -881,7 +882,7 @@ public:
         "QPushButton:checked { background-color: #6c5ce7; color: white; }"
         "QPushButton:hover { background-color: #555; }"
         "QPushButton#DangerBtn { background-color: #A00; color: white; }"
-        "QPushButton#DangerBtn:hover { background-color: #C00; }");
+        "QPushButton#DangerBtn:hover { background-color: #C00; }"));
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(15, 15, 15, 15);
     layout->setSpacing(12);

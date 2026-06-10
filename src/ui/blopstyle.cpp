@@ -1,5 +1,6 @@
 #include "blopstyle.h"
 
+#include "blop_theme.h"
 #include "uiscale.h"
 
 #include <QColor>
@@ -14,15 +15,46 @@
 
 namespace BlopStyle {
 
-QColor surfaceBg() { return QColor(28, 30, 46, 240); }
-QColor surfaceBorder() { return QColor(124, 92, 252, 56); }
-QColor surfaceShadow() { return QColor(0, 0, 0, 115); }
-QColor backdrop(bool forAndroid) {
-  return forAndroid ? QColor(6, 8, 16, 200) : QColor(6, 8, 16, 128);
+// v3.17.1: BlopStyle is now a theme-aware proxy. Every overlay/card in
+// the app calls `surfaceStyle()`, so making this follow BlopTheme
+// propagates Dark/Light to dozens of surfaces with zero call-site
+// edits. The frosted alpha (~94%) is preserved in both modes.
+QColor surfaceBg() {
+  QColor c = BlopTheme::surfaceBase();
+  c.setAlpha(240);
+  return c;
 }
-QColor accent() { return QColor(124, 92, 252); }
-QColor textPrimary() { return QColor(236, 240, 252, 250); }
-QColor textSecondary() { return QColor(180, 188, 215, 220); }
+QColor surfaceBorder() {
+  // 1-px accent glow that stays subtle in both themes.
+  QColor a = BlopTheme::accentPrimary();
+  a.setAlpha(BlopTheme::instance().isDark() ? 56 : 72);
+  return a;
+}
+QColor surfaceShadow() {
+  // Light theme needs a softer shadow or it looks like a hole; dark keeps
+  // the historic black-115 to preserve the "lifted card" feel.
+  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 115)
+                                        : QColor(10, 12, 28, 38);
+}
+QColor backdrop(bool forAndroid) {
+  // Scrim opacity: Android historically darker (200) to fully veil the
+  // canvas; desktop lighter (128). Light-mode scrim uses a soft black
+  // veil to keep modal hierarchy.
+  if (BlopTheme::instance().isDark())
+    return forAndroid ? QColor(6, 8, 16, 200) : QColor(6, 8, 16, 128);
+  return forAndroid ? QColor(0, 0, 0, 140) : QColor(0, 0, 0, 96);
+}
+QColor accent() { return BlopTheme::accentPrimary(); }
+QColor textPrimary() {
+  QColor c = BlopTheme::textPrimary();
+  c.setAlpha(250);
+  return c;
+}
+QColor textSecondary() {
+  QColor c = BlopTheme::textSecondary();
+  c.setAlpha(220);
+  return c;
+}
 
 int surfaceRadiusDp() { return 18; }
 

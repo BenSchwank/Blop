@@ -1,6 +1,9 @@
 #include "blop_theme.h"
 
+#include "UIStyles.h"
+
 #include <QApplication>
+#include <QRegularExpression>
 #include <QSettings>
 
 namespace {
@@ -58,6 +61,12 @@ void BlopTheme::install() {
   m_mode = modeFromKey(s.value(kKeyMode, QStringLiteral("dark")).toString());
   m_accent =
       accentFromKey(s.value(kKeyAccent, QStringLiteral("purple")).toString());
+  // Push the initial palette into UIStyles so existing callers (~42 sites)
+  // see the right colors before any widget construction. Re-pushed on every
+  // themeChanged signal below.
+  UIStyles::refresh();
+  QObject::connect(this, &BlopTheme::themeChanged, this,
+                   []() { UIStyles::refresh(); });
 }
 
 void BlopTheme::setMode(Mode m) {
@@ -73,6 +82,7 @@ void BlopTheme::setAccent(Accent a) {
     return;
   m_accent = a;
   QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyAccent, accentKey(a));
+  emit accentChanged();
   emit themeChanged();
 }
 
@@ -365,4 +375,155 @@ QString BlopTheme::scrimQss(const QString &objectName) {
   return QStringLiteral(
              "QWidget#%1 { background: %2; }")
       .arg(objectName, rgba(scrimColor()));
+}
+
+// =====================================================================
+// themed() -- bulk-replace dark-surface hex values in a raw QSS string
+// =====================================================================
+namespace {
+// Source -> target-color-getter. Ordered LONGEST-FIRST so the 6-char
+// forms always match before any 3-char prefix (we never use 3-char
+// hex in this map but it's still safer). Case-insensitive replace.
+struct SurfaceHex {
+  const char *from;
+  QColor (*to)();
+};
+
+// Backgrounds (page-level)
+const SurfaceHex kBackgroundHex[] = {
+    {"#0B0B1A", BlopTheme::surfaceBackground},
+    {"#0D0B14", BlopTheme::surfaceBackground},
+    {"#0D0D12", BlopTheme::surfaceBackground},
+    {"#0F111A", BlopTheme::surfaceBase}, // sidebar/header chrome
+};
+
+// Cards / sidebar / panel surfaces
+const SurfaceHex kSurfaceBaseHex[] = {
+    {"#14121F", BlopTheme::surfaceBase},
+    {"#1A1A24", BlopTheme::surfaceBase},
+    {"#1A1B2E", BlopTheme::surfaceBase},
+    {"#1E1E1E", BlopTheme::surfaceBase},
+    {"#1E1E2E", BlopTheme::surfaceBase},
+    {"#161423", BlopTheme::surfaceBase},
+};
+
+// Elevated interactive surfaces (hover/list rows)
+const SurfaceHex kSurfaceElevatedHex[] = {
+    {"#1A1829", BlopTheme::surfaceElevated},
+    {"#1C1A29", BlopTheme::surfaceElevated},
+    {"#1C1A2A", BlopTheme::surfaceElevated},
+};
+
+// Inputs / muted backgrounds
+const SurfaceHex kSurfaceMutedHex[] = {
+    {"#252526", BlopTheme::surfaceMuted},
+    {"#2A2640", BlopTheme::surfaceMuted},
+    {"#262237", BlopTheme::surfaceMuted},
+    {"#2d2b42", BlopTheme::surfaceMuted},
+};
+
+// Border default
+const SurfaceHex kBorderHex[] = {
+    {"#201E2E", BlopTheme::borderDefault},
+    {"#2C2940", BlopTheme::borderDefault},
+    {"#3A3550", BlopTheme::borderDefault},
+};
+
+// Text primary (high-contrast on dark)
+const SurfaceHex kTextPrimaryHex[] = {
+    {"#E0E0E0", BlopTheme::textPrimary},
+    {"#E8E4FF", BlopTheme::textPrimary},
+    {"#ECEEFD", BlopTheme::textPrimary},
+    {"#F2F1FF", BlopTheme::textPrimary},
+    {"#F4F2FF", BlopTheme::textPrimary},
+    {"#F4F5FB", BlopTheme::textPrimary},
+    {"#DCDCFF", BlopTheme::textPrimary},
+    {"#E6E4FF", BlopTheme::textPrimary},
+    {"#E8E8FF", BlopTheme::textPrimary},
+    {"#E8E6F4", BlopTheme::textPrimary},
+    {"#E8EAFF", BlopTheme::textPrimary},
+    {"#EEF4FF", BlopTheme::textPrimary},
+    {"#F0EEFF", BlopTheme::textPrimary},
+    {"#E0DBFF", BlopTheme::textPrimary},
+};
+
+// Text secondary / tertiary (muted)
+const SurfaceHex kTextSecondaryHex[] = {
+    {"#A09FB8", BlopTheme::textSecondary},
+    {"#A0A0C8", BlopTheme::textSecondary},
+    {"#A7ACBB", BlopTheme::textSecondary},
+    {"#C8C4E8", BlopTheme::textSecondary},
+    {"#C8CDDC", BlopTheme::textSecondary},
+    {"#D6DDF4", BlopTheme::textSecondary},
+    {"#D8DEF2", BlopTheme::textSecondary},
+    {"#D8DBE8", BlopTheme::textSecondary},
+    {"#D8D5FF", BlopTheme::textSecondary},
+    {"#DDD8FF", BlopTheme::textSecondary},
+    {"#D8D4F5", BlopTheme::textSecondary},
+    {"#A8B0DA", BlopTheme::textSecondary},
+    {"#888888", BlopTheme::textSecondary},
+    {"#aaaaaa", BlopTheme::textSecondary},
+};
+
+// 3-char text/border hex (apply LAST so longer hex doesn't get truncated).
+// Common QSS shorthand colors used across the codebase as text or border
+// hints. #FFF/white intentionally NOT mapped -- it's frequently the text
+// color on accent buttons where it should stay legible in both themes.
+const SurfaceHex kTextShortHex[] = {
+    {"#DDD", BlopTheme::textPrimary},
+    {"#ddd", BlopTheme::textPrimary},
+    {"#CCC", BlopTheme::textPrimary},
+    {"#ccc", BlopTheme::textPrimary},
+    {"#BBB", BlopTheme::textSecondary},
+    {"#bbb", BlopTheme::textSecondary},
+    {"#AAA", BlopTheme::textSecondary},
+    {"#aaa", BlopTheme::textSecondary},
+    {"#999", BlopTheme::textSecondary},
+    {"#888", BlopTheme::textSecondary},
+    {"#777", BlopTheme::textTertiary},
+    {"#666", BlopTheme::textTertiary},
+    {"#555", BlopTheme::borderDefault},
+    {"#444", BlopTheme::borderDefault},
+    {"#333", BlopTheme::borderDefault},
+};
+} // namespace
+
+QString BlopTheme::themed(const QString &rawQss) {
+  // Dark mode: the existing hardcoded hex values ARE the dark palette;
+  // shipping them unchanged keeps zero visual diff for the bulk of users.
+  if (instance().isDark())
+    return rawQss;
+
+  QString out = rawQss;
+
+  // Phase 1: invert subtle white-on-dark overlays to black-on-light so
+  // hover/border tints remain visible. Uses regex to capture the alpha
+  // and rebuild with the same alpha but inverted color channel.
+  // Matches both `rgba(255,255,255,0.06)` and `rgba(255, 255, 255, 0.06)`.
+  static const QRegularExpression whiteTintRe(
+      QStringLiteral(R"(rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*([0-9.]+)\s*\))"));
+  out.replace(whiteTintRe, QStringLiteral("rgba(0,0,0,\\1)"));
+
+  // Phase 2: surface/text hex swap. Longer-first lists run before
+  // shorter so 6-char forms always win over 3-char prefixes.
+  auto applyMap = [&out](const SurfaceHex *map, size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+      out.replace(QLatin1String(map[i].from),
+                  map[i].to().name(QColor::HexRgb),
+                  Qt::CaseInsensitive);
+    }
+  };
+  applyMap(kBackgroundHex, sizeof(kBackgroundHex) / sizeof(SurfaceHex));
+  applyMap(kSurfaceBaseHex, sizeof(kSurfaceBaseHex) / sizeof(SurfaceHex));
+  applyMap(kSurfaceElevatedHex,
+           sizeof(kSurfaceElevatedHex) / sizeof(SurfaceHex));
+  applyMap(kSurfaceMutedHex, sizeof(kSurfaceMutedHex) / sizeof(SurfaceHex));
+  applyMap(kBorderHex, sizeof(kBorderHex) / sizeof(SurfaceHex));
+  applyMap(kTextPrimaryHex, sizeof(kTextPrimaryHex) / sizeof(SurfaceHex));
+  applyMap(kTextSecondaryHex,
+           sizeof(kTextSecondaryHex) / sizeof(SurfaceHex));
+  // 3-char codes LAST so we don't truncate longer matches.
+  applyMap(kTextShortHex, sizeof(kTextShortHex) / sizeof(SurfaceHex));
+
+  return out;
 }

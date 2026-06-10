@@ -2,6 +2,7 @@
 #include "SelectionMenuIcons.h"
 #include "blop_diag.h"
 #include "blop_inwindow_menu.h"
+#include "blop_theme.h"
 #include <QApplication>
 #include <QFileDialog>
 #include <QKeySequence>
@@ -75,16 +76,16 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     QMenu *menu = new QMenu(this);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     const QString accent = UIStyles::Accent.name();
-    menu->setStyleSheet(QString(
-                             "QMenu { background: #1E1E2E; "
-                             "border: 1px solid %1; "
-                             "border-radius: 8px; padding: 6px; }"
-                             "QMenu::item { color: #D8D5FF; "
-                             "padding: 10px 20px; "
-                             "border-radius: 5px; font-size: 13px; }"
-                             "QMenu::item:selected { background: %1; "
-                             "color: white; }")
-                             .arg(accent));
+    menu->setStyleSheet(BlopTheme::themed(
+        QString("QMenu { background: #1E1E2E; "
+                "border: 1px solid %1; "
+                "border-radius: 8px; padding: 6px; }"
+                "QMenu::item { color: #D8D5FF; "
+                "padding: 10px 20px; "
+                "border-radius: 5px; font-size: 13px; }"
+                "QMenu::item:selected { background: %1; "
+                "color: white; }")
+            .arg(accent)));
 
     QPointer<NoteEditor> safe(this);
 

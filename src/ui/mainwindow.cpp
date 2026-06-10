@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.17.0"
+#define BLOP_VERSION_STR "3.17.1"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -1361,12 +1361,36 @@ void MainWindow::applyThemeRefresh() {
             .arg(BlopTheme::surfaceBase().name(QColor::HexRgb)));
   }
 #endif
-  // Nudge the file-list viewport so AndroidTileDelegate re-paints with the
-  // new card color.
+  // v3.17.1: re-run the whole stylesheet construction so every QSS
+  // wrapped in BlopTheme::themed() (mainwindow chrome, sidebar, title
+  // bar, overview, editor tab strip) picks up the new token values.
+  // applyTheme() is the central QSS factory -- calling it is equivalent
+  // to "re-skin the entire main window now".
+  applyTheme();
+
+  // Toolbars: ask each one to rebuild its own stylesheet. ModernToolbar
+  // and AndroidPhoneToolbar both expose setAccentColor() which already
+  // re-skins their internal QSS off the current accent + base colors;
+  // since UIStyles + BlopStyle now read from BlopTheme, calling that
+  // is enough.
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+    tb->setAccentColor(m_currentAccentColor);
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
+    phone->setAccentColor(m_currentAccentColor);
+
+  // PageManager: re-skin scrim + panel using the new tokens. The panel
+  // QSS was set once in the ctor; this method is the documented post-
+  // theme-change refresh hook.
+  if (m_pageManager) {
+    m_pageManager->applyThemeRefresh();
+  }
+
+  // Nudge the file-list viewport so AndroidTileDelegate re-paints with
+  // the new card color.
   if (m_fileListView && m_fileListView->viewport())
     m_fileListView->viewport()->update();
-  // Force a polish pass on the entire MainWindow so any QSS-tagged widgets
-  // pick up the new tokens without needing per-widget churn.
+  // Force a polish pass on the entire MainWindow so any QSS-tagged
+  // widgets pick up the new tokens without needing per-widget churn.
   if (style()) {
     style()->unpolish(this);
     style()->polish(this);
@@ -2733,14 +2757,17 @@ void MainWindow::applyTheme() {
       "}")
       .arg(c_light, c_scrollPress, QLatin1String(sbW), QLatin1String(sbH));
 #endif
-  this->setStyleSheet(style);
+  // v3.17.1: route through BlopTheme::themed so Light mode swaps the
+  // dark surface hex (#0D0B14, #201E2E, #888, #E0E0E0) for light tokens
+  // while leaving %1/%2 accent placeholders intact.
+  this->setStyleSheet(BlopTheme::themed(style));
 
   if (m_sidebarContainer)
-    m_sidebarContainer->setStyleSheet(
-        "background-color: #0F111A; border-right: 1px solid rgba(255,255,255,0.06);");
+    m_sidebarContainer->setStyleSheet(BlopTheme::themed(
+        "background-color: #0F111A; border-right: 1px solid rgba(255,255,255,0.06);"));
   if (m_sidebarStrip)
-    m_sidebarStrip->setStyleSheet(
-        "background-color: #0F111A; border-right: 1px solid rgba(255,255,255,0.06);");
+    m_sidebarStrip->setStyleSheet(BlopTheme::themed(
+        "background-color: #0F111A; border-right: 1px solid rgba(255,255,255,0.06);"));
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
 #ifdef Q_OS_ANDROID
@@ -2762,12 +2789,12 @@ void MainWindow::applyTheme() {
                  QColor(124, 92, 252, 90).name(QColor::HexArgb)));
 
   if (m_titleBarWidget)
-    m_titleBarWidget->setStyleSheet(
-        "background-color: #0D0B14; border-bottom: 1px solid #201E2E;");
+    m_titleBarWidget->setStyleSheet(BlopTheme::themed(
+        "background-color: #0D0B14; border-bottom: 1px solid #201E2E;"));
 
   // Overview controls follow current accent color while keeping dark base style.
   if (m_overviewContainer) {
-    m_overviewContainer->setStyleSheet(
+    m_overviewContainer->setStyleSheet(BlopTheme::themed(
         QString(
             "QLineEdit#overviewSearchBar {"
             "  background-color: #1A1829; color: white;"
@@ -2788,16 +2815,16 @@ void MainWindow::applyTheme() {
             "}"
             "QPushButton#overviewBtnNewFolder:hover {"
             "  background-color: rgba(255,255,255,0.05); border-color: %1; }")
-            .arg(c, c_light));
+            .arg(c, c_light)));
   }
 
   if (m_btnSidebarSettings) {
-    m_btnSidebarSettings->setStyleSheet(
+    m_btnSidebarSettings->setStyleSheet(BlopTheme::themed(
         QString(
             "QPushButton { background: transparent; color: #888; border: none; "
             "font-size: 10px; padding: 0; text-align: left; } "
             "QPushButton:hover { color: %1; }")
-            .arg(c));
+            .arg(c)));
   }
   if (m_lblSidebarAvatar) {
     const int r = qMax(1, m_lblSidebarAvatar->width() / 2);
@@ -3311,7 +3338,8 @@ void MainWindow::setupUi() {
   androidHeader->setObjectName(QStringLiteral("AndroidTopHeaderInner"));
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   androidHeader->setFixedHeight(androidHeaderTotalH);
-  androidHeader->setStyleSheet("background-color: #0F111A;");
+  androidHeader->setStyleSheet(
+      BlopTheme::themed(QStringLiteral("background-color: #0F111A;")));
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
   headerLay->setContentsMargins(androidHeaderSidePad, androidTopInset + androidHeaderTopExtra,
                                 androidHeaderSidePad, UiScale::dp(4));
@@ -3462,7 +3490,7 @@ void MainWindow::setupUi() {
       androidCompactPillH);
   m_btnAndroidAddWebBookmark->setCursor(Qt::PointingHandCursor);
   m_btnAndroidAddWebBookmark->setToolTip(tr("Web-Lesezeichen"));
-  m_btnAndroidAddWebBookmark->setStyleSheet(
+  m_btnAndroidAddWebBookmark->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
       "  background: rgba(255,255,255,0.08);"
       "  color: #F4F5FB;"
@@ -3470,7 +3498,7 @@ void MainWindow::setupUi() {
       "  font-size: 16px; font-weight: 700;"
       "  border: 1px solid rgba(255,255,255,0.16);"
       "}"
-      "QPushButton:pressed { background: rgba(255,255,255,0.14); }");
+      "QPushButton:pressed { background: rgba(255,255,255,0.14); }"));
   connect(m_btnAndroidAddWebBookmark, &QPushButton::clicked, this, [this]() {
     if (!m_btnAndroidAddWebBookmark)
       return;
@@ -3500,7 +3528,7 @@ void MainWindow::setupUi() {
       qBound(UiScale::dp(120), int(androidScreenW * 0.28), UiScale::dp(220)));
   m_androidTopSearchBar->setMaximumWidth(
       qBound(UiScale::dp(180), int(androidScreenW * 0.46), UiScale::dp(380)));
-  m_androidTopSearchBar->setStyleSheet(
+  m_androidTopSearchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit#androidTopSearchBar {"
       "  background: rgba(255,255,255,0.08);"
       "  color: #F2F1FF;"
@@ -3516,7 +3544,7 @@ void MainWindow::setupUi() {
       "}"
       "QLineEdit#androidTopSearchBar::placeholder {"
       "  color: rgba(255,255,255,0.48);"
-      "}");
+      "}"));
   m_androidTopSearchBar->hide();
   headerLay->addWidget(m_androidTopSearchBar, 0, Qt::AlignVCenter);
   headerLay->addStretch(1);
@@ -3634,7 +3662,8 @@ void MainWindow::setupUi() {
   m_rightStack = new QStackedWidget(this);
   m_overviewContainer = new QWidget(this);
 #ifdef Q_OS_ANDROID
-  m_overviewContainer->setStyleSheet("background-color: #0D0D12;");
+  m_overviewContainer->setStyleSheet(
+      BlopTheme::themed(QStringLiteral("background-color: #0D0D12;")));
 #endif
   // KEIN installEventFilter - damit Klicks auf Buttons korrekt weitergeleitet werden!
   QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
@@ -3691,10 +3720,10 @@ void MainWindow::setupUi() {
   headerLayout->addWidget(btnEditorMenu, 0, Qt::AlignLeft);
 
   QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
-  lblWelcome->setStyleSheet(
-      "color: white; font-size: 22px; font-weight: 700;"
-      " font-family: 'Roboto', 'Segoe UI', sans-serif;"
-      " letter-spacing: -0.2px;");
+  lblWelcome->setStyleSheet(BlopTheme::themed(
+      QStringLiteral("color: #F4F5FB; font-size: 22px; font-weight: 700;"
+                     " font-family: 'Roboto', 'Segoe UI', sans-serif;"
+                     " letter-spacing: -0.2px;")));
   headerLayout->addWidget(lblWelcome);
 
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
@@ -3703,10 +3732,10 @@ void MainWindow::setupUi() {
   searchBar->setFrame(false);
   searchBar->setAttribute(Qt::WA_StyledBackground, true);
   searchBar->setFixedHeight(UiScale::dp(40));
-  searchBar->setStyleSheet(
+  searchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background-color: #1A1829;"
-      "  color: white;"
+      "  color: #F4F5FB;"
       "  border: 1px solid #201E2E;"
       "  border-radius: 20px;"
       "  padding: 0 14px;"
@@ -3715,7 +3744,7 @@ void MainWindow::setupUi() {
       "QLineEdit:focus {"
       "  border: 1px solid #5E5CE6;"
       "}"
-  );
+  ));
 
   QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
@@ -3794,7 +3823,8 @@ void MainWindow::setupUi() {
   headerLayout->setSpacing(15);
 
   QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
-  lblWelcome->setStyleSheet("color: white; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';");
+  lblWelcome->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: #F4F5FB; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';")));
   headerLayout->addWidget(lblWelcome);
 
   QHBoxLayout *searchActionLayout = new QHBoxLayout();
@@ -3806,10 +3836,10 @@ void MainWindow::setupUi() {
   searchBar->setFrame(false);
   searchBar->setAttribute(Qt::WA_StyledBackground, true);
   searchBar->setFixedHeight(44);
-  searchBar->setStyleSheet(
+  searchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background-color: #1A1829;"
-      "  color: white;"
+      "  color: #F4F5FB;"
       "  border: 1px solid #201E2E;"
       "  border-radius: 22px;"
       "  padding: 0 20px;"
@@ -3818,7 +3848,7 @@ void MainWindow::setupUi() {
       "QLineEdit:focus {"
       "  border: 1px solid #5E5CE6;"
       "}"
-  );
+  ));
   searchActionLayout->addWidget(searchBar, 1); // stretcht aus
 
   QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
@@ -3999,7 +4029,7 @@ void MainWindow::setupUi() {
   m_editorTabs->setTabsClosable(true);
   m_editorTabs->tabBar()->hide(); // We use the custom header tab bar instead
   // Style the tab bar to match the dark UI
-  m_editorTabs->setStyleSheet(
+  m_editorTabs->setStyleSheet(BlopTheme::themed(
       "QTabBar::tab {"
       "  background: transparent;"
       "  color: #888;"
@@ -4008,11 +4038,11 @@ void MainWindow::setupUi() {
       "  font-size: 12px;"
       "}"
       "QTabBar::tab:selected {"
-      "  color: white;"
+      "  color: #F4F5FB;"
       "  border-bottom: 2px solid #5E5CE6;"
       "}"
       "QTabBar::tab:hover { color: #ccc; }"
-      "QTabWidget::pane { border: none; }");
+      "QTabWidget::pane { border: none; }"));
   connect(m_editorTabs, &QTabWidget::tabCloseRequested, [this](int index) {
     m_editorTabs->removeTab(index);
     if (m_editorTabs->count() == 0)
