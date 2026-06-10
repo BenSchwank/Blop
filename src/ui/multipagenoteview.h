@@ -22,6 +22,8 @@ class QTimer;
 
 class NoteSelectionMenu;
 class GraphCanvasItem;
+class CropMenu;
+class CropResizer;
 class QGraphicsOpacityEffect;
 class QPropertyAnimation;
 class GraphLegendDock;
@@ -100,6 +102,10 @@ public slots:
     void startTransformSession();
     void applyTransform();
     void screenshotSelection();
+    // v3.18.0: Rechteck-Crop-Session (analog CanvasView::startCropSession).
+    void startCropSession();
+    void applyCrop();
+    void cancelCrop();
 
 
 public:
@@ -157,6 +163,14 @@ private:
 #endif
 
     NoteSelectionMenu* m_selectionMenu{nullptr};
+
+    /// v3.18.0: Rechteck-Crop-Session. m_cropTargets hält die beim Start
+    /// selektierten Pfad-Items fest, weil die Szene-Selektion während der
+    /// Session (Resizer-Drag) verloren gehen kann.
+    CropMenu* m_cropMenu{nullptr};
+    CropResizer* m_cropResizer{nullptr};
+    QList<QGraphicsItem*> m_cropTargets;
+    void positionCropMenu();
 
     TransformOverlay* m_transformOverlay{nullptr};
     QGraphicsItemGroup* m_transformGroup{nullptr};
@@ -228,6 +242,11 @@ private:
     /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
     void syncGraphItemsToNote();
+    /// v3.18.0: einmalige Signal-Verdrahtung eines GraphCanvasItem (Tap,
+    /// Long-Press, Plus, Achsen, Geometrie). Idempotent über data(9001);
+    /// vorher existierte der ~60-Zeilen-Block doppelt in
+    /// hydratePageContent() und syncGraphItemsToNote().
+    void bindGraphItemSignals(GraphCanvasItem* gi);
     void refreshGraphPanelForSelection();
     void syncGraphLegendLayout();
     void repositionGraphEntryBar();

@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.17.6"
+#define BLOP_VERSION_STR "3.18.0"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -2184,7 +2184,8 @@ void MainWindow::setupTitleBar() {
 
   // ── Suchleiste ─────────────────────────────────────────────────────────────
   m_titleSearchBar = new QLineEdit(m_topNavControls);
-  m_titleSearchBar->setPlaceholderText("🔍  Suchen...");
+  m_titleSearchBar->setPlaceholderText(
+      QStringLiteral("Notizen durchsuchen..."));
   m_titleSearchBar->setFixedHeight(32);
   m_titleSearchBar->setFixedWidth(200);
   m_titleSearchBar->setStyleSheet(
@@ -2677,7 +2678,6 @@ CanvasView *MainWindow::getCurrentCanvas() {
   // Search inside wrapper widget (e.g. canvas + overlay button)
   return current->findChild<CanvasView *>();
 }
-void MainWindow::onToggleFloatingTools() {}
 
 void MainWindow::applyTheme() {
   // v3.17.5: gate against no-op invocations. applyTheme() is the central
@@ -2956,7 +2956,9 @@ void MainWindow::applyTheme() {
   if (m_mainContentStack)
     applyAndroidTabStyles(m_mainContentStack->currentIndex());
 #endif
-}void MainWindow::updateTheme(QColor accentColor) {
+}
+
+void MainWindow::updateTheme(QColor accentColor) {
   m_currentAccentColor = accentColor;
   applyTheme();
 }
@@ -3554,7 +3556,8 @@ void MainWindow::setupUi() {
   headerLay->addStretch(1);
   m_androidTopSearchBar = new QLineEdit(androidHeader);
   m_androidTopSearchBar->setObjectName("androidTopSearchBar");
-  m_androidTopSearchBar->setPlaceholderText("Notiz suchen...");
+  m_androidTopSearchBar->setPlaceholderText(
+      QStringLiteral("Notizen durchsuchen..."));
   m_androidTopSearchBar->setFrame(false);
   m_androidTopSearchBar->setAttribute(Qt::WA_StyledBackground, true);
   m_androidTopSearchBar->setFixedHeight(androidHeaderButtonH);
@@ -5952,11 +5955,11 @@ void MainWindow::onCreateFolder() {
   auto *layout = new QVBoxLayout(card);
   layout->setContentsMargins(20, 20, 20, 20);
   layout->setSpacing(12);
-  auto *title = new QLabel(QStringLiteral("New Folder"), card);
+  auto *title = new QLabel(QStringLiteral("Neuer Ordner"), card);
   title->setStyleSheet("font-size: 16px; font-weight: bold; color: white;");
   layout->addWidget(title);
   auto *edit = new QLineEdit(card);
-  edit->setPlaceholderText(QStringLiteral("New Folder"));
+  edit->setPlaceholderText(QStringLiteral("Neuer Ordner"));
   edit->setFocus();
   layout->addWidget(edit);
   auto *actions = new QHBoxLayout();
@@ -5989,14 +5992,14 @@ void MainWindow::onCreateFolder() {
   return;
 #endif
   bool ok;
-  QString text = QInputDialog::getText(
-      this, "New Folder", "Name:", QLineEdit::Normal, "New Folder", &ok);
+  QString text = QInputDialog::getText(this, QStringLiteral("Neuer Ordner"),
+                                       QStringLiteral("Name:"),
+                                       QLineEdit::Normal,
+                                       QStringLiteral("Neuer Ordner"), &ok);
   if (ok && !text.isEmpty()) {
     m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text);
   }
 }
-
-void MainWindow::onSidebarContextMenu(const QPoint &pos) {}
 
 void MainWindow::performCopy(const QModelIndex &index) {
   QString srcPath = m_fileModel->filePath(index);
@@ -7321,12 +7324,12 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   // item (the file watcher can fire at any time on Android).
   const QPersistentModelIndex persistent(index);
   const auto populateMenu = [this, persistent](QMenu *menu) {
-  menu->addAction("Open", [this, persistent]() {
+  menu->addAction(QStringLiteral("Öffnen"), [this, persistent]() {
     if (!persistent.isValid())
       return;
     onFileDoubleClicked(QModelIndex(persistent));
   });
-  menu->addAction("Rename", [this, persistent]() {
+  menu->addAction(QStringLiteral("Umbenennen"), [this, persistent]() {
     if (!persistent.isValid())
       return;
     startRename(QModelIndex(persistent));
@@ -7510,7 +7513,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     reply->deleteLater();
   });
 #endif // !Q_OS_ANDROID
-  menu->addAction("Delete", [this, persistent]() {
+  menu->addAction(QStringLiteral("Löschen"), [this, persistent]() {
     if (!persistent.isValid())
       return;
     m_fileModel->remove(QModelIndex(persistent));
@@ -7525,20 +7528,20 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   // tombstone showing this exact stack. Use the in-window QFrame menu
   // replacement instead -- no top-level QWindow, no EGL allocation.
   QList<BlopInWindowMenu::Item> items;
-  items.append({QStringLiteral("Open"), QIcon(),
+  items.append({QStringLiteral("Öffnen"), QIcon(),
                 [this, persistent]() {
                   if (!persistent.isValid()) return;
                   onFileDoubleClicked(QModelIndex(persistent));
                 },
                 false, false});
-  items.append({QStringLiteral("Rename"), QIcon(),
+  items.append({QStringLiteral("Umbenennen"), QIcon(),
                 [this, persistent]() {
                   if (!persistent.isValid()) return;
                   startRename(QModelIndex(persistent));
                 },
                 false, false});
   items.append({QString(), QIcon(), {}, false, true});
-  items.append({QStringLiteral("Delete"), QIcon(),
+  items.append({QStringLiteral("Löschen"), QIcon(),
                 [this, persistent]() {
                   if (!persistent.isValid()) return;
                   m_fileModel->remove(QModelIndex(persistent));

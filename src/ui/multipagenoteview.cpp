@@ -1,6 +1,7 @@
 #include "multipagenoteview.h"
 #include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
+#include "croptools.h"
 #include "blop_modal.h"
 #include "blopstyle.h"
 #include "editoroverlays.h"
@@ -78,6 +79,9 @@
 #include <QUrl>
 #include <QBuffer>
 #include <QPalette>
+#include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QToolTip>
@@ -317,6 +321,9 @@ public:
                &NoteSelectionMenu::cutRequested);
     addIconBtn(SelectionMenuIcons::copyIcon(), QStringLiteral("Kopieren"),
                &NoteSelectionMenu::copyRequested);
+    addIconBtn(SelectionMenuIcons::duplicateIcon(),
+               QStringLiteral("Duplizieren"),
+               &NoteSelectionMenu::duplicateRequested);
     addIconBtn(SelectionMenuIcons::colorIcon(), QStringLiteral("Farbe"),
                &NoteSelectionMenu::colorRequested);
     addIconBtn(SelectionMenuIcons::cropIcon(), QStringLiteral("Zuschneiden"),
@@ -1227,6 +1234,14 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   connect(m_selectionMenu, &NoteSelectionMenu::cutRequested, this, &MultiPageNoteView::cutSelection);
   connect(m_selectionMenu, &NoteSelectionMenu::colorRequested, this, &MultiPageNoteView::changeSelectionColor);
   connect(m_selectionMenu, &NoteSelectionMenu::screenshotRequested, this, &MultiPageNoteView::screenshotSelection);
+  connect(m_selectionMenu, &NoteSelectionMenu::duplicateRequested, this, &MultiPageNoteView::duplicateSelection);
+  // v3.18.0: Crop war als Button + Signal vorhanden, aber nie verbunden.
+  connect(m_selectionMenu, &NoteSelectionMenu::cropRequested, this, &MultiPageNoteView::startCropSession);
+
+  // Rechteck-Crop-Session (Freihand-Modus gibt es hier nicht, daher nur ✔/✕).
+  m_cropMenu = new CropMenu(this, /*showModeButtons=*/false);
+  connect(m_cropMenu, &CropMenu::applyRequested, this, &MultiPageNoteView::applyCrop);
+  connect(m_cropMenu, &CropMenu::cancelRequested, this, &MultiPageNoteView::cancelCrop);
   m_graphLegendDock = new GraphLegendDock(this);
   m_graphLegendDock->hide();
   m_graphQuickPopup = new GraphQuickActionPopup(this);
@@ -1729,70 +1744,7 @@ void MultiPageNoteView::hydratePageContent(int i) {
     gi->setFlag(QGraphicsItem::ItemIsSelectable, true);
     gi->setFlag(QGraphicsItem::ItemIsMovable, true);
     gi->setZValue(4.0);
-    connect(gi, &GraphCanvasItem::graphChanged, this, [this]() { syncGraphItemsToNote(); });
-    connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
-      abandonGraphEntrySession();
-      QSignalBlocker blocker(&scene_);
-      scene_.clearSelection();
-      gi->setSelected(true);
-      m_selectedGraphItem = gi;
-      m_graphPanelTargetGraph = gi;
-      m_graphPanelExplicitOpen = true;
-      m_graphQuickPopupWanted = false;
-      hideGraphQuickPopup();
-      gi->setSelectedFunction(idx);
-      refreshGraphPanelForSelection();
-    });
-    connect(gi, &GraphCanvasItem::functionLongPressed, this, [this, gi](int idx) {
-      abandonGraphEntrySession();
-      QSignalBlocker blocker(&scene_);
-      scene_.clearSelection();
-      gi->setSelected(true);
-      m_selectedGraphItem = gi;
-      m_graphPanelTargetGraph = gi;
-      m_graphPanelExplicitOpen = true;
-      m_graphQuickPopupWanted = false;
-      hideGraphQuickPopup();
-      gi->setSelectedFunction(idx);
-      refreshGraphPanelForSelection();
-    });
-    connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
-      QSignalBlocker blocker(&scene_);
-      scene_.clearSelection();
-      gi->setSelected(true);
-      m_selectedGraphItem = gi;
-      m_graphQuickPopupWanted = false;
-      hideGraphQuickPopup();
-      m_graphPanelTargetGraph = gi;
-      m_graphPanelTargetGraph = gi;
-      m_graphPanelExplicitOpen = false; // Don't open old legend auto
-      openGraphFormulaZone(gi);
-    });
-    connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
-      abandonGraphEntrySession();
-      QSignalBlocker blocker(&scene_);
-      scene_.clearSelection();
-      gi->setSelected(true);
-      m_selectedGraphItem = gi;
-      m_graphPanelTargetGraph = gi;
-      m_graphPanelExplicitOpen = true;
-      m_graphQuickAnchorScene = scenePos;
-      m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
-      if (!m_graphQuickPopupWanted)
-        hideGraphQuickPopup();
-      refreshGraphPanelForSelection();
-    });
-    connect(gi, &GraphCanvasItem::xAxisTapped, this, [this, gi](double dataX, QPointF scenePos) {
-      if (m_tangentXPopup)
-        m_tangentXPopup->present(gi, scenePos, dataX);
-    });
-    connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
-      if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
-          (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
-        syncGraphLegendLayout();
-      }
-    });
-    gi->setData(9001, true);
+    bindGraphItemSignals(gi);
     syncGraphPlusLayout(gi);
   }
   scene_.blockSignals(wasBlocked);
@@ -1818,6 +1770,8 @@ void MultiPageNoteView::hydrateVisibleRange() {
 
 void MultiPageNoteView::setNote(Note *note) {
   note_ = note;
+  cancelCrop(); // v3.18.0: offene Crop-Session beenden, bevor scene_.clear()
+                // den Resizer löschen würde (dangling pointer).
   if (m_undoStack)
     m_undoStack->clear();
   scene_.clear();
@@ -2558,6 +2512,13 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     return;
   }
 
+  // v3.18.0: während einer Crop-Session gehen alle Eingaben an den
+  // CropResizer (QGraphicsView-Routing) statt an die Zeichen-Tools.
+  if (m_cropResizer && e->button() == Qt::LeftButton) {
+    QGraphicsView::mousePressEvent(e);
+    return;
+  }
+
   // Graph "+" / chrome reach the item before touch-pan and tools.
   if (e->button() == Qt::LeftButton) {
     const QPointF scenePos = mapToScene(e->pos());
@@ -2682,7 +2643,8 @@ void MultiPageNoteView::mouseMoveEvent(QMouseEvent *e) {
     return;
   }
 
-  if ((m_graphPlusBypassItem || m_graphPlotBypassItem) && (e->buttons() & Qt::LeftButton)) {
+  if ((m_graphPlusBypassItem || m_graphPlotBypassItem || m_cropResizer) &&
+      (e->buttons() & Qt::LeftButton)) {
     QGraphicsView::mouseMoveEvent(e);
     return;
   }
@@ -2855,6 +2817,10 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
   if (m_pullDistance > 0.f)
     m_pullDistance = 0.f;
 
+  if (m_cropResizer && e->button() == Qt::LeftButton) {
+    QGraphicsView::mouseReleaseEvent(e);
+    return;
+  }
   if (m_graphPlusBypassItem && e->button() == Qt::LeftButton) {
     QGraphicsView::mouseReleaseEvent(e);
     m_graphPlusBypassItem = nullptr;
@@ -2921,6 +2887,14 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
+  // v3.18.0: in einer Crop-Session den Stift NICHT als Zeichen-Tool
+  // behandeln. e->ignore() lässt Qt synthetische Maus-Events erzeugen,
+  // die über mousePressEvent() an den CropResizer geroutet werden.
+  if (m_cropResizer) {
+    e->ignore();
+    return;
+  }
+
   const QPointF scenePos = mapToScene(e->position().toPoint());
 
   if (note_ && mode_ != ToolMode::Lasso) {
@@ -3379,6 +3353,13 @@ bool MultiPageNoteView::importPdfPages(const QString &pdfPath) {
 }
 
 void MultiPageNoteView::onSelectionChanged() {
+  // v3.18.0: während einer Crop-Session kein Selektionsmenü über dem
+  // Resizer aufpoppen lassen (der CropResizer selbst ist selektierbar).
+  if (m_cropResizer) {
+    if (m_selectionMenu)
+      m_selectionMenu->hide();
+    return;
+  }
   QList<QGraphicsItem*> items = scene_.selectedItems();
   GraphCanvasItem* graphItem = nullptr;
   for (QGraphicsItem* item : items) {
@@ -3465,7 +3446,95 @@ void MultiPageNoteView::cutSelection() {
     deleteSelection();
 }
 
-void MultiPageNoteView::duplicateSelection() {}
+// v3.18.0: war vorher ein leerer Stub. Selektierte Stroke-Items werden als
+// neue Strokes ins Notiz-Modell übernommen (per StrokeAddUndoCommand, also
+// undo-fähig), Graph-Items werden über toData()/fromData() geklont und über
+// syncGraphItemsToNote() persistiert. Die Kopien sitzen 20px versetzt.
+void MultiPageNoteView::duplicateSelection() {
+  if (!note_)
+    return;
+  const QList<QGraphicsItem *> selected = scene_.selectedItems();
+  if (selected.isEmpty())
+    return;
+
+  const QPointF offset(20, 20);
+  bool duplicatedGraph = false;
+  bool hasStrokeTargets = false;
+  for (QGraphicsItem *item : selected) {
+    if (item->type() != GraphCanvasItem::Type &&
+        !(item->parentItem() &&
+          item->parentItem()->type() == GraphCanvasItem::Type) &&
+        dynamic_cast<QGraphicsPathItem *>(item)) {
+      hasStrokeTargets = true;
+      break;
+    }
+  }
+  const bool useMacro = m_undoStack && hasStrokeTargets;
+  if (useMacro)
+    m_undoStack->beginMacro(QStringLiteral("Auswahl duplizieren"));
+
+  for (QGraphicsItem *item : selected) {
+    if (item->type() == GraphCanvasItem::Type) {
+      auto *src = static_cast<GraphCanvasItem *>(item);
+      GraphObject d = src->toData();
+      auto *gi = new GraphCanvasItem(d.rect);
+      gi->fromData(d);
+      if (src->parentItem())
+        gi->setParentItem(src->parentItem());
+      else
+        scene_.addItem(gi);
+      gi->setPos(src->pos() + offset);
+      gi->setFlag(QGraphicsItem::ItemIsSelectable, true);
+      gi->setFlag(QGraphicsItem::ItemIsMovable, true);
+      gi->setZValue(src->zValue());
+      duplicatedGraph = true;
+      continue;
+    }
+    // Items, die zu einem Graphen gehören (Formelzonen etc.), überspringen.
+    if (item->parentItem() &&
+        item->parentItem()->type() == GraphCanvasItem::Type)
+      continue;
+    auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+    if (!pathItem)
+      continue;
+
+    QPainterPath scenePath = pathItem->mapToScene(pathItem->path());
+    scenePath.translate(offset);
+    int pIdx = pageAt(scenePath.boundingRect().center());
+    if (pIdx < 0)
+      pIdx = pageAt(pathItem->sceneBoundingRect().center());
+    if (pIdx < 0)
+      continue;
+    note_->ensurePage(pIdx);
+    const QPointF pageTopLeft = pageRect(pIdx).topLeft();
+
+    Stroke s;
+    s.pageIndex = pIdx;
+    const QPen pen = pathItem->pen();
+    s.width = pen.widthF();
+    QColor color = pen.color();
+    if (auto *si = dynamic_cast<StrokeItem *>(item)) {
+      s.isEraser = (si->strokeStyle() == StrokeItem::Eraser);
+      s.isHighlighter = (si->strokeStyle() == StrokeItem::Highlighter);
+    } else if (color.alpha() < 255) {
+      s.isHighlighter = true;
+    }
+    if (s.isHighlighter)
+      color.setAlpha(255);
+    s.color = color;
+    s.path = scenePath.translated(-pageTopLeft);
+    for (int i = 0; i < s.path.elementCount(); ++i)
+      s.points.append(QPointF(s.path.elementAt(i).x, s.path.elementAt(i).y));
+
+    pushStrokeUndoCommand(pIdx, std::move(s));
+  }
+
+  if (useMacro)
+    m_undoStack->endMacro();
+  if (duplicatedGraph)
+    syncGraphItemsToNote();
+  onSelectionChanged();
+}
 
 void MultiPageNoteView::changeSelectionColor() {
     QColor c = Qt::black;
@@ -3544,8 +3613,171 @@ void MultiPageNoteView::applyTransform() {
   if (onSaveRequested) onSaveRequested(note_);
 }
 
+// === CROP SYSTEM (v3.18.0, analog CanvasView) ===============================
+
+void MultiPageNoteView::startCropSession() {
+  if (m_cropResizer)
+    cancelCrop();
+
+  // Crop-Ziele einsammeln, bevor eine evtl. aktive Transform-Session
+  // aufgelöst wird (die Szene-Selektion kann dabei verloren gehen).
+  m_cropTargets.clear();
+  QRectF totalRect;
+  for (QGraphicsItem *item : scene_.selectedItems()) {
+    if (item->type() == GraphCanvasItem::Type)
+      continue;
+    if (item->parentItem() &&
+        item->parentItem()->type() == GraphCanvasItem::Type)
+      continue;
+    if (!dynamic_cast<QGraphicsPathItem *>(item))
+      continue;
+    m_cropTargets.append(item);
+    totalRect = totalRect.united(item->sceneBoundingRect());
+  }
+  if (m_cropTargets.isEmpty())
+    return;
+
+  if (m_transformOverlay)
+    applyTransform();
+  if (m_selectionMenu)
+    m_selectionMenu->hide();
+
+  m_cropResizer = new CropResizer(
+      totalRect.isEmpty() ? QRectF(0, 0, 200, 200) : totalRect);
+  m_cropResizer->setZValue(99999);
+  scene_.addItem(m_cropResizer);
+
+  positionCropMenu();
+  m_cropMenu->show();
+  m_cropMenu->raise();
+}
+
+void MultiPageNoteView::positionCropMenu() {
+  if (!m_cropMenu || !m_cropResizer)
+    return;
+  const QRectF r = m_cropResizer->currentRect();
+  const QPoint viewPos = mapFromScene(r.topLeft());
+  int x = viewPos.x() + int(mapFromScene(r.topRight()).x() - viewPos.x()) / 2 -
+          m_cropMenu->width() / 2;
+  int y = viewPos.y() - m_cropMenu->height() - 10;
+  x = qBound(0, x, qMax(0, width() - m_cropMenu->width()));
+  y = qBound(0, y, qMax(0, height() - m_cropMenu->height()));
+  m_cropMenu->move(x, y);
+}
+
+void MultiPageNoteView::applyCrop() {
+  QPainterPath clipPath;
+  if (m_cropResizer) {
+    clipPath.addRect(m_cropResizer->currentRect());
+    scene_.removeItem(m_cropResizer);
+    delete m_cropResizer;
+    m_cropResizer = nullptr;
+  }
+  if (m_cropMenu)
+    m_cropMenu->hide();
+  if (clipPath.isEmpty()) {
+    m_cropTargets.clear();
+    return;
+  }
+  for (QGraphicsItem *item : std::as_const(m_cropTargets)) {
+    if (auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item)) {
+      QPainterPath localClip = pathItem->mapFromScene(clipPath);
+      localClip.setFillRule(Qt::WindingFill);
+      pathItem->setPath(pathItem->path().intersected(localClip));
+    }
+  }
+  m_cropTargets.clear();
+  scene_.update();
+  if (m_selectionMenu)
+    m_selectionMenu->hide();
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::cancelCrop() {
+  if (m_cropResizer) {
+    scene_.removeItem(m_cropResizer);
+    delete m_cropResizer;
+    m_cropResizer = nullptr;
+  }
+  if (m_cropMenu)
+    m_cropMenu->hide();
+  m_cropTargets.clear();
+}
+
+namespace {
+// Leichter In-Window-Toast (Pattern aus mainwindow.cpp): kein QDialog::exec,
+// damit der Android-Single-Window-Surface nicht blockiert wird.
+void showViewToast(QWidget *anchor, const QString &text,
+                   int durationMs = 2400) {
+  QWidget *win = anchor ? anchor->window() : nullptr;
+  if (!win)
+    return;
+  auto *toast = new QLabel(text, win);
+  toast->setAttribute(Qt::WA_DeleteOnClose);
+  toast->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  toast->setAlignment(Qt::AlignCenter);
+  toast->setWordWrap(true);
+  toast->setStyleSheet(QStringLiteral(
+      "QLabel { background: rgba(20,20,30,0.92); color: #E8E4FF;"
+      " border: 1px solid rgba(124,92,252,0.45); border-radius: 10px;"
+      " padding: 10px 18px; font-size: 14px; }"));
+  const int maxW = qMin(win->width() - UiScale::dp(40), UiScale::dp(360));
+  toast->setMaximumWidth(maxW);
+  toast->adjustSize();
+  toast->move((win->width() - toast->width()) / 2,
+              win->height() - toast->height() - UiScale::dp(60));
+  toast->show();
+  toast->raise();
+  QTimer::singleShot(durationMs, toast, &QWidget::close);
+}
+} // namespace
+
+// v3.18.0: vorher landete der Screenshot nur im Clipboard. Jetzt zusätzlich
+// "Als PNG speichern": Desktop über QFileDialog, Android direkt ins
+// App-Pictures-Verzeichnis mit Toast-Bestätigung.
 void MultiPageNoteView::screenshotSelection() {
-    copySelection(); 
+  const QList<QGraphicsItem *> selected = scene_.selectedItems();
+  if (selected.isEmpty())
+    return;
+  QRectF selRect;
+  for (auto *i : selected)
+    selRect = selRect.united(i->sceneBoundingRect());
+  if (selRect.isEmpty())
+    return;
+  QImage img(selRect.size().toSize(), QImage::Format_ARGB32);
+  img.fill(Qt::transparent);
+  {
+    QPainter p(&img);
+    scene_.render(&p, QRectF(0, 0, img.width(), img.height()), selRect);
+  }
+  QGuiApplication::clipboard()->setImage(img);
+
+#ifdef Q_OS_ANDROID
+  const QString dir =
+      QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+  QDir().mkpath(dir);
+  const QString fileName =
+      QStringLiteral("Blop_%1.png")
+          .arg(QDateTime::currentDateTime().toString(
+              QStringLiteral("yyyyMMdd_HHmmss")));
+  const QString path = dir + QLatin1Char('/') + fileName;
+  if (img.save(path))
+    showViewToast(this,
+                  QStringLiteral("Screenshot gespeichert: %1").arg(fileName));
+  else
+    showViewToast(this,
+                  QStringLiteral("Screenshot konnte nicht gespeichert werden"));
+#else
+  const QString path = QFileDialog::getSaveFileName(
+      this, QStringLiteral("Screenshot speichern"),
+      QStringLiteral("auswahl.png"), QStringLiteral("PNG-Bild (*.png)"));
+  if (!path.isEmpty() && !img.save(path))
+    showViewToast(this,
+                  QStringLiteral("Screenshot konnte nicht gespeichert werden"));
+#endif
+  if (m_selectionMenu)
+    m_selectionMenu->hide();
 }
 
 void MultiPageNoteView::syncGraphPlusLayout(GraphCanvasItem *gi) {
@@ -3845,6 +4077,85 @@ void MultiPageNoteView::refreshGraphPanelForSelection() {
   presentGraphLegendAnimated();
 }
 
+void MultiPageNoteView::bindGraphItemSignals(GraphCanvasItem *gi) {
+  if (!gi)
+    return;
+  // data(9001) markiert "Signale bereits verdrahtet" — verhindert doppelte
+  // connects, wenn ein Item sowohl hydratePageContent() als auch
+  // syncGraphItemsToNote() durchläuft.
+  if (static_cast<QGraphicsItem *>(gi)->data(9001).toBool())
+    return;
+
+  connect(gi, &GraphCanvasItem::graphChanged, this,
+          [this]() { syncGraphItemsToNote(); });
+  connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
+    abandonGraphEntrySession();
+    QSignalBlocker blocker(&scene_);
+    scene_.clearSelection();
+    gi->setSelected(true);
+    m_selectedGraphItem = gi;
+    m_graphPanelTargetGraph = gi;
+    m_graphPanelExplicitOpen = true;
+    m_graphQuickPopupWanted = false;
+    hideGraphQuickPopup();
+    gi->setSelectedFunction(idx);
+    refreshGraphPanelForSelection();
+  });
+  connect(gi, &GraphCanvasItem::functionLongPressed, this,
+          [this, gi](int idx) {
+    abandonGraphEntrySession();
+    QSignalBlocker blocker(&scene_);
+    scene_.clearSelection();
+    gi->setSelected(true);
+    m_selectedGraphItem = gi;
+    m_graphPanelTargetGraph = gi;
+    m_graphPanelExplicitOpen = true;
+    m_graphQuickPopupWanted = false;
+    hideGraphQuickPopup();
+    gi->setSelectedFunction(idx);
+    refreshGraphPanelForSelection();
+  });
+  connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
+    QSignalBlocker blocker(&scene_);
+    scene_.clearSelection();
+    gi->setSelected(true);
+    m_selectedGraphItem = gi;
+    m_graphQuickPopupWanted = false;
+    hideGraphQuickPopup();
+    m_graphPanelTargetGraph = gi;
+    m_graphPanelExplicitOpen = false; // Legend-Dock nicht automatisch öffnen
+    openGraphFormulaZone(gi);
+  });
+  connect(gi, &GraphCanvasItem::plotBackgroundTapped, this,
+          [this, gi](QPointF scenePos) {
+    abandonGraphEntrySession();
+    QSignalBlocker blocker(&scene_);
+    scene_.clearSelection();
+    gi->setSelected(true);
+    m_selectedGraphItem = gi;
+    m_graphPanelTargetGraph = gi;
+    m_graphPanelExplicitOpen = true;
+    m_graphQuickAnchorScene = scenePos;
+    m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
+    if (!m_graphQuickPopupWanted)
+      hideGraphQuickPopup();
+    refreshGraphPanelForSelection();
+  });
+  connect(gi, &GraphCanvasItem::xAxisTapped, this,
+          [this, gi](double dataX, QPointF scenePos) {
+    if (m_tangentXPopup)
+      m_tangentXPopup->present(gi, scenePos, dataX);
+  });
+  connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
+    if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
+        (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
+      syncGraphLegendLayout();
+    }
+  });
+
+  gi->setData(9001, true);
+}
+
 void MultiPageNoteView::syncGraphItemsToNote() {
   if (!note_) return;
   if (m_syncingGraphs) return;
@@ -3855,71 +4166,7 @@ void MultiPageNoteView::syncGraphItemsToNote() {
   for (QGraphicsItem* item : all) {
     if (item->type() != GraphCanvasItem::Type) continue;
     auto* gi = static_cast<GraphCanvasItem*>(item);
-    if (!static_cast<QGraphicsItem*>(gi)->data(9001).toBool()) {
-      connect(gi, &GraphCanvasItem::graphChanged, this, [this]() { syncGraphItemsToNote(); });
-      connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
-        abandonGraphEntrySession();
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        m_graphQuickPopupWanted = false;
-        hideGraphQuickPopup();
-        gi->setSelectedFunction(idx);
-        refreshGraphPanelForSelection();
-      });
-      connect(gi, &GraphCanvasItem::functionLongPressed, this, [this, gi](int idx) {
-        abandonGraphEntrySession();
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        m_graphQuickPopupWanted = false;
-        hideGraphQuickPopup();
-        gi->setSelectedFunction(idx);
-        refreshGraphPanelForSelection();
-      });
-      connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphQuickPopupWanted = false;
-        hideGraphQuickPopup();
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = false; // Don't open the old legend dock automatically
-        openGraphFormulaZone(gi);
-      });
-      connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
-        abandonGraphEntrySession();
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        m_graphQuickAnchorScene = scenePos;
-        m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
-        if (!m_graphQuickPopupWanted)
-          hideGraphQuickPopup();
-        refreshGraphPanelForSelection();
-      });
-      connect(gi, &GraphCanvasItem::xAxisTapped, this, [this, gi](double dataX, QPointF scenePos) {
-        if (m_tangentXPopup)
-          m_tangentXPopup->present(gi, scenePos, dataX);
-      });
-      connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
-        if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
-            (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
-          syncGraphLegendLayout();
-        }
-      });
-      gi->setData(9001, true);
-    }
+    bindGraphItemSignals(gi);
     syncGraphPlusLayout(gi);
     QPointF sceneCenter = gi->sceneBoundingRect().center();
     int pIdx = pageAt(sceneCenter);

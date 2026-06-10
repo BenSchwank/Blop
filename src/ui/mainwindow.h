@@ -206,8 +206,6 @@ private slots:
   void onFileDoubleClicked(const QModelIndex &index);
   void onBackToOverview();
 
-  void onSidebarContextMenu(const QPoint &pos);
-
   void onToolSelect();
   void onToolPen();
   void onToolEraser();
@@ -218,7 +216,6 @@ private slots:
   void onItemDropped(const QModelIndex &sourceIndex,
                      const QModelIndex &targetIndex);
 
-  void onToggleFloatingTools();
   void finishRename();
 
   void addNoteTab(const QString &title);

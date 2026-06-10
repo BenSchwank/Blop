@@ -19,7 +19,6 @@
 #include "blop_diag.h"
 #include "blop_observability.h"
 #include "blop_theme.h"
-#include "introscreen.h"
 #include "mainwindow.h"
 #include <QFont>
 #include <QIcon>
@@ -160,17 +159,6 @@ int main(int argc, char *argv[]) {
   // Restore previous window size/position, or default to maximized/fullscreen
   w->restoreWindowState();
   w->show(); // ensure it's visible
-
-  /* --- LADEBILDSCHIRM (Custom Intro Animation) DEAKTIVIERT ---
-  IntroScreen *intro = new IntroScreen(w);
-  QObject::connect(intro, &IntroScreen::introFinished, [intro]() {
-    intro->deleteLater();
-  });
-  intro->setGeometry(w->rect());
-  intro->show();
-  intro->raise(); // ensure it's on top
-  intro->startAnimation();
-  */
 
   // Starten des normalen Eventloops
   return a.exec();

@@ -77,7 +77,7 @@ MarkdownEditor::MarkdownEditor(QWidget *parent) : QWidget(parent) {
       "background-color: #252526; border-bottom: 1px solid #333;");
   QHBoxLayout *tbLayout = new QHBoxLayout(toolbar);
 
-  QPushButton *btnSave = new QPushButton("Save");
+  QPushButton *btnSave = new QPushButton(QStringLiteral("Speichern"));
   btnSave->setCursor(Qt::PointingHandCursor);
   btnSave->setStyleSheet(
       "QPushButton { background: #5E5CE6; color: white; border: none; padding: "

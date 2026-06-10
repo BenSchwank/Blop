@@ -17,7 +17,7 @@ execute_process(
 
 # Fallback if git fails
 if(NOT GIT_VERSION)
-    set(GIT_VERSION "3.17.6")
+    set(GIT_VERSION "3.18.0")
 endif()
 
 # Remove 'v' prefix if it exists for the project() call
@@ -26,7 +26,7 @@ string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
 # We'll just extract the numeric part x.y.z.w
 string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
 if(NOT SAFE_VERSION)
-    set(SAFE_VERSION "3.17.6")
+    set(SAFE_VERSION "3.18.0")
 endif()
 
 project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
@@ -106,6 +106,8 @@ qt_add_executable(Blop
     src/ui/mainwindow.h
     src/ui/canvasview.cpp
     src/ui/canvasview.h
+    src/ui/croptools.cpp
+    src/ui/croptools.h
     src/ui/freegridview.h
     src/ui/freegridview.cpp
     src/ui/multipagenoteview.cpp
@@ -130,8 +132,6 @@ qt_add_executable(Blop
     src/ui/moderntoolbar.h
     src/ui/androidphonetoolbar.cpp
     src/ui/androidphonetoolbar.h
-    src/ui/modetoolbar.cpp
-    src/ui/modetoolbar.h
     src/ui/introscreen.h
     src/ui/introscreen.cpp
     src/ui/overlayscrollindicator.h

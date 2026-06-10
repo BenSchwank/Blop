@@ -73,6 +73,15 @@ inline void drawColor(QPainter &p, const QColor &) {
   p.drawEllipse(QPointF(-0.5, -4), 5.5, 5.5);
 }
 
+inline void drawDuplicate(QPainter &p, const QColor &c) {
+  p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  p.drawRoundedRect(-9, -7, 11, 14, 2.2, 2.2);
+  p.drawRoundedRect(-5, -11, 11, 14, 2.2, 2.2);
+  p.drawLine(QPointF(0.5, -6.5), QPointF(0.5, -1.5));
+  p.drawLine(QPointF(-2, -4), QPointF(3, -4));
+}
+
 inline void drawCrop(QPainter &p, const QColor &c) {
   p.setPen(QPen(c, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   p.setBrush(Qt::NoBrush);
@@ -139,6 +148,7 @@ inline QIcon copyIcon() {
 }
 
 inline QIcon colorIcon() { return makeIcon(drawColor); }
+inline QIcon duplicateIcon() { return makeIcon(drawDuplicate); }
 inline QIcon cropIcon() { return makeIcon(drawCrop); }
 inline QIcon screenshotIcon() { return makeIcon(drawScreenshot); }
 inline QIcon trashIcon() { return makeIcon(drawTrash); }
