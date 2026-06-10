@@ -105,9 +105,21 @@ BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,
 
   // Card frame.
   m_card = new QFrame(this);
-  m_card->setObjectName(m_mode == Mode::BottomSheet
-                            ? QStringLiteral("BlopModalSheet")
-                            : QStringLiteral("BlopModalCard"));
+  QString cardObjName;
+  switch (m_mode) {
+  case Mode::BottomSheet:
+    cardObjName = QStringLiteral("BlopModalSheet");
+    break;
+  case Mode::SideSheet:
+    cardObjName = QStringLiteral("BlopModalSideSheet");
+    break;
+  case Mode::Card:
+  case Mode::Auto:
+  default:
+    cardObjName = QStringLiteral("BlopModalCard");
+    break;
+  }
+  m_card->setObjectName(cardObjName);
   m_card->setAttribute(Qt::WA_StyledBackground, true);
 
   auto *cardLay = new QVBoxLayout(m_card);
@@ -180,6 +192,35 @@ void BlopModal::applyTheme() {
                .arg(BlopTheme::borderStrong().name(QColor::HexArgb),
                     QString::number(UiScale::dp(2)));
     m_card->setStyleSheet(qss);
+  } else if (m_mode == Mode::SideSheet) {
+    // Side sheet: rounded left corners only, full-height right pane.
+    QString qss = QStringLiteral(
+                      "QFrame#BlopModalSideSheet {"
+                      "  background: %1;"
+                      "  border: 1px solid %2;"
+                      "  border-top-left-radius: %3px;"
+                      "  border-bottom-left-radius: %3px;"
+                      "  border-top-right-radius: 0px;"
+                      "  border-bottom-right-radius: 0px;"
+                      "}")
+                      .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+                           QStringLiteral("rgba(%1,%2,%3,%4)")
+                               .arg(BlopTheme::borderDefault().red())
+                               .arg(BlopTheme::borderDefault().green())
+                               .arg(BlopTheme::borderDefault().blue())
+                               .arg(QString::number(
+                                   BlopTheme::borderDefault().alphaF(), 'f', 3)),
+                           QString::number(BlopTheme::r24));
+    m_card->setStyleSheet(qss);
+    if (BlopTheme::instance().isLight()) {
+      auto *shadow = new QGraphicsDropShadowEffect(m_card);
+      shadow->setBlurRadius(28);
+      shadow->setOffset(-6, 0);
+      shadow->setColor(QColor(0, 0, 0, 60));
+      m_card->setGraphicsEffect(shadow);
+    } else {
+      m_card->setGraphicsEffect(nullptr);
+    }
   } else {
     QString qss = BlopTheme::cardQss(QStringLiteral("BlopModalCard"));
     m_card->setStyleSheet(qss);
@@ -208,6 +249,11 @@ void BlopModal::layoutContent() {
                                             int(H * 0.92)));
     const int sheetW = W;
     m_card->setGeometry(0, H - sheetH, sheetW, sheetH);
+  } else if (m_mode == Mode::SideSheet) {
+    const int sheetW = qBound(UiScale::dp(360),
+                              qMin(m_preferredCardWidth, int(W * 0.55)),
+                              qMin(W - pad, UiScale::dp(560)));
+    m_card->setGeometry(W - sheetW, 0, sheetW, H);
   } else {
     const int cardW = qBound(UiScale::dp(320),
                              qMin(m_preferredCardWidth, W - 2 * pad),
@@ -239,6 +285,8 @@ void BlopModal::startOpenAnim() {
     QRect startGeom = endGeom;
     if (m_mode == Mode::BottomSheet) {
       startGeom.translate(0, endGeom.height());
+    } else if (m_mode == Mode::SideSheet) {
+      startGeom.translate(endGeom.width(), 0);
     } else {
       const int shrink = qMin(endGeom.width(), endGeom.height()) / 12;
       startGeom.adjust(shrink, shrink, -shrink, -shrink);
@@ -248,9 +296,8 @@ void BlopModal::startOpenAnim() {
     m_cardAnim->setDuration(kCardEnterMs);
     m_cardAnim->setStartValue(startGeom);
     m_cardAnim->setEndValue(endGeom);
-    m_cardAnim->setEasingCurve(m_mode == Mode::BottomSheet
-                                   ? QEasingCurve::OutCubic
-                                   : QEasingCurve::OutBack);
+    m_cardAnim->setEasingCurve(m_mode == Mode::Card ? QEasingCurve::OutBack
+                                                    : QEasingCurve::OutCubic);
     m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
   }
 }
@@ -275,6 +322,8 @@ void BlopModal::startDismissAnim() {
     QRect endGeom = startGeom;
     if (m_mode == Mode::BottomSheet) {
       endGeom.translate(0, startGeom.height());
+    } else if (m_mode == Mode::SideSheet) {
+      endGeom.translate(startGeom.width(), 0);
     } else {
       const int shrink = qMin(startGeom.width(), startGeom.height()) / 14;
       endGeom.adjust(shrink, shrink, -shrink, -shrink);

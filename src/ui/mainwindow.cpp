@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.17.2"
+#define BLOP_VERSION_STR "3.17.3"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -3499,6 +3499,10 @@ void MainWindow::setupUi() {
       "  border: 1px solid rgba(255,255,255,0.16);"
       "}"
       "QPushButton:pressed { background: rgba(255,255,255,0.14); }"));
+  connect(m_btnAndroidAddWebBookmark, &QPushButton::pressed, this, [this]() {
+    if (m_btnAndroidAddWebBookmark)
+      BlopRipple::animatePress(m_btnAndroidAddWebBookmark, 0.92);
+  });
   connect(m_btnAndroidAddWebBookmark, &QPushButton::clicked, this, [this]() {
     if (!m_btnAndroidAddWebBookmark)
       return;

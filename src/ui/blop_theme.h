@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QColor>
+#include <QFont>
 #include <QObject>
 #include <QString>
 
 class QApplication;
+class QDialog;
 
 /// Central design-token + theme manager for Blop. Provides a Dark and a
 /// Light palette over the same accent color (Blop purple by default) and
@@ -131,6 +133,46 @@ public:
   /// Brand/accent colors (#7C5CFC, #5E5CE6, #4285F4 etc.), error red,
   /// success green and graph plot colors are NOT touched.
   static QString themed(const QString &rawQss);
+
+  // ---------------------------------------------------------------------
+  // v3.17.3: Material 3 typography tokens. Defines the 15 standard
+  // type roles (Display/Headline/Title/Body/Label x Large/Medium/Small)
+  // with M3 spec-conformant sizes + weights. Callers can either:
+  //   widget->setFont(BlopTheme::font(TextRole::TitleMedium));
+  //   widget->setStyleSheet(BlopTheme::typeQss(TextRole::BodySmall));
+  // Conservative sizing (close to existing Blop hardcoded values) so
+  // adopting tokens does not cause layout shifts. Iteratively increase
+  // sizes once layouts have been audited.
+  // ---------------------------------------------------------------------
+  enum class TextRole {
+    DisplayLarge,
+    DisplayMedium,
+    DisplaySmall,
+    HeadlineLarge,
+    HeadlineMedium,
+    HeadlineSmall,
+    TitleLarge,
+    TitleMedium,
+    TitleSmall,
+    BodyLarge,
+    BodyMedium,
+    BodySmall,
+    LabelLarge,
+    LabelMedium,
+    LabelSmall
+  };
+  Q_ENUM(TextRole)
+
+  /// Returns a fully configured QFont for the role (family inherits from
+  /// QApplication default; only size + weight + letter-spacing are set).
+  static QFont font(TextRole role);
+  /// Returns a QSS fragment with font-size and font-weight rules ready
+  /// to be embedded into a selector body. Does NOT include a selector
+  /// or surrounding braces:
+  ///   widget->setStyleSheet(QStringLiteral("QLabel { %1 color: %2; }")
+  ///       .arg(BlopTheme::typeQss(TextRole::TitleMedium),
+  ///            hex(textPrimary())));
+  static QString typeQss(TextRole role);
 
 signals:
   /// Emitted on Dark/Light mode change AND on accent change. Callers

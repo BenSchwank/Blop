@@ -1,5 +1,6 @@
 #include "settingsdialog.h"
 #include "blop_theme.h"
+#include "blopripple.h"
 #include "blopstyle.h"
 #include "ui_SettingsDialog.h"
 
@@ -59,10 +60,12 @@ public:
 
         m_titleLbl = new QLabel(m_title, header);
         m_titleLbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
-            "color: #ECEEFD; font-size: 15px; font-weight: 700; background: transparent;")));
+            "color: #ECEEFD; %1 background: transparent;")
+            .arg(BlopTheme::typeQss(BlopTheme::TextRole::TitleLarge))));
         m_subtitleLbl = new QLabel(m_subtitle, header);
         m_subtitleLbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
-            "color: rgba(180, 188, 215, 0.78); font-size: 12px; background: transparent;")));
+            "color: rgba(180, 188, 215, 0.78); %1 background: transparent;")
+            .arg(BlopTheme::typeQss(BlopTheme::TextRole::BodySmall))));
 
         auto *titleColumn = new QVBoxLayout();
         titleColumn->setContentsMargins(0, 0, 0, 0);
@@ -206,10 +209,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     heroText->setSpacing(2);
     auto *heroName = new QLabel(currentP.name.isEmpty() ? QStringLiteral("Blop") : currentP.name, hero);
     heroName->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "color: #ECEEFD; font-size: 18px; font-weight: 700; background: transparent;")));
+        "color: #ECEEFD; %1 background: transparent;")
+        .arg(BlopTheme::typeQss(BlopTheme::TextRole::HeadlineSmall))));
     auto *heroSub = new QLabel(QStringLiteral("Aktives UI-Profil"), hero);
     heroSub->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "color: rgba(180, 188, 215, 0.85); font-size: 13px; background: transparent;")));
+        "color: rgba(180, 188, 215, 0.85); %1 background: transparent;")
+        .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge))));
     heroText->addWidget(heroName);
     heroText->addWidget(heroSub);
     heroLay->addLayout(heroText, 1);
@@ -423,9 +428,14 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         accentLay->addStretch();
         cardTheme->addBodyWidget(accentRow);
         connect(accentGroup, &QButtonGroup::idClicked, this,
-                [this](int id) {
+                [this, accentGroup](int id) {
                     const auto a = static_cast<BlopTheme::Accent>(id);
                     BlopTheme::instance().setAccent(a);
+                    // v3.17.3: short press-spring on the picker for
+                    // immediate haptic-feel feedback alongside the
+                    // accent swap.
+                    if (auto *btn = accentGroup->button(id))
+                        BlopRipple::animatePress(btn, 0.88);
                     // Keep the legacy accentColorChanged signal alive
                     // so listeners that haven't migrated to BlopTheme
                     // yet still react.
@@ -521,7 +531,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.17.2"), cardAdv);
+        auto *info = new QLabel(QStringLiteral("Blop v3.17.3"), cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));

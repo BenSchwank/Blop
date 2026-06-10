@@ -488,6 +488,75 @@ const SurfaceHex kTextShortHex[] = {
 };
 } // namespace
 
+// =====================================================================
+// Typography (M3 type scale)
+// =====================================================================
+namespace {
+// Conservative sizes — chosen to be close to existing hardcoded values
+// in the codebase so adopting tokens causes minimal layout shift. Real
+// M3 spec sizes are larger; iterate later once layouts have been
+// audited surface by surface.
+struct TypeSpec {
+  int pixelSize;
+  int weight; // QFont::Weight raw value (100..900)
+  qreal letterSpacingPx;
+};
+
+TypeSpec specFor(BlopTheme::TextRole r) {
+  using TR = BlopTheme::TextRole;
+  switch (r) {
+  case TR::DisplayLarge:
+    return {44, QFont::Normal, 0.0};
+  case TR::DisplayMedium:
+    return {36, QFont::Normal, 0.0};
+  case TR::DisplaySmall:
+    return {28, QFont::Normal, 0.0};
+  case TR::HeadlineLarge:
+    return {24, QFont::DemiBold, 0.0};
+  case TR::HeadlineMedium:
+    return {20, QFont::DemiBold, 0.0};
+  case TR::HeadlineSmall:
+    return {17, QFont::DemiBold, 0.0};
+  case TR::TitleLarge:
+    return {16, QFont::DemiBold, 0.0};
+  case TR::TitleMedium:
+    return {14, QFont::DemiBold, 0.15};
+  case TR::TitleSmall:
+    return {13, QFont::Medium, 0.1};
+  case TR::BodyLarge:
+    return {15, QFont::Normal, 0.15};
+  case TR::BodyMedium:
+    return {14, QFont::Normal, 0.25};
+  case TR::BodySmall:
+    return {12, QFont::Normal, 0.4};
+  case TR::LabelLarge:
+    return {13, QFont::Medium, 0.1};
+  case TR::LabelMedium:
+    return {12, QFont::Medium, 0.5};
+  case TR::LabelSmall:
+    return {11, QFont::Medium, 0.5};
+  }
+  return {14, QFont::Normal, 0.0};
+}
+} // namespace
+
+QFont BlopTheme::font(TextRole role) {
+  const TypeSpec s = specFor(role);
+  QFont f = qApp ? qApp->font() : QFont();
+  f.setPixelSize(s.pixelSize);
+  f.setWeight(static_cast<QFont::Weight>(s.weight));
+  if (s.letterSpacingPx != 0.0)
+    f.setLetterSpacing(QFont::AbsoluteSpacing, s.letterSpacingPx);
+  return f;
+}
+
+QString BlopTheme::typeQss(TextRole role) {
+  const TypeSpec s = specFor(role);
+  return QStringLiteral("font-size: %1px; font-weight: %2;")
+      .arg(s.pixelSize)
+      .arg(s.weight);
+}
+
 QString BlopTheme::themed(const QString &rawQss) {
   // Dark mode: the existing hardcoded hex values ARE the dark palette;
   // shipping them unchanged keeps zero visual diff for the bulk of users.

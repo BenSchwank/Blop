@@ -190,9 +190,7 @@ void AndroidTileDelegate::paint(QPainter *painter,
     painter->drawPixmap(iconRect, glyph);
 
   // Caption.
-  QFont font = option.font;
-  font.setPointSize(11);
-  font.setWeight(QFont::Medium);
+  QFont font = BlopTheme::font(BlopTheme::TextRole::LabelMedium);
   painter->setFont(font);
   painter->setPen(BlopTheme::textPrimary());
 

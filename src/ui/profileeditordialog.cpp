@@ -1,4 +1,5 @@
 #include "profileeditordialog.h"
+#include "blopripple.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
 
@@ -193,6 +194,8 @@ void ProfileEditorDialog::setupUi() {
     connect(btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     QPushButton *btnSave = new QPushButton("Speichern", this);
     btnSave->setStyleSheet("background-color: #5E5CE6; border: none; font-weight: bold;");
+    connect(btnSave, &QPushButton::pressed, this,
+            [btnSave]() { BlopRipple::animatePress(btnSave, 0.92); });
     connect(btnSave, &QPushButton::clicked, this, &QDialog::accept);
     btns->addWidget(btnCancel);
     btns->addWidget(btnSave);

@@ -13,11 +13,14 @@ class QDialog;
 /// (where any top-level QWindow can trip the EGL deadlock seen in v3.16.x)
 /// and to give desktop a consistent, animated overlay.
 ///
-/// Two display modes:
+/// Display modes:
 ///   * Mode::Card        - centered, rounded card. Default on desktop.
 ///   * Mode::BottomSheet - slides up from the bottom edge, rounded top
 ///                         corners only, drag-down-to-dismiss. Default on
 ///                         Android phones.
+///   * Mode::SideSheet   - v3.17.3: slides in from the right edge,
+///                         rounded left corners only. Used by wide
+///                         dialogs like Settings on tablet/desktop.
 ///   * Mode::Auto        - BottomSheet on Android phone, Card otherwise.
 ///
 /// API:
@@ -31,7 +34,7 @@ class QDialog;
 class BlopModal : public QWidget {
   Q_OBJECT
 public:
-  enum class Mode { Auto, Card, BottomSheet };
+  enum class Mode { Auto, Card, BottomSheet, SideSheet };
   Q_ENUM(Mode)
 
   static BlopModal *present(QWidget *parent, QWidget *content,

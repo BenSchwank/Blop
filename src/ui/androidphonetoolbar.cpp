@@ -252,10 +252,12 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   sheet->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
   sheet->setAttribute(Qt::WA_DeleteOnClose);
   sheet->setAttribute(Qt::WA_StyledBackground, true);
-  sheet->setStyleSheet(QStringLiteral(
-      "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
-      "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
-      "QLabel { color: #E8E4FF; font-size: 13px; }"));
+  sheet->setStyleSheet(
+      QStringLiteral(
+          "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
+          "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
+          "QLabel { color: #E8E4FF; %1 }")
+          .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge)));
   backdrop->sheet = sheet;
 
   auto *layout = new QVBoxLayout(sheet);
