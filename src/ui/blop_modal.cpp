@@ -4,8 +4,10 @@
 #include "uiscale.h"
 
 #include <QApplication>
+#include <QDialog>
 #include <QEasingCurve>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
@@ -37,6 +39,54 @@ BlopModal *BlopModal::present(QWidget *parent, QWidget *content, Mode mode,
   modal->raise();
   modal->startOpenAnim();
   return modal;
+}
+
+int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode) {
+  if (!parent || !dlg)
+    return QDialog::Rejected;
+
+  // Strip the top-level QDialog window flags so reparenting into our card
+  // doesn't try to spawn a separate QWindow. On Android, top-level
+  // QWindow creation is the path that triggered the v3.16.x
+  // QtAndroidAccessibility EGL deadlock; embedding the dialog as a
+  // plain child widget keeps us off that path.
+  dlg->setWindowFlags(Qt::Widget);
+  dlg->setAttribute(Qt::WA_TranslucentBackground, false);
+  dlg->setAttribute(Qt::WA_DeleteOnClose, false);
+
+  auto *modal = present(parent, dlg, mode);
+  if (!modal)
+    return QDialog::Rejected;
+
+  int result = QDialog::Rejected;
+  QEventLoop loop;
+  bool dialogFinished = false;
+
+  QObject::connect(dlg, &QDialog::finished, &loop, [&](int code) {
+    result = code;
+    dialogFinished = true;
+    loop.quit();
+  });
+  // User dismissed via backdrop / drag / ESC before clicking a dialog
+  // button -> treat as Rejected, matches QDialog::exec() Esc behaviour.
+  QObject::connect(modal, &BlopModal::dismissed, &loop, [&]() {
+    if (!dialogFinished)
+      result = QDialog::Rejected;
+    loop.quit();
+  });
+
+  // QDialog hides itself by default; force visible since we don't go
+  // through exec() and the caller expects the dialog to render.
+  dlg->show();
+  loop.exec();
+
+  // If the dialog itself reached finished() the modal is still open ->
+  // animate it out so the caller's next setStyleSheet/show isn't racing
+  // with a stale backdrop.
+  if (dialogFinished && modal && !modal->isHidden())
+    modal->dismiss();
+
+  return result;
 }
 
 BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,

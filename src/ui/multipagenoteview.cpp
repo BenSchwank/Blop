@@ -1,6 +1,7 @@
 #include "multipagenoteview.h"
 #include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
+#include "blop_modal.h"
 #include "blopstyle.h"
 #include "editoroverlays.h"
 #include "UIStyles.h"
@@ -1480,8 +1481,18 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   connect(m_graphQuickPopup, &GraphQuickActionPopup::axisSettingsRequested, this, [this]() {
     if (!m_selectedGraphItem)
       return;
+    // v3.17.2: on Android, wrap the dialog in a BlopModal so it never
+    // becomes a top-level QWindow (the v3.16.x EGL deadlock path). On
+    // Desktop we keep the historic QDialog::exec() since the platform
+    // has no such issue and exec() is the simpler control-flow.
+#ifdef Q_OS_ANDROID
+    auto *dlg = new GraphAxisSettingsDialog(m_selectedGraphItem, window());
+    BlopModal::execBlocking(window(), dlg);
+    dlg->deleteLater();
+#else
     GraphAxisSettingsDialog dlg(m_selectedGraphItem, window());
     dlg.exec();
+#endif
     bindGraphChrome(m_selectedGraphItem);
     syncGraphLegendLayout();
     syncGraphItemsToNote();
@@ -2798,8 +2809,16 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       commitPendingStrokeItemsToNote(tool);
       syncGraphItemsToNote();
       if (newGraph) {
+        // v3.17.2: see comment in GraphQuickActionPopup connect site --
+        // BlopModal::execBlocking avoids top-level QWindow on Android.
+#ifdef Q_OS_ANDROID
+        auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
+        BlopModal::execBlocking(window(), dlg);
+        dlg->deleteLater();
+#else
         GraphAxisSettingsDialog dlg(newGraph, window());
         dlg.exec();
+#endif
         syncGraphItemsToNote();
       }
       tool->clearLastCompletedItem();
@@ -2911,8 +2930,14 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
         commitPendingStrokeItemsToNote(tool);
         syncGraphItemsToNote();
         if (newGraph) {
+#ifdef Q_OS_ANDROID
+          auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
+          BlopModal::execBlocking(window(), dlg);
+          dlg->deleteLater();
+#else
           GraphAxisSettingsDialog dlg(newGraph, window());
           dlg.exec();
+#endif
           syncGraphItemsToNote();
         }
         tool->clearLastCompletedItem();

@@ -5,6 +5,7 @@
 
 class QPropertyAnimation;
 class QFrame;
+class QDialog;
 
 /// Reusable, theme-aware in-window modal sheet for Blop. Renders a backdrop
 /// scrim over the parent window and a content card / bottom sheet that
@@ -36,6 +37,21 @@ public:
   static BlopModal *present(QWidget *parent, QWidget *content,
                             Mode mode = Mode::Auto,
                             const QString &accessibleTitle = QString());
+
+  /// v3.17.2: synchronous-feel replacement for QDialog::exec() that wraps
+  /// any QDialog inside a BlopModal. The dialog is reparented (loses its
+  /// top-level QWindow, avoiding the v3.16.x EGL deadlock path on
+  /// Android), then a local QEventLoop blocks until the dialog emits
+  /// `finished(int)` OR the user dismisses the modal. Returns the
+  /// QDialog::DialogCode value (Accepted, Rejected, or any custom code
+  /// the dialog passed to done()).
+  ///
+  /// Use only in code paths that today read `if (dlg.exec() == Accepted)`
+  /// and where converting to async would require reshuffling the caller.
+  /// For pure async usage prefer `present()` + finished/dismissed
+  /// signals.
+  static int execBlocking(QWidget *parent, QDialog *dlg,
+                          Mode mode = Mode::Auto);
 
   void dismiss();
 

@@ -521,7 +521,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.17.1"), cardAdv);
+        auto *info = new QLabel(QStringLiteral("Blop v3.17.2"), cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));
