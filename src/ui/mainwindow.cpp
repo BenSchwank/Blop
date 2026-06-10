@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.3"
+#define BLOP_VERSION_STR "3.18.4"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 

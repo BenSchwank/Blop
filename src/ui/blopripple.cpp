@@ -130,8 +130,7 @@ void BlopRipple::animatePress(QWidget *target, qreal pressedScale) {
                        safe->setWindowOpacity(1.0);
                    });
   seq->start(QAbstractAnimation::DeleteWhenStopped);
-  return;
-#endif
+#else
   // Anchored on the widget's current geometry. We animate the geometry
   // toward a shrunk-around-center rectangle and back, giving the user a
   // light bounce. Cheap (one QVariantAnimation), safe on any platform,
@@ -178,6 +177,7 @@ void BlopRipple::animatePress(QWidget *target, qreal pressedScale) {
                        safe->setGeometry(base);
                    });
   seq->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
 }
 
 void BlopRipple::attachPressFeedback(QAbstractButton *btn, qreal pressedScale) {
