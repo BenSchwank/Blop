@@ -1,5 +1,6 @@
 #pragma once
 #include <QPointer>
+#include <QSet>
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
@@ -59,6 +60,13 @@ public:
 
     // Methoden für PageManager
     QPixmap generateThumbnail(int pageIndex, const QSize& size);
+
+    /// v3.17.6: async sibling of generateThumbnail. Renders + scales the
+    /// thumbnail on a QtConcurrent worker thread, posts the QPixmap back
+    /// to the caller via `callback` on the UI thread. If the thumbnail is
+    /// already in QPixmapCache the callback is invoked synchronously.
+    void generateThumbnailAsync(int pageIndex, const QSize& size,
+                                std::function<void(QPixmap)> callback);
     void movePage(int fromIndex, int toIndex);
     void duplicatePage(int pageIndex);
     void deletePage(int pageIndex);
@@ -273,6 +281,16 @@ private:
     /// scroll-pixel previously triggered 3 layout functions; the timer
     /// folds bursts of updates into one frame-aligned dispatch.
     QTimer* m_scrollLayoutCoalescer{nullptr};
+
+    /// v3.17.6: lazy page hydration tracking. On Android, only pages in
+    /// the current viewport range (+/- N padding) are populated with
+    /// StrokeItem/GraphCanvasItem instances; the rest are realised
+    /// on-demand as the user scrolls. Membership in this set means the
+    /// page is fully realised in the scene.
+    QSet<int> m_hydratedPages;
+    void hydratePageContent(int pageIdx);
+    void hydrateVisibleRange();
+    QString thumbnailCacheKey(int pageIndex, const QSize& size) const;
 
     /// Currently active inline formula input zone (created by "+" tap).
     QPointer<GraphFormulaZone> m_activeFormulaZone;

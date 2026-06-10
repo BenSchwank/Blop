@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.17.5"
+#define BLOP_VERSION_STR "3.17.6"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -4668,6 +4668,13 @@ void MainWindow::onModeChanged(int index) {
       m_studyWindowContainer->setEnabled(false);
       m_studyWindowContainer->clearFocus();
     }
+    // v3.17.6: suspend the AndroidWebView poll timers while the Study tab is
+    // hidden. We cannot hide the QQuickWidget itself (would detach the
+    // SurfaceView and paint black on re-show), so the QML side reads a
+    // tabActive property that we toggle here.
+    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+      m_studyQQuickView->rootObject()->setProperty("tabActive", false);
+    }
     m_lastStudyDeactivationMs = QDateTime::currentMSecsSinceEpoch();
   }
 #endif
@@ -4685,6 +4692,10 @@ void MainWindow::onModeChanged(int index) {
   if (mainStackIdx == 1 && m_studyWindowContainer && m_studyVBoxLayout) {
     m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, false);
     m_studyWindowContainer->setEnabled(true);
+    // v3.17.6: re-enable the QML poll timers now that Study is visible again.
+    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+      m_studyQQuickView->rootObject()->setProperty("tabActive", true);
+    }
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
     // No hide() was called when leaving, so no show() needed here. Only

@@ -24,6 +24,7 @@
 #include <QFont>
 #include <QIcon>
 #include <QPixmap>
+#include <QPixmapCache>
 #include <QTimer>
 
 int main(int argc, char *argv[]) {
@@ -96,6 +97,13 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+  // v3.17.6: bump the global QPixmapCache. The default is 10240 KB on
+  // desktop and 1024 KB on mobile -- our note-thumbnail workload needs
+  // more headroom (a single A4 page-icon is ~46 KB and we may keep
+  // hundreds of them in a long note). 16 MB keeps long-session memory
+  // bounded while practically eliminating cache thrashing.
+  QPixmapCache::setCacheLimit(16 * 1024);
 
   // Install in-app crash diagnostics (Qt msg handler + POSIX signal handler).
   // Must run as early as possible after QApplication so we capture early

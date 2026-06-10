@@ -5,6 +5,12 @@ import QtWebView 1.1
 Rectangle {
     id: studyRoot
     color: "#0B0B1A"
+    // v3.17.6: set from C++ (MainWindow tab switch) so the poll timers can
+    // suspend while Study is hidden behind the Notes tab. The QQuickWidget
+    // intentionally stays visible at the Qt level to avoid SurfaceView
+    // detach -- gating the poll timers via this explicit property is the
+    // safe way to stop competing with the canvas for GPU/CPU.
+    property bool tabActive: true
     // Native Android header in MainWindow is the single source of truth for Notes/Study/+.
     // Keep this disabled to avoid duplicated top bars.
     readonly property bool showQmlTopBar: false
@@ -933,12 +939,16 @@ Rectangle {
         }
     }
 
+    // v3.17.6: gate the 1 s SSO/cache-miss poller on the tabActive flag.
+    // Previously this timer kept running (and kept the WebView's GL surface
+    // active) even when the Study tab was hidden behind the Notes tab,
+    // which competed with the QGraphicsView canvas for GPU resources.
     Timer {
         interval: 1000
-        running: ssoPollingEnabled && !webviewRecreatePending
+        running: ssoPollingEnabled && !webviewRecreatePending && tabActive
         repeat: true
         onTriggered: {
-            if (!ssoPollingEnabled)
+            if (!ssoPollingEnabled || !tabActive)
                 return
             var w = studyWeb()
             if (!w)
@@ -995,9 +1005,11 @@ Rectangle {
     }
 
     // If OAuth browser return leaves the embedded page stale, recover automatically.
+    // v3.17.6: also gate on tabActive so this 1.2 s ticker stops while the
+    // tab is hidden.
     Timer {
         interval: 1200
-        running: ssoPollingEnabled
+        running: ssoPollingEnabled && tabActive
         repeat: true
         onTriggered: {
             if (!oauthPending)

@@ -14,7 +14,9 @@
 #include <QEvent>
 #include <QKeyEvent>
 #include <QShowEvent>
+#include <QListWidget>
 #include <QListWidgetItem>
+#include <QPointer>
 #include <QCheckBox>
 
 namespace {
@@ -679,7 +681,16 @@ void PageManager::rebuildList(bool keepSelection) {
       item->setData(Qt::DisplayRole, QStringLiteral("Seite %1").arg(i + 1));
       item->setData(Qt::UserRole + 1, title);
       item->setData(Qt::UserRole + 2, m_multiSelectMode ? 136 : 126);
-      item->setIcon(QIcon(m_view->generateThumbnail(i, QSize(92, 126))));
+      // v3.17.6: kick off thumbnail render asynchronously. A placeholder
+      // (plain white tile) is shown while the worker runs; when the
+      // worker finishes the QListWidgetItem is updated via QPersistent-
+      // ModelIndex (the QListWidgetItem* pointer would otherwise be
+      // invalidated if rebuildList() runs again before the worker
+      // completes). On hit-cache (most repeat opens) the callback fires
+      // synchronously, so the placeholder is never observable.
+      QPixmap placeholder(QSize(92, 126));
+      placeholder.fill(Qt::white);
+      item->setIcon(QIcon(placeholder));
       item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable |
                      Qt::ItemIsDragEnabled | Qt::ItemIsEnabled);
       const bool selected = keepSelection ? oldSel.contains(i) : m_selectedPages.contains(i);
@@ -687,6 +698,21 @@ void PageManager::rebuildList(bool keepSelection) {
       if (selected)
         m_selectedPages.insert(i);
       m_listWidget->addItem(item);
+
+      QPointer<QListWidget> guardList(m_listWidget);
+      const int pageIdx = i;
+      m_view->generateThumbnailAsync(pageIdx, QSize(92, 126),
+                                     [guardList, pageIdx](QPixmap pm) {
+        if (!guardList || pm.isNull())
+          return;
+        for (int r = 0; r < guardList->count(); ++r) {
+          QListWidgetItem *it = guardList->item(r);
+          if (it && it->data(Qt::UserRole).toInt() == pageIdx) {
+            it->setIcon(QIcon(pm));
+            break;
+          }
+        }
+      });
     }
     updateSubtitle();
 }

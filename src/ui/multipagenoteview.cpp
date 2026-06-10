@@ -20,6 +20,8 @@
 #include "tools/math/NumericAnalysis.h"
 #include "tools/math/MathInkRecognizer.h"
 #include "tools/GraphFormulaZone.h"
+#include <QFuture>
+#include <QFutureWatcher>
 #include <QGraphicsRectItem>
 #include <QGraphicsSceneMouseEvent>
 #include <QImage>
@@ -27,6 +29,8 @@
 #include <QPainterPath>
 #include <QPdfWriter>
 #include <QPen>
+#include <QPixmapCache>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QPointingDevice>
 #include <QPolygonF>
 #include <QScrollBar>
@@ -1535,6 +1539,11 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     syncPagesBarVisibility();
     syncGraphLegendLayout();
     repositionGraphEntryBar();
+#ifdef Q_OS_ANDROID
+    // v3.17.6: piggy-back lazy page hydration on the existing scroll
+    // coalescer so we don't fire a second timer cascade per scroll burst.
+    hydrateVisibleRange();
+#endif
   });
   auto kickCoalescer = [this]() {
     if (m_scrollLayoutCoalescer && !m_scrollLayoutCoalescer->isActive())
@@ -1674,12 +1683,146 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_bottomSheet->hide();
 }
 
+void MultiPageNoteView::hydratePageContent(int i) {
+  if (!note_ || i < 0 || i >= note_->pages.size())
+    return;
+  if (m_hydratedPages.contains(i))
+    return;
+  if (i >= pageItems_.size())
+    return;
+  m_hydratedPages.insert(i);
+
+  bool wasBlocked = scene_.blockSignals(true);
+  for (const auto &s : note_->pages[i].strokes) {
+    StrokeItem::StrokeStyle type = StrokeItem::Normal;
+    QPen pen;
+    if (s.isEraser) {
+      pen = QPen(UIStyles::PageBackground, s.width);
+      type = StrokeItem::Eraser;
+    } else if (s.isHighlighter) {
+      QColor c = s.color;
+      c.setAlpha(80);
+      pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+      type = StrokeItem::Highlighter;
+    } else {
+      pen = QPen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+      type = StrokeItem::Normal;
+    }
+
+    auto item = new StrokeItem(s.path, pen, QVector<StrokePoint>(), type);
+
+    if (s.isEraser || (!s.isEraser && !s.isHighlighter)) {
+        item->setZValue(1.0);
+    } else if (s.isHighlighter) {
+        item->setZValue(0.5);
+    }
+
+    item->setFlag(QGraphicsItem::ItemIsSelectable, true);
+    item->setFlag(QGraphicsItem::ItemIsMovable, true);
+    scene_.addItem(item);
+    item->setPos(pageRect(i).topLeft());
+  }
+  for (const auto& g : note_->pages[i].graphs) {
+    auto* gi = new GraphCanvasItem(g.rect);
+    gi->fromData(g);
+    gi->setParentItem(pageItems_[i]);
+    gi->setFlag(QGraphicsItem::ItemIsSelectable, true);
+    gi->setFlag(QGraphicsItem::ItemIsMovable, true);
+    gi->setZValue(4.0);
+    connect(gi, &GraphCanvasItem::graphChanged, this, [this]() { syncGraphItemsToNote(); });
+    connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
+      abandonGraphEntrySession();
+      QSignalBlocker blocker(&scene_);
+      scene_.clearSelection();
+      gi->setSelected(true);
+      m_selectedGraphItem = gi;
+      m_graphPanelTargetGraph = gi;
+      m_graphPanelExplicitOpen = true;
+      m_graphQuickPopupWanted = false;
+      hideGraphQuickPopup();
+      gi->setSelectedFunction(idx);
+      refreshGraphPanelForSelection();
+    });
+    connect(gi, &GraphCanvasItem::functionLongPressed, this, [this, gi](int idx) {
+      abandonGraphEntrySession();
+      QSignalBlocker blocker(&scene_);
+      scene_.clearSelection();
+      gi->setSelected(true);
+      m_selectedGraphItem = gi;
+      m_graphPanelTargetGraph = gi;
+      m_graphPanelExplicitOpen = true;
+      m_graphQuickPopupWanted = false;
+      hideGraphQuickPopup();
+      gi->setSelectedFunction(idx);
+      refreshGraphPanelForSelection();
+    });
+    connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
+      QSignalBlocker blocker(&scene_);
+      scene_.clearSelection();
+      gi->setSelected(true);
+      m_selectedGraphItem = gi;
+      m_graphQuickPopupWanted = false;
+      hideGraphQuickPopup();
+      m_graphPanelTargetGraph = gi;
+      m_graphPanelTargetGraph = gi;
+      m_graphPanelExplicitOpen = false; // Don't open old legend auto
+      openGraphFormulaZone(gi);
+    });
+    connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
+      abandonGraphEntrySession();
+      QSignalBlocker blocker(&scene_);
+      scene_.clearSelection();
+      gi->setSelected(true);
+      m_selectedGraphItem = gi;
+      m_graphPanelTargetGraph = gi;
+      m_graphPanelExplicitOpen = true;
+      m_graphQuickAnchorScene = scenePos;
+      m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
+      if (!m_graphQuickPopupWanted)
+        hideGraphQuickPopup();
+      refreshGraphPanelForSelection();
+    });
+    connect(gi, &GraphCanvasItem::xAxisTapped, this, [this, gi](double dataX, QPointF scenePos) {
+      if (m_tangentXPopup)
+        m_tangentXPopup->present(gi, scenePos, dataX);
+    });
+    connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
+      if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
+          (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
+        syncGraphLegendLayout();
+      }
+    });
+    gi->setData(9001, true);
+    syncGraphPlusLayout(gi);
+  }
+  scene_.blockSignals(wasBlocked);
+}
+
+void MultiPageNoteView::hydrateVisibleRange() {
+  if (!note_)
+    return;
+  const QRectF vp = mapToScene(viewport()->rect()).boundingRect();
+  const qreal pageH = a4hPx() + pageSpacingPx();
+  if (pageH <= 0.0)
+    return;
+  // v3.17.6: hydrate visible pages + N padding on either side so that
+  // scrolling does not visibly stall while waiting for content. N=3 is
+  // a tradeoff between memory pressure on very long notes and avoiding
+  // visible "blank page" flashes during fast flicks.
+  constexpr int kPad = 3;
+  int first = qMax(0, int(vp.top() / pageH) - kPad);
+  int last = qMin(note_->pages.size() - 1, int(vp.bottom() / pageH) + kPad);
+  for (int i = first; i <= last; ++i)
+    hydratePageContent(i);
+}
+
 void MultiPageNoteView::setNote(Note *note) {
   note_ = note;
   if (m_undoStack)
     m_undoStack->clear();
   scene_.clear();
   pageItems_.clear();
+  m_hydratedPages.clear();
   m_pagesBarAnchorStrip = nullptr;
   resetGraphChromeAfterSceneClear();
 
@@ -1694,113 +1837,17 @@ void MultiPageNoteView::setNote(Note *note) {
   if (!note_)
     return;
 
-  bool wasBlocked = scene_.blockSignals(true);
-
-  for (int i = 0; i < note_->pages.size(); ++i) {
-    for (const auto &s : note_->pages[i].strokes) {
-      StrokeItem::StrokeStyle type = StrokeItem::Normal;
-      QPen pen;
-      if (s.isEraser) {
-        pen = QPen(UIStyles::PageBackground, s.width);
-        type = StrokeItem::Eraser;
-      } else if (s.isHighlighter) {
-        QColor c = s.color;
-        c.setAlpha(80);
-        pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        type = StrokeItem::Highlighter;
-      } else {
-        pen = QPen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        type = StrokeItem::Normal;
-      }
-
-      auto item = new StrokeItem(s.path, pen, QVector<StrokePoint>(), type);
-      
-      if (s.isEraser || (!s.isEraser && !s.isHighlighter)) {
-          item->setZValue(1.0);
-      } else if (s.isHighlighter) {
-          item->setZValue(0.5);
-      }
-      
-      item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-      item->setFlag(QGraphicsItem::ItemIsMovable, true);
-      scene_.addItem(item);
-      item->setPos(pageRect(i).topLeft());
-    }
-    for (const auto& g : note_->pages[i].graphs) {
-      auto* gi = new GraphCanvasItem(g.rect);
-      gi->fromData(g);
-      gi->setParentItem(pageItems_[i]);
-      gi->setFlag(QGraphicsItem::ItemIsSelectable, true);
-      gi->setFlag(QGraphicsItem::ItemIsMovable, true);
-      gi->setZValue(4.0);
-      connect(gi, &GraphCanvasItem::graphChanged, this, [this]() { syncGraphItemsToNote(); });
-      connect(gi, &GraphCanvasItem::functionTapped, this, [this, gi](int idx) {
-        abandonGraphEntrySession();
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        m_graphQuickPopupWanted = false;
-        hideGraphQuickPopup();
-        gi->setSelectedFunction(idx);
-        refreshGraphPanelForSelection();
-      });
-      connect(gi, &GraphCanvasItem::functionLongPressed, this, [this, gi](int idx) {
-        abandonGraphEntrySession();
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        m_graphQuickPopupWanted = false;
-        hideGraphQuickPopup();
-        gi->setSelectedFunction(idx);
-        refreshGraphPanelForSelection();
-      });
-      connect(gi, &GraphCanvasItem::plusTapped, this, [this, gi]() {
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphQuickPopupWanted = false;
-        hideGraphQuickPopup();
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = false; // Don't open old legend auto
-        openGraphFormulaZone(gi);
-      });
-      connect(gi, &GraphCanvasItem::plotBackgroundTapped, this, [this, gi](QPointF scenePos) {
-        abandonGraphEntrySession();
-        QSignalBlocker blocker(&scene_);
-        scene_.clearSelection();
-        gi->setSelected(true);
-        m_selectedGraphItem = gi;
-        m_graphPanelTargetGraph = gi;
-        m_graphPanelExplicitOpen = true;
-        m_graphQuickAnchorScene = scenePos;
-        m_graphQuickPopupWanted = !gi->data().functions.isEmpty();
-        if (!m_graphQuickPopupWanted)
-          hideGraphQuickPopup();
-        refreshGraphPanelForSelection();
-      });
-      connect(gi, &GraphCanvasItem::xAxisTapped, this, [this, gi](double dataX, QPointF scenePos) {
-        if (m_tangentXPopup)
-          m_tangentXPopup->present(gi, scenePos, dataX);
-      });
-      connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
-        if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
-            (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
-          syncGraphLegendLayout();
-        }
-      });
-      gi->setData(9001, true);
-      syncGraphPlusLayout(gi);
-    }
-  }
-  scene_.blockSignals(wasBlocked);
+#ifdef Q_OS_ANDROID
+  // v3.17.6: lazy page hydration. Only build the StrokeItem/GraphCanvasItem
+  // graph for pages currently visible in the viewport (+/- N pages of
+  // padding). Off-screen pages get hydrated on-demand from the scroll
+  // coalescer in MultiPageNoteView's ctor. For big notes (>50 pages) this
+  // cuts setNote() from hundreds of ms to a few dozen.
+  hydrateVisibleRange();
+#else
+  for (int i = 0; i < note_->pages.size(); ++i)
+    hydratePageContent(i);
+#endif
   syncPagesBarVisibility();
 }
 
@@ -3045,18 +3092,18 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
   }
 }
 
-QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, const QSize &size) {
-  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size()) {
-    QPixmap empty(size);
-    empty.fill(Qt::white);
-    return empty;
-  }
-  QImage img(a4wPx(), a4hPx(), QImage::Format_ARGB32_Premultiplied);
+namespace {
+// v3.17.6: pure stroke-render helper, safe to invoke from any thread.
+// Operates only on QImage / QPainter and value-type Stroke fields, so it
+// can be dispatched to QtConcurrent::run without touching scene state.
+QImage renderThumbnailImage(int pageW, int pageH, const QSize &size,
+                            const QVector<Stroke> &strokes) {
+  QImage img(pageW, pageH, QImage::Format_ARGB32_Premultiplied);
   img.fill(Qt::white);
   QPainter p(&img);
   p.setRenderHint(QPainter::Antialiasing);
 
-  for (const auto &s : note_->pages[pageIndex].strokes) {
+  for (const auto &s : strokes) {
     QColor c = s.color;
     if (s.isHighlighter)
       c.setAlpha(80);
@@ -3071,8 +3118,82 @@ QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, const QSize &size) {
     p.drawPath(s.path);
   }
   p.end();
-  return QPixmap::fromImage(
-      img.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+  return img.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+}
+} // namespace
+
+QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, const QSize &size) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size()) {
+    QPixmap empty(size);
+    empty.fill(Qt::white);
+    return empty;
+  }
+  // v3.17.6: try cache first (populated by both sync + async paths).
+  const QString key = thumbnailCacheKey(pageIndex, size);
+  QPixmap cached;
+  if (QPixmapCache::find(key, &cached))
+    return cached;
+  QImage scaled = renderThumbnailImage(a4wPx(), a4hPx(), size,
+                                       note_->pages[pageIndex].strokes);
+  QPixmap pm = QPixmap::fromImage(scaled);
+  QPixmapCache::insert(key, pm);
+  return pm;
+}
+
+QString MultiPageNoteView::thumbnailCacheKey(int pageIndex,
+                                             const QSize &size) const {
+  // Cache-bust on note identity + page revision so a stroke edit invalidates
+  // its thumbnail entry. Note* pointer alone is fine for the cache lifetime
+  // since QPixmapCache is process-wide and entries get evicted on memory
+  // pressure anyway.
+  return QStringLiteral("blop_thumb_%1_%2_%3x%4")
+      .arg(reinterpret_cast<quintptr>(note_))
+      .arg(pageIndex)
+      .arg(size.width())
+      .arg(size.height());
+}
+
+void MultiPageNoteView::generateThumbnailAsync(
+    int pageIndex, const QSize &size,
+    std::function<void(QPixmap)> callback) {
+  if (!callback)
+    return;
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size()) {
+    QPixmap empty(size);
+    empty.fill(Qt::white);
+    callback(empty);
+    return;
+  }
+  // Hit-cache fast path keeps the synchronous behaviour for repeat asks.
+  const QString key = thumbnailCacheKey(pageIndex, size);
+  QPixmap cached;
+  if (QPixmapCache::find(key, &cached)) {
+    callback(cached);
+    return;
+  }
+  const int pageW = a4wPx();
+  const int pageH = a4hPx();
+  // Deep-copy strokes into the worker. QPainterPath / QColor are
+  // implicitly-shared value types; the worker mutates none of them.
+  QVector<Stroke> strokes = note_->pages[pageIndex].strokes;
+  QPointer<MultiPageNoteView> guard(this);
+  auto *watcher = new QFutureWatcher<QImage>(this);
+  connect(watcher, &QFutureWatcher<QImage>::finished, this,
+          [watcher, guard, callback, key, size]() {
+            QImage img = watcher->result();
+            watcher->deleteLater();
+            if (!guard) {
+              callback(QPixmap());
+              return;
+            }
+            QPixmap pm = QPixmap::fromImage(img);
+            QPixmapCache::insert(key, pm);
+            callback(pm);
+          });
+  watcher->setFuture(QtConcurrent::run(
+      [pageW, pageH, size, strokes]() {
+        return renderThumbnailImage(pageW, pageH, size, strokes);
+      }));
 }
 
 bool MultiPageNoteView::exportPageToPng(int pageIndex, const QString &path) {

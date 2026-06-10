@@ -1,5 +1,6 @@
 #include "androidicons.h"
 
+#include <QCache>
 #include <QHash>
 #include <QPainter>
 #include <QPainterPath>
@@ -32,9 +33,22 @@ inline uint qHash(const CacheKey &k, uint seed = 0) noexcept {
   return ::qHash(k.name, seed) ^ uint(k.color) ^ uint(k.pxSize) * 2654435761u;
 }
 
-QHash<CacheKey, QPixmap> &cache() {
-  static QHash<CacheKey, QPixmap> g;
+// v3.17.6: bounded cache. The old QHash<CacheKey, QPixmap> grew without
+// limit -- on long sessions with many accent changes and dp-size
+// permutations the cache could comfortably reach tens of MB. QCache
+// evicts least-recently-used entries when the total cost exceeds the
+// configured maximum (units are bytes / 1024 = approximate pixmap KB).
+QCache<CacheKey, QPixmap> &cache() {
+  // 4 MB is generous for the ~25 distinct glyphs we currently ship and
+  // still cheap to evict from under memory pressure.
+  static QCache<CacheKey, QPixmap> g(4 * 1024);
   return g;
+}
+
+inline int pixmapCostKb(const QPixmap &pm) {
+  // 4 bytes/px is a safe over-estimate for ARGB32_Premultiplied surfaces.
+  const qint64 bytes = qint64(pm.width()) * pm.height() * 4;
+  return qMax(1, int(bytes / 1024));
 }
 
 // ---------------------------------------------------------------------------
@@ -394,11 +408,11 @@ QPixmap pixmap(const QString &name, const QColor &color, int pxSize) {
   pxSize = qMax(8, pxSize);
   CacheKey key{name, color.rgba(), pxSize};
   auto &c = cache();
-  auto it = c.constFind(key);
-  if (it != c.constEnd())
-    return it.value();
+  if (QPixmap *cached = c.object(key))
+    return *cached;
   QPixmap pm = render(name, color, pxSize);
-  c.insert(key, pm);
+  // QCache takes ownership of the heap pointer and deletes it on eviction.
+  c.insert(key, new QPixmap(pm), pixmapCostKb(pm));
   return pm;
 }
 

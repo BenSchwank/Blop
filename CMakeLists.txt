@@ -17,7 +17,7 @@ execute_process(
 
 # Fallback if git fails
 if(NOT GIT_VERSION)
-    set(GIT_VERSION "3.17.5")
+    set(GIT_VERSION "3.17.6")
 endif()
 
 # Remove 'v' prefix if it exists for the project() call
@@ -26,7 +26,7 @@ string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
 # We'll just extract the numeric part x.y.z.w
 string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
 if(NOT SAFE_VERSION)
-    set(SAFE_VERSION "3.17.5")
+    set(SAFE_VERSION "3.17.6")
 endif()
 
 project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
@@ -272,6 +272,18 @@ target_link_libraries(Blop PRIVATE
 
 # Export BLOP_VERSION_STR for runtime usage in mainwindow.cpp
 target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
+
+# v3.17.6: silence qDebug()/qInfo() in non-debug builds. Each qDebug() call
+# does QByteArray allocation + (on Android) a JNI hop into __android_log_write.
+# On hot paths (canvas paint, tool-mode change) that adds up to measurable
+# overhead. The compiler eliminates the entire qDebug stream at the call
+# site when QT_NO_DEBUG_OUTPUT is defined, so it's a pure binary-size /
+# perf win with no runtime branch. BlopDiag's POSIX/Qt signal-safe writer
+# is unaffected.
+target_compile_definitions(Blop PRIVATE
+    $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
+    $<$<NOT:$<CONFIG:Debug>>:QT_NO_INFO_OUTPUT>
+)
 
 if(BLOP_ENABLE_SENTRY)
     target_compile_definitions(Blop PRIVATE BLOP_SENTRY_ENABLED=1)
