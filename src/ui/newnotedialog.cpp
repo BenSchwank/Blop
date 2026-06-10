@@ -118,7 +118,8 @@ void NewNoteDialog::setupUi()
     m_btnCreate = new QPushButton("Erstellen", container);
     m_btnCreate->setCursor(Qt::PointingHandCursor);
     m_btnCreate->setFixedSize(100, 36);
-    m_btnCreate->setStyleSheet("QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 18px; font-weight: bold; font-size: 14px; } QPushButton:hover { background: #4b49c9; }");
+    m_btnCreate->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 18px; font-weight: bold; font-size: 14px; } QPushButton:hover { background: #4b49c9; }")));
     connect(m_btnCreate, &QPushButton::clicked, this, &QDialog::accept);
 
     actionLay->addWidget(m_btnCancel);

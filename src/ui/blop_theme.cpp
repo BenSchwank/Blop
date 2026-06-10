@@ -418,10 +418,19 @@ const SurfaceHex kSurfaceElevatedHex[] = {
 
 // Inputs / muted backgrounds
 const SurfaceHex kSurfaceMutedHex[] = {
+    {"#121212", BlopTheme::surfaceMuted},
     {"#252526", BlopTheme::surfaceMuted},
     {"#2A2640", BlopTheme::surfaceMuted},
     {"#262237", BlopTheme::surfaceMuted},
     {"#2d2b42", BlopTheme::surfaceMuted},
+    // v3.18.1: weitere Alt-Hexes aus profileeditordialog/editoroverlays
+    {"#2D2D30", BlopTheme::surfaceMuted},
+    {"#2A2C42", BlopTheme::surfaceMuted},
+    // Hover-Stufen der obigen Flächen -> elevated
+    {"#3E3E42", BlopTheme::surfaceElevated},
+    {"#353756", BlopTheme::surfaceElevated},
+    {"#312C45", BlopTheme::surfaceElevated},
+    {"#3a3754", BlopTheme::surfaceElevated},
 };
 
 // Border default
@@ -447,6 +456,7 @@ const SurfaceHex kTextPrimaryHex[] = {
     {"#EEF4FF", BlopTheme::textPrimary},
     {"#F0EEFF", BlopTheme::textPrimary},
     {"#E0DBFF", BlopTheme::textPrimary},
+    {"#E6E4F0", BlopTheme::textPrimary},
 };
 
 // Text secondary / tertiary (muted)
@@ -595,6 +605,75 @@ QString BlopTheme::themed(const QString &rawQss) {
   static const QRegularExpression whiteTintRe(
       QStringLiteral(R"(rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*([0-9.]+)\s*\))"));
   out.replace(whiteTintRe, QStringLiteral("rgba(0,0,0,\\1)"));
+
+  // v3.18.1: recurring rgba() tints outside the hex tables. Light lavender
+  // text tones map to text tokens, dark glass surfaces map to surface
+  // tokens -- alpha is preserved in both cases so overlays keep their
+  // translucency.
+  struct TintMap {
+    QRegularExpression re;
+    QColor (*to)();
+  };
+  static const TintMap kTintMaps[] = {
+      // Muted lavender/slate text on dark
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*232\s*,\s*228\s*,\s*255\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*180\s*,\s*178\s*,\s*200\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*160\s*,\s*168\s*,\s*195\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*200\s*,\s*205\s*,\s*225\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*180\s*,\s*186\s*,\s*210\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*196\s*,\s*202\s*,\s*224\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      // High-contrast lavender text
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*225\s*,\s*230\s*,\s*246\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textPrimary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*235\s*,\s*237\s*,\s*245\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textPrimary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*236\s*,\s*239\s*,\s*248\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textPrimary},
+      // Dark glass surfaces (overlay cards / inputs)
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*18\s*,\s*21\s*,\s*32\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceBase},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*22\s*,\s*24\s*,\s*36\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceMuted},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*24\s*,\s*26\s*,\s*38\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceElevated},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*30\s*,\s*34\s*,\s*50\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceMuted},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*44\s*,\s*49\s*,\s*72\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceElevated},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*55\s*,\s*58\s*,\s*78\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceMuted},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*28\s*,\s*30\s*,\s*46\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceElevated},
+  };
+  for (const TintMap &tm : kTintMaps) {
+    const QColor c = tm.to();
+    out.replace(tm.re, QStringLiteral("rgba(%1,%2,%3,\\1)")
+                           .arg(c.red())
+                           .arg(c.green())
+                           .arg(c.blue()));
+  }
 
   // Phase 2: surface/text hex swap. Longer-first lists run before
   // shorter so 6-char forms always win over 3-char prefixes.

@@ -56,7 +56,20 @@ QColor textSecondary() {
   return c;
 }
 
-int surfaceRadiusDp() { return 18; }
+// v3.18.1: aligned to the BlopTheme r16 radius token (was 18) so the sheet
+// surfaces sit on the same r8/r12/r16 raster as the rest of the app.
+int surfaceRadiusDp() { return BlopTheme::r16; }
+
+QString toolButtonAccentQss(const QColor &accent, int radiusPx) {
+  return QStringLiteral(
+             "QToolButton { background: transparent; border: none; "
+             "padding: 0; border-radius: %1px; }"
+             "QToolButton:hover { background: %2; }"
+             "QToolButton:pressed { background: %3; }")
+      .arg(radiusPx)
+      .arg(accent.lighter(110).name(QColor::HexArgb),
+           accent.darker(110).name(QColor::HexArgb));
+}
 
 QString surfaceStyle(const QString &cardName) {
   const QColor bg = surfaceBg();

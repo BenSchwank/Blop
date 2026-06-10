@@ -47,6 +47,11 @@ int surfaceRadiusDp();
 // `card->setObjectName(cardName)` first.
 QString surfaceStyle(const QString &cardName);
 
+// v3.18.1: shared accent hover/press QSS for the transparent icon
+// QToolButtons in the Android toolbar (menu, export, page manager). The
+// block existed 3x identically in MainWindow::applyTheme().
+QString toolButtonAccentQss(const QColor &accent, int radiusPx = 16);
+
 // One-call helpers. Each applies a stylesheet + drop-shadow effect.
 void applySurface(QWidget *card, const QString &objectName = QStringLiteral("BlopSurface"));
 void applyBackdrop(QWidget *host, bool forAndroid = false);

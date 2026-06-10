@@ -1,5 +1,7 @@
 #include "croptools.h"
 
+#include "blop_theme.h"
+
 #include <QButtonGroup>
 #include <QCursor>
 #include <QFrame>
@@ -16,15 +18,15 @@
 // ============================================================================
 
 CropMenu::CropMenu(QWidget *parent, bool showModeButtons) : QWidget(parent) {
-  setStyleSheet(
+  setStyleSheet(BlopTheme::themed(
       "QWidget { background-color: #1E1E1E; border-radius: 8px; border: 1px "
       "solid #6c5ce7; }"
-      "QPushButton { background: #333; border: none; color: #DDD; "
+      "QPushButton { background: #2D2D30; border: none; color: #DDD; "
       "border-radius: 4px; padding: 6px 12px; font-size: 12px; }"
       "QPushButton:checked { background-color: #6c5ce7; color: white; }"
-      "QPushButton:hover { background-color: #444; }"
+      "QPushButton:hover { background-color: #3E3E42; }"
       "QPushButton#ApplyBtn { background-color: #2E7D32; color: white; }"
-      "QPushButton#CancelBtn { background-color: #C62828; color: white; }");
+      "QPushButton#CancelBtn { background-color: #C62828; color: white; }"));
   setAttribute(Qt::WA_StyledBackground);
   QHBoxLayout *layout = new QHBoxLayout(this);
   layout->setContentsMargins(8, 8, 8, 8);

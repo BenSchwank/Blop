@@ -50,7 +50,7 @@ static const QColor kBlopSwatches[] = {
 };
 
 static QString blopSliderStyleSheet() {
-  return QStringLiteral(
+  return BlopTheme::themed(QStringLiteral(
       "QSlider::groove:horizontal {"
       "  height: 7px; border-radius: 4px;"
       "  background: rgba(55, 58, 78, 0.95);"
@@ -70,14 +70,14 @@ static QString blopSliderStyleSheet() {
       "QSlider::sub-page:horizontal {"
       "  height: 7px; border-radius: 4px;"
       "  background: rgba(107, 163, 245, 0.35);"
-      "}");
+      "}"));
 }
 
 static QLabel *makeRgbLabel(const QString &text, QWidget *parent) {
   auto *l = new QLabel(text, parent);
   l->setFixedWidth(22);
-  l->setStyleSheet(QStringLiteral(
-      "color: rgba(200, 205, 225, 0.9); font-weight: 700; font-size: 12px;"));
+  l->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: rgba(200, 205, 225, 0.9); font-weight: 700; font-size: 12px;")));
   return l;
 }
 
@@ -202,7 +202,7 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   // surface bg / border / radius set.
   card->setStyleSheet(
       BlopStyle::surfaceStyle(QStringLiteral("ColorPickerCard")) +
-      QStringLiteral(
+      BlopTheme::themed(QStringLiteral(
       "QLabel { color: rgba(235, 237, 245, 0.95); }"
       "QLineEdit {"
       "  background: rgba(22, 24, 36, 0.95);"
@@ -216,7 +216,7 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
       "}"
       "QLineEdit:focus {"
       "  border: 1px solid rgba(107, 163, 245, 0.65);"
-      "}"));
+      "}")));
 
   QScreen *screen = nullptr;
   if (QWidget *ws = anchor->window())
@@ -251,8 +251,8 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   }
 
   auto *hint = new QLabel(QStringLiteral("Blop-Palette oder RGB"), card);
-  hint->setStyleSheet(QStringLiteral(
-      "color: rgba(160, 168, 195, 0.88); font-size: 12px; font-weight: 500;"));
+  hint->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: rgba(160, 168, 195, 0.88); font-size: 12px; font-weight: 500;")));
   cardLay->addWidget(hint);
 
   QColor cur = color->isValid() ? color->toRgb() : QColor(Qt::white);
@@ -279,8 +279,8 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   auto *hexRow = new QHBoxLayout();
   hexRow->setSpacing(10);
   auto *hexLbl = new QLabel(QStringLiteral("HEX"), inner);
-  hexLbl->setStyleSheet(QStringLiteral(
-      "color: rgba(180, 186, 210, 0.9); font-size: 11px; font-weight: 700;"));
+  hexLbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: rgba(180, 186, 210, 0.9); font-size: 11px; font-weight: 700;")));
   auto *hexEdit = new QLineEdit(inner);
   hexEdit->setMaxLength(7);
   hexEdit->setPlaceholderText(QStringLiteral("#RRGGBB"));
@@ -439,11 +439,11 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
                                      card);
   bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Übernehmen"));
-  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(QStringLiteral(
+  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QPushButton { color: #8EB8F8; border: none; background: transparent; "
       "font-weight:600; padding:10px 18px; }"
       "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
-      "border-radius: 10px; }"));
+      "border-radius: 10px; }")));
   bbox->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
       "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
       "  stop:0 #8EB8F8, stop:1 #6BA3F5); color: #0f172a; border: none; "
@@ -548,7 +548,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   // visual surface with all other overlays.
   card->setStyleSheet(
       BlopStyle::surfaceStyle(QStringLiteral("A4LayoutCard")) +
-      QStringLiteral(
+      BlopTheme::themed(QStringLiteral(
       "#LayoutPanel {"
       "  background: rgba(18, 21, 32, 0.72);"
       "  border: 1px solid rgba(120, 132, 165, 0.22);"
@@ -585,7 +585,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
       "}"
       "QDialogButtonBox QPushButton {"
       "  min-height: 36px; min-width: 88px; border-radius: 10px; font-weight: 600;"
-      "}"));
+      "}")));
 
   QScreen *screen = nullptr;
   if (QWidget *w = parent->window())
@@ -623,15 +623,16 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 #endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
-  titleLbl->setStyleSheet(QStringLiteral(
-      "font-weight: 700; font-size: 20px; letter-spacing: 0.2px;"));
+  titleLbl->setStyleSheet(
+      BlopTheme::typeQss(BlopTheme::TextRole::HeadlineMedium) +
+      QStringLiteral("letter-spacing: 0.2px;"));
   root->addWidget(titleLbl);
 
   if (!subtitle.isEmpty()) {
     auto *sub = new QLabel(subtitle, card);
     sub->setWordWrap(true);
-    sub->setStyleSheet(
-        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;"));
+    sub->setStyleSheet(BlopTheme::themed(
+        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;")));
     root->addWidget(sub);
   }
 
@@ -666,8 +667,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *colorRow = new QHBoxLayout();
   colorRow->setSpacing(16);
   auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe:"), basics);
-  lblColor->setStyleSheet(QStringLiteral(
-      "font-size: 15px; color: rgba(225, 230, 246, 0.92);"));
+  lblColor->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "font-size: 15px; color: rgba(225, 230, 246, 0.92);")));
   colorRow->addWidget(lblColor);
   QColor paperColor = initialPaper.isValid() ? initialPaper : QColor(Qt::white);
   auto *colorBtn = new QPushButton(basics);
@@ -796,8 +797,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *custTitle =
       new QLabel(QStringLiteral("Benutzerdefinierte Vorlagen"), card);
   custTitle->setAlignment(Qt::AlignCenter);
-  custTitle->setStyleSheet(QStringLiteral(
-      "font-weight:600;font-size:14px;color:#E6E4F0;"));
+  custTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "font-weight:600;font-size:14px;color:#E6E4F0;")));
   custLay->addWidget(custTitle);
   auto *custSub = new QLabel(
       QStringLiteral("Importieren Sie PDFs und Bilder über „Importieren“ oder "
@@ -805,8 +806,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
       card);
   custSub->setWordWrap(true);
   custSub->setAlignment(Qt::AlignCenter);
-  custSub->setStyleSheet(QStringLiteral(
-      "color: rgba(180,178,200,0.85); font-size: 12px;"));
+  custSub->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: rgba(180,178,200,0.85); font-size: 12px;")));
   custLay->addWidget(custSub);
   custLay->addStretch();
 
@@ -848,11 +849,11 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
       new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);
   bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
-  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(QStringLiteral(
+  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QPushButton { color: #8EB8F8; border: none; background: transparent; "
       "font-weight:600; padding:10px 18px; }"
       "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
-      "border-radius: 10px; }"));
+      "border-radius: 10px; }")));
   bbox->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
       "QPushButton { background: #6BA3F5; color: #0f172a; border: none; "
       "border-radius: 10px; padding: 12px 28px; font-weight: 600; }"
@@ -906,7 +907,7 @@ void showA4LayoutOverlayAsync(
   overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("A4LayoutCardAsync"));
-  card->setStyleSheet(QStringLiteral(
+  card->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "#A4LayoutCardAsync {"
       "  background-color: rgba(24, 26, 38, 0.985);"
       "  border: 1px solid rgba(135, 145, 175, 0.38);"
@@ -923,7 +924,7 @@ void showA4LayoutOverlayAsync(
       "QToolButton:checked {"
       "  border: 2px solid #6BA3F5;"
       "  background: rgba(107, 163, 245, 0.18);"
-      "}"));
+      "}")));
 
   int cardW = 720;
   int cardH = 700;
@@ -946,14 +947,15 @@ void showA4LayoutOverlayAsync(
 #endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
-  titleLbl->setStyleSheet(QStringLiteral(
-      "font-weight: 700; font-size: 20px; letter-spacing: 0.2px;"));
+  titleLbl->setStyleSheet(
+      BlopTheme::typeQss(BlopTheme::TextRole::HeadlineMedium) +
+      QStringLiteral("letter-spacing: 0.2px;"));
   root->addWidget(titleLbl);
   if (!subtitle.isEmpty()) {
     auto *sub = new QLabel(subtitle, card);
     sub->setWordWrap(true);
-    sub->setStyleSheet(
-        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;"));
+    sub->setStyleSheet(BlopTheme::themed(
+        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;")));
     root->addWidget(sub);
   }
 
@@ -1038,9 +1040,9 @@ void showA4LayoutOverlayAsync(
   auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
   btnCancel->setMinimumHeight(UiScale::dp(48));
   btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  btnCancel->setStyleSheet(
+  btnCancel->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
-      "QPushButton:hover { background: #312C45; }");
+      "QPushButton:hover { background: #312C45; }"));
   auto *btnDone = new QPushButton(QStringLiteral("Fertig"), card);
   btnDone->setMinimumHeight(UiScale::dp(48));
   btnDone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);

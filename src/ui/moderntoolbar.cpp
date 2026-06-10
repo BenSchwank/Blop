@@ -1138,8 +1138,9 @@ public:
       refreshQuickButtons();
       QPushButton *btnWheel = new QPushButton("...");
       btnWheel->setFixedSize(24, 24);
-      btnWheel->setStyleSheet("background-color: #333; color: white; "
-                              "border-radius: 12px; border: 1px solid #666;");
+      btnWheel->setStyleSheet(BlopTheme::themed(
+          "background-color: #2D2D30; color: #F4F2FF; "
+          "border-radius: 12px; border: 1px solid #666;"));
       connect(btnWheel, &QPushButton::clicked, [this]() {
         QColor c = m_config.penColor;
         // Nicht this->window(): Das wäre das kleine Popup selbst; Hauptfenster
@@ -1377,8 +1378,9 @@ public:
       }
       QPushButton *btnWheel = new QPushButton("...");
       btnWheel->setFixedSize(24, 24);
-      btnWheel->setStyleSheet("background-color: #333; color: white; "
-                              "border-radius: 12px; border: 1px solid #666;");
+      btnWheel->setStyleSheet(BlopTheme::themed(
+          "background-color: #2D2D30; color: #F4F2FF; "
+          "border-radius: 12px; border: 1px solid #666;"));
       connect(btnWheel, &QPushButton::clicked, [this]() {
         QColor c = m_config.penColor;
         QWidget *overlayHost = parentWidget();
@@ -1456,12 +1458,14 @@ public:
       QCheckBox *chkSineFixed =
           new QCheckBox(QStringLiteral("Feste Parameter verwenden"));
       chkSineFixed->setChecked(m_config.shapeSineFixedParams);
-      chkSineFixed->setStyleSheet(QStringLiteral("color:#DDD;font-weight:bold;"));
+      chkSineFixed->setStyleSheet(
+          BlopTheme::themed(QStringLiteral("color:#DDD;font-weight:bold;")));
       sineLay->addWidget(chkSineFixed);
 
       auto *lblSineMode = new QLabel();
       lblSineMode->setWordWrap(true);
-      lblSineMode->setStyleSheet(QStringLiteral("color:#888;font-weight:normal;"));
+      lblSineMode->setStyleSheet(
+          BlopTheme::themed(QStringLiteral("color:#888;font-weight:normal;")));
       sineLay->addWidget(lblSineMode);
 
       m_shapeSineParamsWidget = new QWidget(m_shapeSinePanel);
@@ -1473,7 +1477,8 @@ public:
               "y = Mitte \u2212 (a\u00b745\u00b7sin(b\u00b72\u03c0\u00b7(x\u2212x links)/100 + c) + d\u00b745); "
               "b = volle Perioden je 100 px Breite."));
       sineHelp->setWordWrap(true);
-      sineHelp->setStyleSheet(QStringLiteral("color:#bbb;font-weight:normal;"));
+      sineHelp->setStyleSheet(
+          BlopTheme::themed(QStringLiteral("color:#bbb;font-weight:normal;")));
       sineParamsLay->addWidget(sineHelp);
 
       auto mkSpin = [](double minV, double maxV, int decimals, double step) {

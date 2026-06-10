@@ -252,12 +252,12 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   sheet->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
   sheet->setAttribute(Qt::WA_DeleteOnClose);
   sheet->setAttribute(Qt::WA_StyledBackground, true);
-  sheet->setStyleSheet(
+  sheet->setStyleSheet(BlopTheme::themed(
       QStringLiteral(
           "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
           "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
           "QLabel { color: #E8E4FF; %1 }")
-          .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge)));
+          .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge))));
   backdrop->sheet = sheet;
 
   auto *layout = new QVBoxLayout(sheet);
@@ -275,13 +275,13 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   auto *slider = new QSlider(Qt::Horizontal, sheet);
   slider->setRange(1, 30);
   slider->setValue(m_config.penWidth);
-  slider->setStyleSheet(QStringLiteral(
+  slider->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
       "background: #121212; margin: 2px 0; border-radius: 3px; }"
       "QSlider::handle:horizontal { background: #7C5CFC; border: 1px solid "
       "#7C5CFC; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
       "QSlider::sub-page:horizontal { background: rgba(124,92,252,0.6); "
-      "border-radius: 3px; }"));
+      "border-radius: 3px; }")));
 
   auto *row = new QHBoxLayout;
   row->addWidget(slider);

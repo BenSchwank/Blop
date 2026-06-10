@@ -1,4 +1,5 @@
 #include "profileeditordialog.h"
+#include "blop_theme.h"
 #include "blopripple.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
@@ -35,15 +36,17 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     // v3.16.1: surface from BlopStyle; controls keep their existing palette
     // but the QDialog body now matches every other overlay.
     setObjectName(QStringLiteral("ProfileEditorDialog"));
+    // v3.18.1: themed()-Wrap für Light-Mode-Konsistenz.
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("ProfileEditorDialog")) +
+                  BlopTheme::themed(
                   "QLabel { color: #DDD; font-weight: bold; border: none; background: transparent; }"
                   "QSlider::groove:horizontal { height: 6px; background: #333; border-radius: 3px; }"
                   "QSlider::handle:horizontal { background: #7C5CFC; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
-                  "QPushButton { background: #2A2C42; color: white; border: 1px solid rgba(120,130,160,0.32); padding: 8px 16px; border-radius: 8px; }"
+                  "QPushButton { background: #2A2C42; color: #F4F2FF; border: 1px solid rgba(120,130,160,0.32); padding: 8px 16px; border-radius: 8px; }"
                   "QPushButton:hover { background: #353756; }"
                   "QCheckBox { color: #DDD; background: transparent; }"
                   "QGroupBox { border: 1px solid rgba(120,130,160,0.22); border-radius: 8px; margin-top: 10px; }"
-                  "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #BFC1D8; }");
+                  "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #BFC1D8; }"));
 
     setupUi();
 
@@ -92,7 +95,8 @@ void ProfileEditorDialog::setupUi() {
 
     m_btnToggleMode = new QPushButton("Experten-Modus", this);
     m_btnToggleMode->setCursor(Qt::PointingHandCursor);
-    m_btnToggleMode->setStyleSheet("QPushButton { font-size: 12px; padding: 4px 10px; background: #2D2D30; color: #BBB; border-radius: 12px; } QPushButton:hover { color: white; background: #3E3E42; }");
+    m_btnToggleMode->setStyleSheet(BlopTheme::themed(
+        "QPushButton { font-size: 12px; padding: 4px 10px; background: #2D2D30; color: #BBB; border-radius: 12px; } QPushButton:hover { color: #F4F2FF; background: #3E3E42; }"));
     connect(m_btnToggleMode, &QPushButton::clicked, this, &ProfileEditorDialog::toggleMode);
 
     header->addWidget(title);
@@ -109,7 +113,8 @@ void ProfileEditorDialog::setupUi() {
     simpleLay->setSpacing(20);
 
     QLabel *lblInfo = new QLabel("Wähle eine Größe für die Benutzeroberfläche:", m_simpleContainer);
-    lblInfo->setStyleSheet("color: #BBB; font-weight: normal; font-size: 14px;");
+    lblInfo->setStyleSheet(BlopTheme::themed(
+        "color: #BBB; font-weight: normal; font-size: 14px;"));
     simpleLay->addWidget(lblInfo);
 
     simpleLay->addStretch();
@@ -131,11 +136,11 @@ void ProfileEditorDialog::setupUi() {
         b->setCursor(Qt::PointingHandCursor);
         b->setFixedHeight(50);
 
-        b->setStyleSheet(
+        b->setStyleSheet(BlopTheme::themed(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; font-weight: bold; }"
             "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
-            "QPushButton:hover:!checked { background: #333; border: 1px solid #555; }"
-            );
+            "QPushButton:hover:!checked { background: rgba(255,255,255,0.08); border: 1px solid #555; }"
+            ));
 
         m_btnGroupSimple->addButton(b, i);
         hSteps->addWidget(b);
@@ -143,7 +148,8 @@ void ProfileEditorDialog::setupUi() {
     simpleLay->addLayout(hSteps);
 
     QLabel *lblHint = new QLabel("Dies passt Icons, Buttons und Abstände automatisch an.", m_simpleContainer);
-    lblHint->setStyleSheet("color: #666; font-style: italic; font-size: 12px; margin-top: 10px;");
+    lblHint->setStyleSheet(BlopTheme::themed(
+        "color: #666; font-style: italic; font-size: 12px; margin-top: 10px;"));
     lblHint->setAlignment(Qt::AlignCenter);
     simpleLay->addWidget(lblHint);
 
@@ -204,7 +210,8 @@ void ProfileEditorDialog::setupUi() {
     // --- RECHTE SEITE ---
     m_previewBox = new QGroupBox("Vorschau (Radial)", contentWidget);
     m_previewBox->setFixedWidth(200);
-    m_previewBox->setStyleSheet("QGroupBox { background: #252526; border: 1px solid #444; }");
+    m_previewBox->setStyleSheet(BlopTheme::themed(
+        "QGroupBox { background: #252526; border: 1px solid #444; }"));
 
     m_previewToolbar = new ModernToolbar(m_previewBox);
     m_previewToolbar->setPreviewMode(true);
