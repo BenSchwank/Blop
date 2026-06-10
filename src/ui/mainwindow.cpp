@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.17.4"
+#define BLOP_VERSION_STR "3.17.5"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -2680,6 +2680,21 @@ CanvasView *MainWindow::getCurrentCanvas() {
 void MainWindow::onToggleFloatingTools() {}
 
 void MainWindow::applyTheme() {
+  // v3.17.5: gate against no-op invocations. applyTheme() is the central
+  // QSS factory and currently issues ~30 setStyleSheet() calls + Android
+  // icon-tinting work; calling it when nothing actually changed costs
+  // hundreds of ms on Android. We key on (accent, mode) so a Light/Dark
+  // toggle or an accent change still re-applies, but back-to-back
+  // applyTheme() invocations from the same state become free.
+  const QRgb accentKey = m_currentAccentColor.rgba();
+  const int modeKey = static_cast<int>(BlopTheme::instance().mode());
+  if (m_themeApplied && accentKey == m_lastAppliedAccentRgb &&
+      modeKey == m_lastAppliedModeKey) {
+    return;
+  }
+  m_lastAppliedAccentRgb = accentKey;
+  m_lastAppliedModeKey = modeKey;
+  m_themeApplied = true;
   QString c = m_currentAccentColor.name();
   QString c_light = m_currentAccentColor.lighter(130).name();
 #ifdef Q_OS_ANDROID
@@ -2835,8 +2850,20 @@ void MainWindow::applyTheme() {
             .arg(r));
   }
 #ifdef Q_OS_ANDROID
+  // v3.17.5: cache per (resourcePath, tint.rgba()). loadTightIcon is O(W*H)
+  // twice (crop + tint) and was previously run from scratch on every
+  // applyTheme(), even when the user only toggled an unrelated checkbox.
+  // The cache is static-local so it persists across applyTheme() calls
+  // for the entire process lifetime; size is bounded by the number of
+  // distinct icon-PNGs in the Android UI (~6) times distinct accents (4).
+  static QHash<QPair<QString, QRgb>, QIcon> s_tightIconCache;
   auto loadTightIcon = [](const QString &resourcePath, const QIcon &fallback,
                           const QColor &tint) -> QIcon {
+    const QRgb tintKey = tint.isValid() ? tint.rgba() : 0;
+    const auto key = qMakePair(resourcePath, tintKey);
+    auto it = s_tightIconCache.constFind(key);
+    if (it != s_tightIconCache.constEnd())
+      return *it;
     QPixmap pm(resourcePath);
     if (pm.isNull())
       return fallback;
@@ -2853,8 +2880,11 @@ void MainWindow::applyTheme() {
         }
       }
     }
-    if (maxX < minX || maxY < minY)
-      return QIcon(pm);
+    if (maxX < minX || maxY < minY) {
+      QIcon ic(pm);
+      s_tightIconCache.insert(key, ic);
+      return ic;
+    }
     QRect crop(minX, minY, maxX - minX + 1, maxY - minY + 1);
     const int pad = 2;
     crop.adjust(-pad, -pad, pad, pad);
@@ -2879,7 +2909,9 @@ void MainWindow::applyTheme() {
         }
       }
     }
-    return QIcon(QPixmap::fromImage(out));
+    QIcon ic(QPixmap::fromImage(out));
+    s_tightIconCache.insert(key, ic);
+    return ic;
   };
   if (m_btnAndroidToolbarMenu) {
     m_btnAndroidToolbarMenu->setStyleSheet(

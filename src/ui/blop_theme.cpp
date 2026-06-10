@@ -73,6 +73,7 @@ void BlopTheme::setMode(Mode m) {
   if (m == m_mode)
     return;
   m_mode = m;
+  clearThemedCache();
   QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyMode, modeKey(m));
   emit themeChanged();
 }
@@ -81,6 +82,7 @@ void BlopTheme::setAccent(Accent a) {
   if (a == m_accent)
     return;
   m_accent = a;
+  clearThemedCache();
   QSettings(kSettingsOrg, kSettingsApp).setValue(kKeyAccent, accentKey(a));
   emit accentChanged();
   emit themeChanged();
@@ -557,11 +559,32 @@ QString BlopTheme::typeQss(TextRole role) {
       .arg(s.weight);
 }
 
+namespace {
+// v3.17.5: memoization for BlopTheme::themed(). Cleared on every theme/
+// accent change via clearThemedCache() invoked from setMode/setAccent.
+QHash<QPair<int, QString>, QString> s_themedCache;
+} // namespace
+
+void BlopTheme::clearThemedCache() { s_themedCache.clear(); }
+
 QString BlopTheme::themed(const QString &rawQss) {
   // Dark mode: the existing hardcoded hex values ARE the dark palette;
   // shipping them unchanged keeps zero visual diff for the bulk of users.
   if (instance().isDark())
     return rawQss;
+
+  // Memoize per (mode, accent, rawQss). Light-mode does ~50
+  // case-insensitive QString::replace + 1 regex per call -- with 16 calls
+  // per Settings-Dialog open that's ~800 replaces over multi-KB strings.
+  // The cache is keyed on the full raw string (safe against dynamic
+  // arg()-built QSS), and invalidated whenever the user flips theme or
+  // accent.
+  const int key = static_cast<int>(instance().m_mode) * 10 +
+                  static_cast<int>(instance().m_accent);
+  const auto cacheKey = qMakePair(key, rawQss);
+  if (auto it = s_themedCache.constFind(cacheKey);
+      it != s_themedCache.constEnd())
+    return *it;
 
   QString out = rawQss;
 
@@ -594,5 +617,6 @@ QString BlopTheme::themed(const QString &rawQss) {
   // 3-char codes LAST so we don't truncate longer matches.
   applyMap(kTextShortHex, sizeof(kTextShortHex) / sizeof(SurfaceHex));
 
+  s_themedCache.insert(cacheKey, out);
   return out;
 }

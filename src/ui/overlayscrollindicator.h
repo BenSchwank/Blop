@@ -58,6 +58,10 @@ private:
   qreal m_opacity{0.0};
   QPropertyAnimation *m_fadeAnim{nullptr};
   QTimer *m_hideTimer{nullptr};
+  // v3.17.5: coalesce setGeometry() calls triggered by valueChanged storms.
+  // The previous one-call-per-pixel pattern produced visible jank on
+  // Android because setGeometry forces a relayout of the parent viewport.
+  QTimer *m_repositionCoalescer{nullptr};
 };
 
 #endif // OVERLAYSCROLLINDICATOR_H

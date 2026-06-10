@@ -479,6 +479,11 @@ private:
   QColor m_penColor;
   int m_penWidth;
 
+  // v3.17.5: applyTheme() no-op gating. See implementation comment.
+  QRgb m_lastAppliedAccentRgb{0};
+  int m_lastAppliedModeKey{-1};
+  bool m_themeApplied{false};
+
   int m_currentItemSize;
   int m_currentSpacing;
 

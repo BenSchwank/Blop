@@ -134,6 +134,11 @@ public:
   /// success green and graph plot colors are NOT touched.
   static QString themed(const QString &rawQss);
 
+  /// v3.17.5: invalidate the themed() memoization cache. Called automatically
+  /// from setMode/setAccent; exposed for tests + tools that mutate token
+  /// values without going through the theme switcher.
+  static void clearThemedCache();
+
   // ---------------------------------------------------------------------
   // v3.17.3: Material 3 typography tokens. Defines the 15 standard
   // type roles (Display/Headline/Title/Body/Label x Large/Medium/Small)

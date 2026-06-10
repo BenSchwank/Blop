@@ -16,6 +16,7 @@
 #include "PageItem.h"
 
 class QFrame;
+class QTimer;
 #include "TransformOverlay.h"
 
 class NoteSelectionMenu;
@@ -267,6 +268,11 @@ private:
     QPropertyAnimation* m_graphLegendFadeAnim{nullptr};
     QGraphicsOpacityEffect* m_graphEntryBarOpacityFx{nullptr};
     QPropertyAnimation* m_graphEntryBarFadeAnim{nullptr};
+
+    /// v3.17.5: 16 ms coalescer for scroll-bar valueChanged storms. Each
+    /// scroll-pixel previously triggered 3 layout functions; the timer
+    /// folds bursts of updates into one frame-aligned dispatch.
+    QTimer* m_scrollLayoutCoalescer{nullptr};
 
     /// Currently active inline formula input zone (created by "+" tap).
     QPointer<GraphFormulaZone> m_activeFormulaZone;

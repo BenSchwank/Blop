@@ -27,6 +27,7 @@ class CropResizer;
 class TransformOverlay;
 class ToolManager; // WICHTIG
 class GraphCanvasItem;
+class QTimer;
 
 class CanvasView : public QGraphicsView
 {
@@ -132,6 +133,11 @@ private:
     QString m_filePath;
 
     QUndoStack *m_undoStack;
+    // v3.17.5: 50 ms debouncer for updateSceneRect(). itemsBoundingRect()
+    // is O(N) over every scene item; previously every stroke + tool
+    // tick re-ran it. The timer folds bursts (e.g. mid-stroke
+    // contentModified emissions) into one rect refresh per frame.
+    QTimer *m_sceneRectDebouncer{nullptr};
     GraphCanvasItem *m_graphPlusBypassItem{nullptr}; // "+" on graph bypasses tool until release
     GraphCanvasItem *m_graphPlotBypassItem{nullptr}; // graph chrome tap bypasses tool until release
     QPointer<GraphCanvasItem> m_graphTabletPendingItem;

@@ -16,13 +16,49 @@ QScreen *bestScreen(QWidget *reference) {
   return QGuiApplication::primaryScreen();
 }
 
-qreal densityFor(QWidget *reference) {
-  QScreen *screen = bestScreen(reference);
-  if (!screen) {
+// v3.17.5: cache the primary-screen density. Previously every call to
+// dp() did a QScreen::logicalDotsPerInch() lookup -- the cpp file alone
+// has 300+ call sites, many in paint/resize hot paths. On Android the
+// screen accessor can route through JNI on some Qt versions; even
+// without that the divide and bound were measurable in tight loops.
+//
+// Invalidation: hooked into QGuiApplication::primaryScreenChanged and
+// QScreen::logicalDotsPerInchChanged the first time we resolve the
+// density (lazy, so we don't need to be careful about init order vs
+// QGuiApplication).
+qreal s_cachedPrimaryDensity = -1.0;
+
+qreal computeDensity(QScreen *screen) {
+  if (!screen)
     return 1.0;
-  }
   const qreal raw = screen->logicalDotsPerInch() / 160.0;
   return qBound<qreal>(1.0, raw, 2.2);
+}
+
+qreal primaryDensityCached() {
+  if (s_cachedPrimaryDensity > 0.0)
+    return s_cachedPrimaryDensity;
+  QScreen *primary = QGuiApplication::primaryScreen();
+  s_cachedPrimaryDensity = computeDensity(primary);
+  if (auto *app = QGuiApplication::instance()) {
+    QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, app,
+                     [](QScreen *) { s_cachedPrimaryDensity = -1.0; });
+    if (primary) {
+      QObject::connect(primary, &QScreen::logicalDotsPerInchChanged, app,
+                       [](qreal) { s_cachedPrimaryDensity = -1.0; });
+    }
+  }
+  return s_cachedPrimaryDensity;
+}
+
+qreal densityFor(QWidget *reference) {
+  if (!reference || !reference->windowHandle() ||
+      !reference->windowHandle()->screen()) {
+    // Hot path: ~95% of dp() calls pass nullptr. Cached single-screen
+    // density covers it without any QScreen lookup at all.
+    return primaryDensityCached();
+  }
+  return computeDensity(reference->windowHandle()->screen());
 }
 
 } // namespace
@@ -30,11 +66,11 @@ qreal densityFor(QWidget *reference) {
 namespace UiScale {
 
 int dp(int px) {
-  return qMax(1, qRound(px * densityFor(nullptr)));
+  return qMax(1, qRound(px * primaryDensityCached()));
 }
 
 int sp(int px) {
-  return qMax(1, qRound(px * densityFor(nullptr)));
+  return qMax(1, qRound(px * primaryDensityCached()));
 }
 
 int androidTopInsetPx(QWidget *reference) {

@@ -46,6 +46,16 @@ OverlayScrollIndicator::OverlayScrollIndicator(QAbstractScrollArea *area,
   connect(m_hideTimer, &QTimer::timeout, this,
           &OverlayScrollIndicator::scheduleHide);
 
+  // v3.17.5: coalesce per-pixel positionSelf() / setGeometry() into a
+  // 16 ms cadence. valueChanged() fires for every scroll pixel; without
+  // coalescing the indicator's setGeometry() invalidated the parent
+  // viewport on every fire, multiplying the layout cost.
+  m_repositionCoalescer = new QTimer(this);
+  m_repositionCoalescer->setSingleShot(true);
+  m_repositionCoalescer->setInterval(16);
+  connect(m_repositionCoalescer, &QTimer::timeout, this,
+          &OverlayScrollIndicator::positionSelf);
+
   if (m_area) {
     QScrollBar *sb = (m_orientation == Vertical) ? m_area->verticalScrollBar()
                                                  : m_area->horizontalScrollBar();
@@ -82,11 +92,17 @@ bool OverlayScrollIndicator::eventFilter(QObject *obj, QEvent *event) {
 }
 
 void OverlayScrollIndicator::onScrolled() {
-  positionSelf();
+  // Defer the actual setGeometry() to the next coalescer tick so a burst of
+  // valueChanged() emissions becomes one geometry update.
+  if (m_repositionCoalescer && !m_repositionCoalescer->isActive())
+    m_repositionCoalescer->start();
   showIndicator();
 }
 
-void OverlayScrollIndicator::onRangeChanged() { positionSelf(); }
+void OverlayScrollIndicator::onRangeChanged() {
+  if (m_repositionCoalescer && !m_repositionCoalescer->isActive())
+    m_repositionCoalescer->start();
+}
 
 void OverlayScrollIndicator::positionSelf() {
   if (!m_area || !m_area->viewport())

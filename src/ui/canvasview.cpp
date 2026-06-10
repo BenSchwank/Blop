@@ -476,8 +476,20 @@ CanvasView::CanvasView(QWidget *parent)
 
   updateBackgroundTile();
 
-  connect(this, &CanvasView::contentModified, this,
+  // v3.17.5: route contentModified -> updateSceneRect through a 50 ms
+  // debouncer. updateSceneRect() walks itemsBoundingRect() (O(N) over
+  // every item in the scene); previously a single multi-segment stroke
+  // could trigger dozens of full walks. The timer is single-shot so a
+  // burst becomes one walk per frame.
+  m_sceneRectDebouncer = new QTimer(this);
+  m_sceneRectDebouncer->setSingleShot(true);
+  m_sceneRectDebouncer->setInterval(50);
+  connect(m_sceneRectDebouncer, &QTimer::timeout, this,
           &CanvasView::updateSceneRect);
+  connect(this, &CanvasView::contentModified, this, [this]() {
+    if (m_sceneRectDebouncer && !m_sceneRectDebouncer->isActive())
+      m_sceneRectDebouncer->start();
+  });
 
   // --- MENUS ---
   m_selectionMenu = new SelectionMenu(this);
@@ -535,7 +547,10 @@ void CanvasView::setPageFormat(bool isInfinite) {
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   }
-  m_scene->update();
+  // v3.17.5: viewport()->update() already invalidates the area the scene
+  // would have repainted; the separate m_scene->update() call was a
+  // double-invalidation that doubled paint work for every page-format
+  // toggle (and every code path that reuses this helper).
   viewport()->update();
 }
 

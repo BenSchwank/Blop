@@ -1523,16 +1523,25 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     syncGraphItemsToNote();
   });
 
-  connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+  // v3.17.5: coalesce scroll-driven layout work into one frame-aligned
+  // dispatch instead of running 3 layout functions per pixel of scroll.
+  // On Android the per-pixel storm was the single largest source of jank
+  // during stylus scrolling -- valueChanged fires for every pixel and
+  // each handler triggered geometry changes on chrome widgets.
+  m_scrollLayoutCoalescer = new QTimer(this);
+  m_scrollLayoutCoalescer->setSingleShot(true);
+  m_scrollLayoutCoalescer->setInterval(16);
+  connect(m_scrollLayoutCoalescer, &QTimer::timeout, this, [this]() {
     syncPagesBarVisibility();
     syncGraphLegendLayout();
     repositionGraphEntryBar();
   });
-  connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
-    syncPagesBarVisibility();
-    syncGraphLegendLayout();
-    repositionGraphEntryBar();
-  });
+  auto kickCoalescer = [this]() {
+    if (m_scrollLayoutCoalescer && !m_scrollLayoutCoalescer->isActive())
+      m_scrollLayoutCoalescer->start();
+  };
+  connect(verticalScrollBar(), &QScrollBar::valueChanged, this, kickCoalescer);
+  connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, kickCoalescer);
   // Overlay über der Skeleton-Fläche — muss Maus-Events fangen (kein
   // WA_TransparentForMouseEvents, sonst gehen Klicks zur QGraphicsView durch).
   m_bottomSheet = new QWidget(this);
