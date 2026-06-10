@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.1"
+#define BLOP_VERSION_STR "3.18.2"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -3792,6 +3792,7 @@ void MainWindow::setupUi() {
       "QPushButton:pressed { background-color: #4F4DCF; }"
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
+  BlopRipple::attachPressFeedback(btnNewNote, 0.94);
 
   QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setObjectName("overviewBtnNewFolder");
@@ -3811,6 +3812,7 @@ void MainWindow::setupUi() {
       "QPushButton:pressed { background-color: rgba(255,255,255,0.06); }"
   );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+  BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
 
   // Cap individual elements to the device viewport so nothing spills.
   const int welcomeContentW = UiScale::androidContentWidthPx(this);
@@ -3896,6 +3898,7 @@ void MainWindow::setupUi() {
       "QPushButton:hover { background-color: #7D7AFF; }"
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
+  BlopRipple::attachPressFeedback(btnNewNote, 0.94);
   searchActionLayout->addWidget(btnNewNote);
 
   QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
@@ -3915,6 +3918,7 @@ void MainWindow::setupUi() {
       "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }"
   );
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+  BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
   searchActionLayout->addWidget(btnNewFolder);
 
   headerLayout->addLayout(searchActionLayout);
@@ -4623,6 +4627,67 @@ void MainWindow::applyAndroidTabStyles(int index) {
 }
 #endif
 
+namespace {
+// v3.18.2: lightweight stack crossfade. Grabs the outgoing page as a pixmap,
+// switches the stack hard, then fades the snapshot out on top of the new
+// page. Deliberately avoids QGraphicsOpacityEffect (Android/Windows
+// offscreen-pixmap cost) -- the overlay paints the snapshot itself with
+// QPainter::setOpacity. Native child views (SurfaceView/WebEngine) are NOT
+// wrapped; callers must skip pages that embed them.
+class StackFadeOverlay : public QWidget {
+public:
+  StackFadeOverlay(QWidget *parent, const QPixmap &snapshot)
+      : QWidget(parent), m_snapshot(snapshot) {
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    setGeometry(parent->rect());
+    show();
+    raise();
+    auto *anim = new QVariantAnimation(this);
+    anim->setDuration(BlopMotion::kEmphasis);
+    anim->setStartValue(1.0);
+    anim->setEndValue(0.0);
+    anim->setEasingCurve(BlopMotion::kEaseStandard);
+    connect(anim, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) {
+              m_opacity = v.toReal();
+              update();
+            });
+    connect(anim, &QVariantAnimation::finished, this, &QWidget::deleteLater);
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setOpacity(m_opacity);
+    p.drawPixmap(rect(), m_snapshot);
+  }
+
+private:
+  QPixmap m_snapshot;
+  qreal m_opacity{1.0};
+};
+
+// Switches `stack` to `newIndex` with a snapshot crossfade of the outgoing
+// page. No-op fade (hard switch) when the index doesn't change or the stack
+// is hidden.
+void crossfadeStackTo(QStackedWidget *stack, int newIndex) {
+  if (!stack)
+    return;
+  const int oldIndex = stack->currentIndex();
+  if (oldIndex == newIndex || !stack->isVisible()) {
+    stack->setCurrentIndex(newIndex);
+    return;
+  }
+  QPixmap snapshot;
+  if (QWidget *out = stack->currentWidget())
+    snapshot = out->grab();
+  stack->setCurrentIndex(newIndex);
+  if (!snapshot.isNull())
+    new StackFadeOverlay(stack, snapshot);
+}
+} // namespace
+
 void MainWindow::onModeChanged(int index) {
   BlopDiag::recordUiAction(
       QStringLiteral("onModeChanged:%1").arg(index));
@@ -4672,7 +4737,19 @@ void MainWindow::onModeChanged(int index) {
   }
 #endif
   if (m_mainContentStack) {
-    m_mainContentStack->setCurrentIndex(mainStackIdx);
+    // v3.18.2: stack crossfade. Never grab/fade the Study page (SurfaceView /
+    // QQuickWidget); hard-switch when entering Study, crossfade when leaving.
+#ifdef Q_OS_ANDROID
+    if (mainStackIdx == 1) {
+      m_mainContentStack->setCurrentIndex(1);
+    } else if (m_mainContentStack->currentIndex() == 1) {
+      crossfadeStackTo(m_mainContentStack, 0);
+    } else {
+      crossfadeStackTo(m_mainContentStack, 0);
+    }
+#else
+    crossfadeStackTo(m_mainContentStack, mainStackIdx);
+#endif
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
       m_androidHeader->setVisible(showAndroidHeader);
@@ -6545,8 +6622,8 @@ void MainWindow::animateSidebar(bool show) {
   }
 
   QVariantAnimation *anim = new QVariantAnimation(this);
-  anim->setDuration(280);
-  anim->setEasingCurve(QEasingCurve::OutCubic);
+  anim->setDuration(BlopMotion::kEmphasis);
+  anim->setEasingCurve(BlopMotion::kEaseStandard);
   anim->setStartValue(show ? 0 : fullW);
   anim->setEndValue(show ? fullW : 0);
   connect(anim, &QVariantAnimation::valueChanged, this,
@@ -6774,10 +6851,10 @@ void MainWindow::updateSidebarState() {
         btn->update();
         QPropertyAnimation *a =
             new QPropertyAnimation(btn, "buttonScale", btn);
-        a->setDuration(220);
+        a->setDuration(BlopMotion::kStandard);
         a->setStartValue(0.70);
         a->setEndValue(1.0);
-        a->setEasingCurve(QEasingCurve::OutBack);
+        a->setEasingCurve(BlopMotion::kEaseOvershoot);
         a->start(QAbstractAnimation::DeleteWhenStopped);
       };
       animateScale(m_btnAndroidToolbarExport);
@@ -7289,14 +7366,20 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         }
       }
     }
-    m_rightStack->setCurrentWidget(m_editorContainer);
+    if (m_rightStack) {
+      const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+      crossfadeStackTo(m_rightStack, editorIdx);
+    }
     setActiveTool(m_activeToolType);
     updateSidebarState();
   }
 }
 
 void MainWindow::onBackToOverview() {
-  m_rightStack->setCurrentWidget(m_overviewContainer);
+  if (m_rightStack) {
+    const int overviewIdx = m_rightStack->indexOf(m_overviewContainer);
+    crossfadeStackTo(m_rightStack, overviewIdx);
+  }
   updateSidebarState();
 #ifdef Q_OS_ANDROID
   const auto transientOverlays = findChildren<QWidget *>(

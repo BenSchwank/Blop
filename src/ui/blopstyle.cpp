@@ -146,10 +146,10 @@ protected:
 
     // Position anim (translate to target).
     auto *posAnim = new QPropertyAnimation(m_card, "pos", m_card);
-    posAnim->setDuration(280);
+    posAnim->setDuration(BlopMotion::kEmphasis);
     posAnim->setStartValue(start);
     posAnim->setEndValue(target);
-    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->setEasingCurve(BlopMotion::kEaseStandard);
     posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 
     // Opacity anim (top-level dialog -> windowOpacity; embedded card -> skip
@@ -158,10 +158,10 @@ protected:
     if (m_card->isWindow()) {
       m_card->setWindowOpacity(0.0);
       auto *opAnim = new QPropertyAnimation(m_card, "windowOpacity", m_card);
-      opAnim->setDuration(220);
+      opAnim->setDuration(BlopMotion::kStandard);
       opAnim->setStartValue(0.0);
       opAnim->setEndValue(1.0);
-      opAnim->setEasingCurve(QEasingCurve::OutCubic);
+      opAnim->setEasingCurve(BlopMotion::kEaseStandard);
       opAnim->start(QAbstractAnimation::DeleteWhenStopped);
     }
 

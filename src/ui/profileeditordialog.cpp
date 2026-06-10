@@ -200,8 +200,8 @@ void ProfileEditorDialog::setupUi() {
     connect(btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     QPushButton *btnSave = new QPushButton("Speichern", this);
     btnSave->setStyleSheet("background-color: #5E5CE6; border: none; font-weight: bold;");
-    connect(btnSave, &QPushButton::pressed, this,
-            [btnSave]() { BlopRipple::animatePress(btnSave, 0.92); });
+    BlopRipple::attachPressFeedback(btnSave, 0.92);
+    BlopRipple::attachPressFeedback(btnCancel, 0.92);
     connect(btnSave, &QPushButton::clicked, this, &QDialog::accept);
     btns->addWidget(btnCancel);
     btns->addWidget(btnSave);
@@ -348,17 +348,17 @@ void ProfileEditorDialog::showEvent(QShowEvent *event) {
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(220);
+    opAnim->setDuration(BlopMotion::kStandard);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
-    opAnim->setEasingCurve(QEasingCurve::OutCubic);
+    opAnim->setEasingCurve(BlopMotion::kEaseStandard);
     opAnim->start(QAbstractAnimation::DeleteWhenStopped);
 #endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(280);
+    posAnim->setDuration(BlopMotion::kEmphasis);
     posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
     posAnim->setEndValue(dest);
-    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->setEasingCurve(BlopMotion::kEaseStandard);
     posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }

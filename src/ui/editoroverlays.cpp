@@ -17,10 +17,14 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QAbstractAnimation>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QPropertyAnimation>
 #include <QPushButton>
+#include <QShowEvent>
+#include <QVariantAnimation>
 #include <QGuiApplication>
 #include <QResizeEvent>
 #include <QScreen>
@@ -92,10 +96,15 @@ protected:
   void mousePressEvent(QMouseEvent *e) override;
   void showEvent(QShowEvent *e) override;
   void keyPressEvent(QKeyEvent *e) override;
+  void paintEvent(QPaintEvent *e) override;
 
 private:
+  void startEnterAnim();
+
   QWidget *m_anchor{nullptr};
   QWidget *m_card{nullptr};
+  QColor m_scrim;
+  qreal m_scrimProgress{0.0};
 };
 
 OverlayHost::OverlayHost(QWidget *anchor) : QWidget(anchor), m_anchor(anchor) {
@@ -103,13 +112,12 @@ OverlayHost::OverlayHost(QWidget *anchor) : QWidget(anchor), m_anchor(anchor) {
   setWindowFlags(Qt::Widget);
   setAttribute(Qt::WA_TranslucentBackground, true);
   setFocusPolicy(Qt::StrongFocus);
-  // v3.16.1: backdrop alpha pulled from BlopStyle so every in-window overlay
-  // dims to the same level. Android keeps a darker scrim because phone
-  // screens are smaller and the content behind would otherwise stay visible.
+  // v3.18.2: scrim painted manually so enter fade can animate alpha without
+  // stylesheet churn (same pattern as BlopInWindowMenu / BlopModal).
 #ifdef Q_OS_ANDROID
-  BlopStyle::applyBackdrop(this, /*forAndroid=*/true);
+  m_scrim = BlopStyle::backdrop(/*forAndroid=*/true);
 #else
-  BlopStyle::applyBackdrop(this, /*forAndroid=*/false);
+  m_scrim = BlopStyle::backdrop(/*forAndroid=*/false);
 #endif
   setGeometry(anchor->rect());
   anchor->installEventFilter(this);
@@ -131,12 +139,48 @@ void OverlayHost::mousePressEvent(QMouseEvent *e) {
   QWidget::mousePressEvent(e);
 }
 
+void OverlayHost::paintEvent(QPaintEvent *e) {
+  Q_UNUSED(e);
+  QPainter p(this);
+  QColor c = m_scrim;
+  c.setAlphaF(c.alphaF() * m_scrimProgress);
+  p.fillRect(rect(), c);
+}
+
+void OverlayHost::startEnterAnim() {
+  m_scrimProgress = 0.0;
+  update();
+
+  auto *scrimAnim = new QVariantAnimation(this);
+  scrimAnim->setDuration(BlopMotion::kFast);
+  scrimAnim->setStartValue(0.0);
+  scrimAnim->setEndValue(1.0);
+  scrimAnim->setEasingCurve(BlopMotion::kEaseStandard);
+  connect(scrimAnim, &QVariantAnimation::valueChanged, this,
+          [this](const QVariant &v) {
+            m_scrimProgress = v.toReal();
+            update();
+          });
+  scrimAnim->start(QAbstractAnimation::DeleteWhenStopped);
+
+  if (!m_card)
+    return;
+  m_card->setWindowOpacity(0.0);
+  auto *cardAnim = new QPropertyAnimation(m_card, "windowOpacity", this);
+  cardAnim->setDuration(BlopMotion::kStandard);
+  cardAnim->setStartValue(0.0);
+  cardAnim->setEndValue(1.0);
+  cardAnim->setEasingCurve(BlopMotion::kEaseStandard);
+  cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void OverlayHost::showEvent(QShowEvent *e) {
   QWidget::showEvent(e);
   if (m_anchor)
     setGeometry(m_anchor->rect());
   raise();
   setFocus(Qt::PopupFocusReason);
+  startEnterAnim();
 }
 
 void OverlayHost::keyPressEvent(QKeyEvent *e) {

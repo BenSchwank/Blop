@@ -1,5 +1,6 @@
 #include "newnotedialog.h"
 #include "blop_theme.h"
+#include "blopripple.h"
 #include "blopstyle.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -84,6 +85,7 @@ void NewNoteDialog::setupUi()
             "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
             "QPushButton:hover:!checked { background: #333; border-color: #555; }"
             )));
+        BlopRipple::attachPressFeedback(btn, 0.92);
         return btn;
     };
 
@@ -121,6 +123,8 @@ void NewNoteDialog::setupUi()
     m_btnCreate->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 18px; font-weight: bold; font-size: 14px; } QPushButton:hover { background: #4b49c9; }")));
     connect(m_btnCreate, &QPushButton::clicked, this, &QDialog::accept);
+    BlopRipple::attachPressFeedback(m_btnCancel, 0.92);
+    BlopRipple::attachPressFeedback(m_btnCreate, 0.92);
 
     actionLay->addWidget(m_btnCancel);
     actionLay->addWidget(m_btnCreate);
@@ -151,18 +155,18 @@ void NewNoteDialog::showEvent(QShowEvent *event) {
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(220);
+    opAnim->setDuration(BlopMotion::kStandard);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
-    opAnim->setEasingCurve(QEasingCurve::OutCubic);
+    opAnim->setEasingCurve(BlopMotion::kEaseStandard);
     opAnim->start(QAbstractAnimation::DeleteWhenStopped);
 #endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(280);
+    posAnim->setDuration(BlopMotion::kEmphasis);
     posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
     posAnim->setEndValue(dest);
-    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->setEasingCurve(BlopMotion::kEaseStandard);
     posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 

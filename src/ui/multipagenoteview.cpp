@@ -3980,24 +3980,52 @@ void MultiPageNoteView::hideGraphQuickPopup() {
 }
 
 void MultiPageNoteView::hideGraphLegendQuick() {
-  if (m_graphLegendFadeAnim)
-    m_graphLegendFadeAnim->stop();
-  if (m_graphLegendDock) {
-    m_graphLegendDock->setGraphicsEffect(nullptr);
-    m_graphLegendOpacityFx = nullptr;
-    m_graphLegendDock->hide();
-  }
   hideGraphQuickPopup();
+  if (!m_graphLegendDock || !m_graphLegendDock->isVisible()) {
+    if (m_graphLegendFadeAnim)
+      m_graphLegendFadeAnim->stop();
+    if (m_graphLegendDock) {
+      m_graphLegendDock->setGraphicsEffect(nullptr);
+      m_graphLegendOpacityFx = nullptr;
+      m_graphLegendDock->hide();
+    }
+    return;
+  }
+  ensureGraphLegendFadeSetup();
+  m_graphLegendFadeAnim->stop();
+  if (!m_graphLegendOpacityFx) {
+    m_graphLegendOpacityFx = new QGraphicsOpacityEffect(m_graphLegendDock);
+    m_graphLegendOpacityFx->setOpacity(1.0);
+    m_graphLegendDock->setGraphicsEffect(m_graphLegendOpacityFx);
+  }
+  m_graphLegendFadeAnim->setTargetObject(m_graphLegendOpacityFx);
+  m_graphLegendFadeAnim->setStartValue(m_graphLegendOpacityFx->opacity());
+  m_graphLegendFadeAnim->setEndValue(0.0);
+  m_graphLegendFadeAnim->start();
 }
 
 void MultiPageNoteView::hideGraphEntryBarQuick() {
-  if (m_graphEntryBarFadeAnim)
-    m_graphEntryBarFadeAnim->stop();
-  if (m_graphEntryBar) {
-    m_graphEntryBar->setGraphicsEffect(nullptr);
-    m_graphEntryBarOpacityFx = nullptr;
-    m_graphEntryBar->hide();
+  if (!m_graphEntryBar || !m_graphEntryBar->isVisible()) {
+    if (m_graphEntryBarFadeAnim)
+      m_graphEntryBarFadeAnim->stop();
+    if (m_graphEntryBar) {
+      m_graphEntryBar->setGraphicsEffect(nullptr);
+      m_graphEntryBarOpacityFx = nullptr;
+      m_graphEntryBar->hide();
+    }
+    return;
   }
+  ensureGraphEntryBarFadeSetup();
+  m_graphEntryBarFadeAnim->stop();
+  if (!m_graphEntryBarOpacityFx) {
+    m_graphEntryBarOpacityFx = new QGraphicsOpacityEffect(m_graphEntryBar);
+    m_graphEntryBarOpacityFx->setOpacity(1.0);
+    m_graphEntryBar->setGraphicsEffect(m_graphEntryBarOpacityFx);
+  }
+  m_graphEntryBarFadeAnim->setTargetObject(m_graphEntryBarOpacityFx);
+  m_graphEntryBarFadeAnim->setStartValue(m_graphEntryBarOpacityFx->opacity());
+  m_graphEntryBarFadeAnim->setEndValue(0.0);
+  m_graphEntryBarFadeAnim->start();
 }
 
 void MultiPageNoteView::presentGraphLegendAnimated() {

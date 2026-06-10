@@ -1,12 +1,28 @@
 #pragma once
 
 #include <QColor>
+#include <QEasingCurve>
 #include <QFont>
 #include <QObject>
 #include <QString>
 
 class QApplication;
 class QDialog;
+
+/// v3.18.2: Motion tokens. One duration/easing vocabulary for the whole
+/// app instead of every animation picking its own numbers:
+///   - kFast      (140ms): hover states, quick fades, exits
+///   - kStandard  (220ms): enter animations, panel fades, menu popups
+///   - kEmphasis  (280ms): large surface transitions (sheets, stacks)
+///   - kEaseStandard: OutCubic — default for everything
+///   - kEaseOvershoot: OutBack — playful entrances (FABs, chips)
+namespace BlopMotion {
+inline constexpr int kFast = 140;
+inline constexpr int kStandard = 220;
+inline constexpr int kEmphasis = 280;
+inline constexpr QEasingCurve::Type kEaseStandard = QEasingCurve::OutCubic;
+inline constexpr QEasingCurve::Type kEaseOvershoot = QEasingCurve::OutBack;
+} // namespace BlopMotion
 
 /// Central design-token + theme manager for Blop. Provides a Dark and a
 /// Light palette over the same accent color (Blop purple by default) and

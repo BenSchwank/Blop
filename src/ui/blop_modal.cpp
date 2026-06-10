@@ -21,10 +21,11 @@
 #include <QVBoxLayout>
 
 namespace {
-constexpr int kBackdropFadeMs = 180;
-constexpr int kCardEnterMs = 220;
-constexpr int kBackdropFadeOutMs = 140;
-constexpr int kCardExitMs = 180;
+// v3.18.2: aligned to BlopMotion tokens.
+constexpr int kBackdropFadeMs = BlopMotion::kFast;
+constexpr int kCardEnterMs = BlopMotion::kStandard;
+constexpr int kBackdropFadeOutMs = BlopMotion::kFast;
+constexpr int kCardExitMs = BlopMotion::kFast;
 constexpr int kDragDismissThresholdDp = 80;
 constexpr int kDragHandleHeightDp = 28;
 } // namespace
@@ -277,7 +278,7 @@ void BlopModal::startOpenAnim() {
   m_backdropAnim->setDuration(kBackdropFadeMs);
   m_backdropAnim->setStartValue(0.0);
   m_backdropAnim->setEndValue(1.0);
-  m_backdropAnim->setEasingCurve(QEasingCurve::OutCubic);
+  m_backdropAnim->setEasingCurve(BlopMotion::kEaseStandard);
   m_backdropAnim->start(QAbstractAnimation::DeleteWhenStopped);
 
   if (m_card) {
@@ -296,8 +297,8 @@ void BlopModal::startOpenAnim() {
     m_cardAnim->setDuration(kCardEnterMs);
     m_cardAnim->setStartValue(startGeom);
     m_cardAnim->setEndValue(endGeom);
-    m_cardAnim->setEasingCurve(m_mode == Mode::Card ? QEasingCurve::OutBack
-                                                    : QEasingCurve::OutCubic);
+    m_cardAnim->setEasingCurve(m_mode == Mode::Card ? BlopMotion::kEaseOvershoot
+                                                    : BlopMotion::kEaseStandard);
     m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
   }
 }

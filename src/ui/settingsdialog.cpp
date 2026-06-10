@@ -111,8 +111,8 @@ public:
                                 : m_body->maximumHeight();
         if (on) m_body->setVisible(true);
         auto *anim = new QVariantAnimation(this);
-        anim->setDuration(240);
-        anim->setEasingCurve(QEasingCurve::OutCubic);
+        anim->setDuration(BlopMotion::kStandard);
+        anim->setEasingCurve(BlopMotion::kEaseStandard);
         anim->setStartValue(current);
         anim->setEndValue(target);
         QObject::connect(anim, &QVariantAnimation::valueChanged, this,
@@ -232,6 +232,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     connect(heroEditBtn, &QPushButton::clicked, this, [this]() {
         openEditor(m_profileManager ? m_profileManager->currentProfile().id : QString());
     });
+    BlopRipple::attachPressFeedback(heroEditBtn, 0.92);
     heroLay->addWidget(heroEditBtn);
 
     root->addWidget(hero);
@@ -288,6 +289,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             openEditor(m_profileManager ? m_profileManager->currentProfile().id
                                         : QString());
         });
+        BlopRipple::attachPressFeedback(btnEdit, 0.92);
         cardKonto->addBodyWidget(btnEdit);
     }
     contentLay->addWidget(cardKonto);
@@ -339,6 +341,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "}"));
         btnDark->setStyleSheet(segStyle);
         btnLight->setStyleSheet(segStyle);
+        BlopRipple::attachPressFeedback(btnDark, 0.92);
+        BlopRipple::attachPressFeedback(btnLight, 0.92);
         modeLay->addWidget(btnDark, 1);
         modeLay->addWidget(btnLight, 1);
         cardTheme->addBodyWidget(modeRow);
@@ -423,24 +427,16 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     .arg(ch.hex));
             b->setChecked(ch.value == activeAccent);
             accentGroup->addButton(b, static_cast<int>(ch.value));
+            BlopRipple::attachPressFeedback(b, 0.88);
             accentLay->addWidget(b);
         }
         accentLay->addStretch();
         cardTheme->addBodyWidget(accentRow);
-        connect(accentGroup, &QButtonGroup::idClicked, this,
-                [this, accentGroup](int id) {
-                    const auto a = static_cast<BlopTheme::Accent>(id);
-                    BlopTheme::instance().setAccent(a);
-                    // v3.17.3: short press-spring on the picker for
-                    // immediate haptic-feel feedback alongside the
-                    // accent swap.
-                    if (auto *btn = accentGroup->button(id))
-                        BlopRipple::animatePress(btn, 0.88);
-                    // Keep the legacy accentColorChanged signal alive
-                    // so listeners that haven't migrated to BlopTheme
-                    // yet still react.
-                    emit accentColorChanged(BlopTheme::accentPrimary());
-                });
+        connect(accentGroup, &QButtonGroup::idClicked, this, [this](int id) {
+            const auto a = static_cast<BlopTheme::Accent>(id);
+            BlopTheme::instance().setAccent(a);
+            emit accentColorChanged(BlopTheme::accentPrimary());
+        });
     }
     contentLay->addWidget(cardTheme);
 
@@ -531,7 +527,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.18.1"), cardAdv);
+        auto *info = new QLabel(QStringLiteral("Blop v3.18.2"), cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));
@@ -579,18 +575,18 @@ void SettingsDialog::showEvent(QShowEvent *event) {
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(220);
+    opAnim->setDuration(BlopMotion::kStandard);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
-    opAnim->setEasingCurve(QEasingCurve::OutCubic);
+    opAnim->setEasingCurve(BlopMotion::kEaseStandard);
     opAnim->start(QAbstractAnimation::DeleteWhenStopped);
 #endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(280);
+    posAnim->setDuration(BlopMotion::kEmphasis);
     posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
     posAnim->setEndValue(dest);
-    posAnim->setEasingCurve(QEasingCurve::OutCubic);
+    posAnim->setEasingCurve(BlopMotion::kEaseStandard);
     posAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 

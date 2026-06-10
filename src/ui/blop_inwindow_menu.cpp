@@ -9,10 +9,13 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPointer>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -25,21 +28,88 @@ public:
   explicit Backdrop(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_DeleteOnClose);
     setObjectName(QStringLiteral("BlopInWindowMenuBackdrop"));
-    // v3.17.0: theme-aware scrim. Slightly lighter than the modal scrim
-    // because menus dismiss instantly; we keep the original ~25% feel.
+    // v3.17.0: theme-aware scrim, ~25% feel. v3.18.2: painted manually so
+    // the enter/exit fade can animate the alpha without stylesheet churn.
     QColor scrim = BlopTheme::scrimColor();
     scrim.setAlpha(qMin(scrim.alpha(), 64)); // ~25%
-    setStyleSheet(QStringLiteral(
-        "QWidget#BlopInWindowMenuBackdrop { background: rgba(%1,%2,%3,%4); }")
-        .arg(scrim.red()).arg(scrim.green()).arg(scrim.blue())
-        .arg(QString::number(scrim.alphaF(), 'f', 3)));
+    m_scrim = scrim;
     setMouseTracking(true);
   }
 
   void setMenuFrame(QWidget *f) { m_frame = f; }
   void setOnDismiss(std::function<void()> cb) { m_onDismiss = std::move(cb); }
 
+  // v3.18.2: backdrop fade-in (kFast) + frame slide-in (kStandard), exit
+  // mirrored -- same vocabulary as BlopModal.
+  void startEnterAnim() {
+    auto *fade = new QVariantAnimation(this);
+    fade->setDuration(BlopMotion::kFast);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(BlopMotion::kEaseStandard);
+    connect(fade, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) {
+              m_progress = v.toReal();
+              update();
+            });
+    fade->start(QAbstractAnimation::DeleteWhenStopped);
+
+    if (m_frame) {
+      const QPoint target = m_frame->pos();
+      const QPoint start = target + QPoint(0, UiScale::dp(8));
+      m_frame->move(start);
+      auto *slide = new QPropertyAnimation(m_frame, "pos", this);
+      slide->setDuration(BlopMotion::kStandard);
+      slide->setStartValue(start);
+      slide->setEndValue(target);
+      slide->setEasingCurve(BlopMotion::kEaseStandard);
+      slide->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+  }
+
+  void dismissAnimated() {
+    if (m_dismissing) {
+      return;
+    }
+    m_dismissing = true;
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+
+    if (m_frame) {
+      auto *slide = new QPropertyAnimation(m_frame, "pos", this);
+      slide->setDuration(BlopMotion::kFast);
+      slide->setStartValue(m_frame->pos());
+      slide->setEndValue(m_frame->pos() + QPoint(0, UiScale::dp(6)));
+      slide->setEasingCurve(QEasingCurve::InCubic);
+      slide->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+
+    auto *fade = new QVariantAnimation(this);
+    fade->setDuration(BlopMotion::kFast);
+    fade->setStartValue(m_progress);
+    fade->setEndValue(0.0);
+    fade->setEasingCurve(QEasingCurve::InCubic);
+    connect(fade, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) {
+              m_progress = v.toReal();
+              if (m_frame) {
+                // Frame is an opaque child; hide it near the end of the
+                // fade so the exit reads as one motion.
+                m_frame->setVisible(m_progress > 0.25);
+              }
+              update();
+            });
+    connect(fade, &QVariantAnimation::finished, this, [this]() { close(); });
+    fade->start(QAbstractAnimation::DeleteWhenStopped);
+  }
+
 protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    QColor c = m_scrim;
+    c.setAlphaF(c.alphaF() * m_progress);
+    p.fillRect(rect(), c);
+  }
+
   void mousePressEvent(QMouseEvent *event) override {
     if (m_frame && m_frame->geometry().contains(event->pos())) {
       // Click inside the frame: let the frame's child widgets handle it.
@@ -51,12 +121,15 @@ protected:
       m_onDismiss = {};
       cb();
     }
-    close();
+    dismissAnimated();
   }
 
 private:
   QPointer<QWidget> m_frame;
   std::function<void()> m_onDismiss;
+  QColor m_scrim;
+  qreal m_progress{0.0};
+  bool m_dismissing{false};
 };
 
 QString itemStyle(bool /*destructive*/) {
@@ -73,6 +146,10 @@ QString itemStyle(bool /*destructive*/) {
   const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
   const QString press = rgba(BlopTheme::accentSubtle());
   const QString onAccent = BlopTheme::textOnAccent().name(QColor::HexRgb);
+  // v3.18.2: hover tint (half the pressed alpha) for pointer devices.
+  QColor hoverCol = BlopTheme::accentSubtle();
+  hoverCol.setAlpha(hoverCol.alpha() / 2);
+  const QString hover = rgba(hoverCol);
   return QStringLiteral(
              "QPushButton {"
              "  background: transparent;"
@@ -84,12 +161,13 @@ QString itemStyle(bool /*destructive*/) {
              "  font-weight: 500;"
              "  border-radius: 8px;"
              "}"
+             "QPushButton:hover { background: %4; }"
              "QPushButton:pressed {"
              "  background: %2;"
              "  color: %3;"
              "}"
              "QPushButton:focus { outline: none; }")
-      .arg(text, press, onAccent);
+      .arg(text, press, onAccent, hover);
 }
 
 } // namespace
@@ -137,7 +215,7 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
 
   auto closeBackdrop = [safeBackdrop]() {
     if (safeBackdrop) {
-      safeBackdrop->close();
+      safeBackdrop->dismissAnimated();
     }
   };
   backdrop->setMenuFrame(frame);
@@ -185,7 +263,7 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
                        // Close menu first so the handler runs without the
                        // backdrop covering anything it might open.
                        if (safeBackdrop) {
-                         safeBackdrop->close();
+                         safeBackdrop->dismissAnimated();
                        }
                        if (handler) {
                          // Defer so we return to the event loop before doing
@@ -231,6 +309,7 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   backdrop->show();
   backdrop->raise();
   frame->raise();
+  backdrop->startEnterAnim();
 }
 
 } // namespace BlopInWindowMenu

@@ -13,7 +13,9 @@
 #include <QInputDialog>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QPropertyAnimation>
 #include <QShowEvent>
+#include <QVariantAnimation>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPointer>
@@ -166,7 +168,7 @@ void PageManager::setupUi() {
             "QPushButton { background-color: %1; border: none; }"
             "QPushButton:hover { background-color: %1; }")
             .arg(rgba(BlopTheme::scrimColor())));
-    connect(m_scrim, &QPushButton::clicked, this, &QWidget::hide);
+    connect(m_scrim, &QPushButton::clicked, this, &PageManager::dismissAnimated);
 
     m_panel = new QWidget(this);
     m_panel->setObjectName(QStringLiteral("PageManagerPanel"));
@@ -207,7 +209,7 @@ void PageManager::setupUi() {
         "QPushButton { color: rgba(200, 205, 220, 0.9); border: none; font-size: 16px; "
         "border-radius: 10px; background: rgba(255,255,255,0.04); }"
         "QPushButton:hover { color: #fff; background: rgba(255,255,255,0.10); }");
-    connect(m_btnClose, &QPushButton::clicked, this, &QWidget::hide);
+    connect(m_btnClose, &QPushButton::clicked, this, &PageManager::dismissAnimated);
 
     titleRow->addWidget(m_lblTitle, 1);
     titleRow->addWidget(m_btnClose, 0, Qt::AlignTop);
@@ -320,6 +322,13 @@ void PageManager::setupUi() {
     connect(m_btnMoveUp, &QPushButton::clicked, this, &PageManager::onMoveSelectedUp);
     connect(m_btnMoveDown, &QPushButton::clicked, this, &PageManager::onMoveSelectedDown);
     connect(m_btnApplyLayout, &QPushButton::clicked, this, &PageManager::onApplyTemplateColor);
+    BlopRipple::attachPressFeedback(m_btnClose, 0.92);
+    BlopRipple::attachPressFeedback(m_btnSelectMode, 0.92);
+    for (QPushButton *b :
+         {m_btnSelectAll, m_btnClearSelection, m_btnDuplicateSelection,
+          m_btnDeleteSelection, m_btnMoveUp, m_btnMoveDown, m_btnApplyLayout}) {
+      BlopRipple::attachPressFeedback(b, 0.90);
+    }
     footerLay->addLayout(batchRow);
 
     auto *addRow = new QHBoxLayout();
@@ -344,9 +353,7 @@ void PageManager::setupUi() {
         "  border-color: rgba(140, 150, 185, 0.5);"
         "}");
     connect(m_fabAdd, &QPushButton::clicked, this, &PageManager::onAddPage);
-    // v3.17.0: small press-bounce on the prominent FAB for tactile feel.
-    QObject::connect(m_fabAdd, &QPushButton::pressed, m_fabAdd,
-                     [this]() { BlopRipple::animatePress(m_fabAdd, 0.92); });
+    BlopRipple::attachPressFeedback(m_fabAdd, 0.92);
 
     addRow->addWidget(m_fabAdd);
     footerLay->addLayout(addRow);
@@ -383,16 +390,86 @@ void PageManager::fillParent() {
     }
 }
 
+void PageManager::applyScrimProgress(qreal progress) {
+    if (!m_scrim)
+        return;
+    QColor c = BlopTheme::scrimColor();
+    c.setAlphaF(c.alphaF() * qBound<qreal>(0.0, progress, 1.0));
+    const QString col = QStringLiteral("rgba(%1,%2,%3,%4)")
+                            .arg(c.red()).arg(c.green()).arg(c.blue())
+                            .arg(QString::number(c.alphaF(), 'f', 3));
+    m_scrim->setStyleSheet(
+        QStringLiteral(
+            "QPushButton { background-color: %1; border: none; }"
+            "QPushButton:hover { background-color: %1; }")
+            .arg(col));
+}
+
 void PageManager::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
+    m_dismissing = false;
     fillParent();
     raise();
     setFocus(Qt::PopupFocusReason);
+
+    // v3.18.2: scrim fade-in (kFast) + panel slide-up (kStandard) instead of
+    // the hard show().
+    applyScrimProgress(0.0);
+    auto *fade = new QVariantAnimation(this);
+    fade->setDuration(BlopMotion::kFast);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(BlopMotion::kEaseStandard);
+    connect(fade, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) { applyScrimProgress(v.toReal()); });
+    fade->start(QAbstractAnimation::DeleteWhenStopped);
+
+    if (m_panel) {
+        const QPoint target = m_panel->pos();
+        const QPoint start = target + QPoint(0, UiScale::dp(16));
+        m_panel->move(start);
+        auto *slide = new QPropertyAnimation(m_panel, "pos", this);
+        slide->setDuration(BlopMotion::kStandard);
+        slide->setStartValue(start);
+        slide->setEndValue(target);
+        slide->setEasingCurve(BlopMotion::kEaseStandard);
+        slide->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+}
+
+void PageManager::dismissAnimated() {
+    if (m_dismissing || isHidden()) {
+        return;
+    }
+    m_dismissing = true;
+
+    if (m_panel) {
+        auto *slide = new QPropertyAnimation(m_panel, "pos", this);
+        slide->setDuration(BlopMotion::kFast);
+        slide->setStartValue(m_panel->pos());
+        slide->setEndValue(m_panel->pos() + QPoint(0, UiScale::dp(12)));
+        slide->setEasingCurve(QEasingCurve::InCubic);
+        slide->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+
+    auto *fade = new QVariantAnimation(this);
+    fade->setDuration(BlopMotion::kFast);
+    fade->setStartValue(1.0);
+    fade->setEndValue(0.0);
+    fade->setEasingCurve(QEasingCurve::InCubic);
+    connect(fade, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) { applyScrimProgress(v.toReal()); });
+    connect(fade, &QVariantAnimation::finished, this, [this]() {
+        hide();
+        m_dismissing = false;
+        applyScrimProgress(1.0);
+    });
+    fade->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void PageManager::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
-        hide();
+        dismissAnimated();
         event->accept();
         return;
     }

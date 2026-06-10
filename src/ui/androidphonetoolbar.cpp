@@ -18,9 +18,13 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QAbstractAnimation>
 #include <QPointer>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QShowEvent>
+#include <QVariantAnimation>
 #include <QSlider>
 #include <QVBoxLayout>
 
@@ -51,16 +55,46 @@ public:
     setAttribute(Qt::WA_NoSystemBackground, true);
     setAttribute(Qt::WA_TranslucentBackground, true);
     setFocusPolicy(Qt::NoFocus);
+    m_scrim = BlopStyle::backdrop(/*forAndroid=*/true);
   }
   QPointer<QWidget> sheet;
 
 protected:
+  void paintEvent(QPaintEvent *e) override {
+    Q_UNUSED(e);
+    QPainter p(this);
+    QColor c = m_scrim;
+    c.setAlphaF(c.alphaF() * m_progress);
+    p.fillRect(rect(), c);
+  }
+
+  void showEvent(QShowEvent *e) override {
+    QWidget::showEvent(e);
+    m_progress = 0.0;
+    update();
+    auto *fade = new QVariantAnimation(this);
+    fade->setDuration(BlopMotion::kFast);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(BlopMotion::kEaseStandard);
+    connect(fade, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) {
+              m_progress = v.toReal();
+              update();
+            });
+    fade->start(QAbstractAnimation::DeleteWhenStopped);
+  }
+
   void mousePressEvent(QMouseEvent *e) override {
     Q_UNUSED(e);
     if (sheet)
       sheet->deleteLater();
     close();
   }
+
+private:
+  QColor m_scrim;
+  qreal m_progress{0.0};
 };
 
 } // namespace
@@ -310,11 +344,27 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   const int margin = UiScale::dp(8);
   pos.setX(qBound(margin, pos.x(), win->width() - sheetW - margin));
   pos.setY(qBound(margin, pos.y(), win->height() - sheetH - margin));
-  sheet->move(pos);
+  const QPoint targetPos = pos;
+  sheet->move(targetPos + QPoint(0, UiScale::dp(12)));
+  sheet->setWindowOpacity(0.0);
 
   backdrop->show();
   sheet->show();
   sheet->raise();
+
+  auto *slide = new QPropertyAnimation(sheet, "pos", sheet);
+  slide->setDuration(BlopMotion::kStandard);
+  slide->setStartValue(sheet->pos());
+  slide->setEndValue(targetPos);
+  slide->setEasingCurve(BlopMotion::kEaseStandard);
+  slide->start(QAbstractAnimation::DeleteWhenStopped);
+
+  auto *fade = new QPropertyAnimation(sheet, "windowOpacity", sheet);
+  fade->setDuration(BlopMotion::kStandard);
+  fade->setStartValue(0.0);
+  fade->setEndValue(1.0);
+  fade->setEasingCurve(BlopMotion::kEaseStandard);
+  fade->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void AndroidPhoneToolbar::paintEvent(QPaintEvent *) {

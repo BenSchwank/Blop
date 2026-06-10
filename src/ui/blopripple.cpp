@@ -155,3 +155,14 @@ void BlopRipple::animatePress(QWidget *target, qreal pressedScale) {
                    });
   seq->start(QAbstractAnimation::DeleteWhenStopped);
 }
+
+void BlopRipple::attachPressFeedback(QAbstractButton *btn, qreal pressedScale) {
+  if (!btn)
+    return;
+  if (btn->property("blopPressFeedback").toBool())
+    return;
+  btn->setProperty("blopPressFeedback", true);
+  QObject::connect(btn, &QAbstractButton::pressed, btn, [btn, pressedScale]() {
+    BlopRipple::animatePress(btn, pressedScale);
+  });
+}

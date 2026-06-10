@@ -38,6 +38,9 @@ public:
     /// current BlopTheme tokens. Hooked from MainWindow::applyThemeRefresh()
     /// so Light/Dark toggles take effect without reopening the manager.
     void applyThemeRefresh();
+    /// v3.18.2: fade the scrim out + slide the panel down, then hide().
+    /// All in-manager close paths (scrim tap, ✕, ESC) route through this.
+    void dismissAnimated();
 
 signals:
     void pageSelected(int index);
@@ -94,4 +97,6 @@ private:
     bool m_multiSelectMode{false};
     QString m_searchText;
     QSet<int> m_selectedPages;
+    bool m_dismissing{false};
+    void applyScrimProgress(qreal progress);
 };

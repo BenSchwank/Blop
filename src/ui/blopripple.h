@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QAbstractButton>
 #include <QColor>
 #include <QWidget>
 
@@ -20,6 +21,9 @@ public:
   /// `pressedScale` is the minimum scale at the peak of the press (~0.94 is
   /// a good default). The widget is restored on completion.
   static void animatePress(QWidget *target, qreal pressedScale = 0.94);
+
+  /// v3.18.2: idempotent pressed-hook for fixed-size buttons.
+  static void attachPressFeedback(QAbstractButton *btn, qreal pressedScale = 0.94);
 
   qreal ripScale() const { return m_ripScale; }
   void setRipScale(qreal s);
