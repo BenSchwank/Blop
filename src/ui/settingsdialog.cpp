@@ -1,4 +1,6 @@
 #include "settingsdialog.h"
+#include "blop_inwindow_menu.h"
+#include "blop_modal.h"
 #include "blop_theme.h"
 #include "blopripple.h"
 #include "blopstyle.h"
@@ -196,6 +198,77 @@ private:
 };
 
 } // namespace
+
+// v3.18.5: Android-safe text prompt. Replaces QInputDialog::getText which
+// spawns a top-level QWindow and trips the Qt 6.10 EGL deadlock when
+// another EGL surface is contended. The prompt is built as a plain child
+// QDialog and routed through BlopModal::execBlocking (same pattern as
+// the main Settings entry point), so no native window is allocated.
+static QString blopPromptText(QWidget *parent, const QString &title,
+                              const QString &label, const QString &initial,
+                              bool *ok) {
+    QDialog dlg(parent);
+    dlg.setWindowTitle(title);
+    auto *lay = new QVBoxLayout(&dlg);
+    lay->setContentsMargins(20, 18, 20, 16);
+    lay->setSpacing(12);
+    auto *lbl = new QLabel(label, &dlg);
+    lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "color: %1; background: transparent;")
+        .arg(BlopTheme::textPrimary().name())));
+    lay->addWidget(lbl);
+    auto *edit = new QLineEdit(initial, &dlg);
+    edit->setStyleSheet(BlopTheme::inputQss());
+    edit->selectAll();
+    lay->addWidget(edit);
+    auto *btnRow = new QHBoxLayout();
+    btnRow->addStretch(1);
+    auto *cancel = new QPushButton(QObject::tr("Abbrechen"), &dlg);
+    cancel->setStyleSheet(BlopTheme::secondaryButtonQss());
+    auto *okBtn = new QPushButton(QObject::tr("OK"), &dlg);
+    okBtn->setStyleSheet(BlopTheme::primaryButtonQss());
+    okBtn->setDefault(true);
+    btnRow->addWidget(cancel);
+    btnRow->addWidget(okBtn);
+    lay->addLayout(btnRow);
+    QObject::connect(cancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    QObject::connect(edit, &QLineEdit::returnPressed, &dlg, &QDialog::accept);
+    int code = BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg);
+    if (ok) *ok = (code == QDialog::Accepted);
+    return code == QDialog::Accepted ? edit->text() : QString();
+}
+
+// v3.18.5: Android-safe confirm. Replaces QMessageBox::question to avoid
+// the same top-level QWindow / EGL deadlock path.
+static bool blopConfirm(QWidget *parent, const QString &title,
+                        const QString &message) {
+    QDialog dlg(parent);
+    dlg.setWindowTitle(title);
+    auto *lay = new QVBoxLayout(&dlg);
+    lay->setContentsMargins(20, 18, 20, 16);
+    lay->setSpacing(12);
+    auto *lbl = new QLabel(message, &dlg);
+    lbl->setWordWrap(true);
+    lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "color: %1; background: transparent;")
+        .arg(BlopTheme::textPrimary().name())));
+    lay->addWidget(lbl);
+    auto *btnRow = new QHBoxLayout();
+    btnRow->addStretch(1);
+    auto *no = new QPushButton(QObject::tr("Abbrechen"), &dlg);
+    no->setStyleSheet(BlopTheme::secondaryButtonQss());
+    auto *yes = new QPushButton(QObject::tr("Ja"), &dlg);
+    yes->setStyleSheet(BlopTheme::primaryButtonQss());
+    yes->setDefault(true);
+    btnRow->addWidget(no);
+    btnRow->addWidget(yes);
+    lay->addLayout(btnRow);
+    QObject::connect(no, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(yes, &QPushButton::clicked, &dlg, &QDialog::accept);
+    return BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg) ==
+           QDialog::Accepted;
+}
 
 SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     : QDialog(parent), ui(new Ui::SettingsDialog), m_profileManager(profileMgr) {
@@ -565,7 +638,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.18.4"), cardAdv);
+        auto *info = new QLabel(QStringLiteral("Blop v3.18.5"), cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));
@@ -608,9 +681,16 @@ void SettingsDialog::showEvent(QShowEvent *event) {
     if (m_dialogIntroDone)
         return;
     m_dialogIntroDone = true;
+#ifdef Q_OS_ANDROID
+    // v3.18.5: on Android the dialog is embedded into BlopModal (no
+    // top-level QWindow), and BlopModal already animates its own card.
+    // Running a windowOpacity/pos animation here during the same
+    // show_sys() flush competes with the EGL surface lock and was a
+    // contributing factor to crash reports when Settings opened.
+    return;
+#else
     // v3.16.1: unified slide-in (280ms OutCubic + 220ms opacity).
     const QPoint dest = pos();
-#ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
     opAnim->setDuration(BlopMotion::kStandard);
@@ -618,7 +698,6 @@ void SettingsDialog::showEvent(QShowEvent *event) {
     opAnim->setEndValue(1.0);
     opAnim->setEasingCurve(BlopMotion::kEaseStandard);
     opAnim->start(QAbstractAnimation::DeleteWhenStopped);
-#endif
     move(dest.x(), dest.y() + 24);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
     posAnim->setDuration(BlopMotion::kEmphasis);
@@ -626,6 +705,7 @@ void SettingsDialog::showEvent(QShowEvent *event) {
     posAnim->setEndValue(dest);
     posAnim->setEasingCurve(BlopMotion::kEaseStandard);
     posAnim->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
 }
 
 void SettingsDialog::refreshProfileList() {
@@ -648,11 +728,10 @@ void SettingsDialog::onProfileClicked(QListWidgetItem *item) {
 }
 
 void SettingsDialog::onCreateProfile() {
-    bool ok;
-    QString text = QInputDialog::getText(this, QStringLiteral("Neuer Modus"),
-                                         QStringLiteral("Name:"),
-                                         QLineEdit::Normal,
-                                         QStringLiteral("Mein Modus"), &ok);
+    bool ok = false;
+    QString text = blopPromptText(this, QStringLiteral("Neuer Modus"),
+                                  QStringLiteral("Name:"),
+                                  QStringLiteral("Mein Modus"), &ok);
     if (ok && !text.isEmpty()) {
         m_profileManager->createProfile(text);
         refreshProfileList();
@@ -662,32 +741,43 @@ void SettingsDialog::onCreateProfile() {
 void SettingsDialog::onProfileContextMenu(const QPoint &pos) {
     QListWidgetItem *item = m_profileList->itemAt(pos);
     if (!item) return;
-    QMenu menu(this);
-    menu.addAction(QStringLiteral("Bearbeiten"), [this, item]() {
-        openEditor(item->data(Qt::UserRole).toString());
-    });
-    menu.addAction(QStringLiteral("Umbenennen"), [this, item]() {
-        bool ok;
-        QString text = QInputDialog::getText(
-            this, QStringLiteral("Umbenennen"), QStringLiteral("Name:"),
-            QLineEdit::Normal, item->text(), &ok);
+    const QString itemId = item->data(Qt::UserRole).toString();
+    const QString itemText = item->text();
+    QList<BlopInWindowMenu::Item> items;
+    BlopInWindowMenu::Item edit;
+    edit.label = QStringLiteral("Bearbeiten");
+    edit.handler = [this, itemId]() { openEditor(itemId); };
+    items.append(edit);
+
+    BlopInWindowMenu::Item rename;
+    rename.label = QStringLiteral("Umbenennen");
+    rename.handler = [this, itemId, itemText]() {
+        bool ok = false;
+        QString text = blopPromptText(
+            this, QStringLiteral("Umbenennen"),
+            QStringLiteral("Name:"), itemText, &ok);
         if (ok && !text.isEmpty()) {
-            UiProfile p =
-                m_profileManager->profileById(item->data(Qt::UserRole).toString());
+            UiProfile p = m_profileManager->profileById(itemId);
             p.name = text;
             m_profileManager->updateProfile(p);
             refreshProfileList();
         }
-    });
-    menu.addAction(QStringLiteral("L\u00F6schen"), [this, item]() {
-        if (QMessageBox::question(this, QStringLiteral("L\u00F6schen"),
-                                  QStringLiteral("Modus wirklich l\u00F6schen?")) ==
-            QMessageBox::Yes) {
-            m_profileManager->deleteProfile(item->data(Qt::UserRole).toString());
+    };
+    items.append(rename);
+
+    BlopInWindowMenu::Item del;
+    del.label = QStringLiteral("L\u00F6schen");
+    del.destructive = true;
+    del.handler = [this, itemId]() {
+        if (blopConfirm(this, QStringLiteral("L\u00F6schen"),
+                        QStringLiteral("Modus wirklich l\u00F6schen?"))) {
+            m_profileManager->deleteProfile(itemId);
             refreshProfileList();
         }
-    });
-    menu.exec(m_profileList->mapToGlobal(pos));
+    };
+    items.append(del);
+
+    BlopInWindowMenu::show(m_profileList, m_profileList->mapToGlobal(pos), items);
 }
 
 void SettingsDialog::openEditor(const QString &profileId) {

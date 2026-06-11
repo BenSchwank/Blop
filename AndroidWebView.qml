@@ -56,14 +56,37 @@ Rectangle {
     property string bookmarkDraftUrl: ""
     property string bookmarkDraftTitle: ""
     property string bookmarkAddError: ""
+    // v3.18.5: gate the heavy WebView Loader on tabActive. When the user
+    // is on the Notes tab, the QtWebView/SurfaceView competes with the
+    // canvas for GPU and was reported as the main cause of v3.18.x
+    // drawing/scrolling lag. We don't touch the QQuickWidget itself
+    // (hiding that detaches the SurfaceView and paints black on
+    // re-show), but unloading the Loader frees the SurfaceView in a
+    // controlled way and lets the canvas have the GPU to itself.
     onTabActiveChanged: {
-        if (tabActive && visible)
-            ensureStudyLoaded()
+        if (tabActive) {
+            tabLeaveUnloadTimer.stop()
+            if (!studyWebLoader.active) {
+                webviewRecreatePending = false
+                studyWebLoader.active = true
+                postRecreateLoadTimer.start()
+            } else if (visible) {
+                ensureStudyLoaded()
+            }
+        } else {
+            tabLeaveUnloadTimer.restart()
+        }
     }
 
     onVisibleChanged: {
         if (visible && tabActive) {
-            ensureStudyLoaded()
+            if (!studyWebLoader.active) {
+                webviewRecreatePending = false
+                studyWebLoader.active = true
+                postRecreateLoadTimer.start()
+            } else {
+                ensureStudyLoaded()
+            }
             applyAuthUiScale()
         } else if (bookmarkSheetOpen) {
             closeBookmarkSheet()
@@ -524,6 +547,10 @@ Rectangle {
         repeat: false
         onTriggered: {
             studyWebLoader.active = false
+            // v3.18.5: the existing WebView is gone — any subsequent
+            // ensureStudyLoaded must trigger a fresh load instead of
+            // being skipped because firstLoadDone is still true.
+            firstLoadDone = false
             webLoaderReactivateTimer.start()
         }
     }
@@ -548,16 +575,56 @@ Rectangle {
         }
     }
 
+    // v3.18.5: 80ms instead of 0ms so the QQuickItem has a chance to
+    // instantiate before we ask studyWeb() for it. The retry counter
+    // recovers from the rare case where the QtWebView component is
+    // still null on the first tick.
     Timer {
         id: postRecreateLoadTimer
-        interval: 0
+        interval: 80
+        property int retries: 0
+        readonly property int maxRetries: 6
         running: false
         repeat: false
         onTriggered: {
             var w = studyWeb()
-            if (w && ssoPollingEnabled)
+            if (!w) {
+                if (retries < maxRetries) {
+                    retries += 1
+                    restart()
+                    return
+                }
+                console.warn("BlopStudy: postRecreate gave up — no WebView item")
+                retries = 0
+                return
+            }
+            retries = 0
+            if (ssoPollingEnabled) {
                 loadStudyEntryFresh("postRecreate", true)
+                firstLoadDone = true
+            }
             applyAuthUiScale()
+        }
+    }
+
+    // v3.18.5: after the Notes tab has been active for 1 s, unload the
+    // WebView Loader. This is the largest single performance win for
+    // the canvas — the native SurfaceView no longer wakes the GPU on
+    // every frame while the user is drawing.
+    Timer {
+        id: tabLeaveUnloadTimer
+        interval: 1000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (tabActive)
+                return
+            if (!studyWebLoader.active)
+                return
+            console.log("BlopStudy: unloading WebView (tab inactive)")
+            firstLoadDone = false
+            webviewRecreatePending = false
+            studyWebLoader.active = false
         }
     }
 

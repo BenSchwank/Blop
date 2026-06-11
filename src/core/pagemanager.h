@@ -69,6 +69,11 @@ private slots:
 
 private:
     void setupUi();
+    /// v3.18.5: (re-)apply token-driven stylesheets to all header/footer
+    /// controls + the header strip. Called once from setupUi() and again
+    /// from applyThemeRefresh() so Light/Dark switches reskin the whole
+    /// modal — not just the scrim/panel chrome.
+    void applyControlStyles();
     void fillParent();
     void rebuildList(bool keepSelection = true);
     QList<int> selectedPageIndices() const;
@@ -79,6 +84,7 @@ private:
     MultiPageNoteView* m_view{nullptr};
     QPushButton* m_scrim{nullptr};
     QWidget* m_panel{nullptr};
+    QWidget* m_header{nullptr};
     QListWidget* m_listWidget{nullptr};
     QLabel* m_lblTitle{nullptr};
     QLabel* m_lblSubtitle{nullptr};

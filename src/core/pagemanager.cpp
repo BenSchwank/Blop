@@ -21,20 +21,6 @@
 #include <QPointer>
 #include <QCheckBox>
 
-namespace {
-// v3.17.0: kPanelMinWidth/MaxWidth removed -- the rigid 420 px floor
-// clipped on 360-dp phones. fillParent() now computes width responsively
-// based on parent size + safe insets.
-
-// Aligned with MultiPageNoteView #PagesBarStrip — modern neutral + accent
-static const QColor kCardIdle(52, 54, 64, 249);
-static const QColor kCardSelected(62, 64, 78, 252);
-static const QColor kBorderSubtle(110, 115, 140, 102);
-static const QColor kAccent(107, 163, 245);
-static const QColor kTextPrimary(220, 222, 232, 242);
-static const QColor kTextMuted(160, 165, 185);
-} // namespace
-
 // ============================================================================
 // PageListDelegate
 // ============================================================================
@@ -55,14 +41,26 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing);
 
+    // v3.18.5: read live BlopTheme tokens instead of fixed dark hex.
+    // The previous palette (kCardIdle = #343640 dark) was unreadable
+    // against the Light surface; tokens auto-flip per mode.
+    const QColor cardIdle = BlopTheme::surfaceBase();
+    const QColor cardSelected = BlopTheme::surfaceElevated();
+    const QColor borderSubtle = BlopTheme::borderSubtle();
+    const QColor accent = BlopTheme::accentPrimary();
+    const QColor textPrimary = BlopTheme::textPrimary();
+    const QColor textMuted = BlopTheme::textSecondary();
+    const QColor thumbBg = BlopTheme::surfaceMuted();
+    const bool isDark = BlopTheme::instance().isDark();
+
     QRect cardRect = option.rect.adjusted(10, 5, -10, -5);
 
-    QColor bgColor = kCardIdle;
+    QColor bgColor = cardIdle;
     if (option.state & QStyle::State_Selected) {
-        bgColor = kCardSelected;
-        painter->setPen(QPen(kAccent, 2));
+        bgColor = cardSelected;
+        painter->setPen(QPen(accent, 2));
     } else {
-        painter->setPen(QPen(QColor(kBorderSubtle.red(), kBorderSubtle.green(), kBorderSubtle.blue(), 90), 1));
+        painter->setPen(QPen(borderSubtle, 1));
     }
     painter->setBrush(bgColor);
     painter->drawRoundedRect(cardRect, 14, 14);
@@ -72,7 +70,7 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QRect thumbRect(cardRect.left() + 14, cardRect.center().y() - thumbH / 2, thumbW, thumbH);
 
     painter->setPen(Qt::NoPen);
-    painter->setBrush(QColor(28, 30, 40));
+    painter->setBrush(thumbBg);
     painter->drawRoundedRect(thumbRect, 6, 6);
 
     QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
@@ -88,7 +86,7 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     if (title.isEmpty()) title = index.data(Qt::DisplayRole).toString();
 
     QRect titleRect(textLeft, thumbRect.top() + 5, textRight - textLeft, 25);
-    painter->setPen(QColor(kTextPrimary.red(), kTextPrimary.green(), kTextPrimary.blue()));
+    painter->setPen(textPrimary);
     QFont titleFont = painter->font();
     titleFont.setBold(true);
     titleFont.setPointSize(11);
@@ -97,7 +95,7 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     QString subTitle = index.data(Qt::DisplayRole).toString();
     QRect subRect(textLeft, titleRect.bottom() + 2, textRight - textLeft, 20);
-    painter->setPen(kTextMuted);
+    painter->setPen(textMuted);
     QFont subFont = painter->font();
     subFont.setBold(false);
     subFont.setPointSize(9);
@@ -105,14 +103,14 @@ void PageListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->drawText(subRect, Qt::AlignLeft | Qt::AlignVCenter, subTitle);
 
     QRect menuRect = getMenuButtonRect(cardRect);
-    painter->setBrush(QColor(255, 255, 255, 38));
+    painter->setBrush(isDark ? QColor(255, 255, 255, 38) : QColor(0, 0, 0, 28));
     painter->setPen(Qt::NoPen);
     painter->drawRoundedRect(menuRect, 10, 10);
     const qreal cx = menuRect.center().x();
     const qreal cy = menuRect.center().y();
     const qreal dotR = 3.5;
     const qreal gap = 8.0;
-    painter->setBrush(QColor(kTextPrimary.red(), kTextPrimary.green(), kTextPrimary.blue()));
+    painter->setBrush(textPrimary);
     painter->drawEllipse(QPointF(cx - gap, cy), dotR, dotR);
     painter->drawEllipse(QPointF(cx, cy), dotR, dotR);
     painter->drawEllipse(QPointF(cx + gap, cy), dotR, dotR);
@@ -186,10 +184,9 @@ void PageManager::setupUi() {
     contentLay->setContentsMargins(0, 0, 0, 0);
     contentLay->setSpacing(0);
 
-    auto *header = new QWidget(m_panel);
-    header->setFixedHeight(140);
-    header->setStyleSheet("background: transparent; border-bottom: 1px solid rgba(120, 130, 160, 0.18);");
-    auto *headLay = new QVBoxLayout(header);
+    m_header = new QWidget(m_panel);
+    m_header->setFixedHeight(140);
+    auto *headLay = new QVBoxLayout(m_header);
     headLay->setContentsMargins(16, 12, 16, 10);
     headLay->setSpacing(8);
 
@@ -197,67 +194,48 @@ void PageManager::setupUi() {
     titleRow->setContentsMargins(0, 0, 0, 0);
     titleRow->setSpacing(8);
 
-    m_lblTitle = new QLabel(QStringLiteral("Seiten"), header);
-    m_lblTitle->setStyleSheet(
-        "color: rgba(235, 237, 245, 0.98); font-weight: 700; font-size: 17px; letter-spacing: 0.2px;");
+    m_lblTitle = new QLabel(QStringLiteral("Seiten"), m_header);
 
-    m_btnClose = new QPushButton(QStringLiteral("✕"), header);
+    m_btnClose = new QPushButton(QStringLiteral("✕"), m_header);
     m_btnClose->setFixedSize(36, 36);
     m_btnClose->setCursor(Qt::PointingHandCursor);
     m_btnClose->setFocusPolicy(Qt::NoFocus);
-    m_btnClose->setStyleSheet(
-        "QPushButton { color: rgba(200, 205, 220, 0.9); border: none; font-size: 16px; "
-        "border-radius: 10px; background: rgba(255,255,255,0.04); }"
-        "QPushButton:hover { color: #fff; background: rgba(255,255,255,0.10); }");
     connect(m_btnClose, &QPushButton::clicked, this, &PageManager::dismissAnimated);
 
     titleRow->addWidget(m_lblTitle, 1);
     titleRow->addWidget(m_btnClose, 0, Qt::AlignTop);
 
-    m_lblSubtitle = new QLabel(QStringLiteral("Drag & Drop · Mehrfachauswahl · Vorlagen"), header);
-    m_lblSubtitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "color: rgba(160, 168, 190, 0.85); font-size: 11px;")));
+    m_lblSubtitle = new QLabel(QStringLiteral("Drag & Drop · Mehrfachauswahl · Vorlagen"), m_header);
 
     headLay->addLayout(titleRow);
     headLay->addWidget(m_lblSubtitle);
 
-    m_search = new QLineEdit(header);
+    m_search = new QLineEdit(m_header);
     m_search->setPlaceholderText(QStringLiteral("Seiten suchen..."));
-    m_search->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QLineEdit { background: rgba(22,24,34,0.92); color: #E8EAFF; border: 1px solid rgba(120,130,160,0.35);"
-        "border-radius: 10px; padding: 8px 10px; }"
-        "QLineEdit:focus { border-color: rgba(107,163,245,0.68); }")));
     connect(m_search, &QLineEdit::textChanged, this, &PageManager::onSearchChanged);
     headLay->addWidget(m_search);
 
     auto *filterRow = new QHBoxLayout();
     filterRow->setContentsMargins(0, 0, 0, 0);
     filterRow->setSpacing(8);
-    m_groupFilter = new QComboBox(header);
+    m_groupFilter = new QComboBox(m_header);
     m_groupFilter->addItem(QStringLiteral("Alle Gruppen"), QStringLiteral("all"));
     m_groupFilter->addItem(QStringLiteral("Leer"), QStringLiteral("blank"));
     m_groupFilter->addItem(QStringLiteral("Liniert"), QStringLiteral("lined"));
     m_groupFilter->addItem(QStringLiteral("Kariert"), QStringLiteral("grid"));
     m_groupFilter->addItem(QStringLiteral("Punktiert"), QStringLiteral("dotted"));
     m_groupFilter->addItem(QStringLiteral("Legal"), QStringLiteral("legal"));
-    m_groupFilter->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QComboBox { background: rgba(22,24,34,0.9); color: #E8EAFF; border: 1px solid rgba(120,130,160,0.35);"
-        "border-radius: 9px; padding: 6px 10px; }")));
     connect(m_groupFilter, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &PageManager::onGroupFilterChanged);
-    m_btnSelectMode = new QPushButton(QStringLiteral("☑"), header);
+    m_btnSelectMode = new QPushButton(QStringLiteral("☑"), m_header);
     m_btnSelectMode->setToolTip(QStringLiteral("Mehrfachauswahl umschalten"));
     m_btnSelectMode->setCheckable(true);
     m_btnSelectMode->setFixedSize(36, 32);
-    m_btnSelectMode->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: rgba(255,255,255,0.06); color: #D8DEF2; border: 1px solid rgba(120,130,160,0.35);"
-        "border-radius: 9px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
-        "QPushButton:checked { background: rgba(107,163,245,0.22); border-color: rgba(107,163,245,0.62); color: #EEF4FF; }")));
     connect(m_btnSelectMode, &QPushButton::clicked, this, &PageManager::onToggleSelectMode);
     filterRow->addWidget(m_groupFilter, 1);
     filterRow->addWidget(m_btnSelectMode);
     headLay->addLayout(filterRow);
-    contentLay->addWidget(header);
+    contentLay->addWidget(m_header);
 
     m_listWidget = new QListWidget(m_panel);
     m_listWidget->setFrameShape(QFrame::NoFrame);
@@ -295,10 +273,6 @@ void PageManager::setupUi() {
       auto *b = new QPushButton(txt, m_panel);
       b->setToolTip(tooltip);
       b->setFixedSize(34, 30);
-      b->setStyleSheet(BlopTheme::themed(QStringLiteral(
-          "QPushButton { background: rgba(255,255,255,0.06); color: #D6DDF4; border: 1px solid rgba(120,130,160,0.3);"
-          "border-radius: 8px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
-          "QPushButton:hover { background: rgba(255,255,255,0.10); }")));
       return b;
     };
     m_btnSelectAll = mkBtn(QStringLiteral("☑"), QStringLiteral("Alle Seiten auswählen"));
@@ -339,19 +313,6 @@ void PageManager::setupUi() {
     m_fabAdd->setFixedSize(56, 56);
     m_fabAdd->setCursor(Qt::PointingHandCursor);
     m_fabAdd->setFocusPolicy(Qt::NoFocus);
-    m_fabAdd->setStyleSheet(
-        "QPushButton {"
-        "  background-color: rgba(58, 60, 72, 0.98);"
-        "  border: 1px solid rgba(120, 130, 160, 0.35);"
-        "  border-radius: 28px;"
-        "  color: #6BA3F5;"
-        "  font-size: 26px; font-weight: 600;"
-        "  padding-bottom: 2px;"
-        "}"
-        "QPushButton:hover {"
-        "  background-color: rgba(68, 70, 86, 0.98);"
-        "  border-color: rgba(140, 150, 185, 0.5);"
-        "}");
     connect(m_fabAdd, &QPushButton::clicked, this, &PageManager::onAddPage);
     BlopRipple::attachPressFeedback(m_fabAdd, 0.92);
 
@@ -361,6 +322,101 @@ void PageManager::setupUi() {
 
     m_scrim->raise();
     m_panel->raise();
+
+    applyControlStyles();
+}
+
+void PageManager::applyControlStyles() {
+    // v3.18.5: token-driven styles for every interactive control. Called
+    // from setupUi() once and again from applyThemeRefresh() so a
+    // Light/Dark switch reskins the whole modal.
+    auto rgba = [](const QColor &c) {
+        return QStringLiteral("rgba(%1,%2,%3,%4)")
+            .arg(c.red()).arg(c.green()).arg(c.blue())
+            .arg(QString::number(c.alphaF(), 'f', 3));
+    };
+    const QString textPrimary = BlopTheme::textPrimary().name();
+    const QString textSecondary = BlopTheme::textSecondary().name();
+    const QString border = rgba(BlopTheme::borderSubtle());
+    const bool isDark = BlopTheme::instance().isDark();
+    const QString hoverBg = rgba(isDark ? QColor(255, 255, 255, 22)
+                                        : QColor(0, 0, 0, 18));
+    const QString idleBg = rgba(isDark ? QColor(255, 255, 255, 14)
+                                       : QColor(0, 0, 0, 12));
+    const QString inputBg = BlopTheme::surfaceMuted().name(QColor::HexRgb);
+    const QString accent = BlopTheme::accentPrimary().name();
+    const QString accentBorder = rgba(BlopTheme::accentBorder());
+    const QString accentSubtle = rgba(BlopTheme::accentSubtle());
+    const QString surfaceBase = BlopTheme::surfaceBase().name(QColor::HexRgb);
+    const QString surfaceElevated = BlopTheme::surfaceElevated().name(QColor::HexRgb);
+
+    if (m_header) {
+        m_header->setStyleSheet(QStringLiteral(
+            "background: transparent; border-bottom: 1px solid %1;").arg(border));
+    }
+    if (m_lblTitle) {
+        m_lblTitle->setStyleSheet(QStringLiteral(
+            "color: %1; font-weight: 700; font-size: 17px; letter-spacing: 0.2px;"
+            "background: transparent;").arg(textPrimary));
+    }
+    if (m_lblSubtitle) {
+        m_lblSubtitle->setStyleSheet(QStringLiteral(
+            "color: %1; font-size: 11px; background: transparent;").arg(textSecondary));
+    }
+    if (m_btnClose) {
+        m_btnClose->setStyleSheet(QStringLiteral(
+            "QPushButton { color: %1; border: none; font-size: 16px;"
+            "  border-radius: 10px; background: %2; }"
+            "QPushButton:hover { color: %3; background: %4; }")
+            .arg(textSecondary, idleBg, textPrimary, hoverBg));
+    }
+    if (m_search) {
+        m_search->setStyleSheet(QStringLiteral(
+            "QLineEdit { background: %1; color: %2; border: 1px solid %3;"
+            "  border-radius: 10px; padding: 8px 10px; }"
+            "QLineEdit:focus { border-color: %4; }")
+            .arg(inputBg, textPrimary, border, accentBorder));
+    }
+    if (m_groupFilter) {
+        m_groupFilter->setStyleSheet(QStringLiteral(
+            "QComboBox { background: %1; color: %2; border: 1px solid %3;"
+            "  border-radius: 9px; padding: 6px 10px; }")
+            .arg(inputBg, textPrimary, border));
+    }
+    if (m_btnSelectMode) {
+        m_btnSelectMode->setStyleSheet(QStringLiteral(
+            "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+            "  border-radius: 9px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
+            "QPushButton:checked { background: %4; border-color: %5; color: %6; }")
+            .arg(idleBg, textPrimary, border, accentSubtle, accentBorder, accent));
+    }
+    const QString footerBtnQss = QStringLiteral(
+        "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+        "  border-radius: 8px; padding: 2px 2px; font-size: 16px; font-weight: 700; }"
+        "QPushButton:hover { background: %4; }")
+        .arg(idleBg, textPrimary, border, hoverBg);
+    for (QPushButton *b :
+         {m_btnSelectAll, m_btnClearSelection, m_btnDuplicateSelection,
+          m_btnDeleteSelection, m_btnMoveUp, m_btnMoveDown, m_btnApplyLayout}) {
+        if (b)
+            b->setStyleSheet(footerBtnQss);
+    }
+    if (m_fabAdd) {
+        m_fabAdd->setStyleSheet(QStringLiteral(
+            "QPushButton {"
+            "  background-color: %1;"
+            "  border: 1px solid %2;"
+            "  border-radius: 28px;"
+            "  color: %3;"
+            "  font-size: 26px; font-weight: 600;"
+            "  padding-bottom: 2px;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: %4;"
+            "  border-color: %5;"
+            "}")
+            .arg(surfaceBase, border, accent, surfaceElevated, accentBorder));
+    }
 }
 
 void PageManager::fillParent() {
@@ -533,6 +589,9 @@ void PageManager::applyThemeRefresh() {
                 .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
                      rgba(BlopTheme::borderDefault())));
     }
+    // v3.18.5: reapply every header/footer/FAB stylesheet so a theme
+    // toggle is fully reflected even after the modal has been opened.
+    applyControlStyles();
     // Force the list viewport to repaint with the new card colors and let
     // QStyle re-polish the children so the QSS-tagged inner buttons pick
     // up the refreshed BlopTheme tokens.

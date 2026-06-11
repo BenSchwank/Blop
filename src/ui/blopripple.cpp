@@ -109,27 +109,15 @@ void BlopRipple::animatePress(QWidget *target, qreal pressedScale) {
   if (!target)
     return;
 #ifdef Q_OS_ANDROID
-  // Geometry shrink on layout-managed header pills causes ghosting and
-  // layout thrash on Android. Opacity-only press is enough tactile feedback.
-  QPointer<QWidget> safe(target);
-  const qreal peak = qBound(0.75, pressedScale, 1.0);
-  auto *down = new QPropertyAnimation(target, "windowOpacity", target);
-  down->setDuration(90);
-  down->setStartValue(1.0);
-  down->setEndValue(peak);
-  auto *up = new QPropertyAnimation(target, "windowOpacity", target);
-  up->setDuration(180);
-  up->setStartValue(peak);
-  up->setEndValue(1.0);
-  auto *seq = new QSequentialAnimationGroup(target);
-  seq->addAnimation(down);
-  seq->addAnimation(up);
-  QObject::connect(seq, &QSequentialAnimationGroup::finished, target,
-                   [safe]() {
-                     if (safe)
-                       safe->setWindowOpacity(1.0);
-                   });
-  seq->start(QAbstractAnimation::DeleteWhenStopped);
+  // v3.18.5: Android press feedback is now expressed through Qt's
+  // native QStyle :pressed pseudo-state — handled per-widget by the
+  // existing stylesheets. The previous windowOpacity property
+  // animation forced a full compositor repaint on every frame and was
+  // a measurable contributor to drawing/scrolling lag on weaker
+  // devices. Skip the explicit animation entirely on Android.
+  Q_UNUSED(target);
+  Q_UNUSED(pressedScale);
+  return;
 #else
   // Anchored on the widget's current geometry. We animate the geometry
   // toward a shrunk-around-center rectangle and back, giving the user a

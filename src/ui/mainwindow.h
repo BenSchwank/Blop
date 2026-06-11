@@ -259,6 +259,11 @@ private:
   void setupTitleBar();
   void setupSidebar();
   void setupRightSidebar();
+  /// v3.18.5: (re-)apply theme-aware stylesheets to every control in
+  /// the right-side Page-Settings sheet. Called once from
+  /// setupRightSidebar() and again from applyThemeRefresh() so the
+  /// Light/Dark switch reskins the inner buttons/sliders/combos.
+  void refreshPageSettingsTheme();
   void createDefaultFolder();
   void applyTheme();
 
@@ -439,6 +444,13 @@ private:
   /// `m_pageSettingsOverlay` after dismissal so the next show finds it.
   class BlopModal *m_pageSettingsModal{nullptr};
   QLabel *m_lblActiveNote{nullptr};
+  /// v3.18.5: cached references for refreshPageSettingsTheme(). The
+  /// QTabWidget + the two tab pages are not Member-tracked by Qt's
+  /// child mechanism in a way that's easy to iterate, so we store
+  /// raw pointers here. Never own; the parent QWidget tree does.
+  class QTabWidget *m_pageSettingsTabs{nullptr};
+  QWidget *m_pageSettingsTabOptions{nullptr};
+  QWidget *m_pageSettingsTabTags{nullptr};
 
   // Quick-Tags Sidebar
   QWidget     *m_tagsContainer{nullptr};

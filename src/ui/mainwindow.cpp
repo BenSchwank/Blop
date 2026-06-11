@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.4"
+#define BLOP_VERSION_STR "3.18.5"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -657,6 +657,12 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   syncBtn(
       window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnPageMgr")));
   syncBtn(window->findChild<QWidget *>(QStringLiteral("AndroidHeaderBtnExport")));
+  // v3.18.5: square icon (22dp) inside the home pill instead of
+  // icon-stretched-to-button. Other header buttons stay full-rect.
+  if (auto *home = window->findChild<QAbstractButton *>(
+          QStringLiteral("AndroidHeaderBtnHome"))) {
+    home->setIconSize(QSize(UiScale::dp(22), UiScale::dp(22)));
+  }
 
   // Pill height is the only purely-geometric value here. Padding/font-size/
   // max-width live in applyAndroidTabStyles() (narrow-phone-aware QSS) so
@@ -769,8 +775,20 @@ void SidebarNavDelegate::paint(QPainter *painter,
 
   QString text = index.data(Qt::DisplayRole).toString();
 
+  // v3.18.5: theme-aware sidebar painting. Custom paint never picks up
+  // QSS rules, so we read the live BlopTheme tokens directly. This
+  // restores readable text and selection state in Light mode where the
+  // old hardcoded grey-on-white was nearly invisible.
+  const QColor secondaryText = BlopTheme::textSecondary();
+  const QColor primaryText = BlopTheme::textPrimary();
+  const QColor accentTint = BlopTheme::accentSubtle();
+  const bool isDark = BlopTheme::instance().isDark();
+  const QColor hoverTint = isDark ? QColor(255, 255, 255, 16)
+                                  : QColor(0, 0, 0, 16);
+  const QColor dividerColor = BlopTheme::borderSubtle();
+
   if (isHeader) {
-    painter->setPen(QColor("#888888"));
+    painter->setPen(secondaryText);
     QFont f = m_window->font();
     f.setBold(true);
     f.setPointSize(navFont - 2);
@@ -789,17 +807,17 @@ void SidebarNavDelegate::paint(QPainter *painter,
       arrow.lineTo(arrowX + 8, arrowY - 2);
       arrow.lineTo(arrowX + 4, arrowY + 3);
     }
-    painter->setBrush(QColor("#888888"));
+    painter->setBrush(secondaryText);
     painter->setPen(Qt::NoPen);
     painter->drawPath(arrow);
     QRect textRect = option.rect.adjusted(30, 0, -15, 0);
-    painter->setPen(QColor("#888888"));
+    painter->setPen(secondaryText);
     painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
     QFontMetrics fm(f);
     int textW = fm.horizontalAdvance(text);
     int lineX = textRect.left() + textW + 10;
     int lineY = option.rect.center().y();
-    painter->setPen(QColor("#333333"));
+    painter->setPen(dividerColor);
     painter->drawLine(lineX, lineY, option.rect.right() - 15, lineY);
   } else {
 #ifdef Q_OS_ANDROID
@@ -811,11 +829,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
     bool hover = (option.state & QStyle::State_MouseOver);
 
     if (selected) {
-      painter->setBrush(QColor("#2A2640"));
+      painter->setBrush(accentTint);
       painter->setPen(Qt::NoPen);
       painter->drawRoundedRect(rect, rect.height() / 2.0, rect.height() / 2.0);
     } else if (hover) {
-      painter->setBrush(QColor(255, 255, 255, 10));
+      painter->setBrush(hoverTint);
       painter->setPen(Qt::NoPen);
       painter->drawRoundedRect(rect, rect.height() / 2.0, rect.height() / 2.0);
     }
@@ -835,7 +853,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
         arrow.lineTo(arrowX + 5, arrowY);
         arrow.lineTo(arrowX, arrowY + 4);
       }
-      painter->setBrush(selected ? Qt::white : QColor("#aaaaaa"));
+      painter->setBrush(selected ? m_window->currentAccentColor() : secondaryText);
       painter->setPen(Qt::NoPen);
       painter->drawPath(arrow);
       iconOffset = 22;
@@ -853,7 +871,9 @@ void SidebarNavDelegate::paint(QPainter *painter,
     if (selected) {
       icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::On);
     } else {
-      painter->setOpacity(0.7);
+      // v3.18.5: 0.7 opacity on a near-grey icon is invisible in Light
+      // mode; 0.85 still reads as "muted" against either palette.
+      painter->setOpacity(isDark ? 0.7 : 0.85);
       icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::Off);
       painter->setOpacity(1.0);
     }
@@ -861,7 +881,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
     QRect textRect = rect;
     textRect.setLeft(iconRect.right() + 15);
     textRect.setRight(rect.right() - 40);
-    painter->setPen(selected ? m_window->currentAccentColor() : QColor(220, 220, 220));
+    painter->setPen(selected ? m_window->currentAccentColor() : primaryText);
 
     QFont f = m_window->font();
     f.setPointSize(navFont);
@@ -884,7 +904,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
 #endif
       QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH / 2,
                       badgeW, badgeH);
-      painter->setPen(selected ? Qt::white : m_window->currentAccentColor());
+      painter->setPen(m_window->currentAccentColor());
       QFont bf = f;
       bf.setBold(true);
       bf.setPointSize(navFont - 2);
@@ -1432,6 +1452,9 @@ void MainWindow::applyThemeRefresh() {
   if (m_pageManager) {
     m_pageManager->applyThemeRefresh();
   }
+  // v3.18.5: re-skin every control inside the Page-Settings sheet so
+  // theme toggles take effect on already-constructed widgets.
+  refreshPageSettingsTheme();
 
   // Nudge the file-list viewport so AndroidTileDelegate re-paints with
   // the new card color.
@@ -1450,8 +1473,31 @@ void MainWindow::applyThemeRefresh() {
     const QColor fg = BlopTheme::textPrimary();
     m_btnAndroidHome->setIcon(
         createModernIcon(QStringLiteral("home"), fg));
+    m_btnAndroidHome->setIconSize(QSize(UiScale::dp(22), UiScale::dp(22)));
+    m_btnAndroidHome->setStyleSheet(
+        BlopStyle::toolButtonAccentQss(m_currentAccentColor, UiScale::dp(16)));
   }
 #endif
+  // v3.18.5: re-tint sidebar nav icons and force a delegate repaint so
+  // the Light/Dark switch is fully reflected in the custom-painted
+  // nav list (QSS rules don't reach the delegate).
+  if (m_navSidebar) {
+    const QColor navIcon = BlopTheme::textSecondary();
+    for (int i = 0; i < m_navSidebar->count(); ++i) {
+      QListWidgetItem *it = m_navSidebar->item(i);
+      if (!it)
+        continue;
+      const bool isHeader = it->data(Qt::UserRole + 1).toBool();
+      if (isHeader)
+        continue;
+      const QString iconKey = it->data(Qt::UserRole + 11).toString();
+      if (!iconKey.isEmpty()) {
+        it->setIcon(createModernIcon(iconKey, navIcon));
+      }
+    }
+    if (m_navSidebar->viewport())
+      m_navSidebar->viewport()->update();
+  }
   update();
 }
 
@@ -3474,13 +3520,17 @@ void MainWindow::setupUi() {
   m_btnAndroidHome->setIcon(
       createModernIcon(QStringLiteral("home"), BlopTheme::textPrimary()));
   m_btnAndroidHome->setFixedSize(androidHeaderButtonW, androidHeaderButtonH);
-  m_btnAndroidHome->setIconSize(QSize(androidHeaderButtonW, androidHeaderButtonH));
+  // v3.18.5: square 22dp icon centered in the button instead of an icon
+  // stretched to the full button rect (which looked smudged against the
+  // accent pill in the previous build).
+  m_btnAndroidHome->setIconSize(QSize(UiScale::dp(22), UiScale::dp(22)));
   m_btnAndroidHome->setHoverScaleEnabled(false);
   m_btnAndroidHome->setToolTip(tr("Zur Übersicht"));
+  // v3.18.5: match the accent-pill background used by the menu/page
+  // buttons next to it so the header reads as a single, coherent row
+  // instead of one ghost button + two filled ones.
   m_btnAndroidHome->setStyleSheet(
-      "QToolButton { background: transparent; border: none; padding: 0; }"
-      "QToolButton:hover { background: transparent; }"
-      "QToolButton:pressed { background: transparent; }");
+      BlopStyle::toolButtonAccentQss(m_currentAccentColor, UiScale::dp(16)));
   connect(m_btnAndroidHome, &QAbstractButton::clicked, this, [this]() {
     if (m_rightStack && m_rightStack->currentWidget() == m_editorContainer) {
       onBackToOverview();
@@ -4827,21 +4877,22 @@ void MainWindow::onModeChanged(int index) {
     }
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // v3.18.2+: always ensure the WebView loads + refresh the SurfaceView on
-    // tab enter. Skip only ultra-fast double-toggles (<300 ms) to avoid
-    // loader flicker.
+    // v3.18.5: setting tabActive=true above (line ~4825) already drives
+    // the QML side to reactivate the Loader and call ensureStudyLoaded
+    // via postRecreateLoadTimer. We only nudge a surface refresh here
+    // when the user has been away long enough that the SurfaceView may
+    // have lost its surface (Qt's QStackedWidget swap can detach the
+    // native SurfaceView). Skip the call for fast double-toggles so the
+    // Loader doesn't flicker.
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     const qint64 awayMs = (m_lastStudyDeactivationMs > 0)
                               ? nowMs - m_lastStudyDeactivationMs
                               : -1;
-    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+    if (awayMs > 1500 && m_studyQQuickView && m_studyQQuickView->rootObject()) {
       QObject *root = m_studyQQuickView->rootObject();
-      QMetaObject::invokeMethod(root, "ensureStudyLoaded");
-      if (awayMs < 0 || awayMs > 300) {
-        QMetaObject::invokeMethod(
-            root, "refreshStudySurface",
-            Q_ARG(QVariant, QStringLiteral("tab_enter")));
-      }
+      QMetaObject::invokeMethod(
+          root, "refreshStudySurface",
+          Q_ARG(QVariant, QStringLiteral("tab_enter")));
     }
     QTimer::singleShot(0, this, [this]() {
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
@@ -5544,7 +5595,11 @@ void MainWindow::setupSidebar() {
     item->setText(name);
     item->setData(Qt::UserRole + 9, 0);
     if (!isHeader) {
-      item->setIcon(createModernIcon(icon, QColor(200, 200, 200)));
+      item->setIcon(createModernIcon(icon, BlopTheme::textSecondary()));
+      // v3.18.5: cache icon key so applyThemeRefresh() can re-tint it
+      // when the user toggles Light/Dark mode without rebuilding the
+      // whole sidebar.
+      item->setData(Qt::UserRole + 11, icon);
       if (name == "All" || name == "Blop Notes") {
         item->setData(Qt::UserRole + 2, rootCountStr);
         item->setData(Qt::UserRole + 10, m_rootPath);
@@ -5823,7 +5878,7 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
       child->setData(Qt::UserRole + 9, currentDepth + 1);
       child->setData(Qt::UserRole + 8, parentItem->text());
       if (info.isDir()) {
-        child->setIcon(createModernIcon("folder", QColor(180, 180, 180)));
+        child->setIcon(createModernIcon("folder", BlopTheme::textSecondary()));
         child->setData(Qt::UserRole + 6, true);
         child->setData(Qt::UserRole + 3, false);
       } else {
@@ -5832,7 +5887,7 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
         QPainter p(&pix);
         p.setRenderHint(QPainter::Antialiasing);
         p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(QColor(180, 180, 180), 2));
+        p.setPen(QPen(BlopTheme::textSecondary(), 2));
         p.drawRoundedRect(16, 10, 32, 44, 4, 4);
         p.drawLine(20, 18, 44, 18);
         p.drawLine(20, 26, 44, 26);
@@ -6261,30 +6316,14 @@ void MainWindow::setupRightSidebar() {
   // TAB WIDGET (Optionen vs Tags)
   // =========================================================================
   QTabWidget *settingsTabs = new QTabWidget(m_pageSettingsCard);
-  settingsTabs->setStyleSheet(BlopTheme::themed(
-      "QTabWidget::pane { border: none; border-top: 1px solid rgba(255,255,255,0.05); background: #14121f; }"
-      "QTabWidget > QWidget { background: #14121f; }"
-      "QTabBar::tab {"
-      "  background: transparent;"
-      "  color: rgba(255,255,255,0.45);"
-      "  padding: 8px 16px;"
-      "  font-size: 11px; font-weight: 600;"
-      "  border: none;"
-      "}"
-      "QTabBar::tab:selected {"
-      "  color: #DDD8FF;"
-      "  border-bottom: 2px solid #7C5CFC;"
-      "}"
-      "QTabBar::tab:hover:!selected {"
-      "  color: rgba(255,255,255,0.8);"
-      "}"));
+  m_pageSettingsTabs = settingsTabs;
   mainLayout->addWidget(settingsTabs, 1);
 
   // -------------------------------------------------------------------------
   // TAB 1: OPTIONEN (Formatierung, Input, Profile)
   // -------------------------------------------------------------------------
   QWidget *tabOptions = new QWidget();
-  tabOptions->setStyleSheet(BlopTheme::themed("background: #14121f;"));
+  m_pageSettingsTabOptions = tabOptions;
   QVBoxLayout *optLayoutMain = new QVBoxLayout(tabOptions);
   optLayoutMain->setContentsMargins(0, 0, 0, 0);
 
@@ -6542,7 +6581,7 @@ void MainWindow::setupRightSidebar() {
   // TAB 2: TAGS & META
   // -------------------------------------------------------------------------
   QWidget *tabTags = new QWidget();
-  tabTags->setStyleSheet(BlopTheme::themed("background: #14121f;"));
+  m_pageSettingsTabTags = tabTags;
   QVBoxLayout *tagsLayoutMain = new QVBoxLayout(tabTags);
   tagsLayoutMain->setContentsMargins(16, 16, 16, 20);
   tagsLayoutMain->setSpacing(16);
@@ -6623,6 +6662,128 @@ void MainWindow::setupRightSidebar() {
   midRow->addStretch(1);
   outerLay->addLayout(midRow);
   outerLay->addStretch(1);
+
+  // v3.18.5: apply theme-aware styles to all inner controls after the
+  // sheet is fully constructed. Light/Dark switches re-run this same
+  // method via applyThemeRefresh().
+  refreshPageSettingsTheme();
+}
+
+void MainWindow::refreshPageSettingsTheme() {
+  // v3.18.5: centralized re-skinning for the Page-Settings sheet.
+  // The original setupRightSidebar() baked in hardcoded #333 / #444 /
+  // #14121f surfaces that were dark even after a Light-mode switch.
+  // Pulling everything through BlopTheme tokens here makes the sheet
+  // respect the current theme on every refresh.
+  if (!m_pageSettingsCard)
+    return;
+  const bool isDark = BlopTheme::instance().isDark();
+  const QString surfaceBg = BlopTheme::surfaceBase().name(QColor::HexRgb);
+  const QString surfaceMuted = BlopTheme::surfaceMuted().name(QColor::HexRgb);
+  const QString textPrimary = BlopTheme::textPrimary().name();
+  const QString textSecondary = BlopTheme::textSecondary().name();
+  const QString textOnAccent = BlopTheme::textOnAccent().name();
+  const QString border = BlopTheme::borderSubtle().name();
+  const QString accent = m_currentAccentColor.name();
+  const QString divider = isDark ? QStringLiteral("rgba(255,255,255,0.07)")
+                                 : QStringLiteral("rgba(0,0,0,0.08)");
+  const QString subtleDivider = isDark ? QStringLiteral("rgba(255,255,255,0.05)")
+                                       : QStringLiteral("rgba(0,0,0,0.06)");
+  const QString tabInactive = isDark ? QStringLiteral("rgba(255,255,255,0.45)")
+                                     : QStringLiteral("rgba(0,0,0,0.55)");
+  const QString tabHover = isDark ? QStringLiteral("rgba(255,255,255,0.8)")
+                                  : QStringLiteral("rgba(0,0,0,0.85)");
+
+  m_pageSettingsCard->setStyleSheet(QStringLiteral(
+      "QWidget#PageSettingsCard { background: %1; border: 1px solid %2;"
+      "  border-radius: 18px; }")
+      .arg(surfaceBg, border));
+
+  if (m_pageSettingsTabs) {
+    m_pageSettingsTabs->setStyleSheet(QStringLiteral(
+        "QTabWidget::pane { border: none; border-top: 1px solid %1; background: %2; }"
+        "QTabWidget > QWidget { background: %2; }"
+        "QTabBar::tab { background: transparent; color: %3;"
+        "  padding: 8px 16px; font-size: 11px; font-weight: 600; border: none; }"
+        "QTabBar::tab:selected { color: %4; border-bottom: 2px solid %5; }"
+        "QTabBar::tab:hover:!selected { color: %6; }")
+        .arg(subtleDivider, surfaceBg, tabInactive, textPrimary, accent, tabHover));
+  }
+  if (m_pageSettingsTabOptions)
+    m_pageSettingsTabOptions->setStyleSheet(QStringLiteral("background: %1;").arg(surfaceBg));
+  if (m_pageSettingsTabTags)
+    m_pageSettingsTabTags->setStyleSheet(QStringLiteral("background: %1;").arg(surfaceBg));
+
+  if (m_lblActiveNote) {
+    m_lblActiveNote->setStyleSheet(QStringLiteral(
+        "color: %1; font-size: 12px; font-weight: 600;"
+        "padding: 12px 16px 8px 16px; background: transparent;")
+        .arg(textPrimary));
+  }
+
+  const QString segmentBtnQss = QStringLiteral(
+      "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+      "  padding: 10px; border-radius: 5px; }"
+      "QPushButton:disabled { color: %4; }"
+      "QPushButton:checked { background: %5; color: %6; border: 1px solid %5; }")
+      .arg(surfaceMuted, textPrimary, border, textSecondary, accent, textOnAccent);
+  for (QPushButton *b : {m_btnFormatInfinite, m_btnFormatA4, m_btnStyleBlank,
+                          m_btnStyleLined, m_btnStyleSquared, m_btnStyleDotted,
+                          m_btnColorWhite, m_btnColorDark}) {
+    if (b)
+      b->setStyleSheet(segmentBtnQss);
+  }
+  const QString inputBtnQss = QStringLiteral(
+      "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+      "  padding: 10px; border-radius: 5px; text-align: left; }"
+      "QPushButton:checked { background: %4; color: %5; border: 1px solid %4; }")
+      .arg(surfaceMuted, textPrimary, border, accent, textOnAccent);
+  if (m_btnInputPen) m_btnInputPen->setStyleSheet(inputBtnQss);
+  if (m_btnInputTouch) m_btnInputTouch->setStyleSheet(inputBtnQss);
+
+  const QString comboQss = QStringLiteral(
+      "QComboBox { background: %1; color: %2; border: 1px solid %3;"
+      "  padding: 5px; border-radius: 5px; }"
+      "QComboBox::drop-down { border: 0px; }"
+      "QComboBox QAbstractItemView { background: %1; color: %2;"
+      "  selection-background-color: %4; }")
+      .arg(surfaceMuted, textPrimary, border, accent);
+  if (m_comboToolbarStyle) m_comboToolbarStyle->setStyleSheet(comboQss);
+  if (m_comboProfiles) m_comboProfiles->setStyleSheet(comboQss);
+
+  const QString sliderQss = QStringLiteral(
+      "QSlider::groove:horizontal { border: 1px solid %1; height: 6px;"
+      "  background: %2; margin: 2px 0; border-radius: 3px; }"
+      "QSlider::handle:horizontal { background: %3; border: 1px solid %3;"
+      "  width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }")
+      .arg(border, surfaceMuted, accent);
+  if (m_sliderGridSpacing) m_sliderGridSpacing->setStyleSheet(sliderQss);
+  if (m_sliderToolbarScale) m_sliderToolbarScale->setStyleSheet(sliderQss);
+
+  // Section labels and "plain" labels inside the option scroll area.
+  // Iterate over QLabel children to re-tint them in one pass.
+  for (QLabel *lbl : m_pageSettingsCard->findChildren<QLabel *>()) {
+    if (lbl == m_lblActiveNote)
+      continue;
+    const QString existing = lbl->styleSheet();
+    if (existing.contains(QStringLiteral("font-weight: 700")) &&
+        existing.contains(QStringLiteral("letter-spacing"))) {
+      // Section caption — keep small + muted.
+      lbl->setStyleSheet(QStringLiteral(
+          "color: %1; font-size: 10px; font-weight: 700;"
+          "letter-spacing: 0.5px; background: transparent;")
+          .arg(textSecondary));
+    } else if (!existing.isEmpty() && lbl->text().endsWith(QStringLiteral(":"))) {
+      lbl->setStyleSheet(QStringLiteral(
+          "color: %1; background: transparent;").arg(textPrimary));
+    }
+  }
+
+  if (style()) {
+    style()->unpolish(m_pageSettingsCard);
+    style()->polish(m_pageSettingsCard);
+  }
+  m_pageSettingsCard->update();
 }
 
 void MainWindow::updateInputMode(bool penOnly) {
@@ -7822,17 +7983,6 @@ void MainWindow::onOpenSettings() {
   if (m_isSidebarOpen)
     onToggleSidebar();
 
-  QWidget *overlay = new QWidget(this);
-#ifdef Q_OS_ANDROID
-  overlay->setGeometry(androidSafeOverlayRect(this));
-#else
-  overlay->setGeometry(this->rect());
-#endif
-  overlay->setStyleSheet("background-color: rgba(0, 0, 0, 150);");
-  overlay->setAttribute(Qt::WA_DeleteOnClose);
-  overlay->show();
-  overlay->raise();
-
   SettingsDialog dlg(m_profileManager, this);
   ModernToolbar *toolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (toolbar) {
@@ -7849,7 +7999,11 @@ void MainWindow::onOpenSettings() {
                                        : ModernToolbar::Normal);
           });
 
-  int res = dlg.exec();
+  // v3.18.5: route through BlopModal to avoid the Qt 6.10 Android EGL
+  // deadlock that any top-level QWindow (raw QDialog::exec) triggers.
+  // execBlocking embeds the dialog into our in-window modal and supplies
+  // its own backdrop, so the legacy rgba scrim is no longer needed.
+  int res = BlopModal::execBlocking(this, &dlg);
   if (res == SettingsDialog::EditProfileCode) {
     QString id = dlg.profileIdToEdit();
     UiProfile p = m_profileManager->profileById(id);
@@ -7857,17 +8011,13 @@ void MainWindow::onOpenSettings() {
     ProfileEditorDialog editor(p, this);
     connect(&editor, &ProfileEditorDialog::previewRequested, this,
             &MainWindow::applyProfile);
-    if (editor.exec() == QDialog::Accepted) {
+    if (BlopModal::execBlocking(this, &editor) == QDialog::Accepted) {
       m_profileManager->updateProfile(editor.getProfile(), true);
       applyProfile(editor.getProfile());
     } else {
       m_profileManager->updateProfile(original, true);
       applyProfile(m_profileManager->currentProfile());
     }
-  }
-
-  if (overlay) {
-    overlay->close();
   }
 }
 
