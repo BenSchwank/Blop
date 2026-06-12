@@ -560,21 +560,31 @@ Rectangle {
         active: true
         asynchronous: false
         sourceComponent: studyWebViewComponent
-        // v3.18.6: deterministic load path. Whenever the Loader finishes
-        // instantiating its WebView item (initial create or recreate), kick
-        // a fresh URL immediately. postRecreateLoadTimer remains as a
-        // fallback for paths in which onLoaded does NOT fire (e.g. the
-        // Loader was already active and only the QQuickItem identity
-        // changed indirectly).
+        // v3.18.6/.7: deterministic load path. Whenever the Loader
+        // finishes instantiating its WebView item, kick a fresh URL.
+        //
+        // v3.18.7: Qt.callLater() defers the URL assignment by one
+        // event-loop tick. Required because onLoaded can fire synchronously
+        // from inside QQuickWidget::setSource() (called from the C++ side's
+        // setupWebBrowser()) — at that moment the QQuickWidget is NOT yet
+        // attached to a real top-level window, so Android QtWebView cannot
+        // initialise its native SurfaceView and w.url = target falls
+        // silently on the floor. Deferring by one tick guarantees the
+        // widget is on a window when the load is issued.
+        //
+        // applyAuthUiScale() removed from this path — it would runJavaScript
+        // against about:blank before our real URL has loaded, which only
+        // generates noise in the log without doing anything useful.
         onLoaded: {
             console.log("BlopStudy: studyWebLoader onLoaded — item=", item)
-            if (ssoPollingEnabled) {
-                loadStudyEntryFresh("loaderOnLoaded", true)
-                firstLoadDone = true
-                cacheMissRecoveryArmed = true
-                cacheMissRecoveryCount = 0
-            }
-            applyAuthUiScale()
+            Qt.callLater(function () {
+                if (ssoPollingEnabled) {
+                    loadStudyEntryFresh("loaderOnLoaded", true)
+                    firstLoadDone = true
+                    cacheMissRecoveryArmed = true
+                    cacheMissRecoveryCount = 0
+                }
+            })
         }
     }
 

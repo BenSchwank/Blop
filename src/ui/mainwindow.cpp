@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.6"
+#define BLOP_VERSION_STR "3.18.7"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -624,7 +624,9 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   // three-dots / Page-Manager pill never sits flush against a curved
   // corner or gesture inset.
   const int rightPad = UiScale::dp(12);
-  const int topExtra = UiScale::dp(4);
+  // v3.18.7: was UiScale::dp(4). See setupUi() comment — keeps the chip
+  // row flush against the status-bar inset without a discrete dark lip.
+  const int topExtra = 0;
 
   const int headerHeight =
       qBound(UiScale::dp(46), int(screenW * 0.09), UiScale::dp(60));
@@ -1421,10 +1423,18 @@ void MainWindow::applyThemeRefresh() {
   }
 #ifdef Q_OS_ANDROID
   if (m_androidHeader) {
+    // v3.18.7: chrome blends into the page background — see setupUi()
+    // for the rationale. Mirror that here so theme toggles take effect
+    // on already-constructed widgets.
     m_androidHeader->setStyleSheet(
         QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
                        "border: none; }")
-            .arg(BlopTheme::surfaceBase().name(QColor::HexRgb)));
+            .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+    if (QWidget *inner = m_androidHeader->findChild<QWidget *>(
+            QStringLiteral("AndroidTopHeaderInner"))) {
+      inner->setStyleSheet(QStringLiteral(
+          "QWidget#AndroidTopHeaderInner { background: transparent; }"));
+    }
   }
   syncStudyChromeTheme();
 #endif
@@ -3436,13 +3446,18 @@ void MainWindow::setupUi() {
   QWidget *androidTopChrome = new QWidget(m_centralContainer);
   m_androidHeader = androidTopChrome;
   androidTopChrome->setObjectName(QStringLiteral("AndroidTopChrome"));
+  // v3.18.7: chrome blends into the page background so the user sees only
+  // floating chips + home button on top of the content surface, instead
+  // of a discrete dark bar across the top edge.
   androidTopChrome->setStyleSheet(
       QStringLiteral("QWidget#AndroidTopChrome { background-color: %1; "
                      "border: none; }")
-          .arg(BlopTheme::surfaceBase().name(QColor::HexRgb)));
+          .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
   const int androidTopInset = UiScale::safeTopPx(this);
   const int androidHeaderSidePad = UiScale::safeHorizontalPaddingPx(this);
-  const int androidHeaderTopExtra = UiScale::dp(4);
+  // v3.18.7: was UiScale::dp(4). Dropped to 0 — the chip row sits flush
+  // under the system status-bar inset without an extra "lip" of padding.
+  const int androidHeaderTopExtra = 0;
   // Anchor responsive sizing to the actual device screen width (works even
   // before the window has been shown), so we don't get oversized buttons
   // because width() still returns the Qt default 640px.
@@ -3462,8 +3477,11 @@ void MainWindow::setupUi() {
   androidHeader->setObjectName(QStringLiteral("AndroidTopHeaderInner"));
   androidHeader->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   androidHeader->setFixedHeight(androidHeaderTotalH);
+  // v3.18.7: transparent so the AndroidTopChrome surface (which now
+  // matches the page background) shows through. Eliminates the hard
+  // dark band that used to read as a separate top bar above the chips.
   androidHeader->setStyleSheet(
-      BlopTheme::themed(QStringLiteral("background-color: #0F111A;")));
+      QStringLiteral("QWidget#AndroidTopHeaderInner { background: transparent; }"));
   QHBoxLayout *headerLay = new QHBoxLayout(androidHeader);
   headerLay->setContentsMargins(androidHeaderSidePad, androidTopInset + androidHeaderTopExtra,
                                 androidHeaderSidePad, UiScale::dp(4));
@@ -4879,29 +4897,24 @@ void MainWindow::onModeChanged(int index) {
     }
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // v3.18.6: setting tabActive=true above already drives the QML
-    // side to reactivate the Loader. We have two recovery paths:
-    //   - First Study tab of this app session (m_lastStudyDeactivationMs == 0):
-    //     explicitly call ensureStudyLoaded() so the WebView gets an
-    //     initial URL even if the QML init sequence raced with the
-    //     C++ tabActive=false fallout from the default-tab=Notes start.
-    //   - Subsequent re-entries after >1.5 s away: refreshStudySurface
-    //     to re-attach the SurfaceView that QStackedWidget may have
-    //     detached. Skip for fast double-toggles to avoid flicker.
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    const qint64 awayMs = (m_lastStudyDeactivationMs > 0)
-                              ? nowMs - m_lastStudyDeactivationMs
-                              : -1;
+    // v3.18.7: simplified Study re-entry path. The v3.18.6 logic ran
+    // refreshStudySurface() on every re-entry with awayMs > 1500,
+    // which started webLoaderDeactivateTimer (50 ms) and tore down
+    // the WebView that the new studyWebLoader.onLoaded handler had
+    // just loaded — leaving the user staring at the QML root
+    // Rectangle (#0B0B1A, ~black on phone) with no WebView attached.
+    //
+    // Now we rely on the QML side end-to-end:
+    //   - studyWebLoader.onLoaded fires whenever the Loader actually
+    //     instantiates the WebView (initial create OR tabLeaveUnload
+    //     recreate) and triggers loadStudyEntryFresh deterministically.
+    //   - ensureStudyLoaded() handles the "Loader is still alive but
+    //     never got a URL" case by checking firstLoadDone and the
+    //     current url. It is a no-op when the page is already loaded.
     if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
       QObject *root = m_studyQQuickView->rootObject();
-      if (m_lastStudyDeactivationMs == 0) {
-        qInfo() << "MainWindow: BlopStudy first tab enter — ensureStudyLoaded()";
-        QMetaObject::invokeMethod(root, "ensureStudyLoaded");
-      } else if (awayMs > 1500) {
-        QMetaObject::invokeMethod(
-            root, "refreshStudySurface",
-            Q_ARG(QVariant, QStringLiteral("tab_enter")));
-      }
+      qInfo() << "MainWindow: BlopStudy tab enter — ensureStudyLoaded()";
+      QMetaObject::invokeMethod(root, "ensureStudyLoaded");
     }
     QTimer::singleShot(0, this, [this]() {
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
@@ -5393,7 +5406,20 @@ QRect MainWindow::sidebarPushContentRect() const {
                                                QPoint(0, 0));
   int y = tl.y();
   int h = m_centralContainer->height();
-#ifndef Q_OS_ANDROID
+#ifdef Q_OS_ANDROID
+  // v3.18.7: start the drawer BELOW the chrome (status-bar inset + chip row).
+  // The drawer is a sibling of m_centralContainer at the MainWindow level,
+  // so it paints OVER the chrome regardless of any QWidget::raise() trick.
+  // Insetting its geometry by the chrome height is the only reliable way
+  // to keep the chrome (notes/study chips + home button) visible — and it
+  // also removes the white logo-JPG artifact that used to be painted on
+  // top of the chrome's status-bar inset region when the drawer opened.
+  if (m_androidHeader && m_androidHeader->isVisible()) {
+    const int chromeH = m_androidHeader->height();
+    y += chromeH;
+    h -= chromeH;
+  }
+#else
   if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
     const int th = m_titleBarWidget->height();
     y = m_centralContainer->mapTo(const_cast<MainWindow *>(this), QPoint(0, th)).y();
@@ -5763,7 +5789,14 @@ void MainWindow::updateAndroidSidebarScrimGeometry() {
   QRect hostRect = m_centralContainer->geometry();
   const int topInset = UiScale::safeTopPx(this);
   const int bottomInset = UiScale::safeBottomPx(this);
-  hostRect.adjust(0, topInset, 0, -bottomInset);
+  // v3.18.7: scrim must also clear the full chrome (status-bar inset
+  // + chip row), not just the inset — otherwise it dims the chrome
+  // and intercepts touches that should hit the home button / chips.
+  const int chromeH = (m_androidHeader && m_androidHeader->isVisible())
+                          ? m_androidHeader->height()
+                          : topInset;
+  const int topOffset = qMax(chromeH, topInset);
+  hostRect.adjust(0, topOffset, 0, -bottomInset);
   m_androidSidebarScrim->setGeometry(hostRect);
 }
 #endif
@@ -6878,8 +6911,12 @@ void MainWindow::animateSidebar(bool show) {
               m_androidSidebarScrim->raise();
             if (m_sidebarContainer)
               m_sidebarContainer->raise();
-            if (m_androidHeader)
-              m_androidHeader->raise();
+            // v3.18.7: m_androidHeader->raise() removed here — chrome
+            // is a child of m_centralContainer, drawer is a sibling of
+            // m_centralContainer, so raise() cannot lift the chrome
+            // above the drawer. Now obsolete because the drawer's
+            // geometry no longer overlaps the chrome (see
+            // sidebarPushContentRect()).
 #endif
             // Keep docked toolbar fully visible while sidebar animates.
             if (m_floatingTools) {
@@ -6922,8 +6959,10 @@ void MainWindow::animateSidebar(bool show) {
       }
       if (m_sidebarContainer)
         m_sidebarContainer->raise();
-      if (m_androidHeader)
-        m_androidHeader->raise();
+      // v3.18.7: see note above — chrome cannot be raised over the
+      // drawer (different parents), and after sidebarPushContentRect
+      // no longer maps the drawer onto the chrome rect, it doesn't
+      // need to be.
 #endif
     } else {
       m_isSidebarOpen = false;
@@ -6938,23 +6977,15 @@ void MainWindow::animateSidebar(bool show) {
 #endif
     }
     updateGrid();
-#ifdef Q_OS_ANDROID
-    if (m_androidHeader)
-      m_androidHeader->raise();
-#endif
     updateSidebarState();
   });
   anim->start(QAbstractAnimation::DeleteWhenStopped);
-#ifdef Q_OS_ANDROID
-  if (m_androidHeader)
-    m_androidHeader->raise();
-  // Native WebView surfaces can briefly jump above widgets on some devices;
-  // enforce header z-order again on the next event loop turn.
-  QTimer::singleShot(0, this, [this]() {
-    if (m_androidHeader)
-      m_androidHeader->raise();
-  });
-#endif
+  // v3.18.7: legacy m_androidHeader->raise() chains removed — they
+  // were attempts to lift the chrome above the drawer, but Qt's
+  // sibling z-order rules prevent that (chrome is inside
+  // m_centralContainer, drawer is its sibling at the MainWindow
+  // level). The drawer now starts BELOW the chrome row instead, so
+  // there is no overlap to fight.
 }
 void MainWindow::onToggleSidebar() {
 #ifdef Q_OS_ANDROID
