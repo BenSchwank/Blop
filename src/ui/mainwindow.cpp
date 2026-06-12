@@ -169,7 +169,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.5"
+#define BLOP_VERSION_STR "3.18.6"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -4846,6 +4846,7 @@ void MainWindow::onModeChanged(int index) {
     // SurfaceView and paint black on re-show), so the QML side reads a
     // tabActive property that we toggle here.
     if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+      qInfo() << "MainWindow: BlopStudy setProperty tabActive=false";
       m_studyQQuickView->rootObject()->setProperty("tabActive", false);
     }
     m_lastStudyDeactivationMs = QDateTime::currentMSecsSinceEpoch();
@@ -4873,26 +4874,34 @@ void MainWindow::onModeChanged(int index) {
     m_studyWindowContainer->setEnabled(true);
     // v3.17.6: re-enable the QML poll timers now that Study is visible again.
     if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+      qInfo() << "MainWindow: BlopStudy setProperty tabActive=true";
       m_studyQQuickView->rootObject()->setProperty("tabActive", true);
     }
     if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
       m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // v3.18.5: setting tabActive=true above (line ~4825) already drives
-    // the QML side to reactivate the Loader and call ensureStudyLoaded
-    // via postRecreateLoadTimer. We only nudge a surface refresh here
-    // when the user has been away long enough that the SurfaceView may
-    // have lost its surface (Qt's QStackedWidget swap can detach the
-    // native SurfaceView). Skip the call for fast double-toggles so the
-    // Loader doesn't flicker.
+    // v3.18.6: setting tabActive=true above already drives the QML
+    // side to reactivate the Loader. We have two recovery paths:
+    //   - First Study tab of this app session (m_lastStudyDeactivationMs == 0):
+    //     explicitly call ensureStudyLoaded() so the WebView gets an
+    //     initial URL even if the QML init sequence raced with the
+    //     C++ tabActive=false fallout from the default-tab=Notes start.
+    //   - Subsequent re-entries after >1.5 s away: refreshStudySurface
+    //     to re-attach the SurfaceView that QStackedWidget may have
+    //     detached. Skip for fast double-toggles to avoid flicker.
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     const qint64 awayMs = (m_lastStudyDeactivationMs > 0)
                               ? nowMs - m_lastStudyDeactivationMs
                               : -1;
-    if (awayMs > 1500 && m_studyQQuickView && m_studyQQuickView->rootObject()) {
+    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
       QObject *root = m_studyQQuickView->rootObject();
-      QMetaObject::invokeMethod(
-          root, "refreshStudySurface",
-          Q_ARG(QVariant, QStringLiteral("tab_enter")));
+      if (m_lastStudyDeactivationMs == 0) {
+        qInfo() << "MainWindow: BlopStudy first tab enter — ensureStudyLoaded()";
+        QMetaObject::invokeMethod(root, "ensureStudyLoaded");
+      } else if (awayMs > 1500) {
+        QMetaObject::invokeMethod(
+            root, "refreshStudySurface",
+            Q_ARG(QVariant, QStringLiteral("tab_enter")));
+      }
     }
     QTimer::singleShot(0, this, [this]() {
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
@@ -8272,9 +8281,46 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
   // returns to the app via the com.benschwank.blop://oauth2redirect deep link
   // handled by BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
   dismissAndroidOAuthOverlay();
+  qInfo() << "showAuthOverlay: opening auth URL via system browser";
   const bool opened = QDesktopServices::openUrl(url);
-  if (!opened)
-    qWarning() << "showAuthOverlay: QDesktopServices::openUrl failed for" << url;
+  if (!opened) {
+    qCritical() << "showAuthOverlay: QDesktopServices::openUrl failed for"
+                << url
+                << "— most likely cause: no browser installed OR Android 11+"
+                   " <queries> Package-Visibility filter blocks resolveActivity."
+                   " Check AndroidManifest <queries> block.";
+    // v3.18.6: release the PKCE in-progress lock immediately so the user
+    // can retry without having to wait 60 s for the stale-timeout.
+    GoogleAuthManager::instance().cancelPendingLogin();
+    // v3.18.6: surface the failure to the user instead of silently doing
+    // nothing. Use BlopModal::execBlocking so we never spawn a top-level
+    // QWindow that would trip the EGL deadlock path (see settings crash
+    // fix in v3.18.5).
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Anmeldung fehlgeschlagen"));
+    auto *lay = new QVBoxLayout(&dlg);
+    lay->setContentsMargins(20, 18, 20, 16);
+    lay->setSpacing(12);
+    auto *lbl = new QLabel(
+        tr("Es konnte kein Browser geöffnet werden. Stelle sicher, dass"
+           " Chrome oder ein anderer Browser installiert ist und versuche"
+           " es erneut."),
+        &dlg);
+    lbl->setWordWrap(true);
+    lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "color: %1; background: transparent;")
+        .arg(BlopTheme::textPrimary().name())));
+    lay->addWidget(lbl);
+    auto *btnRow = new QHBoxLayout();
+    btnRow->addStretch(1);
+    auto *ok = new QPushButton(tr("OK"), &dlg);
+    ok->setStyleSheet(BlopTheme::primaryButtonQss());
+    ok->setDefault(true);
+    btnRow->addWidget(ok);
+    lay->addLayout(btnRow);
+    QObject::connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
+    BlopModal::execBlocking(this, &dlg);
+  }
   return opened;
 #else
   // Desktop: system browser; redirect to http://127.0.0.1:8080/ is handled by

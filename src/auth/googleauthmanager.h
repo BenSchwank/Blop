@@ -19,6 +19,14 @@ public:
     void login();
     bool isAuthenticated() const { return m_authenticated; }
 
+#ifdef Q_OS_ANDROID
+    /// v3.18.6: clear the in-progress PKCE lock so the next login() tap
+    /// triggers a fresh flow. Called by MainWindow when the browser
+    /// could not be opened (otherwise the lock would only auto-clear
+    /// after the 60 s stale-timeout in startPkceLogin()).
+    void cancelPendingLogin();
+#endif
+
     QString userEmail() const { return m_email; }
     QString userName() const { return m_name; }
     QString userPictureUrl() const { return m_pictureUrl; }
@@ -56,6 +64,12 @@ private:
     QString m_redirectUri;
     QString m_clientId;
     bool m_loginInProgress{false};
+    /// v3.18.6: timestamp of the most recent startPkceLogin(). If the
+    /// browser fails to open and `m_loginInProgress` is never cleared by
+    /// a callback, subsequent login() calls would be ignored forever.
+    /// We treat a lock older than 60 s as stale and let the next tap
+    /// restart the flow.
+    qint64 m_loginInProgressSinceMs{0};
 #else
     void fetchUserInfo();
     QOAuth2AuthorizationCodeFlow* m_oauth2{nullptr};

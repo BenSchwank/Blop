@@ -64,17 +64,32 @@ Rectangle {
     // re-show), but unloading the Loader frees the SurfaceView in a
     // controlled way and lets the canvas have the GPU to itself.
     onTabActiveChanged: {
+        // v3.18.6: log every tab transition so logcat can trace
+        // the Study activation path on customer devices.
+        console.log("BlopStudy: tabActive ->", tabActive,
+                    "loaderActive=", studyWebLoader.active,
+                    "firstLoadDone=", firstLoadDone)
         if (tabActive) {
             tabLeaveUnloadTimer.stop()
             if (!studyWebLoader.active) {
                 webviewRecreatePending = false
                 studyWebLoader.active = true
+                console.log("BlopStudy: loader active -> true (tabActive)")
                 postRecreateLoadTimer.start()
             } else if (visible) {
                 ensureStudyLoaded()
             }
         } else {
-            tabLeaveUnloadTimer.restart()
+            // v3.18.6: only schedule the unload once we've actually had
+            // at least one successful load. Without this guard, the
+            // C++ initialisation order (default tab = Notes => tabActive
+            // gets toggled to false before Study has ever been visible)
+            // would unload the Loader in 1 s and leave the user staring
+            // at a whitescreen on the first Study tap.
+            if (firstLoadDone)
+                tabLeaveUnloadTimer.restart()
+            else
+                console.log("BlopStudy: skip tabLeaveUnloadTimer — not loaded yet")
         }
     }
 
@@ -258,6 +273,13 @@ Rectangle {
         if (!ssoPollingEnabled)
             return
         var w = studyWeb()
+        // v3.18.6: explicit logging so the logcat trail shows whether
+        // the WebView item is null at the moment ensureStudyLoaded was
+        // invoked — that's the single most useful signal for diagnosing
+        // a Study whitescreen on customer devices.
+        console.log("BlopStudy: ensureStudyLoaded — studyWeb()=", w,
+                    "firstLoadDone=", firstLoadDone,
+                    "loaderActive=", studyWebLoader.active)
         if (!w)
             return
         if (!firstLoadDone || w.url.toString() === "" || w.url.toString() === "about:blank") {
@@ -538,6 +560,22 @@ Rectangle {
         active: true
         asynchronous: false
         sourceComponent: studyWebViewComponent
+        // v3.18.6: deterministic load path. Whenever the Loader finishes
+        // instantiating its WebView item (initial create or recreate), kick
+        // a fresh URL immediately. postRecreateLoadTimer remains as a
+        // fallback for paths in which onLoaded does NOT fire (e.g. the
+        // Loader was already active and only the QQuickItem identity
+        // changed indirectly).
+        onLoaded: {
+            console.log("BlopStudy: studyWebLoader onLoaded — item=", item)
+            if (ssoPollingEnabled) {
+                loadStudyEntryFresh("loaderOnLoaded", true)
+                firstLoadDone = true
+                cacheMissRecoveryArmed = true
+                cacheMissRecoveryCount = 0
+            }
+            applyAuthUiScale()
+        }
     }
 
     Timer {
@@ -547,10 +585,14 @@ Rectangle {
         repeat: false
         onTriggered: {
             studyWebLoader.active = false
-            // v3.18.5: the existing WebView is gone — any subsequent
-            // ensureStudyLoaded must trigger a fresh load instead of
-            // being skipped because firstLoadDone is still true.
-            firstLoadDone = false
+            console.log("BlopStudy: loader active -> false (recreate)")
+            // v3.18.6: do NOT reset firstLoadDone here. This timer fires
+            // during the recreate/refresh flow which will deterministically
+            // re-load the entry page via the Loader.onLoaded handler (or
+            // postRecreateLoadTimer fallback) and set firstLoadDone = true
+            // itself. Doubling the reset (here AND in tabLeaveUnloadTimer)
+            // confused the v3.18.5 init sequence and could leave the
+            // ensureStudyLoaded() guard misaligned.
             webLoaderReactivateTimer.start()
         }
     }
@@ -607,13 +649,14 @@ Rectangle {
         }
     }
 
-    // v3.18.5: after the Notes tab has been active for 1 s, unload the
-    // WebView Loader. This is the largest single performance win for
-    // the canvas — the native SurfaceView no longer wakes the GPU on
-    // every frame while the user is drawing.
+    // v3.18.6: after the Notes tab has been active for 8 s, unload the
+    // WebView Loader. The v3.18.5 value of 1 s was too aggressive —
+    // brief Notes-tab visits would tear down the SurfaceView and force
+    // a full recreate on return. 8 s preserves the bulk of the canvas
+    // GPU win while keeping short tab roundtrips snappy.
     Timer {
         id: tabLeaveUnloadTimer
-        interval: 1000
+        interval: 8000
         running: false
         repeat: false
         onTriggered: {
@@ -621,10 +664,14 @@ Rectangle {
                 return
             if (!studyWebLoader.active)
                 return
-            console.log("BlopStudy: unloading WebView (tab inactive)")
+            console.log("BlopStudy: unloading WebView (tab inactive >8s)")
+            // v3.18.6: this is the single canonical reset point for
+            // firstLoadDone — once the SurfaceView is gone, the next
+            // tab entry MUST re-run loadStudyEntryFresh().
             firstLoadDone = false
             webviewRecreatePending = false
             studyWebLoader.active = false
+            console.log("BlopStudy: loader active -> false (tab inactive)")
         }
     }
 

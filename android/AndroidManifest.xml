@@ -11,6 +11,30 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- %%INSERT_PERMISSIONS inserts Qt defaults; duplicates are harmless -->
     <!-- %%INSERT_FEATURES -->
+
+    <!-- v3.18.6: Android 11+ (API 30+) Package Visibility. Without an
+         explicit <queries> declaration QDesktopServices::openUrl() /
+         Intent.ACTION_VIEW cannot resolve any installed browser/custom-tab
+         implementation and silently returns false — which is exactly the
+         "Anmelden öffnet keinen Browser" symptom reported on v3.18.5.
+         We list both http+https VIEW intents AND a Chrome Custom Tabs
+         service binding so the system can pick the best handler. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="androidx.browser.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
     <supports-screens
         android:anyDensity="true"
         android:largeScreens="true"

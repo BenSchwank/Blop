@@ -13,6 +13,7 @@
 #ifdef Q_OS_ANDROID
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QRandomGenerator>
 #include <QtCore/qnativeinterface.h>
 #include <QJniEnvironment>
@@ -143,6 +144,16 @@ void GoogleAuthManager::login() {
 }
 
 #ifdef Q_OS_ANDROID
+void GoogleAuthManager::cancelPendingLogin() {
+  if (!m_loginInProgress)
+    return;
+  qInfo() << "GoogleAuthManager: cancelling pending PKCE login on caller request";
+  m_loginInProgress = false;
+  m_loginInProgressSinceMs = 0;
+}
+#endif
+
+#ifdef Q_OS_ANDROID
 QString GoogleAuthManager::generateRandomString(int length) {
   static const char alphabet[] =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
@@ -163,11 +174,26 @@ QString GoogleAuthManager::base64UrlEncode(const QByteArray &data) {
 }
 
 void GoogleAuthManager::startPkceLogin() {
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
   if (m_loginInProgress) {
-    qInfo() << "GoogleAuthManager: PKCE login already in progress";
-    return;
+    // v3.18.6: if the previous login started more than 60s ago and we
+    // never received a callback, the browser most likely failed to
+    // open (or the user cancelled before the redirect). Treat the
+    // lock as stale and start fresh so the user isn't stuck having to
+    // restart the app.
+    const qint64 ageMs = nowMs - m_loginInProgressSinceMs;
+    if (ageMs > 60'000) {
+      qInfo() << "GoogleAuthManager: stale PKCE login lock (" << ageMs
+              << "ms old) — clearing and restarting";
+      m_loginInProgress = false;
+    } else {
+      qInfo() << "GoogleAuthManager: PKCE login already in progress (started "
+              << ageMs << "ms ago)";
+      return;
+    }
   }
   m_loginInProgress = true;
+  m_loginInProgressSinceMs = nowMs;
 
   // PKCE: generate a high-entropy code_verifier and S256-hashed challenge.
   m_pkceVerifier = generateRandomString(64);
