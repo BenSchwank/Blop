@@ -28,7 +28,17 @@ namespace {
 // filter (com.benschwank.blop://oauth2redirect).
 constexpr const char *kAndroidClientId =
     "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com";
-constexpr const char *kAndroidRedirectUri = "com.benschwank.blop:/oauth2redirect";
+// v3.18.8: TWO slashes. Previous "com.benschwank.blop:/oauth2redirect"
+// (one slash) parses per RFC 3986 as scheme + path with NO host —
+// Android's intent filter declares android:host="oauth2redirect" in
+// android/AndroidManifest.xml, so the redirect never matched any
+// activity and the OAuth callback silently never reached the app.
+// Match the manifest so BlopActivity.onNewIntent gets called.
+// IMPORTANT: the Android OAuth client in Google Cloud Console MUST
+// list "com.benschwank.blop://oauth2redirect" (two slashes) as the
+// authorized redirect URI, otherwise Google returns
+// redirect_uri_mismatch before the user even sees the consent screen.
+constexpr const char *kAndroidRedirectUri = "com.benschwank.blop://oauth2redirect";
 constexpr const char *kGoogleAuthEndpoint =
     "https://accounts.google.com/o/oauth2/v2/auth";
 constexpr const char *kGoogleTokenEndpoint =

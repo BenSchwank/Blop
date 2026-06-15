@@ -131,11 +131,19 @@ Rectangle {
     }
 
     function loadStudyEntryFresh(reason, addCacheBypass) {
-        if (!ssoPollingEnabled)
+        if (!ssoPollingEnabled) {
+            console.log("BlopStudy: loadStudyEntryFresh skipped — ssoPollingEnabled=false reason=", reason)
             return
+        }
         var w = studyWeb()
-        if (!w)
+        if (!w) {
+            // v3.18.8: explicit log so logcat shows the WebView item
+            // was missing at the precise moment of the load attempt.
+            console.warn("BlopStudy: loadStudyEntryFresh ABORTED — studyWeb() is null, reason=", reason,
+                         "loaderActive=", studyWebLoader.active,
+                         "loaderStatus=", studyWebLoader.status)
             return
+        }
         freshLoadSerial += 1
         var target = buildFreshStudyEntryUrl(addCacheBypass)
         cacheMissRecoveryArmed = false
@@ -149,6 +157,11 @@ Rectangle {
         if (Qt.platform.os === "android") {
             pivotLoadTimer.stop()
             cacheMissRecoveryArmed = true
+            // v3.18.8: explicit pre-assign log so logcat shows whether
+            // w.url = target was actually issued. If onLoadingChanged
+            // never fires after this line, the SurfaceView is not
+            // attached and the assignment fell silently on the floor.
+            console.log("BlopStudy: assigning url -> WebView", "url=", target)
             w.url = target
         } else {
             w.url = "about:blank"
@@ -522,6 +535,20 @@ Rectangle {
                             "url=", urlText,
                             "error=", errorText)
 
+                // v3.18.8: explicit milestone log so logcat clearly shows
+                // that the SurfaceView accepted the URL and a real load is
+                // in flight. Absence of this line after a "fresh load"
+                // entry is the canonical signal that QtWebView never
+                // attached its native SurfaceView.
+                if (loadRequest.status === WebView.LoadStartedStatus &&
+                        urlText.indexOf("about:blank") !== 0) {
+                    console.log("BlopStudy: navigation STARTED ->", urlText)
+                }
+                if (loadRequest.status === WebView.LoadSucceededStatus &&
+                        urlText.indexOf("about:blank") !== 0) {
+                    console.log("BlopStudy: navigation SUCCEEDED ->", urlText)
+                }
+
                 if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && studyRoot.cacheMissRecoveryArmed) {
                     studyRoot.recoverFromCacheMiss("errorString")
                     return
@@ -557,9 +584,34 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        active: true
+        // v3.18.8: initial active=false. Component.onCompleted below defers
+        // the first activation by one event-loop tick. v3.18.7 deferred only
+        // the URL assignment inside onLoaded, but on slow / cold-start
+        // devices the Loader itself was already instantiating the WebView
+        // synchronously inside QQuickWidget::setSource() — before the
+        // QQuickWidget was attached to a top-level window, so QtWebView
+        // could not initialise its native SurfaceView at all. Gating the
+        // Loader's activation by one tick avoids that race entirely; the
+        // existing imperative assignments (onTabActiveChanged, recreate
+        // timers, tabLeaveUnloadTimer) continue to drive subsequent
+        // state transitions exactly as before.
+        active: false
         asynchronous: false
         sourceComponent: studyWebViewComponent
+        Component.onCompleted: {
+            Qt.callLater(function () {
+                if (!tabActive) {
+                    console.log("BlopStudy: skip initial loader activate — tab not active")
+                    return
+                }
+                if (studyWebLoader.active) {
+                    console.log("BlopStudy: initial loader activate — already active")
+                    return
+                }
+                studyWebLoader.active = true
+                console.log("BlopStudy: initial loader activate (deferred one tick)")
+            })
+        }
         // v3.18.6/.7: deterministic load path. Whenever the Loader
         // finishes instantiating its WebView item, kick a fresh URL.
         //
@@ -585,6 +637,107 @@ Rectangle {
                     cacheMissRecoveryCount = 0
                 }
             })
+        }
+    }
+
+    // v3.18.8: startup loading overlay. Visible whenever the Study
+    // WebView hasn't yet completed a real load AND we're not driving a
+    // bookmark page (ssoPollingEnabled is the canonical "this is the
+    // Blop Study entry" flag). Without this overlay the user sees a
+    // pure #0B0B1A surface for the entire startup window — no spinner,
+    // no hint that anything is happening, no recovery option if the
+    // SurfaceView refuses to come up. After 6 s of no load, a "Erneut
+    // versuchen" button appears so the user can manually trigger a
+    // recreate even if the automatic watchdog (surfaceUpWatchdog) has
+    // already been exhausted by webViewRecreateLimit.
+    Rectangle {
+        id: startupLoadingOverlay
+        anchors.fill: parent
+        color: studyChromeColor
+        visible: !firstLoadDone && ssoPollingEnabled && tabActive
+        z: 5
+
+        property bool retryArmed: false
+
+        onVisibleChanged: {
+            if (!visible)
+                retryArmed = false
+        }
+
+        Timer {
+            running: startupLoadingOverlay.visible
+            interval: 6000
+            repeat: false
+            onTriggered: startupLoadingOverlay.retryArmed = true
+        }
+
+        Column {
+            anchors.centerIn: parent
+            spacing: Math.round(16 * uiScale)
+
+            BusyIndicator {
+                anchors.horizontalCenter: parent.horizontalCenter
+                running: startupLoadingOverlay.visible
+                width: Math.round(56 * uiScale)
+                height: width
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Lade Anmeldung..."
+                color: "#E0DBFF"
+                font.pixelSize: Math.round(15 * uiScale)
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: startupLoadingOverlay.retryArmed
+                width: Math.min(parent.width, Math.round(300 * uiScale))
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: "Dauert ungewohnt lange. Pruefe deine Internetverbindung oder tippe auf Erneut versuchen."
+                color: "#9C97B8"
+                font.pixelSize: Math.round(12 * uiScale)
+            }
+
+            Rectangle {
+                visible: startupLoadingOverlay.retryArmed
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.round(180 * uiScale)
+                height: Math.round(42 * uiScale)
+                radius: height / 2
+                color: "#5E5CE6"
+                border.color: "#7D7AFF"
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Erneut versuchen"
+                    color: "#F9F8FF"
+                    font.pixelSize: Math.round(13 * uiScale)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        console.log("BlopStudy: user-triggered manual retry")
+                        startupLoadingOverlay.retryArmed = false
+                        // Re-arm recreate budget so this manual tap is
+                        // never refused by webViewRecreateLimit.
+                        webViewRecreateCount = 0
+                        scheduleStudyWebViewRecreate("userRetry")
+                    }
+                }
+            }
+        }
+
+        // Absorb taps over the loading area so they don't fall through
+        // to the (likely invisible) WebView underneath.
+        MouseArea {
+            anchors.fill: parent
+            z: -1
+            onClicked: {}
         }
     }
 
@@ -682,6 +835,34 @@ Rectangle {
             webviewRecreatePending = false
             studyWebLoader.active = false
             console.log("BlopStudy: loader active -> false (tab inactive)")
+        }
+    }
+
+    // v3.18.8: surface-up watchdog. If 4 s after tabActive=true the
+    // WebView still has not produced a successful load (firstLoadDone
+    // == false), assume the SurfaceView never attached and force a
+    // recreate. scheduleStudyWebViewRecreate runs the documented
+    // webLoaderDeactivateTimer + webLoaderReactivateTimer cycle and
+    // is bounded by webViewRecreateLimit (3) so it cannot loop
+    // forever. The Timer's "running" binding auto-restarts after each
+    // recreate attempt because webviewRecreatePending toggles false
+    // again at the end of webLoaderReactivateTimer.
+    Timer {
+        id: surfaceUpWatchdog
+        interval: 4000
+        running: tabActive && !firstLoadDone && !webviewRecreatePending && ssoPollingEnabled
+        repeat: false
+        onTriggered: {
+            if (firstLoadDone) {
+                console.log("BlopStudy: surface watchdog skipped — already loaded")
+                return
+            }
+            if (webviewRecreatePending) {
+                console.log("BlopStudy: surface watchdog skipped — recreate in progress")
+                return
+            }
+            console.warn("BlopStudy: surface watchdog — no load after 4s, recreating WebView")
+            scheduleStudyWebViewRecreate("startupWatchdog")
         }
     }
 
