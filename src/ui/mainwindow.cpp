@@ -2181,26 +2181,11 @@ void MainWindow::syncAndroidStudyBootOverlayGeometry() {
 }
 
 void MainWindow::setAndroidStudyBootOverlayVisible(bool visible) {
-  ensureAndroidStudyBootOverlay();
-  if (!m_androidStudyBootOverlay)
-    return;
-  syncAndroidStudyBootOverlayGeometry();
-  if (visible) {
-    qInfo() << "MainWindow: study boot overlay visible";
-    m_androidStudyBootOverlay->show();
-    m_androidStudyBootOverlay->raise();
-    if (m_androidStudyBootRetryBtn)
-      m_androidStudyBootRetryBtn->hide();
-    if (m_androidStudyBootRetryTimer)
-      m_androidStudyBootRetryTimer->start();
-  } else {
-    qInfo() << "MainWindow: study boot overlay hidden";
-    m_androidStudyBootOverlay->hide();
-    if (m_androidStudyBootRetryTimer)
-      m_androidStudyBootRetryTimer->stop();
-    if (m_androidStudyBootRetryBtn)
-      m_androidStudyBootRetryBtn->hide();
-  }
+  // v3.18.13: The C++ boot overlay is disabled. The QML startupLoadingOverlay
+  // (AndroidWebView.qml) already provides a spinner + retry button and does
+  // not block touch events. The C++ overlay was covering the QML layer and
+  // preventing interaction even after the WebView had loaded.
+  Q_UNUSED(visible)
 }
 
 #endif
@@ -4536,6 +4521,25 @@ void MainWindow::setupWebBrowser() {
 
   // Load the bundled QML (contains QtWebView WebView)
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
+
+  // Once QML is Ready, ensure tabActive=true if the Study tab is already
+  // the current page. setSource() may complete asynchronously on device,
+  // so rootObject() can be null when onModeChanged(1) first runs.
+  connect(view, &QQuickWidget::statusChanged, this,
+          [this](QQuickWidget::Status status) {
+            if (status != QQuickWidget::Ready)
+              return;
+            if (!m_studyQQuickView || !m_studyQQuickView->rootObject())
+              return;
+            if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
+              return;
+            QObject *root = m_studyQQuickView->rootObject();
+            qInfo() << "MainWindow: QML Ready — setting tabActive=true";
+            root->setProperty("tabActive", true);
+            QMetaObject::invokeMethod(
+                root, "requestSurfaceActivation", Qt::QueuedConnection,
+                Q_ARG(QVariant, QVariant(QStringLiteral("qmlReady"))));
+          });
 
   // Check if it's actually loaded
   if (view->status() == QQuickWidget::Error) {
