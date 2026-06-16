@@ -17,7 +17,7 @@ execute_process(
 
 # Fallback if git fails
 if(NOT GIT_VERSION)
-    set(GIT_VERSION "3.18.9")
+    set(GIT_VERSION "3.18.10")
 endif()
 
 # Remove 'v' prefix if it exists for the project() call
@@ -26,7 +26,7 @@ string(REGEX REPLACE "^v" "" CLEAN_VERSION "${GIT_VERSION}")
 # We'll just extract the numeric part x.y.z.w
 string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]+\\.[0-9]+|[0-9]+)" SAFE_VERSION "${CLEAN_VERSION}")
 if(NOT SAFE_VERSION)
-    set(SAFE_VERSION "3.18.9")
+    set(SAFE_VERSION "3.18.10")
 endif()
 
 project(Blop VERSION ${SAFE_VERSION} LANGUAGES C CXX)
