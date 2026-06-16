@@ -28,17 +28,17 @@ namespace {
 // filter (com.benschwank.blop://oauth2redirect).
 constexpr const char *kAndroidClientId =
     "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com";
-// v3.18.8: TWO slashes. Previous "com.benschwank.blop:/oauth2redirect"
-// (one slash) parses per RFC 3986 as scheme + path with NO host —
-// Android's intent filter declares android:host="oauth2redirect" in
-// android/AndroidManifest.xml, so the redirect never matched any
-// activity and the OAuth callback silently never reached the app.
-// Match the manifest so BlopActivity.onNewIntent gets called.
-// IMPORTANT: the Android OAuth client in Google Cloud Console MUST
-// list "com.benschwank.blop://oauth2redirect" (two slashes) as the
-// authorized redirect URI, otherwise Google returns
-// redirect_uri_mismatch before the user even sees the consent screen.
-constexpr const char *kAndroidRedirectUri = "com.benschwank.blop://oauth2redirect";
+// v3.18.9: back to SINGLE slash. Google's official OAuth-for-Android
+// documentation
+// (https://developers.google.com/identity/protocols/oauth2/native-app)
+// documents the canonical format as
+//   redirect_uri=com.example.app:/oauth2redirect
+// (one slash). v3.18.8 used two slashes which Google may reject for
+// Android client types with redirect_uri_mismatch. AndroidManifest.xml
+// as of v3.18.9 declares BOTH <data> variants (host="oauth2redirect" AND
+// path="/oauth2redirect") in the same intent-filter, so the deep-link
+// intent fires regardless of which slash form Google echoes back.
+constexpr const char *kAndroidRedirectUri = "com.benschwank.blop:/oauth2redirect";
 constexpr const char *kGoogleAuthEndpoint =
     "https://accounts.google.com/o/oauth2/v2/auth";
 constexpr const char *kGoogleTokenEndpoint =

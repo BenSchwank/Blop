@@ -176,7 +176,10 @@ Rectangle {
         if (k === 0) {
             ssoPollingEnabled = true
             oauthPending = false
-            firstLoadDone = true
+            // v3.18.9: do NOT pre-mark firstLoadDone here. The flag is the
+            // single trigger that hides the startupLoadingOverlay and
+            // disables surfaceUpWatchdog; both must remain active until
+            // onLoadingChanged reports LoadSucceededStatus for a real URL.
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
             webViewRecreateCount = 0
@@ -297,7 +300,10 @@ Rectangle {
             return
         if (!firstLoadDone || w.url.toString() === "" || w.url.toString() === "about:blank") {
             loadStudyEntryFresh("ensureStudyLoaded", true)
-            firstLoadDone = true
+            // v3.18.9: firstLoadDone is now flipped by onLoadingChanged
+            // (LoadSucceededStatus). Pre-setting it here was the v3.18.6
+            // bug that hid the startupLoadingOverlay before any real page
+            // had a chance to render.
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
         }
@@ -547,6 +553,21 @@ Rectangle {
                 if (loadRequest.status === WebView.LoadSucceededStatus &&
                         urlText.indexOf("about:blank") !== 0) {
                     console.log("BlopStudy: navigation SUCCEEDED ->", urlText)
+                    // v3.18.9: this is the SINGLE authoritative point at
+                    // which firstLoadDone becomes true. Before v3.18.9 the
+                    // flag was set as soon as the Loader instantiated the
+                    // WebView item — which fired before any actual page
+                    // had rendered, hiding the startupLoadingOverlay
+                    // within ~100ms and disarming surfaceUpWatchdog +
+                    // retry-button. Gating it on a real successful load
+                    // for a non-about:blank URL means the overlay stays
+                    // visible until the user actually sees content; if
+                    // SurfaceView never attaches, the watchdog can do its
+                    // job.
+                    if (!firstLoadDone) {
+                        firstLoadDone = true
+                        console.log("BlopStudy: firstLoadDone -> true (real page loaded)")
+                    }
                 }
 
                 if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && studyRoot.cacheMissRecoveryArmed) {
@@ -632,7 +653,13 @@ Rectangle {
             Qt.callLater(function () {
                 if (ssoPollingEnabled) {
                     loadStudyEntryFresh("loaderOnLoaded", true)
-                    firstLoadDone = true
+                    // v3.18.9: firstLoadDone moved to onLoadingChanged
+                    // LoadSucceededStatus. Setting it here only meant the
+                    // QML Loader had instantiated the WebView item — NOT
+                    // that the SurfaceView had attached or a page had
+                    // actually rendered. Pre-flipping hid the
+                    // startupLoadingOverlay binnen ~100ms and disarmed the
+                    // surfaceUpWatchdog, killing all v3.18.8 recovery.
                     cacheMissRecoveryArmed = true
                     cacheMissRecoveryCount = 0
                 }
@@ -806,7 +833,10 @@ Rectangle {
             retries = 0
             if (ssoPollingEnabled) {
                 loadStudyEntryFresh("postRecreate", true)
-                firstLoadDone = true
+                // v3.18.9: firstLoadDone moved to onLoadingChanged
+                // LoadSucceededStatus. Pre-setting here masked failed
+                // recreate cycles (issued load, but SurfaceView still
+                // not attached) from the watchdog and overlay.
             }
             applyAuthUiScale()
         }
