@@ -189,6 +189,8 @@ public slots:
   bool addWebBookmarkFromQml(const QString &urlInput, const QString &titleInput);
   bool removeWebBookmarkFromQml(int index);
   void openWebBookmarkFromQml(int index);
+  void notifyStudyFirstLoadDone();
+  void showAndroidStudyBootRetry();
 
 private slots:
   void checkForUpdates();
@@ -340,6 +342,13 @@ private:
   QWidget *m_androidSidebarScrim{nullptr};
   /// Full-window in-process OAuth (AuthOverlay.qml); must dismiss before Study JNI bursts.
   QWidget *m_androidOAuthOverlay{nullptr};
+  /// Study boot spinner above QtWebView SurfaceView (sibling of content stack).
+  QWidget *m_androidStudyBootOverlay{nullptr};
+  QPushButton *m_androidStudyBootRetryBtn{nullptr};
+  QTimer *m_androidStudyBootRetryTimer{nullptr};
+  void ensureAndroidStudyBootOverlay();
+  void syncAndroidStudyBootOverlayGeometry();
+  void setAndroidStudyBootOverlayVisible(bool visible);
 #endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};

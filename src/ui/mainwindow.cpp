@@ -73,6 +73,7 @@
 #include <QPainterPath>
 #include <QProcess>
 #include <QProgressDialog>
+#include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QScreen>
 
@@ -169,7 +170,7 @@ static const int FONT_SIZE_HEADER = 18;
 // IMPORTANT: Update this version string for every new release build!
 // Keep in sync with CMakeLists.txt project(Blop VERSION x.x.x)
 #ifndef BLOP_VERSION_STR
-#define BLOP_VERSION_STR "3.18.11"
+#define BLOP_VERSION_STR "3.18.12"
 #endif
 static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
@@ -2107,7 +2108,119 @@ void MainWindow::dismissAndroidOAuthOverlay() {
   w->hide();
   w->deleteLater();
 }
+
+void MainWindow::ensureAndroidStudyBootOverlay() {
+  if (m_androidStudyBootOverlay || !m_centralContainer)
+    return;
+
+  auto *overlay = new QWidget(m_centralContainer);
+  overlay->setObjectName(QStringLiteral("AndroidStudyBootOverlay"));
+  overlay->setAttribute(Qt::WA_StyledBackground, true);
+  overlay->setStyleSheet(
+      QStringLiteral("QWidget#AndroidStudyBootOverlay { background-color: %1; }")
+          .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+
+  auto *lay = new QVBoxLayout(overlay);
+  lay->setContentsMargins(UiScale::dp(24), UiScale::dp(24), UiScale::dp(24),
+                          UiScale::dp(24));
+  lay->setSpacing(UiScale::dp(16));
+  lay->setAlignment(Qt::AlignCenter);
+
+  auto *lbl = new QLabel(tr("Lade Anmeldung..."), overlay);
+  lbl->setAlignment(Qt::AlignCenter);
+  lbl->setWordWrap(true);
+  lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: %1; font-size: 15px; font-weight: 600; background: transparent;")
+                           .arg(BlopTheme::textPrimary().name())));
+  lay->addWidget(lbl);
+
+  auto *progress = new QProgressBar(overlay);
+  progress->setRange(0, 0);
+  progress->setFixedWidth(UiScale::dp(220));
+  progress->setTextVisible(false);
+  lay->addWidget(progress, 0, Qt::AlignHCenter);
+
+  m_androidStudyBootRetryBtn = new QPushButton(tr("Erneut versuchen"), overlay);
+  m_androidStudyBootRetryBtn->setStyleSheet(BlopTheme::primaryButtonQss());
+  m_androidStudyBootRetryBtn->setFixedHeight(UiScale::dp(42));
+  m_androidStudyBootRetryBtn->setMinimumWidth(UiScale::dp(180));
+  m_androidStudyBootRetryBtn->hide();
+  lay->addWidget(m_androidStudyBootRetryBtn, 0, Qt::AlignHCenter);
+
+  connect(m_androidStudyBootRetryBtn, &QPushButton::clicked, this, [this]() {
+    qInfo() << "MainWindow: study boot overlay retry tapped";
+    if (m_androidStudyBootRetryBtn)
+      m_androidStudyBootRetryBtn->hide();
+    if (m_androidStudyBootRetryTimer)
+      m_androidStudyBootRetryTimer->start();
+    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+      QObject *root = m_studyQQuickView->rootObject();
+      QMetaObject::invokeMethod(
+          root, "scheduleStudyWebViewRecreate", Qt::QueuedConnection,
+          Q_ARG(QVariant, QVariant(QStringLiteral("userRetryCpp"))));
+    }
+  });
+
+  m_androidStudyBootRetryTimer = new QTimer(overlay);
+  m_androidStudyBootRetryTimer->setSingleShot(true);
+  m_androidStudyBootRetryTimer->setInterval(6000);
+  connect(m_androidStudyBootRetryTimer, &QTimer::timeout, this,
+          &MainWindow::showAndroidStudyBootRetry);
+
+  overlay->hide();
+  m_androidStudyBootOverlay = overlay;
+}
+
+void MainWindow::syncAndroidStudyBootOverlayGeometry() {
+  if (!m_androidStudyBootOverlay || !m_mainContentStack || !m_centralContainer)
+    return;
+  const QPoint topLeft =
+      m_mainContentStack->mapTo(m_centralContainer, QPoint(0, 0));
+  m_androidStudyBootOverlay->setGeometry(
+      QRect(topLeft, m_mainContentStack->size()));
+}
+
+void MainWindow::setAndroidStudyBootOverlayVisible(bool visible) {
+  ensureAndroidStudyBootOverlay();
+  if (!m_androidStudyBootOverlay)
+    return;
+  syncAndroidStudyBootOverlayGeometry();
+  if (visible) {
+    qInfo() << "MainWindow: study boot overlay visible";
+    m_androidStudyBootOverlay->show();
+    m_androidStudyBootOverlay->raise();
+    if (m_androidStudyBootRetryBtn)
+      m_androidStudyBootRetryBtn->hide();
+    if (m_androidStudyBootRetryTimer)
+      m_androidStudyBootRetryTimer->start();
+  } else {
+    qInfo() << "MainWindow: study boot overlay hidden";
+    m_androidStudyBootOverlay->hide();
+    if (m_androidStudyBootRetryTimer)
+      m_androidStudyBootRetryTimer->stop();
+    if (m_androidStudyBootRetryBtn)
+      m_androidStudyBootRetryBtn->hide();
+  }
+}
+
 #endif
+
+void MainWindow::notifyStudyFirstLoadDone() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "MainWindow: notifyStudyFirstLoadDone";
+  setAndroidStudyBootOverlayVisible(false);
+#endif
+}
+
+void MainWindow::showAndroidStudyBootRetry() {
+#ifdef Q_OS_ANDROID
+  if (!m_androidStudyBootOverlay || !m_androidStudyBootOverlay->isVisible())
+    return;
+  qInfo() << "MainWindow: study boot overlay retry button armed";
+  if (m_androidStudyBootRetryBtn)
+    m_androidStudyBootRetryBtn->show();
+#endif
+}
 
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
@@ -4915,7 +5028,16 @@ void MainWindow::onModeChanged(int index) {
       QObject *root = m_studyQQuickView->rootObject();
       qInfo() << "MainWindow: BlopStudy tab enter — ensureStudyLoaded()";
       QMetaObject::invokeMethod(root, "ensureStudyLoaded");
+      if (m_authNavigationLocked) {
+        QMetaObject::invokeMethod(
+            root, "requestSurfaceActivation", Qt::QueuedConnection,
+            Q_ARG(QVariant, QVariant(QStringLiteral("modeChanged"))));
+      }
     }
+    if (m_authNavigationLocked)
+      setAndroidStudyBootOverlayVisible(true);
+    else
+      setAndroidStudyBootOverlayVisible(false);
     QTimer::singleShot(0, this, [this]() {
       if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
         return;
@@ -4924,7 +5046,11 @@ void MainWindow::onModeChanged(int index) {
       syncAndroidHeaderGeometry(this);
       if (m_androidHeader)
         m_androidHeader->raise();
+      if (m_androidStudyBootOverlay && m_androidStudyBootOverlay->isVisible())
+        m_androidStudyBootOverlay->raise();
     });
+  } else if (mainStackIdx == 0) {
+    setAndroidStudyBootOverlayVisible(false);
   }
   if (m_mainContentStack) {
     if (QWidget *cur = m_mainContentStack->currentWidget()) {
@@ -7947,6 +8073,24 @@ void MainWindow::showEvent(QShowEvent *event) {
   syncAndroidHeaderGeometry(this);
   if (m_androidHeader)
     m_androidHeader->raise();
+  if (m_authNavigationLocked && m_mainContentStack &&
+      m_mainContentStack->currentIndex() == 1) {
+    QTimer::singleShot(100, this, [this]() {
+      if (!m_authNavigationLocked)
+        return;
+      if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
+        return;
+      setAndroidStudyBootOverlayVisible(true);
+      if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+        QObject *root = m_studyQQuickView->rootObject();
+        QMetaObject::invokeMethod(
+            root, "requestSurfaceActivation", Qt::QueuedConnection,
+            Q_ARG(QVariant, QVariant(QStringLiteral("showEvent"))));
+        QMetaObject::invokeMethod(root, "ensureStudyLoaded",
+                                  Qt::QueuedConnection);
+      }
+    });
+  }
 #endif
 #if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
   if (m_studyWebView) {
@@ -7978,6 +8122,9 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     updateAndroidSidebarScrimGeometry();
   if (m_androidOAuthOverlay && m_androidOAuthOverlay->isVisible())
     m_androidOAuthOverlay->setGeometry(androidSafeOverlayRect(this));
+  syncAndroidStudyBootOverlayGeometry();
+  if (m_androidStudyBootOverlay && m_androidStudyBootOverlay->isVisible())
+    m_androidStudyBootOverlay->raise();
   if (m_androidHeader && m_mainContentStack && m_mainContentStack->currentIndex() == 0)
     m_androidHeader->raise();
 #else

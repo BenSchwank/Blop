@@ -40,6 +40,12 @@ Rectangle {
     property int webViewRecreateCount: 0
     readonly property int webViewRecreateLimit: 3
     property bool webviewRecreatePending: false
+    // v3.18.12: when false, studyWebLoader.active stays false — no native
+    // SurfaceView is created, so QML startupLoadingOverlay (and the C++
+    // boot overlay sibling) remain visible. Android QtWebView's SurfaceView
+    // always draws above QML siblings; keeping the Loader unloaded during
+    // boot/recovery is the only way to show spinner + retry UI.
+    property bool surfacePhaseActive: false
     readonly property int cacheMissEarlyStopTierCount: 2
     readonly property int cacheMissNativeResetTierCount: 3
     readonly property int cacheMissFullResetTierCount: 4
@@ -71,14 +77,10 @@ Rectangle {
                     "firstLoadDone=", firstLoadDone)
         if (tabActive) {
             tabLeaveUnloadTimer.stop()
-            if (!studyWebLoader.active) {
-                webviewRecreatePending = false
-                studyWebLoader.active = true
-                console.log("BlopStudy: loader active -> true (tabActive)")
-                postRecreateLoadTimer.start()
-            } else if (visible) {
+            webviewRecreatePending = false
+            requestSurfaceActivation("tabActive")
+            if (studyWebLoader.active && visible)
                 ensureStudyLoaded()
-            }
         } else {
             // v3.18.6: only schedule the unload once we've actually had
             // at least one successful load. Without this guard, the
@@ -95,13 +97,10 @@ Rectangle {
 
     onVisibleChanged: {
         if (visible && tabActive) {
-            if (!studyWebLoader.active) {
-                webviewRecreatePending = false
-                studyWebLoader.active = true
-                postRecreateLoadTimer.start()
-            } else {
+            webviewRecreatePending = false
+            requestSurfaceActivation("visible")
+            if (studyWebLoader.active)
                 ensureStudyLoaded()
-            }
             applyAuthUiScale()
         } else if (bookmarkSheetOpen) {
             closeBookmarkSheet()
@@ -114,6 +113,36 @@ Rectangle {
 
     function studyWeb() {
         return studyWebLoader.item
+    }
+
+    function isRealStudyUrl(urlText) {
+        if (!urlText || urlText.length < 12)
+            return false
+        if (urlText.indexOf("about:blank") === 0)
+            return false
+        return urlText.indexOf("https://") === 0 || urlText.indexOf("http://") === 0
+    }
+
+    function releaseSurface(reason) {
+        console.log("BlopStudy: releaseSurface", "reason=", reason)
+        surfaceBootTimer.stop()
+        surfacePhaseActive = false
+    }
+
+    function requestSurfaceActivation(reason) {
+        if (!tabActive || !ssoPollingEnabled) {
+            console.log("BlopStudy: skip surface activation — tabActive=", tabActive,
+                        "ssoPollingEnabled=", ssoPollingEnabled, "reason=", reason)
+            return
+        }
+        console.log("BlopStudy: requestSurfaceActivation", "reason=", reason)
+        surfaceBootTimer.reason = reason
+        surfaceBootTimer.restart()
+    }
+
+    function notifyCppStudyFirstLoadDone() {
+        if (typeof blopAppBridge !== "undefined" && blopAppBridge.notifyStudyFirstLoadDone)
+            blopAppBridge.notifyStudyFirstLoadDone()
     }
 
     function buildFreshStudyEntryUrl(addCacheBypass) {
@@ -547,26 +576,19 @@ Rectangle {
                 // entry is the canonical signal that QtWebView never
                 // attached its native SurfaceView.
                 if (loadRequest.status === WebView.LoadStartedStatus &&
-                        urlText.indexOf("about:blank") !== 0) {
+                        isRealStudyUrl(urlText)) {
                     console.log("BlopStudy: navigation STARTED ->", urlText)
                 }
                 if (loadRequest.status === WebView.LoadSucceededStatus &&
-                        urlText.indexOf("about:blank") !== 0) {
+                        isRealStudyUrl(urlText)) {
                     console.log("BlopStudy: navigation SUCCEEDED ->", urlText)
-                    // v3.18.9: this is the SINGLE authoritative point at
-                    // which firstLoadDone becomes true. Before v3.18.9 the
-                    // flag was set as soon as the Loader instantiated the
-                    // WebView item — which fired before any actual page
-                    // had rendered, hiding the startupLoadingOverlay
-                    // within ~100ms and disarming surfaceUpWatchdog +
-                    // retry-button. Gating it on a real successful load
-                    // for a non-about:blank URL means the overlay stays
-                    // visible until the user actually sees content; if
-                    // SurfaceView never attaches, the watchdog can do its
-                    // job.
+                    // v3.18.9/12: SINGLE authoritative firstLoadDone flip.
+                    // v3.18.12: isRealStudyUrl rejects empty strings (v3.18.9
+                    // treated "" as success via indexOf("about:blank") !== 0).
                     if (!firstLoadDone) {
                         firstLoadDone = true
                         console.log("BlopStudy: firstLoadDone -> true (real page loaded)")
+                        notifyCppStudyFirstLoadDone()
                     }
                 }
 
@@ -599,38 +621,40 @@ Rectangle {
         }
     }
 
+    Timer {
+        id: surfaceBootTimer
+        interval: 400
+        property string reason: ""
+        running: false
+        repeat: false
+        onTriggered: {
+            if (!tabActive) {
+                console.log("BlopStudy: surfaceBootTimer skipped — tab inactive")
+                return
+            }
+            surfacePhaseActive = true
+            console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
+            if (studyWebLoader.active)
+                postRecreateLoadTimer.start()
+        }
+    }
+
     Loader {
         id: studyWebLoader
         anchors.top: showQmlTopBar ? qmlTopBar.bottom : parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        // v3.18.8: initial active=false. Component.onCompleted below defers
-        // the first activation by one event-loop tick. v3.18.7 deferred only
-        // the URL assignment inside onLoaded, but on slow / cold-start
-        // devices the Loader itself was already instantiating the WebView
-        // synchronously inside QQuickWidget::setSource() — before the
-        // QQuickWidget was attached to a top-level window, so QtWebView
-        // could not initialise its native SurfaceView at all. Gating the
-        // Loader's activation by one tick avoids that race entirely; the
-        // existing imperative assignments (onTabActiveChanged, recreate
-        // timers, tabLeaveUnloadTimer) continue to drive subsequent
-        // state transitions exactly as before.
-        active: false
+        // v3.18.12: Loader only live when tab is active AND surface phase
+        // is armed. surfacePhaseActive stays false during boot wait and
+        // recreate cooldown so no SurfaceView occludes loading UI.
+        active: tabActive && surfacePhaseActive
         asynchronous: false
         sourceComponent: studyWebViewComponent
         Component.onCompleted: {
             Qt.callLater(function () {
-                if (!tabActive) {
-                    console.log("BlopStudy: skip initial loader activate — tab not active")
-                    return
-                }
-                if (studyWebLoader.active) {
-                    console.log("BlopStudy: initial loader activate — already active")
-                    return
-                }
-                studyWebLoader.active = true
-                console.log("BlopStudy: initial loader activate (deferred one tick)")
+                if (tabActive)
+                    requestSurfaceActivation("componentOnCompleted")
             })
         }
         // v3.18.6/.7: deterministic load path. Whenever the Loader
@@ -770,32 +794,24 @@ Rectangle {
 
     Timer {
         id: webLoaderDeactivateTimer
-        interval: 50
+        interval: 600
         running: false
         repeat: false
         onTriggered: {
-            studyWebLoader.active = false
-            console.log("BlopStudy: loader active -> false (recreate)")
-            // v3.18.6: do NOT reset firstLoadDone here. This timer fires
-            // during the recreate/refresh flow which will deterministically
-            // re-load the entry page via the Loader.onLoaded handler (or
-            // postRecreateLoadTimer fallback) and set firstLoadDone = true
-            // itself. Doubling the reset (here AND in tabLeaveUnloadTimer)
-            // confused the v3.18.5 init sequence and could leave the
-            // ensureStudyLoaded() guard misaligned.
+            releaseSurface("recreateDeactivate")
+            console.log("BlopStudy: loader released (recreate cooldown)")
             webLoaderReactivateTimer.start()
         }
     }
 
     Timer {
         id: webLoaderReactivateTimer
-        interval: 80
+        interval: 400
         running: false
         repeat: false
         onTriggered: {
-            studyWebLoader.active = true
             webviewRecreatePending = false
-            console.log("BlopStudy: webview recreate done")
+            console.log("BlopStudy: webview recreate re-arm surface")
             cacheMissRecoveryArmed = true
             if (typeof blopAppBridge !== "undefined") {
                 if (blopAppBridge.scheduleAndroidStudyWebViewNetworkCache)
@@ -803,7 +819,7 @@ Rectangle {
                 else if (blopAppBridge.applyAndroidStudyWebViewNetworkCache)
                     blopAppBridge.applyAndroidStudyWebViewNetworkCache()
             }
-            postRecreateLoadTimer.start()
+            requestSurfaceActivation("recreate")
         }
     }
 
@@ -863,8 +879,8 @@ Rectangle {
             // tab entry MUST re-run loadStudyEntryFresh().
             firstLoadDone = false
             webviewRecreatePending = false
-            studyWebLoader.active = false
-            console.log("BlopStudy: loader active -> false (tab inactive)")
+            releaseSurface("tabInactive")
+            console.log("BlopStudy: surface released (tab inactive >8s)")
         }
     }
 
