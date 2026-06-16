@@ -12,7 +12,7 @@ Rectangle {
     // intentionally stays visible at the Qt level to avoid SurfaceView
     // detach -- gating the poll timers via this explicit property is the
     // safe way to stop competing with the canvas for GPU/CPU.
-    property bool tabActive: true
+    property bool tabActive: false
     // Native Android header in MainWindow is the single source of truth for Notes/Study/+.
     // Keep this disabled to avoid duplicated top bars.
     readonly property bool showQmlTopBar: false
@@ -126,6 +126,7 @@ Rectangle {
     function releaseSurface(reason) {
         console.log("BlopStudy: releaseSurface", "reason=", reason)
         surfaceBootTimer.stop()
+        surfaceBootTimer.visibilityWaitCount = 0
         surfacePhaseActive = false
     }
 
@@ -625,13 +626,31 @@ Rectangle {
         id: surfaceBootTimer
         interval: 400
         property string reason: ""
+        property int visibilityWaitCount: 0
+        readonly property int visibilityWaitLimit: 15
         running: false
         repeat: false
         onTriggered: {
             if (!tabActive) {
                 console.log("BlopStudy: surfaceBootTimer skipped — tab inactive")
+                visibilityWaitCount = 0
                 return
             }
+            if (!studyRoot.visible) {
+                visibilityWaitCount += 1
+                if (visibilityWaitCount <= visibilityWaitLimit) {
+                    console.log("BlopStudy: surfaceBootTimer — root not visible yet, wait #" + visibilityWaitCount)
+                    surfaceBootTimer.restart()
+                } else {
+                    console.warn("BlopStudy: surfaceBootTimer — root still not visible after " + visibilityWaitLimit + " retries, activating anyway")
+                    visibilityWaitCount = 0
+                    surfacePhaseActive = true
+                    if (studyWebLoader.active)
+                        postRecreateLoadTimer.start()
+                }
+                return
+            }
+            visibilityWaitCount = 0
             surfacePhaseActive = true
             console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
             if (studyWebLoader.active)

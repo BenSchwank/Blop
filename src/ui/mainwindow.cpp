@@ -8083,6 +8083,10 @@ void MainWindow::showEvent(QShowEvent *event) {
       setAndroidStudyBootOverlayVisible(true);
       if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
         QObject *root = m_studyQQuickView->rootObject();
+        // Ensure tabActive is true before requestSurfaceActivation — the QML
+        // property now defaults to false and requestSurfaceActivation returns
+        // early when tabActive == false.
+        root->setProperty("tabActive", true);
         QMetaObject::invokeMethod(
             root, "requestSurfaceActivation", Qt::QueuedConnection,
             Q_ARG(QVariant, QVariant(QStringLiteral("showEvent"))));
