@@ -634,8 +634,6 @@ Rectangle {
             }
             surfacePhaseActive = true
             console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
-            if (studyWebLoader.active)
-                postRecreateLoadTimer.start()
         }
     }
 
