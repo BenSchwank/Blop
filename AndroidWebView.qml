@@ -126,7 +126,6 @@ Rectangle {
     function releaseSurface(reason) {
         console.log("BlopStudy: releaseSurface", "reason=", reason)
         surfaceBootTimer.stop()
-        surfaceBootTimer.visibilityWaitCount = 0
         surfacePhaseActive = false
     }
 
@@ -624,33 +623,15 @@ Rectangle {
 
     Timer {
         id: surfaceBootTimer
-        interval: 400
+        interval: 800
         property string reason: ""
-        property int visibilityWaitCount: 0
-        readonly property int visibilityWaitLimit: 15
         running: false
         repeat: false
         onTriggered: {
             if (!tabActive) {
                 console.log("BlopStudy: surfaceBootTimer skipped — tab inactive")
-                visibilityWaitCount = 0
                 return
             }
-            if (!studyRoot.visible) {
-                visibilityWaitCount += 1
-                if (visibilityWaitCount <= visibilityWaitLimit) {
-                    console.log("BlopStudy: surfaceBootTimer — root not visible yet, wait #" + visibilityWaitCount)
-                    surfaceBootTimer.restart()
-                } else {
-                    console.warn("BlopStudy: surfaceBootTimer — root still not visible after " + visibilityWaitLimit + " retries, activating anyway")
-                    visibilityWaitCount = 0
-                    surfacePhaseActive = true
-                    if (studyWebLoader.active)
-                        postRecreateLoadTimer.start()
-                }
-                return
-            }
-            visibilityWaitCount = 0
             surfacePhaseActive = true
             console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
             if (studyWebLoader.active)

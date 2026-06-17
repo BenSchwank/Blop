@@ -4522,25 +4522,6 @@ void MainWindow::setupWebBrowser() {
   // Load the bundled QML (contains QtWebView WebView)
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
 
-  // Once QML is Ready, ensure tabActive=true if the Study tab is already
-  // the current page. setSource() may complete asynchronously on device,
-  // so rootObject() can be null when onModeChanged(1) first runs.
-  connect(view, &QQuickWidget::statusChanged, this,
-          [this](QQuickWidget::Status status) {
-            if (status != QQuickWidget::Ready)
-              return;
-            if (!m_studyQQuickView || !m_studyQQuickView->rootObject())
-              return;
-            if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
-              return;
-            QObject *root = m_studyQQuickView->rootObject();
-            qInfo() << "MainWindow: QML Ready — setting tabActive=true";
-            root->setProperty("tabActive", true);
-            QMetaObject::invokeMethod(
-                root, "requestSurfaceActivation", Qt::QueuedConnection,
-                Q_ARG(QVariant, QVariant(QStringLiteral("qmlReady"))));
-          });
-
   // Check if it's actually loaded
   if (view->status() == QQuickWidget::Error) {
       QString errorStr = "Fehler: Konnte Web-Modul nicht laden.\n";
