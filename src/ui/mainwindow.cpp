@@ -4514,7 +4514,12 @@ void MainWindow::setupWebBrowser() {
   QQuickWidget *view = new QQuickWidget(m_studyContainer);
   m_studyQQuickView = view;
   view->setResizeMode(QQuickWidget::SizeRootObjectToView);
-  view->setClearColor(BlopTheme::surfaceBackground());
+  // v3.18.19: transparent clear color so the QtWebView SurfaceView (which
+  // renders behind QML on Android) is not obscured by the widget background.
+  // The QML root Rectangle manages its own background via studyChromeColor
+  // until firstLoadDone, then switches to transparent.
+  view->setClearColor(Qt::transparent);
+  view->setAttribute(Qt::WA_AlwaysStackOnTop, true);
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);

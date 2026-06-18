@@ -6,7 +6,11 @@ Rectangle {
     id: studyRoot
     // v3.18.2+: driven from C++ (syncStudyChromeTheme) for Light/Dark parity.
     property color studyChromeColor: "#0B0B1A"
-    color: studyChromeColor
+    // v3.18.19: once the WebView has loaded its first real page, make the
+    // root Rectangle transparent so the Android SurfaceView (which always
+    // renders behind QML layers) becomes visible. Before firstLoadDone the
+    // chrome color fills the background so the loading overlay blends in.
+    color: firstLoadDone ? "transparent" : studyChromeColor
     // v3.17.6: set from C++ (MainWindow tab switch) so the poll timers can
     // suspend while Study is hidden behind the Notes tab. The QQuickWidget
     // intentionally stays visible at the Qt level to avoid SurfaceView
