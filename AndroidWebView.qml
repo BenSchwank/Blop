@@ -6,11 +6,10 @@ Rectangle {
     id: studyRoot
     // v3.18.2+: driven from C++ (syncStudyChromeTheme) for Light/Dark parity.
     property color studyChromeColor: "#0B0B1A"
-    // v3.18.19: once the WebView has loaded its first real page, make the
-    // root Rectangle transparent so the Android SurfaceView (which always
-    // renders behind QML layers) becomes visible. Before firstLoadDone the
-    // chrome color fills the background so the loading overlay blends in.
-    color: firstLoadDone ? "transparent" : studyChromeColor
+    // v3.18.20: always transparent so the Android SurfaceView (which renders
+    // behind all QML layers) is never obscured by this root Rectangle.
+    // The startupLoadingOverlayLoader covers the background during startup.
+    color: "transparent"
     // v3.17.6: set from C++ (MainWindow tab switch) so the poll timers can
     // suspend while Study is hidden behind the Notes tab. The QQuickWidget
     // intentionally stays visible at the Qt level to avoid SurfaceView
@@ -693,32 +692,30 @@ Rectangle {
         }
     }
 
-    // v3.18.8: startup loading overlay. Visible whenever the Study
-    // WebView hasn't yet completed a real load AND we're not driving a
-    // bookmark page (ssoPollingEnabled is the canonical "this is the
-    // Blop Study entry" flag). Without this overlay the user sees a
-    // pure #0B0B1A surface for the entire startup window — no spinner,
-    // no hint that anything is happening, no recovery option if the
-    // SurfaceView refuses to come up. After 6 s of no load, a "Erneut
-    // versuchen" button appears so the user can manually trigger a
-    // recreate even if the automatic watchdog (surfaceUpWatchdog) has
-    // already been exhausted by webViewRecreateLimit.
-    Rectangle {
+    // v3.18.20: startup loading overlay is now fully unloaded from the
+    // QML tree once firstLoadDone=true. Using visible:false left an
+    // opaque Rectangle in the FBO which blocked the WebView SurfaceView
+    // from showing through Android surface composition.
+    Loader {
+        id: startupLoadingOverlayLoader
+        anchors.fill: parent
+        z: 5
+        active: !firstLoadDone && ssoPollingEnabled && tabActive
+        sourceComponent: startupLoadingOverlayComponent
+    }
+
+    Component {
+        id: startupLoadingOverlayComponent
+        Rectangle {
         id: startupLoadingOverlay
         anchors.fill: parent
         color: studyChromeColor
-        visible: !firstLoadDone && ssoPollingEnabled && tabActive
         z: 5
 
         property bool retryArmed: false
 
-        onVisibleChanged: {
-            if (!visible)
-                retryArmed = false
-        }
-
         Timer {
-            running: startupLoadingOverlay.visible
+            running: parent.visible
             interval: 6000
             repeat: false
             onTriggered: startupLoadingOverlay.retryArmed = true
@@ -791,6 +788,7 @@ Rectangle {
             anchors.fill: parent
             z: -1
             onClicked: {}
+        }
         }
     }
 

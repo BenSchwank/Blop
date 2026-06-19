@@ -4519,7 +4519,6 @@ void MainWindow::setupWebBrowser() {
   // The QML root Rectangle manages its own background via studyChromeColor
   // until firstLoadDone, then switches to transparent.
   view->setClearColor(Qt::transparent);
-  view->setAttribute(Qt::WA_AlwaysStackOnTop, true);
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
