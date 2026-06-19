@@ -1409,7 +1409,7 @@ void MainWindow::syncStudyChromeTheme() {
         QStringLiteral("background-color: %1;").arg(chrome.name(QColor::HexRgb)));
   }
   if (m_studyQQuickView) {
-    m_studyQQuickView->setClearColor(chrome);
+    m_studyQQuickView->setColor(chrome);
     if (QObject *root = m_studyQQuickView->rootObject())
       root->setProperty("studyChromeColor", chrome);
   }
