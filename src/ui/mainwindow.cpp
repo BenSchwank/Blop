@@ -4543,6 +4543,8 @@ void MainWindow::setupWebBrowser() {
   QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
   container->setObjectName("StudyQuickContainer");
   m_studyWindowContainer = container;
+  // v3.18.25: Fix top margin issue - ensure no container margins
+  container->setContentsMargins(0, 0, 0, 0);
   // Touch/focus hardening for Android
   container->setAttribute(Qt::WA_AcceptTouchEvents, true);
   container->setFocusPolicy(Qt::StrongFocus);
