@@ -4,10 +4,12 @@
 #include <QObject>
 #include <QGuiApplication>
 #include <QStandardPaths>
+#include <QDebug>
 #ifdef Q_OS_ANDROID
 #include <QSurfaceFormat>
 #include <QSslSocket>
 #include <QNetworkAccessManager>
+#include <QSslConfiguration>
 #endif
 #include <QUrl>
 
@@ -29,6 +31,24 @@
 #include <QTimer>
 
 int main(int argc, char *argv[]) {
+  // v3.18.27: Initialize TLS/SSL backend FIRST - before any Qt initialization
+#ifdef Q_OS_ANDROID
+  qDebug() << "=== SSL INITIALIZATION START ===";
+  qDebug() << "SSL Support:" << QSslSocket::supportsSsl();
+  qDebug() << "SSL Library Build Version:" << QSslSocket::sslLibraryBuildVersionString();
+  qDebug() << "SSL Library Runtime Version:" << QSslSocket::sslLibraryVersionString();
+  
+  if (!QSslSocket::supportsSsl()) {
+    qDebug() << "SSL not supported, forcing Android SSL backend";
+    // Force loading of Android SSL backend
+    QNetworkAccessManager nam;
+    qDebug() << "Network SSL support:" << nam.supportedSchemes();
+    // Try to force SSL backend loading
+    QSslConfiguration::setDefaultConfiguration(QSslConfiguration::defaultConfiguration());
+  }
+  qDebug() << "=== SSL INITIALIZATION END ===";
+#endif
+
   // --- ANDROID WEBVIEW INIT ---
   // Muss zwingend VOR der Erstellung der QApplication aufgerufen werden,
   // damit das native Android-Web-Backend geladen wird.
@@ -46,18 +66,6 @@ int main(int argc, char *argv[]) {
   qputenv("QT_ACCESSIBILITY", "0");
 
   QtWebView::initialize();
-  
-  // v3.18.25: Initialize TLS/SSL backend for Google Login on Android
-  qDebug() << "SSL Support:" << QSslSocket::supportsSsl();
-  qDebug() << "SSL Library Build Version:" << QSslSocket::sslLibraryBuildVersionString();
-  qDebug() << "SSL Library Runtime Version:" << QSslSocket::sslLibraryVersionString();
-  
-  if (!QSslSocket::supportsSsl()) {
-    qDebug() << "SSL not supported, forcing Android SSL backend";
-    // Force loading of Android SSL backend
-    QNetworkAccessManager nam;
-    qDebug() << "Network SSL support:" << nam.supportedSchemes();
-  }
   
   if (qgetenv("BLOP_ANDROID_SOFTWARE_GL") == "1") {
     QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);

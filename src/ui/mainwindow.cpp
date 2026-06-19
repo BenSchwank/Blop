@@ -601,6 +601,18 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
       window->findChild<QWidget *>(QStringLiteral("AndroidTopHeaderInner"));
   if (!chrome || !inner)
     return;
+  
+  // v3.18.27: During login (authNavigationLocked), hide header completely to avoid margin
+  if (window->m_authNavigationLocked) {
+    chrome->setVisible(false);
+    chrome->setFixedHeight(0);
+    return;
+  } else {
+    chrome->setVisible(true);
+    // Restore normal height when not in login mode
+    const int androidHeaderTotalH = UiScale::dp(56) + UiScale::safeTopPx(window);
+    chrome->setFixedHeight(androidHeaderTotalH);
+  }
   auto *headerLay = qobject_cast<QHBoxLayout *>(inner->layout());
   if (!headerLay)
     return;
