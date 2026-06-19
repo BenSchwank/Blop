@@ -41,7 +41,7 @@ struct WebBookmark {
   QUrl url;
 };
 #ifdef Q_OS_ANDROID
-class QQuickWidget;
+class QQuickView;
 class QVBoxLayout;
 #endif
 
@@ -314,8 +314,8 @@ private:
   void resetEmbeddedWebToStudy();
   QWidget *m_studyContainer{nullptr};
 #ifdef Q_OS_ANDROID
-  // Embedded Study UI (QML + QtWebView) as QWidget to avoid extra QQuickWindow/eglSurface.
-  QQuickWidget *m_studyQQuickView{nullptr};
+  // Embedded Study UI (QML + QtWebView) using QQuickView for proper SurfaceView compositing.
+  QQuickView *m_studyQQuickView{nullptr};
   QWidget *m_androidHeader{nullptr};
   /// In-note top search for Android header (hidden outside editor mode).
   QLineEdit *m_androidTopSearchBar{nullptr};

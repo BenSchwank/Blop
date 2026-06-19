@@ -125,7 +125,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
-#include <QQuickWidget>
+#include <QQuickView>
 #include <QQmlError>
 #include <QSslSocket>
 #include <QTemporaryFile>
@@ -4510,15 +4510,14 @@ void MainWindow::setupWebBrowser() {
 #endif
 
 #ifdef Q_OS_ANDROID
-  // Keep Study in-app but avoid a separate QQuickWindow (eglSurface deadlock path).
-  QQuickWidget *view = new QQuickWidget(m_studyContainer);
+  // v3.18.21: Use QQuickView instead of QQuickWidget to fix Android SurfaceView
+  // compositing. QQuickView creates a separate Android Surface that properly
+  // composites over the WebView SurfaceView, while QQuickWidget renders to
+  // an FBO that blocks the WebView.
+  QQuickView *view = new QQuickView();
   m_studyQQuickView = view;
-  view->setResizeMode(QQuickWidget::SizeRootObjectToView);
-  // v3.18.19: transparent clear color so the QtWebView SurfaceView (which
-  // renders behind QML on Android) is not obscured by the widget background.
-  // The QML root Rectangle manages its own background via studyChromeColor
-  // until firstLoadDone, then switches to transparent.
-  view->setClearColor(Qt::transparent);
+  view->setResizeMode(QQuickView::SizeRootObjectToView);
+  view->setColor(Qt::transparent);
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
@@ -4527,7 +4526,7 @@ void MainWindow::setupWebBrowser() {
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
 
   // Check if it's actually loaded
-  if (view->status() == QQuickWidget::Error) {
+  if (view->status() == QQuickView::Error) {
       QString errorStr = "Fehler: Konnte Web-Modul nicht laden.\n";
       for (const QQmlError &e : view->errors()) {
           errorStr += e.toString() + "\n";
@@ -4540,7 +4539,8 @@ void MainWindow::setupWebBrowser() {
       return;
   }
 
-  QWidget *container = view;
+  // Create a container widget to hold the QQuickView's native window
+  QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
   container->setObjectName("StudyQuickContainer");
   m_studyWindowContainer = container;
   // Touch/focus hardening for Android
