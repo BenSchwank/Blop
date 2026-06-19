@@ -81,6 +81,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidg
 if(ANDROID)
     # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
+    find_package(Qt6 OPTIONAL_COMPONENTS NetworkAuth)
 else()
     # Desktop: WebEngine (Chromium) - REQUIRED
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
@@ -269,6 +270,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::Multimedia
     Qt6::MultimediaWidgets
 )
+
 
 # Export BLOP_VERSION_STR for runtime usage in mainwindow.cpp
 target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
