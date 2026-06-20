@@ -603,7 +603,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     return;
   
   // v3.18.27: During login (authNavigationLocked), hide header completely to avoid margin
-  if (window->m_authNavigationLocked) {
+  if (window->isAuthNavigationLocked()) {
     chrome->setVisible(false);
     chrome->setFixedHeight(0);
     return;

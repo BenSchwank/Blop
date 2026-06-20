@@ -171,6 +171,8 @@ signals:
   void injectToken(const QString &token);
   void oauthFailed(const QString &reason);
 
+  bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
+
 public slots:
   /// Re-apply theme-aware stylesheets after BlopTheme::themeChanged. v3.17.0.
   void applyThemeRefresh();
