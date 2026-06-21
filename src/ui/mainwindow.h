@@ -155,6 +155,8 @@ public:
 
   void restoreWindowState();
 
+  bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
+
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
   void showEvent(QShowEvent *event) override;
@@ -166,8 +168,6 @@ protected:
 #ifdef Q_OS_WIN
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 #endif
-
-  bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
 
 signals:
   void injectToken(const QString &token);
