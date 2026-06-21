@@ -167,11 +167,11 @@ protected:
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 #endif
 
+  bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
+
 signals:
   void injectToken(const QString &token);
   void oauthFailed(const QString &reason);
-
-  bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
 
 public slots:
   /// Re-apply theme-aware stylesheets after BlopTheme::themeChanged. v3.17.0.
