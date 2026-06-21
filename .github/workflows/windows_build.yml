@@ -38,7 +38,9 @@ jobs:
 
           # Installiere Qt 6.10.2 direkt in dieses Verzeichnis
           # WICHTIG: --outputdir $qtDir sorgt dafür, dass die Pfade stimmen
-          aqt install-qt windows desktop 6.10.2 win64_msvc2022_64 -m qtwebengine qtwebchannel qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
+          # v3.18.32: qtwebchannel is a dependency of qtwebengine and gets installed automatically.
+          # Explicitly listing it triggers aqtinstall 3.3.0 Bad7zFile bug with modules/WebChannelQuick.json.
+          aqt install-qt windows desktop 6.10.2 win64_msvc2022_64 -m qtwebengine qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
 
           # Setze den Pfad zur Installation
           $qtBase = "$qtDir\6.10.2\msvc2022_64"
