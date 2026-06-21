@@ -31,24 +31,6 @@
 #include <QTimer>
 
 int main(int argc, char *argv[]) {
-  // v3.18.27: Initialize TLS/SSL backend FIRST - before any Qt initialization
-#ifdef Q_OS_ANDROID
-  qDebug() << "=== SSL INITIALIZATION START ===";
-  qDebug() << "SSL Support:" << QSslSocket::supportsSsl();
-  qDebug() << "SSL Library Build Version:" << QSslSocket::sslLibraryBuildVersionString();
-  qDebug() << "SSL Library Runtime Version:" << QSslSocket::sslLibraryVersionString();
-  
-  if (!QSslSocket::supportsSsl()) {
-    qDebug() << "SSL not supported, forcing Android SSL backend";
-    // Force loading of Android SSL backend
-    QNetworkAccessManager nam;
-    qDebug() << "Network SSL support:" << nam.supportedSchemes();
-    // Try to force SSL backend loading
-    QSslConfiguration::setDefaultConfiguration(QSslConfiguration::defaultConfiguration());
-  }
-  qDebug() << "=== SSL INITIALIZATION END ===";
-#endif
-
   // --- ANDROID WEBVIEW INIT ---
   // Muss zwingend VOR der Erstellung der QApplication aufgerufen werden,
   // damit das native Android-Web-Backend geladen wird.
@@ -119,6 +101,26 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+#ifdef Q_OS_ANDROID
+  // v3.18.31: Initialize TLS/SSL backend AFTER QApplication so Qt plugins can load.
+  // On Android the OpenSSL backend is a Qt plugin that requires QCoreApplication.
+  qDebug() << "=== SSL INITIALIZATION START ===";
+  qDebug() << "QApplication created, checking SSL support:";
+  qDebug() << "SSL supportsSsl() (initial):" << QSslSocket::supportsSsl();
+  qDebug() << "SSL build version:" << QSslSocket::sslLibraryBuildVersionString();
+  qDebug() << "SSL runtime version:" << QSslSocket::sslLibraryVersionString();
+  if (!QSslSocket::supportsSsl()) {
+    qDebug() << "SSL not supported yet, forcing plugin load via QNetworkAccessManager";
+    QNetworkAccessManager nam;
+    qDebug() << "Supported schemes after NAM:" << nam.supportedSchemes();
+    qDebug() << "SSL supportsSsl() (after NAM):" << QSslSocket::supportsSsl();
+    QSslConfiguration cfg = QSslConfiguration::defaultConfiguration();
+    QSslConfiguration::setDefaultConfiguration(cfg);
+    qDebug() << "SSL supportsSsl() (after config):" << QSslSocket::supportsSsl();
+  }
+  qDebug() << "=== SSL INITIALIZATION END ===";
+#endif
 
   // v3.17.6: bump the global QPixmapCache. The default is 10240 KB on
   // desktop and 1024 KB on mobile -- our note-thumbnail workload needs
