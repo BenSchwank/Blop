@@ -54,6 +54,11 @@ public final class BlopOAuthBridge {
         return s == null ? "" : s;
     }
 
+    /** Called from C++ to open the OAuth URL in a Chrome Custom Tab. */
+    public static synchronized void openAuthUrl(String url) {
+        BlopActivity.openCustomTab(url);
+    }
+
     /** Implemented in C++ {@code googleauthmanager.cpp}. */
     public static native void nativeNotifyAuthCallback(String uri);
 }

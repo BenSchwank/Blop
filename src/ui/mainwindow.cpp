@@ -131,6 +131,7 @@
 #include <QTemporaryFile>
 #include <QWidget>
 #include <QElapsedTimer>
+#include <QJniEnvironment>
 #include <QJniObject>
 #include <QtCore/qnativeinterface.h>
 #else
@@ -8461,19 +8462,27 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 bool MainWindow::showAuthOverlay(const QUrl &url) {
 #ifdef Q_OS_ANDROID
   // Google blocks OAuth inside embedded WebViews (disallowed_useragent). For
-  // the Android PKCE flow we open the auth URL with the system browser, which
-  // Android resolves to a Chrome Custom Tab when available. The redirect
-  // returns to the app via the com.benschwank.blop://oauth2redirect deep link
-  // handled by BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
+  // the Android PKCE flow we open the auth URL in a Chrome Custom Tab, which
+  // runs in the same task and reliably redirects back to the app via the
+  // com.benschwank.blop:/oauth2redirect deep link handled by
+  // BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
   dismissAndroidOAuthOverlay();
-  qInfo() << "showAuthOverlay: opening auth URL via system browser";
-  const bool opened = QDesktopServices::openUrl(url);
+  qInfo() << "showAuthOverlay: opening auth URL via Chrome Custom Tab";
+  bool opened = false;
+  if (QJniEnvironment env; env) {
+    QJniObject urlObj = QJniObject::fromString(url.toString());
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopOAuthBridge", "openAuthUrl",
+        "(Ljava/lang/String;)V", urlObj.object<jstring>());
+    opened = true;
+  } else {
+    qWarning() << "showAuthOverlay: JNI environment not available, falling back to QDesktopServices";
+    opened = QDesktopServices::openUrl(url);
+  }
   if (!opened) {
-    qCritical() << "showAuthOverlay: QDesktopServices::openUrl failed for"
+    qCritical() << "showAuthOverlay: failed to open auth URL"
                 << url
-                << "— most likely cause: no browser installed OR Android 11+"
-                   " <queries> Package-Visibility filter blocks resolveActivity."
-                   " Check AndroidManifest <queries> block.";
+                << "— no browser installed OR Android 11+ <queries> blocks it.";
     // v3.18.6: release the PKCE in-progress lock immediately so the user
     // can retry without having to wait 60 s for the stale-timeout.
     GoogleAuthManager::instance().cancelPendingLogin();
