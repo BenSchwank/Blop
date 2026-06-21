@@ -84,7 +84,8 @@ jobs:
       - name: Install Qt via aqtinstall
         run: |
           pip install --upgrade pip
-          pip install --upgrade aqtinstall
+          # v3.18.33: Pin aqtinstall to avoid Qt 6.10.2 archive extraction bugs in 3.3.0.
+          pip install aqtinstall==3.2.1
           mkdir -p ${{ runner.workspace }}/Qt
           # Desktop Qt für Host-Tools (must match android major.minor for qt-cmake).
           # Qt 6.10+: aqt arch is linux_gcc_64 (gcc_64 breaks Updates.xml / qt_base).

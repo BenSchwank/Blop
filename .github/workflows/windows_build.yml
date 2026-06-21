@@ -31,7 +31,9 @@ jobs:
       - name: Install Qt via aqtinstall
         shell: pwsh
         run: |
-          pip install aqtinstall
+          # v3.18.33: Pin aqtinstall to avoid Qt 6.10.2 archive bugs in 3.3.0
+          # (Bad7zFile on modules/WebChannelQuick.json and sbom/*.spdx files).
+          pip install aqtinstall==3.2.1
 
           # Definiere das Zielverzeichnis explizit
           $qtDir = "${{ runner.workspace }}\Qt"
