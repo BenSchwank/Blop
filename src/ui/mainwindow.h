@@ -134,6 +134,11 @@ public:
   bool isTouchMode() const { return m_currentProfile.isTouchOptimized(); }
 
 #ifdef Q_OS_ANDROID
+  /// Static method to reset OAuth timer - can be called from GoogleAuthManager
+  static void resetOAuthTimer();
+#endif
+
+#ifdef Q_OS_ANDROID
   /// Sync Notizen/Study tab visuals (narrow-aware: smaller padding/font on
   /// phones). Called from the free-function syncAndroidHeaderGeometry on
   /// every resize, and from onModeChanged on tab switches.

@@ -1,5 +1,9 @@
 #include "googleauthmanager.h"
 
+#ifdef Q_OS_ANDROID
+#include "../ui/mainwindow.h"
+#endif
+
 #include <QDebug>
 #include <QDesktopServices>
 #include <QJsonDocument>
@@ -231,8 +235,12 @@ void GoogleAuthManager::startPkceLogin() {
 void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   qInfo() << "GoogleAuthManager: deep-link callback received";
   m_loginInProgress = false;
-  qInfo() << "GoogleAuthManager: emitting deepLinkCallbackReceived signal";
-  emit deepLinkCallbackReceived();
+  
+#ifdef Q_OS_ANDROID
+  // Reset OAuth timer in MainWindow to prevent timeout
+  qInfo() << "GoogleAuthManager: calling MainWindow::resetOAuthTimer";
+  MainWindow::resetOAuthTimer();
+#endif
   if (uri.isEmpty()) {
     emit authenticationFailed(QStringLiteral("empty_callback_uri"));
     return;

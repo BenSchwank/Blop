@@ -1255,15 +1255,6 @@ MainWindow::MainWindow(QWidget *parent)
       }
   });
 
-#ifdef Q_OS_ANDROID
-  // Reset OAuth timer when deep link callback is received
-  qInfo() << "MainWindow: connecting deepLinkCallbackReceived signal";
-  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::deepLinkCallbackReceived, this, [this]() {
-      qInfo() << "MainWindow: deep link callback received, resetting OAuth timer";
-      m_googleLoginInFlight = false;
-      m_googleLoginInFlightSinceMs = 0;
-  });
-#endif
 
   // Verify the Google access token via our own backend and inject session into the WebView
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this, failOAuthFlow](const QString &token) {
@@ -8533,3 +8524,19 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
   return QDesktopServices::openUrl(url);
 #endif
 }
+
+#ifdef Q_OS_ANDROID
+void MainWindow::resetOAuthTimer() {
+    // Find the main window instance and reset the OAuth timer
+    for (QWidget *widget : QApplication::topLevelWidgets()) {
+        MainWindow *mainWin = qobject_cast<MainWindow*>(widget);
+        if (mainWin) {
+            qInfo() << "MainWindow: resetOAuthTimer called, resetting OAuth timer";
+            mainWin->m_googleLoginInFlight = false;
+            mainWin->m_googleLoginInFlightSinceMs = 0;
+            return;
+        }
+    }
+    qWarning() << "MainWindow: resetOAuthTimer called but no MainWindow instance found";
+}
+#endif
