@@ -43,6 +43,9 @@ signals:
     void userInfoUpdated();
     void idTokenReceived(const QString& idToken);
     void requireBrowser(const QUrl &url);
+#ifdef Q_OS_ANDROID
+    void deepLinkCallbackReceived();
+#endif
 
 private:
     explicit GoogleAuthManager(QObject* parent = nullptr);

@@ -1255,6 +1255,15 @@ MainWindow::MainWindow(QWidget *parent)
       }
   });
 
+#ifdef Q_OS_ANDROID
+  // Reset OAuth timer when deep link callback is received
+  connect(&GoogleAuthManager::instance(), &GoogleAuthManager::deepLinkCallbackReceived, this, [this]() {
+      qInfo() << "MainWindow: deep link callback received, resetting OAuth timer";
+      m_googleLoginInFlight = false;
+      m_googleLoginInFlightSinceMs = 0;
+  });
+#endif
+
   // Verify the Google access token via our own backend and inject session into the WebView
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this, failOAuthFlow](const QString &token) {
       qDebug() << "Received Google token in MainWindow, posting to backend for verification...";

@@ -231,6 +231,7 @@ void GoogleAuthManager::startPkceLogin() {
 void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   qInfo() << "GoogleAuthManager: deep-link callback received";
   m_loginInProgress = false;
+  emit deepLinkCallbackReceived();
   if (uri.isEmpty()) {
     emit authenticationFailed(QStringLiteral("empty_callback_uri"));
     return;
