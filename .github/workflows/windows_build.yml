@@ -40,9 +40,9 @@ jobs:
 
           # Installiere Qt 6.10.2 direkt in dieses Verzeichnis
           # WICHTIG: --outputdir $qtDir sorgt dafür, dass die Pfade stimmen
-          # v3.18.35: Remove qtwebchannel to avoid SBOM Bad7zFile bug in aqtinstall 3.2.1.
-          # Qt6WebEngineWidgets will still find the transitive dependency.
-          aqt install-qt windows desktop 6.10.2 win64_msvc2022_64 -m qtwebengine qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
+          # v3.18.36: qtwebchannel is required by Qt6WebEngineWidgets. We'll need to handle
+          # the SBOM Bad7zFile bug differently if it occurs.
+          aqt install-qt windows desktop 6.10.2 win64_msvc2022_64 -m qtwebengine qtwebchannel qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
 
           # Setze den Pfad zur Installation
           $qtBase = "$qtDir\6.10.2\msvc2022_64"
