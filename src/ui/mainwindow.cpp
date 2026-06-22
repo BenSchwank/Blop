@@ -8469,7 +8469,8 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
   dismissAndroidOAuthOverlay();
   qInfo() << "showAuthOverlay: opening auth URL via Chrome Custom Tab";
   bool opened = false;
-  if (QJniEnvironment env; env) {
+  QJniEnvironment env;
+  if (env.isValid()) {
     QJniObject urlObj = QJniObject::fromString(url.toString());
     QJniObject::callStaticMethod<void>(
         "com/benschwank/blop/BlopOAuthBridge", "openAuthUrl",
