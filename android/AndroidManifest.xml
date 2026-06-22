@@ -85,11 +85,10 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- v3.18.38: Use single data element to fix Android intent resolution -->
+                <!-- v3.18.40: Match com.benschwank.blop:/oauth2redirect (single slash) -->
                 <data
                     android:scheme="com.benschwank.blop"
-                    android:host="oauth2redirect"
-                    android:path="/" />
+                    android:path="/oauth2redirect" />
             </intent-filter>
 
           <meta-data
