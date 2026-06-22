@@ -25,32 +25,44 @@ public final class BlopOAuthBridge {
 
     /** Called from {@link BlopActivity} for both onCreate and onNewIntent. */
     public static synchronized void deliverIntentUri(Uri uri) {
+        Log.i(TAG, "=== deliverIntentUri called ===");
         if (uri == null) {
+            Log.w(TAG, "deliverIntentUri: uri is null");
             return;
         }
         final String s = uri.toString();
         if (s.isEmpty()) {
+            Log.w(TAG, "deliverIntentUri: uri string is empty");
             return;
         }
-        Log.i(TAG, "deliverIntentUri scheme=" + uri.getScheme() + " host=" + uri.getHost());
+        Log.i(TAG, "deliverIntentUri: uri=" + s + " scheme=" + uri.getScheme() + " host=" + uri.getHost());
         if (sNativeReady) {
+            Log.i(TAG, "deliverIntentUri: native ready, calling nativeNotifyAuthCallback");
             try {
                 nativeNotifyAuthCallback(s);
+                Log.i(TAG, "deliverIntentUri: nativeNotifyAuthCallback succeeded");
             } catch (UnsatisfiedLinkError e) {
                 Log.w(TAG, "native bridge gone; cache for next attach", e);
                 sPendingUri = s;
                 sNativeReady = false;
             }
         } else {
+            Log.i(TAG, "deliverIntentUri: native not ready, caching URI");
             sPendingUri = s;
         }
     }
 
     /** Called from C++ after {@code registerNativeMethods} succeeds. */
     public static synchronized String consumePendingUri() {
+        Log.i(TAG, "=== consumePendingUri called ===");
         sNativeReady = true;
         final String s = sPendingUri;
         sPendingUri = null;
+        if (s != null && !s.isEmpty()) {
+            Log.i(TAG, "consumePendingUri: returning pending URI: " + s);
+        } else {
+            Log.i(TAG, "consumePendingUri: no pending URI");
+        }
         return s == null ? "" : s;
     }
 

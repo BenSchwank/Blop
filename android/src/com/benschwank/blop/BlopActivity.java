@@ -37,19 +37,28 @@ public class BlopActivity extends QtActivity {
      */
     @Keep
     public static void openCustomTab(String url) {
+        Log.i(TAG, "=== openCustomTab called ===");
+        Log.i(TAG, "openCustomTab: url=" + url);
         final BlopActivity activity = sInstance;
-        if (activity == null || url == null || url.isEmpty()) {
-            Log.w(TAG, "openCustomTab: no activity or no URL");
+        if (activity == null) {
+            Log.w(TAG, "openCustomTab: activity is null");
+            return;
+        }
+        if (url == null || url.isEmpty()) {
+            Log.w(TAG, "openCustomTab: url is null or empty");
             return;
         }
         try {
+            Log.i(TAG, "openCustomTab: launching Chrome Custom Tab");
             CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
             CustomTabsIntent intent = builder.build();
             intent.launchUrl(activity, Uri.parse(url));
+            Log.i(TAG, "openCustomTab: Chrome Custom Tab launched successfully");
         } catch (Exception e) {
             Log.w(TAG, "openCustomTab failed, falling back to ACTION_VIEW", e);
             Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             activity.startActivity(fallback);
+            Log.i(TAG, "openCustomTab: fallback ACTION_VIEW launched");
         }
     }
 
@@ -57,6 +66,9 @@ public class BlopActivity extends QtActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sInstance = this;
+        Log.i(TAG, "=== BlopActivity onCreate ===");
+        Log.i(TAG, "Intent: " + getIntent());
+        Log.i(TAG, "Intent data: " + getIntent().getData());
         forwardOAuthIntent(getIntent(), "onCreate");
     }
 
@@ -73,19 +85,27 @@ public class BlopActivity extends QtActivity {
         super.onNewIntent(intent);
         // Update the activity's intent so getIntent() returns the latest data.
         setIntent(intent);
+        Log.i(TAG, "=== BlopActivity onNewIntent ===");
+        Log.i(TAG, "Intent: " + intent);
+        Log.i(TAG, "Intent data: " + intent.getData());
         forwardOAuthIntent(intent, "onNewIntent");
     }
 
     private void forwardOAuthIntent(Intent intent, String origin) {
+        Log.i(TAG, origin + " forwardOAuthIntent called");
         if (intent == null) {
+            Log.w(TAG, origin + " intent is null");
             return;
         }
         final Uri data = intent.getData();
         if (data == null) {
+            Log.w(TAG, origin + " intent data is null");
             return;
         }
+        Log.i(TAG, origin + " received URI: " + data.toString());
         final String scheme = data.getScheme();
         if (scheme == null || !scheme.equalsIgnoreCase("com.benschwank.blop")) {
+            Log.w(TAG, origin + " scheme mismatch: " + scheme + " (expected com.benschwank.blop)");
             return;
         }
         final String hostStr = data.getHost() == null ? "(null)" : data.getHost();
