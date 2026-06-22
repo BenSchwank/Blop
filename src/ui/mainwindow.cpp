@@ -1257,6 +1257,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 #ifdef Q_OS_ANDROID
   // Reset OAuth timer when deep link callback is received
+  qInfo() << "MainWindow: connecting deepLinkCallbackReceived signal";
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::deepLinkCallbackReceived, this, [this]() {
       qInfo() << "MainWindow: deep link callback received, resetting OAuth timer";
       m_googleLoginInFlight = false;
