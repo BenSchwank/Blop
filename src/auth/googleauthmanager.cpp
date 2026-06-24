@@ -11,6 +11,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QThread>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -233,6 +234,15 @@ void GoogleAuthManager::startPkceLogin() {
 }
 
 void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
+  // This method may be called from the Android main thread (via JNI). All Qt
+  // object work (QNetworkAccessManager, signals) must run on the Qt thread.
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(this, [this, uri]() {
+      handleDeepLinkCallback(uri);
+    }, Qt::QueuedConnection);
+    return;
+  }
+
   qInfo() << "GoogleAuthManager: deep-link callback received";
   m_loginInProgress = false;
   
