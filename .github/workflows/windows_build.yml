@@ -26,20 +26,22 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       - name: Install Qt via aqtinstall
         shell: pwsh
         run: |
-          # v3.18.44: Qt 6.10.2 has a broken qtwebchannel 7z archive on all mirrors
-          # (Bad7zFile: modules/WebChannelQuick.json). Downgrade to 6.9.1 which is
-          # stable and has no mirror corruption issues.
+          # v3.18.44: Qt 6.10.2 has a broken qtwebchannel 7z archive on all mirrors.
+          # v3.18.47: Qt 6.9.1 qtpositioning archive is also broken (Bad7zFile:
+          # lib/Qt6PositioningQuickd.prl). Removed qtpositioning — it is not used
+          # directly by Blop (CMakeLists.txt has no find_package Positioning);
+          # QtWebEngine bundles its own positioning bits.
           pip install aqtinstall==3.2.1
 
           # Definiere das Zielverzeichnis explizit
           $qtDir = "${{ runner.workspace }}\Qt"
 
-          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
+          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtmultimedia qtnetworkauth --outputdir $qtDir
 
           # Setze den Pfad zur Installation
           $qtBase = "$qtDir\6.9.1\msvc2022_64"
