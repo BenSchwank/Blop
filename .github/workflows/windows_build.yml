@@ -32,16 +32,33 @@ jobs:
         shell: pwsh
         run: |
           # v3.18.44: Qt 6.10.2 has a broken qtwebchannel 7z archive on all mirrors.
-          # v3.18.47: Qt 6.9.1 qtpositioning archive is also broken (Bad7zFile:
-          # lib/Qt6PositioningQuickd.prl). Removed qtpositioning — it is not used
-          # directly by Blop (CMakeLists.txt has no find_package Positioning);
-          # QtWebEngine bundles its own positioning bits.
+          # v3.18.48: qtpositioning is required by QtWebEngineCore (CMake dependency),
+          # but its 7z archive on Qt mirrors contains a corrupt debug PRL file
+          # (Bad7zFile: lib/Qt6PositioningQuickd.prl). We install qtpositioning in a
+          # separate aqt call and tolerate the py7zr error — the Release-mode CMake
+          # config files are extracted before the bad entry is hit, so the build works.
           pip install aqtinstall==3.2.1
 
           # Definiere das Zielverzeichnis explizit
           $qtDir = "${{ runner.workspace }}\Qt"
 
+          # Step 1: install main modules (all have clean archives)
           aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtmultimedia qtnetworkauth --outputdir $qtDir
+
+          # Step 2: install qtpositioning separately; ignore py7zr Bad7zFile error
+          # caused by the corrupt debug PRL entry — the cmake config is extracted fine.
+          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtpositioning --outputdir $qtDir
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "qtpositioning install exited $LASTEXITCODE (known broken debug archive) — checking cmake config..."
+          }
+
+          # Verify the cmake config Qt6Positioning needs actually landed
+          $posConfig = "$qtDir\6.9.1\msvc2022_64\lib\cmake\Qt6Positioning\Qt6PositioningConfig.cmake"
+          if (-not (Test-Path $posConfig)) {
+            Write-Error "Qt6Positioning cmake config missing after install — cannot continue"
+            exit 1
+          }
+          Write-Host "Qt6Positioning cmake config OK: $posConfig"
 
           # Setze den Pfad zur Installation
           $qtBase = "$qtDir\6.9.1\msvc2022_64"
