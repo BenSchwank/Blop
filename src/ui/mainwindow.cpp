@@ -8194,6 +8194,25 @@ void MainWindow::onOpenSettings() {
               toolbar->setStyle(radial ? ModernToolbar::Radial
                                        : ModernToolbar::Normal);
           });
+  connect(&dlg, &SettingsDialog::logoutRequested, this, [this]() {
+    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    st.remove(QStringLiteral("session_id"));
+    st.remove(QStringLiteral("username"));
+    st.sync();
+    updateSidebarUser(QString());
+    const QString clearJs = QStringLiteral(
+        "localStorage.removeItem('session_id');"
+        "localStorage.removeItem('username');"
+        "window.location.href = '/login';");
+#ifdef Q_OS_ANDROID
+    emit injectToken(clearJs);
+#else
+#ifdef BLOP_HAS_WEBENGINE
+    if (m_studyWebView && m_studyWebView->page())
+      m_studyWebView->page()->runJavaScript(clearJs);
+#endif
+#endif
+  });
 
   // v3.18.5: route through BlopModal to avoid the Qt 6.10 Android EGL
   // deadlock that any top-level QWindow (raw QDialog::exec) triggers.

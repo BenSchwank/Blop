@@ -25,6 +25,7 @@ Rectangle {
     property string studyUrl: "https://blop-study.com"
     property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
+    property string pendingInjectJs: ""
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
     // Keep native login at natural scale to avoid visible top/bottom letterboxing.
@@ -592,6 +593,14 @@ Rectangle {
                         firstLoadDone = true
                         console.log("BlopStudy: firstLoadDone -> true (real page loaded)")
                         notifyCppStudyFirstLoadDone()
+                    }
+                    // Execute any JS that was queued while the WebView was not yet
+                    // on a real Study origin (e.g. session injection after OAuth login).
+                    if (pendingInjectJs !== "") {
+                        console.log("BlopStudy: executing pendingInjectJs after page load")
+                        var jsToRun = pendingInjectJs
+                        pendingInjectJs = ""
+                        embeddedStudyWebView.runJavaScript(jsToRun)
                     }
                 }
 
@@ -1291,8 +1300,19 @@ Rectangle {
             oauthPending = false;  // Hide the overlay
             oauthPendingSinceMs = 0
             var w = studyWeb()
-            if (w)
+            var currentUrl = w ? w.url.toString() : ""
+            if (w && currentUrl !== "" && currentUrl !== "about:blank") {
                 w.runJavaScript(jsCode)
+            } else {
+                // WebView not yet on a real Study page — queue JS for after load
+                console.log("QML: studyWeb not ready (url='" + currentUrl + "'), queuing injectJs")
+                pendingInjectJs = jsCode
+                // Trigger load so the pending JS can be executed on arrival
+                if (!studyWebLoader.active) {
+                    requestSurfaceActivation("injectToken")
+                }
+                ensureStudyLoaded()
+            }
         }
 
         function onOauthFailed(reason) {

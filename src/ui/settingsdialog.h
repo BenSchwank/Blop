@@ -32,6 +32,7 @@ public:
 signals:
     void accentColorChanged(QColor color);
     void toolbarStyleChanged(bool radial);
+    void logoutRequested();
 
     void previewProfileRequested(const UiProfile& p);
 

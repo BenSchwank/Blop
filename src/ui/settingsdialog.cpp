@@ -402,6 +402,22 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         });
         BlopRipple::attachPressFeedback(btnEdit, 0.92);
         cardKonto->addBodyWidget(btnEdit);
+
+        auto *btnLogout = new QPushButton(
+            QStringLiteral("Abmelden"), cardKonto);
+        btnLogout->setCursor(Qt::PointingHandCursor);
+        btnLogout->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "QPushButton { background-color: rgba(180,40,40,0.18); color: #FF6B6B;"
+            "  border: 1px solid rgba(200,60,60,0.45); border-radius: 10px;"
+            "  padding: 11px 14px; text-align: left; font-weight: 600; }"
+            "QPushButton:hover { background-color: rgba(200,50,50,0.32);"
+            "  border-color: rgba(220,80,80,0.75); }")));
+        connect(btnLogout, &QPushButton::clicked, this, [this]() {
+            emit logoutRequested();
+            accept();
+        });
+        BlopRipple::attachPressFeedback(btnLogout, 0.92);
+        cardKonto->addBodyWidget(btnLogout);
     }
     contentLay->addWidget(cardKonto);
 
