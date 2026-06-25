@@ -282,6 +282,5 @@ jobs:
             Blop_Windows_Installer.exe
           draft: false
           prerelease: true
-          overwrite: true
           repository: BenSchwank/Blop-releases
 
