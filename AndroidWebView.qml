@@ -159,6 +159,15 @@ Rectangle {
             u += "&_ts=" + Date.now()
             u += "&_try=" + freshLoadSerial
         }
+        // Hydrate the embedded WebView's localStorage from the natively-persisted
+        // session so login survives WebView storage wipes / Loader recreation.
+        // StudyFlow's AuthCheck consumes blop_usr/blop_sid before redirecting.
+        if (ssoPollingEnabled && typeof blopAppBridge !== "undefined"
+                && blopAppBridge.savedStudySessionParam) {
+            var sessionParam = blopAppBridge.savedStudySessionParam()
+            if (sessionParam && sessionParam.length > 0)
+                u += sessionParam
+        }
         return u
     }
 
@@ -1322,7 +1331,7 @@ Rectangle {
                          "  }\n" +
                          "  var u = localStorage.getItem('username');\n" +
                          "  var s = localStorage.getItem('session_id');\n" +
-                         "  return (u && s) ? u : '';\n" +
+                         "  return (u && s) ? (u + '\\u0001' + s) : '';\n" +
                          "})();"
 
             w.runJavaScript(jsCode, function(result) {

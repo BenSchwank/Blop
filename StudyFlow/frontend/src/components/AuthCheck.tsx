@@ -2,12 +2,17 @@
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { hydrateNativeSession } from '@/lib/nativeSession';
 
 export default function AuthCheck({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
 
     useEffect(() => {
+        // Seed localStorage from the native shell's persisted session (if any)
+        // before any auth decision so login survives WebView storage loss.
+        hydrateNativeSession();
+
         // Skip auth check for public pages
         if (
             pathname === '/login' ||

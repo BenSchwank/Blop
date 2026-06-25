@@ -5,6 +5,7 @@ import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } 
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
+import { hydrateNativeSession } from '@/lib/nativeSession';
 
 declare global {
   interface Window {
@@ -160,6 +161,9 @@ export default function Dashboard() {
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
+    // Seed localStorage from the native shell's persisted session (if any)
+    // before reading it, so the native entry doesn't bounce to /login.
+    hydrateNativeSession();
     const username = localStorage.getItem('username');
     const session = localStorage.getItem('session_id');
     const params = new URLSearchParams(window.location.search);

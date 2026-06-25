@@ -584,13 +584,52 @@ void applyAndroidImmersiveUi() {
     QJniObject decorView =
         window.callObjectMethod("getDecorView", "()Landroid/view/View;");
     if (decorView.isValid()) {
-      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN |
-      // HIDE_NAVIGATION | FULLSCREEN | IMMERSIVE_STICKY
-      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400 | 0x00000002 |
-                           0x00000004 | 0x00001000;
+      // v3.18.21: edge-to-edge WITHOUT hiding the system bars. The status /
+      // navigation bars stay visible (and transparent, see styles.xml) while
+      // app content draws behind them. Previously we also set FULLSCREEN |
+      // HIDE_NAVIGATION | IMMERSIVE_STICKY, which *hid* the status bar; Qt's
+      // QScreen::availableGeometry still reported the status-bar height, so the
+      // header reserved a top inset for a bar that wasn't there — the phantom
+      // "Balken" strip that left the app not flush with the display. Keeping
+      // only the LAYOUT_* flags makes the computed inset match the real,
+      // visible status bar so the header sits flush beneath it.
+      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN
+      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400;
       decorView.callMethod<void>("setSystemUiVisibility", "(I)V", uiFlags);
     }
   });
+}
+
+// Reads the platform status-bar height straight from Android's dimen resource.
+// Under edge-to-edge (setDecorFitsSystemWindows(false)) the window fills the
+// whole screen, so QScreen::availableGeometry can report a zero top inset even
+// though the transparent status bar is still drawn over our content. Reserving
+// at least this height keeps the header (clock/battery row) from sliding under
+// the system status bar. Reading a dimen resource is thread-safe, so this can
+// be called from the Qt GUI thread without bouncing to the Android UI thread.
+int androidStatusBarHeightPx() {
+  QJniObject activity = QJniObject::callStaticObjectMethod(
+      "org/qtproject/qt/android/QtNative", "activity",
+      "()Landroid/app/Activity;");
+  if (!activity.isValid())
+    return 0;
+  QJniObject resources = activity.callObjectMethod(
+      "getResources", "()Landroid/content/res/Resources;");
+  if (!resources.isValid())
+    return 0;
+  QJniObject dimenName =
+      QJniObject::fromString(QStringLiteral("status_bar_height"));
+  QJniObject defType = QJniObject::fromString(QStringLiteral("dimen"));
+  QJniObject defPackage = QJniObject::fromString(QStringLiteral("android"));
+  const jint resId = resources.callMethod<jint>(
+      "getIdentifier",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+      dimenName.object<jstring>(), defType.object<jstring>(),
+      defPackage.object<jstring>());
+  if (resId <= 0)
+    return 0;
+  return qMax(0, resources.callMethod<jint>("getDimensionPixelSize", "(I)I",
+                                            resId));
 }
 
 void syncAndroidHeaderGeometry(MainWindow *window) {
@@ -605,7 +644,13 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   if (!headerLay)
     return;
 
-  const int clampedInset = UiScale::safeTopPx(window);
+  // Reserve the larger of Qt's reported inset and the real status-bar height.
+  // Edge-to-edge can make availableGeometry report 0, so the resource-based
+  // height is what keeps the header flush below the (transparent) status bar
+  // instead of either overlapping it or leaving a phantom gap.
+  const int clampedInset =
+      qBound(0, qMax(UiScale::safeTopPx(window), androidStatusBarHeightPx()),
+             UiScale::dp(72));
   // Anchor responsive sizing to the *usable* viewport (screen minus a small
   // safety margin against Android system cutouts that availableGeometry
   // doesn't always reflect). This is what guarantees the right-edge buttons
@@ -5399,11 +5444,35 @@ void MainWindow::onSessionCheck(const QString &sessionData) {
     if (!sessionData.isEmpty() && sessionData != "null") {
         m_googleLoginInFlight = false;
         m_googleLoginInFlightSinceMs = 0;
+        // The Study SSO poller reports "<username>\u0001<session_id>" so the
+        // session_id can be persisted natively (older builds sent the bare
+        // username — handled by the empty-split fallback below).
+        const QStringList parts = sessionData.split(QChar(0x0001));
+        const QString username = parts.value(0);
+        const QString sessionId = parts.value(1);
+        if (!sessionId.isEmpty()) {
+            QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            st.setValue(QStringLiteral("session_id"), sessionId);
+            st.sync();
+        }
         QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
-        if (sessionData != currentUser) {
-            updateSidebarUser(sessionData);
+        if (username != currentUser) {
+            updateSidebarUser(username);
         }
     }
+}
+
+QString MainWindow::savedStudySessionParam() const {
+    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    const QString username = st.value(QStringLiteral("username")).toString();
+    const QString sessionId = st.value(QStringLiteral("session_id")).toString();
+    if (username.isEmpty() || sessionId.isEmpty())
+        return QString();
+    const QString usrEnc =
+        QString::fromUtf8(QUrl::toPercentEncoding(username));
+    const QString sidEnc =
+        QString::fromUtf8(QUrl::toPercentEncoding(sessionId));
+    return QStringLiteral("&blop_usr=%1&blop_sid=%2").arg(usrEnc, sidEnc);
 }
 
 void MainWindow::updateSidebarUser(const QString &username) {

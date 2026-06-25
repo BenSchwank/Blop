@@ -177,6 +177,11 @@ public slots:
   void refreshOpenEditorSceneBackgrounds();
   void requestGoogleLogin();
   void onSessionCheck(const QString &sessionData);
+  /// Returns "&blop_usr=...&blop_sid=..." (URL-encoded) built from the
+  /// natively-persisted session, or an empty string when none is stored.
+  /// Lets the Study entry URL hydrate the embedded WebView's localStorage so
+  /// login survives WebView storage wipes / Loader recreation on Android.
+  QString savedStudySessionParam() const;
   void resetAndroidWebViewStorage();
   void resetAndroidWebViewStorageFull();
   void nudgeAndroidWebViewStopOnly();
