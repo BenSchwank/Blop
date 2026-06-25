@@ -1206,7 +1206,14 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Initial mode: guest → Study, logged-in → Notes (setCurrentIndex emits onModeChanged)
   QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
+  qInfo() << "MainWindow: startup savedUser=" << savedUser
+          << "isEmpty=" << savedUser.trimmed().isEmpty()
+          << "authLocked=" << m_authNavigationLocked
+          << "sidebarOpen=" << m_isSidebarOpen;
   updateSidebarUser(savedUser);
+  qInfo() << "MainWindow: after updateSidebarUser authLocked=" << m_authNavigationLocked
+          << "sidebarOpen=" << m_isSidebarOpen
+          << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
   // Start unfolded in Notes for logged-in users.
   if (!savedUser.trimmed().isEmpty()) {
     animateSidebar(true);
@@ -3762,6 +3769,10 @@ void MainWindow::setupUi() {
   });
   connect(m_btnAndroidStudy, &QPushButton::clicked, this, [this]() {
     BlopDiag::recordUiAction(QStringLiteral("tab_click:study"));
+    qInfo() << "MainWindow: Study tab CLICKED, modeSelector count=" << (m_modeSelector ? m_modeSelector->count() : -1)
+            << "authLocked=" << m_authNavigationLocked
+            << "sidebarOpen=" << m_isSidebarOpen
+            << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
     if (!m_modeSelector || m_modeSelector->count() <= 1) {
       qWarning() << "Android Study tap ignored: mode selector not ready";
       return;
@@ -3769,6 +3780,7 @@ void MainWindow::setupUi() {
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(1);
     onModeChanged(1);
+    qInfo() << "MainWindow: Study tab after onModeChanged, mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
   });
 
   headerLay->addWidget(m_btnAndroidNotes);
@@ -4960,6 +4972,11 @@ void crossfadeStackTo(QStackedWidget *stack, int newIndex) {
 void MainWindow::onModeChanged(int index) {
   BlopDiag::recordUiAction(
       QStringLiteral("onModeChanged:%1").arg(index));
+  qInfo() << "MainWindow: onModeChanged index=" << index
+          << "authLocked=" << m_authNavigationLocked
+          << "sidebarOpen=" << m_isSidebarOpen
+          << "studyContainer=" << (m_studyContainer != nullptr)
+          << "studyQQuickView=" << (m_studyQQuickView != nullptr);
   const int mainStackIdx = (index <= 0) ? 0 : 1;
 
   // Linke Notizen-Sidebar schließen, wenn wir zu Study/Web wechseln — sonst zwei „Sidebars“.

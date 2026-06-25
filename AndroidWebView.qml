@@ -1252,7 +1252,7 @@ Rectangle {
                     spacing: actionGap
 
                     Rectangle {
-                        width: (parent.width - actionGap) / 2
+                        width: (parent.width - parent.actionGap) / 2
                         height: Math.round(40 * uiScale)
                         radius: Math.round(10 * uiScale)
                         color: "#262237"
@@ -1270,7 +1270,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: (parent.width - actionGap) / 2
+                        width: (parent.width - parent.actionGap) / 2
                         height: Math.round(40 * uiScale)
                         radius: Math.round(10 * uiScale)
                         color: "#5E5CE6"
