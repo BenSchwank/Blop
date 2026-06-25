@@ -2208,6 +2208,24 @@ void MainWindow::notifyStudyFirstLoadDone() {
 #ifdef Q_OS_ANDROID
   qInfo() << "MainWindow: notifyStudyFirstLoadDone";
   setAndroidStudyBootOverlayVisible(false);
+
+  // Restore saved session into the WebView localStorage so the user stays
+  // logged in after a tab switch or app restart. The Study page will already
+  // be on the login screen at this point; injecting session_id + username
+  // triggers the SPA to navigate away from /login automatically.
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString sessionId = st.value(QStringLiteral("session_id")).toString();
+  const QString username  = st.value(QStringLiteral("username")).toString();
+  if (!sessionId.isEmpty() && !username.isEmpty()) {
+    qInfo() << "MainWindow: restoring session into Study WebView for user" << username;
+    const QString js = QString(
+        "localStorage.setItem('session_id', '%1');"
+        "localStorage.setItem('username', '%2');"
+        "if (window.location.pathname === '/login' || window.location.pathname === '/register') {"
+        "  window.location.href = '/'; }")
+        .arg(sessionId, username);
+    emit injectToken(js);
+  }
 #endif
 }
 
