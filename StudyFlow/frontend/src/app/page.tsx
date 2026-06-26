@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Sparkles, Folder, FolderOpen, Plus, Trash2, X, Loader2, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import { hydrateNativeSession } from '@/lib/nativeSession';
 import { DndContext, DragOverlay, closestCenter, useDraggable, useDroppable, DragStartEvent, DragEndEvent, useSensor, useSensors, MouseSensor } from '@dnd-kit/core';
 
 declare global {
@@ -160,6 +161,9 @@ export default function Dashboard() {
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
+    // Hydrate a native-shell session from the URL before the guard reads it, so
+    // returning to the Study tab (WebView reload) stays authenticated.
+    hydrateNativeSession();
     const username = localStorage.getItem('username');
     const session = localStorage.getItem('session_id');
     const params = new URLSearchParams(window.location.search);

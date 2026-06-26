@@ -160,6 +160,16 @@ Rectangle {
             u += "&_ts=" + Date.now()
             u += "&_try=" + freshLoadSerial
         }
+        // Hydrate the embedded WebView's localStorage from the natively-persisted
+        // session so login survives WebView Loader recreation on tab switch.
+        // StudyFlow's AuthCheck consumes blop_usr/blop_sid synchronously before
+        // redirecting, closing the race against C++'s async injectToken.
+        if (ssoPollingEnabled && typeof blopAppBridge !== "undefined"
+                && blopAppBridge.savedStudySessionParam) {
+            var sessionParam = blopAppBridge.savedStudySessionParam()
+            if (sessionParam && sessionParam.length > 0)
+                u += sessionParam
+        }
         return u
     }
 
