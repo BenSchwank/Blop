@@ -1,6 +1,7 @@
 #include "uiscale.h"
 
 #include <QGuiApplication>
+#include <QPoint>
 #include <QScreen>
 #include <QWindow>
 #include <QWidget>
@@ -42,6 +43,30 @@ int androidStatusBarHeightResourcePx() {
     return 0;
   return qMax(0, resources.callMethod<jint>("getDimensionPixelSize", "(I)I",
                                             resId));
+}
+
+// Screen-space y of our top-level window's top edge. This is what lets us tell
+// whether Qt is drawing edge-to-edge (window at y=0, status bar overlaps our
+// content) or whether the window is already positioned below the status bar
+// (window at y=statusBarHeight, no overlap).
+int androidWindowTopOnScreenPx(QWidget *reference) {
+  QWindow *win = nullptr;
+  if (reference) {
+    if (QWidget *top = reference->window())
+      win = top->windowHandle();
+  }
+  if (!win) {
+    const QList<QWindow *> tops = QGuiApplication::topLevelWindows();
+    for (QWindow *w : tops) {
+      if (w && w->isVisible()) {
+        win = w;
+        break;
+      }
+    }
+  }
+  if (!win)
+    return 0;
+  return qMax(0, win->mapToGlobal(QPoint(0, 0)).y());
 }
 #endif
 
@@ -111,20 +136,38 @@ int sp(int px) {
 
 int androidTopInsetPx(QWidget *reference) {
   QScreen *screen = bestScreen(reference);
-  int inset = 0;
+  int availTop = 0;
+  int fullTop = 0;
+  int availInset = 0;
   if (screen) {
     const QRect full = screen->geometry();
     const QRect avail = screen->availableGeometry();
-    inset = qMax(0, avail.top() - full.top());
+    fullTop = full.top();
+    availTop = avail.top();
+    availInset = qMax(0, avail.top() - full.top());
   }
+  int inset = availInset;
 #if defined(Q_OS_ANDROID)
-  // Edge-to-edge can make availableGeometry report a 0 top inset even while the
-  // transparent status bar is still drawn over our content, so floor the inset
-  // at the real status-bar height to keep the header flush below it.
-  inset = qMax(inset, androidStatusBarHeightResourcePx());
-  // On some Android devices the top inset can exceed older hardcoded values.
-  // Keep it bounded only against unrealistic transition spikes.
-  inset = qBound(0, inset, dp(72));
+  // The header is laid out *inside* our top-level window, so the only padding it
+  // needs is however much the status bar actually overlaps that window's top:
+  //
+  //   inset = statusBarHeight - windowTopOnScreen
+  //
+  // - True edge-to-edge: the window starts at screen y=0, so we reserve the full
+  //   status-bar height and the header sits flush beneath the visible bar.
+  // - Window already positioned below the status bar (windowTop == statusBar):
+  //   the needed inset collapses to 0, so we don't add a second status-bar-sized
+  //   gap on top of the one the window manager already applied (the "doppelt so
+  //   dick" / doubled bar regression).
+  const int statusBar = androidStatusBarHeightResourcePx();
+  const int windowTop = androidWindowTopOnScreenPx(reference);
+  inset = qBound(0, statusBar - windowTop, dp(72));
+  qWarning("BlopInset: availTop=%d fullTop=%d availInset=%d statusBar=%d "
+           "windowTop=%d -> inset=%d",
+           availTop, fullTop, availInset, statusBar, windowTop, inset);
+#else
+  Q_UNUSED(availTop);
+  Q_UNUSED(fullTop);
 #endif
   return inset;
 }
