@@ -1,5 +1,9 @@
 #include "googleauthmanager.h"
 
+#ifdef Q_OS_ANDROID
+#include "../ui/mainwindow.h"
+#endif
+
 #include <QDebug>
 #include <QDesktopServices>
 #include <QJsonDocument>
@@ -7,6 +11,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QThread>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -229,8 +234,23 @@ void GoogleAuthManager::startPkceLogin() {
 }
 
 void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
+  // This method may be called from the Android main thread (via JNI). All Qt
+  // object work (QNetworkAccessManager, signals) must run on the Qt thread.
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(this, [this, uri]() {
+      handleDeepLinkCallback(uri);
+    }, Qt::QueuedConnection);
+    return;
+  }
+
   qInfo() << "GoogleAuthManager: deep-link callback received";
   m_loginInProgress = false;
+  
+#ifdef Q_OS_ANDROID
+  // Reset OAuth timer in MainWindow to prevent timeout
+  qInfo() << "GoogleAuthManager: calling MainWindow::resetOAuthTimer";
+  MainWindow::resetOAuthTimer();
+#endif
   if (uri.isEmpty()) {
     emit authenticationFailed(QStringLiteral("empty_callback_uri"));
     return;

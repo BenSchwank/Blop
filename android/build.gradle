@@ -79,6 +79,9 @@ dependencies {
     // styles.xml uses Theme.AppCompat.NoActionBar
     //noinspection GradleDependency
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    // v3.18.34: Chrome Custom Tabs for Google OAuth redirect back to app
+    //noinspection GradleDependency
+    implementation 'androidx.browser:browser:1.7.0'
 }
 
 android {

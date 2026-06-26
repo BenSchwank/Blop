@@ -85,14 +85,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- Matches com.benschwank.blop://oauth2redirect (two slashes). -->
-                <data
-                    android:scheme="com.benschwank.blop"
-                    android:host="oauth2redirect" />
-                <!-- Matches com.benschwank.blop:/oauth2redirect (one slash).
-                     Path attribute MUST be used here without host, because
-                     RFC 3986 parses the single-slash form as scheme + path
-                     with no authority component. -->
+                <!-- v3.18.40: Match com.benschwank.blop:/oauth2redirect (single slash) -->
                 <data
                     android:scheme="com.benschwank.blop"
                     android:path="/oauth2redirect" />

@@ -6,6 +6,9 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.annotation.Keep;
+import androidx.browser.customtabs.CustomTabsIntent;
+
 import org.qtproject.qt.android.bindings.QtActivity;
 
 /**
@@ -18,14 +21,63 @@ import org.qtproject.qt.android.bindings.QtActivity;
  * Cold-launch deep links arrive in {@link #onCreate(Bundle)} via the
  * launching {@link Intent}; warm/relaunch deep links are delivered through
  * {@link #onNewIntent(Intent)}. Both paths are handled identically.
+ *
+ * v3.18.34: keeps a static activity reference so the C++ side can launch a
+ * Chrome Custom Tab for the OAuth URL. Custom Tabs run in the same task and
+ * reliably redirect back to the app via the registered custom scheme.
  */
+@Keep
 public class BlopActivity extends QtActivity {
     private static final String TAG = "BlopActivity";
+    private static volatile BlopActivity sInstance;
+
+    /**
+     * Opens the given OAuth URL in a Chrome Custom Tab. Called from C++ via JNI.
+     * Falls back to a regular browser intent if no Custom Tabs provider is available.
+     */
+    @Keep
+    public static void openCustomTab(String url) {
+        Log.i(TAG, "=== openCustomTab called ===");
+        Log.i(TAG, "openCustomTab: url=" + url);
+        final BlopActivity activity = sInstance;
+        if (activity == null) {
+            Log.w(TAG, "openCustomTab: activity is null");
+            return;
+        }
+        if (url == null || url.isEmpty()) {
+            Log.w(TAG, "openCustomTab: url is null or empty");
+            return;
+        }
+        try {
+            Log.i(TAG, "openCustomTab: launching Chrome Custom Tab");
+            CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
+            CustomTabsIntent intent = builder.build();
+            intent.launchUrl(activity, Uri.parse(url));
+            Log.i(TAG, "openCustomTab: Chrome Custom Tab launched successfully");
+        } catch (Exception e) {
+            Log.w(TAG, "openCustomTab failed, falling back to ACTION_VIEW", e);
+            Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            activity.startActivity(fallback);
+            Log.i(TAG, "openCustomTab: fallback ACTION_VIEW launched");
+        }
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sInstance = this;
+        Log.i(TAG, "=== BlopActivity onCreate ===");
+        Log.i(TAG, "Intent: " + getIntent());
+        Log.i(TAG, "Intent data: " + getIntent().getData());
         forwardOAuthIntent(getIntent(), "onCreate");
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (sInstance == this) {
+            sInstance = null;
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -33,19 +85,27 @@ public class BlopActivity extends QtActivity {
         super.onNewIntent(intent);
         // Update the activity's intent so getIntent() returns the latest data.
         setIntent(intent);
+        Log.i(TAG, "=== BlopActivity onNewIntent ===");
+        Log.i(TAG, "Intent: " + intent);
+        Log.i(TAG, "Intent data: " + intent.getData());
         forwardOAuthIntent(intent, "onNewIntent");
     }
 
     private void forwardOAuthIntent(Intent intent, String origin) {
+        Log.i(TAG, origin + " forwardOAuthIntent called");
         if (intent == null) {
+            Log.w(TAG, origin + " intent is null");
             return;
         }
         final Uri data = intent.getData();
         if (data == null) {
+            Log.w(TAG, origin + " intent data is null");
             return;
         }
+        Log.i(TAG, origin + " received URI: " + data.toString());
         final String scheme = data.getScheme();
         if (scheme == null || !scheme.equalsIgnoreCase("com.benschwank.blop")) {
+            Log.w(TAG, origin + " scheme mismatch: " + scheme + " (expected com.benschwank.blop)");
             return;
         }
         final String hostStr = data.getHost() == null ? "(null)" : data.getHost();

@@ -41,7 +41,7 @@ struct WebBookmark {
   QUrl url;
 };
 #ifdef Q_OS_ANDROID
-class QQuickWidget;
+class QQuickView;
 class QVBoxLayout;
 #endif
 
@@ -134,6 +134,11 @@ public:
   bool isTouchMode() const { return m_currentProfile.isTouchOptimized(); }
 
 #ifdef Q_OS_ANDROID
+  /// Static method to reset OAuth timer - can be called from GoogleAuthManager
+  static void resetOAuthTimer();
+#endif
+
+#ifdef Q_OS_ANDROID
   /// Sync Notizen/Study tab visuals (narrow-aware: smaller padding/font on
   /// phones). Called from the free-function syncAndroidHeaderGeometry on
   /// every resize, and from onModeChanged on tab switches.
@@ -154,6 +159,8 @@ public:
   void switchToSelectTool();
 
   void restoreWindowState();
+
+  bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
 
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
@@ -191,6 +198,12 @@ public slots:
   void openWebBookmarkFromQml(int index);
   void notifyStudyFirstLoadDone();
   void showAndroidStudyBootRetry();
+  /// Returns "&blop_usr=...&blop_sid=..." (URL-encoded) built from the
+  /// natively-persisted session, or an empty string when none is stored.
+  /// Appended to the Study entry URL so the embedded WebView can hydrate its
+  /// localStorage synchronously before the auth guard runs — closing the race
+  /// where AuthCheck redirects to /login before C++'s async injectToken lands.
+  QString savedStudySessionParam() const;
 
 private slots:
   void checkForUpdates();
@@ -314,8 +327,8 @@ private:
   void resetEmbeddedWebToStudy();
   QWidget *m_studyContainer{nullptr};
 #ifdef Q_OS_ANDROID
-  // Embedded Study UI (QML + QtWebView) as QWidget to avoid extra QQuickWindow/eglSurface.
-  QQuickWidget *m_studyQQuickView{nullptr};
+  // Embedded Study UI (QML + QtWebView) using QQuickView for proper SurfaceView compositing.
+  QQuickView *m_studyQQuickView{nullptr};
   QWidget *m_androidHeader{nullptr};
   /// In-note top search for Android header (hidden outside editor mode).
   QLineEdit *m_androidTopSearchBar{nullptr};

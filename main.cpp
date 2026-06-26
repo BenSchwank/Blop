@@ -4,8 +4,12 @@
 #include <QObject>
 #include <QGuiApplication>
 #include <QStandardPaths>
+#include <QDebug>
 #ifdef Q_OS_ANDROID
 #include <QSurfaceFormat>
+#include <QSslSocket>
+#include <QNetworkAccessManager>
+#include <QSslConfiguration>
 #endif
 #include <QUrl>
 
@@ -44,6 +48,7 @@ int main(int argc, char *argv[]) {
   qputenv("QT_ACCESSIBILITY", "0");
 
   QtWebView::initialize();
+  
   if (qgetenv("BLOP_ANDROID_SOFTWARE_GL") == "1") {
     QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
   } else {
@@ -96,6 +101,26 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+#ifdef Q_OS_ANDROID
+  // v3.18.31: Initialize TLS/SSL backend AFTER QApplication so Qt plugins can load.
+  // On Android the OpenSSL backend is a Qt plugin that requires QCoreApplication.
+  qDebug() << "=== SSL INITIALIZATION START ===";
+  qDebug() << "QApplication created, checking SSL support:";
+  qDebug() << "SSL supportsSsl() (initial):" << QSslSocket::supportsSsl();
+  qDebug() << "SSL build version:" << QSslSocket::sslLibraryBuildVersionString();
+  qDebug() << "SSL runtime version:" << QSslSocket::sslLibraryVersionString();
+  if (!QSslSocket::supportsSsl()) {
+    qDebug() << "SSL not supported yet, forcing plugin load via QNetworkAccessManager";
+    QNetworkAccessManager nam;
+    qDebug() << "Supported schemes after NAM:" << nam.supportedSchemes();
+    qDebug() << "SSL supportsSsl() (after NAM):" << QSslSocket::supportsSsl();
+    QSslConfiguration cfg = QSslConfiguration::defaultConfiguration();
+    QSslConfiguration::setDefaultConfiguration(cfg);
+    qDebug() << "SSL supportsSsl() (after config):" << QSslSocket::supportsSsl();
+  }
+  qDebug() << "=== SSL INITIALIZATION END ===";
+#endif
 
   // v3.17.6: bump the global QPixmapCache. The default is 10240 KB on
   // desktop and 1024 KB on mobile -- our note-thumbnail workload needs

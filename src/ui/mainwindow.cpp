@@ -125,12 +125,13 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
-#include <QQuickWidget>
+#include <QQuickView>
 #include <QQmlError>
 #include <QSslSocket>
 #include <QTemporaryFile>
 #include <QWidget>
 #include <QElapsedTimer>
+#include <QJniEnvironment>
 #include <QJniObject>
 #include <QtCore/qnativeinterface.h>
 #else
@@ -584,10 +585,17 @@ void applyAndroidImmersiveUi() {
     QJniObject decorView =
         window.callObjectMethod("getDecorView", "()Landroid/view/View;");
     if (decorView.isValid()) {
-      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN |
-      // HIDE_NAVIGATION | FULLSCREEN | IMMERSIVE_STICKY
-      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400 | 0x00000002 |
-                           0x00000004 | 0x00001000;
+      // v3.18.52: edge-to-edge WITHOUT hiding the system bars. The status /
+      // navigation bars stay visible (and transparent, see setStatusBarColor
+      // above) while app content draws behind them. Previously we also set
+      // HIDE_NAVIGATION (0x2) | FULLSCREEN (0x4) | IMMERSIVE_STICKY (0x1000),
+      // which *hid* the status bar; Qt's QScreen::availableGeometry still
+      // reported the status-bar height, so the header reserved a top inset for
+      // a bar that wasn't there — the phantom "Balken" strip that left the app
+      // not flush with the display. Keeping only the LAYOUT_* flags makes the
+      // computed inset match the real, visible status bar.
+      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN
+      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400;
       decorView.callMethod<void>("setSystemUiVisibility", "(I)V", uiFlags);
     }
   });
@@ -601,6 +609,18 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
       window->findChild<QWidget *>(QStringLiteral("AndroidTopHeaderInner"));
   if (!chrome || !inner)
     return;
+  
+  // v3.18.27: During login (authNavigationLocked), hide header completely to avoid margin
+  if (window->isAuthNavigationLocked()) {
+    chrome->setVisible(false);
+    chrome->setFixedHeight(0);
+    return;
+  } else {
+    chrome->setVisible(true);
+    // Restore normal height when not in login mode
+    const int androidHeaderTotalH = UiScale::dp(56) + UiScale::safeTopPx(window);
+    chrome->setFixedHeight(androidHeaderTotalH);
+  }
   auto *headerLay = qobject_cast<QHBoxLayout *>(inner->layout());
   if (!headerLay)
     return;
@@ -1193,7 +1213,14 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Initial mode: guest → Study, logged-in → Notes (setCurrentIndex emits onModeChanged)
   QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
+  qInfo() << "MainWindow: startup savedUser=" << savedUser
+          << "isEmpty=" << savedUser.trimmed().isEmpty()
+          << "authLocked=" << m_authNavigationLocked
+          << "sidebarOpen=" << m_isSidebarOpen;
   updateSidebarUser(savedUser);
+  qInfo() << "MainWindow: after updateSidebarUser authLocked=" << m_authNavigationLocked
+          << "sidebarOpen=" << m_isSidebarOpen
+          << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
   // Start unfolded in Notes for logged-in users.
   if (!savedUser.trimmed().isEmpty()) {
     animateSidebar(true);
@@ -1241,6 +1268,7 @@ MainWindow::MainWindow(QWidget *parent)
           m_authOverlay = nullptr;
       }
   });
+
 
   // Verify the Google access token via our own backend and inject session into the WebView
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this, failOAuthFlow](const QString &token) {
@@ -1409,7 +1437,7 @@ void MainWindow::syncStudyChromeTheme() {
         QStringLiteral("background-color: %1;").arg(chrome.name(QColor::HexRgb)));
   }
   if (m_studyQQuickView) {
-    m_studyQQuickView->setClearColor(chrome);
+    m_studyQQuickView->setColor(chrome);
     if (QObject *root = m_studyQQuickView->rootObject())
       root->setProperty("studyChromeColor", chrome);
   }
@@ -2194,7 +2222,36 @@ void MainWindow::notifyStudyFirstLoadDone() {
 #ifdef Q_OS_ANDROID
   qInfo() << "MainWindow: notifyStudyFirstLoadDone";
   setAndroidStudyBootOverlayVisible(false);
+
+  // Restore saved session into the WebView localStorage so the user stays
+  // logged in after a tab switch or app restart. The Study page will already
+  // be on the login screen at this point; injecting session_id + username
+  // triggers the SPA to navigate away from /login automatically.
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString sessionId = st.value(QStringLiteral("session_id")).toString();
+  const QString username  = st.value(QStringLiteral("username")).toString();
+  if (!sessionId.isEmpty() && !username.isEmpty()) {
+    qInfo() << "MainWindow: restoring session into Study WebView for user" << username;
+    const QString js = QString(
+        "localStorage.setItem('session_id', '%1');"
+        "localStorage.setItem('username', '%2');"
+        "if (window.location.pathname === '/login' || window.location.pathname === '/register') {"
+        "  window.location.href = '/'; }")
+        .arg(sessionId, username);
+    emit injectToken(js);
+  }
 #endif
+}
+
+QString MainWindow::savedStudySessionParam() const {
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString username = st.value(QStringLiteral("username")).toString();
+  const QString sessionId = st.value(QStringLiteral("session_id")).toString();
+  if (username.isEmpty() || sessionId.isEmpty())
+    return QString();
+  const QString usrEnc = QString::fromUtf8(QUrl::toPercentEncoding(username));
+  const QString sidEnc = QString::fromUtf8(QUrl::toPercentEncoding(sessionId));
+  return QStringLiteral("&blop_usr=%1&blop_sid=%2").arg(usrEnc, sidEnc);
 }
 
 void MainWindow::showAndroidStudyBootRetry() {
@@ -3730,6 +3787,10 @@ void MainWindow::setupUi() {
   });
   connect(m_btnAndroidStudy, &QPushButton::clicked, this, [this]() {
     BlopDiag::recordUiAction(QStringLiteral("tab_click:study"));
+    qInfo() << "MainWindow: Study tab CLICKED, modeSelector count=" << (m_modeSelector ? m_modeSelector->count() : -1)
+            << "authLocked=" << m_authNavigationLocked
+            << "sidebarOpen=" << m_isSidebarOpen
+            << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
     if (!m_modeSelector || m_modeSelector->count() <= 1) {
       qWarning() << "Android Study tap ignored: mode selector not ready";
       return;
@@ -3737,6 +3798,7 @@ void MainWindow::setupUi() {
     QSignalBlocker b(m_modeSelector);
     m_modeSelector->setCurrentIndex(1);
     onModeChanged(1);
+    qInfo() << "MainWindow: Study tab after onModeChanged, mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
   });
 
   headerLay->addWidget(m_btnAndroidNotes);
@@ -4510,15 +4572,14 @@ void MainWindow::setupWebBrowser() {
 #endif
 
 #ifdef Q_OS_ANDROID
-  // Keep Study in-app but avoid a separate QQuickWindow (eglSurface deadlock path).
-  QQuickWidget *view = new QQuickWidget(m_studyContainer);
+  // v3.18.21: Use QQuickView instead of QQuickWidget to fix Android SurfaceView
+  // compositing. QQuickView creates a separate Android Surface that properly
+  // composites over the WebView SurfaceView, while QQuickWidget renders to
+  // an FBO that blocks the WebView.
+  QQuickView *view = new QQuickView();
   m_studyQQuickView = view;
-  view->setResizeMode(QQuickWidget::SizeRootObjectToView);
-  // v3.18.19: transparent clear color so the QtWebView SurfaceView (which
-  // renders behind QML on Android) is not obscured by the widget background.
-  // The QML root Rectangle manages its own background via studyChromeColor
-  // until firstLoadDone, then switches to transparent.
-  view->setClearColor(Qt::transparent);
+  view->setResizeMode(QQuickView::SizeRootObjectToView);
+  view->setColor(Qt::transparent);
 
   // Register MainWindow as 'blopAppBridge' to allow QML to trigger C++ slots for Login
   view->engine()->rootContext()->setContextProperty("blopAppBridge", this);
@@ -4527,7 +4588,7 @@ void MainWindow::setupWebBrowser() {
   view->setSource(QUrl("qrc:/AndroidWebView.qml"));
 
   // Check if it's actually loaded
-  if (view->status() == QQuickWidget::Error) {
+  if (view->status() == QQuickView::Error) {
       QString errorStr = "Fehler: Konnte Web-Modul nicht laden.\n";
       for (const QQmlError &e : view->errors()) {
           errorStr += e.toString() + "\n";
@@ -4540,9 +4601,12 @@ void MainWindow::setupWebBrowser() {
       return;
   }
 
-  QWidget *container = view;
+  // Create a container widget to hold the QQuickView's native window
+  QWidget *container = QWidget::createWindowContainer(view, m_studyContainer);
   container->setObjectName("StudyQuickContainer");
   m_studyWindowContainer = container;
+  // v3.18.25: Fix top margin issue - ensure no container margins
+  container->setContentsMargins(0, 0, 0, 0);
   // Touch/focus hardening for Android
   container->setAttribute(Qt::WA_AcceptTouchEvents, true);
   container->setFocusPolicy(Qt::StrongFocus);
@@ -4926,6 +4990,16 @@ void crossfadeStackTo(QStackedWidget *stack, int newIndex) {
 void MainWindow::onModeChanged(int index) {
   BlopDiag::recordUiAction(
       QStringLiteral("onModeChanged:%1").arg(index));
+  qInfo() << "MainWindow: onModeChanged index=" << index
+          << "authLocked=" << m_authNavigationLocked
+          << "sidebarOpen=" << m_isSidebarOpen
+          << "studyContainer=" << (m_studyContainer != nullptr)
+#ifdef Q_OS_ANDROID
+          // m_studyQQuickView is declared only on Android; referencing it on
+          // Windows/desktop breaks the build (undeclared identifier).
+          << "studyQQuickView=" << (m_studyQQuickView != nullptr)
+#endif
+      ;
   const int mainStackIdx = (index <= 0) ? 0 : 1;
 
   // Linke Notizen-Sidebar schließen, wenn wir zu Study/Web wechseln — sonst zwei „Sidebars“.
@@ -8178,6 +8252,25 @@ void MainWindow::onOpenSettings() {
               toolbar->setStyle(radial ? ModernToolbar::Radial
                                        : ModernToolbar::Normal);
           });
+  connect(&dlg, &SettingsDialog::logoutRequested, this, [this]() {
+    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    st.remove(QStringLiteral("session_id"));
+    st.remove(QStringLiteral("username"));
+    st.sync();
+    updateSidebarUser(QString());
+    const QString clearJs = QStringLiteral(
+        "localStorage.removeItem('session_id');"
+        "localStorage.removeItem('username');"
+        "window.location.href = '/login';");
+#ifdef Q_OS_ANDROID
+    emit injectToken(clearJs);
+#else
+#ifdef BLOP_HAS_WEBENGINE
+    if (m_studyWebView && m_studyWebView->page())
+      m_studyWebView->page()->runJavaScript(clearJs);
+#endif
+#endif
+  });
 
   // v3.18.5: route through BlopModal to avoid the Qt 6.10 Android EGL
   // deadlock that any top-level QWindow (raw QDialog::exec) triggers.
@@ -8447,19 +8540,28 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 bool MainWindow::showAuthOverlay(const QUrl &url) {
 #ifdef Q_OS_ANDROID
   // Google blocks OAuth inside embedded WebViews (disallowed_useragent). For
-  // the Android PKCE flow we open the auth URL with the system browser, which
-  // Android resolves to a Chrome Custom Tab when available. The redirect
-  // returns to the app via the com.benschwank.blop://oauth2redirect deep link
-  // handled by BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
+  // the Android PKCE flow we open the auth URL in a Chrome Custom Tab, which
+  // runs in the same task and reliably redirects back to the app via the
+  // com.benschwank.blop:/oauth2redirect deep link handled by
+  // BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
   dismissAndroidOAuthOverlay();
-  qInfo() << "showAuthOverlay: opening auth URL via system browser";
-  const bool opened = QDesktopServices::openUrl(url);
+  qInfo() << "showAuthOverlay: opening auth URL via Chrome Custom Tab";
+  bool opened = false;
+  QJniEnvironment env;
+  if (env.isValid()) {
+    QJniObject urlObj = QJniObject::fromString(url.toString());
+    QJniObject::callStaticMethod<void>(
+        "com/benschwank/blop/BlopOAuthBridge", "openAuthUrl",
+        "(Ljava/lang/String;)V", urlObj.object<jstring>());
+    opened = true;
+  } else {
+    qWarning() << "showAuthOverlay: JNI environment not available, falling back to QDesktopServices";
+    opened = QDesktopServices::openUrl(url);
+  }
   if (!opened) {
-    qCritical() << "showAuthOverlay: QDesktopServices::openUrl failed for"
+    qCritical() << "showAuthOverlay: failed to open auth URL"
                 << url
-                << "— most likely cause: no browser installed OR Android 11+"
-                   " <queries> Package-Visibility filter blocks resolveActivity."
-                   " Check AndroidManifest <queries> block.";
+                << "— no browser installed OR Android 11+ <queries> blocks it.";
     // v3.18.6: release the PKCE in-progress lock immediately so the user
     // can retry without having to wait 60 s for the stale-timeout.
     GoogleAuthManager::instance().cancelPendingLogin();
@@ -8499,3 +8601,19 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
   return QDesktopServices::openUrl(url);
 #endif
 }
+
+#ifdef Q_OS_ANDROID
+void MainWindow::resetOAuthTimer() {
+    // Find the main window instance and reset the OAuth timer
+    for (QWidget *widget : QApplication::topLevelWidgets()) {
+        MainWindow *mainWin = qobject_cast<MainWindow*>(widget);
+        if (mainWin) {
+            qInfo() << "MainWindow: resetOAuthTimer called, resetting OAuth timer";
+            mainWin->m_googleLoginInFlight = false;
+            mainWin->m_googleLoginInFlightSinceMs = 0;
+            return;
+        }
+    }
+    qWarning() << "MainWindow: resetOAuthTimer called but no MainWindow instance found";
+}
+#endif

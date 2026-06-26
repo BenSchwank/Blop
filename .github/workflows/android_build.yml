@@ -84,13 +84,19 @@ jobs:
       - name: Install Qt via aqtinstall
         run: |
           pip install --upgrade pip
-          pip install --upgrade aqtinstall
+          # v3.18.33: Pin aqtinstall to avoid Qt 6.10.2 archive extraction bugs in 3.3.0.
+          pip install aqtinstall==3.2.1
           mkdir -p ${{ runner.workspace }}/Qt
           # Desktop Qt für Host-Tools (must match android major.minor for qt-cmake).
           # Qt 6.10+: aqt arch is linux_gcc_64 (gcc_64 breaks Updates.xml / qt_base).
           python -m aqt install-qt linux desktop 6.10.2 linux_gcc_64 -O ${{ runner.workspace }}/Qt -m qtnetworkauth
           # Android Qt + qtwebview / qtmultimedia (embedded Study WebView)
           python -m aqt install-qt linux android 6.10.2 android_arm64_v8a -O ${{ runner.workspace }}/Qt -m qtwebview qtmultimedia qtnetworkauth
+
+      - name: Clone android_openssl (TLS libs for Android)
+        run: |
+          git clone --depth 1 https://github.com/KDAB/android_openssl.git ${{ runner.workspace }}/android_openssl
+          ls -la ${{ runner.workspace }}/android_openssl/ssl_3/arm64-v8a/
 
       - name: Create Build Directory
         run: mkdir build
@@ -118,6 +124,7 @@ jobs:
             -DBLOP_OBS_BUILD_FLAVOR=ci_release \
             -DBLOP_ENABLE_SENTRY=ON \
             -DBLOP_ANDROID_CURL_INSTALL_ROOT="${GITHUB_WORKSPACE}/.deps/curlmbed" \
+            -DANDROID_OPENSSL_ROOT="${{ runner.workspace }}/android_openssl" \
             ..
 
       # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Ohne diese Einstellungen schlagen

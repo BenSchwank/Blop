@@ -25,6 +25,7 @@ Rectangle {
     property string studyUrl: "https://blop-study.com"
     property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
+    property string pendingInjectJs: ""
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
     // Keep native login at natural scale to avoid visible top/bottom letterboxing.
@@ -158,6 +159,16 @@ Rectangle {
             u += "&_src=android_webview"
             u += "&_ts=" + Date.now()
             u += "&_try=" + freshLoadSerial
+        }
+        // Hydrate the embedded WebView's localStorage from the natively-persisted
+        // session so login survives WebView Loader recreation on tab switch.
+        // StudyFlow's AuthCheck consumes blop_usr/blop_sid synchronously before
+        // redirecting, closing the race against C++'s async injectToken.
+        if (ssoPollingEnabled && typeof blopAppBridge !== "undefined"
+                && blopAppBridge.savedStudySessionParam) {
+            var sessionParam = blopAppBridge.savedStudySessionParam()
+            if (sessionParam && sessionParam.length > 0)
+                u += sessionParam
         }
         return u
     }
@@ -592,6 +603,14 @@ Rectangle {
                         firstLoadDone = true
                         console.log("BlopStudy: firstLoadDone -> true (real page loaded)")
                         notifyCppStudyFirstLoadDone()
+                    }
+                    // Execute any JS that was queued while the WebView was not yet
+                    // on a real Study origin (e.g. session injection after OAuth login).
+                    if (pendingInjectJs !== "") {
+                        console.log("BlopStudy: executing pendingInjectJs after page load")
+                        var jsToRun = pendingInjectJs
+                        pendingInjectJs = ""
+                        embeddedStudyWebView.runJavaScript(jsToRun)
                     }
                 }
 
@@ -1243,7 +1262,7 @@ Rectangle {
                     spacing: actionGap
 
                     Rectangle {
-                        width: (parent.width - actionGap) / 2
+                        width: (parent.width - parent.actionGap) / 2
                         height: Math.round(40 * uiScale)
                         radius: Math.round(10 * uiScale)
                         color: "#262237"
@@ -1261,7 +1280,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: (parent.width - actionGap) / 2
+                        width: (parent.width - parent.actionGap) / 2
                         height: Math.round(40 * uiScale)
                         radius: Math.round(10 * uiScale)
                         color: "#5E5CE6"
@@ -1291,8 +1310,19 @@ Rectangle {
             oauthPending = false;  // Hide the overlay
             oauthPendingSinceMs = 0
             var w = studyWeb()
-            if (w)
+            var currentUrl = w ? w.url.toString() : ""
+            if (w && currentUrl !== "" && currentUrl !== "about:blank") {
                 w.runJavaScript(jsCode)
+            } else {
+                // WebView not yet on a real Study page — queue JS for after load
+                console.log("QML: studyWeb not ready (url='" + currentUrl + "'), queuing injectJs")
+                pendingInjectJs = jsCode
+                // Trigger load so the pending JS can be executed on arrival
+                if (!studyWebLoader.active) {
+                    requestSurfaceActivation("injectToken")
+                }
+                ensureStudyLoaded()
+            }
         }
 
         function onOauthFailed(reason) {

@@ -81,6 +81,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidg
 if(ANDROID)
     # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
+    find_package(Qt6 OPTIONAL_COMPONENTS NetworkAuth)
 else()
     # Desktop: WebEngine (Chromium) - REQUIRED
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
@@ -270,6 +271,7 @@ target_link_libraries(Blop PRIVATE
     Qt6::MultimediaWidgets
 )
 
+
 # Export BLOP_VERSION_STR for runtime usage in mainwindow.cpp
 target_compile_definitions(Blop PRIVATE BLOP_VERSION_STR=\"${GIT_VERSION}\")
 
@@ -377,8 +379,12 @@ if(ANDROID)
     target_link_libraries(Blop PRIVATE Qt6::WebView)
 
     # --- Android OpenSSL: Required for HTTPS (OAuth token exchange, backend calls) ---
-    # Download from: git clone https://github.com/KDAB/android_openssl C:/Qt/android_openssl
-    set(ANDROID_OPENSSL_ROOT "C:/Qt/android_openssl" CACHE PATH "Path to android_openssl prebuilt libs")
+    # Download from: git clone https://github.com/KDAB/android_openssl
+    # CI passes -DANDROID_OPENSSL_ROOT=<path>. Local dev fallback: C:/Qt/android_openssl.
+    if(NOT DEFINED ANDROID_OPENSSL_ROOT OR "${ANDROID_OPENSSL_ROOT}" STREQUAL "")
+        set(ANDROID_OPENSSL_ROOT "C:/Qt/android_openssl")
+    endif()
+    set(ANDROID_OPENSSL_ROOT "${ANDROID_OPENSSL_ROOT}" CACHE PATH "Path to android_openssl prebuilt libs")
     if(EXISTS "${ANDROID_OPENSSL_ROOT}/ssl_3/${CMAKE_ANDROID_ARCH_ABI}/libssl_3.so")
         message(STATUS "Found android_openssl for ${CMAKE_ANDROID_ARCH_ABI}")
         set(OPENSSL_EXTRA_LIBS

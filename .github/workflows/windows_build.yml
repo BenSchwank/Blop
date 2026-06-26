@@ -26,22 +26,42 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       - name: Install Qt via aqtinstall
         shell: pwsh
         run: |
-          pip install aqtinstall
+          # v3.18.44: Qt 6.10.2 has a broken qtwebchannel 7z archive on all mirrors.
+          # v3.18.48: qtpositioning is required by QtWebEngineCore (CMake dependency),
+          # but its 7z archive on Qt mirrors contains a corrupt debug PRL file
+          # (Bad7zFile: lib/Qt6PositioningQuickd.prl). We install qtpositioning in a
+          # separate aqt call and tolerate the py7zr error — the Release-mode CMake
+          # config files are extracted before the bad entry is hit, so the build works.
+          pip install aqtinstall==3.2.1
 
           # Definiere das Zielverzeichnis explizit
           $qtDir = "${{ runner.workspace }}\Qt"
 
-          # Installiere Qt 6.10.2 direkt in dieses Verzeichnis
-          # WICHTIG: --outputdir $qtDir sorgt dafür, dass die Pfade stimmen
-          aqt install-qt windows desktop 6.10.2 win64_msvc2022_64 -m qtwebengine qtwebchannel qtpositioning qtmultimedia qtnetworkauth --outputdir $qtDir
+          # Step 1: install main modules (all have clean archives)
+          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtmultimedia qtnetworkauth --outputdir $qtDir
+
+          # Step 2: install qtpositioning separately; ignore py7zr Bad7zFile error
+          # caused by the corrupt debug PRL entry — the cmake config is extracted fine.
+          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtpositioning --outputdir $qtDir
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "qtpositioning install exited $LASTEXITCODE (known broken debug archive) — checking cmake config..."
+          }
+
+          # Verify the cmake config Qt6Positioning needs actually landed
+          $posConfig = "$qtDir\6.9.1\msvc2022_64\lib\cmake\Qt6Positioning\Qt6PositioningConfig.cmake"
+          if (-not (Test-Path $posConfig)) {
+            Write-Error "Qt6Positioning cmake config missing after install — cannot continue"
+            exit 1
+          }
+          Write-Host "Qt6Positioning cmake config OK: $posConfig"
 
           # Setze den Pfad zur Installation
-          $qtBase = "$qtDir\6.10.2\msvc2022_64"
+          $qtBase = "$qtDir\6.9.1\msvc2022_64"
 
           # Überprüfung: Existiert qmake?
           if (-not (Test-Path "$qtBase\bin\qmake.exe")) {
@@ -262,6 +282,5 @@ jobs:
             Blop_Windows_Installer.exe
           draft: false
           prerelease: true
-          overwrite: true
           repository: BenSchwank/Blop-releases
 
