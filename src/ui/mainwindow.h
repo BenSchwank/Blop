@@ -198,6 +198,12 @@ public slots:
   void openWebBookmarkFromQml(int index);
   void notifyStudyFirstLoadDone();
   void showAndroidStudyBootRetry();
+  /// Returns "&blop_usr=...&blop_sid=..." (URL-encoded) built from the
+  /// natively-persisted session, or an empty string when none is stored.
+  /// Appended to the Study entry URL so the embedded WebView can hydrate its
+  /// localStorage synchronously before the auth guard runs — closing the race
+  /// where AuthCheck redirects to /login before C++'s async injectToken lands.
+  QString savedStudySessionParam() const;
 
 private slots:
   void checkForUpdates();

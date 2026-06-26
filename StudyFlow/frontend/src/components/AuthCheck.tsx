@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { hydrateNativeSession } from '@/lib/nativeSession';
 
 export default function AuthCheck({ children }: { children: React.ReactNode }) {
     const router = useRouter();
@@ -21,6 +22,10 @@ export default function AuthCheck({ children }: { children: React.ReactNode }) {
 
         // Only run on client side
         if (typeof window === 'undefined') return;
+
+        // Pull a native-shell session from the URL into localStorage before the
+        // guard reads it, so a Study-tab WebView reload stays authenticated.
+        hydrateNativeSession();
 
         // Check if user is authenticated
         const sessionId = localStorage.getItem('session_id');

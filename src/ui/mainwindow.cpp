@@ -585,10 +585,17 @@ void applyAndroidImmersiveUi() {
     QJniObject decorView =
         window.callObjectMethod("getDecorView", "()Landroid/view/View;");
     if (decorView.isValid()) {
-      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN |
-      // HIDE_NAVIGATION | FULLSCREEN | IMMERSIVE_STICKY
-      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400 | 0x00000002 |
-                           0x00000004 | 0x00001000;
+      // v3.18.52: edge-to-edge WITHOUT hiding the system bars. The status /
+      // navigation bars stay visible (and transparent, see setStatusBarColor
+      // above) while app content draws behind them. Previously we also set
+      // HIDE_NAVIGATION (0x2) | FULLSCREEN (0x4) | IMMERSIVE_STICKY (0x1000),
+      // which *hid* the status bar; Qt's QScreen::availableGeometry still
+      // reported the status-bar height, so the header reserved a top inset for
+      // a bar that wasn't there — the phantom "Balken" strip that left the app
+      // not flush with the display. Keeping only the LAYOUT_* flags makes the
+      // computed inset match the real, visible status bar.
+      // SYSTEM_UI_FLAG_LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN
+      const jint uiFlags = 0x00000100 | 0x00000200 | 0x00000400;
       decorView.callMethod<void>("setSystemUiVisibility", "(I)V", uiFlags);
     }
   });
@@ -2234,6 +2241,17 @@ void MainWindow::notifyStudyFirstLoadDone() {
     emit injectToken(js);
   }
 #endif
+}
+
+QString MainWindow::savedStudySessionParam() const {
+  QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString username = st.value(QStringLiteral("username")).toString();
+  const QString sessionId = st.value(QStringLiteral("session_id")).toString();
+  if (username.isEmpty() || sessionId.isEmpty())
+    return QString();
+  const QString usrEnc = QString::fromUtf8(QUrl::toPercentEncoding(username));
+  const QString sidEnc = QString::fromUtf8(QUrl::toPercentEncoding(sessionId));
+  return QStringLiteral("&blop_usr=%1&blop_sid=%2").arg(usrEnc, sidEnc);
 }
 
 void MainWindow::showAndroidStudyBootRetry() {
@@ -4976,7 +4994,12 @@ void MainWindow::onModeChanged(int index) {
           << "authLocked=" << m_authNavigationLocked
           << "sidebarOpen=" << m_isSidebarOpen
           << "studyContainer=" << (m_studyContainer != nullptr)
-          << "studyQQuickView=" << (m_studyQQuickView != nullptr);
+#ifdef Q_OS_ANDROID
+          // m_studyQQuickView is declared only on Android; referencing it on
+          // Windows/desktop breaks the build (undeclared identifier).
+          << "studyQQuickView=" << (m_studyQQuickView != nullptr)
+#endif
+      ;
   const int mainStackIdx = (index <= 0) ? 0 : 1;
 
   // Linke Notizen-Sidebar schließen, wenn wir zu Study/Web wechseln — sonst zwei „Sidebars“.

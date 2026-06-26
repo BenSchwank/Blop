@@ -7,7 +7,43 @@
 #include <QtGlobal>
 #include <QtMath>
 
+#if defined(Q_OS_ANDROID)
+#include <QJniObject>
+#endif
+
 namespace {
+
+#if defined(Q_OS_ANDROID)
+// Reads the platform status-bar height straight from Android's dimen resource.
+// Under edge-to-edge (setDecorFitsSystemWindows(false)) the window fills the
+// whole screen, so QScreen::availableGeometry can report a zero top inset even
+// though the transparent status bar is still drawn over our content. Using this
+// as a floor keeps the header from sliding under the system status bar.
+int androidStatusBarHeightResourcePx() {
+  QJniObject activity = QJniObject::callStaticObjectMethod(
+      "org/qtproject/qt/android/QtNative", "activity",
+      "()Landroid/app/Activity;");
+  if (!activity.isValid())
+    return 0;
+  QJniObject resources = activity.callObjectMethod(
+      "getResources", "()Landroid/content/res/Resources;");
+  if (!resources.isValid())
+    return 0;
+  QJniObject dimenName =
+      QJniObject::fromString(QStringLiteral("status_bar_height"));
+  QJniObject defType = QJniObject::fromString(QStringLiteral("dimen"));
+  QJniObject defPackage = QJniObject::fromString(QStringLiteral("android"));
+  const jint resId = resources.callMethod<jint>(
+      "getIdentifier",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+      dimenName.object<jstring>(), defType.object<jstring>(),
+      defPackage.object<jstring>());
+  if (resId <= 0)
+    return 0;
+  return qMax(0, resources.callMethod<jint>("getDimensionPixelSize", "(I)I",
+                                            resId));
+}
+#endif
 
 QScreen *bestScreen(QWidget *reference) {
   if (reference && reference->windowHandle() && reference->windowHandle()->screen()) {
@@ -82,6 +118,10 @@ int androidTopInsetPx(QWidget *reference) {
     inset = qMax(0, avail.top() - full.top());
   }
 #if defined(Q_OS_ANDROID)
+  // Edge-to-edge can make availableGeometry report a 0 top inset even while the
+  // transparent status bar is still drawn over our content, so floor the inset
+  // at the real status-bar height to keep the header flush below it.
+  inset = qMax(inset, androidStatusBarHeightResourcePx());
   // On some Android devices the top inset can exceed older hardcoded values.
   // Keep it bounded only against unrealistic transition spikes.
   inset = qBound(0, inset, dp(72));
