@@ -45,29 +45,6 @@ int androidStatusBarHeightResourcePx() {
                                             resId));
 }
 
-// Screen-space y of our top-level window's top edge. This is what lets us tell
-// whether Qt is drawing edge-to-edge (window at y=0, status bar overlaps our
-// content) or whether the window is already positioned below the status bar
-// (window at y=statusBarHeight, no overlap).
-int androidWindowTopOnScreenPx(QWidget *reference) {
-  QWindow *win = nullptr;
-  if (reference) {
-    if (QWidget *top = reference->window())
-      win = top->windowHandle();
-  }
-  if (!win) {
-    const QList<QWindow *> tops = QGuiApplication::topLevelWindows();
-    for (QWindow *w : tops) {
-      if (w && w->isVisible()) {
-        win = w;
-        break;
-      }
-    }
-  }
-  if (!win)
-    return 0;
-  return qMax(0, win->mapToGlobal(QPoint(0, 0)).y());
-}
 #endif
 
 QScreen *bestScreen(QWidget *reference) {
@@ -148,23 +125,30 @@ int androidTopInsetPx(QWidget *reference) {
   }
   int inset = availInset;
 #if defined(Q_OS_ANDROID)
-  // The header is laid out *inside* our top-level window, so the only padding it
-  // needs is however much the status bar actually overlaps that window's top:
-  //
-  //   inset = statusBarHeight - windowTopOnScreen
-  //
-  // - True edge-to-edge: the window starts at screen y=0, so we reserve the full
-  //   status-bar height and the header sits flush beneath the visible bar.
-  // - Window already positioned below the status bar (windowTop == statusBar):
-  //   the needed inset collapses to 0, so we don't add a second status-bar-sized
-  //   gap on top of the one the window manager already applied (the "doppelt so
-  //   dick" / doubled bar regression).
-  const int statusBar = androidStatusBarHeightResourcePx();
-  const int windowTop = androidWindowTopOnScreenPx(reference);
-  inset = qBound(0, statusBar - windowTop, dp(72));
-  qWarning("BlopInset: availTop=%d fullTop=%d availInset=%d statusBar=%d "
-           "windowTop=%d -> inset=%d",
-           availTop, fullTop, availInset, statusBar, windowTop, inset);
+  // Qt 6.9+ lays widget windows out inside the safe area by itself: the
+  // top-level widget's effective contents margins already include
+  // QWindow::safeAreaMargins() (Qt::WA_ContentsMarginsRespectsSafeArea, on by
+  // default). Everything inside the window therefore already starts below the
+  // status bar, and any additional manual inset stacks on top of Qt's own
+  // margin — that is exactly the doubled "Balken" regression. So the manual
+  // inset is 0 unless the app explicitly opted out of Qt's safe-area
+  // handling.
+  QWidget *top = reference ? reference->window() : nullptr;
+  const bool qtHandlesSafeArea =
+      !top || top->testAttribute(Qt::WA_ContentsMarginsRespectsSafeArea);
+  if (qtHandlesSafeArea) {
+    inset = 0;
+  } else {
+    // Window draws edge-to-edge without Qt's safe-area margins: reserve the
+    // status-bar height, converted from physical to Qt's logical pixels.
+    const qreal dpr =
+        qMax<qreal>(screen ? screen->devicePixelRatio() : qreal(1.0), 1.0);
+    inset =
+        qBound(0, qRound(androidStatusBarHeightResourcePx() / dpr), dp(72));
+  }
+  qWarning("BlopInset: availTop=%d fullTop=%d availInset=%d "
+           "qtHandlesSafeArea=%d -> inset=%d",
+           availTop, fullTop, availInset, qtHandlesSafeArea ? 1 : 0, inset);
 #else
   Q_UNUSED(availTop);
   Q_UNUSED(fullTop);
