@@ -65,6 +65,7 @@ private:
   void selectTool(ToolMode mode);
   void emitPenConfig();
   void showOverflowMenu();
+  void showToolBloom(ToolbarBtn *anchorBtn);
   void showColorPicker();
   void showBrushSizeSheet();
 

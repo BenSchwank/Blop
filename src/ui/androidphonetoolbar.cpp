@@ -2,6 +2,7 @@
 
 #include "blop_diag.h"
 #include "blop_inwindow_menu.h"
+#include "bloommenu.h"
 #include "blop_theme.h"
 #include "moderntoolbar.h"
 #include "blopstyle.h"
@@ -135,6 +136,46 @@ void AndroidPhoneToolbar::setupButtons() {
   connect(btnColor, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:color")); showColorPicker(); });
   connect(btnBrush, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:brush")); showBrushSizeSheet(); });
   connect(btnOverflow, &ToolbarBtn::clicked, this, [this]() { BlopDiag::recordUiAction(QStringLiteral("toolbar:overflow")); showOverflowMenu(); });
+
+  // Blop Bloom: long-press on any visible tool button fans the full tool
+  // palette out of the press point as an arc of squircle petals.
+  for (ToolbarBtn *b : {btnPen, btnEraser, btnLasso}) {
+    connect(b, &ToolbarBtn::longPressed, this, [this, b]() {
+      BlopDiag::recordUiAction(QStringLiteral("toolbar:bloom"));
+      showToolBloom(b);
+    });
+  }
+}
+
+void AndroidPhoneToolbar::showToolBloom(ToolbarBtn *anchorBtn) {
+  QWidget *win = window();
+  if (!win || !anchorBtn)
+    return;
+
+  const QVector<BloomItem> items = {
+      {QStringLiteral("pen"), ToolMode::Pen},
+      {QStringLiteral("pencil"), ToolMode::Pencil},
+      {QStringLiteral("highlighter"), ToolMode::Highlighter},
+      {QStringLiteral("eraser"), ToolMode::Eraser},
+      {QStringLiteral("lasso"), ToolMode::Lasso},
+      {QStringLiteral("ruler"), ToolMode::Ruler},
+      {QStringLiteral("shape"), ToolMode::Shape},
+      {QStringLiteral("stickynote"), ToolMode::StickyNote},
+      {QStringLiteral("text"), ToolMode::Text},
+      {QStringLiteral("image"), ToolMode::Image},
+      {QStringLiteral("hand"), ToolMode::Hand},
+  };
+
+  const QPoint anchor = anchorBtn->mapTo(
+      win, QPoint(anchorBtn->width() / 2, anchorBtn->height() / 2));
+  BloomMenu *bloom = BloomMenu::popup(win, anchor, items, m_mode, m_accentColor);
+  if (!bloom)
+    return;
+  QPointer<AndroidPhoneToolbar> safe(this);
+  connect(bloom, &BloomMenu::toolSelected, this, [safe](ToolMode mode) {
+    if (safe)
+      safe->selectTool(mode);
+  });
 }
 
 void AndroidPhoneToolbar::setToolMode(ToolMode mode) {

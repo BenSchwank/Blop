@@ -413,6 +413,13 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
 
 } // namespace
 
+// Shared entry point so other widgets (BloomMenu petals) can reuse the exact
+// same glyph set the toolbar buttons draw.
+void blopDrawToolbarGlyph64(QPainter *p, const QString &name,
+                            const QColor &color) {
+  drawToolbarGlyph64(p, name, color);
+}
+
 // =============================================================================
 // v3.16.0: Active-Indicator Pill
 // Small 28dp x 3dp accent-Lila pill that slides horizontally under the

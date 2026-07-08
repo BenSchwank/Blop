@@ -13,6 +13,12 @@
 
 // --- Helper Button Class ---
 class QPushButton;
+class QPainter;
+
+// Draws one of the toolbar glyphs ("pen", "eraser", ...) into a 64x64 logical
+// coordinate space. Shared by ToolbarBtn and BloomMenu petals.
+void blopDrawToolbarGlyph64(QPainter *p, const QString &name,
+                            const QColor &color);
 
 class ToolbarBtn : public QWidget {
     Q_OBJECT
