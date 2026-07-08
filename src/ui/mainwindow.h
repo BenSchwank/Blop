@@ -35,6 +35,7 @@
 // Forward Declarations
 class MainWindow;
 class PageManager;
+class PenPresetBar;
 class QShowEvent;
 struct WebBookmark {
   QString title;
@@ -500,6 +501,7 @@ private:
   QSlider *m_sliderToolbarScale{nullptr};
 
   QWidget *m_floatingTools{nullptr};
+  PenPresetBar *m_penPresetBar{nullptr};
 
   PageManager *m_pageManager{nullptr};
 
