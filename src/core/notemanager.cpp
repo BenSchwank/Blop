@@ -64,10 +64,13 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       so["c"] = s.color.name();
       so["e"] = s.isEraser;
       QJsonArray pts;
-      for (const auto &pt : s.points) {
+      const bool hasPressure = s.pressures.size() == s.points.size();
+      for (int i = 0; i < s.points.size(); ++i) {
         QJsonArray a;
-        a.append(pt.x());
-        a.append(pt.y());
+        a.append(s.points[i].x());
+        a.append(s.points[i].y());
+        if (hasPressure)
+          a.append(s.pressures[i]);
         pts.append(a);
       }
       so["pts"] = pts;
@@ -164,11 +167,19 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       s.color = QColor(so.value("c").toString("#000000"));
       s.isEraser = so.value("e").toBool(false);
       auto pts = so.value("pts").toArray();
+      bool anyPressure = false;
       for (const auto &pv : pts) {
         auto a = pv.toArray();
-        if (a.size() == 2)
+        if (a.size() >= 2) {
           s.points.push_back(QPointF(a[0].toDouble(), a[1].toDouble()));
+          const qreal pr = a.size() >= 3 ? a[2].toDouble(1.0) : 1.0;
+          s.pressures.push_back(pr);
+          if (pr < 1.0)
+            anyPressure = true;
+        }
       }
+      if (!anyPressure)
+        s.pressures.clear();
       // Rebuild path
       QPainterPath path;
       if (!s.points.isEmpty()) {

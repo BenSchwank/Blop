@@ -8,6 +8,8 @@
 
 struct Stroke {
     QVector<QPointF> points;
+    /// Per-point stylus pressure (parallel to points); empty = uniform width.
+    QVector<qreal> pressures;
     QPainterPath path;
     qreal width{2.0};
     QColor color{Qt::black};
