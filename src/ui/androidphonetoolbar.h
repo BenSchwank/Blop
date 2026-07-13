@@ -30,6 +30,11 @@ public:
 
   void setAccentColor(const QColor &color);
 
+  // Blop Rail: collapse the pill into a small teardrop grip at the bottom
+  // right edge; tapping the grip expands it again.
+  bool isCollapsed() const { return m_collapsed; }
+  void setCollapsed(bool collapsed);
+
   // Same hint that ModernToolbar exposes - callers don't care which
   // toolbar variant they have, they can just call this.
   int preferredHeightPx() const;
@@ -44,6 +49,9 @@ signals:
 protected:
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
+  void mousePressEvent(QMouseEvent *) override;
+  void mouseMoveEvent(QMouseEvent *) override;
+  void mouseReleaseEvent(QMouseEvent *) override;
 
 private:
   ToolbarBtn *btnPen{nullptr};
@@ -68,6 +76,12 @@ private:
   void showToolBloom(ToolbarBtn *anchorBtn);
   void showColorPicker();
   void showBrushSizeSheet();
+  QString activeToolIconName() const;
+
+  bool m_collapsed{false};
+  bool m_swipeTracking{false};
+  QPoint m_swipeStart;
+  QPointer<QWidget> m_grip;
 
   // X-positions of vertical separators after layout (drawn in paintEvent).
   QVector<int> m_separatorX;
