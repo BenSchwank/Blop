@@ -42,6 +42,8 @@ public:
     // We store the last pressure so that mouseMove events (if synthesized) have a fallback,
     // though native TabletEvents will use their own pressure.
     qreal m_lastPressure{1.0};
+    // EMA state for blopPressureResponse(); -1 = no sample yet this stroke.
+    qreal m_pressureFilter{-1.0};
 
     /// Call from the view before each tablet gesture event so strokes are added to the scene
     /// (tablet callbacks pass no QGraphicsScene* to handleMoveOrPress).
@@ -52,7 +54,9 @@ public:
 
     bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
         // Tablet events give us robust pressure [0.0 - 1.0]
-        m_lastPressure = event->pressure();
+        if (event->type() == QEvent::TabletPress)
+            m_pressureFilter = -1.0;
+        m_lastPressure = blopPressureResponse(event->pressure());
 
         QGraphicsScene* sc = m_sceneRef;
         if (event->type() == QEvent::TabletPress) {
@@ -65,6 +69,22 @@ public:
             return handleMouseRelease(nullptr, nullptr);
         }
         return false;
+    }
+
+    /// Blop pressure curve: soft-knee response (never below 30% width, gentle
+    /// gamma so mid pressure feels natural) plus a small EMA against sensor
+    /// jitter. Full pressure maps to exactly 1.0 so mouse strokes and the
+    /// disabled state are unaffected.
+    qreal blopPressureResponse(qreal raw) {
+        if (!m_config.pressureSensitivity)
+            return 1.0;
+        if (raw <= 0.0)
+            return m_pressureFilter > 0.0 ? m_pressureFilter : 1.0;
+        const qreal shaped = 0.30 + 0.70 * std::pow(qBound(0.0, raw, 1.0), 0.65);
+        m_pressureFilter = (m_pressureFilter < 0.0)
+                               ? shaped
+                               : (0.6 * shaped + 0.4 * m_pressureFilter);
+        return m_pressureFilter;
     }
 
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {

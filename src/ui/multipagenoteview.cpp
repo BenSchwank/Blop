@@ -1725,7 +1725,13 @@ void MultiPageNoteView::hydratePageContent(int i) {
       type = StrokeItem::Normal;
     }
 
-    auto item = new StrokeItem(s.path, pen, QVector<StrokePoint>(), type);
+    QVector<StrokePoint> strokePts;
+    if (type == StrokeItem::Normal && s.pressures.size() == s.points.size()) {
+      strokePts.reserve(s.points.size());
+      for (int k = 0; k < s.points.size(); ++k)
+        strokePts.append({s.points[k], s.pressures[k]});
+    }
+    auto item = new StrokeItem(s.path, pen, strokePts, type);
 
     if (s.isEraser || (!s.isEraser && !s.isHighlighter)) {
         item->setZValue(1.0);
@@ -1807,13 +1813,23 @@ void MultiPageNoteView::setNote(Note *note) {
 }
 
 QGraphicsPathItem *MultiPageNoteView::createStrokeGraphicsItem(const Stroke &s) {
-  auto *pathItem = new QGraphicsPathItem(s.path);
   QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
   if (s.isEraser) {
     pen.setColor(Qt::white);
     pen.setWidthF(s.width * 2);
   } else if (s.isHighlighter) {
     pen.setColor(QColor(s.color.red(), s.color.green(), s.color.blue(), 100));
+  }
+  QGraphicsPathItem *pathItem = nullptr;
+  if (!s.isEraser && !s.isHighlighter &&
+      s.pressures.size() == s.points.size() && !s.points.isEmpty()) {
+    QVector<StrokePoint> strokePts;
+    strokePts.reserve(s.points.size());
+    for (int k = 0; k < s.points.size(); ++k)
+      strokePts.append({s.points[k], s.pressures[k]});
+    pathItem = new StrokeItem(s.path, pen, strokePts, StrokeItem::Normal);
+  } else {
+    pathItem = new QGraphicsPathItem(s.path);
   }
   pathItem->setPen(pen);
   pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
@@ -2768,6 +2784,7 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
             QPointF sceneP = points[i].pos;
             QPointF localP = sceneP - pageTopLeft;
             s.points.append(localP);
+            s.pressures.append(points[i].pressure);
             if (i == 0) {
               localPath.moveTo(localP);
               scenePath.moveTo(sceneP);
@@ -2777,6 +2794,16 @@ void MultiPageNoteView::commitPendingStrokeItemsToNote(AbstractTool *tool) {
             }
           }
           s.path = localPath;
+
+          bool uniformPressure = true;
+          for (qreal pr : s.pressures) {
+            if (pr < 1.0) {
+              uniformPressure = false;
+              break;
+            }
+          }
+          if (uniformPressure)
+            s.pressures.clear();
 
           bool capturedByZone = false;
           if (m_activeFormulaZone && !s.isEraser) {
