@@ -3,6 +3,7 @@
 #include "canvasview.h"
 #include "moderntoolbar.h"
 #include "androidphonetoolbar.h"
+#include "penpresetbar.h"
 #include "newnotedialog.h"
 #include "overlayscrollindicator.h"
 #include "profileeditordialog.h"
@@ -1484,6 +1485,8 @@ void MainWindow::applyThemeRefresh() {
     tb->setAccentColor(m_currentAccentColor);
   if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
     phone->setAccentColor(m_currentAccentColor);
+  if (m_penPresetBar)
+    m_penPresetBar->setAccentColor(m_currentAccentColor);
 
   // PageManager: re-skin scrim + panel using the new tokens. The panel
   // QSS was set once in the ctor; this method is the documented post-
@@ -2594,6 +2597,15 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
                                 UiScale::safeBottomPx(this) - UiScale::dp(8));
       phone->setGeometry((avail - w) / 2, y, w, h);
       phone->raise();
+      if (m_penPresetBar) {
+        // Phone: chips hover directly above the bottom pill.
+        const int ph = m_penPresetBar->preferredHeightPx();
+        const int pw = qMin(m_penPresetBar->minimumWidth(),
+                            avail - 2 * margin);
+        m_penPresetBar->setGeometry((avail - pw) / 2,
+                                    qMax(0, y - ph - UiScale::dp(6)), pw, ph);
+        m_penPresetBar->raise();
+      }
     } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       if (tb->isDockedMode()) {
         int idealW = tb->calculateMinLength();
@@ -2612,6 +2624,17 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         tb->move(xPos, yPos);
       }
       tb->raise();
+      if (m_penPresetBar) {
+        // Desktop / tablet: chips sit right below the docked toolbar.
+        const int ph = m_penPresetBar->preferredHeightPx();
+        const int pw = qMin(m_penPresetBar->minimumWidth(),
+                            m_editorCenterWidget->width() - UiScale::dp(16));
+        const int py =
+            (tb->isDockedMode() ? tb->geometry().bottom() : 48) + UiScale::dp(6);
+        m_penPresetBar->setGeometry(
+            (m_editorCenterWidget->width() - pw) / 2, py, pw, ph);
+        m_penPresetBar->raise();
+      }
     }
     if (m_pageSettingsOverlay && m_editorCenterWidget) {
       m_pageSettingsOverlay->setGeometry(
@@ -4346,6 +4369,33 @@ void MainWindow::setupUi() {
     topToolbar->setDockMode(true);
   }
   m_floatingTools->raise();
+
+  // ── Blop Chips: Pen-Preset-Favoritenleiste ─────────────────────────────
+  m_penPresetBar = new PenPresetBar(m_editorCenterWidget);
+  m_penPresetBar->raise();
+  connect(m_penPresetBar, &PenPresetBar::presetSelected, this,
+          [this](const PenPreset &p) {
+            ToolManager &tm = ToolManager::instance();
+            tm.selectTool(p.mode);
+            ToolConfig cfg = tm.config();
+            cfg.penColor = p.color;
+            cfg.penWidth = p.width;
+            cfg.opacity = p.opacity;
+            tm.updateConfig(cfg);
+            m_penColor = p.color;
+            m_penWidth = p.width;
+            if (CanvasView *cv = getCurrentCanvas()) {
+              cv->setPenColor(p.color);
+              cv->setPenWidth(p.width);
+            }
+          });
+  connect(&ToolManager::instance(), &ToolManager::configChanged, this,
+          [this](const ToolConfig &cfg) {
+            if (m_penPresetBar)
+              m_penPresetBar->syncActive(
+                  ToolManager::instance().activeToolMode(), cfg.penColor,
+                  cfg.penWidth);
+          });
 
   // Install event filter to center the floating tools automatically on resize
   m_editorCenterWidget->installEventFilter(this);
@@ -7202,6 +7252,9 @@ void MainWindow::updateSidebarState() {
       isEditor && !prevIsEditor && !m_isSidebarOpen;
   if (m_floatingTools) {
     m_floatingTools->setVisible(isEditor);
+  }
+  if (m_penPresetBar) {
+    m_penPresetBar->setVisible(isEditor);
   }
   if (m_editorTitleControls) {
     m_editorTitleControls->setVisible(isEditor);

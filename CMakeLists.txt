@@ -135,6 +135,8 @@ qt_add_executable(Blop
     src/ui/androidphonetoolbar.h
     src/ui/bloommenu.cpp
     src/ui/bloommenu.h
+    src/ui/penpresetbar.cpp
+    src/ui/penpresetbar.h
     src/ui/introscreen.h
     src/ui/introscreen.cpp
     src/ui/overlayscrollindicator.h
