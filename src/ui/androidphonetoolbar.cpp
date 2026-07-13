@@ -100,6 +100,115 @@ private:
 
 } // namespace
 
+// Blop Rail grip: small teardrop (round on three corners, pointed toward the
+// screen corner) that shows the active tool glyph while the pill is collapsed.
+class RailGrip : public QWidget {
+  Q_OBJECT
+  Q_PROPERTY(double appear READ appear WRITE setAppear)
+public:
+  explicit RailGrip(QWidget *parent) : QWidget(parent) {
+    setAttribute(Qt::WA_NoSystemBackground, true);
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setFocusPolicy(Qt::NoFocus);
+    setCursor(Qt::PointingHandCursor);
+    parent->installEventFilter(this);
+  }
+
+  void reposition() {
+    QWidget *host = parentWidget();
+    if (!host)
+      return;
+    move(host->width() - width() - UiScale::dp(10),
+         host->height() - height() - UiScale::safeBottomPx(this) -
+             UiScale::dp(8));
+    raise();
+  }
+
+  bool eventFilter(QObject *watched, QEvent *event) override {
+    if (watched == parentWidget() && event->type() == QEvent::Resize)
+      reposition();
+    return QWidget::eventFilter(watched, event);
+  }
+
+  void setGlyph(const QString &name) {
+    if (m_glyph == name)
+      return;
+    m_glyph = name;
+    update();
+  }
+  void setAccent(const QColor &c) {
+    m_accent = c;
+    update();
+  }
+
+  double appear() const { return m_appear; }
+  void setAppear(double v) {
+    m_appear = v;
+    update();
+  }
+
+signals:
+  void tapped();
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setOpacity(qBound(0.0, m_appear, 1.0));
+
+    const qreal s = 0.6 + 0.4 * qBound(0.0, m_appear, 1.0);
+    p.translate(width() / 2.0, height() / 2.0);
+    p.scale(s, s);
+    p.translate(-width() / 2.0, -height() / 2.0);
+
+    const QRectF r = rect().adjusted(1.5, 1.5, -1.5, -1.5);
+    const qreal big = r.height() * 0.5;
+    const qreal tip = r.height() * 0.14;
+    // Teardrop: three round corners, bottom-right pointed toward the corner.
+    QPainterPath path;
+    path.moveTo(r.left() + big, r.top());
+    path.lineTo(r.right() - big, r.top());
+    path.arcTo(QRectF(r.right() - 2 * big, r.top(), 2 * big, 2 * big), 90, -90);
+    path.lineTo(r.right(), r.bottom() - tip);
+    path.arcTo(QRectF(r.right() - 2 * tip, r.bottom() - 2 * tip, 2 * tip,
+                      2 * tip),
+               0, -90);
+    path.lineTo(r.left() + big, r.bottom());
+    path.arcTo(QRectF(r.left(), r.bottom() - 2 * big, 2 * big, 2 * big), 270,
+               -90);
+    path.lineTo(r.left(), r.top() + big);
+    path.arcTo(QRectF(r.left(), r.top(), 2 * big, 2 * big), 180, -90);
+    path.closeSubpath();
+
+    p.fillPath(path, BlopStyle::surfaceBg());
+    QColor border = m_accent;
+    border.setAlphaF(0.55);
+    p.setPen(QPen(border, 1.5));
+    p.drawPath(path);
+
+    const qreal glyphSize = r.height() * 0.52;
+    QRectF glyphRect(r.center().x() - glyphSize / 2,
+                     r.center().y() - glyphSize / 2, glyphSize, glyphSize);
+    p.save();
+    p.translate(glyphRect.topLeft());
+    p.scale(glyphSize / 64.0, glyphSize / 64.0);
+    blopDrawToolbarGlyph64(&p, m_glyph, m_accent);
+    p.restore();
+  }
+
+  void mousePressEvent(QMouseEvent *e) override { e->accept(); }
+  void mouseReleaseEvent(QMouseEvent *e) override {
+    if (rect().contains(e->pos()))
+      emit tapped();
+    e->accept();
+  }
+
+private:
+  QString m_glyph{QStringLiteral("pen")};
+  QColor m_accent{QColor("#7C5CFC")};
+  double m_appear{0.0};
+};
+
 AndroidPhoneToolbar::AndroidPhoneToolbar(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_StyledBackground, false);
   setAttribute(Qt::WA_TranslucentBackground, true);
@@ -199,6 +308,119 @@ void AndroidPhoneToolbar::setToolMode(ToolMode mode) {
   }
   if (changed)
     update();
+  if (auto *grip = qobject_cast<RailGrip *>(m_grip.data()))
+    grip->setGlyph(activeToolIconName());
+}
+
+QString AndroidPhoneToolbar::activeToolIconName() const {
+  switch (m_mode) {
+  case ToolMode::Pen: return QStringLiteral("pen");
+  case ToolMode::Pencil: return QStringLiteral("pencil");
+  case ToolMode::Highlighter: return QStringLiteral("highlighter");
+  case ToolMode::Eraser: return QStringLiteral("eraser");
+  case ToolMode::Lasso: return QStringLiteral("lasso");
+  case ToolMode::Ruler: return QStringLiteral("ruler");
+  case ToolMode::Shape: return QStringLiteral("shape");
+  case ToolMode::StickyNote: return QStringLiteral("stickynote");
+  case ToolMode::Text: return QStringLiteral("text");
+  case ToolMode::Image: return QStringLiteral("image");
+  case ToolMode::Hand: return QStringLiteral("hand");
+  }
+  return QStringLiteral("pen");
+}
+
+void AndroidPhoneToolbar::setCollapsed(bool collapsed) {
+  if (m_collapsed == collapsed)
+    return;
+  QWidget *host = parentWidget();
+  if (!host)
+    return;
+  m_collapsed = collapsed;
+
+  if (collapsed) {
+    BlopDiag::recordUiAction(QStringLiteral("toolbar:rail-collapse"));
+    // Slide the pill below the screen edge, then hide it. The parent keeps
+    // updating the (hidden) pill's geometry on resize, so expanding later
+    // animates back to an always-correct position.
+    const QPoint target(x(), host->height() + UiScale::dp(8));
+    auto *slide = new QPropertyAnimation(this, "pos", this);
+    slide->setDuration(BlopMotion::kStandard);
+    slide->setStartValue(pos());
+    slide->setEndValue(target);
+    slide->setEasingCurve(BlopMotion::kEaseStandard);
+    QPointer<AndroidPhoneToolbar> safe(this);
+    connect(slide, &QPropertyAnimation::finished, this, [safe]() {
+      if (safe && safe->m_collapsed)
+        safe->hide();
+    });
+    slide->start(QAbstractAnimation::DeleteWhenStopped);
+
+    auto *grip = new RailGrip(host);
+    m_grip = grip;
+    grip->setGlyph(activeToolIconName());
+    grip->setAccent(m_accentColor);
+    const int gs = UiScale::dp(46);
+    grip->resize(gs, gs);
+    grip->reposition();
+    grip->show();
+    grip->raise();
+    connect(grip, &RailGrip::tapped, this,
+            [this]() { setCollapsed(false); });
+
+    auto *in = new QPropertyAnimation(grip, "appear", grip);
+    in->setDuration(BlopMotion::kEmphasis);
+    in->setStartValue(0.0);
+    in->setEndValue(1.0);
+    in->setEasingCurve(BlopMotion::kEaseOvershoot);
+    in->start(QAbstractAnimation::DeleteWhenStopped);
+  } else {
+    BlopDiag::recordUiAction(QStringLiteral("toolbar:rail-expand"));
+    if (QWidget *grip = m_grip.data()) {
+      auto *out = new QPropertyAnimation(grip, "appear", grip);
+      out->setDuration(BlopMotion::kFast);
+      out->setStartValue(1.0);
+      out->setEndValue(0.0);
+      out->setEasingCurve(BlopMotion::kEaseStandard);
+      connect(out, &QPropertyAnimation::finished, grip,
+              &QWidget::deleteLater);
+      out->start(QAbstractAnimation::DeleteWhenStopped);
+      m_grip.clear();
+    }
+
+    const int h = preferredHeightPx();
+    const QPoint target(x(), qMax(0, host->height() - h -
+                                         UiScale::safeBottomPx(this) -
+                                         UiScale::dp(8)));
+    move(x(), host->height() + UiScale::dp(8));
+    show();
+    raise();
+    auto *slide = new QPropertyAnimation(this, "pos", this);
+    slide->setDuration(BlopMotion::kEmphasis);
+    slide->setStartValue(pos());
+    slide->setEndValue(target);
+    slide->setEasingCurve(BlopMotion::kEaseOvershoot);
+    slide->start(QAbstractAnimation::DeleteWhenStopped);
+  }
+}
+
+void AndroidPhoneToolbar::mousePressEvent(QMouseEvent *e) {
+  m_swipeTracking = true;
+  m_swipeStart = e->pos();
+  e->accept();
+}
+
+void AndroidPhoneToolbar::mouseMoveEvent(QMouseEvent *e) {
+  if (m_swipeTracking && !m_collapsed &&
+      e->pos().y() - m_swipeStart.y() > UiScale::dp(22)) {
+    m_swipeTracking = false;
+    setCollapsed(true);
+  }
+  e->accept();
+}
+
+void AndroidPhoneToolbar::mouseReleaseEvent(QMouseEvent *e) {
+  m_swipeTracking = false;
+  e->accept();
 }
 
 void AndroidPhoneToolbar::setAccentColor(const QColor &color) {
@@ -211,6 +433,8 @@ void AndroidPhoneToolbar::setAccentColor(const QColor &color) {
       b->update();
     }
   }
+  if (auto *grip = qobject_cast<RailGrip *>(m_grip.data()))
+    grip->setAccent(m_accentColor);
   update();
 }
 
@@ -252,6 +476,9 @@ void AndroidPhoneToolbar::showOverflowMenu() {
   addToolEntry(QStringLiteral("Bild"), ToolMode::Image);
   addToolEntry(QStringLiteral("Hand"), ToolMode::Hand);
   items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("Toolbar einklappen"), QIcon(), [safe]() {
+                  if (safe) safe->setCollapsed(true);
+                }, false, false});
   items.append({QStringLiteral("Zur Übersicht"), QIcon(), [safe]() {
                   if (safe) emit safe->backToOverviewRequested();
                 }, false, false});
@@ -283,6 +510,11 @@ void AndroidPhoneToolbar::showOverflowMenu() {
   addToolEntry(QStringLiteral("Bild"), ToolMode::Image);
   addToolEntry(QStringLiteral("Hand"), ToolMode::Hand);
   menu->addSeparator();
+  QAction *collapse = menu->addAction(QStringLiteral("Toolbar einklappen"));
+  QObject::connect(collapse, &QAction::triggered, this, [safe]() {
+    if (safe)
+      safe->setCollapsed(true);
+  });
   QAction *back = menu->addAction(QStringLiteral("Zur Übersicht"));
   QObject::connect(back, &QAction::triggered, this, [safe]() {
     if (safe)
@@ -481,3 +713,5 @@ void AndroidPhoneToolbar::resizeEvent(QResizeEvent *) {
   }
   update();
 }
+
+#include "androidphonetoolbar.moc"
