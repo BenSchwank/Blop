@@ -58,7 +58,9 @@ public:
 
     // Methoden für Export / Thumbnails
     bool exportPageToPng(int pageIndex, const QString &path);
+    bool exportNoteToPng(const QString &basePath);
     bool exportPageToPdf(int pageIndex, const QString &path);
+    bool exportNoteToPdf(const QString &path);
 
     // Methoden für PageManager
     QPixmap generateThumbnail(int pageIndex, const QSize& size);
@@ -77,6 +79,7 @@ public:
     // between pages reads as a smooth transition instead of a hard cut.
     void scrollToPage(int pageIndex, bool animate = true);
     int pageCount() const;
+    int currentPageIndex() const { return visiblePageIndex(); }
     QString pageTitle(int pageIndex) const;
     void renamePage(int pageIndex, const QString &title);
     void duplicatePages(const QList<int> &pageIndices);

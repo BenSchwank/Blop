@@ -33,8 +33,10 @@
 #include "uiprofilemanager.h"
 
 // Forward Declarations
+class DocumentTabBar;
 class MainWindow;
 class PageManager;
+class PageThumbnailSidebar;
 class PenPresetBar;
 class QShowEvent;
 struct WebBookmark {
@@ -308,6 +310,7 @@ private:
 
   CanvasView *getCurrentCanvas();
   void setActiveTool(CanvasView::ToolType tool);
+  int noteHeaderHeight() const;
 
   // --- Web Integration ---
   void setupWebBrowser();
@@ -403,13 +406,9 @@ private:
   QWidget *m_titleBarWidget{nullptr};
   QWidget *m_topNavControls{nullptr};
   /// Home + note tabs row in title bar (hidden in Study / web bookmarks).
-  QWidget *m_noteTabsChrome{nullptr};
-  QWidget *m_tabBarWidget{nullptr};
-  QHBoxLayout *m_tabBarLayout{nullptr};
-  QWidget *m_tabScrollArea{nullptr};
-  QPushButton *m_btnHomeTab{nullptr};
-  QList<QPushButton *> m_noteTabButtons;
-  int m_activeTabIndex{-1}; // -1 = Home
+  DocumentTabBar *m_documentTabBar{nullptr};
+  /// Persistent left page thumbnail strip, Drawboard-style.
+  PageThumbnailSidebar *m_pageThumbnailSidebar{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};
   QPushButton *m_btnTitleSettings{nullptr};
   QPushButton *m_btnTitleShare{nullptr};
@@ -459,6 +458,11 @@ private:
   QWidget *m_editorContainer{nullptr};
   QWidget *m_editorCenterWidget{nullptr};
   QTabWidget *m_editorTabs{nullptr};
+
+  /// Floating note page header (title, page count, metadata).
+  QWidget *m_noteHeader{nullptr};
+  QLabel *m_lblNoteHeaderTitle{nullptr};
+  QLabel *m_lblNoteHeaderMeta{nullptr};
 
   QWidget *m_pageSettingsOverlay{nullptr};
   QWidget *m_pageSettingsCard{nullptr};

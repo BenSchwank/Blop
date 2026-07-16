@@ -3203,6 +3203,29 @@ bool MultiPageNoteView::exportPageToPng(int pageIndex, const QString &path) {
   return pm.save(path, "PNG");
 }
 
+bool MultiPageNoteView::exportNoteToPng(const QString &basePath) {
+  if (!note_ || note_->pages.isEmpty())
+    return false;
+  const QSize fullSize(a4wPx(), a4hPx());
+  if (note_->pages.size() == 1) {
+    QPixmap pm = generateThumbnail(0, fullSize);
+    return pm.save(basePath, "PNG");
+  }
+  QFileInfo fi(basePath);
+  QString suffix = fi.suffix().toLower();
+  if (suffix != QLatin1String("png") && suffix != QLatin1String("jpg") &&
+      suffix != QLatin1String("jpeg"))
+    suffix = QStringLiteral("png");
+  const QString base = fi.dir().absoluteFilePath(fi.completeBaseName());
+  const QByteArray format = suffix.toUpper().toUtf8();
+  for (int i = 0; i < note_->pages.size(); ++i) {
+    QPixmap pm = generateThumbnail(i, fullSize);
+    if (!pm.save(QStringLiteral("%1_%2.%3").arg(base).arg(i + 1).arg(suffix), format.constData()))
+      return false;
+  }
+  return true;
+}
+
 bool MultiPageNoteView::exportPageToPdf(int pageIndex, const QString &path) {
   QPdfWriter pdf(path);
   pdf.setPageSize(QPageSize(QPageSize::A4));
@@ -3210,6 +3233,34 @@ bool MultiPageNoteView::exportPageToPdf(int pageIndex, const QString &path) {
   p.fillRect(QRectF(0, 0, a4wPx(), a4hPx()), Qt::white);
   if (note_ && pageIndex >= 0 && pageIndex < note_->pages.size()) {
     for (const auto &s : note_->pages[pageIndex].strokes) {
+      QColor c = s.color;
+      if (s.isHighlighter)
+        c.setAlpha(80);
+      QPen pen;
+      if (s.isEraser)
+        pen = QPen(Qt::white, s.width);
+      else
+        pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+      p.setPen(pen);
+      p.drawPath(s.path);
+    }
+  }
+  p.end();
+  return true;
+}
+
+bool MultiPageNoteView::exportNoteToPdf(const QString &path) {
+  if (!note_ || note_->pages.isEmpty())
+    return false;
+  QPdfWriter pdf(path);
+  pdf.setPageSize(QPageSize(QPageSize::A4));
+  QPainter p(&pdf);
+  const QRectF pageRect(0, 0, a4wPx(), a4hPx());
+  for (int i = 0; i < note_->pages.size(); ++i) {
+    if (i > 0)
+      pdf.newPage();
+    p.fillRect(pageRect, Qt::white);
+    for (const auto &s : note_->pages[i].strokes) {
       QColor c = s.color;
       if (s.isHighlighter)
         c.setAlpha(80);

@@ -122,7 +122,7 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
             QStringLiteral("PDF Dokument (*.pdf)"));
         if (path.isEmpty() || !safe || !safe->canvas_)
             return;
-        bool ok = safe->canvas_->exportPageToPdf(0, path);
+        bool ok = safe->canvas_->exportNoteToPdf(path);
         if (ok)
             QMessageBox::information(safe, QStringLiteral("Exportiert"),
                                      QStringLiteral("PDF wurde gespeichert!"));
@@ -143,7 +143,7 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
             QStringLiteral("Bilder (*.png *.jpg)"));
         if (path.isEmpty() || !safe || !safe->canvas_)
             return;
-        bool ok = safe->canvas_->exportPageToPng(0, path);
+        bool ok = safe->canvas_->exportNoteToPng(path);
         if (ok)
             QMessageBox::information(safe, QStringLiteral("Exportiert"),
                                      QStringLiteral("Bild wurde gespeichert!"));

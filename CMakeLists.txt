@@ -137,6 +137,10 @@ qt_add_executable(Blop
     src/ui/bloommenu.h
     src/ui/penpresetbar.cpp
     src/ui/penpresetbar.h
+    src/ui/documenttabbar.cpp
+    src/ui/documenttabbar.h
+    src/ui/pagethumbnailsidebar.cpp
+    src/ui/pagethumbnailsidebar.h
     src/ui/introscreen.h
     src/ui/introscreen.cpp
     src/ui/overlayscrollindicator.h

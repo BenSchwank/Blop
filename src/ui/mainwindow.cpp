@@ -3,6 +3,8 @@
 #include "canvasview.h"
 #include "moderntoolbar.h"
 #include "androidphonetoolbar.h"
+#include "documenttabbar.h"
+#include "pagethumbnailsidebar.h"
 #include "penpresetbar.h"
 #include "newnotedialog.h"
 #include "overlayscrollindicator.h"
@@ -102,6 +104,7 @@
 #include <utility>
 #include <QCloseEvent>
 #include <QShowEvent>
+#include <QResizeEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -1487,6 +1490,14 @@ void MainWindow::applyThemeRefresh() {
     phone->setAccentColor(m_currentAccentColor);
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(m_currentAccentColor);
+  if (m_documentTabBar)
+    m_documentTabBar->setAccentColor(m_currentAccentColor);
+  if (m_pageThumbnailSidebar)
+    m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+  if (m_noteHeader)
+    m_noteHeader->setStyleSheet(
+        QStringLiteral("QWidget#NoteHeader { background: #0D0B14; border-bottom: 1px solid %1; }")
+            .arg(m_currentAccentColor.name(QColor::HexRgb)));
 
   // PageManager: re-skin scrim + panel using the new tokens. The panel
   // QSS was set once in the ctor; this method is the documented post-
@@ -2375,63 +2386,27 @@ void MainWindow::setupTitleBar() {
   navLayout->addSpacing(8);
 
   // ── TABS ──────────────────────────────────────────────────────────────────
-  // Direkt links (nach Modus / +): Home, offene Notizen, neuer Tab — nicht hinter der Suche.
-  QWidget *tabsContainer = new QWidget(m_topNavControls);
-  m_noteTabsChrome = tabsContainer;
-  tabsContainer->setStyleSheet("background: transparent; border: none;");
-  m_tabBarLayout = new QHBoxLayout(tabsContainer);
-  m_tabBarLayout->setContentsMargins(0, 0, 0, 0);
-  m_tabBarLayout->setSpacing(4);
-
-  // Tab Styles (größere Schrift + Icons — besser lesbar in der Titelleiste)
-  const int kTabIconPx = 22;
-  auto tabActiveStyle = []() -> QString {
-    return "QPushButton {"
-           "  background: rgba(124,92,252,0.25);"
-           "  border: none;"
-           "  border-radius: 8px;"
-           "  color: #E8E4FF; font-size: 14px; font-weight: 600;"
-           "  padding: 0 16px;"
-           "}"
-           "QPushButton:hover { background: rgba(124,92,252,0.35); }";
-  };
-  auto tabInactiveStyle = []() -> QString {
-    return "QPushButton {"
-           "  background: transparent;"
-           "  border: none;"
-           "  border-radius: 8px;"
-           "  color: rgba(255,255,255,0.45); font-size: 14px; font-weight: 500;"
-           "  padding: 0 14px;"
-           "}"
-           "QPushButton:hover {"
-           "  background: rgba(255,255,255,0.08);"
-           "  color: rgba(255,255,255,0.85);"
-           "}";
-  };
-
-  // Home Tab
-  m_btnHomeTab = new QPushButton(tabsContainer);
-  m_btnHomeTab->setIcon(
-      createModernIcon(QStringLiteral("home"), QColor(QStringLiteral("#E8E4FF"))));
-  m_btnHomeTab->setText(QStringLiteral(" Home"));
-  m_btnHomeTab->setIconSize(QSize(kTabIconPx, kTabIconPx));
-  m_btnHomeTab->setFixedHeight(36);
-  m_btnHomeTab->setCursor(Qt::PointingHandCursor);
-  m_btnHomeTab->setStyleSheet(tabActiveStyle());
-  connect(m_btnHomeTab, &QPushButton::clicked, this,
-          [this, tabActiveStyle, tabInactiveStyle]() {
-            m_activeTabIndex = -1;
-            m_btnHomeTab->setIcon(createModernIcon(
-                QStringLiteral("home"), QColor(QStringLiteral("#E8E4FF"))));
-            m_btnHomeTab->setStyleSheet(tabActiveStyle());
-            for (auto *btn : m_noteTabButtons)
-              btn->setStyleSheet(tabInactiveStyle());
-            onBackToOverview();
+  // Floating squircle document tabs, Drawboard-inspired.
+  m_documentTabBar = new DocumentTabBar(m_topNavControls);
+  m_documentTabBar->setAccentColor(m_currentAccentColor);
+  connect(m_documentTabBar, &DocumentTabBar::currentChanged, this,
+          [this](int index) {
+            if (m_editorTabs && index >= 0 && index != m_editorTabs->currentIndex())
+              m_editorTabs->setCurrentIndex(index);
           });
-  m_tabBarLayout->addWidget(m_btnHomeTab);
+  connect(m_documentTabBar, &DocumentTabBar::tabCloseRequested, this,
+          [this](int index) {
+            if (m_editorTabs) {
+              m_editorTabs->removeTab(index);
+              if (m_editorTabs->count() == 0)
+                onBackToOverview();
+            }
+          });
+  connect(m_documentTabBar, &DocumentTabBar::homeClicked, this,
+          &MainWindow::onBackToOverview);
 
   // "+ Tab" Button
-  QPushButton *btnNewTab = new QPushButton("+", tabsContainer);
+  QPushButton *btnNewTab = new QPushButton("+", m_topNavControls);
   btnNewTab->setFixedSize(36, 36);
   btnNewTab->setCursor(Qt::PointingHandCursor);
   btnNewTab->setToolTip("Neue Notiz öffnen");
@@ -2448,9 +2423,9 @@ void MainWindow::setupTitleBar() {
       "}");
   connect(btnNewTab, &QPushButton::clicked, this,
           &MainWindow::onShowNewTabPopup);
-  m_tabBarLayout->addWidget(btnNewTab);
 
-  navLayout->addWidget(tabsContainer);
+  navLayout->addWidget(m_documentTabBar);
+  navLayout->addWidget(btnNewTab);
   navLayout->addSpacing(10);
   // Rest der Leiste nach rechts: Suche und Aktions-Icons
   navLayout->addStretch(1);
@@ -2607,6 +2582,8 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         m_penPresetBar->raise();
       }
     } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+      const int headerH = noteHeaderHeight();
+      tb->setTopBound(headerH);
       if (tb->isDockedMode()) {
         int idealW = tb->calculateMinLength();
         // Slightly shorter docked toolbar at full width.
@@ -2617,10 +2594,10 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         int dockX = qMax(0, (availableW - dockW) / 2);
         if (dockX + dockW > m_editorCenterWidget->width())
           dockX = m_editorCenterWidget->width() - dockW;
-        tb->setGeometry(dockX, 0, dockW, 48);
+        tb->setGeometry(dockX, headerH, dockW, 48);
       } else {
         int xPos = (m_editorCenterWidget->width() - tb->width()) / 2;
-        int yPos = qMax(10, tb->y()); // don't push it out of bounds
+        int yPos = qMax(headerH + UiScale::dp(10), tb->y());
         tb->move(xPos, yPos);
       }
       tb->raise();
@@ -2675,75 +2652,14 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
 }
 
 // ---------------------------------------------------------------------------
-// addNoteTab / closeNoteTab  (work with the editorHeaderWidget tab bar)
+// addNoteTab / closeNoteTab  (floating squircle document tabs)
 // ---------------------------------------------------------------------------
 void MainWindow::addNoteTab(const QString &title) {
-  if (!m_tabBarLayout || !m_btnHomeTab)
+  if (!m_documentTabBar)
     return;
-
-  // Deactivate Home tab visually (inaktiver Stil)
-  m_btnHomeTab->setIcon(createModernIcon(
-      QStringLiteral("home"), QColor(255, 255, 255, 130)));
-  m_btnHomeTab->setStyleSheet(
-      "QPushButton {"
-      "  background: rgba(255,255,255,0.04);"
-      "  border: 1px solid rgba(255,255,255,0.08);"
-      "  color: rgba(255,255,255,0.45); font-size: 14px; font-weight: 500;"
-      "  padding: 0 14px; border-radius: 14px;"
-      "}"
-      "QPushButton:hover {"
-      "  background: rgba(124,92,252,0.10);"
-      "  border: 1px solid rgba(124,92,252,0.25);"
-      "  color: rgba(255,255,255,0.80);"
-      "}");
-
-  int tabIndex = m_noteTabButtons.size();
-
-  // Container widget: [icon+title][×] – Pill mit größeren Klickflächen
-  QWidget *tabWidget = new QWidget;
-  tabWidget->setFixedHeight(34);
-  tabWidget->setStyleSheet(
-      "QWidget {"
-      "  background-color: rgba(124,92,252,0.22);"
-      "  border: 1px solid rgba(124,92,252,0.55);"
-      "  border-radius: 16px;"
-      "}");
-  QHBoxLayout *tabLay = new QHBoxLayout(tabWidget);
-  tabLay->setContentsMargins(8, 0, 6, 0);
-  tabLay->setSpacing(4);
-
-  QPushButton *tabBtn = new QPushButton(title, tabWidget);
-  tabBtn->setIcon(
-      createModernIcon(QStringLiteral("note_bnote"), QColor(QStringLiteral("#E8E8FF"))));
-  tabBtn->setIconSize(QSize(22, 22));
-  tabBtn->setFixedHeight(26);
-  tabBtn->setCursor(Qt::PointingHandCursor);
-  tabBtn->setStyleSheet(
-      "QPushButton {"
-      "  background-color: transparent;"
-      "  border: none; color: #E8E8FF; font-size: 14px; font-weight: 600;"
-      "  padding: 0 2px 0 4px;"
-      "}");
-  m_noteTabButtons.append(tabBtn);
-  tabLay->addWidget(tabBtn);
-
-  QPushButton *closeBtn = new QPushButton("\u2715", tabWidget);
-  closeBtn->setFixedSize(24, 24);
-  closeBtn->setCursor(Qt::PointingHandCursor);
-  closeBtn->setStyleSheet(
-      "QPushButton {"
-      "  background-color: transparent;"
-      "  border: none; color: rgba(255,255,255,0.50); font-size: 12px;"
-      "  border-radius: 12px;"
-      "}"
-      "QPushButton:hover { background-color: rgba(255,255,255,0.15); color: white; }");
-  connect(closeBtn, &QPushButton::clicked, this,
-          [this, tabIndex]() { closeNoteTab(tabIndex); });
-  tabLay->addWidget(closeBtn);
-
-  int insertIdx = m_tabBarLayout->indexOf(m_btnHomeTab) + 1;
-  m_tabBarLayout->insertWidget(insertIdx + tabIndex, tabWidget);
-  m_activeTabIndex = tabIndex;
+  m_documentTabBar->setHomeActive(false);
+  int idx = m_documentTabBar->addTab(title);
+  m_documentTabBar->setCurrentIndex(idx);
 }
 
 
@@ -2859,28 +2775,11 @@ void MainWindow::onShowNewTabPopup() {
 }
 
 void MainWindow::closeNoteTab(int index) {
-  if (!m_tabBarLayout || index < 0 || index >= m_noteTabButtons.size())
+  if (!m_documentTabBar)
     return;
-
-  QWidget *tabWidget = m_noteTabButtons.at(index)->parentWidget();
-  m_tabBarLayout->removeWidget(tabWidget);
-  tabWidget->deleteLater();
-  m_noteTabButtons.removeAt(index);
-
-  if (m_noteTabButtons.isEmpty() && m_btnHomeTab) {
-    m_activeTabIndex = -1;
-    m_btnHomeTab->setIcon(createModernIcon(
-        QStringLiteral("home"), QColor(QStringLiteral("#E8E4FF"))));
-    // Aktiver Stil wieder herstellen (neue Farben)
-    m_btnHomeTab->setStyleSheet(
-        "QPushButton {"
-        "  background: rgba(124,92,252,0.22);"
-        "  border: 1px solid rgba(124,92,252,0.55);"
-        "  color: #DDD8FF; font-size: 14px; font-weight: 600;"
-        "  padding: 0 14px; border-radius: 14px;"
-        "}"
-        "QPushButton:hover { background: rgba(124,92,252,0.30); }");
-  }
+  m_documentTabBar->removeTab(index);
+  if (m_documentTabBar->count() == 0)
+    m_documentTabBar->setHomeActive(true);
 }
 
 
@@ -3001,6 +2900,10 @@ void MainWindow::applyTheme() {
     tb->setAccentColor(m_currentAccentColor);
   if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
     phone->setAccentColor(m_currentAccentColor);
+  if (m_documentTabBar)
+    m_documentTabBar->setAccentColor(m_currentAccentColor);
+  if (m_pageThumbnailSidebar)
+    m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
 
   // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
   // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
@@ -4422,12 +4325,63 @@ void MainWindow::setupUi() {
       "QTabWidget::pane { border: none; }"));
   connect(m_editorTabs, &QTabWidget::tabCloseRequested, [this](int index) {
     m_editorTabs->removeTab(index);
+    if (m_documentTabBar)
+      m_documentTabBar->removeTab(index);
     if (m_editorTabs->count() == 0)
       onBackToOverview();
   });
   connect(m_editorTabs, &QTabWidget::currentChanged, this,
           &MainWindow::onTabChanged);
   centerLayout->addWidget(m_editorTabs);
+
+  // ── Note Page Header (title / page count / metadata) ─────────────────────
+  m_noteHeader = new QWidget(m_editorCenterWidget);
+  m_noteHeader->setObjectName(QStringLiteral("NoteHeader"));
+  m_noteHeader->setFixedHeight(UiScale::dp(40));
+  m_noteHeader->setStyleSheet(
+      QStringLiteral("QWidget#NoteHeader { background: #0D0B14; border-bottom: 1px solid #201E2E; }"));
+  QHBoxLayout *noteHeaderLayout = new QHBoxLayout(m_noteHeader);
+  noteHeaderLayout->setContentsMargins(UiScale::dp(16), 0, UiScale::dp(16), 0);
+  noteHeaderLayout->setSpacing(UiScale::dp(8));
+
+  m_lblNoteHeaderTitle = new QLabel(m_noteHeader);
+  m_lblNoteHeaderTitle->setStyleSheet(
+      QStringLiteral("color: #E8E4FF; font-size: 13px; font-weight: 700; background: transparent;"));
+  noteHeaderLayout->addWidget(m_lblNoteHeaderTitle);
+  noteHeaderLayout->addStretch(1);
+
+  m_lblNoteHeaderMeta = new QLabel(m_noteHeader);
+  m_lblNoteHeaderMeta->setStyleSheet(
+      QStringLiteral("color: rgba(232,228,255,0.55); font-size: 11px; background: transparent;"));
+  noteHeaderLayout->addWidget(m_lblNoteHeaderMeta);
+
+  ModernButton *btnPageLayout = new ModernButton(m_noteHeader);
+  btnPageLayout->setIcon(createModernIcon(QStringLiteral("palette"), QColor(200, 190, 255, 150)));
+  btnPageLayout->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  btnPageLayout->setToolTip(QStringLiteral("Seitenlayout & Hintergrund"));
+  btnPageLayout->setStyleSheet(
+      QStringLiteral("QToolButton { background: transparent; border: none; border-radius: 8px; }"
+                     "QToolButton:hover { background: rgba(124,92,252,0.18); }"));
+  connect(btnPageLayout, &QAbstractButton::clicked, this, [this]() {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+      if (auto *view = editor->view())
+        view->openPageLayoutForVisiblePage();
+  });
+  noteHeaderLayout->addWidget(btnPageLayout);
+
+  m_noteHeader->hide();
+  centerLayout->insertWidget(0, m_noteHeader);
+
+  // ── Page Thumbnail Sidebar (persistent left strip) ───────────────────────
+  m_pageThumbnailSidebar = new PageThumbnailSidebar(m_editorContainer);
+  m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+  connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::pageSelected, this,
+          [this](int pageIndex) {
+            if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+              if (auto *view = editor->view())
+                view->scrollToPage(pageIndex, true);
+          });
+  editorMainLayout->insertWidget(0, m_pageThumbnailSidebar);
 
   // Shared handlers: the same code runs whether the active toolbar is
   // ModernToolbar (desktop / Android tablet) or AndroidPhoneToolbar (phone).
@@ -7182,7 +7136,9 @@ void MainWindow::animateSidebar(bool show) {
                   int dockX = qMax(0, (availableW - dockW) / 2);
                   if (dockX + dockW > m_editorCenterWidget->width())
                     dockX = m_editorCenterWidget->width() - dockW;
-                  tb->setGeometry(dockX, 0, dockW, 48);
+                  const int headerH = noteHeaderHeight();
+                  tb->setTopBound(headerH);
+                  tb->setGeometry(dockX, headerH, dockW, 48);
                   tb->raise();
                 }
               }
@@ -7266,8 +7222,10 @@ void MainWindow::updateSidebarState() {
   // „+“ für Web-Lesezeichen: in Study und in der Notiz-Übersicht, nicht während des Schreibens.
   if (m_btnAddWebBookmark)
     m_btnAddWebBookmark->setVisible((inNotesMode && !isEditor) || !inNotesMode);
-  if (m_noteTabsChrome)
-    m_noteTabsChrome->setVisible(inNotesMode);
+  if (m_documentTabBar)
+    m_documentTabBar->setVisible(inNotesMode);
+  if (m_pageThumbnailSidebar)
+    m_pageThumbnailSidebar->setVisible(inNotesMode && isEditor);
   if (m_titleSearchBar)
     m_titleSearchBar->setVisible(inNotesMode);
   {
@@ -8273,7 +8231,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
       }
     } else if (ModernToolbar *tb =
                    qobject_cast<ModernToolbar *>(m_floatingTools)) {
-      tb->setTopBound(0);
+      tb->setTopBound(noteHeaderHeight());
       tb->requestAdaptiveReflow();
       // Let the toolbar govern its own dragged docking position seamlessly.
     }
@@ -8412,6 +8370,10 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
   }
 }
 
+int MainWindow::noteHeaderHeight() const {
+  return (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
+}
+
 void MainWindow::switchToSelectTool() { onToolSelect(); }
 void MainWindow::onToolSelect() { setActiveTool(CanvasView::ToolType::Select); }
 void MainWindow::onToolPen() {
@@ -8498,8 +8460,22 @@ void MainWindow::onItemDropped(const QModelIndex &sourceIndex,
 }
 
 void MainWindow::onTabChanged(int index) {
+  if (m_documentTabBar) {
+    if (index < 0)
+      m_documentTabBar->setHomeActive(true);
+    else
+      m_documentTabBar->setCurrentIndex(index);
+  }
+
   QWidget *current = m_editorTabs->currentWidget();
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
+  if (m_pageThumbnailSidebar) {
+    if (editor && editor->view())
+      m_pageThumbnailSidebar->setNoteView(editor->view());
+    else
+      m_pageThumbnailSidebar->setNoteView(nullptr);
+  }
+
 
   // WICHTIG: ToolManager auf neuen View aktualisieren
   CanvasView *cv = getCurrentCanvas();
@@ -8509,13 +8485,30 @@ void MainWindow::onTabChanged(int index) {
 
   setActiveTool(m_activeToolType);
 
-  // --- Aktive Notiz in die rechte Sidebar schreiben ---
+  // --- Aktive Notiz in die rechte Sidebar + Header schreiben ---
   QString noteTitle;
   if (index >= 0)
     noteTitle = m_editorTabs->tabText(index);
 
   if (m_lblActiveNote)
     m_lblActiveNote->setText(noteTitle);
+
+  if (m_noteHeader) {
+    if (index >= 0 && editor && editor->view()) {
+      m_noteHeader->show();
+      m_lblNoteHeaderTitle->setText(noteTitle);
+      const int pageCount = editor->view()->pageCount();
+      const int currentPage = qMax(0, editor->view()->currentPageIndex() + 1);
+      m_lblNoteHeaderMeta->setText(
+          QStringLiteral("Seite %1 / %2").arg(currentPage).arg(pageCount));
+    } else {
+      m_noteHeader->hide();
+    }
+    if (m_editorCenterWidget)
+      QCoreApplication::postEvent(
+          m_editorCenterWidget,
+          new QResizeEvent(m_editorCenterWidget->size(), m_editorCenterWidget->size()));
+  }
 
   // Metadaten aus der Datei lesen (Erstellt / Geändert)
   if (cv && m_fileModel) {
