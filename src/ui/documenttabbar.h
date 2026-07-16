@@ -28,6 +28,8 @@ public:
 
   void setAccentColor(const QColor &color);
   void setHomeActive(bool active);
+  /// Hide the built-in home squircle when the host already has a Home button.
+  void setHomeVisible(bool visible);
 
 signals:
   void currentChanged(int index);

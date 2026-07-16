@@ -243,6 +243,15 @@ void DocumentTabBar::setHomeActive(bool active) {
   updateIndicator(false);
 }
 
+void DocumentTabBar::setHomeVisible(bool visible) {
+  if (!m_homeTab)
+    return;
+  m_homeTab->setVisible(visible);
+  if (!visible)
+    m_homeActive = false;
+  updateIndicator(false);
+}
+
 void DocumentTabBar::setCurrentIndex(int index) {
   if (index < -1 || index >= m_tabs.size() || index == m_currentIndex)
     return;

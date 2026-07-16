@@ -621,9 +621,6 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
     return;
   } else {
     chrome->setVisible(true);
-    // Restore normal height when not in login mode
-    const int androidHeaderTotalH = UiScale::dp(56) + UiScale::safeTopPx(window);
-    chrome->setFixedHeight(androidHeaderTotalH);
   }
   auto *headerLay = qobject_cast<QHBoxLayout *>(inner->layout());
   if (!headerLay)
@@ -666,10 +663,15 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
       qBound(UiScale::dp(28), int(headerHeight * 0.7), UiScale::dp(38));
   const int compactPillH =
       qBound(UiScale::dp(26), int(headerHeight * 0.58), UiScale::dp(34));
-  const int totalHeight = headerHeight + clampedInset + topExtra;
+  const int rowHeight = headerHeight + clampedInset + topExtra;
+  QWidget *docTabs =
+      window->findChild<QWidget *>(QStringLiteral("AndroidDocumentTabBar"));
+  const int tabsH =
+      (docTabs && docTabs->isVisible()) ? qMax(UiScale::dp(36), docTabs->height()) : 0;
+  const int totalHeight = rowHeight + tabsH;
 
   chrome->setFixedHeight(totalHeight);
-  inner->setFixedHeight(totalHeight);
+  inner->setFixedHeight(rowHeight);
   headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
                                 rightPad, UiScale::dp(4));
   headerLay->setSpacing(narrowPhone ? UiScale::dp(3) : UiScale::dp(8));
@@ -3872,11 +3874,35 @@ void MainWindow::setupUi() {
   headerLay->addWidget(m_btnAndroidToolbarExport, 0, Qt::AlignVCenter);
 #endif
 
+  // Document tabs strip (editor only) — Drawboard-style open-note switching.
+  m_documentTabBar = new DocumentTabBar(androidTopChrome);
+  m_documentTabBar->setObjectName(QStringLiteral("AndroidDocumentTabBar"));
+  m_documentTabBar->setAccentColor(m_currentAccentColor);
+  m_documentTabBar->setHomeVisible(false); // header Home button already exists
+  m_documentTabBar->setFixedHeight(UiScale::dp(40));
+  m_documentTabBar->hide();
+  connect(m_documentTabBar, &DocumentTabBar::currentChanged, this,
+          [this](int index) {
+            if (m_editorTabs && index >= 0 && index != m_editorTabs->currentIndex())
+              m_editorTabs->setCurrentIndex(index);
+          });
+  connect(m_documentTabBar, &DocumentTabBar::tabCloseRequested, this,
+          [this](int index) {
+            if (m_editorTabs) {
+              m_editorTabs->removeTab(index);
+              if (m_editorTabs->count() == 0)
+                onBackToOverview();
+            }
+          });
+  connect(m_documentTabBar, &DocumentTabBar::homeClicked, this,
+          &MainWindow::onBackToOverview);
+
   {
     QVBoxLayout *chromeLay = new QVBoxLayout(androidTopChrome);
     chromeLay->setContentsMargins(0, 0, 0, 0);
     chromeLay->setSpacing(0);
     chromeLay->addWidget(androidHeader);
+    chromeLay->addWidget(m_documentTabBar);
   }
   androidTopChrome->setFixedHeight(androidHeaderTotalH);
   mainLayout->addWidget(androidTopChrome, 0);
@@ -4266,14 +4292,16 @@ void MainWindow::setupUi() {
 #ifdef Q_OS_ANDROID
     // Android Tablet: keep toolbar behavior deterministic (fixed/docked).
     topToolbar->setDraggable(false);
+    topToolbar->setDockMode(true);
 #else
+    // Desktop canvas-first: floating toolbar by default (dock via drag-to-top / toggle).
     topToolbar->setDraggable(true);
+    topToolbar->setDockMode(false);
 #endif
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     int idealW = topToolbar->calculateMinLength();
     topToolbar->resize(idealW, 52);
     m_floatingTools = topToolbar;
-    topToolbar->setDockMode(true);
   }
   m_floatingTools->raise();
 
@@ -7271,23 +7299,25 @@ void MainWindow::updateSidebarState() {
       btnEditorMenu->hide();
     if (m_btnAndroidToolbarMenu)
       m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
-    if (m_btnAndroidToolbarPageManager) {
-      // Always keep page settings entry point reachable in Notes mode.
-      m_btnAndroidToolbarPageManager->setVisible(true);
-    }
+    // Page manager lives in note overflow; keep header calm for document tabs.
+    if (m_btnAndroidToolbarPageManager)
+      m_btnAndroidToolbarPageManager->setVisible(false);
     if (m_btnAndroidToolbarExport)
       m_btnAndroidToolbarExport->setVisible(true);
-    if (m_androidTopSearchBar) {
-      // Only show the inline search bar on real tablets (>= 600 dp wide via
-      // a DPI-robust raw-pixel check). Phones — even ones whose Qt HighDPI
-      // mode reports >dp(420) of usable width — would still crowd the
-      // right-side action buttons off the screen. Phone users navigate via
-      // the Notizen/Study pills directly.
-      if (UiScale::isAndroidTablet(this))
-        m_androidTopSearchBar->show();
-      else
-        m_androidTopSearchBar->hide();
-    }
+    if (m_androidTopSearchBar)
+      m_androidTopSearchBar->hide();
+    // Editor: document tabs replace Notizen/Study pills as primary chrome.
+    if (m_documentTabBar)
+      m_documentTabBar->setVisible(true);
+    if (m_btnAndroidNotes)
+      m_btnAndroidNotes->hide();
+    if (m_btnAndroidStudy)
+      m_btnAndroidStudy->hide();
+    if (m_btnAndroidAddWebBookmark)
+      m_btnAndroidAddWebBookmark->hide();
+    if (m_pageThumbnailSidebar)
+      m_pageThumbnailSidebar->setVisible(true);
+    syncAndroidHeaderGeometry(this);
 
     if (shouldMorphTopButtons) {
       auto animateScale = [](ModernButton *btn) {
@@ -7304,7 +7334,6 @@ void MainWindow::updateSidebarState() {
         a->start(QAbstractAnimation::DeleteWhenStopped);
       };
       animateScale(m_btnAndroidToolbarExport);
-      animateScale(m_btnAndroidToolbarPageManager);
     }
   } else {
     m_sidebarStrip->show();
@@ -7322,8 +7351,19 @@ void MainWindow::updateSidebarState() {
       m_androidTopSearchBar->clear();
       m_androidTopSearchBar->hide();
     }
+    if (m_documentTabBar)
+      m_documentTabBar->hide();
+    if (m_btnAndroidNotes)
+      m_btnAndroidNotes->show();
+    if (m_btnAndroidStudy)
+      m_btnAndroidStudy->show();
+    if (m_btnAndroidAddWebBookmark)
+      m_btnAndroidAddWebBookmark->setVisible(true);
+    if (m_pageThumbnailSidebar)
+      m_pageThumbnailSidebar->setVisible(false);
     if (m_pageSettingsOverlay && m_pageSettingsOverlay->isVisible())
       setPageSettingsOverlayVisible(false);
+    syncAndroidHeaderGeometry(this);
   }
 #else
   if (isEditor) {
