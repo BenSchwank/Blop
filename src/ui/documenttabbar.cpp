@@ -1,5 +1,6 @@
 #include "documenttabbar.h"
 
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
@@ -7,6 +8,10 @@
 #include <QPainterPath>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QScroller>
+#include <QWheelEvent>
 
 #include "blop_theme.h"
 #include "blopstyle.h"
@@ -24,6 +29,8 @@ QIcon makeTabIcon(const QString &name, const QColor &color, int size) {
   blopDrawToolbarGlyph64(&p, name, color);
   return QIcon(pm);
 }
+
+int tabMaxWidthPx() { return UiScale::dp(168); }
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -36,6 +43,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   setAttribute(Qt::WA_TranslucentBackground, true);
   setCursor(Qt::PointingHandCursor);
   setFixedHeight(UiScale::dp(36));
+  setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
   QHBoxLayout *lay = new QHBoxLayout(this);
   lay->setContentsMargins(UiScale::dp(10), 0, UiScale::dp(6), 0);
@@ -46,25 +54,30 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
                          .pixmap(UiScale::dp(18), UiScale::dp(18)));
   lay->addWidget(iconLbl);
 
-  QLabel *textLbl = new QLabel(title, this);
-  textLbl->setStyleSheet(
-      QStringLiteral("QLabel { color: #E8E8FF; font-size: 14px; font-weight: 600; }"));
-  lay->addWidget(textLbl);
+  m_textLbl = new QLabel(this);
+  m_textLbl->setStyleSheet(
+      QStringLiteral("QLabel { color: #E8E8FF; font-size: 13px; font-weight: 600; }"));
+  if (m_title.isEmpty() && !m_closable) {
+    m_textLbl->hide();
+  } else {
+    refreshTitleLabel();
+    lay->addWidget(m_textLbl);
+  }
 
   if (m_closable) {
     QPushButton *closeBtn = new QPushButton(QStringLiteral("\u2715"), this);
-    closeBtn->setFixedSize(UiScale::dp(20), UiScale::dp(20));
+    closeBtn->setFixedSize(UiScale::dp(18), UiScale::dp(18));
     closeBtn->setCursor(Qt::PointingHandCursor);
     closeBtn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background-color: transparent;"
                        "  border: none;"
-                       "  color: rgba(255,255,255,0.50);"
-                       "  font-size: 12px;"
-                       "  border-radius: 10px;"
+                       "  color: rgba(255,255,255,0.45);"
+                       "  font-size: 11px;"
+                       "  border-radius: 9px;"
                        "}"
                        "QPushButton:hover {"
-                       "  background-color: rgba(255,255,255,0.15);"
+                       "  background-color: rgba(255,255,255,0.12);"
                        "  color: white;"
                        "}"));
     connect(closeBtn, &QPushButton::clicked, this, [this]() { emit closeClicked(); });
@@ -72,6 +85,25 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   }
 
   setMouseTracking(true);
+  setFixedWidth(sizeHint().width());
+}
+
+void DocumentTab::refreshTitleLabel() {
+  if (!m_textLbl)
+    return;
+  QFontMetrics fm(m_textLbl->font());
+  // Leave room for icon + close + padding inside max tab width.
+  const int textBudget =
+      tabMaxWidthPx() - UiScale::dp(10 + 18 + 6 + (m_closable ? 24 : 0) + 6);
+  m_textLbl->setText(fm.elidedText(m_title, Qt::ElideRight, qMax(UiScale::dp(40), textBudget)));
+  setFixedWidth(sizeHint().width());
+}
+
+void DocumentTab::setTitle(const QString &title) {
+  if (m_title == title)
+    return;
+  m_title = title;
+  refreshTitleLabel();
 }
 
 void DocumentTab::setActive(bool active, const QColor &accent) {
@@ -91,12 +123,23 @@ void DocumentTab::setAccentColor(const QColor &color) {
 }
 
 QSize DocumentTab::iconTextSize() const {
-  QFontMetrics fm(font());
-  int textW = fm.horizontalAdvance(m_title);
-  int iconW = UiScale::dp(18);
-  int spacing = UiScale::dp(6);
-  return QSize(iconW + spacing + textW, UiScale::dp(36));
+  return sizeHint();
 }
+
+QSize DocumentTab::sizeHint() const {
+  QFontMetrics fm(font());
+  const QString shown = m_textLbl ? m_textLbl->text() : m_title;
+  int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
+  int w = UiScale::dp(10) + UiScale::dp(18) + UiScale::dp(6) + textW +
+          (m_closable ? UiScale::dp(24) : 0) + UiScale::dp(6);
+  if (m_title.isEmpty() && !m_closable) {
+    // Home squircle: icon-only compact chip.
+    w = UiScale::dp(36);
+  }
+  return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(36));
+}
+
+QSize DocumentTab::minimumSizeHint() const { return sizeHint(); }
 
 void DocumentTab::paintEvent(QPaintEvent *) {
   QPainter p(this);
@@ -120,7 +163,6 @@ void DocumentTab::paintEvent(QPaintEvent *) {
     QColor bg(255, 255, 255, 18);
     p.fillPath(path, bg);
   } else {
-    // Idle tabs stay nearly chrome-free — Drawboard-quiet document strip.
     QColor bg(255, 255, 255, 8);
     p.fillPath(path, bg);
   }
@@ -148,16 +190,49 @@ void DocumentTab::leaveEvent(QEvent *event) {
 // -----------------------------------------------------------------------------
 DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_TranslucentBackground, true);
-  m_layout = new QHBoxLayout(this);
-  m_layout->setContentsMargins(0, 0, 0, 0);
-  m_layout->setSpacing(UiScale::dp(8));
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  setFixedHeight(UiScale::dp(40));
+
+  m_outerLayout = new QHBoxLayout(this);
+  m_outerLayout->setContentsMargins(0, 0, 0, 0);
+  m_outerLayout->setSpacing(UiScale::dp(8));
 
   m_homeTab = new DocumentTab(QString(), QStringLiteral("home"), false, this);
   m_homeTab->setActive(true, m_accentColor);
   connect(m_homeTab, &DocumentTab::clicked, this, [this]() { emit homeClicked(); });
-  m_layout->addWidget(m_homeTab);
+  m_outerLayout->addWidget(m_homeTab, 0);
 
-  m_indicator = new QWidget(this);
+  m_scroll = new QScrollArea(this);
+  m_scroll->setWidgetResizable(false);
+  m_scroll->setFrameShape(QFrame::NoFrame);
+  m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_scroll->setAttribute(Qt::WA_TranslucentBackground, true);
+  m_scroll->viewport()->setAttribute(Qt::WA_TranslucentBackground, true);
+  m_scroll->setStyleSheet(QStringLiteral(
+      "QScrollArea { background: transparent; border: none; }"
+      "QScrollArea > QWidget > QWidget { background: transparent; }"));
+  m_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  m_scroll->setFixedHeight(UiScale::dp(40));
+
+  m_scrollContent = new QWidget(m_scroll);
+  m_scrollContent->setAttribute(Qt::WA_TranslucentBackground, true);
+  m_tabsLayout = new QHBoxLayout(m_scrollContent);
+  m_tabsLayout->setContentsMargins(0, 2, 0, 2);
+  m_tabsLayout->setSpacing(UiScale::dp(6));
+  m_tabsLayout->addStretch(1);
+  m_scrollContent->setFixedHeight(UiScale::dp(40));
+  m_scroll->setWidget(m_scrollContent);
+
+#ifdef Q_OS_ANDROID
+  QScroller::grabGesture(m_scroll->viewport(), QScroller::LeftMouseButtonGesture);
+#else
+  QScroller::grabGesture(m_scroll->viewport(), QScroller::LeftMouseButtonGesture);
+#endif
+
+  m_outerLayout->addWidget(m_scroll, 1);
+
+  m_indicator = new QWidget(m_scrollContent);
   m_indicator->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_indicator->setAttribute(Qt::WA_StyledBackground, true);
   m_indicator->resize(UiScale::dp(28), UiScale::dp(3));
@@ -167,19 +242,38 @@ DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
   m_indicator->hide();
 }
 
+void DocumentTabBar::rebindTabSignals() {
+  for (int i = 0; i < m_tabs.size(); ++i) {
+    disconnect(m_tabs[i], &DocumentTab::clicked, nullptr, nullptr);
+    disconnect(m_tabs[i], &DocumentTab::closeClicked, nullptr, nullptr);
+    connect(m_tabs[i], &DocumentTab::clicked, this, [this, i]() { setCurrentIndex(i); });
+    connect(m_tabs[i], &DocumentTab::closeClicked, this,
+            [this, i]() { emit tabCloseRequested(i); });
+  }
+}
+
 int DocumentTabBar::addTab(const QString &title, const QString &iconName) {
-  DocumentTab *tab = new DocumentTab(title, iconName, true, this);
+  DocumentTab *tab = new DocumentTab(title, iconName, true, m_scrollContent);
   int idx = m_tabs.size();
   m_tabs.append(tab);
 
-  m_layout->addWidget(tab);
-  connect(tab, &DocumentTab::clicked, this, [this, idx]() { setCurrentIndex(idx); });
-  connect(tab, &DocumentTab::closeClicked, this, [this, idx]() { emit tabCloseRequested(idx); });
+  // Insert before the trailing stretch.
+  m_tabsLayout->insertWidget(m_tabsLayout->count() - 1, tab);
+  rebindTabSignals();
+
+  // Grow scroll content to natural tab row width.
+  int contentW = 0;
+  for (DocumentTab *t : m_tabs)
+    contentW += t->width() + UiScale::dp(6);
+  contentW = qMax(contentW, m_scroll->viewport()->width());
+  m_scrollContent->setFixedWidth(contentW);
 
   if (m_currentIndex < 0)
     setCurrentIndex(idx);
   else
     updateIndicator(false);
+
+  ensureTabVisible(idx);
   return idx;
 }
 
@@ -187,12 +281,15 @@ void DocumentTabBar::removeTab(int index) {
   if (index < 0 || index >= m_tabs.size())
     return;
   DocumentTab *tab = m_tabs.takeAt(index);
+  m_tabsLayout->removeWidget(tab);
   tab->deleteLater();
+  rebindTabSignals();
 
-  for (int i = 0; i < m_tabs.size(); ++i) {
-    disconnect(m_tabs[i], &DocumentTab::clicked, nullptr, nullptr);
-    connect(m_tabs[i], &DocumentTab::clicked, this, [this, i]() { setCurrentIndex(i); });
-  }
+  int contentW = 0;
+  for (DocumentTab *t : m_tabs)
+    contentW += t->width() + UiScale::dp(6);
+  contentW = qMax(contentW, m_scroll->viewport()->width());
+  m_scrollContent->setFixedWidth(qMax(UiScale::dp(40), contentW));
 
   if (m_currentIndex == index) {
     m_currentIndex = m_tabs.isEmpty() ? -1 : qMin(index, m_tabs.size() - 1);
@@ -208,9 +305,12 @@ void DocumentTabBar::removeTab(int index) {
 void DocumentTabBar::setTabText(int index, const QString &title) {
   if (index < 0 || index >= m_tabs.size())
     return;
-  QList<QLabel *> labels = m_tabs[index]->findChildren<QLabel *>(QString(), Qt::FindDirectChildrenOnly);
-  if (labels.size() >= 2)
-    labels[1]->setText(title);
+  m_tabs[index]->setTitle(title);
+  int contentW = 0;
+  for (DocumentTab *t : m_tabs)
+    contentW += t->width() + UiScale::dp(6);
+  m_scrollContent->setFixedWidth(qMax(m_scroll->viewport()->width(), contentW));
+  updateIndicator(false);
 }
 
 int DocumentTabBar::currentIndex() const { return m_currentIndex; }
@@ -239,7 +339,8 @@ void DocumentTabBar::setHomeActive(bool active) {
   m_homeActive = active;
   m_homeTab->setActive(active, m_accentColor);
   for (DocumentTab *tab : m_tabs)
-    tab->setActive(!active && (m_currentIndex >= 0 && m_tabs[m_currentIndex] == tab), m_accentColor);
+    tab->setActive(!active && (m_currentIndex >= 0 && m_tabs[m_currentIndex] == tab),
+                   m_accentColor);
   updateIndicator(false);
 }
 
@@ -265,29 +366,97 @@ void DocumentTabBar::setCurrentIndex(int index) {
   if (m_currentIndex >= 0)
     m_tabs[m_currentIndex]->setActive(true, m_accentColor);
   updateIndicator(true);
+  ensureTabVisible(m_currentIndex);
   emit currentChanged(m_currentIndex);
+}
+
+void DocumentTabBar::ensureTabVisible(int index) {
+  if (!m_scroll || index < 0 || index >= m_tabs.size())
+    return;
+  DocumentTab *tab = m_tabs[index];
+  if (!tab)
+    return;
+  m_scroll->ensureWidgetVisible(tab, UiScale::dp(24), 0);
 }
 
 void DocumentTabBar::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
+  if (m_scrollContent) {
+    int contentW = 0;
+    for (DocumentTab *t : m_tabs)
+      contentW += t->width() + UiScale::dp(6);
+    m_scrollContent->setFixedWidth(
+        qMax(m_scroll->viewport()->width(), qMax(UiScale::dp(40), contentW)));
+  }
   updateIndicator(false);
+}
+
+void DocumentTabBar::wheelEvent(QWheelEvent *event) {
+  if (!m_scroll)
+    return;
+  QScrollBar *bar = m_scroll->horizontalScrollBar();
+  if (!bar)
+    return;
+  // Prefer horizontal wheel; map vertical trackpad deltas to tab strip scroll.
+  const int delta = event->angleDelta().x() != 0 ? event->angleDelta().x()
+                                                 : event->angleDelta().y();
+  bar->setValue(bar->value() - delta);
+  event->accept();
 }
 
 void DocumentTabBar::updateIndicator(bool animate) {
   if (!m_indicator)
     return;
 
-  DocumentTab *activeTab = m_homeActive ? m_homeTab : (m_currentIndex >= 0 ? m_tabs[m_currentIndex] : nullptr);
+  DocumentTab *activeTab =
+      m_homeActive ? m_homeTab
+                   : (m_currentIndex >= 0 ? m_tabs.value(m_currentIndex) : nullptr);
   if (!activeTab || !activeTab->isVisible()) {
     m_indicator->hide();
     return;
   }
 
-  const int indW = activeTab->width() - UiScale::dp(20);
-  const int indH = UiScale::dp(3);
-  const QPoint target(activeTab->x() + UiScale::dp(10), activeTab->y() + activeTab->height() - UiScale::dp(6));
+  // Home lives outside the scroll content — underline sits under home in outer bar.
+  if (activeTab == m_homeTab) {
+    if (m_indicator->parentWidget() != this) {
+      m_indicator->setParent(this);
+      m_indicator->show();
+    }
+    const int indW = qMax(UiScale::dp(16), activeTab->width() - UiScale::dp(12));
+    const int indH = UiScale::dp(3);
+    const QPoint target(activeTab->x() + (activeTab->width() - indW) / 2,
+                        activeTab->y() + activeTab->height() - UiScale::dp(4));
+    m_indicator->resize(indW, indH);
+    if (!animate || !m_indicator->isVisible()) {
+      m_indicator->move(target);
+      m_indicator->show();
+      m_indicator->raise();
+      return;
+    }
+    if (!m_indicatorAnim)
+      m_indicatorAnim = new QPropertyAnimation(m_indicator, "pos", this);
+    else
+      m_indicatorAnim->stop();
+    m_indicatorAnim->setDuration(BlopMotion::kStandard);
+    m_indicatorAnim->setEasingCurve(BlopMotion::kEaseStandard);
+    m_indicatorAnim->setStartValue(m_indicator->pos());
+    m_indicatorAnim->setEndValue(target);
+    m_indicatorAnim->start();
+    m_indicator->raise();
+    return;
+  }
 
-  m_indicator->resize(qMax(0, indW), indH);
+  // Note tabs: indicator lives in the scroll content so it scrolls with them.
+  if (m_indicator->parentWidget() != m_scrollContent) {
+    m_indicator->setParent(m_scrollContent);
+  }
+
+  const int indW = qMax(UiScale::dp(16), activeTab->width() - UiScale::dp(16));
+  const int indH = UiScale::dp(3);
+  const QPoint target(activeTab->x() + (activeTab->width() - indW) / 2,
+                      activeTab->y() + activeTab->height() - UiScale::dp(5));
+
+  m_indicator->resize(indW, indH);
 
   if (!m_indicator->isVisible()) {
     m_indicator->move(target);
@@ -307,8 +476,8 @@ void DocumentTabBar::updateIndicator(bool animate) {
   } else {
     m_indicatorAnim->stop();
   }
-  m_indicatorAnim->setDuration(240);
-  m_indicatorAnim->setEasingCurve(QEasingCurve::OutCubic);
+  m_indicatorAnim->setDuration(BlopMotion::kStandard);
+  m_indicatorAnim->setEasingCurve(BlopMotion::kEaseStandard);
   m_indicatorAnim->setStartValue(m_indicator->pos());
   m_indicatorAnim->setEndValue(target);
   m_indicatorAnim->start();
@@ -320,4 +489,3 @@ DocumentTab *DocumentTabBar::tabAt(int index) const {
     return nullptr;
   return m_tabs[index];
 }
-
