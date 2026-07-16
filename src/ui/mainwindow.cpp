@@ -7288,6 +7288,15 @@ void MainWindow::updateSidebarState() {
       m_androidTopSearchBar->clear();
       m_androidTopSearchBar->hide();
     }
+    if (m_documentTabBar)
+      m_documentTabBar->hide();
+    if (m_pageThumbnailSidebar)
+      m_pageThumbnailSidebar->setVisible(false);
+    if (m_btnAndroidNotes)
+      m_btnAndroidNotes->show();
+    if (m_btnAndroidStudy)
+      m_btnAndroidStudy->show();
+    syncAndroidHeaderGeometry(this);
   } else if (isEditor) {
     if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       // Avoid random floating state on Android.
