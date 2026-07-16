@@ -1,6 +1,7 @@
 #include "uiscale.h"
 
 #include <QGuiApplication>
+#include <QPoint>
 #include <QScreen>
 #include <QWindow>
 #include <QWidget>
@@ -43,6 +44,7 @@ int androidStatusBarHeightResourcePx() {
   return qMax(0, resources.callMethod<jint>("getDimensionPixelSize", "(I)I",
                                             resId));
 }
+
 #endif
 
 QScreen *bestScreen(QWidget *reference) {
@@ -111,20 +113,45 @@ int sp(int px) {
 
 int androidTopInsetPx(QWidget *reference) {
   QScreen *screen = bestScreen(reference);
-  int inset = 0;
+  int availTop = 0;
+  int fullTop = 0;
+  int availInset = 0;
   if (screen) {
     const QRect full = screen->geometry();
     const QRect avail = screen->availableGeometry();
-    inset = qMax(0, avail.top() - full.top());
+    fullTop = full.top();
+    availTop = avail.top();
+    availInset = qMax(0, avail.top() - full.top());
   }
+  int inset = availInset;
 #if defined(Q_OS_ANDROID)
-  // Edge-to-edge can make availableGeometry report a 0 top inset even while the
-  // transparent status bar is still drawn over our content, so floor the inset
-  // at the real status-bar height to keep the header flush below it.
-  inset = qMax(inset, androidStatusBarHeightResourcePx());
-  // On some Android devices the top inset can exceed older hardcoded values.
-  // Keep it bounded only against unrealistic transition spikes.
-  inset = qBound(0, inset, dp(72));
+  // Qt 6.9+ lays widget windows out inside the safe area by itself: the
+  // top-level widget's effective contents margins already include
+  // QWindow::safeAreaMargins() (Qt::WA_ContentsMarginsRespectsSafeArea, on by
+  // default). Everything inside the window therefore already starts below the
+  // status bar, and any additional manual inset stacks on top of Qt's own
+  // margin — that is exactly the doubled "Balken" regression. So the manual
+  // inset is 0 unless the app explicitly opted out of Qt's safe-area
+  // handling.
+  QWidget *top = reference ? reference->window() : nullptr;
+  const bool qtHandlesSafeArea =
+      !top || top->testAttribute(Qt::WA_ContentsMarginsRespectsSafeArea);
+  if (qtHandlesSafeArea) {
+    inset = 0;
+  } else {
+    // Window draws edge-to-edge without Qt's safe-area margins: reserve the
+    // status-bar height, converted from physical to Qt's logical pixels.
+    const qreal dpr =
+        qMax<qreal>(screen ? screen->devicePixelRatio() : qreal(1.0), 1.0);
+    inset =
+        qBound(0, qRound(androidStatusBarHeightResourcePx() / dpr), dp(72));
+  }
+  qWarning("BlopInset: availTop=%d fullTop=%d availInset=%d "
+           "qtHandlesSafeArea=%d -> inset=%d",
+           availTop, fullTop, availInset, qtHandlesSafeArea ? 1 : 0, inset);
+#else
+  Q_UNUSED(availTop);
+  Q_UNUSED(fullTop);
 #endif
   return inset;
 }
