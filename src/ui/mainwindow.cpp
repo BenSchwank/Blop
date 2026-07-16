@@ -2574,15 +2574,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
                                 UiScale::safeBottomPx(this) - UiScale::dp(8));
       phone->setGeometry((avail - w) / 2, y, w, h);
       phone->raise();
-      if (m_penPresetBar) {
-        // Phone: chips hover directly above the bottom pill.
-        const int ph = m_penPresetBar->preferredHeightPx();
-        const int pw = qMin(m_penPresetBar->minimumWidth(),
-                            avail - 2 * margin);
-        m_penPresetBar->setGeometry((avail - pw) / 2,
-                                    qMax(0, y - ph - UiScale::dp(6)), pw, ph);
-        m_penPresetBar->raise();
-      }
+      syncPenPresetBarGeometry();
     } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       const int headerH = noteHeaderHeight();
       tb->setTopBound(headerH);
@@ -2603,18 +2595,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         tb->move(xPos, yPos);
       }
       tb->raise();
-      if (m_penPresetBar) {
-        // Desktop / tablet: chips sit right below the docked toolbar.
-        const int ph = m_penPresetBar->preferredHeightPx();
-        const int pw = qMin(m_penPresetBar->minimumWidth(),
-                            m_editorCenterWidget->width() - UiScale::dp(16));
-        // Flush under docked toolbar — one tool strip, not two floating bands.
-        const int py =
-            (tb->isDockedMode() ? tb->geometry().bottom() : 48) + UiScale::dp(2);
-        m_penPresetBar->setGeometry(
-            (m_editorCenterWidget->width() - pw) / 2, py, pw, ph);
-        m_penPresetBar->raise();
-      }
+      syncPenPresetBarGeometry();
     }
     if (m_pageSettingsOverlay && m_editorCenterWidget) {
       m_pageSettingsOverlay->setGeometry(
@@ -2634,6 +2615,8 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       return true;
     }
   } else if (obj == m_floatingTools && event->type() == QEvent::Move) {
+    // Chips follow the toolbar every move so floating bar + presets stay one cluster.
+    syncPenPresetBarGeometry();
     // v119 perf: QEvent::Move fires on EVERY pixel of a drag and was
     // re-evaluating the dock condition + (when triggered) running an
     // animation 60+ times per second. Gate on a small y-threshold so
@@ -2646,6 +2629,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       if (newY <= 10) {
         if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
           tb->setDockMode(true);
+          syncPenPresetBarGeometry();
         }
       }
     }
@@ -7157,6 +7141,7 @@ void MainWindow::animateSidebar(bool show) {
                   tb->setTopBound(headerH);
                   tb->setGeometry(dockX, headerH, dockW, 48);
                   tb->raise();
+                  syncPenPresetBarGeometry();
                 }
               }
             }
@@ -7228,6 +7213,8 @@ void MainWindow::updateSidebarState() {
   }
   if (m_penPresetBar) {
     m_penPresetBar->setVisible(isEditor);
+    if (isEditor)
+      syncPenPresetBarGeometry();
   }
   if (m_editorTitleControls) {
     m_editorTitleControls->setVisible(isEditor);
@@ -8407,6 +8394,40 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
 
 int MainWindow::noteHeaderHeight() const {
   return (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
+}
+
+void MainWindow::syncPenPresetBarGeometry() {
+  if (!m_penPresetBar || !m_editorCenterWidget || !m_floatingTools)
+    return;
+  if (!m_penPresetBar->isVisible() || !m_floatingTools->isVisible())
+    return;
+
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    const int margin = UiScale::dp(8);
+    const int avail = qMax(UiScale::dp(180), m_editorCenterWidget->width());
+    const int ph = m_penPresetBar->preferredHeightPx();
+    const int pw = qMin(m_penPresetBar->minimumWidth(), avail - 2 * margin);
+    const QRect tg = phone->geometry();
+    m_penPresetBar->setGeometry((avail - pw) / 2,
+                                qMax(0, tg.top() - ph - UiScale::dp(6)), pw, ph);
+    m_penPresetBar->raise();
+    return;
+  }
+
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    const int ph = m_penPresetBar->preferredHeightPx();
+    const int maxW = qMax(UiScale::dp(120),
+                          m_editorCenterWidget->width() - UiScale::dp(16));
+    const int pw = qMin(m_penPresetBar->minimumWidth(), maxW);
+    const QRect tg = tb->geometry();
+    // Center under the toolbar so floating bar + chips read as one cluster.
+    int px = tg.center().x() - pw / 2;
+    px = qBound(UiScale::dp(8), px,
+               m_editorCenterWidget->width() - pw - UiScale::dp(8));
+    const int py = tg.bottom() + UiScale::dp(2);
+    m_penPresetBar->setGeometry(px, py, pw, ph);
+    m_penPresetBar->raise();
+  }
 }
 
 void MainWindow::switchToSelectTool() { onToolSelect(); }

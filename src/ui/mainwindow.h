@@ -311,6 +311,8 @@ private:
   CanvasView *getCurrentCanvas();
   void setActiveTool(CanvasView::ToolType tool);
   int noteHeaderHeight() const;
+  /// Keep PenPresetBar pinned under the floating/docked toolbar as one cluster.
+  void syncPenPresetBarGeometry();
 
   // --- Web Integration ---
   void setupWebBrowser();

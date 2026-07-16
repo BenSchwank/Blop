@@ -11,11 +11,35 @@
 #include "multipagenoteview.h"
 #include "uiscale.h"
 
+namespace {
+struct RailMetrics {
+  int width;
+  int thumbW;
+  int thumbH;
+  int itemH;
+  int pad;
+};
+
+RailMetrics railMetrics(QWidget *ref) {
+#ifdef Q_OS_ANDROID
+  // Phones: slim rail so the canvas keeps breathing room.
+  if (!UiScale::isAndroidTablet(ref)) {
+    return {UiScale::dp(68), UiScale::dp(52), UiScale::dp(72), UiScale::dp(90),
+            UiScale::dp(6)};
+  }
+#endif
+  Q_UNUSED(ref);
+  return {UiScale::dp(92), UiScale::dp(72), UiScale::dp(98), UiScale::dp(118),
+          UiScale::dp(8)};
+}
+} // namespace
+
 PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
     : QWidget(parent) {
   setObjectName(QStringLiteral("PageThumbnailSidebar"));
   setAttribute(Qt::WA_StyledBackground, true);
-  setFixedWidth(UiScale::dp(92));
+  const RailMetrics m = railMetrics(this);
+  setFixedWidth(m.width);
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
       "  background-color: rgba(16, 14, 24, 0.72);"
@@ -23,13 +47,13 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
       "}"));
 
   QVBoxLayout *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(UiScale::dp(8), UiScale::dp(10), UiScale::dp(8), UiScale::dp(10));
-  lay->setSpacing(UiScale::dp(8));
+  lay->setContentsMargins(m.pad, UiScale::dp(10), m.pad, UiScale::dp(10));
+  lay->setSpacing(UiScale::dp(6));
 
   m_list = new QListWidget(this);
   m_list->setFrameStyle(QFrame::NoFrame);
   m_list->setSpacing(UiScale::dp(6));
-  m_list->setIconSize(QSize(UiScale::dp(72), UiScale::dp(98)));
+  m_list->setIconSize(QSize(m.thumbW, m.thumbH));
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
   connect(m_list, &QListWidget::itemClicked, this,
@@ -38,7 +62,7 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
 
   m_btnAddPage = new QPushButton(QStringLiteral("+"), this);
   m_btnAddPage->setObjectName(QStringLiteral("PageRailAddBtn"));
-  m_btnAddPage->setFixedHeight(UiScale::dp(32));
+  m_btnAddPage->setFixedHeight(UiScale::dp(30));
   m_btnAddPage->setCursor(Qt::PointingHandCursor);
   m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
   connect(m_btnAddPage, &QPushButton::clicked, this, &PageThumbnailSidebar::addPageRequested);
@@ -115,12 +139,14 @@ void PageThumbnailSidebar::rebuild() {
   if (!m_view || !m_view->note())
     return;
 
+  const RailMetrics m = railMetrics(this);
+  m_list->setIconSize(QSize(m.thumbW, m.thumbH));
   const Note *note = m_view->note();
   const int count = note->pages.size();
   for (int i = 0; i < count; ++i) {
     QListWidgetItem *item = new QListWidgetItem(m_list);
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
-    item->setSizeHint(QSize(UiScale::dp(72), UiScale::dp(118)));
+    item->setSizeHint(QSize(m.thumbW, m.itemH));
     item->setText(QStringLiteral("%1").arg(i + 1));
     item->setForeground(QColor(232, 228, 255, 200));
     m_list->addItem(item);
@@ -134,7 +160,8 @@ void PageThumbnailSidebar::rebuild() {
 void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item, int epoch) {
   if (!m_view || !item)
     return;
-  const QSize thumbSize(UiScale::dp(72), UiScale::dp(98));
+  const RailMetrics m = railMetrics(this);
+  const QSize thumbSize(m.thumbW, m.thumbH);
   m_view->generateThumbnailAsync(pageIndex, thumbSize,
       [this, item, epoch](const QPixmap &pm) {
         if (!item || m_rebuildEpoch != epoch)
