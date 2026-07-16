@@ -2280,14 +2280,14 @@ void MainWindow::showAndroidStudyBootRetry() {
 
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
-  m_titleBarWidget->setFixedHeight(50); // Unified single-row layout
+  m_titleBarWidget->setFixedHeight(48); // Compact document chrome
   m_titleBarWidget->setStyleSheet(
-      "background: #1A1B2E;" // Solid elevated navy background
-      "border-bottom: 1px solid rgba(255,255,255,0.06);");
+      "background: #0D0B14;"
+      "border-bottom: 1px solid rgba(120,130,160,0.16);");
 
   QHBoxLayout *mainLayout = new QHBoxLayout(m_titleBarWidget);
-  mainLayout->setContentsMargins(10, 0, 0, 0);
-  mainLayout->setSpacing(6);
+  mainLayout->setContentsMargins(8, 0, 0, 0);
+  mainLayout->setSpacing(4);
 
   // ── Hamburger ─────────────────────────────────────────────────────────────
   btnEditorMenu = new ModernButton(m_titleBarWidget);
@@ -2606,8 +2606,9 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         const int ph = m_penPresetBar->preferredHeightPx();
         const int pw = qMin(m_penPresetBar->minimumWidth(),
                             m_editorCenterWidget->width() - UiScale::dp(16));
+        // Flush under docked toolbar — one tool strip, not two floating bands.
         const int py =
-            (tb->isDockedMode() ? tb->geometry().bottom() : 48) + UiScale::dp(6);
+            (tb->isDockedMode() ? tb->geometry().bottom() : 48) + UiScale::dp(2);
         m_penPresetBar->setGeometry(
             (m_editorCenterWidget->width() - pw) / 2, py, pw, ph);
         m_penPresetBar->raise();
@@ -3046,12 +3047,12 @@ void MainWindow::applyTheme() {
             .arg(c)));
   }
   if (m_lblSidebarAvatar) {
-    const int r = qMax(1, m_lblSidebarAvatar->width() / 2);
     m_lblSidebarAvatar->setStyleSheet(
-        QString("background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2); "
-                "border-radius: %3px; color: white; font-weight: bold; font-size: 12px;")
-            .arg(c, c_light)
-            .arg(r));
+        QString("background: rgba(%1,%2,%3,0.30); "
+                "border-radius: 10px; color: white; font-weight: 700; font-size: 12px;")
+            .arg(m_currentAccentColor.red())
+            .arg(m_currentAccentColor.green())
+            .arg(m_currentAccentColor.blue()));
   }
 #ifdef Q_OS_ANDROID
   // v3.17.5: cache per (resourcePath, tint.rgba()). loadTightIcon is O(W*H)
@@ -3963,16 +3964,11 @@ void MainWindow::setupUi() {
                                    UiScale::dp(10), UiScale::dp(12));
   headerLayout->setSpacing(UiScale::dp(10));
 
+  // Top chrome already owns the hamburger — don't duplicate it in the library header.
   btnEditorMenu = new ModernButton(m_overviewContainer);
   btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
   btnEditorMenu->setFixedSize(UiScale::dp(40), UiScale::dp(40));
-  btnEditorMenu->setCursor(Qt::PointingHandCursor);
-  btnEditorMenu->setStyleSheet(
-      "QToolButton { background: transparent; border: none; border-radius: 8px; }"
-      "QToolButton:pressed { background-color: rgba(255,255,255,0.08); }");
-  connect(btnEditorMenu, &QAbstractButton::clicked, this,
-          &MainWindow::onToggleSidebar);
-  headerLayout->addWidget(btnEditorMenu, 0, Qt::AlignLeft);
+  btnEditorMenu->hide();
 
   QLabel *lblWelcome = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
   lblWelcome->setObjectName(QStringLiteral("overviewLibraryTitle"));
@@ -5720,34 +5716,34 @@ void MainWindow::setupSidebar() {
 
   layout->setSpacing(0);
 
-  // --- HEADER: Blop Study style ---
+  // --- HEADER: compact brand row (document-app chrome) ---
   QWidget *header = new QWidget(m_sidebarContainer);
 #ifdef Q_OS_ANDROID
-  header->setFixedHeight(UiScale::dp(52));
+  header->setFixedHeight(UiScale::dp(44));
 #else
-  header->setFixedHeight(62);
+  header->setFixedHeight(44);
 #endif
 #ifdef Q_OS_ANDROID
   header->setStyleSheet("border-bottom: none; background: transparent;");
 #else
-  header->setStyleSheet(BlopTheme::themed("border-bottom: 1px solid #333;"));
+  header->setStyleSheet(BlopTheme::themed(
+      "border-bottom: 1px solid rgba(120,130,160,0.16);"));
 #endif
   QHBoxLayout *headerLay = new QHBoxLayout(header);
 #ifdef Q_OS_ANDROID
-  headerLay->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
-                                UiScale::dp(10));
+  headerLay->setContentsMargins(UiScale::dp(12), UiScale::dp(8), UiScale::dp(10),
+                                UiScale::dp(8));
   headerLay->setSpacing(UiScale::dp(8));
 #else
-  headerLay->setContentsMargins(12, 10, 12, 10);
+  headerLay->setContentsMargins(12, 6, 10, 6);
   headerLay->setSpacing(8);
 #endif
 
-  // Logo box (oval, accent color)
   QLabel *lblLogo = new QLabel(header);
 #ifdef Q_OS_ANDROID
-  lblLogo->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  lblLogo->setFixedSize(UiScale::dp(28), UiScale::dp(28));
 #else
-  lblLogo->setFixedSize(38, 38);
+  lblLogo->setFixedSize(28, 28);
 #endif
   lblLogo->setAlignment(Qt::AlignCenter);
   QPixmap sidebarLogo(":/assets/logo.jpg");
@@ -5758,36 +5754,23 @@ void MainWindow::setupSidebar() {
     lblLogo->setStyleSheet("border-radius: 8px; border: none;");
   } else {
     lblLogo->setStyleSheet(
-        "background-color: #5E5CE6; border-radius: 8px; color: white; "
-        "font-weight: bold; font-size: 12px;");
+        "background-color: rgba(124,92,252,0.35); border-radius: 8px; color: white; "
+        "font-weight: 700; font-size: 12px;");
     lblLogo->setText("B");
   }
   headerLay->addWidget(lblLogo);
 
-  QVBoxLayout *titleCol = new QVBoxLayout();
-  titleCol->setSpacing(2);
   QLabel *lblTitle = new QLabel("Blop", header);
 #ifdef Q_OS_ANDROID
   lblTitle->setStyleSheet(BlopTheme::themed(
-      "font-size: 15px; font-weight: bold; color: #F4F2FF; "
-      "background: transparent; border: none;"));
+      "font-size: 15px; font-weight: 700; color: #F4F2FF; "
+      "background: transparent; border: none; letter-spacing: 0.2px;"));
 #else
   lblTitle->setStyleSheet(BlopTheme::themed(
-      "font-size: 16px; font-weight: bold; color: #F4F2FF; "
-      "background: transparent; border: none;"));
+      "font-size: 15px; font-weight: 700; color: #F4F2FF; "
+      "background: transparent; border: none; letter-spacing: 0.2px;"));
 #endif
-  QLabel *lblSub = new QLabel("Notiz-App", header);
-#ifdef Q_OS_ANDROID
-  lblSub->setStyleSheet(BlopTheme::themed(
-      "font-size: 9px; color: #888; background: transparent; border: none;"));
-#else
-  lblSub->setStyleSheet(BlopTheme::themed(
-      "font-size: 10px; color: #888; background: transparent; border: none;"));
-#endif
-  titleCol->addWidget(lblTitle);
-  titleCol->addWidget(lblSub);
-
-  headerLay->addLayout(titleCol);
+  headerLay->addWidget(lblTitle);
   headerLay->addStretch();
 
   m_closeSidebarBtn = new QPushButton("«", header);
@@ -5798,7 +5781,7 @@ void MainWindow::setupSidebar() {
       "QPushButton { background: transparent; color: #888; border: none; "
       "font-size: 16px; outline: none; } QPushButton:hover { color: #F4F2FF; "
       "background: rgba(255,255,255,0.10); outline: none; "
-      "border-radius: 4px; }"));
+      "border-radius: 6px; }"));
   connect(m_closeSidebarBtn, &QPushButton::clicked, this,
           &MainWindow::onToggleSidebar);
   headerLay->addWidget(m_closeSidebarBtn);
@@ -5886,62 +5869,54 @@ void MainWindow::setupSidebar() {
   layout->addWidget(m_navSidebar);
   updateSidebarBadges();
 
-  // --- BOTTOM: User Account Section (Blop Study style) ---
+  // --- BOTTOM: quiet account + settings row ---
   QWidget *bottomBar = new QWidget(m_sidebarContainer);
   bottomBar->setObjectName("BottomBar");
 #ifdef Q_OS_ANDROID
   bottomBar->setStyleSheet("QWidget#BottomBar { border-top: none; background: transparent; }");
 #else
   bottomBar->setStyleSheet(BlopTheme::themed(
-      "QWidget#BottomBar { border-top: 1px solid #201E2E; }"));
+      "QWidget#BottomBar { border-top: 1px solid rgba(120,130,160,0.16); }"));
 #endif
 
 #ifdef Q_OS_ANDROID
-  bottomBar->setFixedHeight(62);
+  bottomBar->setFixedHeight(52);
 #else
-  bottomBar->setFixedHeight(66);
+  bottomBar->setFixedHeight(52);
 #endif
 
   QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar);
 #ifdef Q_OS_ANDROID
-  bottomLay->setContentsMargins(10, 7, 10, 9);
+  bottomLay->setContentsMargins(10, 8, 10, 8);
   bottomLay->setSpacing(8);
 #else
-  bottomLay->setContentsMargins(12, 8, 12, 10);
+  bottomLay->setContentsMargins(12, 8, 12, 8);
   bottomLay->setSpacing(8);
 #endif
 
-  // Read username from QSettings (saved by Blop Study web app via localStorage)
   QString username =
       QSettings("Blop", "BlopApp").value("username", "Gast").toString();
   QString initial = username.isEmpty() ? "G" : username.left(1).toUpper();
 
-  // Avatar circle
   m_lblSidebarAvatar = new QLabel(initial, bottomBar);
 #ifdef Q_OS_ANDROID
-  m_lblSidebarAvatar->setFixedSize(32, 32);
-  m_lblSidebarAvatar->setStyleSheet(
-      "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5E5CE6,stop:1 "
-      "#7D7AFF); "
-      "border-radius: 16px; color: white; font-weight: bold; font-size: 12px;");
+  m_lblSidebarAvatar->setFixedSize(30, 30);
 #else
-  m_lblSidebarAvatar->setFixedSize(36, 36);
-  m_lblSidebarAvatar->setStyleSheet(
-      "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5E5CE6,stop:1 "
-      "#7D7AFF); "
-      "border-radius: 18px; color: white; font-weight: bold; font-size: 14px;");
+  m_lblSidebarAvatar->setFixedSize(30, 30);
 #endif
+  m_lblSidebarAvatar->setStyleSheet(
+      "background: rgba(124,92,252,0.28);"
+      "border-radius: 10px; color: white; font-weight: 700; font-size: 12px;");
   m_lblSidebarAvatar->setAlignment(Qt::AlignCenter);
   bottomLay->addWidget(m_lblSidebarAvatar);
 
-  // Username + settings link
   QVBoxLayout *userCol = new QVBoxLayout();
   userCol->setSpacing(1);
   m_lblSidebarUser =
       new QLabel(username.isEmpty() ? "Gast" : username, bottomBar);
 #ifdef Q_OS_ANDROID
   m_lblSidebarUser->setStyleSheet(BlopTheme::themed(
-      "font-size: 11px; font-weight: 600; color: #F4F2FF; "
+      "font-size: 12px; font-weight: 600; color: #F4F2FF; "
       "background: transparent;"));
   m_lblSidebarUser->setMaximumWidth(118);
 #else
@@ -5957,20 +5932,12 @@ void MainWindow::setupSidebar() {
   m_btnSidebarSettings->setFocusPolicy(Qt::NoFocus);
   m_btnSidebarSettings->setCursor(Qt::PointingHandCursor);
   m_btnSidebarSettings->setStyleSheet(BlopTheme::themed(
-      "QPushButton { background: transparent; color: #888; border: none; "
-      "font-size: 10px; padding: 0; text-align: left; } "
-      "QPushButton:hover { color: #5E5CE6; }"));
+      "QPushButton { background: transparent; color: rgba(180,188,215,0.70); border: none; "
+      "font-size: 11px; padding: 0; text-align: left; } "
+      "QPushButton:hover { color: #C4B5FF; }"));
   connect(m_btnSidebarSettings, &QPushButton::clicked, this,
           &MainWindow::onOpenSettings);
   userCol->addWidget(m_btnSidebarSettings);
-
-  QString verStr = QString::fromUtf8(BLOP_VERSION);
-  if (verStr.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
-    verStr = verStr.mid(1);
-  QLabel *lblVersion = new QLabel(QStringLiteral("v") + verStr, bottomBar);
-  lblVersion->setStyleSheet(BlopTheme::themed(
-      "font-size: 10px; color: #555; background: transparent; border: none;"));
-  userCol->addWidget(lblVersion);
 
   bottomLay->addLayout(userCol);
   bottomLay->addStretch();
@@ -7248,8 +7215,9 @@ void MainWindow::updateSidebarState() {
     m_documentTabBar->setVisible(inNotesMode);
   if (m_pageThumbnailSidebar)
     m_pageThumbnailSidebar->setVisible(inNotesMode && isEditor);
+  // Title-bar search competes with document tabs while editing; overview has its own.
   if (m_titleSearchBar)
-    m_titleSearchBar->setVisible(inNotesMode);
+    m_titleSearchBar->setVisible(inNotesMode && !isEditor);
   {
     bool showNoteOverflow = false;
     if (isEditor && m_editorTabs) {
@@ -7258,16 +7226,9 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
-    bool showPageManagerBtn = false;
-    if (isEditor && m_editorTabs) {
-      if (auto *editor =
-              qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-        if (editor->view())
-          showPageManagerBtn = true;
-      }
-    }
+    // Everyday page nav lives on the left rail; full PageManager opens from ⋯.
     if (m_btnTitleBarPageManager)
-      m_btnTitleBarPageManager->setVisible(inNotesMode && showPageManagerBtn);
+      m_btnTitleBarPageManager->setVisible(false);
   }
 #endif
   
@@ -7844,6 +7805,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               return;
             if (!m_pageSettingsOverlay->isVisible())
               setPageSettingsOverlayVisible(true);
+          };
+          editor->onOpenPageManagerRequested = [this]() {
+            onTogglePageManager();
           };
           m_editorTabs->addTab(editor, fileName);
           m_editorTabs->setCurrentWidget(editor);

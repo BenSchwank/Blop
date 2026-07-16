@@ -51,6 +51,13 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                               safeNote->canvas_->openPageLayoutForVisiblePage();
                       },
                       false, false});
+        items.append({QStringLiteral("Seiten verwalten…"),
+                      SelectionMenuIcons::pageLayoutIcon(),
+                      [safeNote]() {
+                          if (safeNote && safeNote->onOpenPageManagerRequested)
+                              safeNote->onOpenPageManagerRequested();
+                      },
+                      false, false});
         items.append({QStringLiteral("Optionen & Tags…"),
                       SelectionMenuIcons::gearIcon(),
                       [safeNote]() {
@@ -95,6 +102,14 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     QObject::connect(actLayout, &QAction::triggered, this, [safe]() {
         if (safe && safe->canvas_)
             safe->canvas_->openPageLayoutForVisiblePage();
+    });
+
+    QAction *actPages =
+        menu->addAction(QStringLiteral("Seiten verwalten…"));
+    actPages->setIcon(SelectionMenuIcons::pageLayoutIcon());
+    QObject::connect(actPages, &QAction::triggered, this, [safe]() {
+        if (safe && safe->onOpenPageManagerRequested)
+            safe->onOpenPageManagerRequested();
     });
 
     QAction *actNoteOptions =

@@ -109,30 +109,20 @@ void DocumentTab::paintEvent(QPaintEvent *) {
 
   if (m_active) {
     QColor bg = m_accentColor;
-    bg.setAlphaF(0.22);
+    bg.setAlphaF(0.16);
     p.fillPath(path, bg);
 
     QColor border = m_accentColor;
-    border.setAlphaF(0.55);
-    p.setPen(QPen(border, 1.5));
+    border.setAlphaF(0.42);
+    p.setPen(QPen(border, 1.0));
     p.drawPath(path);
   } else if (m_hovered) {
-    QColor bg = BlopStyle::surfaceBg();
-    bg.setAlphaF(0.5);
+    QColor bg(255, 255, 255, 18);
     p.fillPath(path, bg);
-
-    QColor border = BlopStyle::surfaceBorder();
-    p.setPen(QPen(border, 1.0));
-    p.drawPath(path);
   } else {
-    QColor bg = BlopStyle::surfaceBg();
-    bg.setAlphaF(0.22);
+    // Idle tabs stay nearly chrome-free — Drawboard-quiet document strip.
+    QColor bg(255, 255, 255, 8);
     p.fillPath(path, bg);
-
-    QColor border = BlopStyle::surfaceBorder();
-    border.setAlphaF(0.5);
-    p.setPen(QPen(border, 1.0));
-    p.drawPath(path);
   }
 }
 
@@ -169,8 +159,11 @@ DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
 
   m_indicator = new QWidget(this);
   m_indicator->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-  m_indicator->setAttribute(Qt::WA_NoSystemBackground, true);
+  m_indicator->setAttribute(Qt::WA_StyledBackground, true);
   m_indicator->resize(UiScale::dp(28), UiScale::dp(3));
+  m_indicator->setStyleSheet(
+      QStringLiteral("background-color: %1; border-radius: 2px;")
+          .arg(m_accentColor.name(QColor::HexRgb)));
   m_indicator->hide();
 }
 
@@ -233,6 +226,10 @@ void DocumentTabBar::setAccentColor(const QColor &color) {
   m_homeTab->setAccentColor(color);
   if (m_homeActive)
     m_homeTab->setActive(true, color);
+  if (m_indicator)
+    m_indicator->setStyleSheet(
+        QStringLiteral("background-color: %1; border-radius: 2px;")
+            .arg(m_accentColor.name(QColor::HexRgb)));
   updateIndicator(false);
 }
 

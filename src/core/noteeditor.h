@@ -22,6 +22,8 @@ public:
     std::function<void(Note *)> onSaveRequested;
     /// Rechte Notiz-Leiste (Tags, Optionen) — nicht die globalen App-Einstellungen
     std::function<void()> onOpenNoteOptionsRequested;
+    /// Full page manager (reorder / batch) — everyday nav stays on the page rail
+    std::function<void()> onOpenPageManagerRequested;
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

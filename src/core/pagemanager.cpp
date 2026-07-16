@@ -185,56 +185,55 @@ void PageManager::setupUi() {
     contentLay->setSpacing(0);
 
     m_header = new QWidget(m_panel);
-    m_header->setFixedHeight(140);
+    m_header->setFixedHeight(96);
     auto *headLay = new QVBoxLayout(m_header);
-    headLay->setContentsMargins(16, 12, 16, 10);
-    headLay->setSpacing(8);
+    headLay->setContentsMargins(14, 10, 12, 8);
+    headLay->setSpacing(6);
 
     auto *titleRow = new QHBoxLayout();
     titleRow->setContentsMargins(0, 0, 0, 0);
     titleRow->setSpacing(8);
 
     m_lblTitle = new QLabel(QStringLiteral("Seiten"), m_header);
+    m_lblSubtitle = new QLabel(QStringLiteral("Drag & Drop · Mehrfachauswahl"), m_header);
+    m_lblSubtitle->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
 
     m_btnClose = new QPushButton(QStringLiteral("✕"), m_header);
-    m_btnClose->setFixedSize(36, 36);
+    m_btnClose->setFixedSize(32, 32);
     m_btnClose->setCursor(Qt::PointingHandCursor);
     m_btnClose->setFocusPolicy(Qt::NoFocus);
     connect(m_btnClose, &QPushButton::clicked, this, &PageManager::dismissAnimated);
 
-    titleRow->addWidget(m_lblTitle, 1);
-    titleRow->addWidget(m_btnClose, 0, Qt::AlignTop);
-
-    m_lblSubtitle = new QLabel(QStringLiteral("Drag & Drop · Mehrfachauswahl · Vorlagen"), m_header);
-
+    titleRow->addWidget(m_lblTitle, 0);
+    titleRow->addWidget(m_lblSubtitle, 1);
+    titleRow->addWidget(m_btnClose, 0, Qt::AlignVCenter);
     headLay->addLayout(titleRow);
-    headLay->addWidget(m_lblSubtitle);
 
+    auto *toolsRow = new QHBoxLayout();
+    toolsRow->setContentsMargins(0, 0, 0, 0);
+    toolsRow->setSpacing(8);
     m_search = new QLineEdit(m_header);
-    m_search->setPlaceholderText(QStringLiteral("Seiten suchen..."));
+    m_search->setPlaceholderText(QStringLiteral("Seiten suchen…"));
     connect(m_search, &QLineEdit::textChanged, this, &PageManager::onSearchChanged);
-    headLay->addWidget(m_search);
-
-    auto *filterRow = new QHBoxLayout();
-    filterRow->setContentsMargins(0, 0, 0, 0);
-    filterRow->setSpacing(8);
     m_groupFilter = new QComboBox(m_header);
-    m_groupFilter->addItem(QStringLiteral("Alle Gruppen"), QStringLiteral("all"));
+    m_groupFilter->addItem(QStringLiteral("Alle"), QStringLiteral("all"));
     m_groupFilter->addItem(QStringLiteral("Leer"), QStringLiteral("blank"));
     m_groupFilter->addItem(QStringLiteral("Liniert"), QStringLiteral("lined"));
     m_groupFilter->addItem(QStringLiteral("Kariert"), QStringLiteral("grid"));
     m_groupFilter->addItem(QStringLiteral("Punktiert"), QStringLiteral("dotted"));
     m_groupFilter->addItem(QStringLiteral("Legal"), QStringLiteral("legal"));
+    m_groupFilter->setFixedWidth(110);
     connect(m_groupFilter, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &PageManager::onGroupFilterChanged);
     m_btnSelectMode = new QPushButton(QStringLiteral("☑"), m_header);
     m_btnSelectMode->setToolTip(QStringLiteral("Mehrfachauswahl umschalten"));
     m_btnSelectMode->setCheckable(true);
-    m_btnSelectMode->setFixedSize(36, 32);
+    m_btnSelectMode->setFixedSize(32, 32);
     connect(m_btnSelectMode, &QPushButton::clicked, this, &PageManager::onToggleSelectMode);
-    filterRow->addWidget(m_groupFilter, 1);
-    filterRow->addWidget(m_btnSelectMode);
-    headLay->addLayout(filterRow);
+    toolsRow->addWidget(m_search, 1);
+    toolsRow->addWidget(m_groupFilter, 0);
+    toolsRow->addWidget(m_btnSelectMode);
+    headLay->addLayout(toolsRow);
     contentLay->addWidget(m_header);
 
     m_listWidget = new QListWidget(m_panel);
@@ -356,12 +355,13 @@ void PageManager::applyControlStyles() {
     }
     if (m_lblTitle) {
         m_lblTitle->setStyleSheet(QStringLiteral(
-            "color: %1; font-weight: 700; font-size: 17px; letter-spacing: 0.2px;"
+            "color: %1; font-weight: 700; font-size: 15px; letter-spacing: 0.1px;"
             "background: transparent;").arg(textPrimary));
     }
     if (m_lblSubtitle) {
         m_lblSubtitle->setStyleSheet(QStringLiteral(
-            "color: %1; font-size: 11px; background: transparent;").arg(textSecondary));
+            "color: %1; font-size: 11px; background: transparent;"
+            "padding-right: 6px;").arg(textSecondary));
     }
     if (m_btnClose) {
         m_btnClose->setStyleSheet(QStringLiteral(
@@ -373,7 +373,7 @@ void PageManager::applyControlStyles() {
     if (m_search) {
         m_search->setStyleSheet(QStringLiteral(
             "QLineEdit { background: %1; color: %2; border: 1px solid %3;"
-            "  border-radius: 10px; padding: 8px 10px; }"
+            "  border-radius: 10px; padding: 6px 10px; min-height: 28px; }"
             "QLineEdit:focus { border-color: %4; }")
             .arg(inputBg, textPrimary, border, accentBorder));
     }

@@ -252,7 +252,7 @@ PenPresetBar::PenPresetBar(QWidget *parent) : QWidget(parent) {
   rebuildChips();
 }
 
-int PenPresetBar::preferredHeightPx() const { return UiScale::dp(40); }
+int PenPresetBar::preferredHeightPx() const { return UiScale::dp(34); }
 
 void PenPresetBar::setAccentColor(const QColor &c) {
   m_accent = c;
