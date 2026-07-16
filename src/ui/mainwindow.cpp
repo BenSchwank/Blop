@@ -150,7 +150,7 @@
 // KONFIGURATION FÜR ANDROID SCALING & MARGINS
 // ============================================================================
 // Overview margins (used on both Android and desktop)
-static const int MARGIN_OVERVIEW = 30;
+static const int MARGIN_OVERVIEW = 20;
 
 #ifdef Q_OS_ANDROID
 static const int SIDEBAR_WIDTH = 236;
@@ -1496,8 +1496,8 @@ void MainWindow::applyThemeRefresh() {
     m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
   if (m_noteHeader)
     m_noteHeader->setStyleSheet(
-        QStringLiteral("QWidget#NoteHeader { background: #0D0B14; border-bottom: 1px solid %1; }")
-            .arg(m_currentAccentColor.name(QColor::HexRgb)));
+        QStringLiteral("QWidget#NoteHeader { background: transparent; border-bottom: 1px solid %1; }")
+            .arg(BlopTheme::borderSubtle().name(QColor::HexArgb)));
 
   // PageManager: re-skin scrim + panel using the new tokens. The panel
   // QSS was set once in the ctor; this method is the documented post-
@@ -3001,32 +3001,40 @@ void MainWindow::applyTheme() {
 
   if (m_titleBarWidget)
     m_titleBarWidget->setStyleSheet(BlopTheme::themed(
-        "background-color: #0D0B14; border-bottom: 1px solid #201E2E;"));
+        "background-color: #0D0B14; border-bottom: 1px solid rgba(120,130,160,0.16);"));
 
-  // Overview controls follow current accent color while keeping dark base style.
+  // Overview: quiet document-library chrome (squircle radii, muted borders).
   if (m_overviewContainer) {
     m_overviewContainer->setStyleSheet(BlopTheme::themed(
         QString(
-            "QLineEdit#overviewSearchBar {"
-            "  background-color: #1A1829; color: white;"
-            "  border: 1px solid %1; border-radius: 22px;"
-            "  min-height: 44px; max-height: 44px;"
-            "  padding: 0 20px; font-size: 13px;"
+            "QLabel#overviewLibraryTitle {"
+            "  color: %3; font-size: 20px; font-weight: 700;"
+            "  letter-spacing: -0.3px; background: transparent;"
             "}"
-            "QLineEdit#overviewSearchBar:focus { border: 1px solid %2; }"
+            "QLineEdit#overviewSearchBar {"
+            "  background-color: %4; color: %3;"
+            "  border: 1px solid %5; border-radius: 14px;"
+            "  min-height: 40px; max-height: 40px;"
+            "  padding: 0 16px; font-size: 13px;"
+            "}"
+            "QLineEdit#overviewSearchBar:focus { border: 1px solid %1; }"
             "QPushButton#overviewBtnNewNote {"
-            "  background-color: %1; color: white; border-radius: 20px;"
-            "  padding: 0 24px; font-weight: bold; font-size: 13px; border: none;"
+            "  background-color: %1; color: white; border-radius: 14px;"
+            "  padding: 0 18px; font-weight: 600; font-size: 13px; border: none;"
+            "  min-height: 40px; max-height: 40px;"
             "}"
             "QPushButton#overviewBtnNewNote:hover { background-color: %2; }"
             "QPushButton#overviewBtnNewFolder {"
-            "  background-color: transparent; color: white; border-radius: 20px;"
-            "  padding: 0 24px; font-weight: bold; font-size: 13px;"
-            "  border: 1px solid rgba(255,255,255,0.28);"
+            "  background-color: transparent; color: %3; border-radius: 14px;"
+            "  padding: 0 18px; font-weight: 600; font-size: 13px;"
+            "  border: 1px solid %5; min-height: 40px; max-height: 40px;"
             "}"
             "QPushButton#overviewBtnNewFolder:hover {"
             "  background-color: rgba(255,255,255,0.05); border-color: %1; }")
-            .arg(c, c_light)));
+            .arg(c, c_light,
+                 BlopTheme::textPrimary().name(QColor::HexRgb),
+                 BlopTheme::surfaceMuted().name(QColor::HexRgb),
+                 BlopTheme::borderSubtle().name(QColor::HexArgb))));
   }
 
   if (m_btnSidebarSettings) {
@@ -3946,16 +3954,14 @@ void MainWindow::setupUi() {
   overviewTopRow->addStretch();
   overviewLayout->addLayout(overviewTopRow);
 
-  // --- NEW HEADER BEREICH (Blop Notes Redesign Etappe 3) ---
+  // --- Library header (Drawboard-quiet: title + search + actions) ---
   QVBoxLayout *headerLayout = new QVBoxLayout();
 
 #ifdef Q_OS_ANDROID
-  // ── Android: compact welcome page (phone + tablet friendly). Buttons stay
-  //    side-by-side, sized to comfortable Material touch targets (~40 dp), and
-  //    the entire welcome card centres + caps at dp(560) on tablets.
-  headerLayout->setContentsMargins(UiScale::dp(10), UiScale::dp(16),
-                                   UiScale::dp(10), UiScale::dp(24));
-  headerLayout->setSpacing(UiScale::dp(12));
+  // Compact library chrome for phone + tablet.
+  headerLayout->setContentsMargins(UiScale::dp(10), UiScale::dp(8),
+                                   UiScale::dp(10), UiScale::dp(12));
+  headerLayout->setSpacing(UiScale::dp(10));
 
   btnEditorMenu = new ModernButton(m_overviewContainer);
   btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
@@ -3968,11 +3974,12 @@ void MainWindow::setupUi() {
           &MainWindow::onToggleSidebar);
   headerLayout->addWidget(btnEditorMenu, 0, Qt::AlignLeft);
 
-  QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
+  QLabel *lblWelcome = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
+  lblWelcome->setObjectName(QStringLiteral("overviewLibraryTitle"));
   lblWelcome->setStyleSheet(BlopTheme::themed(
-      QStringLiteral("color: #F4F5FB; font-size: 22px; font-weight: 700;"
+      QStringLiteral("color: #F4F5FB; font-size: 20px; font-weight: 700;"
                      " font-family: 'Roboto', 'Segoe UI', sans-serif;"
-                     " letter-spacing: -0.2px;")));
+                     " letter-spacing: -0.3px; background: transparent;")));
   headerLayout->addWidget(lblWelcome);
 
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
@@ -3986,7 +3993,7 @@ void MainWindow::setupUi() {
       "  background-color: #1A1829;"
       "  color: #F4F5FB;"
       "  border: 1px solid #201E2E;"
-      "  border-radius: 20px;"
+      "  border-radius: 14px;"
       "  padding: 0 14px;"
       "  font-size: 12px;"
       "}"
@@ -4004,7 +4011,7 @@ void MainWindow::setupUi() {
       "QPushButton {"
       "  background-color: #5E5CE6;"
       "  color: white;"
-      "  border-radius: 20px;"
+      "  border-radius: 14px;"
       "  padding: 0 14px;"
       "  font-weight: 600;"
       "  font-size: 12px;"
@@ -4024,7 +4031,7 @@ void MainWindow::setupUi() {
       "QPushButton {"
       "  background-color: transparent;"
       "  color: white;"
-      "  border-radius: 20px;"
+      "  border-radius: 14px;"
       "  padding: 0 14px;"
       "  font-weight: 600;"
       "  font-size: 12px;"
@@ -4051,7 +4058,7 @@ void MainWindow::setupUi() {
   actionsRow->addWidget(btnNewFolder, 1);
   searchBlock->addLayout(actionsRow);
 
-  // On wide screens (tablets / landscape) cap the welcome card at dp(560) and
+  // On wide screens (tablets / landscape) cap the library chrome at dp(560) and
   // centre it horizontally so the buttons don't stretch ridiculously wide.
   const int welcomeCardMaxW = UiScale::dp(560);
   if (welcomeContentW > welcomeCardMaxW) {
@@ -4069,51 +4076,53 @@ void MainWindow::setupUi() {
   }
 
 #else
-  // ── Desktop/Windows: Original layout unchanged ───────────────────────────
-  headerLayout->setContentsMargins(10, 20, 10, 30);
-  headerLayout->setSpacing(15);
+  // Desktop: quiet library toolbar — title + search + primary actions.
+  headerLayout->setContentsMargins(8, 8, 8, 14);
+  headerLayout->setSpacing(12);
 
-  QLabel *lblWelcome = new QLabel("Willkommen zurück!", m_overviewContainer);
+  QLabel *lblWelcome = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
+  lblWelcome->setObjectName(QStringLiteral("overviewLibraryTitle"));
   lblWelcome->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "color: #F4F5FB; font-size: 28px; font-weight: bold; font-family: 'Segoe UI';")));
+      "color: #F4F5FB; font-size: 22px; font-weight: 700;"
+      " letter-spacing: -0.3px; background: transparent;")));
   headerLayout->addWidget(lblWelcome);
 
   QHBoxLayout *searchActionLayout = new QHBoxLayout();
-  searchActionLayout->setSpacing(15);
+  searchActionLayout->setSpacing(10);
 
   QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
   searchBar->setObjectName("overviewSearchBar");
   searchBar->setPlaceholderText("Notizen durchsuchen...");
   searchBar->setFrame(false);
   searchBar->setAttribute(Qt::WA_StyledBackground, true);
-  searchBar->setFixedHeight(44);
+  searchBar->setFixedHeight(40);
   searchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background-color: #1A1829;"
       "  color: #F4F5FB;"
       "  border: 1px solid #201E2E;"
-      "  border-radius: 22px;"
-      "  padding: 0 20px;"
-      "  font-size: 14px;"
+      "  border-radius: 14px;"
+      "  padding: 0 16px;"
+      "  font-size: 13px;"
       "}"
       "QLineEdit:focus {"
       "  border: 1px solid #5E5CE6;"
       "}"
   ));
-  searchActionLayout->addWidget(searchBar, 1); // stretcht aus
+  searchActionLayout->addWidget(searchBar, 1);
 
   QPushButton *btnNewNote = new QPushButton("Neue Notiz", m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
-  btnNewNote->setFixedHeight(44);
+  btnNewNote->setFixedHeight(40);
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
       "QPushButton {"
       "  background-color: #5E5CE6;"
       "  color: white;"
-      "  border-radius: 22px;"
-      "  padding: 0 24px;"
-      "  font-weight: bold;"
-      "  font-size: 14px;"
+      "  border-radius: 14px;"
+      "  padding: 0 18px;"
+      "  font-weight: 600;"
+      "  font-size: 13px;"
       "  border: none;"
       "}"
       "QPushButton:hover { background-color: #7D7AFF; }"
@@ -4124,17 +4133,17 @@ void MainWindow::setupUi() {
 
   QPushButton *btnNewFolder = new QPushButton("Neuer Ordner", m_overviewContainer);
   btnNewFolder->setObjectName("overviewBtnNewFolder");
-  btnNewFolder->setFixedHeight(44);
+  btnNewFolder->setFixedHeight(40);
   btnNewFolder->setCursor(Qt::PointingHandCursor);
   btnNewFolder->setStyleSheet(
       "QPushButton {"
       "  background-color: transparent;"
       "  color: white;"
-      "  border-radius: 22px;"
-      "  padding: 0 24px;"
-      "  font-weight: bold;"
-      "  font-size: 14px;"
-      "  border: 1px solid #333;"
+      "  border-radius: 14px;"
+      "  padding: 0 18px;"
+      "  font-weight: 600;"
+      "  font-size: 13px;"
+      "  border: 1px solid rgba(255,255,255,0.22);"
       "}"
       "QPushButton:hover { background-color: rgba(255,255,255,0.05); border-color: #555; }"
   );
@@ -4146,12 +4155,11 @@ void MainWindow::setupUi() {
 #endif
 
   overviewLayout->addLayout(headerLayout);
-  // --------------------------------------------------------
 
   m_fileListView = new FreeGridView(this);
   m_fileListView->setModel(m_fileModel);
   m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
-  m_fileListView->setSpacing(20);
+  m_fileListView->setSpacing(16);
   m_fileListView->setFrameShape(QFrame::NoFrame);
 #ifdef Q_OS_ANDROID
   m_fileListView->setStyleSheet(
@@ -4220,11 +4228,11 @@ void MainWindow::setupUi() {
   overviewLayout->addWidget(m_fileListView);
 
   m_lblEmptyState = new QLabel(
-      "Noch keine Notizen oder Ordner hier.\nKlicke auf das '+' um loszulegen.",
+      QStringLiteral("Noch keine Notizen.\nErstelle eine neue Notiz, um zu starten."),
       m_overviewContainer);
   m_lblEmptyState->setAlignment(Qt::AlignCenter);
   m_lblEmptyState->setStyleSheet(
-      "color: #777; font-size: 16px; font-weight: bold;");
+      QStringLiteral("color: rgba(180,188,215,0.55); font-size: 14px; font-weight: 500;"));
   m_lblEmptyState->hide();
   overviewLayout->addWidget(m_lblEmptyState);
 
@@ -4334,34 +4342,34 @@ void MainWindow::setupUi() {
           &MainWindow::onTabChanged);
   centerLayout->addWidget(m_editorTabs);
 
-  // ── Note Page Header (title / page count / metadata) ─────────────────────
+  // ── Note Page Header (compact document strip) ────────────────────────────
   m_noteHeader = new QWidget(m_editorCenterWidget);
   m_noteHeader->setObjectName(QStringLiteral("NoteHeader"));
-  m_noteHeader->setFixedHeight(UiScale::dp(40));
+  m_noteHeader->setFixedHeight(UiScale::dp(32));
   m_noteHeader->setStyleSheet(
-      QStringLiteral("QWidget#NoteHeader { background: #0D0B14; border-bottom: 1px solid #201E2E; }"));
+      QStringLiteral("QWidget#NoteHeader { background: transparent; border-bottom: 1px solid rgba(120,130,160,0.18); }"));
   QHBoxLayout *noteHeaderLayout = new QHBoxLayout(m_noteHeader);
-  noteHeaderLayout->setContentsMargins(UiScale::dp(16), 0, UiScale::dp(16), 0);
+  noteHeaderLayout->setContentsMargins(UiScale::dp(14), 0, UiScale::dp(10), 0);
   noteHeaderLayout->setSpacing(UiScale::dp(8));
 
   m_lblNoteHeaderTitle = new QLabel(m_noteHeader);
   m_lblNoteHeaderTitle->setStyleSheet(
-      QStringLiteral("color: #E8E4FF; font-size: 13px; font-weight: 700; background: transparent;"));
+      QStringLiteral("color: rgba(232,228,255,0.92); font-size: 12px; font-weight: 600; background: transparent;"));
   noteHeaderLayout->addWidget(m_lblNoteHeaderTitle);
   noteHeaderLayout->addStretch(1);
 
   m_lblNoteHeaderMeta = new QLabel(m_noteHeader);
   m_lblNoteHeaderMeta->setStyleSheet(
-      QStringLiteral("color: rgba(232,228,255,0.55); font-size: 11px; background: transparent;"));
+      QStringLiteral("color: rgba(232,228,255,0.45); font-size: 11px; background: transparent;"));
   noteHeaderLayout->addWidget(m_lblNoteHeaderMeta);
 
   ModernButton *btnPageLayout = new ModernButton(m_noteHeader);
-  btnPageLayout->setIcon(createModernIcon(QStringLiteral("palette"), QColor(200, 190, 255, 150)));
-  btnPageLayout->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  btnPageLayout->setIcon(createModernIcon(QStringLiteral("palette"), QColor(200, 190, 255, 140)));
+  btnPageLayout->setFixedSize(UiScale::dp(26), UiScale::dp(26));
   btnPageLayout->setToolTip(QStringLiteral("Seitenlayout & Hintergrund"));
   btnPageLayout->setStyleSheet(
       QStringLiteral("QToolButton { background: transparent; border: none; border-radius: 8px; }"
-                     "QToolButton:hover { background: rgba(124,92,252,0.18); }"));
+                     "QToolButton:hover { background: rgba(124,92,252,0.16); }"));
   connect(btnPageLayout, &QAbstractButton::clicked, this, [this]() {
     if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
       if (auto *view = editor->view())
@@ -4380,6 +4388,20 @@ void MainWindow::setupUi() {
             if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
               if (auto *view = editor->view())
                 view->scrollToPage(pageIndex, true);
+          });
+  connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::addPageRequested, this,
+          [this]() {
+            if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+              if (auto *view = editor->view()) {
+                if (Note *n = view->note()) {
+                  const int idx = n->pages.size();
+                  n->ensurePage(idx);
+                  view->setNote(n);
+                  m_pageThumbnailSidebar->rebuild();
+                  view->scrollToPage(idx, true);
+                }
+              }
+            }
           });
   editorMainLayout->insertWidget(0, m_pageThumbnailSidebar);
 

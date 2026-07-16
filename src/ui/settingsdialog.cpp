@@ -291,23 +291,23 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // ----- Hero strip ---------------------------------------------------
+    // ----- Hero strip (quiet profile row) --------------------------------
     auto *hero = new QFrame(tabDesign);
     hero->setObjectName(QStringLiteral("SettingsHero"));
     hero->setStyleSheet(QStringLiteral(
         "#SettingsHero {"
-        "  background-color: rgba(124, 92, 252, 0.10);"
-        "  border-bottom: 1px solid rgba(124, 92, 252, 0.20);"
+        "  background-color: rgba(255, 255, 255, 0.03);"
+        "  border-bottom: 1px solid rgba(120, 130, 160, 0.18);"
         "}"));
     auto *heroLay = new QHBoxLayout(hero);
-    heroLay->setContentsMargins(24, 18, 24, 18);
-    heroLay->setSpacing(14);
+    heroLay->setContentsMargins(22, 16, 22, 16);
+    heroLay->setSpacing(12);
 
     auto *avatar = new QLabel(hero);
-    avatar->setFixedSize(56, 56);
+    avatar->setFixedSize(44, 44);
     avatar->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "border-radius: 28px; background-color: rgba(124, 92, 252, 0.35);"
-        "color: #ECEEFD; font-size: 22px; font-weight: 700;")));
+        "border-radius: 14px; background-color: rgba(124, 92, 252, 0.28);"
+        "color: #ECEEFD; font-size: 18px; font-weight: 700;")));
     avatar->setAlignment(Qt::AlignCenter);
     UiProfile currentP = m_profileManager ? m_profileManager->currentProfile() : UiProfile();
     QString initial = currentP.name.left(1).toUpper();
@@ -321,25 +321,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     auto *heroName = new QLabel(currentP.name.isEmpty() ? QStringLiteral("Blop") : currentP.name, hero);
     heroName->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "color: #ECEEFD; %1 background: transparent;")
-        .arg(BlopTheme::typeQss(BlopTheme::TextRole::HeadlineSmall))));
+        .arg(BlopTheme::typeQss(BlopTheme::TextRole::TitleLarge))));
     auto *heroSub = new QLabel(QStringLiteral("Aktives UI-Profil"), hero);
     heroSub->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "color: rgba(180, 188, 215, 0.85); %1 background: transparent;")
+        "color: rgba(180, 188, 215, 0.70); %1 background: transparent;")
         .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge))));
     heroText->addWidget(heroName);
     heroText->addWidget(heroSub);
     heroLay->addLayout(heroText, 1);
 
-    auto *heroEditBtn = new QPushButton(QStringLiteral("Profil bearbeiten"), hero);
+    auto *heroEditBtn = new QPushButton(QStringLiteral("Bearbeiten"), hero);
     heroEditBtn->setCursor(Qt::PointingHandCursor);
-    heroEditBtn->setStyleSheet(QStringLiteral(
-        "QPushButton {"
-        "  background-color: rgba(124, 92, 252, 0.85);"
-        "  color: #FFFFFF;"
-        "  border: none; border-radius: 10px;"
-        "  padding: 9px 14px; font-weight: 600;"
-        "}"
-        "QPushButton:hover { background-color: rgba(124, 92, 252, 1.0); }"));
+    heroEditBtn->setStyleSheet(BlopTheme::secondaryButtonQss());
     connect(heroEditBtn, &QPushButton::clicked, this, [this]() {
         openEditor(m_profileManager ? m_profileManager->currentProfile().id : QString());
     });
@@ -351,18 +344,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Search bar ---------------------------------------------------
     auto *searchRow = new QFrame(tabDesign);
     auto *searchLay = new QHBoxLayout(searchRow);
-    searchLay->setContentsMargins(24, 14, 24, 6);
+    searchLay->setContentsMargins(22, 12, 22, 4);
     auto *search = new QLineEdit(searchRow);
     search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
     search->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QLineEdit {"
         "  background: rgba(22, 24, 36, 0.92);"
         "  color: #ECEEFD;"
-        "  border: 1px solid rgba(120, 130, 160, 0.32);"
-        "  border-radius: 10px;"
+        "  border: 1px solid rgba(120, 130, 160, 0.28);"
+        "  border-radius: 12px;"
         "  padding: 9px 12px; font-size: 13px;"
         "}"
-        "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.75); }")));
+        "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.70); }")));
     searchLay->addWidget(search);
     root->addWidget(searchRow);
 

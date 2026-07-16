@@ -25,16 +25,15 @@ QColor surfaceBg() {
   return c;
 }
 QColor surfaceBorder() {
-  // 1-px accent glow that stays subtle in both themes.
+  // Quiet hairline — professional document chrome instead of a loud accent glow.
   QColor a = BlopTheme::accentPrimary();
-  a.setAlpha(BlopTheme::instance().isDark() ? 56 : 72);
+  a.setAlpha(BlopTheme::instance().isDark() ? 40 : 56);
   return a;
 }
 QColor surfaceShadow() {
-  // Light theme needs a softer shadow or it looks like a hole; dark keeps
-  // the historic black-115 to preserve the "lifted card" feel.
-  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 115)
-                                        : QColor(10, 12, 28, 38);
+  // Soft lift; keep sheets calm rather than dramatic.
+  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 96)
+                                        : QColor(10, 12, 28, 32);
 }
 QColor backdrop(bool forAndroid) {
   // Scrim opacity: Android historically darker (200) to fully veil the
