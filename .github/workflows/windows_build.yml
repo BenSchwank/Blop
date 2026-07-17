@@ -37,13 +37,19 @@ jobs:
           # (Bad7zFile: lib/Qt6PositioningQuickd.prl). We install qtpositioning in a
           # separate aqt call and tolerate the py7zr error — the Release-mode CMake
           # config files are extracted before the bad entry is hit, so the build works.
+          # v3.20.1: also verify/retry qtwebchannel — WebEngineCore fails CMake when
+          # the module is missing after a flaky combined aqt install.
           pip install aqtinstall==3.2.1
 
           # Definiere das Zielverzeichnis explizit
           $qtDir = "${{ runner.workspace }}\Qt"
+          $qtBase = "$qtDir\6.9.1\msvc2022_64"
 
           # Step 1: install main modules (all have clean archives)
           aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtmultimedia qtnetworkauth --outputdir $qtDir
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Primary Qt install exited $LASTEXITCODE — will verify critical cmake configs"
+          }
 
           # Step 2: install qtpositioning separately; ignore py7zr Bad7zFile error
           # caused by the corrupt debug PRL entry — the cmake config is extracted fine.
@@ -52,16 +58,22 @@ jobs:
             Write-Warning "qtpositioning install exited $LASTEXITCODE (known broken debug archive) — checking cmake config..."
           }
 
-          # Verify the cmake config Qt6Positioning needs actually landed
-          $posConfig = "$qtDir\6.9.1\msvc2022_64\lib\cmake\Qt6Positioning\Qt6PositioningConfig.cmake"
-          if (-not (Test-Path $posConfig)) {
-            Write-Error "Qt6Positioning cmake config missing after install — cannot continue"
-            exit 1
+          function Assert-QtCMakeConfig([string]$AqtModule, [string]$Label, [string]$ConfigPath) {
+            if (-not (Test-Path $ConfigPath)) {
+              Write-Host "Missing $Label cmake config — retrying dedicated aqt install ($AqtModule)..."
+              aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m $AqtModule --outputdir $qtDir
+              if (-not (Test-Path $ConfigPath)) {
+                Write-Error "$Label cmake config still missing after retry: $ConfigPath"
+                exit 1
+              }
+            }
+            Write-Host "$Label cmake config OK: $ConfigPath"
           }
-          Write-Host "Qt6Positioning cmake config OK: $posConfig"
 
-          # Setze den Pfad zur Installation
-          $qtBase = "$qtDir\6.9.1\msvc2022_64"
+          Assert-QtCMakeConfig "qtpositioning" "Qt6Positioning" "$qtBase\lib\cmake\Qt6Positioning\Qt6PositioningConfig.cmake"
+          Assert-QtCMakeConfig "qtwebchannel" "Qt6WebChannel" "$qtBase\lib\cmake\Qt6WebChannel\Qt6WebChannelConfig.cmake"
+          Assert-QtCMakeConfig "qtwebengine" "Qt6WebEngineCore" "$qtBase\lib\cmake\Qt6WebEngineCore\Qt6WebEngineCoreConfig.cmake"
+          Assert-QtCMakeConfig "qtwebengine" "Qt6WebEngineWidgets" "$qtBase\lib\cmake\Qt6WebEngineWidgets\Qt6WebEngineWidgetsConfig.cmake"
 
           # Überprüfung: Existiert qmake?
           if (-not (Test-Path "$qtBase\bin\qmake.exe")) {

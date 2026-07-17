@@ -83,7 +83,10 @@ if(ANDROID)
     find_package(Qt6 REQUIRED COMPONENTS WebView)
     find_package(Qt6 OPTIONAL_COMPONENTS NetworkAuth)
 else()
-    # Desktop: WebEngine (Chromium) - REQUIRED
+    # Desktop: WebEngine (Chromium). WebChannel is a hard dependency of
+    # Qt6WebEngineCore — find it first so CI gets a clear missing-module
+    # error instead of a nested WebEngineWidgets failure.
+    find_package(Qt6 REQUIRED COMPONENTS WebChannel)
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
     # PDF support for import (optional, but present in standard Qt6 desktop install)
     find_package(Qt6 OPTIONAL_COMPONENTS Pdf)

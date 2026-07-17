@@ -198,14 +198,14 @@ public:
     if (m_search == text)
       return;
     m_search = text.trimmed();
-    invalidateFilter();
+    refreshFilter();
   }
 
   void setRequiredTags(const QStringList &tags) {
     if (m_tags == tags)
       return;
     m_tags = tags;
-    invalidateFilter();
+    refreshFilter();
   }
 
 protected:
@@ -248,6 +248,16 @@ protected:
   }
 
 private:
+  void refreshFilter() {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    // Qt 6.10+: begin/endFilterChange replaces deprecated invalidateFilter().
+    beginFilterChange();
+    endFilterChange();
+#else
+    invalidateFilter();
+#endif
+  }
+
   QString m_search;
   QStringList m_tags;
 };
@@ -6120,7 +6130,9 @@ void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
 }
 
 void MainWindow::applyLibraryFilters() {
-  auto *proxy = qobject_cast<LibraryFilterProxy *>(m_libraryProxy);
+  // LibraryFilterProxy lives in an anonymous namespace (no Q_OBJECT), so
+  // qobject_cast is illegal — the pointer is always our typed instance.
+  auto *proxy = static_cast<LibraryFilterProxy *>(m_libraryProxy);
   if (!proxy)
     return;
   const QString search =
