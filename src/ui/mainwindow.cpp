@@ -5974,15 +5974,10 @@ void MainWindow::setupSidebar() {
     item->setData(Qt::UserRole + 1, isHeader);
     if (isHeader) {
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-      if (name == "Clouds")
-        item->setData(Qt::UserRole + 4, "clouds_header");
     } else {
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
       if (name == "Blop Notes" || name == "All") {
         item->setData(Qt::UserRole + 6, true);
-      }
-      if (name == "Google Drive" || name == "OneDrive" || name == "Dropbox") {
-        item->setData(Qt::UserRole + 5, "clouds_item");
       }
     }
   };
@@ -5990,12 +5985,8 @@ void MainWindow::setupSidebar() {
   addItem("All", "folder");
   addItem("Blop Notes", "folder");
   addItem("Device Files", "device");
-  addItem("Shared by me", "share");
-  addItem("Shared with me", "share");
-  addItem("Clouds", "", true);
-  addItem("Google Drive", "drive");
-  addItem("OneDrive", "onedrive");
-  addItem("Dropbox", "dropbox");
+  // Cloud / Shared rows intentionally omitted until integrations ship —
+  // leaving stub entries caused dead clicks and "coming soon" dialogs.
   m_navSidebar->setCurrentRow(1);
   connect(m_navSidebar, &QListWidget::itemClicked, this,
           &MainWindow::onNavItemClicked);
@@ -6304,11 +6295,8 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   if (!item)
     return;
   bool isHeader = item->data(Qt::UserRole + 1).toBool();
-  if (isHeader) {
-    if (item->text() == "Clouds")
-      toggleSection(item);
+  if (isHeader)
     return;
-  }
   QString path = item->data(Qt::UserRole + 10).toString();
   bool isExpandable = item->data(Qt::UserRole + 6).toBool();
 
@@ -6337,22 +6325,6 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
-  } else if (name == "Google Drive" || name == "OneDrive" ||
-             name == "Dropbox") {
-    setLibraryRootFromSource(QModelIndex());
-    QMessageBox::information(this, "Cloud Integration",
-                             "Cloud integration coming soon.");
-  }
-}
-
-void MainWindow::toggleSection(QListWidgetItem *headerItem) {
-  bool isCollapsed = headerItem->data(Qt::UserRole + 3).toBool();
-  bool newState = !isCollapsed;
-  headerItem->setData(Qt::UserRole + 3, newState);
-  for (int i = 0; i < m_navSidebar->count(); ++i) {
-    QListWidgetItem *item = m_navSidebar->item(i);
-    if (item->data(Qt::UserRole + 5).toString() == "clouds_item")
-      item->setHidden(newState);
   }
 }
 
@@ -6872,28 +6844,24 @@ void MainWindow::setupRightSidebar() {
   // --- Seiten-Optionen ---
   optLayout->addWidget(sectionLabel(QStringLiteral("SEITE"), optContent));
 
-  m_btnFormatInfinite = new QPushButton("Infinite");
+  // Format (Infinite/A4) is fixed at note creation — hide the disabled
+  // toggles that looked like unfinished controls.
+  m_btnFormatInfinite = new QPushButton("Infinite", optContent);
   m_btnFormatInfinite->setCheckable(true);
   m_btnFormatInfinite->setEnabled(false);
-  m_btnFormatInfinite->setStyleSheet(
-      "QPushButton { background: #333; color: #888; border: 1px solid #444; "
-      "padding: 10px; border-radius: 5px; } QPushButton:checked { background: "
-      "#5E5CE6; color: white; border: 1px solid #5E5CE6; }");
-  m_btnFormatA4 = new QPushButton("A4");
+  m_btnFormatInfinite->hide();
+  m_btnFormatA4 = new QPushButton("A4", optContent);
   m_btnFormatA4->setCheckable(true);
   m_btnFormatA4->setEnabled(false);
-  m_btnFormatA4->setStyleSheet(
-      "QPushButton { background: #333; color: #888; border: 1px solid #444; "
-      "padding: 10px; border-radius: 5px; } QPushButton:checked { background: "
-      "#5E5CE6; color: white; border: 1px solid #5E5CE6; }");
+  m_btnFormatA4->hide();
   QButtonGroup *grp = new QButtonGroup(this);
   grp->addButton(m_btnFormatInfinite);
   grp->addButton(m_btnFormatA4);
   grp->setExclusive(true);
-  optLayout->addWidget(m_btnFormatInfinite);
-  optLayout->addWidget(m_btnFormatA4);
 
-  optLayout->addWidget(new QLabel("Layout:", optContent));
+  QLabel *lblLayout = new QLabel(QStringLiteral("Layout:"), optContent);
+  lblLayout->setObjectName(QStringLiteral("pageSettingsLayoutLabel"));
+  optLayout->addWidget(lblLayout);
   m_btnStyleBlank = new QPushButton("Blank");
   m_btnStyleLined = new QPushButton("Lined");
   m_btnStyleSquared = new QPushButton("Squared");
@@ -6922,6 +6890,7 @@ void MainWindow::setupRightSidebar() {
           &QButtonGroup::buttonToggled,
           this, &MainWindow::onPageStyleButtonToggled);
   QWidget *styleBtnsContainer = new QWidget(optContent);
+  styleBtnsContainer->setObjectName(QStringLiteral("pageSettingsStyleRow"));
   QHBoxLayout *styleBtnsLayout = new QHBoxLayout(styleBtnsContainer);
   styleBtnsLayout->setContentsMargins(0, 0, 0, 0);
   styleBtnsLayout->addWidget(m_btnStyleBlank);
@@ -6930,8 +6899,11 @@ void MainWindow::setupRightSidebar() {
   styleBtnsLayout->addWidget(m_btnStyleDotted);
   optLayout->addWidget(styleBtnsContainer);
 
-  optLayout->addWidget(new QLabel("Grid Spacing (px):", optContent));
+  QLabel *lblGrid = new QLabel("Grid Spacing (px):", optContent);
+  lblGrid->setObjectName(QStringLiteral("pageSettingsGridLabel"));
+  optLayout->addWidget(lblGrid);
   m_sliderGridSpacing = new QSlider(Qt::Horizontal);
+  m_sliderGridSpacing->setObjectName(QStringLiteral("pageSettingsGridSlider"));
   m_sliderGridSpacing->setRange(10, 80);
   m_sliderGridSpacing->setValue(40);
   m_sliderGridSpacing->setStyleSheet(
@@ -6944,7 +6916,9 @@ void MainWindow::setupRightSidebar() {
           &MainWindow::onPageGridSpacingSliderChanged);
   optLayout->addWidget(m_sliderGridSpacing);
 
-  optLayout->addWidget(new QLabel("Page Color:", optContent));
+  QLabel *lblPageColor = new QLabel("Page Color:", optContent);
+  lblPageColor->setObjectName(QStringLiteral("pageSettingsColorLabel"));
+  optLayout->addWidget(lblPageColor);
   m_btnColorWhite = new QPushButton("Light");
   m_btnColorWhite->setCheckable(true);
   m_btnColorWhite->setChecked(false);
@@ -7187,7 +7161,7 @@ void MainWindow::setupRightSidebar() {
     return val;
   };
   m_lblMetaCreated  = makeMetaRow("Erstellt:", "—");
-  m_lblMetaModified = makeMetaRow("Geändert:", "Vor 5 Min.");
+  m_lblMetaModified = makeMetaRow("Geändert:", "—");
 
   tagsLayoutMain->addStretch();
   settingsTabs->addTab(tabTags, "Tags");
@@ -7727,6 +7701,27 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
   QWidget *current = m_editorTabs->currentWidget();
   CanvasView *cv = getCurrentCanvas();
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
+  const bool canvasNote = (cv != nullptr);
+  const bool a4Note = (editor != nullptr);
+
+  // Canvas-only page chrome looks unfinished on A4 notes (no-op buttons).
+  auto setNamedVisible = [&](const char *objectName) {
+    if (!m_pageSettingsCard)
+      return;
+    if (QWidget *w = m_pageSettingsCard->findChild<QWidget *>(
+            QString::fromLatin1(objectName)))
+      w->setVisible(canvasNote);
+  };
+  setNamedVisible("pageSettingsLayoutLabel");
+  setNamedVisible("pageSettingsStyleRow");
+  setNamedVisible("pageSettingsGridLabel");
+  setNamedVisible("pageSettingsGridSlider");
+  setNamedVisible("pageSettingsColorLabel");
+  if (m_btnColorWhite)
+    m_btnColorWhite->setVisible(canvasNote);
+  if (m_btnColorDark)
+    m_btnColorDark->setVisible(canvasNote);
+
   if (cv) {
     bool inf = cv->isInfinite();
     m_btnFormatInfinite->setChecked(inf);
@@ -7748,6 +7743,7 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
     m_btnFormatA4->setChecked(true);
     m_btnInputPen->setChecked(m_penOnlyMode);
     m_btnInputTouch->setChecked(!m_penOnlyMode);
+    Q_UNUSED(a4Note);
   }
   ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (tb) {
@@ -7767,15 +7763,39 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
 void MainWindow::onEditorNoteOverflowMenu() {
   if (!m_editorTabs)
     return;
-  auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget());
-  if (!editor)
-    return;
+
 #ifdef Q_OS_ANDROID
   QWidget *anchor = m_btnAndroidToolbarExport;
 #else
   QWidget *anchor = m_btnEditorNoteOverflow;
 #endif
-  editor->showOverflowMenuFromAnchor(anchor);
+  if (!anchor)
+    return;
+
+  if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+    editor->showOverflowMenuFromAnchor(anchor);
+    return;
+  }
+
+  // Infinite CanvasView notes: previously Android header ⋯ was a dead button
+  // because only NoteEditor was handled. Offer the working in-window actions.
+  CanvasView *cv = getCurrentCanvas();
+  if (!cv)
+    return;
+
+  const QPoint globalPos =
+      anchor->mapToGlobal(QPoint(anchor->width() / 2, anchor->height()));
+  QList<BlopInWindowMenu::Item> items;
+  items.append({QStringLiteral("Optionen & Tags…"), QIcon(),
+                [this]() { setPageSettingsOverlayVisible(true); }});
+#ifdef Q_OS_ANDROID
+  BlopInWindowMenu::show(this, globalPos, items);
+#else
+  // Desktop infinite notes keep the floating ⋯; title-bar ⋯ is A4-only.
+  Q_UNUSED(items);
+  Q_UNUSED(globalPos);
+  Q_UNUSED(cv);
+#endif
 }
 
 void MainWindow::onTogglePageManager() {
@@ -8451,31 +8471,95 @@ void MainWindow::startRename(const QModelIndex &index) {
   showRenameOverlay(index.data().toString());
 }
 void MainWindow::showRenameOverlay(const QString &currentName) {
-  if (!m_renameOverlay) {
-    m_renameOverlay = new QWidget(this);
-    m_renameOverlay->resize(size());
-    m_renameOverlay->setStyleSheet("background-color: rgba(0,0,0,200);");
-    m_renameInput = new QLineEdit(m_renameOverlay);
-    m_renameInput->setFixedSize(300, 40);
-    m_renameInput->setStyleSheet(
-        "QLineEdit { background: #333; color: white; border: 1px solid #555; "
-        "font-size: 16px; padding: 5px; }");
-    connect(m_renameInput, &QLineEdit::returnPressed, this,
-            &MainWindow::finishRename);
-  }
-  m_renameInput->move(width() / 2 - 150, height() / 2 - 20);
-  m_renameInput->setText(currentName);
-  m_renameOverlay->show();
-  m_renameInput->setFocus();
-}
-void MainWindow::finishRename() {
-  if (m_renameOverlay && m_indexToRename.isValid()) {
-    QString newName = m_renameInput->text();
-    if (!newName.isEmpty()) {
-      m_fileModel->setData(m_indexToRename, newName, Qt::EditRole);
+  auto *form = new QWidget();
+  form->setObjectName(QStringLiteral("RenameForm"));
+  auto *lay = new QVBoxLayout(form);
+  lay->setContentsMargins(20, 18, 20, 16);
+  lay->setSpacing(12);
+
+  auto *title = new QLabel(QStringLiteral("Umbenennen"), form);
+  title->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: %1; font-size: 16px; font-weight: 700; background: transparent;")
+                                             .arg(BlopTheme::textPrimary().name())));
+  lay->addWidget(title);
+
+  auto *edit = new QLineEdit(currentName, form);
+  edit->setObjectName(QStringLiteral("RenameInput"));
+  edit->setFixedHeight(UiScale::dp(40));
+  edit->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "QLineEdit {"
+      "  background: %1; color: %2; border: 1px solid %3;"
+      "  border-radius: 12px; padding: 0 12px; font-size: 14px;"
+      "}"
+      "QLineEdit:focus { border: 1px solid %4; }")
+                                            .arg(BlopTheme::surfaceMuted().name(QColor::HexRgb),
+                                                 BlopTheme::textPrimary().name(QColor::HexRgb),
+                                                 BlopTheme::borderSubtle().name(QColor::HexRgb),
+                                                 m_currentAccentColor.name(QColor::HexRgb))));
+  lay->addWidget(edit);
+
+  auto *row = new QHBoxLayout();
+  row->setSpacing(8);
+  row->addStretch(1);
+  auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), form);
+  btnCancel->setCursor(Qt::PointingHandCursor);
+  btnCancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "QPushButton { background: transparent; color: %1; border: 1px solid %2;"
+      "  border-radius: 10px; padding: 8px 14px; font-size: 12px; }"
+      "QPushButton:hover { color: %3; border-color: %4; }")
+                                                 .arg(BlopTheme::textSecondary().name(),
+                                                      BlopTheme::borderSubtle().name(QColor::HexRgb),
+                                                      BlopTheme::textPrimary().name(),
+                                                      m_currentAccentColor.name(QColor::HexRgb))));
+  auto *btnOk = new QPushButton(QStringLiteral("Speichern"), form);
+  btnOk->setCursor(Qt::PointingHandCursor);
+  btnOk->setDefault(true);
+  btnOk->setStyleSheet(BlopTheme::primaryButtonQss());
+  row->addWidget(btnCancel);
+  row->addWidget(btnOk);
+  lay->addLayout(row);
+
+  BlopModal *modal = BlopModal::present(this, form, BlopModal::Mode::Auto,
+                                        QStringLiteral("Umbenennen"));
+  if (!modal)
+    return;
+  modal->setPreferredCardWidth(420);
+
+  auto commit = [this, edit, modal]() {
+    if (!edit || !m_indexToRename.isValid()) {
+      if (modal)
+        modal->dismiss();
+      return;
     }
-    m_renameOverlay->hide();
+    const QString newName = edit->text().trimmed();
+    if (!newName.isEmpty())
+      m_fileModel->setData(m_indexToRename, newName, Qt::EditRole);
+    m_indexToRename = QModelIndex();
+    if (modal)
+      modal->dismiss();
+  };
+
+  connect(btnOk, &QPushButton::clicked, form, commit);
+  connect(edit, &QLineEdit::returnPressed, form, commit);
+  connect(btnCancel, &QPushButton::clicked, modal, &BlopModal::dismiss);
+  QTimer::singleShot(0, edit, [edit]() {
+    if (edit) {
+      edit->setFocus(Qt::OtherFocusReason);
+      edit->selectAll();
+    }
+  });
+}
+
+void MainWindow::finishRename() {
+  // Legacy Enter-handler kept for callers; rename now commits via BlopModal.
+  if (m_indexToRename.isValid() && m_renameInput) {
+    const QString newName = m_renameInput->text().trimmed();
+    if (!newName.isEmpty())
+      m_fileModel->setData(m_indexToRename, newName, Qt::EditRole);
+    m_indexToRename = QModelIndex();
   }
+  if (m_renameOverlay)
+    m_renameOverlay->hide();
 }
 
 void MainWindow::showEvent(QShowEvent *event) {
@@ -8548,11 +8632,6 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     bottomOffset = 100;
   syncSidebarPushLayout();
 #endif
-  if (m_renameOverlay) {
-    m_renameOverlay->resize(size());
-    if (m_renameInput)
-      m_renameInput->move(width() / 2 - 150, height() / 2 - 20);
-  }
   if (m_editorTabs && m_floatingTools) {
     if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
       if (m_editorCenterWidget) {
@@ -8895,26 +8974,35 @@ void MainWindow::onTabChanged(int index) {
           new QResizeEvent(m_editorCenterWidget->size(), m_editorCenterWidget->size()));
   }
 
-  // Metadaten aus der Datei lesen (Erstellt / Geändert)
-  if (cv && m_fileModel) {
-    // Try to find the note file path from the canvas
-    QString filePath = cv->property("filePath").toString();
+  // Metadaten aus der Datei lesen (Erstellt / Geändert) — Canvas + A4 NoteEditor.
+  {
+    QString filePath = currentEditorNotePath();
+    if (filePath.isEmpty() && cv)
+      filePath = cv->property("filePath").toString();
     if (!filePath.isEmpty()) {
       QFileInfo fi(filePath);
       if (fi.exists()) {
         if (m_lblMetaCreated)
-          m_lblMetaCreated->setText(
-              fi.birthTime().toString("dd.MM.yyyy"));
+          m_lblMetaCreated->setText(fi.birthTime().toString("dd.MM.yyyy"));
         if (m_lblMetaModified) {
           qint64 secsAgo = fi.lastModified().secsTo(QDateTime::currentDateTime());
           QString relTime;
-          if (secsAgo < 60)       relTime = "Gerade eben";
-          else if (secsAgo < 3600) relTime = QString("Vor %1 Min.").arg(secsAgo / 60);
-          else if (secsAgo < 86400) relTime = QString("Vor %1 Std.").arg(secsAgo / 3600);
-          else relTime = fi.lastModified().toString("dd.MM.yyyy");
+          if (secsAgo < 60)
+            relTime = "Gerade eben";
+          else if (secsAgo < 3600)
+            relTime = QString("Vor %1 Min.").arg(secsAgo / 60);
+          else if (secsAgo < 86400)
+            relTime = QString("Vor %1 Std.").arg(secsAgo / 3600);
+          else
+            relTime = fi.lastModified().toString("dd.MM.yyyy");
           m_lblMetaModified->setText(relTime);
         }
       }
+    } else {
+      if (m_lblMetaCreated)
+        m_lblMetaCreated->setText(QStringLiteral("—"));
+      if (m_lblMetaModified)
+        m_lblMetaModified->setText(QStringLiteral("—"));
     }
   }
 

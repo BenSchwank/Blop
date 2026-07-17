@@ -245,10 +245,7 @@ if(ANDROID)
         URI Blop
         VERSION 1.0
         QML_FILES
-            Main.qml
-            ui/ToolSettingsOverlay.qml
             AndroidWebView.qml
-            AuthOverlay.qml
     )
 endif()
 

@@ -311,7 +311,6 @@ private:
   void performCopy(const QModelIndex &index);
   bool copyRecursive(const QString &src, const QString &dst);
 
-  void toggleSection(QListWidgetItem *headerItem);
   void toggleFolderContent(QListWidgetItem *parentItem);
 
   CanvasView *getCurrentCanvas();
@@ -365,7 +364,7 @@ private:
   ModernButton *m_btnAndroidToolbarExport{nullptr};
   /// Dimmed overlay behind drawer; taps close the sidebar (Material-style).
   QWidget *m_androidSidebarScrim{nullptr};
-  /// Full-window in-process OAuth (AuthOverlay.qml); must dismiss before Study JNI bursts.
+  /// Android OAuth uses Chrome Custom Tabs (see showAuthOverlay); overlay slot unused.
   QWidget *m_androidOAuthOverlay{nullptr};
   /// Study boot spinner above QtWebView SurfaceView (sibling of content stack).
   QWidget *m_androidStudyBootOverlay{nullptr};
@@ -548,6 +547,7 @@ private:
   CanvasView::ToolType m_activeToolType;
 
   QModelIndex m_indexToRename;
+  /// Kept for API compatibility; rename UI is BlopModal-based now.
   QWidget *m_renameOverlay{nullptr};
   QLineEdit *m_renameInput{nullptr};
 

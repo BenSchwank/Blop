@@ -10,6 +10,5 @@
     <file>assets/android_btn_settings.png</file>
     <file>assets/android_btn_pages.png</file>
     <file>AndroidWebView.qml</file>
-    <file>AuthOverlay.qml</file>
 </qresource>
 </RCC>
