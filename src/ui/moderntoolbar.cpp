@@ -745,7 +745,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.drawRoundedRect(badge, bh / 2.0, bh / 2.0);
     p.setPen(Qt::white);
     QFont f = p.font();
-    f.setPixelSize(UiScale::font(9));
+    f.setPixelSize(UiScale::sp(9));
     f.setBold(true);
     p.setFont(f);
     p.drawText(badge, Qt::AlignCenter, m_badgeText);
