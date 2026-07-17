@@ -2175,15 +2175,15 @@ void MultiPageNoteView::pickAndAddImagePage() {
                               QStringLiteral("Bild konnte nicht geladen werden."));
           return;
         }
-        QImage scaled = img.scaled(self->a4wPx(), self->a4hPx(),
+        QImage scaled = img.scaled(a4wPx(), a4hPx(),
                                    Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        QImage canvas(self->a4wPx(), self->a4hPx(),
+        QImage canvas(a4wPx(), a4hPx(),
                       QImage::Format_ARGB32_Premultiplied);
         canvas.fill(Qt::white);
         {
           QPainter p(&canvas);
-          p.drawImage((self->a4wPx() - scaled.width()) / 2,
-                      (self->a4hPx() - scaled.height()) / 2, scaled);
+          p.drawImage((a4wPx() - scaled.width()) / 2,
+                      (a4hPx() - scaled.height()) / 2, scaled);
         }
         int idx = self->note_->pages.size();
         self->note_->ensurePage(idx);
