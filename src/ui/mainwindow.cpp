@@ -4,6 +4,8 @@
 #include "moderntoolbar.h"
 #include "androidphonetoolbar.h"
 #include "documenttabbar.h"
+#include "librarytagspanel.h"
+#include "librarytagstore.h"
 #include "pagethumbnailsidebar.h"
 #include "penpresetbar.h"
 #include "newnotedialog.h"
@@ -86,6 +88,7 @@
 #endif
 #include <QScroller>
 #include <QScrollerProperties>
+#include <QSortFilterProxyModel>
 #include <QVariant>
 #include <QVariantAnimation>
 #include <QSettings>
@@ -183,6 +186,71 @@ static const char *BLOP_VERSION = BLOP_VERSION_STR;
 static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
 
 namespace {
+
+class LibraryFilterProxy : public QSortFilterProxyModel {
+public:
+  explicit LibraryFilterProxy(QObject *parent = nullptr)
+      : QSortFilterProxyModel(parent) {
+    setDynamicSortFilter(true);
+  }
+
+  void setSearchText(const QString &text) {
+    if (m_search == text)
+      return;
+    m_search = text.trimmed();
+    invalidateFilter();
+  }
+
+  void setRequiredTags(const QStringList &tags) {
+    if (m_tags == tags)
+      return;
+    m_tags = tags;
+    invalidateFilter();
+  }
+
+protected:
+  bool filterAcceptsRow(int sourceRow,
+                        const QModelIndex &sourceParent) const override {
+    const QAbstractItemModel *src = sourceModel();
+    if (!src)
+      return true;
+    const QModelIndex idx = src->index(sourceRow, 0, sourceParent);
+    if (!idx.isValid())
+      return false;
+
+    const auto *fsm = qobject_cast<const QFileSystemModel *>(src);
+    const QString name = idx.data(Qt::DisplayRole).toString();
+    if (!m_search.isEmpty() && !name.contains(m_search, Qt::CaseInsensitive))
+      return false;
+
+    if (m_tags.isEmpty())
+      return true;
+
+    // Folders stay visible so navigation still works while filtering.
+    if (fsm && fsm->isDir(idx))
+      return true;
+
+    const QString path =
+        fsm ? fsm->filePath(idx) : idx.data(Qt::UserRole).toString();
+    const QStringList noteTags = LibraryTagStore::tagsForPath(path);
+    for (const QString &need : m_tags) {
+      bool hit = false;
+      for (const QString &have : noteTags) {
+        if (have.compare(need, Qt::CaseInsensitive) == 0) {
+          hit = true;
+          break;
+        }
+      }
+      if (!hit)
+        return false;
+    }
+    return true;
+  }
+
+private:
+  QString m_search;
+  QStringList m_tags;
+};
 
 QString blopWebMenuStyleSheet() {
   // v3.17.0: theme-aware. Reads live tokens from BlopTheme so Light/Dark
@@ -1494,8 +1562,10 @@ void MainWindow::applyThemeRefresh() {
     m_penPresetBar->setAccentColor(m_currentAccentColor);
   if (m_documentTabBar)
     m_documentTabBar->setAccentColor(m_currentAccentColor);
-  if (m_pageThumbnailSidebar)
-    m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+    if (m_pageThumbnailSidebar)
+      m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+    if (m_libraryTagsPanel)
+      m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
   if (m_noteHeader)
     m_noteHeader->setStyleSheet(
         QStringLiteral("QWidget#NoteHeader { background: transparent; border-bottom: 1px solid %1; }")
@@ -2889,8 +2959,10 @@ void MainWindow::applyTheme() {
     phone->setAccentColor(m_currentAccentColor);
   if (m_documentTabBar)
     m_documentTabBar->setAccentColor(m_currentAccentColor);
-  if (m_pageThumbnailSidebar)
-    m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+    if (m_pageThumbnailSidebar)
+      m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+    if (m_libraryTagsPanel)
+      m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
 
   // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
   // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
@@ -4035,15 +4107,39 @@ void MainWindow::setupUi() {
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
   BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
   titleRow->addWidget(btnNewFolder, 0);
+
+  QPushButton *btnTagsShelf = new QPushButton(QStringLiteral("Tags"), m_overviewContainer);
+  btnTagsShelf->setObjectName(QStringLiteral("overviewBtnTags"));
+  btnTagsShelf->setFixedHeight(UiScale::dp(34));
+  btnTagsShelf->setCursor(Qt::PointingHandCursor);
+  btnTagsShelf->setStyleSheet(
+      "QPushButton {"
+      "  background-color: transparent;"
+      "  color: rgba(232,228,255,0.85);"
+      "  border-radius: 12px;"
+      "  padding: 0 12px;"
+      "  font-weight: 500;"
+      "  font-size: 12px;"
+      "  border: 1px solid rgba(120,130,160,0.28);"
+      "}"
+      "QPushButton:pressed { background-color: rgba(255,255,255,0.06); }"
+  );
+  connect(btnTagsShelf, &QPushButton::clicked, this, [this]() {
+    if (!m_libraryTagsPanel)
+      return;
+    m_libraryTagsPanel->setVisible(!m_libraryTagsPanel->isVisible());
+  });
+  BlopRipple::attachPressFeedback(btnTagsShelf, 0.94);
+  titleRow->addWidget(btnTagsShelf, 0);
   headerLayout->addLayout(titleRow);
 
-  QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
-  searchBar->setObjectName("overviewSearchBar");
-  searchBar->setPlaceholderText("Notizen durchsuchen...");
-  searchBar->setFrame(false);
-  searchBar->setAttribute(Qt::WA_StyledBackground, true);
-  searchBar->setFixedHeight(UiScale::dp(36));
-  searchBar->setStyleSheet(BlopTheme::themed(
+  m_overviewSearchBar = new QLineEdit(m_overviewContainer);
+  m_overviewSearchBar->setObjectName("overviewSearchBar");
+  m_overviewSearchBar->setPlaceholderText("Notizen durchsuchen...");
+  m_overviewSearchBar->setFrame(false);
+  m_overviewSearchBar->setAttribute(Qt::WA_StyledBackground, true);
+  m_overviewSearchBar->setFixedHeight(UiScale::dp(36));
+  m_overviewSearchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background-color: #1A1829;"
       "  color: #F4F5FB;"
@@ -4056,7 +4152,7 @@ void MainWindow::setupUi() {
       "  border: 1px solid #5E5CE6;"
       "}"
   ));
-  headerLayout->addWidget(searchBar);
+  headerLayout->addWidget(m_overviewSearchBar);
 
 #else
   // Desktop: Drawboard library row — title + ghost actions, then full-width search.
@@ -4115,13 +4211,13 @@ void MainWindow::setupUi() {
   titleRow->addWidget(btnNewFolder);
   headerLayout->addLayout(titleRow);
 
-  QLineEdit *searchBar = new QLineEdit(m_overviewContainer);
-  searchBar->setObjectName("overviewSearchBar");
-  searchBar->setPlaceholderText("Notizen durchsuchen...");
-  searchBar->setFrame(false);
-  searchBar->setAttribute(Qt::WA_StyledBackground, true);
-  searchBar->setFixedHeight(36);
-  searchBar->setStyleSheet(BlopTheme::themed(
+  m_overviewSearchBar = new QLineEdit(m_overviewContainer);
+  m_overviewSearchBar->setObjectName("overviewSearchBar");
+  m_overviewSearchBar->setPlaceholderText("Notizen durchsuchen...");
+  m_overviewSearchBar->setFrame(false);
+  m_overviewSearchBar->setAttribute(Qt::WA_StyledBackground, true);
+  m_overviewSearchBar->setFixedHeight(36);
+  m_overviewSearchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background-color: #1A1829;"
       "  color: #F4F5FB;"
@@ -4134,14 +4230,34 @@ void MainWindow::setupUi() {
       "  border: 1px solid #5E5CE6;"
       "}"
   ));
-  headerLayout->addWidget(searchBar);
+  headerLayout->addWidget(m_overviewSearchBar);
 #endif
 
   overviewLayout->addLayout(headerLayout);
 
+  if (m_overviewSearchBar) {
+    connect(m_overviewSearchBar, &QLineEdit::textChanged, this,
+            [this](const QString &) { applyLibraryFilters(); });
+  }
+
+  auto *libraryBody = new QWidget(m_overviewContainer);
+  libraryBody->setObjectName(QStringLiteral("LibraryBody"));
+  auto *libraryBodyLay = new QHBoxLayout(libraryBody);
+  libraryBodyLay->setContentsMargins(0, 0, 0, 0);
+  libraryBodyLay->setSpacing(0);
+
+  auto *libraryMain = new QWidget(libraryBody);
+  auto *libraryMainLay = new QVBoxLayout(libraryMain);
+  libraryMainLay->setContentsMargins(0, 0, 0, 0);
+  libraryMainLay->setSpacing(0);
+
+  m_libraryProxy = new LibraryFilterProxy(this);
+  m_libraryProxy->setSourceModel(m_fileModel);
+
   m_fileListView = new FreeGridView(this);
-  m_fileListView->setModel(m_fileModel);
-  m_fileListView->setRootIndex(m_fileModel->index(m_rootPath));
+  m_fileListView->setModel(m_libraryProxy);
+  m_fileListView->setRootIndex(
+      m_libraryProxy->mapFromSource(m_fileModel->index(m_rootPath)));
   m_fileListView->setSpacing(16);
   m_fileListView->setFrameShape(QFrame::NoFrame);
 #ifdef Q_OS_ANDROID
@@ -4169,8 +4285,13 @@ void MainWindow::setupUi() {
   // Dateien: ein Tap / ein Klick öffnet (Maus & Touch). Ordner: weiter Doppelklick,
   // damit versehentliches „Reingehen“ seltener ist. Kurze Entprellung verhindert
   // doppeltes Öffnen bei schnellem Doppelklick auf dieselbe Notiz.
+  auto mapToSource = [this](const QModelIndex &proxyIndex) -> QModelIndex {
+    if (!m_libraryProxy || !proxyIndex.isValid())
+      return QModelIndex();
+    return m_libraryProxy->mapToSource(proxyIndex);
+  };
   connect(m_fileListView, &QListView::clicked, this,
-          [this](const QModelIndex &index) {
+          [this, mapToSource](const QModelIndex &index) {
 #ifdef Q_OS_ANDROID
             // The AndroidTileDelegate has already opened the context
             // menu for a tap on the three-dots pill - consume the
@@ -4181,43 +4302,63 @@ void MainWindow::setupUi() {
               return;
             }
 #endif
-            if (!m_fileModel || !index.isValid())
+            const QModelIndex src = mapToSource(index);
+            if (!m_fileModel || !src.isValid())
               return;
-            if (m_fileModel->isDir(index))
+            if (m_fileModel->isDir(src))
               return;
             static QElapsedTimer debounce;
             static QModelIndex lastIdx;
-            if (lastIdx == index && debounce.isValid() &&
+            if (lastIdx == src && debounce.isValid() &&
                 debounce.elapsed() < 450)
               return;
-            lastIdx = index;
+            lastIdx = src;
             debounce.restart();
-            onFileDoubleClicked(index);
+            onFileDoubleClicked(src);
           });
   connect(m_fileListView, &QListView::doubleClicked, this,
-          [this](const QModelIndex &index) {
-            if (m_fileModel && index.isValid() && m_fileModel->isDir(index))
-              onFileDoubleClicked(index);
+          [this, mapToSource](const QModelIndex &index) {
+            const QModelIndex src = mapToSource(index);
+            if (m_fileModel && src.isValid() && m_fileModel->isDir(src))
+              onFileDoubleClicked(src);
           });
   connect(m_fileListView, &FreeGridView::itemDropped, this,
           &MainWindow::onItemDropped);
   m_fileListView->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_fileListView, &QWidget::customContextMenuRequested,
-          [this](const QPoint &pos) {
-            QModelIndex index = m_fileListView->indexAt(pos);
+          [this, mapToSource](const QPoint &pos) {
+            QModelIndex index = mapToSource(m_fileListView->indexAt(pos));
             if (index.isValid())
               showContextMenu(m_fileListView->mapToGlobal(pos), index);
           });
-  overviewLayout->addWidget(m_fileListView);
+  libraryMainLay->addWidget(m_fileListView, 1);
 
   m_lblEmptyState = new QLabel(
       QStringLiteral("Noch keine Notizen.\nErstelle eine neue Notiz, um zu starten."),
-      m_overviewContainer);
+      libraryMain);
   m_lblEmptyState->setAlignment(Qt::AlignCenter);
   m_lblEmptyState->setStyleSheet(
       QStringLiteral("color: rgba(180,188,215,0.55); font-size: 14px; font-weight: 500;"));
   m_lblEmptyState->hide();
-  overviewLayout->addWidget(m_lblEmptyState);
+  libraryMainLay->addWidget(m_lblEmptyState);
+  libraryBodyLay->addWidget(libraryMain, 1);
+
+  m_libraryTagsPanel = new LibraryTagsPanel(libraryBody);
+  m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
+  connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
+          [this](const QStringList &) { applyLibraryFilters(); });
+  connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
+          [this]() {
+            applyLibraryFilters();
+            rebuildPageSettingsTags();
+          });
+#ifdef Q_OS_ANDROID
+  // Phones: keep the shelf collapsible-width by hiding until landscape/tablet.
+  if (!UiScale::isAndroidTablet(this))
+    m_libraryTagsPanel->hide();
+#endif
+  libraryBodyLay->addWidget(m_libraryTagsPanel, 0);
+  overviewLayout->addWidget(libraryBody, 1);
 
 
 
@@ -5558,8 +5699,11 @@ void MainWindow::updateSidebarUser(const QString &username) {
 #endif
     }
 #ifdef Q_OS_ANDROID
-    if (m_androidHeader)
+    if (m_androidHeader) {
       m_androidHeader->setVisible(false);
+      m_androidHeader->setFixedHeight(0);
+    }
+    syncAndroidHeaderGeometry(this);
     onModeChanged(1);
     // Keep login screen clean: hide Notes/Study pills until session is confirmed.
     if (m_btnAndroidNotes) {
@@ -5972,6 +6116,159 @@ void MainWindow::updateAndroidSidebarScrimGeometry() {
 }
 #endif
 
+void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
+  if (!m_fileListView || !m_fileModel)
+    return;
+  if (m_libraryProxy) {
+    if (m_fileListView->model() != m_libraryProxy)
+      m_fileListView->setModel(m_libraryProxy);
+    m_fileListView->setRootIndex(m_libraryProxy->mapFromSource(sourceIndex));
+  } else {
+    m_fileListView->setRootIndex(sourceIndex);
+  }
+}
+
+void MainWindow::applyLibraryFilters() {
+  auto *proxy = qobject_cast<LibraryFilterProxy *>(m_libraryProxy);
+  if (!proxy)
+    return;
+  const QString search =
+      m_overviewSearchBar ? m_overviewSearchBar->text() : QString();
+  const QStringList tags =
+      m_libraryTagsPanel ? m_libraryTagsPanel->selectedTags() : QStringList();
+  proxy->setSearchText(search);
+  proxy->setRequiredTags(tags);
+  updateSidebarBadges();
+}
+
+QString MainWindow::currentEditorNotePath() const {
+  if (!m_editorTabs)
+    return {};
+  QWidget *w = m_editorTabs->currentWidget();
+  if (!w)
+    return {};
+  const QString prop = w->property("filePath").toString();
+  if (!prop.isEmpty())
+    return prop;
+  if (auto *cv = w->findChild<CanvasView *>()) {
+    const QString p = cv->property("filePath").toString();
+    if (!p.isEmpty())
+      return p;
+  }
+  return {};
+}
+
+void MainWindow::rebuildPageSettingsTags() {
+  if (!m_tagsContainer || !m_tagsFlowLayout)
+    return;
+
+  while (QLayoutItem *child = m_tagsFlowLayout->takeAt(0)) {
+    if (QWidget *w = child->widget())
+      w->deleteLater();
+    delete child;
+  }
+
+  const QString path = currentEditorNotePath();
+  QStringList assigned = LibraryTagStore::tagsForPath(path);
+  const QStringList catalog = LibraryTagStore::catalog();
+
+  auto makeChip = [this](const QString &text, bool active) {
+    auto *tag = new QPushButton(text, m_tagsContainer);
+    tag->setCursor(Qt::PointingHandCursor);
+    tag->setCheckable(true);
+    tag->setChecked(active);
+    tag->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  background: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 10px;"
+        "  color: %3;"
+        "  font-size: 11px;"
+        "  font-weight: 600;"
+        "  padding: 5px 12px;"
+        "}"
+        "QPushButton:checked {"
+        "  background: rgba(124,92,252,0.22);"
+        "  border: 1px solid rgba(124,92,252,0.55);"
+        "  color: #EDE9FF;"
+        "}")
+                           .arg(active ? QStringLiteral("rgba(124,92,252,0.22)")
+                                       : QStringLiteral("rgba(255,255,255,0.05)"),
+                                active ? QStringLiteral("rgba(124,92,252,0.55)")
+                                       : QStringLiteral("rgba(255,255,255,0.14)"),
+                                active ? QStringLiteral("#EDE9FF")
+                                       : QStringLiteral("rgba(255,255,255,0.7)")));
+    connect(tag, &QPushButton::toggled, this, [this, text](bool on) {
+      const QString notePath = currentEditorNotePath();
+      if (notePath.isEmpty())
+        return;
+      QStringList tags = LibraryTagStore::tagsForPath(notePath);
+      if (on) {
+        bool exists = false;
+        for (const QString &t : tags) {
+          if (t.compare(text, Qt::CaseInsensitive) == 0) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists)
+          tags.append(text);
+      } else {
+        QStringList kept;
+        for (const QString &t : tags) {
+          if (t.compare(text, Qt::CaseInsensitive) != 0)
+            kept.append(t);
+        }
+        tags = kept;
+      }
+      LibraryTagStore::setTagsForPath(notePath, tags);
+      if (m_libraryTagsPanel)
+        m_libraryTagsPanel->reload();
+      applyLibraryFilters();
+      // Keep in-memory note tags in sync when possible.
+      if (m_editorTabs) {
+        if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+          if (Note *n = editor->note())
+            n->tags = tags;
+        }
+      }
+    });
+    m_tagsFlowLayout->addWidget(tag);
+  };
+
+  QStringList shown = catalog;
+  for (const QString &t : assigned) {
+    bool inCat = false;
+    for (const QString &c : shown) {
+      if (c.compare(t, Qt::CaseInsensitive) == 0) {
+        inCat = true;
+        break;
+      }
+    }
+    if (!inCat)
+      shown.append(t);
+  }
+  if (shown.isEmpty()) {
+    auto *empty = new QLabel(QStringLiteral("Noch keine Tags — rechts in der Bibliothek anlegen."),
+                             m_tagsContainer);
+    empty->setStyleSheet(
+        QStringLiteral("color: rgba(255,255,255,0.45); font-size: 11px;"));
+    empty->setWordWrap(true);
+    m_tagsFlowLayout->addWidget(empty);
+    return;
+  }
+  for (const QString &t : shown) {
+    bool active = false;
+    for (const QString &a : assigned) {
+      if (a.compare(t, Qt::CaseInsensitive) == 0) {
+        active = true;
+        break;
+      }
+    }
+    makeChip(t, active);
+  }
+}
+
 void MainWindow::updateSidebarBadges() {
   QDir rootDir(m_rootPath);
   int rootCount =
@@ -5986,7 +6283,10 @@ void MainWindow::updateSidebarBadges() {
   }
 
   if (m_lblEmptyState && m_fileListView && m_fileModel) {
-    if (m_fileModel->rowCount(m_fileListView->rootIndex()) == 0) {
+    const int rows = m_libraryProxy
+                         ? m_libraryProxy->rowCount(m_fileListView->rootIndex())
+                         : m_fileModel->rowCount(m_fileListView->rootIndex());
+    if (rows == 0) {
       if (!m_lblEmptyState->isVisible()) {
         m_lblEmptyState->show();
         m_fileListView->hide();
@@ -6014,8 +6314,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
 
   if (!path.isEmpty() && QFileInfo(path).isDir()) {
     m_fileModel->setRootPath(path);
-    m_fileListView->setModel(m_fileModel);
-    m_fileListView->setRootIndex(m_fileModel->index(path));
+    setLibraryRootFromSource(m_fileModel->index(path));
     updateOverviewBackButton();
     if (isExpandable)
       toggleFolderContent(item);
@@ -6034,14 +6333,13 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   QString name = item->text();
   if (name == "Device Files") {
     m_fileModel->setRootPath(QDir::rootPath());
-    m_fileListView->setModel(m_fileModel);
-    m_fileListView->setRootIndex(QModelIndex());
+    setLibraryRootFromSource(m_fileModel->index(QDir::rootPath()));
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
   } else if (name == "Google Drive" || name == "OneDrive" ||
              name == "Dropbox") {
-    m_fileListView->setRootIndex(QModelIndex());
+    setLibraryRootFromSource(QModelIndex());
     QMessageBox::information(this, "Cloud Integration",
                              "Cloud integration coming soon.");
   }
@@ -6448,13 +6746,24 @@ void MainWindow::onNavigateUp() {
   if (current.isValid()) {
     QModelIndex parent = current.parent();
     m_fileListView->setRootIndex(parent);
+    if (m_libraryProxy && m_fileModel) {
+      const QModelIndex src = m_libraryProxy->mapToSource(parent.isValid()
+                                                              ? parent
+                                                              : current);
+      if (src.isValid())
+        m_fileModel->setRootPath(m_fileModel->filePath(src));
+    }
     updateOverviewBackButton();
   }
 }
 
 void MainWindow::updateOverviewBackButton() {
+  if (!btnBackOverview || !m_fileListView || !m_fileModel)
+    return;
   QModelIndex current = m_fileListView->rootIndex();
   QModelIndex root = m_fileModel->index(m_rootPath);
+  if (m_libraryProxy)
+    root = m_libraryProxy->mapFromSource(root);
   bool canGoUp = (current != root && current.isValid());
   btnBackOverview->setVisible(canGoUp);
 }
@@ -6799,8 +7108,8 @@ void MainWindow::setupRightSidebar() {
   tagsLayoutMain->setContentsMargins(16, 16, 16, 20);
   tagsLayoutMain->setSpacing(16);
 
-  // Tags Section
-  tagsLayoutMain->addWidget(sectionLabel(QStringLiteral("QUICK-TAGS"), tabTags));
+  // Tags Section — wired to LibraryTagStore (same catalog as library shelf).
+  tagsLayoutMain->addWidget(sectionLabel(QStringLiteral("TAGS"), tabTags));
   
   m_tagsContainer = new QWidget(tabTags);
   m_tagsContainer->setStyleSheet("background: transparent;");
@@ -6808,24 +7117,6 @@ void MainWindow::setupRightSidebar() {
   m_tagsFlowLayout->setContentsMargins(0, 0, 0, 0);
   m_tagsFlowLayout->setSpacing(6);
   m_tagsFlowLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-
-  auto addTag = [&](const QString &text) {
-    QLabel *tag = new QLabel(text, m_tagsContainer);
-    tag->setStyleSheet(
-        "QLabel {"
-        "  background: rgba(124,92,252,0.15);"
-        "  border: 1px solid rgba(124,92,252,0.30);"
-        "  border-radius: 6px;"
-        "  color: #D8D5FF;"
-        "  font-size: 11px;"
-        "  font-weight: 500;"
-        "  padding: 4px 10px;"
-        "}");
-    tag->setCursor(Qt::PointingHandCursor);
-    m_tagsFlowLayout->addWidget(tag);
-  };
-  addTag("[[Projekt]]");
-  addTag("[[Entwurf]]");
   tagsLayoutMain->addWidget(m_tagsContainer);
 
   QPushButton *btnAddTag = new QPushButton("+ Neuer Tag", tabTags);
@@ -6844,7 +7135,37 @@ void MainWindow::setupRightSidebar() {
       "  border-color: rgba(255,255,255,0.25);"
       "  color: rgba(255,255,255,0.8);"
       "}");
+  connect(btnAddTag, &QPushButton::clicked, this, [this]() {
+    bool ok = false;
+    const QString raw = QInputDialog::getText(
+        this, QStringLiteral("Neuer Tag"), QStringLiteral("Tag-Name:"),
+        QLineEdit::Normal, QString(), &ok);
+    if (!ok)
+      return;
+    if (!LibraryTagStore::addTagToCatalog(raw))
+      return;
+    const QString path = currentEditorNotePath();
+    if (!path.isEmpty()) {
+      QStringList tags = LibraryTagStore::tagsForPath(path);
+      const QString n = LibraryTagStore::normalize(raw);
+      bool exists = false;
+      for (const QString &t : tags) {
+        if (t.compare(n, Qt::CaseInsensitive) == 0) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists)
+        tags.append(n);
+      LibraryTagStore::setTagsForPath(path, tags);
+    }
+    if (m_libraryTagsPanel)
+      m_libraryTagsPanel->reload();
+    rebuildPageSettingsTags();
+    applyLibraryFilters();
+  });
   tagsLayoutMain->addWidget(btnAddTag);
+  rebuildPageSettingsTags();
 
   // Meta Section
   tagsLayoutMain->addSpacing(12);
@@ -7368,6 +7689,7 @@ void MainWindow::setPageSettingsOverlayVisible(bool show) {
     if (m_pageSettingsModal)
       return; // already presented
     syncPageSettingsPanelFromEditor();
+    rebuildPageSettingsTags();
     // BlopModal will size the card via its layout; release the fixed-width
     // constraint that the legacy scrim used.
     m_pageSettingsCard->setMinimumWidth(0);
@@ -7502,8 +7824,9 @@ void MainWindow::onTogglePageManager() {
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
   BlopDiag::recordUiAction(QStringLiteral("open_note"));
   if (m_fileModel->isDir(index)) {
-    m_fileListView->setRootIndex(index);
     m_fileModel->setRootPath(m_fileModel->filePath(index));
+    setLibraryRootFromSource(index);
+    updateOverviewBackButton();
   } else {
     QString path = m_fileModel->filePath(index);
     QString fileName = index.data().toString();
@@ -7805,12 +8128,20 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       } else {
         Note note;
         if (NoteManager::loadNote(path, note)) {
+          // Prefer tags embedded in the note file; fall back to library store.
+          if (note.tags.isEmpty())
+            note.tags = LibraryTagStore::tagsForPath(path);
+          else
+            LibraryTagStore::setTagsForPath(path, note.tags);
           NoteEditor *editor = new NoteEditor(this);
+          editor->setProperty("filePath", path);
           Note *heapNote = new Note(note);
           editor->setNote(heapNote);
           if (editor->view())
             editor->view()->setPenOnlyMode(m_penOnlyMode);
           editor->onSaveRequested = [path](Note *n) {
+            if (n)
+              LibraryTagStore::setTagsForPath(path, n->tags);
             NoteManager::saveNote(*n, path);
           };
           editor->onOpenNoteOptionsRequested = [this]() {
@@ -7869,11 +8200,19 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   if (!index.isValid())
     return;
 
+  // Library view may hand us a proxy index — always normalize to the
+  // QFileSystemModel source index before path lookups / open / rename.
+  QModelIndex sourceIndex = index;
+  if (m_libraryProxy && index.model() == m_libraryProxy)
+    sourceIndex = m_libraryProxy->mapToSource(index);
+  if (!sourceIndex.isValid())
+    return;
+
   // Shared with Windows (exec) and Android (popup). Lambdas capture a
   // QPersistentModelIndex so action bodies stay safe if the QFileSystemModel
   // refreshes its internal nodes between menu-open and the user picking an
   // item (the file watcher can fire at any time on Android).
-  const QPersistentModelIndex persistent(index);
+  const QPersistentModelIndex persistent(sourceIndex);
   const auto populateMenu = [this, persistent](QMenu *menu) {
   menu->addAction(QStringLiteral("Öffnen"), [this, persistent]() {
     if (!persistent.isValid())
@@ -8442,13 +8781,24 @@ void MainWindow::onRedo() {
 
 void MainWindow::onItemDropped(const QModelIndex &sourceIndex,
                                const QModelIndex &targetIndex) {
-  if (!sourceIndex.isValid() || !targetIndex.isValid())
+  if (!sourceIndex.isValid() || !targetIndex.isValid() || !m_fileModel)
+    return;
+
+  QModelIndex src = sourceIndex;
+  QModelIndex dst = targetIndex;
+  if (m_libraryProxy) {
+    if (sourceIndex.model() == m_libraryProxy)
+      src = m_libraryProxy->mapToSource(sourceIndex);
+    if (targetIndex.model() == m_libraryProxy)
+      dst = m_libraryProxy->mapToSource(targetIndex);
+  }
+  if (!src.isValid() || !dst.isValid())
     return;
 
   // We only support dropping INTO folders. If the target is not a dir, do
   // nothing, or we might want to drop it exactly in the target's parent
   // directory if it's a file.
-  QString targetPath = m_fileModel->filePath(targetIndex);
+  QString targetPath = m_fileModel->filePath(dst);
   QFileInfo targetInfo(targetPath);
 
   if (!targetInfo.isDir()) {
@@ -8457,7 +8807,7 @@ void MainWindow::onItemDropped(const QModelIndex &sourceIndex,
             .absolutePath(); // Drop into the same folder as the target file
   }
 
-  QString sourcePath = m_fileModel->filePath(sourceIndex);
+  QString sourcePath = m_fileModel->filePath(src);
   QFileInfo sourceInfo(sourcePath);
 
   if (sourcePath == targetPath)
@@ -8525,6 +8875,8 @@ void MainWindow::onTabChanged(int index) {
 
   if (m_lblActiveNote)
     m_lblActiveNote->setText(noteTitle);
+
+  rebuildPageSettingsTags();
 
   if (m_noteHeader) {
     if (index >= 0 && editor && editor->view()) {

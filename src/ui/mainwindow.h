@@ -34,10 +34,12 @@
 
 // Forward Declarations
 class DocumentTabBar;
+class LibraryTagsPanel;
 class MainWindow;
 class PageManager;
 class PageThumbnailSidebar;
 class PenPresetBar;
+class QSortFilterProxyModel;
 class QShowEvent;
 struct WebBookmark {
   QString title;
@@ -284,6 +286,10 @@ private:
   void refreshPageSettingsTheme();
   void createDefaultFolder();
   void applyTheme();
+  void applyLibraryFilters();
+  void rebuildPageSettingsTags();
+  QString currentEditorNotePath() const;
+  void setLibraryRootFromSource(const QModelIndex &sourceIndex);
 
   void updateGrid();
   void updateSidebarState();
@@ -442,6 +448,9 @@ private:
 
   QWidget *m_overviewContainer{nullptr};
   FreeGridView *m_fileListView{nullptr};
+  QSortFilterProxyModel *m_libraryProxy{nullptr};
+  LibraryTagsPanel *m_libraryTagsPanel{nullptr};
+  QLineEdit *m_overviewSearchBar{nullptr};
   QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote{nullptr};
 

@@ -9,8 +9,9 @@ Rectangle {
     readonly property real widthScale: width / 411
     readonly property real heightScale: height / 780
     readonly property real uiScale: Math.max(0.86, Math.min(Math.min(widthScale, heightScale), 1.35))
-    readonly property int safeTopInset: Math.max(0, Math.round((height - Math.min(height, parent ? parent.height : height)) * 0.5))
-    readonly property int headerTopPadding: Math.max(Math.round(8 * uiScale), safeTopInset)
+    // Qt already applies safe-area margins to the host window; do not add a
+    // second status-bar-sized pad (that created the dark "Balken" gap).
+    readonly property int headerTopPadding: Math.round(8 * uiScale)
     
     // We expect the C++ side to provide "authUrl" as a context property
     

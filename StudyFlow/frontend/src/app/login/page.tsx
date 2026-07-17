@@ -89,7 +89,24 @@ export default function LoginPage() {
             }
 
             if (!res.ok) {
-                throw new Error(data.detail || 'Fehler bei der Anmeldung');
+                const detail = data?.detail;
+                let message = 'Fehler bei der Anmeldung';
+                if (typeof detail === 'string') {
+                    message = detail;
+                } else if (Array.isArray(detail) && detail[0]?.msg) {
+                    message = detail[0].msg;
+                } else if (data?.message) {
+                    message = data.message;
+                } else if (/internal server error/i.test(textData || '')) {
+                    message = 'Server vorübergehend nicht erreichbar. Bitte später erneut versuchen.';
+                }
+                // Map common English proxy/backend strings to clear German UX.
+                if (/internal server error/i.test(message)) {
+                    message = 'Server vorübergehend nicht erreichbar. Bitte später erneut versuchen.';
+                } else if (/network|failed to fetch|load failed/i.test(message)) {
+                    message = 'Netzwerkfehler — bitte Verbindung prüfen und erneut versuchen.';
+                }
+                throw new Error(message);
             }
 
             if (isLogin) {
@@ -106,7 +123,14 @@ export default function LoginPage() {
                 setError('Erfolgreich! Bitte bestätige den Link in deiner E-Mail, bevor du dich anmeldest.');
             }
         } catch (err: any) {
-            setError(err.message || 'Ein Fehler ist aufgetreten');
+            const raw = err?.message || 'Ein Fehler ist aufgetreten';
+            if (/internal server error/i.test(raw)) {
+                setError('Server vorübergehend nicht erreichbar. Bitte später erneut versuchen.');
+            } else if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+                setError('Netzwerkfehler — bitte Verbindung prüfen und erneut versuchen.');
+            } else {
+                setError(raw);
+            }
         } finally {
             setLoading(false);
         }
@@ -148,10 +172,15 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center p-4">
-            <div className="w-full max-w-md">
+        <div
+            className={`min-h-screen bg-[#0B0B1A] flex flex-col items-center p-4 ${
+                isNativeApp ? 'justify-start pt-6' : 'justify-center'
+            }`}
+            style={isNativeApp ? { paddingTop: 12 } : undefined}
+        >
+            <div className={`w-full max-w-md ${isNativeApp ? 'mt-2' : ''}`}>
                 {/* Logo */}
-                <div className="text-center mb-8">
+                <div className={`text-center ${isNativeApp ? 'mb-5' : 'mb-8'}`}>
                     <div className="w-20 h-20 rounded-2xl bg-[#5E5CE6] flex items-center justify-center mx-auto mb-4 overflow-hidden shadow-2xl shadow-[#5E5CE6]/20">
                         <Image src="/logo.jpg" alt="Blop Logo" width={80} height={80} className="object-cover w-full h-full" />
                     </div>

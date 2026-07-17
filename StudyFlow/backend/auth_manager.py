@@ -161,44 +161,74 @@ class AuthManager:
 
     @staticmethod
     def register(username, email, password):
-        user = AuthManager.get_user(username)
-        if user:
-            return False, "Benutzername bereits vergeben"
-            
-        db = AuthManager._get_db()
-        if not db: raise Exception("Supabase DB nicht initialisiert")
-        
-        existing_email = db.table('users').select('*').eq('email', email).execute()
-        if len(existing_email.data) > 0:
-            return False, "Diese E-Mail Adresse ist bereits registriert"
+        username = (username or "").strip()
+        email = (email or "").strip().lower()
+        password = password or ""
 
-        # 1. Register with Supabase Auth
+        if len(username) < 3:
+            return False, "Benutzername muss mindestens 3 Zeichen haben"
+        if "@" not in email or "." not in email.split("@")[-1]:
+            return False, "Bitte gib eine gültige E-Mail-Adresse ein"
+        if len(password) < 6:
+            return False, "Passwort muss mindestens 6 Zeichen haben"
+
         try:
-            auth_res = db.auth.sign_up({
+            user = AuthManager.get_user(username)
+            if user:
+                return False, "Benutzername bereits vergeben"
+
+            db = AuthManager._get_db()
+            if not db:
+                return False, "Registrierung vorübergehend nicht möglich. Bitte später erneut versuchen."
+
+            existing_email = db.table('users').select('*').eq('email', email).execute()
+            if existing_email.data and len(existing_email.data) > 0:
+                return False, "Diese E-Mail Adresse ist bereits registriert"
+
+            # 1. Register with Supabase Auth
+            try:
+                auth_res = db.auth.sign_up({
+                    "email": email,
+                    "password": password
+                })
+                if not auth_res or not auth_res.user:
+                    return False, "Registrierung fehlgeschlagen. Bitte erneut versuchen."
+            except Exception as e:
+                err = str(e).lower()
+                if "rate limit" in err or "email rate" in err or "over_email_send_rate_limit" in err:
+                    return False, "Zu viele E-Mails in kurzer Zeit. Bitte ein paar Minuten warten und erneut versuchen."
+                if "already registered" in err or "already been registered" in err or "user already exists" in err:
+                    return False, "Diese E-Mail Adresse ist bereits registriert"
+                if "password" in err and ("weak" in err or "least" in err or "characters" in err):
+                    return False, "Passwort ist zu schwach. Bitte mindestens 6 Zeichen verwenden."
+                return False, "Anmeldung beim Auth-Dienst fehlgeschlagen. Bitte später erneut versuchen."
+
+            # 2. Store in our custom users table
+            new_user = {
+                "username": username,
                 "email": email,
-                "password": password
-            })
-            if not auth_res.user:
-                return False, "Fehler bei der Registrierung"
-        except Exception as e:
-            return False, f"Auth Fehler: {str(e)}"
-        
-        # 2. Store in our custom users table
-        new_user = {
-            "username": username,
-            "email": email,
-            "auth_id": auth_res.user.id,
-            "password_hash": AuthManager._hash_password(password),
-            "tokens": 500, # Initial tokens
-            "preferred_model": "",
-            "xp": 0,
-            "streak_days": 1,
-            "is_admin": False,
-            "created_at": datetime.now().isoformat()
-        }
-        
-        db.table('users').insert(new_user).execute()
-        return True, "Registrierung erfolgreich! Bitte überprüfe dein E-Mail Postfach, um deinen Account zu aktivieren."
+                "auth_id": auth_res.user.id,
+                "password_hash": AuthManager._hash_password(password),
+                "tokens": 500, # Initial tokens
+                "preferred_model": "",
+                "xp": 0,
+                "streak_days": 1,
+                "is_admin": False,
+                "created_at": datetime.now().isoformat()
+            }
+
+            try:
+                db.table('users').insert(new_user).execute()
+            except Exception as e:
+                err = str(e).lower()
+                if "duplicate" in err or "unique" in err or "already exists" in err:
+                    return False, "Benutzername oder E-Mail ist bereits vergeben"
+                # Auth user may already exist; surface a recoverable message.
+                return False, "Konto konnte nicht vollständig angelegt werden. Bitte Login versuchen oder Support kontaktieren."
+
+            return True, "Registrierung erfolgreich! Bitte überprüfe dein E-Mail Postfach, um deinen Account zu aktivieren."
+        except Exception:
+            return False, "Registrierung vorübergehend nicht möglich. Bitte später erneut versuchen."
 
     @staticmethod
     def get_tokens(username):

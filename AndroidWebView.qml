@@ -317,7 +317,13 @@ Rectangle {
                      "      }" +
                      "      if (viewport) viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';" +
                      "      document.documentElement.style.zoom = '" + authUiScale + "';" +
-                     "      if (document.body) document.body.style.zoom = '" + authUiScale + "';" +
+                     "      if (document.body) {" +
+                     "        document.body.style.zoom = '" + authUiScale + "';" +
+                     "        document.body.style.marginTop = '0';" +
+                     "        document.body.style.paddingTop = '0';" +
+                     "      }" +
+                     "      document.documentElement.style.marginTop = '0';" +
+                     "      document.documentElement.style.paddingTop = '0';" +
                     "    } else {" +
                     "      document.documentElement.style.zoom = '1.0';" +
                     "      if (document.body) document.body.style.zoom = '1.0';" +

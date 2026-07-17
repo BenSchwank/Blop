@@ -55,6 +55,12 @@ QJsonDocument NoteManager::toJson(const Note &note) {
   QJsonObject root;
   root["id"] = note.id;
   root["title"] = note.title;
+  {
+    QJsonArray tagsArr;
+    for (const QString &t : note.tags)
+      tagsArr.append(t);
+    root["tags"] = tagsArr;
+  }
   QJsonArray pagesArr;
   for (const auto &p : note.pages) {
     QJsonArray strokesArr;
@@ -139,6 +145,9 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
   auto root = doc.object();
   out.id = root.value("id").toString();
   out.title = root.value("title").toString();
+  out.tags.clear();
+  for (const auto &tv : root.value("tags").toArray())
+    out.tags.append(tv.toString());
   out.pages.clear();
   auto pagesArr = root.value("pages").toArray();
   out.pages.resize(pagesArr.size());

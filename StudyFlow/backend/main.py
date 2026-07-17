@@ -706,10 +706,19 @@ def login(request: LoginRequest):
 @app.post("/api/auth/register")
 def register(request: RegisterRequest):
     """Register new user via Email and Supabase Auth"""
-    success, message = AuthManager.register(request.username, request.email, request.password)
-    if success:
-        return {"success": True, "message": message}
-    raise HTTPException(status_code=400, detail=message)
+    try:
+        success, message = AuthManager.register(request.username, request.email, request.password)
+        if success:
+            return {"success": True, "message": message}
+        raise HTTPException(status_code=400, detail=message)
+    except HTTPException:
+        raise
+    except Exception:
+        # Never leak raw stack traces / proxy HTML as "Internal Server Error"
+        raise HTTPException(
+            status_code=503,
+            detail="Registrierung vorübergehend nicht möglich. Bitte später erneut versuchen.",
+        )
 
 @app.post("/api/auth/forgot-password")
 def forgot_password(request: ForgotPasswordRequest):

@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QPointF>
 #include <QPainterPath>
@@ -64,6 +65,7 @@ struct NotePage {
 struct Note {
     QString id;
     QString title;
+    QStringList tags;
     QVector<NotePage> pages;
 
     void ensurePage(int index) {
