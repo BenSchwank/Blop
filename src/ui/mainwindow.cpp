@@ -28,6 +28,7 @@
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
 #ifdef Q_OS_ANDROID
+#include "androidcontentpicker.h"
 #include "androidicons.h"
 #include "androidtiledelegate.h"
 #endif
@@ -534,16 +535,16 @@ QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
   foldersUrl.setQuery(query);
   const QByteArray raw = getSync(nam, foldersUrl, &status, &err);
   if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
-    QMessageBox::warning(parent, "Ordner laden fehlgeschlagen",
-                         QString("Serverantwort (%1):\n%2")
-                             .arg(status)
-                             .arg(QString::fromUtf8(raw)));
+    BlopDialogs::notify(parent, QStringLiteral("Ordner laden fehlgeschlagen"),
+                        QStringLiteral("Serverantwort (%1):\n%2")
+                            .arg(status)
+                            .arg(QString::fromUtf8(raw)));
     return QString();
   }
   const QJsonDocument doc = QJsonDocument::fromJson(raw);
   if (!doc.isArray()) {
-    QMessageBox::warning(parent, "Ordner laden fehlgeschlagen",
-                         "Unerwartete Antwort vom Server.");
+    BlopDialogs::notify(parent, QStringLiteral("Ordner laden fehlgeschlagen"),
+                        QStringLiteral("Unerwartete Antwort vom Server."));
     return QString();
   }
   QStringList labels;
@@ -559,14 +560,14 @@ QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
     labelToId.insert(label, id);
   }
   if (labels.isEmpty()) {
-    QMessageBox::information(parent, "Keine Ordner",
-                             "Es wurden keine Cloud-Ordner gefunden.");
+    BlopDialogs::notify(parent, QStringLiteral("Keine Ordner"),
+                        QStringLiteral("Es wurden keine Cloud-Ordner gefunden."));
     return QString();
   }
-  bool ok = false;
-  const QString chosen = QInputDialog::getItem(
-      parent, "Cloud-Zielordner", "Wähle den Zielordner:", labels, 0, false, &ok);
-  if (!ok || chosen.isEmpty())
+  const QString chosen = BlopDialogs::promptChoice(
+      parent, QStringLiteral("Cloud-Zielordner"),
+      QStringLiteral("Wähle den Zielordner:"), labels, 0);
+  if (chosen.isEmpty())
     return QString();
   return labelToId.value(chosen);
 }
@@ -622,10 +623,6 @@ QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
           fallbackId = cloudId;
       }
     }
-  }
-  if (fallbackId.isEmpty()) {
-    QMessageBox::information(parent, "Datei nicht gefunden",
-                             "Keine passende Cloud-Datei wurde automatisch gefunden.");
   }
   return fallbackId;
 }
@@ -1242,6 +1239,12 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
   qDebug() << "MainWindow: Konstruktor start";
 
+#ifdef Q_OS_ANDROID
+  // Register JNI callbacks early so the first pickOpen/pickSave call
+  // in this session does not race with the JVM class-loader.
+  AndroidContentPicker::instance();
+#endif
+
   m_profileManager = new UiProfileManager(this);
   connect(m_profileManager, &UiProfileManager::profileChanged, this,
           &MainWindow::applyProfile);
@@ -1268,6 +1271,18 @@ MainWindow::MainWindow(QWidget *parent)
   m_gridSpacingTimer->setSingleShot(true);
   connect(m_gridSpacingTimer, &QTimer::timeout, this,
           &MainWindow::applyDelayedGridSpacing);
+
+  m_a4SaveDebounce = new QTimer(this);
+  m_a4SaveDebounce->setSingleShot(true);
+  m_a4SaveDebounce->setInterval(1500);
+  connect(m_a4SaveDebounce, &QTimer::timeout, this, [this]() {
+    if (!m_pendingA4SaveNote || m_pendingA4SavePath.isEmpty()) return;
+    Note copy = *m_pendingA4SaveNote;
+    const QString p = m_pendingA4SavePath;
+    m_noteManager.saveNoteAsync(copy, p, [p](bool ok) {
+      if (!ok) qWarning() << "A4 async save failed" << p;
+    });
+  });
 
   createDefaultFolder();
 
@@ -1450,11 +1465,8 @@ MainWindow::MainWindow(QWidget *parent)
   // Warn user if OAuth fails locally or via server
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this, failOAuthFlow](const QString& error) {
       failOAuthFlow(error);
-#ifdef Q_OS_ANDROID
-      qWarning() << "Google Login Fehler:" << error;
-#else
-      QMessageBox::warning(this, "Google Login Fehler", "Der Login über Google ist fehlgeschlagen:\n" + error);
-#endif
+      BlopDialogs::notify(this, QStringLiteral("Google Login Fehler"),
+          QStringLiteral("Der Login über Google ist fehlgeschlagen:\n%1").arg(error));
   });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
@@ -1758,28 +1770,13 @@ void MainWindow::checkForUpdates() {
       downloadUrl = releasePageUrl; // Fallback: open release page
 
     // Show update dialog
-    QString currentVer = localVersion;
-    QMessageBox *box = new QMessageBox(this);
-    box->setWindowTitle("Update verfügbar");
-    box->setText(QString("<b>Blop %1 ist verfügbar!</b><br>"
-                         "<small>Deine Version: %2</small>")
-                     .arg("v" + tagName, "v" + currentVer));
-    box->setInformativeText(
-        "Möchtest du die neue Version jetzt herunterladen?");
-    box->setStandardButtons(QMessageBox::Yes | QMessageBox::Ignore);
-    box->setDefaultButton(QMessageBox::Yes);
-    box->button(QMessageBox::Yes)->setText("Jetzt herunterladen");
-    box->button(QMessageBox::Ignore)->setText("Später");
-    box->setIcon(QMessageBox::Information);
-    box->setStyleSheet(
-        "QMessageBox { background-color: #1e1e1e; color: white; }"
-        "QLabel { color: #e0e0e0; }"
-        "QPushButton { background: #5E5CE6; color: white; border-radius: 6px; "
-        "padding: 6px 18px; border: none; } "
-        "QPushButton:hover { background: #7D7AFF; } "
-        "QPushButton[text='Später'] { background: #333; }");
-
-    if (box->exec() == QMessageBox::Yes) {
+    const QString currentVer = localVersion;
+    const bool downloadNow = BlopDialogs::confirm(
+        this, QStringLiteral("Update verfügbar"),
+        QStringLiteral("Blop v%1 ist verfügbar!\nDeine Version: v%2\n\nJetzt herunterladen?")
+            .arg(tagName, currentVer),
+        QStringLiteral("Jetzt herunterladen"), QStringLiteral("Später"));
+    if (downloadNow) {
 #ifdef Q_OS_ANDROID
       QDesktopServices::openUrl(QUrl(downloadUrl));
 #else
@@ -1797,13 +1794,14 @@ void MainWindow::checkForUpdates() {
           QUrl dlUrl(downloadUrl);
           QNetworkRequest dlReq(dlUrl);
           dlReq.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-          
+
           QNetworkReply *dlReply = m_netManager->get(dlReq);
-          
+
           QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/Blop_Update.exe";
           QFile *file = new QFile(tempPath);
           if (!file->open(QIODevice::WriteOnly)) {
-              QMessageBox::warning(this, "Fehler", "Lokale Datei konnte nicht erstellt werden.");
+              BlopDialogs::notify(this, QStringLiteral("Fehler"),
+                                  QStringLiteral("Lokale Datei konnte nicht erstellt werden."));
               delete progress;
               dlReply->deleteLater();
               return;
@@ -1831,14 +1829,16 @@ void MainWindow::checkForUpdates() {
           connect(dlReply, &QNetworkReply::finished, this, [this, dlReply, file, tempPath, progress]() {
               progress->deleteLater();
               file->close();
-              
+
               if (dlReply->error() == QNetworkReply::NoError) {
                   QProcess::startDetached(tempPath, QStringList());
                   QApplication::quit();
               } else {
                   QFile::remove(tempPath);
                   if (dlReply->error() != QNetworkReply::OperationCanceledError) {
-                      QMessageBox::warning(this, "Fehler", "Fehler beim Download des Updates:\n" + dlReply->errorString());
+                      BlopDialogs::notify(this, QStringLiteral("Fehler"),
+                                          QStringLiteral("Fehler beim Download des Updates:\n%1")
+                                              .arg(dlReply->errorString()));
                   }
               }
               file->deleteLater();
@@ -1850,7 +1850,6 @@ void MainWindow::checkForUpdates() {
       // User clicked "Später" — remember this version, don't show again for it
       QSettings("Blop", "BlopApp").setValue("dismissedUpdateVersion", tagName);
     }
-    box->deleteLater();
   });
 }
 
@@ -1920,6 +1919,28 @@ QUrl MainWindow::normalizedUserWebUrl(QString input) const {
 void MainWindow::openModeMenuAtButton() {
   if (!m_btnMode || !m_modeSelector)
     return;
+#ifdef Q_OS_ANDROID
+  QList<BlopInWindowMenu::Item> items;
+  items.append({tr("Notizen"), QIcon(),
+                [this]() { if (m_modeSelector) m_modeSelector->setCurrentIndex(0); }});
+  items.append({tr("Study"), QIcon(),
+                [this]() { if (m_modeSelector) m_modeSelector->setCurrentIndex(1); }});
+  if (!m_webBookmarks.isEmpty())
+    items.append({QString(), QIcon(), {}, false, true});
+  for (int i = 0; i < m_webBookmarks.size(); ++i) {
+    const int idx = 2 + i;
+    items.append({m_webBookmarks[i].title, QIcon(), [this, idx]() {
+      if (m_modeSelector && idx < m_modeSelector->count())
+        m_modeSelector->setCurrentIndex(idx);
+    }});
+  }
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({tr("URL hinzufügen…"), QIcon(),
+                [this]() { showAddWebBookmarkDialog(); }});
+  items.append({tr("Web-Lesezeichen verwalten…"), QIcon(),
+                [this]() { showManageWebBookmarksDialog(); }});
+  BlopInWindowMenu::show(this, m_btnMode->mapToGlobal(QPoint(0, m_btnMode->height())), items);
+#else
   QMenu menu(this);
   menu.setStyleSheet(blopWebMenuStyleSheet());
   QAction *aNotes = menu.addAction(tr("Notizen"));
@@ -1952,6 +1973,7 @@ void MainWindow::openModeMenuAtButton() {
   }
   if (tag >= 0 && tag < m_modeSelector->count())
     m_modeSelector->setCurrentIndex(tag);
+#endif
 }
 
 void MainWindow::showAddWebBookmarkDialog() {
@@ -7996,52 +8018,58 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   fi.baseName() + ".pdf", "PDF (*.pdf)");
               if (!out.isEmpty()) {
                   bool ok = canvas->exportToPDF(out);
-                  if (ok) QMessageBox::information(this, "Exportiert", "PDF gespeichert!");
-                  else    QMessageBox::warning(this, "Fehler", "PDF fehlgeschlagen.");
+                  if (ok) BlopDialogs::notify(this, QStringLiteral("Exportiert"),
+                                              QStringLiteral("PDF gespeichert!"));
+                  else    BlopDialogs::notify(this, QStringLiteral("Fehler"),
+                                              QStringLiteral("PDF fehlgeschlagen."));
               }
           } else if (chosen == actImg) {
               QString out = QFileDialog::getSaveFileName(this, "Als Bild exportieren",
                   fi.baseName() + ".png", "Bilder (*.png *.jpg)");
               if (!out.isEmpty()) {
                   bool ok = canvas->exportToImage(out);
-                  if (ok) QMessageBox::information(this, "Exportiert", "Bild gespeichert!");
-                  else    QMessageBox::warning(this, "Fehler", "Bild fehlgeschlagen.");
+                  if (ok) BlopDialogs::notify(this, QStringLiteral("Exportiert"),
+                                              QStringLiteral("Bild gespeichert!"));
+                  else    BlopDialogs::notify(this, QStringLiteral("Fehler"),
+                                              QStringLiteral("Bild fehlgeschlagen."));
               }
           } else if (chosen == actImportPdf) {
               QString in = QFileDialog::getOpenFileName(this, "PDF importieren",
                   QString(), "PDF (*.pdf)");
               if (!in.isEmpty()) {
                   bool ok = canvas->importPdfIntoCanvas(in);
-                  if (ok) QMessageBox::information(this, "Importiert", "PDF wurde in die unendliche Seite eingefuegt.");
-                  else    QMessageBox::warning(this, "Fehler", "PDF konnte nicht importiert werden.");
+                  if (ok) BlopDialogs::notify(this, QStringLiteral("Importiert"),
+                                              QStringLiteral("PDF wurde in die unendliche Seite eingefügt."));
+                  else    BlopDialogs::notify(this, QStringLiteral("Fehler"),
+                                              QStringLiteral("PDF konnte nicht importiert werden."));
               }
           } else if (chosen == actShareUser) {
               const QString username =
                   QSettings("Blop", "BlopApp").value("username").toString().trimmed();
               if (username.isEmpty()) {
-                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
+                                      QStringLiteral("Bitte zuerst in Blop Study anmelden."));
                   return;
               }
               const QString localPath = capPath;
               QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-              bool ok = false;
               if (fileId.isEmpty()) {
-                  fileId = QInputDialog::getText(
-                      this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-                      QLineEdit::Normal, fi.baseName(), &ok).trimmed();
-                  if (!ok || fileId.isEmpty()) return;
+                  fileId = BlopDialogs::promptText(
+                      this, QStringLiteral("Cloud-Datei-ID"),
+                      QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
+                      fi.baseName()).trimmed();
+                  if (fileId.isEmpty()) return;
               } else {
-                  QMessageBox::information(this, "Cloud-Datei erkannt",
-                                           QString("Automatisch erkannt: %1").arg(fileId));
+                  BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
+                                      QStringLiteral("Automatisch erkannt: %1").arg(fileId));
               }
-              const QString target = QInputDialog::getText(
-                  this, "Zielnutzer", "Username des Empfängers:",
-                  QLineEdit::Normal, "", &ok).trimmed();
-              if (!ok || target.isEmpty()) return;
-              const QString message = QInputDialog::getText(
-                  this, "Nachricht (optional)", "Begleitnachricht:",
-                  QLineEdit::Normal, "", &ok);
-              if (!ok) return;
+              const QString target = BlopDialogs::promptText(
+                  this, QStringLiteral("Zielnutzer"),
+                  QStringLiteral("Username des Empfängers:"), QString()).trimmed();
+              if (target.isEmpty()) return;
+              const QString message = BlopDialogs::promptText(
+                  this, QStringLiteral("Nachricht (optional)"),
+                  QStringLiteral("Begleitnachricht:"), QString());
 
               QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/username"));
               req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -8058,35 +8086,42 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
               const QByteArray raw = reply->readAll();
               if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-                  QMessageBox::warning(this, "Teilen fehlgeschlagen",
-                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+                  BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
+                                      QStringLiteral("Serverantwort (%1):\n%2")
+                                          .arg(status).arg(QString::fromUtf8(raw)));
               } else {
-                  QMessageBox::information(this, "Request gesendet",
-                                           "Die Freigabeanfrage wurde an den Zielnutzer gesendet.");
+                  BlopDialogs::notify(this, QStringLiteral("Request gesendet"),
+                                      QStringLiteral("Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
               }
               reply->deleteLater();
           } else if (chosen == actCreateLink) {
               const QString username =
                   QSettings("Blop", "BlopApp").value("username").toString().trimmed();
               if (username.isEmpty()) {
-                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
+                                      QStringLiteral("Bitte zuerst in Blop Study anmelden."));
                   return;
               }
               const QString localPath = capPath;
               QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-              bool ok = false;
               if (fileId.isEmpty()) {
-                  fileId = QInputDialog::getText(
-                      this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-                      QLineEdit::Normal, fi.baseName(), &ok).trimmed();
-                  if (!ok || fileId.isEmpty()) return;
+                  fileId = BlopDialogs::promptText(
+                      this, QStringLiteral("Cloud-Datei-ID"),
+                      QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
+                      fi.baseName()).trimmed();
+                  if (fileId.isEmpty()) return;
               } else {
-                  QMessageBox::information(this, "Cloud-Datei erkannt",
-                                           QString("Automatisch erkannt: %1").arg(fileId));
+                  BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
+                                      QStringLiteral("Automatisch erkannt: %1").arg(fileId));
               }
-              const int expiresDays = QInputDialog::getInt(this, "Gueltigkeit", "Link gueltig fuer (Tage):", 7, 1, 30, 1, &ok);
+              bool ok = false;
+              const int expiresDays = BlopDialogs::promptInt(
+                  this, QStringLiteral("Gültigkeit"),
+                  QStringLiteral("Link gültig für (Tage):"), 7, 1, 30, &ok);
               if (!ok) return;
-              const int maxUses = QInputDialog::getInt(this, "Nutzungslimit", "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
+              const int maxUses = BlopDialogs::promptInt(
+                  this, QStringLiteral("Nutzungslimit"),
+                  QStringLiteral("Maximale Nutzungen:"), 1, 1, 100, &ok);
               if (!ok) return;
 
               QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link"));
@@ -8104,8 +8139,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
               const QByteArray raw = reply->readAll();
               if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-                  QMessageBox::warning(this, "Link fehlgeschlagen",
-                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+                  BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
+                                      QStringLiteral("Serverantwort (%1):\n%2")
+                                          .arg(status).arg(QString::fromUtf8(raw)));
                   reply->deleteLater();
                   return;
               }
@@ -8113,24 +8149,25 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               const QString link = doc.object().value("url").toString();
               if (!link.isEmpty())
                   QGuiApplication::clipboard()->setText(link);
-              QMessageBox::information(this, "Link erstellt",
-                                       link.isEmpty() ? "Share-Link wurde erstellt."
-                                                      : QString("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
+              BlopDialogs::notify(this, QStringLiteral("Link erstellt"),
+                                  link.isEmpty()
+                                      ? QStringLiteral("Share-Link wurde erstellt.")
+                                      : QStringLiteral("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
               reply->deleteLater();
           } else if (chosen == actImportLink) {
               const QString username =
                   QSettings("Blop", "BlopApp").value("username").toString().trimmed();
               if (username.isEmpty()) {
-                  QMessageBox::warning(this, "Nicht angemeldet", "Bitte zuerst in Blop Study anmelden.");
+                  BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
+                                      QStringLiteral("Bitte zuerst in Blop Study anmelden."));
                   return;
               }
-              bool ok = false;
-              QString linkOrToken = QInputDialog::getText(
-                  this, "Share-Link", "Share-Link oder Token einfügen:",
-                  QLineEdit::Normal, "", &ok).trimmed();
-              if (!ok || linkOrToken.isEmpty()) return;
-              if (linkOrToken.contains("/")) {
-                  const QString marker = "/share/";
+              QString linkOrToken = BlopDialogs::promptText(
+                  this, QStringLiteral("Share-Link"),
+                  QStringLiteral("Share-Link oder Token einfügen:"), QString()).trimmed();
+              if (linkOrToken.isEmpty()) return;
+              if (linkOrToken.contains(QStringLiteral("/"))) {
+                  const QString marker = QStringLiteral("/share/");
                   const int pos = linkOrToken.lastIndexOf(marker);
                   if (pos >= 0) linkOrToken = linkOrToken.mid(pos + marker.size());
                   else linkOrToken = linkOrToken.section('/', -1).trimmed();
@@ -8152,11 +8189,12 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
               const QByteArray raw = reply->readAll();
               if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-                  QMessageBox::warning(this, "Import fehlgeschlagen",
-                                       QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+                  BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
+                                      QStringLiteral("Serverantwort (%1):\n%2")
+                                          .arg(status).arg(QString::fromUtf8(raw)));
               } else {
-                  QMessageBox::information(this, "Import erfolgreich",
-                                           "Die geteilte Datei wurde in dein Konto importiert.");
+                  BlopDialogs::notify(this, QStringLiteral("Import erfolgreich"),
+                                      QStringLiteral("Die geteilte Datei wurde in dein Konto importiert."));
               }
               reply->deleteLater();
           }
@@ -8199,10 +8237,23 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
           editor->setNote(heapNote);
           if (editor->view())
             editor->view()->setPenOnlyMode(m_penOnlyMode);
-          editor->onSaveRequested = [path](Note *n) {
-            if (n)
-              LibraryTagStore::setTagsForPath(path, n->tags);
-            NoteManager::saveNote(*n, path);
+          editor->onSaveRequested = [this, path, editor](Note *n) {
+            if (!n) return;
+            LibraryTagStore::setTagsForPath(path, n->tags);
+            m_pendingA4SaveNote = n;
+            m_pendingA4SavePath = path;
+            const bool force = editor->property("forceSave").toBool();
+            editor->setProperty("forceSave", false);
+            if (force) {
+              if (m_a4SaveDebounce) m_a4SaveDebounce->stop();
+              Note copy = *n;
+              const QString p = path;
+              m_noteManager.saveNoteAsync(copy, p, [p](bool ok) {
+                if (!ok) qWarning() << "A4 async save failed" << p;
+              });
+            } else {
+              if (m_a4SaveDebounce) m_a4SaveDebounce->start();
+            }
           };
           editor->onOpenNoteOptionsRequested = [this]() {
             if (!m_pageSettingsOverlay)
@@ -8238,7 +8289,20 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
   }
 }
 
+void MainWindow::flushPendingA4Save() {
+  if (!m_pendingA4SaveNote || m_pendingA4SavePath.isEmpty()) return;
+  if (m_a4SaveDebounce) m_a4SaveDebounce->stop();
+  Note copy = *m_pendingA4SaveNote;
+  const QString p = m_pendingA4SavePath;
+  m_pendingA4SaveNote = nullptr;
+  m_pendingA4SavePath.clear();
+  m_noteManager.saveNoteAsync(copy, p, [p](bool ok) {
+    if (!ok) qWarning() << "A4 flush save failed" << p;
+  });
+}
+
 void MainWindow::onBackToOverview() {
+  flushPendingA4Save();
   if (m_rightStack) {
     const int overviewIdx = m_rightStack->indexOf(m_overviewContainer);
 #ifdef Q_OS_ANDROID
@@ -8274,167 +8338,150 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   if (!sourceIndex.isValid())
     return;
 
-  // Shared with Windows (exec) and Android (popup). Lambdas capture a
+  // Shared with desktop (exec) and Android (in-window menu). Lambdas capture a
   // QPersistentModelIndex so action bodies stay safe if the QFileSystemModel
   // refreshes its internal nodes between menu-open and the user picking an
   // item (the file watcher can fire at any time on Android).
   const QPersistentModelIndex persistent(sourceIndex);
-  const auto populateMenu = [this, persistent](QMenu *menu) {
-  menu->addAction(QStringLiteral("Öffnen"), [this, persistent]() {
-    if (!persistent.isValid())
-      return;
-    onFileDoubleClicked(QModelIndex(persistent));
-  });
-  menu->addAction(QStringLiteral("Umbenennen"), [this, persistent]() {
-    if (!persistent.isValid())
-      return;
-    startRename(QModelIndex(persistent));
-  });
-  menu->addSeparator();
-#ifndef Q_OS_ANDROID
-  // Cloud-share actions use QInputDialog / QMessageBox / nested QEventLoop -
-  // all top-level on Android's single-window surface (same crash family as
-  // QMenu::exec). Hide these items on Android until we have in-window
-  // equivalents; Android users have the same workflows via Blop Study.
-  menu->addAction("Mit Username teilen...", [this, persistent]() {
-    if (!persistent.isValid())
-      return;
+
+  // Cloud share action lambdas – shared between the desktop QMenu and the
+  // Android BlopInWindowMenu so the logic lives in exactly one place.
+  auto doShareUser = [this, persistent]() {
+    if (!persistent.isValid()) return;
     const QString username =
-        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username")).toString().trimmed();
     if (username.isEmpty()) {
-      QMessageBox::warning(this, "Nicht angemeldet",
-                           "Bitte zuerst in Blop Study anmelden.");
+      BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
+                          QStringLiteral("Bitte zuerst in Blop Study anmelden."));
       return;
     }
     const QString localPath = m_fileModel->filePath(QModelIndex(persistent));
     QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-    bool ok = false;
     if (fileId.isEmpty()) {
-      fileId = QInputDialog::getText(
-                   this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-                   QLineEdit::Normal, QFileInfo(localPath).baseName(), &ok)
-                   .trimmed();
-      if (!ok || fileId.isEmpty())
-        return;
+      fileId = BlopDialogs::promptText(
+                   this, QStringLiteral("Cloud-Datei-ID"),
+                   QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
+                   QFileInfo(localPath).baseName()).trimmed();
+      if (fileId.isEmpty()) return;
     } else {
-      QMessageBox::information(this, "Cloud-Datei erkannt",
-                               QString("Automatisch erkannt: %1").arg(fileId));
+      BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
+                          QStringLiteral("Automatisch erkannt: %1").arg(fileId));
     }
-    if (fileId.isEmpty())
-      return;
-    const QString target = QInputDialog::getText(
-        this, "Zielnutzer", "Username des Empfängers:", QLineEdit::Normal, "", &ok).trimmed();
-    if (!ok || target.isEmpty())
-      return;
-    const QString message = QInputDialog::getText(
-        this, "Nachricht (optional)", "Begleitnachricht:", QLineEdit::Normal, "", &ok);
-    if (!ok)
-      return;
-
+    const QString target = BlopDialogs::promptText(
+        this, QStringLiteral("Zielnutzer"),
+        QStringLiteral("Username des Empfängers:"), QString()).trimmed();
+    if (target.isEmpty()) return;
+    const QString message = BlopDialogs::promptText(
+        this, QStringLiteral("Nachricht (optional)"),
+        QStringLiteral("Begleitnachricht:"), QString());
     QUrl url(kBlopStudyUrl + "/api/shares/username");
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QJsonObject payload{
-        {"username", username},
-        {"file_id", fileId},
-        {"target_username", target},
-        {"message", message},
+        {QStringLiteral("username"), username},
+        {QStringLiteral("file_id"), fileId},
+        {QStringLiteral("target_username"), target},
+        {QStringLiteral("message"), message},
     };
-    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QNetworkReply *reply = m_netManager->post(
+        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-      QMessageBox::warning(this, "Teilen fehlgeschlagen",
-                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+      BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
+                          QStringLiteral("Serverantwort (%1):\n%2")
+                              .arg(status).arg(QString::fromUtf8(raw)));
     } else {
-      QMessageBox::information(this, "Request gesendet",
-                               "Die Freigabeanfrage wurde an den Zielnutzer gesendet.");
+      BlopDialogs::notify(this, QStringLiteral("Request gesendet"),
+                          QStringLiteral("Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
     }
     reply->deleteLater();
-  });
-  menu->addAction("Share-Link erstellen...", [this, persistent]() {
-    if (!persistent.isValid())
-      return;
+  };
+
+  auto doCreateLink = [this, persistent]() {
+    if (!persistent.isValid()) return;
     const QString username =
-        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username")).toString().trimmed();
     if (username.isEmpty()) {
-      QMessageBox::warning(this, "Nicht angemeldet",
-                           "Bitte zuerst in Blop Study anmelden.");
+      BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
+                          QStringLiteral("Bitte zuerst in Blop Study anmelden."));
       return;
     }
     const QString localPath = m_fileModel->filePath(QModelIndex(persistent));
     QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-    bool ok = false;
     if (fileId.isEmpty()) {
-      fileId = QInputDialog::getText(
-                   this, "Cloud-Datei-ID", "Datei-ID im Blop-Study-Cloudspeicher:",
-                   QLineEdit::Normal, QFileInfo(localPath).baseName(), &ok)
-                   .trimmed();
-      if (!ok || fileId.isEmpty())
-        return;
+      fileId = BlopDialogs::promptText(
+                   this, QStringLiteral("Cloud-Datei-ID"),
+                   QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
+                   QFileInfo(localPath).baseName()).trimmed();
+      if (fileId.isEmpty()) return;
     } else {
-      QMessageBox::information(this, "Cloud-Datei erkannt",
-                               QString("Automatisch erkannt: %1").arg(fileId));
+      BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
+                          QStringLiteral("Automatisch erkannt: %1").arg(fileId));
     }
-    if (fileId.isEmpty())
-      return;
-    const int expiresDays = QInputDialog::getInt(this, "Gültigkeit",
-                                                 "Link gültig für (Tage):", 7, 1, 30, 1, &ok);
-    if (!ok)
-      return;
-    const int maxUses = QInputDialog::getInt(this, "Nutzungslimit",
-                                             "Maximale Nutzungen:", 1, 1, 100, 1, &ok);
-    if (!ok)
-      return;
-
+    bool ok = false;
+    const int expiresDays = BlopDialogs::promptInt(
+        this, QStringLiteral("Gültigkeit"),
+        QStringLiteral("Link gültig für (Tage):"), 7, 1, 30, &ok);
+    if (!ok) return;
+    const int maxUses = BlopDialogs::promptInt(
+        this, QStringLiteral("Nutzungslimit"),
+        QStringLiteral("Maximale Nutzungen:"), 1, 1, 100, &ok);
+    if (!ok) return;
     QUrl url(kBlopStudyUrl + "/api/shares/link");
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QJsonObject payload{
-        {"username", username},
-        {"file_id", fileId},
-        {"expires_in_days", expiresDays},
-        {"max_uses", maxUses},
+        {QStringLiteral("username"), username},
+        {QStringLiteral("file_id"), fileId},
+        {QStringLiteral("expires_in_days"), expiresDays},
+        {QStringLiteral("max_uses"), maxUses},
     };
-    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QNetworkReply *reply = m_netManager->post(
+        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-      QMessageBox::warning(this, "Link fehlgeschlagen",
-                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+      BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
+                          QStringLiteral("Serverantwort (%1):\n%2")
+                              .arg(status).arg(QString::fromUtf8(raw)));
       reply->deleteLater();
       return;
     }
     const QJsonDocument doc = QJsonDocument::fromJson(raw);
-    const QString link = doc.object().value("url").toString();
+    const QString link = doc.object().value(QStringLiteral("url")).toString();
     if (!link.isEmpty())
       QGuiApplication::clipboard()->setText(link);
-    QMessageBox::information(this, "Link erstellt",
-                             link.isEmpty() ? "Share-Link wurde erstellt."
-                                            : QString("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
+    BlopDialogs::notify(this, QStringLiteral("Link erstellt"),
+                        link.isEmpty()
+                            ? QStringLiteral("Share-Link wurde erstellt.")
+                            : QStringLiteral("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
     reply->deleteLater();
-  });
-  menu->addAction("Datei aus Link importieren...", [this]() {
+  };
+
+  auto doImportLink = [this]() {
     const QString username =
-        QSettings("Blop", "BlopApp").value("username").toString().trimmed();
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username")).toString().trimmed();
     if (username.isEmpty()) {
-      QMessageBox::warning(this, "Nicht angemeldet",
-                           "Bitte zuerst in Blop Study anmelden.");
+      BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
+                          QStringLiteral("Bitte zuerst in Blop Study anmelden."));
       return;
     }
-    bool ok = false;
-    QString linkOrToken = QInputDialog::getText(
-        this, "Share-Link", "Share-Link oder Token einfügen:", QLineEdit::Normal, "", &ok).trimmed();
-    if (!ok || linkOrToken.isEmpty())
-      return;
-    if (linkOrToken.contains("/")) {
-      const QString marker = "/share/";
+    QString linkOrToken = BlopDialogs::promptText(
+        this, QStringLiteral("Share-Link"),
+        QStringLiteral("Share-Link oder Token einfügen:"), QString()).trimmed();
+    if (linkOrToken.isEmpty()) return;
+    if (linkOrToken.contains(QStringLiteral("/"))) {
+      const QString marker = QStringLiteral("/share/");
       const int pos = linkOrToken.lastIndexOf(marker);
       if (pos >= 0)
         linkOrToken = linkOrToken.mid(pos + marker.size());
@@ -8442,44 +8489,56 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
         linkOrToken = linkOrToken.section('/', -1).trimmed();
     }
     const QString targetFolderId = chooseCloudFolderId(this, m_netManager, username);
-    if (targetFolderId.isEmpty())
-      return;
-
+    if (targetFolderId.isEmpty()) return;
     const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
     QUrl url(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import");
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QJsonObject payload{
-        {"username", username},
-        {"folder_id", targetFolderId},
+        {QStringLiteral("username"), username},
+        {QStringLiteral("folder_id"), targetFolderId},
     };
-    QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    QNetworkReply *reply = m_netManager->post(
+        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-      QMessageBox::warning(this, "Import fehlgeschlagen",
-                           QString("Serverantwort (%1):\n%2").arg(status).arg(QString::fromUtf8(raw)));
+      BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
+                          QStringLiteral("Serverantwort (%1):\n%2")
+                              .arg(status).arg(QString::fromUtf8(raw)));
     } else {
-      QMessageBox::information(this, "Import erfolgreich",
-                               "Die geteilte Datei wurde in dein Konto importiert.");
+      BlopDialogs::notify(this, QStringLiteral("Import erfolgreich"),
+                          QStringLiteral("Die geteilte Datei wurde in dein Konto importiert."));
     }
     reply->deleteLater();
-  });
-#endif // !Q_OS_ANDROID
-  menu->addAction(QStringLiteral("Löschen"), [this, persistent]() {
-    if (!persistent.isValid())
-      return;
-    if (!BlopDialogs::confirm(
-            this, QStringLiteral("Notiz löschen"),
-            QStringLiteral("Diese Notiz wirklich löschen? Das kann nicht "
-                           "rückgängig gemacht werden."),
-            QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
-      return;
-    m_fileModel->remove(QModelIndex(persistent));
-  });
+  };
+
+  const auto populateMenu = [this, persistent, doShareUser, doCreateLink, doImportLink](QMenu *menu) {
+    menu->addAction(QStringLiteral("Öffnen"), [this, persistent]() {
+      if (!persistent.isValid()) return;
+      onFileDoubleClicked(QModelIndex(persistent));
+    });
+    menu->addAction(QStringLiteral("Umbenennen"), [this, persistent]() {
+      if (!persistent.isValid()) return;
+      startRename(QModelIndex(persistent));
+    });
+    menu->addSeparator();
+    menu->addAction(QStringLiteral("Mit Username teilen\u2026"), doShareUser);
+    menu->addAction(QStringLiteral("Share-Link erstellen\u2026"), doCreateLink);
+    menu->addAction(QStringLiteral("Datei aus Link importieren\u2026"), doImportLink);
+    menu->addAction(QStringLiteral("Löschen"), [this, persistent]() {
+      if (!persistent.isValid()) return;
+      if (!BlopDialogs::confirm(
+              this, QStringLiteral("Notiz löschen"),
+              QStringLiteral("Diese Notiz wirklich löschen? Das kann nicht "
+                             "rückgängig gemacht werden."),
+              QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
+        return;
+      m_fileModel->remove(QModelIndex(persistent));
+    });
   };
 
 #ifdef Q_OS_ANDROID
@@ -8494,19 +8553,20 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                 [this, persistent]() {
                   if (!persistent.isValid()) return;
                   onFileDoubleClicked(QModelIndex(persistent));
-                },
-                false, false});
+                }, false, false});
   items.append({QStringLiteral("Umbenennen"), QIcon(),
                 [this, persistent]() {
                   if (!persistent.isValid()) return;
                   startRename(QModelIndex(persistent));
-                },
-                false, false});
+                }, false, false});
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("Mit Username teilen\u2026"), QIcon(), doShareUser, false, false});
+  items.append({QStringLiteral("Share-Link erstellen\u2026"), QIcon(), doCreateLink, false, false});
+  items.append({QStringLiteral("Datei aus Link importieren\u2026"), QIcon(), doImportLink, false, false});
   items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("Löschen"), QIcon(),
                 [this, persistent]() {
-                  if (!persistent.isValid())
-                    return;
+                  if (!persistent.isValid()) return;
                   if (!BlopDialogs::confirm(
                           this, QStringLiteral("Notiz löschen"),
                           QStringLiteral(
@@ -8516,8 +8576,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                           QStringLiteral("Abbrechen")))
                     return;
                   m_fileModel->remove(QModelIndex(persistent));
-                },
-                true, false});
+                }, true, false});
   BlopInWindowMenu::show(this, globalPos, items);
 #else
   QMenu menu(this);

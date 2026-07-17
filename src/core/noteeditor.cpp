@@ -1,6 +1,7 @@
 #include "noteeditor.h"
 #include "SelectionMenuIcons.h"
 #include "blop_diag.h"
+#include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_theme.h"
 #include <QApplication>
@@ -12,6 +13,12 @@
 #include <QShortcut>
 #include <QVBoxLayout>
 #include "UIStyles.h"
+#ifdef Q_OS_ANDROID
+#include "androidcontentpicker.h"
+#include <QStandardPaths>
+#include <QDir>
+#include <QDateTime>
+#endif
 
 NoteEditor::NoteEditor(QWidget *parent) : QWidget(parent) {
     setupUi();
@@ -63,6 +70,68 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                       [safeNote]() {
                           if (safeNote && safeNote->onOpenNoteOptionsRequested)
                               safeNote->onOpenNoteOptionsRequested();
+                      },
+                      false, false});
+
+        items.append({QString(), QIcon(), {}, false, true});
+        items.append({QStringLiteral("Als PDF exportieren"),
+                      SelectionMenuIcons::pdfDocIcon(),
+                      [safeNote]() {
+                          if (!safeNote || !safeNote->canvas_) return;
+                          const QString dir = QStandardPaths::writableLocation(
+                              QStandardPaths::DocumentsLocation);
+                          QDir().mkpath(dir);
+                          const QString path = dir + QStringLiteral("/Blop_%1.pdf")
+                              .arg(QDateTime::currentDateTime().toString(
+                                  QStringLiteral("yyyyMMdd_HHmmss")));
+                          const bool ok = safeNote->canvas_->exportNoteToPdf(path);
+                          BlopDialogs::notify(
+                              safeNote, ok ? QStringLiteral("Exportiert")
+                                           : QStringLiteral("Fehler"),
+                              ok ? QStringLiteral("PDF gespeichert:\n%1").arg(path)
+                                 : QStringLiteral("PDF konnte nicht gespeichert werden."));
+                      },
+                      false, false});
+        items.append({QStringLiteral("Als Bild exportieren"),
+                      SelectionMenuIcons::screenshotIcon(),
+                      [safeNote]() {
+                          if (!safeNote || !safeNote->canvas_) return;
+                          const QString dir = QStandardPaths::writableLocation(
+                              QStandardPaths::PicturesLocation);
+                          QDir().mkpath(dir);
+                          const QString path = dir + QStringLiteral("/Blop_%1.png")
+                              .arg(QDateTime::currentDateTime().toString(
+                                  QStringLiteral("yyyyMMdd_HHmmss")));
+                          const bool ok = safeNote->canvas_->exportNoteToPng(path);
+                          BlopDialogs::notify(
+                              safeNote, ok ? QStringLiteral("Exportiert")
+                                           : QStringLiteral("Fehler"),
+                              ok ? QStringLiteral("Bild gespeichert:\n%1").arg(path)
+                                 : QStringLiteral("Bild konnte nicht gespeichert werden."));
+                      },
+                      false, false});
+        items.append({QStringLiteral("PDF importieren"),
+                      SelectionMenuIcons::importIcon(),
+                      [safeNote]() {
+                          if (!safeNote || !safeNote->canvas_) return;
+                          AndroidContentPicker::instance().pickOpen(
+                              {QStringLiteral("application/pdf")},
+                              [safeNote](const QString &localPath) {
+                                  if (localPath.isEmpty() || !safeNote || !safeNote->canvas_)
+                                      return;
+                                  const bool ok = safeNote->canvas_->importPdfPages(localPath);
+                                  BlopDialogs::notify(
+                                      safeNote,
+                                      ok ? QStringLiteral("Importiert")
+                                         : QStringLiteral("Fehler"),
+                                      ok ? QStringLiteral(
+                                               "PDF wurde seitenweise importiert.\n"
+                                               "Jede PDF-Seite erscheint als eigene Notizseite.")
+                                         : QStringLiteral(
+                                               "PDF konnte nicht importiert werden.\n"
+                                               "Bitte stelle sicher, dass Qt mit "
+                                               "PDF-Unterstützung kompiliert ist."));
+                              });
                       },
                       false, false});
 
@@ -212,8 +281,10 @@ void NoteEditor::resizeEvent(QResizeEvent *event) {
 
 void NoteEditor::setupShortcuts() {
     new QShortcut(QKeySequence::Save, this, [this]() {
-        if (onSaveRequested && note_)
+        if (onSaveRequested && note_) {
+            setProperty("forceSave", true);
             onSaveRequested(note_);
+        }
     });
 
     new QShortcut(QKeySequence(Qt::Key_Delete), this, [this]() {

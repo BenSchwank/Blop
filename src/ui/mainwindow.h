@@ -29,6 +29,7 @@
 
 #include "canvasview.h"
 #include "freegridview.h"
+#include "notemanager.h"
 #include "tools/ToolManager.h" // WICHTIG: Include für ToolManager
 #include "uiprofilemanager.h"
 
@@ -276,6 +277,7 @@ private slots:
 private:
   void setupUi();
   void setupTools(); // Initialisiert und registriert Tools
+  void flushPendingA4Save();
   void setupTitleBar();
   void setupSidebar();
   void setupRightSidebar();
@@ -543,6 +545,10 @@ private:
 
   QTimer *m_autoSaveTimer{nullptr};
   QTimer *m_gridSpacingTimer{nullptr};
+  NoteManager m_noteManager;
+  QTimer *m_a4SaveDebounce{nullptr};
+  Note *m_pendingA4SaveNote{nullptr};
+  QString m_pendingA4SavePath;
 
   CanvasView::ToolType m_activeToolType;
 
