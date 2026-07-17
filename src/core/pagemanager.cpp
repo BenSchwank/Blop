@@ -1,4 +1,6 @@
 #include "pagemanager.h"
+#include "blop_dialogs.h"
+#include "blop_inwindow_menu.h"
 #include "blop_theme.h"
 #include "blopripple.h"
 #include "editoroverlays.h"
@@ -8,9 +10,7 @@
 #include <QHBoxLayout>
 #include <QPainter>
 #include <QScroller>
-#include <QMenu>
 #include <QMouseEvent>
-#include <QInputDialog>
 #include <QEvent>
 #include <QKeyEvent>
 #include <QPropertyAnimation>
@@ -626,37 +626,40 @@ void PageManager::onRowMoved(const QModelIndex&, int start, int, const QModelInd
 
 void PageManager::showContextMenu(const QPoint& pos, int index) {
     if (!m_view) return;
-    QMenu menu(this);
-    menu.setStyleSheet(
-        "QMenu { background-color: rgba(38, 40, 52, 0.98); color: rgba(235, 237, 245, 0.95); "
-        "border: 1px solid rgba(120, 130, 160, 0.35); border-radius: 12px; padding: 6px; font-size: 14px; } "
-        "QMenu::item { padding: 12px 28px; min-height: 22px; border-radius: 8px; } "
-        "QMenu::item:selected { background-color: rgba(107, 163, 245, 0.35); }");
 
-    QAction* ren = menu.addAction(QStringLiteral("Umbenennen"));
-    QAction* dup = menu.addAction(QStringLiteral("Duplizieren"));
-    menu.addSeparator();
-    QAction* del = menu.addAction(QStringLiteral("Löschen"));
-
-    QAction* res = menu.exec(pos);
-    if (res == ren) {
-        QString oldName = m_view->note()->pages[index].title;
-        bool ok;
-        QString newName = QInputDialog::getText(this, QStringLiteral("Seite umbenennen"), QStringLiteral("Name:"),
-                                                   QLineEdit::Normal, oldName, &ok);
-        if (ok && !newName.isEmpty()) {
+    QList<BlopInWindowMenu::Item> items;
+    items.append({QStringLiteral("Umbenennen"), QIcon(), [this, index]() {
+        if (!m_view || !m_view->note() || index < 0 ||
+            index >= m_view->note()->pages.size())
+            return;
+        const QString oldName = m_view->note()->pages[index].title;
+        const QString newName = BlopDialogs::promptText(
+            this, QStringLiteral("Seite umbenennen"), QStringLiteral("Name:"),
+            oldName);
+        if (!newName.isEmpty()) {
             m_view->renamePage(index, newName);
             rebuildList();
         }
-    } else if (res == dup) {
+    }});
+    items.append({QStringLiteral("Duplizieren"), QIcon(), [this, index]() {
+        if (!m_view)
+            return;
         m_view->duplicatePage(index);
         rebuildList(false);
-    } else if (res == del) {
-        if (m_view->pageCount() > 1) {
-            m_view->deletePage(index);
-            rebuildList(false);
-        }
-    }
+    }});
+    items.append({QString(), QIcon(), {}, false, true});
+    items.append({QStringLiteral("Löschen"), QIcon(), [this, index]() {
+        if (!m_view || m_view->pageCount() <= 1)
+            return;
+        if (!BlopDialogs::confirm(this, QStringLiteral("Seite löschen"),
+                                  QStringLiteral("Diese Seite wirklich löschen?"),
+                                  QStringLiteral("Löschen"),
+                                  QStringLiteral("Abbrechen")))
+            return;
+        m_view->deletePage(index);
+        rebuildList(false);
+    }, true});
+    BlopInWindowMenu::show(this, pos, items);
 }
 
 void PageManager::onSearchChanged(const QString &text) {

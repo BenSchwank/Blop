@@ -23,6 +23,7 @@
 #include "notemanager.h"
 #include "pagemanager.h"
 #include "blopstyle.h"
+#include "blop_dialogs.h"
 #include "uiscale.h"
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
@@ -2535,7 +2536,7 @@ void MainWindow::setupTitleBar() {
   navLayout->addSpacing(8);
 
   // Tags & Seiten-Optionen nur noch über Notiz-Menü (⋯) → „Optionen & Tags…“
-  // Höhe = ROW_HEIGHT_ITEM (wie Sidebar-Nav-Zeilen „All / Blop Notes / …“).
+  // Höhe = ROW_HEIGHT_ITEM (wie Sidebar-Nav-Zeilen „Alle / Blop Notizen / …“).
   const int kTitleBarNavH = ROW_HEIGHT_ITEM;
 
   m_btnEditorNoteOverflow = new ModernButton(m_topNavControls);
@@ -4344,7 +4345,7 @@ void MainWindow::setupUi() {
   libraryMainLay->addWidget(m_fileListView, 1);
 
   m_lblEmptyState = new QLabel(
-      QStringLiteral("Noch keine Notizen.\nErstelle eine neue Notiz, um zu starten."),
+      QStringLiteral("Noch keine Notizen.\nTippe +, um deine erste Notiz anzulegen."),
       libraryMain);
   m_lblEmptyState->setAlignment(Qt::AlignCenter);
   m_lblEmptyState->setStyleSheet(
@@ -5976,7 +5977,8 @@ void MainWindow::setupSidebar() {
       // when the user toggles Light/Dark mode without rebuilding the
       // whole sidebar.
       item->setData(Qt::UserRole + 11, icon);
-      if (name == "All" || name == "Blop Notes") {
+      if (name == QStringLiteral("Alle") ||
+          name == QStringLiteral("Blop Notizen")) {
         item->setData(Qt::UserRole + 2, rootCountStr);
         item->setData(Qt::UserRole + 10, m_rootPath);
       }
@@ -5986,15 +5988,16 @@ void MainWindow::setupSidebar() {
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     } else {
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-      if (name == "Blop Notes" || name == "All") {
+      if (name == QStringLiteral("Blop Notizen") ||
+          name == QStringLiteral("Alle")) {
         item->setData(Qt::UserRole + 6, true);
       }
     }
   };
 
-  addItem("All", "folder");
-  addItem("Blop Notes", "folder");
-  addItem("Device Files", "device");
+  addItem(QStringLiteral("Alle"), QStringLiteral("folder"));
+  addItem(QStringLiteral("Blop Notizen"), QStringLiteral("folder"));
+  addItem(QStringLiteral("Gerät"), QStringLiteral("device"));
   // Cloud / Shared rows intentionally omitted until integrations ship —
   // leaving stub entries caused dead clicks and "coming soon" dialogs.
   m_navSidebar->setCurrentRow(1);
@@ -6280,16 +6283,31 @@ void MainWindow::updateSidebarBadges() {
   QString rootCountStr = QString::number(rootCount);
   for (int i = 0; i < m_navSidebar->count(); ++i) {
     QListWidgetItem *item = m_navSidebar->item(i);
-    if (item->text() == "All" || item->text() == "Blop Notes") {
+    if (item->text() == QStringLiteral("Alle") ||
+        item->text() == QStringLiteral("Blop Notizen")) {
       item->setData(Qt::UserRole + 2, rootCountStr);
     }
   }
 
   if (m_lblEmptyState && m_fileListView && m_fileModel) {
-    const int rows = m_libraryProxy
-                         ? m_libraryProxy->rowCount(m_fileListView->rootIndex())
-                         : m_fileModel->rowCount(m_fileListView->rootIndex());
-    if (rows == 0) {
+    const QModelIndex proxyRoot = m_fileListView->rootIndex();
+    const int visible =
+        m_libraryProxy ? m_libraryProxy->rowCount(proxyRoot)
+                       : m_fileModel->rowCount(proxyRoot);
+    QModelIndex sourceRoot = proxyRoot;
+    if (m_libraryProxy && proxyRoot.isValid())
+      sourceRoot = m_libraryProxy->mapToSource(proxyRoot);
+    else if (m_libraryProxy && !proxyRoot.isValid())
+      sourceRoot = m_fileModel->index(m_fileModel->rootPath());
+    const int total = m_fileModel->rowCount(sourceRoot);
+    if (visible == 0) {
+      if (total > 0) {
+        m_lblEmptyState->setText(QStringLiteral(
+            "Keine Treffer.\nAndere Suche, Tags oder Seitenleiste versuchen."));
+      } else {
+        m_lblEmptyState->setText(QStringLiteral(
+            "Noch keine Notizen.\nTippe +, um deine erste Notiz anzulegen."));
+      }
       if (!m_lblEmptyState->isVisible()) {
         m_lblEmptyState->show();
         m_fileListView->hide();
@@ -6331,7 +6349,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   }
 
   QString name = item->text();
-  if (name == "Device Files") {
+  if (name == QStringLiteral("Gerät")) {
     m_fileModel->setRootPath(QDir::rootPath());
     setLibraryRootFromSource(m_fileModel->index(QDir::rootPath()));
 #ifdef Q_OS_ANDROID
@@ -6344,7 +6362,8 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
   bool isExpanded = parentItem->data(Qt::UserRole + 3).toBool();
   QString parentPath = parentItem->data(Qt::UserRole + 10).toString();
   if (parentPath.isEmpty()) {
-    if (parentItem->text() == "Blop Notes" || parentItem->text() == "All")
+    if (parentItem->text() == QStringLiteral("Blop Notizen") ||
+        parentItem->text() == QStringLiteral("Alle"))
       parentPath = m_rootPath;
     else
       return;
@@ -6404,13 +6423,18 @@ void MainWindow::onNewPage() {
       // Legacy unendliche Leinwand (.blop -> CanvasView)
       QString path = m_fileModel->rootPath() + "/" + safeName + ".blop";
       QFile file(path);
-      if (file.open(QIODevice::WriteOnly)) {
-        QDataStream out(&file);
-        out << (quint32)0xB10B0002;
-        out << isInfinite;
-        out << (int)0;
-        file.close();
+      if (!file.open(QIODevice::WriteOnly)) {
+        BlopDialogs::notify(
+            this, QStringLiteral("Notiz erstellen"),
+            QStringLiteral("Datei konnte nicht angelegt werden:\n%1")
+                .arg(path));
+        return;
       }
+      QDataStream out(&file);
+      out << (quint32)0xB10B0002;
+      out << isInfinite;
+      out << (int)0;
+      file.close();
       onFileDoubleClicked(m_fileModel->index(path));
       if (CanvasView *cv = getCurrentCanvas()) {
         cv->setPageColor(layoutResult.paperColor.isValid()
@@ -6447,7 +6471,13 @@ void MainWindow::onNewPage() {
                                                       : UIStyles::PageBackground;
     p.backgroundType = qBound(0, layoutResult.backgroundType, 4);
     note.pages.append(p);
-    NoteManager::saveNote(note, path);
+    if (!NoteManager::saveNote(note, path)) {
+      BlopDialogs::notify(
+          this, QStringLiteral("Notiz erstellen"),
+          QStringLiteral("Notiz konnte nicht gespeichert werden:\n%1")
+              .arg(path));
+      return;
+    }
     onFileDoubleClicked(m_fileModel->index(path));
   };
 
@@ -6675,10 +6705,10 @@ void MainWindow::onCreateFolder() {
   return;
 #endif
   bool ok;
-  QString text = QInputDialog::getText(this, QStringLiteral("Neuer Ordner"),
-                                       QStringLiteral("Name:"),
-                                       QLineEdit::Normal,
-                                       QStringLiteral("Neuer Ordner"), &ok);
+  QString text = BlopDialogs::promptText(this, QStringLiteral("Neuer Ordner"),
+                                         QStringLiteral("Name:"),
+                                         QStringLiteral("Neuer Ordner"));
+  ok = !text.isEmpty();
   if (ok && !text.isEmpty()) {
     m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text);
   }
@@ -7122,11 +7152,9 @@ void MainWindow::setupRightSidebar() {
       "  color: rgba(255,255,255,0.8);"
       "}");
   connect(btnAddTag, &QPushButton::clicked, this, [this]() {
-    bool ok = false;
-    const QString raw = QInputDialog::getText(
-        this, QStringLiteral("Neuer Tag"), QStringLiteral("Tag-Name:"),
-        QLineEdit::Normal, QString(), &ok);
-    if (!ok)
+    const QString raw = BlopDialogs::promptText(
+        this, QStringLiteral("Neuer Tag"), QStringLiteral("Tag-Name:"));
+    if (raw.isEmpty())
       return;
     if (!LibraryTagStore::addTagToCatalog(raw))
       return;
@@ -8188,6 +8216,12 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
           m_editorTabs->addTab(editor, fileName);
           m_editorTabs->setCurrentWidget(editor);
           addNoteTab(QFileInfo(fileName).baseName());
+        } else {
+          BlopDialogs::notify(
+              this, QStringLiteral("Notiz öffnen"),
+              QStringLiteral("Datei konnte nicht geladen werden:\n%1")
+                  .arg(path));
+          return;
         }
       }
     }
@@ -8438,6 +8472,12 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   menu->addAction(QStringLiteral("Löschen"), [this, persistent]() {
     if (!persistent.isValid())
       return;
+    if (!BlopDialogs::confirm(
+            this, QStringLiteral("Notiz löschen"),
+            QStringLiteral("Diese Notiz wirklich löschen? Das kann nicht "
+                           "rückgängig gemacht werden."),
+            QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
+      return;
     m_fileModel->remove(QModelIndex(persistent));
   });
   };
@@ -8465,10 +8505,19 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("Löschen"), QIcon(),
                 [this, persistent]() {
-                  if (!persistent.isValid()) return;
+                  if (!persistent.isValid())
+                    return;
+                  if (!BlopDialogs::confirm(
+                          this, QStringLiteral("Notiz löschen"),
+                          QStringLiteral(
+                              "Diese Notiz wirklich löschen? Das kann nicht "
+                              "rückgängig gemacht werden."),
+                          QStringLiteral("Löschen"),
+                          QStringLiteral("Abbrechen")))
+                    return;
                   m_fileModel->remove(QModelIndex(persistent));
                 },
-                false, false});
+                true, false});
   BlopInWindowMenu::show(this, globalPos, items);
 #else
   QMenu menu(this);
@@ -8544,8 +8593,15 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
       return;
     }
     const QString newName = edit->text().trimmed();
-    if (!newName.isEmpty())
-      m_fileModel->setData(m_indexToRename, newName, Qt::EditRole);
+    if (!newName.isEmpty()) {
+      if (!m_fileModel->setData(m_indexToRename, newName, Qt::EditRole)) {
+        BlopDialogs::notify(
+            this, QStringLiteral("Umbenennen"),
+            QStringLiteral("Umbenennen fehlgeschlagen. Name evtl. ungültig "
+                           "oder bereits vergeben."));
+        return;
+      }
+    }
     m_indexToRename = QModelIndex();
     if (modal)
       modal->dismiss();
@@ -8566,8 +8622,15 @@ void MainWindow::finishRename() {
   // Legacy Enter-handler kept for callers; rename now commits via BlopModal.
   if (m_indexToRename.isValid() && m_renameInput) {
     const QString newName = m_renameInput->text().trimmed();
-    if (!newName.isEmpty())
-      m_fileModel->setData(m_indexToRename, newName, Qt::EditRole);
+    if (!newName.isEmpty()) {
+      if (!m_fileModel->setData(m_indexToRename, newName, Qt::EditRole)) {
+        BlopDialogs::notify(
+            this, QStringLiteral("Umbenennen"),
+            QStringLiteral("Umbenennen fehlgeschlagen. Name evtl. ungültig "
+                           "oder bereits vergeben."));
+        return;
+      }
+    }
     m_indexToRename = QModelIndex();
   }
   if (m_renameOverlay)

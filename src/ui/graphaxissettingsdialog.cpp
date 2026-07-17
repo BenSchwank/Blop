@@ -1,4 +1,5 @@
 #include "graphaxissettingsdialog.h"
+#include "blop_dialogs.h"
 #include "tools/GraphCanvasItem.h"
 
 #include <QComboBox>
@@ -8,7 +9,6 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMessageBox>
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -162,8 +162,8 @@ void GraphAxisSettingsDialog::apply() {
     const double ymin = m_yMin->value();
     const double ymax = m_yMax->value();
     if (xmin >= xmax || ymin >= ymax) {
-        QMessageBox::warning(this, tr("Ungueltiger Bereich"),
-                             tr("Es muss gelten: x min < x max und y min < y max."));
+        BlopDialogs::notify(this, tr("Ungültiger Bereich"),
+                            tr("Es muss gelten: x min < x max und y min < y max."));
         return;
     }
     GraphObject d = m_graph->toData();
@@ -178,11 +178,13 @@ void GraphAxisSettingsDialog::apply() {
     d.xTickCount = qBound(2, m_xTickCount->value(), 32);
     d.yTickCount = qBound(2, m_yTickCount->value(), 32);
     if (d.xTickMode == kTickStep && d.xTickStep <= 0.0) {
-        QMessageBox::warning(this, tr("Ungueltig"), tr("x-Schrittweite muss groesser 0 sein."));
+        BlopDialogs::notify(this, tr("Ungültig"),
+                            tr("x-Schrittweite muss größer 0 sein."));
         return;
     }
     if (d.yTickMode == kTickStep && d.yTickStep <= 0.0) {
-        QMessageBox::warning(this, tr("Ungueltig"), tr("y-Schrittweite muss groesser 0 sein."));
+        BlopDialogs::notify(this, tr("Ungültig"),
+                            tr("y-Schrittweite muss größer 0 sein."));
         return;
     }
     m_graph->fromData(d);

@@ -1,16 +1,15 @@
 #include "librarytagspanel.h"
 
+#include "blop_dialogs.h"
 #include "blop_theme.h"
 #include "librarytagstore.h"
 #include "uiscale.h"
 
 #include <QFrame>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -131,11 +130,9 @@ void LibraryTagsPanel::onRenameClicked() {
   if (selected.size() != 1)
     return;
   const QString from = selected.first()->text();
-  bool ok = false;
-  const QString to = QInputDialog::getText(
-      this, QStringLiteral("Tag umbenennen"), QStringLiteral("Neuer Name:"),
-      QLineEdit::Normal, from, &ok);
-  if (!ok)
+  const QString to = BlopDialogs::promptText(
+      this, QStringLiteral("Tag umbenennen"), QStringLiteral("Neuer Name:"), from);
+  if (to.isEmpty())
     return;
   if (!LibraryTagStore::renameTag(from, to))
     return;
@@ -150,11 +147,11 @@ void LibraryTagsPanel::onDeleteClicked() {
   const auto selected = m_list->selectedItems();
   if (selected.isEmpty())
     return;
-  const auto answer = QMessageBox::question(
-      this, QStringLiteral("Tags löschen"),
-      QStringLiteral("Ausgewählte Tags aus dem Katalog und allen Notizen entfernen?"),
-      QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-  if (answer != QMessageBox::Yes)
+  if (!BlopDialogs::confirm(
+          this, QStringLiteral("Tags löschen"),
+          QStringLiteral(
+              "Ausgewählte Tags aus dem Katalog und allen Notizen entfernen?"),
+          QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
     return;
   for (const QListWidgetItem *it : selected) {
     if (it)

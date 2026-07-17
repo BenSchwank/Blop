@@ -5,6 +5,8 @@
 #include "blop_modal.h"
 #include "blop_theme.h"
 #include "blopstyle.h"
+#include "blop_dialogs.h"
+#include "blop_inwindow_menu.h"
 #include "editoroverlays.h"
 #include "UIStyles.h"
 #include "overlayscrollindicator.h"
@@ -878,6 +880,13 @@ void GraphFormulaEntryBar::finishRecognizeWithFallback(const QString &backendExp
     return;
   }
   if (offerCandidateMenuOnEmpty) {
+#ifdef Q_OS_ANDROID
+    // QMenu::exec is a top-level window on Android (Qt 6.10 EGL crash).
+    // Prefer the strongest local candidate; user can still edit manually.
+    m_expr->setText(locals.first());
+    setStatus(QStringLiteral("Vorschlag — mit Haken uebernehmen oder manuell aendern"),
+              false);
+#else
     QMenu menu(this);
     for (const QString &c : locals)
       menu.addAction(c);
@@ -886,6 +895,7 @@ void GraphFormulaEntryBar::finishRecognizeWithFallback(const QString &backendExp
       m_expr->setText(chosen->text());
     if (!m_expr->text().trimmed().isEmpty())
       setStatus(QStringLiteral("Gewaehlt — mit Haken uebernehmen"), false);
+#endif
   } else {
     // Auto-Erkennung hat nichts gefunden — ersten lokalen Vorschlag anbieten
     if (!locals.isEmpty()) {
@@ -1667,19 +1677,19 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   bottomRow->setSpacing(10);
   auto *btnTpl = new QPushButton(QStringLiteral("Vorlagen"), m_pagesBarCard);
   btnTpl->setToolTip(QStringLiteral("Vorlagen"));
-  auto *btnImport = new QToolButton(m_pagesBarCard);
-  btnImport->setText(QStringLiteral("Importieren"));
+  auto *btnImport = new QPushButton(QStringLiteral("Importieren"), m_pagesBarCard);
   btnImport->setToolTip(QStringLiteral("PDF oder Bild importieren"));
-  btnImport->setPopupMode(QToolButton::InstantPopup);
   btnImport->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  auto *importMenu = new QMenu(btnImport);
-  QAction *actPdf = importMenu->addAction(QStringLiteral("PDF …"));
-  QAction *actImg = importMenu->addAction(QStringLiteral("Bild …"));
-  connect(actPdf, &QAction::triggered, this,
-          [this]() { pickAndImportPdf(); });
-  connect(actImg, &QAction::triggered, this,
-          [this]() { pickAndAddImagePage(); });
-  btnImport->setMenu(importMenu);
+  connect(btnImport, &QPushButton::clicked, this, [this, btnImport]() {
+    const QPoint globalPos =
+        btnImport->mapToGlobal(QPoint(btnImport->width() / 2, btnImport->height()));
+    QList<BlopInWindowMenu::Item> items;
+    items.append({QStringLiteral("PDF …"), QIcon(),
+                  [this]() { pickAndImportPdf(); }});
+    items.append({QStringLiteral("Bild …"), QIcon(),
+                  [this]() { pickAndAddImagePage(); }});
+    BlopInWindowMenu::show(this, globalPos, items);
+  });
   auto *btnMore = new QPushButton(QStringLiteral("Mehr"), m_pagesBarCard);
   btnMore->setToolTip(QStringLiteral("Mehr"));
   btnTpl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -2149,6 +2159,14 @@ void MultiPageNoteView::openPageLayoutForVisiblePage() {
 void MultiPageNoteView::pickAndAddImagePage() {
   if (!note_)
     return;
+#ifdef Q_OS_ANDROID
+  // QFileDialog is a top-level window and crashes Qt 6.10 Android.
+  // Native content picker is a follow-up; for now fail soft.
+  BlopDialogs::notify(
+      this, QStringLiteral("Import"),
+      QStringLiteral("Bild-Import auf Android folgt in einem Update."));
+  return;
+#else
   const QString path = QFileDialog::getOpenFileName(
       this, QStringLiteral("Bild wählen"), QString(),
       QStringLiteral("Bilder (*.png *.jpg *.jpeg *.webp *.bmp);;Alle Dateien (*)"));
@@ -2156,8 +2174,8 @@ void MultiPageNoteView::pickAndAddImagePage() {
     return;
   QImage img(path);
   if (img.isNull()) {
-    QMessageBox::warning(this, QStringLiteral("Blop"),
-                         QStringLiteral("Bild konnte nicht geladen werden."));
+    BlopDialogs::notify(this, QStringLiteral("Blop"),
+                        QStringLiteral("Bild konnte nicht geladen werden."));
     return;
   }
   QImage scaled =
@@ -2181,16 +2199,23 @@ void MultiPageNoteView::pickAndAddImagePage() {
   scrollToPage(idx);
   if (onSaveRequested)
     onSaveRequested(note_);
+#endif
 }
 
 void MultiPageNoteView::pickAndImportPdf() {
+#ifdef Q_OS_ANDROID
+  BlopDialogs::notify(
+      this, QStringLiteral("Import"),
+      QStringLiteral("PDF-Import auf Android folgt in einem Update."));
+  return;
+#else
   const QString path = QFileDialog::getOpenFileName(
       this, QStringLiteral("PDF importieren"), QString(),
       QStringLiteral("PDF (*.pdf);;Alle Dateien (*)"));
   if (path.isEmpty())
     return;
   if (!importPdfPages(path)) {
-    QMessageBox::information(
+    BlopDialogs::notify(
         this, QStringLiteral("PDF"),
         QStringLiteral(
             "PDF konnte nicht importiert werden (Datei ungültig oder PDF-Unterstützung "
@@ -2198,16 +2223,23 @@ void MultiPageNoteView::pickAndImportPdf() {
   } else if (note_) {
     scrollToPage(note_->pages.size() - 1);
   }
+#endif
 }
 
 void MultiPageNoteView::showBottomMoreMenu() {
-  QMenu menu(this);
+  QWidget *anchor = qobject_cast<QWidget *>(sender());
+  const QPoint globalPos =
+      anchor ? anchor->mapToGlobal(QPoint(anchor->width() / 2, anchor->height()))
+             : QCursor::pos();
+  QList<BlopInWindowMenu::Item> items;
   if (note_ && !note_->pages.isEmpty()) {
-    menu.addAction(QStringLiteral("Letzte Seite duplizieren"), [this]() {
-      duplicatePage(note_->pages.size() - 1);
-    });
+    items.append({QStringLiteral("Letzte Seite duplizieren"), QIcon(), [this]() {
+                    duplicatePage(note_->pages.size() - 1);
+                  }});
   }
-  menu.exec(QCursor::pos());
+  if (items.isEmpty())
+    return;
+  BlopInWindowMenu::show(this, globalPos, items);
 }
 
 void MultiPageNoteView::ensureSceneRectCoversViewport() {

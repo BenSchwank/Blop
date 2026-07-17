@@ -148,6 +148,8 @@ qt_add_executable(Blop
     src/ui/librarytagstore.h
     src/ui/librarytagspanel.cpp
     src/ui/librarytagspanel.h
+    src/ui/blop_dialogs.cpp
+    src/ui/blop_dialogs.h
     src/ui/introscreen.h
     src/ui/introscreen.cpp
     src/ui/overlayscrollindicator.h

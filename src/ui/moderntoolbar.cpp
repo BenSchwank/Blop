@@ -1,5 +1,6 @@
 #include "moderntoolbar.h"
 #include "blop_theme.h"
+#include "blop_dialogs.h"
 #include "blopripple.h"
 #include "UIStyles.h"
 #include "tools/ToolManager.h"
@@ -1243,25 +1244,38 @@ public:
       btnClear->setFixedHeight(35);
       btnClear->setCursor(Qt::PointingHandCursor);
       connect(btnClear, &QPushButton::clicked, [this]() {
-        if (QMessageBox::question(this, "Seite leeren", "Alles löschen?",
-                                  QMessageBox::Yes | QMessageBox::No) ==
-            QMessageBox::Yes) {
-          QGraphicsView *view = nullptr;
+        if (!BlopDialogs::confirm(this, QStringLiteral("Seite leeren"),
+                                  QStringLiteral("Alles auf dieser Seite löschen?"),
+                                  QStringLiteral("Löschen"),
+                                  QStringLiteral("Abbrechen")))
+          return;
+        // Prefer the currently focused / active graphics view over a
+        // heuristic walk of all top-level widgets (Study WebView etc.).
+        QGraphicsView *view = nullptr;
+        if (QWidget *fw = QApplication::focusWidget()) {
+          view = qobject_cast<QGraphicsView *>(fw);
+          if (!view)
+            view = fw->findChild<QGraphicsView *>();
+          if (!view)
+            if (QWidget *win = fw->window())
+              view = win->findChild<QGraphicsView *>();
+        }
+        if (!view) {
           for (QWidget *w : QApplication::topLevelWidgets()) {
             view = w->findChild<QGraphicsView *>();
             if (view)
               break;
           }
-          if (view && view->scene()) {
-            QList<QGraphicsItem *> items = view->scene()->items();
-            for (auto *item : items) {
-              if (dynamic_cast<QGraphicsPathItem *>(item)) {
-                view->scene()->removeItem(item);
-                delete item;
-              }
+        }
+        if (view && view->scene()) {
+          QList<QGraphicsItem *> items = view->scene()->items();
+          for (auto *item : items) {
+            if (dynamic_cast<QGraphicsPathItem *>(item)) {
+              view->scene()->removeItem(item);
+              delete item;
             }
-            view->viewport()->update();
           }
+          view->viewport()->update();
         }
       });
       layout->addWidget(btnClear);

@@ -1,5 +1,6 @@
 #pragma once
 #include "AbstractTool.h"
+#include "blop_dialogs.h"
 #include <QGraphicsPixmapItem>
 #include <QFileDialog>
 #include <QApplication>
@@ -16,6 +17,16 @@ public:
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene) return false;
 
+#ifdef Q_OS_ANDROID
+        // QFileDialog is a top-level window and crashes Qt 6.10 Android.
+        // Native content picker is a follow-up; swallow the press so the tool
+        // doesn't fall through to drawing.
+        Q_UNUSED(event);
+        BlopDialogs::notify(
+            QApplication::activeWindow(), QStringLiteral("Bild"),
+            QStringLiteral("Bild-Import auf Android folgt in einem Update."));
+        return true;
+#else
         QString fileName = QFileDialog::getOpenFileName(nullptr, "Bild öffnen", "", "Bilder (*.png *.jpg *.jpeg)");
 
         if (!fileName.isEmpty()) {
@@ -33,5 +44,6 @@ public:
             }
         }
         return true;
+#endif
     }
 };

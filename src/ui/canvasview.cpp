@@ -1,6 +1,8 @@
 #include "canvasview.h"
 #include "SelectionMenuIcons.h"
 #include "blop_theme.h"
+#include "blop_modal.h"
+#include "blop_dialogs.h"
 #include "TransformOverlay.h"
 #include "croptools.h"
 #include "UIStyles.h"
@@ -15,7 +17,11 @@
 #include "graphaxissettingsdialog.h"
 #include "uiscale.h"
 #include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
+#include <QGuiApplication>
 #include <QLineF>
+#include <QStandardPaths>
 #include <QUndoCommand>
 
 namespace {
@@ -888,10 +894,29 @@ void CanvasView::screenshotSelection() {
     img.fill(Qt::transparent);
     QPainter p(&img);
     m_scene->render(&p, QRectF(0, 0, img.width(), img.height()), selRect);
-    QString path =
-        QFileDialog::getSaveFileName(this, "Save", "sel.png", "*.png");
-    if (!path.isEmpty())
-      img.save(path);
+#ifdef Q_OS_ANDROID
+    const QString dir =
+        QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    QDir().mkpath(dir);
+    const QString fileName =
+        QStringLiteral("Blop_%1.png")
+            .arg(QDateTime::currentDateTime().toString(
+                QStringLiteral("yyyyMMdd_HHmmss")));
+    const QString path = dir + QLatin1Char('/') + fileName;
+    if (img.save(path))
+      BlopDialogs::notify(this, QStringLiteral("Screenshot"),
+                          QStringLiteral("Gespeichert: %1").arg(fileName));
+    else
+      BlopDialogs::notify(this, QStringLiteral("Screenshot"),
+                          QStringLiteral("Speichern fehlgeschlagen."));
+#else
+    const QString path = QFileDialog::getSaveFileName(
+        this, QStringLiteral("Screenshot speichern"),
+        QStringLiteral("auswahl.png"), QStringLiteral("PNG-Bild (*.png)"));
+    if (!path.isEmpty() && !img.save(path))
+      BlopDialogs::notify(this, QStringLiteral("Screenshot"),
+                          QStringLiteral("Speichern fehlgeschlagen."));
+#endif
   }
   m_selectionMenu->hide();
 }
@@ -1220,7 +1245,11 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
                     m_undoStack->push(new AddItemCommand(m_scene, item));
                     if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
                         GraphAxisSettingsDialog dlg(gi, window());
+#ifdef Q_OS_ANDROID
+                        BlopModal::execBlocking(window(), &dlg);
+#else
                         dlg.exec();
+#endif
                     }
                     m_toolManager->activeTool()->clearLastCompletedItem();
                 }
@@ -1491,7 +1520,11 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
           m_undoStack->push(new AddItemCommand(m_scene, item));
           if (auto* gi = qgraphicsitem_cast<GraphCanvasItem*>(item)) {
             GraphAxisSettingsDialog dlg(gi, window());
+#ifdef Q_OS_ANDROID
+            BlopModal::execBlocking(window(), &dlg);
+#else
             dlg.exec();
+#endif
           }
           m_toolManager->activeTool()->clearLastCompletedItem();
       }
