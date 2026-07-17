@@ -156,13 +156,23 @@ bool LibraryTagStore::removeTag(const QString &tag) {
     }
     it.value() = kept;
   }
-  // Drop empty assignments
-  for (auto it = map.begin(); it != map.end();) {
-    if (it.value().isEmpty())
-      it = map.erase(it);
-    else
-      ++it;
-  }
   saveMap(s, map);
   return true;
+}
+
+void LibraryTagStore::remapPath(const QString &fromPath, const QString &toPath) {
+  if (fromPath.isEmpty() || toPath.isEmpty() || fromPath == toPath)
+    return;
+  QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
+  auto map = loadMap(s);
+  QHash<QString, QStringList> next;
+  for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+    QString key = it.key();
+    if (key == fromPath)
+      key = toPath;
+    else if (key.startsWith(fromPath + QLatin1Char('/')))
+      key = toPath + key.mid(fromPath.size());
+    next.insert(key, it.value());
+  }
+  saveMap(s, next);
 }

@@ -147,6 +147,10 @@ qt_add_executable(Blop
     src/ui/pagethumbnailsidebar.h
     src/ui/librarytagstore.cpp
     src/ui/librarytagstore.h
+    src/ui/libraryorgstore.cpp
+    src/ui/libraryorgstore.h
+    src/ui/libraryorgbar.cpp
+    src/ui/libraryorgbar.h
     src/ui/librarytagspanel.cpp
     src/ui/librarytagspanel.h
     src/ui/cloudstoragestore.cpp

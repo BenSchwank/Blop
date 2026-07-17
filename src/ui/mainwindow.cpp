@@ -6,6 +6,8 @@
 #include "documenttabbar.h"
 #include "librarytagspanel.h"
 #include "librarytagstore.h"
+#include "libraryorgstore.h"
+#include "libraryorgbar.h"
 #include "cloudstoragestore.h"
 #include "pagethumbnailsidebar.h"
 #include "penpresetbar.h"
@@ -58,6 +60,8 @@
 #include <QQmlContext>
 #include <QEvent>
 #include <QFile>
+#include <QFileInfo>
+#include <QFileSystemModel>
 #include <QtMath>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsDropShadowEffect>
@@ -194,9 +198,13 @@ namespace {
 
 class LibraryFilterProxy : public QSortFilterProxyModel {
 public:
+  enum class SmartView { All, Favorites, Recent, Untagged };
+  enum class SortMode { Name, Modified };
+
   explicit LibraryFilterProxy(QObject *parent = nullptr)
       : QSortFilterProxyModel(parent) {
     setDynamicSortFilter(true);
+    setSortCaseSensitivity(Qt::CaseInsensitive);
   }
 
   void setSearchText(const QString &text) {
@@ -213,6 +221,24 @@ public:
     refreshFilter();
   }
 
+  void setSmartView(SmartView view) {
+    if (m_smartView == view)
+      return;
+    m_smartView = view;
+    refreshFilter();
+  }
+
+  void setSortMode(SortMode mode) {
+    if (m_sortMode == mode)
+      return;
+    m_sortMode = mode;
+    invalidate();
+    sort(0, Qt::AscendingOrder);
+  }
+
+  SmartView smartView() const { return m_smartView; }
+  SortMode sortMode() const { return m_sortMode; }
+
 protected:
   bool filterAcceptsRow(int sourceRow,
                         const QModelIndex &sourceParent) const override {
@@ -228,15 +254,44 @@ protected:
     if (!m_search.isEmpty() && !name.contains(m_search, Qt::CaseInsensitive))
       return false;
 
+    const QString path =
+        fsm ? fsm->filePath(idx) : idx.data(Qt::UserRole).toString();
+    const bool isDir = fsm && fsm->isDir(idx);
+
+    // Smart views apply to notes; folders stay so navigation still works
+    // except for Favorites/Recent which should show matching folders too
+    // only when explicitly favorited.
+    switch (m_smartView) {
+    case SmartView::Favorites:
+      if (!LibraryOrgStore::isFavorite(path))
+        return false;
+      break;
+    case SmartView::Recent: {
+      if (isDir)
+        return false;
+      const QStringList recent = LibraryOrgStore::recentPaths(24);
+      if (!recent.contains(path))
+        return false;
+      break;
+    }
+    case SmartView::Untagged:
+      if (isDir)
+        return true;
+      if (!LibraryTagStore::tagsForPath(path).isEmpty())
+        return false;
+      break;
+    case SmartView::All:
+    default:
+      break;
+    }
+
     if (m_tags.isEmpty())
       return true;
 
     // Folders stay visible so navigation still works while filtering.
-    if (fsm && fsm->isDir(idx))
+    if (isDir)
       return true;
 
-    const QString path =
-        fsm ? fsm->filePath(idx) : idx.data(Qt::UserRole).toString();
     const QStringList noteTags = LibraryTagStore::tagsForPath(path);
     for (const QString &need : m_tags) {
       bool hit = false;
@@ -252,19 +307,53 @@ protected:
     return true;
   }
 
+  bool lessThan(const QModelIndex &left, const QModelIndex &right) const override {
+    const auto *fsm = qobject_cast<const QFileSystemModel *>(sourceModel());
+    if (!fsm)
+      return QSortFilterProxyModel::lessThan(left, right);
+
+    const bool leftDir = fsm->isDir(left);
+    const bool rightDir = fsm->isDir(right);
+    // Folders first for Name sort; for Recent/Modified keep mixed by date.
+    if (m_sortMode == SortMode::Name && leftDir != rightDir)
+      return leftDir && !rightDir;
+
+    if (m_sortMode == SortMode::Modified || m_smartView == SmartView::Recent) {
+      const QString leftPath = fsm->filePath(left);
+      const QString rightPath = fsm->filePath(right);
+      if (m_smartView == SmartView::Recent) {
+        const QStringList recent = LibraryOrgStore::recentPaths(48);
+        const int li = recent.indexOf(leftPath);
+        const int ri = recent.indexOf(rightPath);
+        if (li >= 0 || ri >= 0)
+          return (li >= 0 ? li : 9999) < (ri >= 0 ? ri : 9999);
+      }
+      const QDateTime lt = QFileInfo(leftPath).lastModified();
+      const QDateTime rt = QFileInfo(rightPath).lastModified();
+      if (lt != rt)
+        return lt > rt; // newest first
+    }
+
+    const QString ln = left.data(Qt::DisplayRole).toString();
+    const QString rn = right.data(Qt::DisplayRole).toString();
+    return QString::localeAwareCompare(ln, rn) < 0;
+  }
+
 private:
   void refreshFilter() {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
-    // Qt 6.10+: begin/endFilterChange replaces deprecated invalidateFilter().
     beginFilterChange();
     endFilterChange();
 #else
     invalidateFilter();
 #endif
+    sort(0, Qt::AscendingOrder);
   }
 
   QString m_search;
   QStringList m_tags;
+  SmartView m_smartView{SmartView::All};
+  SortMode m_sortMode{SortMode::Name};
 };
 
 QString blopWebMenuStyleSheet() {
@@ -1199,6 +1288,42 @@ void ModernItemDelegate::paint(QPainter *painter,
     menuRect.moveTop(rect.center().y() - pillH / 2);
   menuIcon.paint(painter, menuRect, Qt::AlignCenter);
 
+  // Organization badges: color label stripe + favorite star.
+  QString path;
+  if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
+    const QModelIndex src = proxy->mapToSource(index);
+    if (auto *fsm =
+            qobject_cast<const QFileSystemModel *>(proxy->sourceModel()))
+      path = fsm->filePath(src);
+  } else if (auto *fsm =
+                 qobject_cast<const QFileSystemModel *>(index.model())) {
+    path = fsm->filePath(index);
+  }
+  if (!path.isEmpty()) {
+    const auto label = LibraryOrgStore::colorLabel(path);
+    if (label != LibraryOrgStore::ColorLabel::None) {
+      QColor stripe = LibraryOrgStore::colorForLabel(label);
+      stripe.setAlpha(230);
+      painter->setPen(Qt::NoPen);
+      painter->setBrush(stripe);
+      painter->drawRoundedRect(
+          QRect(rect.left() + 2, rect.top() + 10, 4, rect.height() - 20), 2, 2);
+    }
+    if (LibraryOrgStore::isFavorite(path)) {
+      painter->setPen(Qt::NoPen);
+      painter->setBrush(QColor(QStringLiteral("#E6B450")));
+      const QPointF c(rect.left() + 16, rect.top() + 16);
+      QPolygonF star;
+      for (int i = 0; i < 5; ++i) {
+        const qreal a = -M_PI / 2 + i * 2 * M_PI / 5;
+        star << QPointF(c.x() + qCos(a) * 6.5, c.y() + qSin(a) * 6.5);
+        const qreal b = a + M_PI / 5;
+        star << QPointF(c.x() + qCos(b) * 3.0, c.y() + qSin(b) * 3.0);
+      }
+      painter->drawPolygon(star);
+    }
+  }
+
   painter->restore();
 }
 bool ModernItemDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
@@ -1649,6 +1774,8 @@ void MainWindow::applyThemeRefresh() {
       m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
       m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
+    if (m_libraryOrgBar)
+      m_libraryOrgBar->setAccentColor(m_currentAccentColor);
   if (m_noteHeader)
     m_noteHeader->setStyleSheet(
         QStringLiteral("QWidget#NoteHeader { background: transparent; border-bottom: 1px solid %1; }")
@@ -3068,6 +3195,8 @@ void MainWindow::applyTheme() {
       m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
       m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
+    if (m_libraryOrgBar)
+      m_libraryOrgBar->setAccentColor(m_currentAccentColor);
 
   // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
   // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
@@ -4459,6 +4588,14 @@ void MainWindow::setupUi() {
   m_libraryProxy = new LibraryFilterProxy(this);
   m_libraryProxy->setSourceModel(m_fileModel);
 
+  m_libraryOrgBar = new LibraryOrgBar(libraryMain);
+  m_libraryOrgBar->setAccentColor(m_currentAccentColor);
+  connect(m_libraryOrgBar, &LibraryOrgBar::smartViewChanged, this,
+          [this](LibraryOrgBar::SmartView) { applyLibraryFilters(); });
+  connect(m_libraryOrgBar, &LibraryOrgBar::sortModeChanged, this,
+          [this](LibraryOrgBar::SortMode) { applyLibraryFilters(); });
+  libraryMainLay->addWidget(m_libraryOrgBar, 0);
+
   m_fileListView = new FreeGridView(this);
   m_fileListView->setModel(m_libraryProxy);
   m_fileListView->setRootIndex(
@@ -4537,6 +4674,7 @@ void MainWindow::setupUi() {
               showContextMenu(m_fileListView->mapToGlobal(pos), index);
           });
   libraryMainLay->addWidget(m_fileListView, 1);
+  applyLibraryFilters();
 
   m_lblEmptyState = new QLabel(
       QStringLiteral("Noch keine Notizen.\nLeg mit + Notiz deine erste an."),
@@ -6382,6 +6520,12 @@ void MainWindow::applyLibraryFilters() {
       m_libraryTagsPanel ? m_libraryTagsPanel->selectedTags() : QStringList();
   proxy->setSearchText(search);
   proxy->setRequiredTags(tags);
+  if (m_libraryOrgBar) {
+    proxy->setSmartView(
+        static_cast<LibraryFilterProxy::SmartView>(m_libraryOrgBar->smartView()));
+    proxy->setSortMode(
+        static_cast<LibraryFilterProxy::SortMode>(m_libraryOrgBar->sortMode()));
+  }
   updateSidebarBadges();
 }
 
@@ -6540,11 +6684,31 @@ void MainWindow::updateSidebarBadges() {
     const int total = m_fileModel->rowCount(sourceRoot);
     if (visible == 0) {
       if (total > 0) {
-        m_lblEmptyState->setText(QStringLiteral(
-            "Keine Treffer.\nAndere Suche, Tags oder Seitenleiste versuchen."));
+        QString emptyHint = QStringLiteral(
+            "Keine Treffer.\nAndere Suche, Smart-View oder Tags versuchen.");
+        if (m_libraryOrgBar) {
+          switch (m_libraryOrgBar->smartView()) {
+          case LibraryOrgBar::SmartView::Favorites:
+            emptyHint = QStringLiteral(
+                "Noch keine Favoriten.\nMarkiere Notizen über das ⋯-Menü.");
+            break;
+          case LibraryOrgBar::SmartView::Recent:
+            emptyHint = QStringLiteral(
+                "Noch keine kürzlich geöffneten Notizen.");
+            break;
+          case LibraryOrgBar::SmartView::Untagged:
+            emptyHint = QStringLiteral(
+                "Alle Notizen haben Tags.\nOder wechsle zu „Alle“.");
+            break;
+          case LibraryOrgBar::SmartView::All:
+          default:
+            break;
+          }
+        }
+        m_lblEmptyState->setText(emptyHint);
       } else {
         m_lblEmptyState->setText(QStringLiteral(
-            "Noch keine Notizen.\nTippe +, um deine erste Notiz anzulegen."));
+            "Noch keine Notizen.\nLeg mit + Notiz deine erste an."));
       }
       if (!m_lblEmptyState->isVisible()) {
         m_lblEmptyState->show();
@@ -8268,6 +8432,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
     updateOverviewBackButton();
   } else {
     QString path = m_fileModel->filePath(index);
+    LibraryOrgStore::touchRecent(path);
     QString fileName = index.data().toString();
     bool isBinary = false;
     {
@@ -8882,6 +9047,45 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
       if (!persistent.isValid()) return;
       startRename(QModelIndex(persistent));
     });
+
+    const QString path = m_fileModel->filePath(QModelIndex(persistent));
+    const bool isDir = m_fileModel->isDir(QModelIndex(persistent));
+    if (!isDir) {
+      const bool fav = LibraryOrgStore::isFavorite(path);
+      menu->addAction(fav ? QStringLiteral("Aus Favoriten entfernen")
+                          : QStringLiteral("Zu Favoriten"),
+                      [this, persistent, path, fav]() {
+                        if (!persistent.isValid()) return;
+                        LibraryOrgStore::setFavorite(path, !fav);
+                        if (m_fileListView)
+                          m_fileListView->viewport()->update();
+                        applyLibraryFilters();
+                      });
+
+      QMenu *colorMenu = menu->addMenu(QStringLiteral("Farb-Label"));
+      const LibraryOrgStore::ColorLabel current =
+          LibraryOrgStore::colorLabel(path);
+      auto addColor = [&](LibraryOrgStore::ColorLabel label) {
+        QAction *a = colorMenu->addAction(LibraryOrgStore::labelDisplayName(label));
+        a->setCheckable(true);
+        a->setChecked(current == label);
+        QObject::connect(a, &QAction::triggered, this,
+                         [this, persistent, path, label]() {
+                           if (!persistent.isValid()) return;
+                           LibraryOrgStore::setColorLabel(path, label);
+                           if (m_fileListView)
+                             m_fileListView->viewport()->update();
+                         });
+      };
+      addColor(LibraryOrgStore::ColorLabel::None);
+      addColor(LibraryOrgStore::ColorLabel::Rose);
+      addColor(LibraryOrgStore::ColorLabel::Amber);
+      addColor(LibraryOrgStore::ColorLabel::Lime);
+      addColor(LibraryOrgStore::ColorLabel::Sky);
+      addColor(LibraryOrgStore::ColorLabel::Violet);
+      addColor(LibraryOrgStore::ColorLabel::Slate);
+    }
+
     menu->addSeparator();
     menu->addAction(QStringLiteral("Mit Username teilen\u2026"), doShareUser);
     menu->addAction(QStringLiteral("Share-Link erstellen\u2026"), doCreateLink);
@@ -8916,6 +9120,23 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                   if (!persistent.isValid()) return;
                   startRename(QModelIndex(persistent));
                 }, false, false});
+  {
+    const QString path = m_fileModel->filePath(QModelIndex(persistent));
+    if (!m_fileModel->isDir(QModelIndex(persistent))) {
+      const bool fav = LibraryOrgStore::isFavorite(path);
+      items.append({fav ? QStringLiteral("Aus Favoriten entfernen")
+                        : QStringLiteral("Zu Favoriten"),
+                    QIcon(),
+                    [this, persistent, path, fav]() {
+                      if (!persistent.isValid()) return;
+                      LibraryOrgStore::setFavorite(path, !fav);
+                      if (m_fileListView)
+                        m_fileListView->viewport()->update();
+                      applyLibraryFilters();
+                    },
+                    false, false});
+    }
+  }
   items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("Mit Username teilen\u2026"), QIcon(), doShareUser, false, false});
   items.append({QStringLiteral("Share-Link erstellen\u2026"), QIcon(), doCreateLink, false, false});
@@ -9010,6 +9231,7 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
     }
     const QString newName = edit->text().trimmed();
     if (!newName.isEmpty()) {
+      const QString oldPath = m_fileModel->filePath(m_indexToRename);
       if (!m_fileModel->setData(m_indexToRename, newName, Qt::EditRole)) {
         BlopDialogs::notify(
             this, QStringLiteral("Umbenennen"),
@@ -9017,6 +9239,11 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
                            "oder bereits vergeben."));
         return;
       }
+      const QString newPath =
+          QFileInfo(oldPath).absolutePath() + QLatin1Char('/') + newName;
+      LibraryTagStore::remapPath(oldPath, newPath);
+      LibraryOrgStore::remapPath(oldPath, newPath);
+      applyLibraryFilters();
     }
     m_indexToRename = QModelIndex();
     if (modal)
@@ -9382,6 +9609,9 @@ void MainWindow::onItemDropped(const QModelIndex &sourceIndex,
       return;
     }
   }
+  LibraryTagStore::remapPath(sourcePath, newPath);
+  LibraryOrgStore::remapPath(sourcePath, newPath);
+  applyLibraryFilters();
 }
 
 void MainWindow::onTabChanged(int index) {

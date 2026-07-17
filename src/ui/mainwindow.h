@@ -36,6 +36,7 @@
 // Forward Declarations
 class DocumentTabBar;
 class LibraryTagsPanel;
+class LibraryOrgBar;
 class MainWindow;
 class PageManager;
 class PageThumbnailSidebar;
@@ -451,6 +452,7 @@ private:
   FreeGridView *m_fileListView{nullptr};
   QSortFilterProxyModel *m_libraryProxy{nullptr};
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
+  LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
   QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote{nullptr};

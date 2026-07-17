@@ -17,5 +17,8 @@ public:
   static bool renameTag(const QString &from, const QString &to);
   static bool removeTag(const QString &tag);
 
+  /// Keep tag assignments when notes/folders are moved or renamed.
+  static void remapPath(const QString &fromPath, const QString &toPath);
+
   static QString normalize(const QString &raw);
 };
