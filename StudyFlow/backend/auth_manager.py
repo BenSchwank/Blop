@@ -131,26 +131,43 @@ class AuthManager:
     @staticmethod
     def get_user(username):
         db = AuthManager._get_db()
-        if not db: return None
-        res = db.table('users').select('*').eq('username', username).execute()
-        if len(res.data) > 0:
-            return res.data[0]
+        if not db:
+            return None
+        try:
+            res = db.table('users').select('*').eq('username', username).execute()
+            if len(res.data) > 0:
+                return res.data[0]
+        except Exception as e:
+            print(f"AuthManager.get_user failed: {e}")
+            raise
         return None
 
     @staticmethod
     def get_user_by_email(email):
         db = AuthManager._get_db()
-        if not db: return None
-        res = db.table('users').select('*').eq('email', email).execute()
-        if len(res.data) > 0:
-            return res.data[0]
+        if not db:
+            return None
+        try:
+            res = db.table('users').select('*').eq('email', email).execute()
+            if len(res.data) > 0:
+                return res.data[0]
+        except Exception as e:
+            print(f"AuthManager.get_user_by_email failed: {e}")
+            raise
         return None
 
     @staticmethod
     def login(email_or_username, password):
         try:
-            AuthManager.ensure_admin()
+            try:
+                AuthManager.ensure_admin()
+            except Exception as admin_err:
+                # Never block login because admin bootstrap failed.
+                print(f"AuthManager.ensure_admin (non-fatal): {admin_err}")
+
             db = AuthManager._get_db()
+            if not db:
+                return False, "Datenbank nicht erreichbar. Bitte später erneut versuchen."
             
             if '@' in email_or_username:
                 # New Email-based flow via Supabase Auth
@@ -171,14 +188,28 @@ class AuthManager:
                     err_msg = str(e).lower()
                     if "email not confirmed" in err_msg:
                         return False, "Bitte bestätige zuerst deine E-Mail Adresse über den Link in deinem Postfach."
+                    if "name or service not known" in err_msg or "errno -2" in err_msg or "nodename nor servname" in err_msg:
+                        return False, "Server kann die Datenbank nicht erreichen (DNS). Bitte Admin prüfen (SUPABASE_URL)."
+                    if "timed out" in err_msg or "connection" in err_msg:
+                        return False, "Verbindung zur Anmeldung fehlgeschlagen. Bitte später erneut versuchen."
                     return False, "E-Mail oder Passwort falsch."
             else:
                 # Old Username-based fallback
-                user = AuthManager.get_user(email_or_username)
+                try:
+                    user = AuthManager.get_user(email_or_username)
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if "name or service not known" in err_msg or "errno -2" in err_msg:
+                        return False, "Server kann die Datenbank nicht erreichen (DNS). Bitte Admin prüfen (SUPABASE_URL)."
+                    print(f"AuthManager.login get_user crash: {e}")
+                    return False, "Datenbankfehler bei der Anmeldung. Bitte später erneut versuchen."
+
                 if not user:
                     return False, "Benutzer nicht gefunden"
 
-                stored = user.get("password_hash", "")
+                stored = user.get("password_hash") or ""
+                if not isinstance(stored, str):
+                    stored = str(stored)
                 if AuthManager._verify_password(password, stored):
                     # Rehash legacy unsalted SHA-256 to PBKDF2 on successful login
                     if stored and not stored.startswith("pbkdf2_sha256$"):
@@ -195,6 +226,9 @@ class AuthManager:
                 return False, "Passwort falsch"
         except Exception as e:
             print(f"AuthManager.login crash: {e}")
+            err_msg = str(e).lower()
+            if "name or service not known" in err_msg or "errno -2" in err_msg:
+                return False, "Server kann die Datenbank nicht erreichen (DNS). Bitte Admin prüfen (SUPABASE_URL)."
             return False, "Ein interner Fehler ist aufgetreten."
 
     @staticmethod
@@ -467,27 +501,39 @@ class AuthManager:
 
     @staticmethod
     def ensure_admin():
-        admin_user = "admin_"
-        admin_pw = os.environ.get("BLOP_ADMIN_PASSWORD", "").strip()
+        """Ensure admin_ exists when BLOP_ADMIN_PASSWORD is configured.
 
-        db = AuthManager._get_db()
-        if not db:
-            return
+        Never raises — login must not depend on admin bootstrap succeeding.
+        Never force-resets an existing admin password.
+        """
+        try:
+            admin_user = "admin_"
+            admin_pw = os.environ.get("BLOP_ADMIN_PASSWORD", "").strip()
 
-        res = db.table("users").select("username").eq("username", admin_user).execute()
-        if len(res.data) == 0:
-            # Admin doesn't exist — only create if BLOP_ADMIN_PASSWORD is configured
-            if not admin_pw:
-                print(
-                    "WARNING: Admin user missing but BLOP_ADMIN_PASSWORD is not set "
-                    "— skipping admin creation."
-                )
+            db = AuthManager._get_db()
+            if not db:
                 return
-            db.table("users").insert({
-                "username": admin_user,
-                "password_hash": AuthManager._hash_password(admin_pw),
-                "tokens": 999999,
-                "is_admin": True,
-            }).execute()
-        # Never force-reset an existing admin's password
+
+            res = db.table("users").select("username").eq("username", admin_user).execute()
+            if len(res.data) == 0:
+                if not admin_pw:
+                    print(
+                        "WARNING: Admin user missing but BLOP_ADMIN_PASSWORD is not set "
+                        "— skipping admin creation."
+                    )
+                    return
+                row = {
+                    "username": admin_user,
+                    "password_hash": AuthManager._hash_password(admin_pw),
+                    "tokens": 999999,
+                    "is_admin": True,
+                }
+                # email is required in some schemas — use a stable placeholder
+                row["email"] = os.environ.get(
+                    "BLOP_ADMIN_EMAIL", "admin@localhost"
+                ).strip() or "admin@localhost"
+                db.table("users").insert(row).execute()
+            # Never force-reset an existing admin's password
+        except Exception as e:
+            print(f"AuthManager.ensure_admin failed (non-fatal): {e}")
 

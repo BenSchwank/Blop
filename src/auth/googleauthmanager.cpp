@@ -138,12 +138,18 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::granted, this, [this]() {
     qDebug() << "Google OAuth granted successfully!";
     m_authenticated = true;
-    QString accessToken = m_oauth2->token();
-    if (accessToken.isEmpty())
+    // Prefer id_token (JWT) when Qt exposes it; fall back to access token.
+    QString token;
+    const auto extras = m_oauth2->extraTokens();
+    if (extras.contains(QStringLiteral("id_token")))
+      token = extras.value(QStringLiteral("id_token")).toString();
+    if (token.isEmpty())
+      token = m_oauth2->token();
+    if (token.isEmpty())
       emit authenticationFailed(
           "Google hat kein gültiges Access-Token gesendet!");
     else
-      emit idTokenReceived(accessToken);
+      emit idTokenReceived(token);
     emit authenticated();
     fetchUserInfo();
   });

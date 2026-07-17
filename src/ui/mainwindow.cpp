@@ -1416,6 +1416,13 @@ MainWindow::MainWindow(QWidget *parent)
 
         QJsonObject body;
         body["token"] = token;
+#ifdef Q_OS_ANDROID
+        body["client_id"] = QStringLiteral(
+            "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com");
+#else
+        body["client_id"] = QStringLiteral(
+            "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com");
+#endif
         QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
         QNetworkReply *reply = nam->post(req, postData);

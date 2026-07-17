@@ -782,6 +782,15 @@ def verify_google_oauth(req: GoogleVerifyRequest):
 
         token = req.token.strip()
 
+        def _dns_hint(exc: Exception) -> Optional[str]:
+            msg = str(exc).lower()
+            if "name or service not known" in msg or "errno -2" in msg or "nodename nor servname" in msg:
+                return (
+                    "DNS-Auflösung fehlgeschlagen. Prüfe auf dem Backend-Host "
+                    "SUPABASE_URL und ausgehende Verbindungen zu googleapis.com."
+                )
+            return None
+
         def _fetch_userinfo_with_retry(access_token: str):
             last_exc = None
             for attempt in range(3):
@@ -808,25 +817,66 @@ def verify_google_oauth(req: GoogleVerifyRequest):
             if last_exc:
                 raise last_exc
 
+        def _collect_audiences() -> list:
+            found = []
+            for raw in (
+                req.client_id,
+                os.environ.get("GOOGLE_CLIENT_ID"),
+                os.environ.get("GOOGLE_CLIENT_IDS"),
+                os.environ.get("NEXT_PUBLIC_GOOGLE_CLIENT_ID"),
+            ):
+                if not raw:
+                    continue
+                for part in str(raw).split(","):
+                    part = part.strip()
+                    if part and part not in found:
+                        found.append(part)
+            return found
+
+        audiences = _collect_audiences()
+
         # Check if the token is a JWT (id_token) or a plain access_token.
         # JWTs start with 'eyJ'
-        audience = (req.client_id or os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
         if token.startswith("eyJ") or token.startswith("ey"):
-            if not audience:
-                raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID nicht konfiguriert")
-            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), audience)
+            idinfo = None
+            last_ve = None
+            if audiences:
+                for aud in audiences:
+                    try:
+                        idinfo = id_token.verify_oauth2_token(
+                            token, google_requests.Request(), aud
+                        )
+                        break
+                    except ValueError as ve:
+                        last_ve = ve
+                        continue
+                if idinfo is None and last_ve is not None:
+                    raise last_ve
+            else:
+                # Backward compatible: env not configured yet — verify signature
+                # without pinning audience (ops must set GOOGLE_CLIENT_ID soon).
+                print("WARNING: GOOGLE_CLIENT_ID unset — verifying Google token without audience pin")
+                idinfo = id_token.verify_oauth2_token(
+                    token, google_requests.Request()
+                )
         else:
             # Access token path: verify audience via tokeninfo, then fetch userinfo
-            tokeninfo_resp = py_requests.get(
-                f"https://oauth2.googleapis.com/tokeninfo?access_token={token}",
-                timeout=10,
-            )
+            try:
+                tokeninfo_resp = py_requests.get(
+                    f"https://oauth2.googleapis.com/tokeninfo?access_token={token}",
+                    timeout=10,
+                )
+            except Exception as net_exc:
+                hint = _dns_hint(net_exc)
+                if hint:
+                    raise HTTPException(status_code=503, detail=hint)
+                raise
             tokeninfo_json = tokeninfo_resp.json() if tokeninfo_resp.status_code == 200 else {}
-            if audience and (
-                tokeninfo_json.get("aud") != audience
-                and tokeninfo_json.get("azp") != audience
-            ):
-                raise HTTPException(status_code=401, detail="Google Token Audience ungültig")
+            if audiences:
+                tok_aud = tokeninfo_json.get("aud")
+                tok_azp = tokeninfo_json.get("azp")
+                if tok_aud not in audiences and tok_azp not in audiences:
+                    raise HTTPException(status_code=401, detail="Google Token Audience ungültig")
             resp = _fetch_userinfo_with_retry(token)
             if resp.status_code != 200:
                 raise ValueError(f"Invalid Google Access Token. Status: {resp.status_code}, Response: {resp.text}")
@@ -841,10 +891,25 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         name = idinfo.get('name', username)
         
         # Ensure user exists in our DB (lookup by e-mail first)
-        user = AuthManager.get_user_by_email(email)
+        try:
+            user = AuthManager.get_user_by_email(email)
+        except Exception as db_exc:
+            hint = _dns_hint(db_exc)
+            if hint:
+                raise HTTPException(status_code=503, detail=hint)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Datenbank bei Google-Login nicht erreichbar: {db_exc}",
+            )
         if not user:
             # Maybe the username from email is taken?
-            existing = AuthManager.get_user(username)
+            try:
+                existing = AuthManager.get_user(username)
+            except Exception as db_exc:
+                hint = _dns_hint(db_exc)
+                if hint:
+                    raise HTTPException(status_code=503, detail=hint)
+                raise
             if existing: # Append numeric suffix if username exists
                 username = f"{username}_{random.randint(100,999)}"
             
@@ -876,7 +941,17 @@ def verify_google_oauth(req: GoogleVerifyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server Fehler: {str(e)}")
+        msg = str(e)
+        low = msg.lower()
+        if "name or service not known" in low or "errno -2" in low:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "DNS-Auflösung fehlgeschlagen. Prüfe auf dem Backend-Host "
+                    "SUPABASE_URL und ausgehende Verbindungen zu googleapis.com."
+                ),
+            )
+        raise HTTPException(status_code=500, detail=f"Server Fehler: {msg}")
 
 @app.get("/api/auth/validate")
 def validate_session(session_id: str):

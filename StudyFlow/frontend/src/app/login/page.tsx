@@ -45,7 +45,12 @@ export default function LoginPage() {
                 const res = await fetch(`${API_BASE}/auth/google/verify`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: response.credential })
+                    body: JSON.stringify({
+                        token: response.credential,
+                        client_id:
+                            process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+                            undefined,
+                    })
                 });
                 const data = await res.json();
                 if (res.ok) {
