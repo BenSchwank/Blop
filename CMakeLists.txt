@@ -190,6 +190,8 @@ qt_add_executable(Blop
     src/android/androidicons.cpp
     src/android/androidtiledelegate.h
     src/android/androidtiledelegate.cpp
+    src/android/androidcontentpicker.h
+    src/android/androidcontentpicker.cpp
 
     # Auth (Google OAuth)
     src/auth/googleauthmanager.cpp

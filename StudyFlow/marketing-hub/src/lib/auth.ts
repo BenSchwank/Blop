@@ -1,7 +1,12 @@
 import { AUTH_COOKIE_NAME, SESSION_TTL_SECONDS } from "@/lib/constants";
 
-const ADMIN_USERNAME = "admin_";
-const ADMIN_PASSWORD = "Martin 400!";
+function getAdminUsername(): string {
+  return (process.env.MARKETING_HUB_ADMIN_USERNAME || "").trim();
+}
+
+function getAdminPassword(): string {
+  return (process.env.MARKETING_HUB_ADMIN_PASSWORD || "").trim();
+}
 
 function getSecret(): string {
   const secret = process.env.MARKETING_HUB_SESSION_SECRET;
@@ -12,7 +17,13 @@ function getSecret(): string {
 }
 
 export function isValidCredentials(username: string, password: string): boolean {
-  return username === ADMIN_USERNAME && password === ADMIN_PASSWORD;
+  const expectedUser = getAdminUsername();
+  const expectedPass = getAdminPassword();
+  if (!expectedUser || !expectedPass) {
+    // Fail closed: if credentials are not configured, deny all logins
+    return false;
+  }
+  return username === expectedUser && password === expectedPass;
 }
 
 function toBase64Url(input: string): string {
@@ -46,7 +57,7 @@ async function signPayload(payloadB64: string): Promise<string> {
 
 export async function createSessionToken(): Promise<string> {
   const payload = JSON.stringify({
-    sub: ADMIN_USERNAME,
+    sub: getAdminUsername(),
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   });
   const payloadB64 = toBase64Url(payload);
@@ -78,7 +89,8 @@ export async function verifySessionToken(token: string | undefined): Promise<boo
       sub: string;
       exp: number;
     };
-    return payload.sub === ADMIN_USERNAME && payload.exp > Math.floor(Date.now() / 1000);
+    const adminUser = getAdminUsername();
+    return Boolean(adminUser) && payload.sub === adminUser && payload.exp > Math.floor(Date.now() / 1000);
   } catch {
     return false;
   }

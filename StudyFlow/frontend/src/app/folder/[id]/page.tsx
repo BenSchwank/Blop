@@ -1083,14 +1083,15 @@ export default function FolderPage() {
         setFilesLoadError(null);
         try {
             const username = localStorage.getItem("username");
+            const sid = localStorage.getItem("session_id") || "";
             if (!username) {
                 setFilesLoadError("Bitte melde dich an, um Ordnerinhalte zu laden.");
                 return;
             }
 
             const [filesRes, subfoldersRes] = await Promise.all([
-                fetch(`${API_BASE}/files/${folderId}?username=${username}`),
-                fetch(`${API_BASE}/folders/${folderId}/subfolders?username=${username}`),
+                fetch(`${API_BASE}/files/${folderId}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`),
+                fetch(`${API_BASE}/folders/${folderId}/subfolders?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`),
             ]);
 
             if (filesRes.ok) {
@@ -1099,7 +1100,7 @@ export default function FolderPage() {
                 setFilesLoadError(`Dateien konnten nicht geladen werden (HTTP ${filesRes.status}).`);
                 if (filesRes.status >= 500) {
                     await new Promise((r) => setTimeout(r, 500));
-                    const retry = await fetch(`${API_BASE}/files/${folderId}?username=${username}`);
+                    const retry = await fetch(`${API_BASE}/files/${folderId}?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`);
                     if (retry.ok) {
                         setFiles(await retry.json());
                         setFilesLoadError(null);
@@ -1134,9 +1135,10 @@ export default function FolderPage() {
     const fetchAiContext = useCallback(async () => {
         try {
             const username = localStorage.getItem("username");
+            const sid = localStorage.getItem("session_id") || "";
             if (!username) return;
             const res = await fetch(
-                `/api/folders/${folderId}/ai-context?username=${encodeURIComponent(username)}`
+                `/api/folders/${folderId}/ai-context?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`
             );
             if (res.ok) {
                 const data = await res.json();
@@ -1153,10 +1155,11 @@ export default function FolderPage() {
 
     useEffect(() => {
         const username = localStorage.getItem("username");
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) return;
         const fetchModel = async () => {
             try {
-                const res = await fetch(`${API_BASE}/user/${username}`);
+                const res = await fetch(`${API_BASE}/user/${username}?session_id=${encodeURIComponent(sid)}`);
                 if (!res.ok) return;
                 const data = await res.json();
                 setGlobalPreferredModel(data.preferred_model || '');
@@ -2402,9 +2405,10 @@ export default function FolderPage() {
         setIsRenamingFile(true);
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/files/${folderId}/${fileToRename.id}/rename`, {
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/files/${folderId}/${fileToRename.id}/rename?session_id=${encodeURIComponent(sid)}`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ name: renameFileValue, username }),
             });
 
@@ -2428,7 +2432,11 @@ export default function FolderPage() {
     const handleDeleteFile = async (file: FileData) => {
         if (!confirm(`"${file.name}" wirklich löschen?`)) return;
         const username = localStorage.getItem('username');
-        const res = await fetch(`${API_BASE}/files/${file.id}?username=${username}&folder_id=${folderId}`, { method: 'DELETE' });
+        const sid = localStorage.getItem('session_id') || '';
+        const res = await fetch(
+            `${API_BASE}/files/${file.id}?username=${encodeURIComponent(username || '')}&folder_id=${encodeURIComponent(folderId)}&session_id=${encodeURIComponent(sid)}`,
+            { method: 'DELETE' }
+        );
         if (res.ok) fetchFiles();
         else showToast('Fehler beim Löschen.');
     };
@@ -2444,14 +2452,15 @@ export default function FolderPage() {
             return;
         }
         const username = localStorage.getItem("username");
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
         try {
-            const res = await fetch(`${API_BASE}/files/${encodeURIComponent(copiedFile.id)}/copy`, {
+            const res = await fetch(`${API_BASE}/files/${encodeURIComponent(copiedFile.id)}/copy?session_id=${encodeURIComponent(sid)}`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({
                     username,
                     target_folder_id: folderId,
@@ -2478,10 +2487,11 @@ export default function FolderPage() {
     const submitRenameSubfolder = async () => {
         if (!subfolderToRename || !renameSubfolderValue.trim()) return;
         const username = localStorage.getItem("username");
+        const sid = localStorage.getItem("session_id") || "";
         try {
-            const res = await fetch(`${API_BASE}/folders/${encodeURIComponent(subfolderToRename.id)}`, {
+            const res = await fetch(`${API_BASE}/folders/${encodeURIComponent(subfolderToRename.id)}?session_id=${encodeURIComponent(sid)}`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ username, name: renameSubfolderValue.trim() }),
             });
             if (!res.ok) {
@@ -2506,8 +2516,9 @@ export default function FolderPage() {
     const submitDeleteSubfolder = async () => {
         if (!subfolderToDelete) return;
         const username = localStorage.getItem("username");
+        const sid = localStorage.getItem("session_id") || "";
         try {
-            const res = await fetch(`${API_BASE}/folders/${encodeURIComponent(subfolderToDelete.id)}?username=${encodeURIComponent(username || "")}`, {
+            const res = await fetch(`${API_BASE}/folders/${encodeURIComponent(subfolderToDelete.id)}?username=${encodeURIComponent(username || "")}&session_id=${encodeURIComponent(sid)}`, {
                 method: "DELETE",
             });
             if (!res.ok) {
@@ -2539,13 +2550,14 @@ export default function FolderPage() {
 
     const loadIncomingShareRequests = async () => {
         const username = localStorage.getItem("username") || "";
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
         setIsShareActionBusy(true);
         try {
-            const listRes = await fetch(`${API_BASE}/shares/requests?username=${encodeURIComponent(username)}`);
+            const listRes = await fetch(`${API_BASE}/shares/requests?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`);
             if (!listRes.ok) {
                 const err = await listRes.json().catch(() => ({}));
                 showToast(`Requests laden fehlgeschlagen: ${formatFastApiDetail(err?.detail || `HTTP ${listRes.status}`)}`);
@@ -2564,6 +2576,7 @@ export default function FolderPage() {
 
     const submitShareByUsername = async () => {
         const username = localStorage.getItem("username") || "";
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
@@ -2578,9 +2591,9 @@ export default function FolderPage() {
         }
         setIsShareActionBusy(true);
         try {
-            const res = await fetch(`${API_BASE}/shares/username`, {
+            const res = await fetch(`${API_BASE}/shares/username?session_id=${encodeURIComponent(sid)}`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({
                     username,
                     file_id: shareFile.id,
@@ -2605,6 +2618,7 @@ export default function FolderPage() {
 
     const submitCreateShareLink = async () => {
         const username = localStorage.getItem("username") || "";
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
@@ -2617,9 +2631,9 @@ export default function FolderPage() {
         const max_uses = Math.min(100, Math.max(1, Math.round(shareMaxUses)));
         setIsShareActionBusy(true);
         try {
-            const res = await fetch(`${API_BASE}/shares/link`, {
+            const res = await fetch(`${API_BASE}/shares/link?session_id=${encodeURIComponent(sid)}`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ username, file_id: shareFile.id, expires_in_days, max_uses }),
             });
             if (!res.ok) {
@@ -2645,6 +2659,7 @@ export default function FolderPage() {
 
     const submitImportByLink = async () => {
         const username = localStorage.getItem("username") || "";
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
@@ -2661,9 +2676,9 @@ export default function FolderPage() {
         }
         setIsShareActionBusy(true);
         try {
-            const res = await fetch(`${API_BASE}/shares/link/${encodeURIComponent(token)}/import`, {
+            const res = await fetch(`${API_BASE}/shares/link/${encodeURIComponent(token)}/import?session_id=${encodeURIComponent(sid)}`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ username, folder_id: folderId }),
             });
             if (!res.ok) {
@@ -2684,15 +2699,16 @@ export default function FolderPage() {
 
     const acceptIncomingShare = async (requestId: string) => {
         const username = localStorage.getItem("username") || "";
+        const sid = localStorage.getItem("session_id") || "";
         if (!username) {
             showToast("Bitte zuerst anmelden.");
             return;
         }
         setIsShareActionBusy(true);
         try {
-            const acceptRes = await fetch(`${API_BASE}/shares/requests/${encodeURIComponent(requestId)}/accept`, {
+            const acceptRes = await fetch(`${API_BASE}/shares/requests/${encodeURIComponent(requestId)}/accept?session_id=${encodeURIComponent(sid)}`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ username, folder_id: folderId }),
             });
             if (!acceptRes.ok) {
@@ -2733,9 +2749,10 @@ export default function FolderPage() {
         // Call backend to move file
         try {
             const username = localStorage.getItem("username");
-            const res = await fetch(`${API_BASE}/files/${folderId}/${sourceFile.id}/move`, {
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/files/${folderId}/${sourceFile.id}/move?session_id=${encodeURIComponent(sid)}`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ target_folder_id: targetSubfolder.id, username }),
             });
 
@@ -2773,9 +2790,10 @@ export default function FolderPage() {
 
     const persistFileContent = async (fileId: string, newContent: unknown) => {
         const username = localStorage.getItem("username");
-        const res = await fetch(`${API_BASE}/files/update`, {
+        const sid = localStorage.getItem("session_id") || "";
+        const res = await fetch(`${API_BASE}/files/update?session_id=${encodeURIComponent(sid)}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid },
             body: JSON.stringify({
                 username,
                 folder_id: folderId,
@@ -3198,9 +3216,10 @@ export default function FolderPage() {
                         onSave={async (newContent) => {
                             try {
                                 const username = localStorage.getItem("username");
-                                const res = await fetch(`${API_BASE}/files/update`, {
+                                const sid = localStorage.getItem("session_id") || "";
+                                const res = await fetch(`${API_BASE}/files/update?session_id=${encodeURIComponent(sid)}`, {
                                     method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
+                                    headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid },
                                     body: JSON.stringify({
                                         username,
                                         folder_id: folderId,
@@ -3459,9 +3478,10 @@ export default function FolderPage() {
                                                                             // Update Backend
                                                                             try {
                                                                                 const username = localStorage.getItem("username");
-                                                                                await fetch(`${API_BASE}/files/update`, {
+                                                                                const sid = localStorage.getItem("session_id") || "";
+                                                                                await fetch(`${API_BASE}/files/update?session_id=${encodeURIComponent(sid)}`, {
                                                                                     method: 'PUT',
-                                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                                    headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid },
                                                                                     body: JSON.stringify({
                                                                                         username,
                                                                                         folder_id: folderId,
@@ -5732,9 +5752,10 @@ export default function FolderPage() {
                                     onClick={async () => {
                                         if (!newSubfolderName.trim()) return;
                                         const username = localStorage.getItem('username');
-                                        const res = await fetch(`${API_BASE}/folders/${folderId}/subfolders`, {
+                                        const sid = localStorage.getItem('session_id') || '';
+                                        const res = await fetch(`${API_BASE}/folders/${folderId}/subfolders?session_id=${encodeURIComponent(sid)}`, {
                                             method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
+                                            headers: { 'Content-Type': 'application/json', 'X-Session-Id': sid },
                                             body: JSON.stringify({ name: newSubfolderName.trim(), username })
                                         });
                                         if (res.ok) {

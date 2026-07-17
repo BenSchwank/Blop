@@ -604,16 +604,17 @@ class GoogleVerifyRequest(BaseModel):
     client_id: Optional[str] = None
 
 @app.get("/api/search")
-def global_search(username: str, q: str):
+def global_search(http_request: Request, username: str = "", q: str = "", session_id: str = ""):
     """Searches through all folders and files for the given user"""
-    if not username or not q:
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    if not q:
         return []
 
     q_lower = q.lower()
     results = []
     
     # 1. Search Folders
-    folders = DataManager.get_folders(username)
+    folders = DataManager.get_folders(user)
     for folder in folders:
         # Match folder name
         if q_lower in folder.get("name", "").lower():
@@ -625,7 +626,7 @@ def global_search(username: str, q: str):
             })
             
         # 2. Search Files inside this folder
-        files = DataManager.get_files(username, folder["id"])
+        files = DataManager.get_files(user, folder["id"])
         for file in files:
             # We search by name or type
             file_name = file.get("name", "")
@@ -690,6 +691,27 @@ def ping():
     return {"status": "pong", "message": "Backend is online!"}
 
 # --- AUTH ENDPOINTS ---
+
+def require_session_user(
+    request: Request,
+    session_id: Optional[str] = None,
+    username: Optional[str] = None,
+) -> str:
+    """Validates the session from header, query param, or explicit arg; optionally verifies username."""
+    sid = (
+        request.headers.get("X-Session-Id")
+        or session_id
+        or request.query_params.get("session_id")
+        or ""
+    ).strip()
+    user = AuthManager.validate_session(sid) if sid else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Session ungültig oder abgelaufen")
+    if username and username.strip() and username.strip() != user:
+        raise HTTPException(status_code=403, detail="Session gehört nicht zu diesem Benutzer")
+    return user
+
+
 @app.post("/api/auth/login")
 def login(request: LoginRequest):
     """Login endpoint - returns session token"""
@@ -788,13 +810,23 @@ def verify_google_oauth(req: GoogleVerifyRequest):
 
         # Check if the token is a JWT (id_token) or a plain access_token.
         # JWTs start with 'eyJ'
+        audience = (req.client_id or os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
         if token.startswith("eyJ") or token.startswith("ey"):
-            idinfo = id_token.verify_oauth2_token(
-                token,
-                google_requests.Request()
-            )
+            if not audience:
+                raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID nicht konfiguriert")
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), audience)
         else:
-            # Verifying an OAuth Access Token by fetching the user profile
+            # Access token path: verify audience via tokeninfo, then fetch userinfo
+            tokeninfo_resp = py_requests.get(
+                f"https://oauth2.googleapis.com/tokeninfo?access_token={token}",
+                timeout=10,
+            )
+            tokeninfo_json = tokeninfo_resp.json() if tokeninfo_resp.status_code == 200 else {}
+            if audience and (
+                tokeninfo_json.get("aud") != audience
+                and tokeninfo_json.get("azp") != audience
+            ):
+                raise HTTPException(status_code=401, detail="Google Token Audience ungültig")
             resp = _fetch_userinfo_with_retry(token)
             if resp.status_code != 200:
                 raise ValueError(f"Invalid Google Access Token. Status: {resp.status_code}, Response: {resp.text}")
@@ -857,41 +889,46 @@ def validate_session(session_id: str):
 class DeleteAccountRequest(BaseModel):
     username: str
     password: str
+    session_id: Optional[str] = None
 
 @app.delete("/api/auth/user")
-def delete_account(request: DeleteAccountRequest):
+def delete_account(http_request: Request, request: DeleteAccountRequest):
     """Permanently deletes a user account."""
-    # 1. Verify Password first (Security)
-    if not AuthManager.login(request.username, request.password):
+    # 1. Require valid session matching the username
+    user = require_session_user(http_request, session_id=request.session_id or None, username=request.username or None)
+    # 2. Verify password
+    ok, _ = AuthManager.login(user, request.password)
+    if not ok:
         raise HTTPException(status_code=401, detail="Falsches Passwort.")
-        
-    # 2. Delete
-    if AuthManager.delete_user(request.username):
+    # 3. Delete
+    if AuthManager.delete_user(user):
         return {"success": True, "message": "Account gelöscht."}
     raise HTTPException(status_code=500, detail="Fehler beim Löschen.")
 
 # --- ADMIN ENDPOINTS ---
 @app.get("/api/admin/users")
-def get_all_users(admin_username: str):
+def get_all_users(http_request: Request, admin_username: str = "", session_id: str = ""):
     """Get all users (admin only)"""
-    if admin_username != "admin_":
+    user = require_session_user(http_request, session_id=session_id or None, username=admin_username or None)
+    user_record = AuthManager.get_user(user)
+    if not user_record or not user_record.get("is_admin"):
         raise HTTPException(status_code=403, detail="Nur für Admins")
-    
+
     users = AuthManager.get_all_users()
     user_list = []
-    
-    for username, data in users.items():
-        if username == "config":
+
+    for uname, data in users.items():
+        if uname == "config":
             continue
-            
+
         user_list.append({
-            "username": username,
+            "username": uname,
             "xp": data.get("xp", 0),
             "streak": data.get("streak_days", 0),
             "created_at": data.get("created_at", "Unknown"),
             "is_admin": data.get("is_admin", False)
         })
-    
+
     return user_list
 
 @app.get("/api/admin/leaderboard")
@@ -901,24 +938,26 @@ def get_leaderboard(limit: int = 10):
 
 # --- FOLDER ENDPOINTS ---
 @app.get("/api/folders")
-def get_folders(username: str):
+def get_folders(http_request: Request, username: str = "", session_id: str = ""):
     """Returns list of root folders for a user."""
-    data = DataManager.load(username)
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    data = DataManager.load(user)
     all_folders = data.get("folders", [])
-    # Only return root folders (those without a parent_id)
     return [f for f in all_folders if not f.get("parent_id")]
 
 @app.delete("/api/folders/{folder_id}")
-def delete_folder(folder_id: str, username: str):
+def delete_folder(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
     """Deletes a folder."""
-    if DataManager.delete_folder(folder_id, username):
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    if DataManager.delete_folder(folder_id, user):
         return {"status": "success", "message": "Ordner gelöscht"}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
 @app.put("/api/folders/{folder_id}")
-def rename_folder(folder_id: str, body: RenameFolderRequest):
+def rename_folder(http_request: Request, folder_id: str, body: RenameFolderRequest, session_id: str = ""):
     """Renames a folder."""
-    if DataManager.rename_folder(folder_id, body.name, body.username):
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
+    if DataManager.rename_folder(folder_id, body.name, user):
         return {"status": "success", "folder": body.name}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
@@ -927,9 +966,10 @@ class MoveFolderRequest(BaseModel):
     username: str
 
 @app.put("/api/folders/{folder_id}/move")
-def move_folder(folder_id: str, body: MoveFolderRequest):
+def move_folder(http_request: Request, folder_id: str, body: MoveFolderRequest, session_id: str = ""):
     """Moves a folder to a new parent."""
-    if DataManager.move_folder(folder_id, body.new_parent_id, body.username):
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
+    if DataManager.move_folder(folder_id, body.new_parent_id, user):
         return {"status": "success", "message": "Ordner verschoben"}
     raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
 
@@ -940,34 +980,37 @@ class FolderAiContextRequest(BaseModel):
 
 
 @app.get("/api/folders/{folder_id}/ai-context")
-def get_folder_ai_context(folder_id: str, username: str):
+def get_folder_ai_context(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
     """Returns which file IDs are included for AI; null means all files."""
-    ids = DataManager.get_ai_context_file_ids(username, folder_id)
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    ids = DataManager.get_ai_context_file_ids(user, folder_id)
     return {"included_file_ids": ids}
 
 
 @app.put("/api/folders/{folder_id}/ai-context")
-def put_folder_ai_context(folder_id: str, body: FolderAiContextRequest):
+def put_folder_ai_context(http_request: Request, folder_id: str, body: FolderAiContextRequest, session_id: str = ""):
     """Sets included file IDs for AI context; null, omitted, or [] clears to 'all materials'."""
-    all_files = DataManager.list_files(body.username, folder_id)
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
+    all_files = DataManager.list_files(user, folder_id)
     valid_ids = {f.get("id") for f in all_files if f.get("id")}
     if body.included_file_ids is None or len(body.included_file_ids) == 0:
-        if not DataManager.set_ai_context_file_ids(body.username, folder_id, None):
+        if not DataManager.set_ai_context_file_ids(user, folder_id, None):
             raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
         return {"status": "success", "included_file_ids": None}
     for fid in body.included_file_ids:
         if fid not in valid_ids:
             raise HTTPException(status_code=400, detail=f"Unbekannte Datei-ID: {fid}")
-    if not DataManager.set_ai_context_file_ids(body.username, folder_id, body.included_file_ids):
+    if not DataManager.set_ai_context_file_ids(user, folder_id, body.included_file_ids):
         raise HTTPException(status_code=404, detail="Ordner nicht gefunden")
     return {"status": "success", "included_file_ids": body.included_file_ids}
 
 
 @app.post("/api/folders")
-def create_folder(folder: FolderCreate):
+def create_folder(http_request: Request, folder: FolderCreate, session_id: str = ""):
     """Creates a new folder."""
+    user = require_session_user(http_request, session_id=session_id or None, username=folder.username or None)
     try:
-        DataManager.create_folder(folder.name, folder.username)
+        DataManager.create_folder(folder.name, user)
         return {"status": "success", "folder": folder.name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -977,18 +1020,20 @@ class SubfolderCreate(BaseModel):
     username: str
 
 @app.post("/api/folders/{parent_id}/subfolders")
-def create_subfolder(parent_id: str, body: SubfolderCreate):
+def create_subfolder(http_request: Request, parent_id: str, body: SubfolderCreate, session_id: str = ""):
     """Creates a subfolder inside a parent folder."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     try:
-        subfolder = DataManager.create_subfolder(body.name, body.username, parent_id)
+        subfolder = DataManager.create_subfolder(body.name, user, parent_id)
         return {"status": "success", "subfolder": subfolder}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/folders/{parent_id}/subfolders")
-def get_subfolders(parent_id: str, username: str):
+def get_subfolders(http_request: Request, parent_id: str, username: str = "", session_id: str = ""):
     """Returns subfolders inside a parent folder."""
-    data = DataManager.load(username)
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    data = DataManager.load(user)
     folders = data.get("folders", [])
     return [f for f in folders if f.get("parent_id") == parent_id]
 
@@ -1020,18 +1065,20 @@ def _is_valid_flashcards_payload(content: Any) -> bool:
     return True
 
 @app.put("/api/files/update")
-def update_file(request: FileUpdateRequest):
+def update_file(http_request: Request, request: FileUpdateRequest, session_id: str = ""):
     """Updates the content of an existing file."""
+    user = require_session_user(http_request, session_id=session_id or None, username=request.username or None)
     if isinstance(request.content, list) and not _is_valid_flashcards_payload(request.content):
         raise HTTPException(status_code=400, detail="Ungültiges Flashcard-Format: erwartet Liste mit {front, back}.")
-    if DataManager.update_file_content(request.username, request.folder_id, request.file_id, request.content):
+    if DataManager.update_file_content(user, request.folder_id, request.file_id, request.content):
         return {"status": "success", "message": "Datei gespeichert"}
     raise HTTPException(status_code=500, detail="Fehler beim Speichern der Datei")
 
 @app.put("/api/files/{folder_id}/{file_id}/rename")
-def rename_file(folder_id: str, file_id: str, body: RenameFileRequest):
+def rename_file(http_request: Request, folder_id: str, file_id: str, body: RenameFileRequest, session_id: str = ""):
     """Renames a generic file."""
-    if DataManager.rename_file(body.username, folder_id, file_id, body.name):
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
+    if DataManager.rename_file(user, folder_id, file_id, body.name):
         return {"status": "success", "file": body.name}
     raise HTTPException(status_code=404, detail="Datei nicht gefunden oder Format (z.B. PDF) nicht unterstützt.")
 
@@ -1045,18 +1092,20 @@ class CopyFileRequest(BaseModel):
     new_name: Optional[str] = None
 
 @app.put("/api/files/{folder_id}/{file_id}/move")
-def move_file(folder_id: str, file_id: str, body: MoveFileRequest):
+def move_file(http_request: Request, folder_id: str, file_id: str, body: MoveFileRequest, session_id: str = ""):
     """Moves a file to a different folder."""
-    if DataManager.move_file(body.username, folder_id, file_id, body.target_folder_id):
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
+    if DataManager.move_file(user, folder_id, file_id, body.target_folder_id):
         return {"status": "success", "message": "Datei verschoben"}
     raise HTTPException(status_code=404, detail="Fehler beim Verschieben der Datei")
 
 @app.post("/api/files/{file_id}/copy")
-def copy_file(file_id: str, body: CopyFileRequest):
+def copy_file(http_request: Request, file_id: str, body: CopyFileRequest, session_id: str = ""):
     """Copies a file to target folder, including storage object when needed."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     try:
         copied = DataManager.copy_file_to_folder(
-            username=body.username,
+            username=user,
             file_id=file_id,
             target_folder_id=body.target_folder_id,
             new_name=body.new_name,
@@ -1068,9 +1117,10 @@ def copy_file(file_id: str, body: CopyFileRequest):
     return {"status": "success", "file": copied}
 
 @app.delete("/api/files/{file_id}")
-def delete_file(file_id: str, username: str, folder_id: str):
+def delete_file(http_request: Request, file_id: str, username: str = "", folder_id: str = "", session_id: str = ""):
     """Deletes a file from a folder."""
-    if DataManager.delete_file(username, folder_id, file_id):
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    if DataManager.delete_file(user, folder_id, file_id):
         return {"status": "success", "message": "Datei gelöscht"}
     raise HTTPException(status_code=404, detail="Fehler beim Löschen der Datei")
 
@@ -1085,17 +1135,18 @@ class UserModelPreferenceRequest(BaseModel):
     preferred_model: str = ""
 
 @app.get("/api/user/{username}")
-def get_user_info(username: str):
+def get_user_info(http_request: Request, username: str, session_id: str = ""):
     """Returns user profile info including tokens and subscription tier."""
-    user = AuthManager.get_user(username)
+    user_from_session = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    user = AuthManager.get_user(user_from_session)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-        
+
     # Standardize output, default to "free" and set admin tokens to infinity visually
     tokens = user.get("tokens", 0)
     if user.get("is_admin", False):
-         tokens = 999999
-         
+        tokens = 999999
+
     return {
         "username": user.get("username"),
         "email": user.get("email", ""),
@@ -1117,8 +1168,11 @@ def update_user_model_preference(body: UserModelPreferenceRequest):
     return {"status": "success", "preferred_model": (body.preferred_model or "").strip()}
 
 @app.post("/api/subscription/upgrade")
-def upgrade_subscription(request: SubscriptionUpgradeRequest):
+def upgrade_subscription(http_request: Request, request: SubscriptionUpgradeRequest, session_id: str = ""):
     """Mock endpoint to upgrade subscription and grant tokens."""
+    if os.environ.get("ALLOW_MOCK_UPGRADE", "") != "1":
+        raise HTTPException(status_code=403, detail="Mock-Upgrade ist in dieser Umgebung nicht aktiviert.")
+    user = require_session_user(http_request, session_id=session_id or None, username=request.username or None)
     tier_lower = request.tier.lower()
     
     # Define token grants per tier
@@ -1130,25 +1184,25 @@ def upgrade_subscription(request: SubscriptionUpgradeRequest):
     
     if tier_lower not in tier_tokens:
         raise HTTPException(status_code=400, detail="Ungültiges Abo-Modell (Verfügbar: basic, pro, premium)")
-        
+
     db = AuthManager._get_db()
     if not db:
         raise HTTPException(status_code=500, detail="DB Error")
-        
-    user = AuthManager.get_user(request.username)
-    if not user:
+
+    user_record = AuthManager.get_user(user)
+    if not user_record:
         raise HTTPException(status_code=404, detail="User not found")
-        
-    new_tokens = user.get("tokens", 0) + tier_tokens[tier_lower]
-    
+
+    new_tokens = user_record.get("tokens", 0) + tier_tokens[tier_lower]
+
     # Update DB
-    db.table('users').update({
+    db.table("users").update({
         "subscription_tier": tier_lower,
         "tokens": new_tokens
-    }).eq("username", request.username).execute()
-    
+    }).eq("username", user).execute()
+
     return {
-        "status": "success", 
+        "status": "success",
         "message": f"Erfolgreich auf {tier_lower.capitalize()} hochgestuft. {tier_tokens[tier_lower]} Tokens hinzugefügt!",
         "new_tokens": new_tokens,
         "subscription_tier": tier_lower
@@ -1248,26 +1302,32 @@ def _configure_genai(username: str = None):
 
 @app.post("/api/files/upload")
 async def upload_file(
-    username: str, 
-    folder_id: str, 
+    http_request: Request,
+    username: str = "",
+    folder_id: str = "",
+    session_id: str = "",
     file: UploadFile = File(...)
 ):
     """Uploads a file (PDF) to the folder."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     try:
         # Determine file type
         if file.filename.lower().endswith('.pdf'):
             content = await file.read()
-            saved_name = DataManager.save_pdf(content, file.filename, username, folder_id)
+            saved_name = DataManager.save_pdf(content, file.filename, user, folder_id)
             return {"status": "success", "filename": saved_name}
         else:
             raise HTTPException(status_code=400, detail="Nur PDFs werden aktuell unterstützt.")
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Upload Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/files/youtube")
-def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=True)):
+def import_youtube(http_request: Request, username: str = "", folder_id: str = "", session_id: str = "", url: str = Body(..., embed=True)):
     """Imports a YouTube video transcript."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     try:
         import youtube_transcript_api
         
@@ -1289,10 +1349,12 @@ def import_youtube(username: str, folder_id: str, url: str = Body(..., embed=Tru
         video_title = f"YouTube: {video_id}"
         
         # Save as text file/transcript
-        DataManager.save_transcript(video_title, transcript_text, username, folder_id)
+        DataManager.save_transcript(video_title, transcript_text, user, folder_id)
         
         return {"status": "success", "message": "Transkript importiert"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"YouTube Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Import: {str(e)}")
@@ -1302,17 +1364,20 @@ class DocumentRequest(BaseModel):
     content: str
     
 @app.post("/api/files/document")
-def create_document(username: str, folder_id: str, request: DocumentRequest):
+def create_document(http_request: Request, username: str = "", folder_id: str = "", session_id: str = "", request: DocumentRequest = None):
     """Creates a new custom text document."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     try:
-        if not request.title or not request.content:
+        if not request or not request.title or not request.content:
              raise HTTPException(status_code=400, detail="Titel und Inhalt dürfen nicht leer sein.")
              
         # Re-use save_transcript as it saves purely text-based content
-        DataManager.save_transcript(request.title, request.content, username, folder_id)
+        DataManager.save_transcript(request.title, request.content, user, folder_id)
         
         return {"status": "success", "message": "Dokument erstellt"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Create Document Error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Erstellen: {str(e)}")
@@ -1320,20 +1385,23 @@ def create_document(username: str, folder_id: str, request: DocumentRequest):
 
 @app.post("/api/files/audio")
 async def upload_audio(
-    username: str, 
-    folder_id: str, 
+    http_request: Request,
+    username: str = "",
+    folder_id: str = "",
+    session_id: str = "",
     file: UploadFile = File(...)
 ):
     """Uploads an audio file, transcribes it via Gemini, and saves the text."""
     from ai_service import AIService
     import tempfile
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     try:
         if not file.filename.lower().endswith(('.webm', '.wav', '.mp3', '.m4a')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Audioformate (.webm, .wav, .mp3, .m4a)")
              
-        ensure_minimum_tokens(username, 1)
-        _configure_genai(username)
-        model_pref = resolve_model_preference(username, None)
+        ensure_minimum_tokens(user, 1)
+        _configure_genai(user)
+        model_pref = resolve_model_preference(user, None)
         
         # Read the file content
         content = await file.read()
@@ -1353,13 +1421,13 @@ async def upload_audio(
             
             # Persist original audio securely for downloading
             safe_filename = f"audio_{int(datetime.now().timestamp())}{Path(file.filename).suffix}"
-            DataManager.save_audio(content, safe_filename, username, folder_id)
+            DataManager.save_audio(content, safe_filename, user, folder_id)
 
             # Save the transcript, linking it to the audio file if needed
             # We add a hidden markdown link or metadata so the frontend knows there's a file
             transcript_text = f"<!-- AUDIO_FILE:{safe_filename} -->\n{transcript_text}"
             
-            DataManager.save_transcript(audio_title, transcript_text, username, folder_id)
+            DataManager.save_transcript(audio_title, transcript_text, user, folder_id)
             
             charge = deduct_tokens_by_usage(
                 username,
@@ -1386,18 +1454,22 @@ async def upload_audio(
 
 @app.post("/api/files/image")
 async def upload_image(
-    username: str, 
-    folder_id: str, 
+    http_request: Request,
+    username: str = "",
+    folder_id: str = "",
+    session_id: str = "",
     file: UploadFile = File(...)
 ):
     """Uploads an image, extracts text/context via Gemini, and saves."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+
     import tempfile
     try:
         if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
              raise HTTPException(status_code=400, detail="Nur unterstützte Bildformate (.jpg, .jpeg, .png, .webp)")
              
-        ensure_minimum_tokens(username, 1)
-        _configure_genai(username)
+        ensure_minimum_tokens(user, 1)
+        _configure_genai(user)
         
         content = await file.read()
         
@@ -1419,7 +1491,7 @@ async def upload_image(
             extracted_text = response.text
             image_title = f"Bild: {file.filename}"
             
-            DataManager.save_transcript(image_title, extracted_text, username, folder_id)
+            DataManager.save_transcript(image_title, extracted_text, user, folder_id)
             
             charge = deduct_tokens_by_usage(
                 username,
@@ -1442,16 +1514,19 @@ async def upload_image(
 
 @app.get("/api/files/signed-media-url")
 def signed_media_url(
-    username: str,
-    folder_id: str,
-    file_id: str,
-    kind: str,
+    http_request: Request,
+    username: str = "",
+    folder_id: str = "",
+    file_id: str = "",
+    kind: str = "",
     expires_in: int = 3600,
+    session_id: str = "",
 ):
     """Kurzlebige Supabase-URL für Video/Audio — Wiedergabe umgeht Vercel-Rewrite (große MP4)."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     ttl = max(60, min(int(expires_in), 7200))
     url = DataManager.create_signed_media_url(
-        username, folder_id, file_id, kind, expires_in=ttl
+        user, folder_id, file_id, kind, expires_in=ttl
     )
     if not url:
         raise HTTPException(
@@ -1466,18 +1541,21 @@ def signed_media_url(
 
 @app.get("/api/files/download_audio")
 def download_audio(
-    username: str,
-    folder_id: str,
+    http_request: Request,
+    username: str = "",
+    folder_id: str = "",
     filename: str = "",
     file_id: Optional[str] = None,
+    session_id: str = "",
 ):
     """Streams an audio file (MP3); use file_id after renames — DB file_url stays correct."""
     from fastapi.responses import Response
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     try:
         if not file_id and not (filename or "").strip():
             raise HTTPException(status_code=400, detail="file_id oder filename erforderlich")
         audio_bytes, download_name = DataManager.get_audio_bytes(
-            filename or "", username, folder_id, file_id=file_id
+            filename or "", user, folder_id, file_id=file_id
         )
         if not audio_bytes:
             raise HTTPException(status_code=404, detail="Audiodatei nicht gefunden")
@@ -1499,15 +1577,18 @@ def download_audio(
 @app.get("/api/files/download_video")
 def download_video(
     request: Request,
-    username: str,
-    folder_id: str,
+    username: str = "",
+    folder_id: str = "",
     filename: str = "",
     file_id: Optional[str] = None,
+    session_id: str = "",
 ):
     """Streams an MP4 learning video from storage (Range requests for browser players)."""
+    user = require_session_user(request, session_id=session_id or None, username=username or None)
+
     from fastapi.responses import Response
     try:
-        video_bytes, download_name = DataManager.get_video_bytes(filename, username, folder_id, file_id=file_id)
+        video_bytes, download_name = DataManager.get_video_bytes(filename, user, folder_id, file_id=file_id)
         if not video_bytes:
             raise HTTPException(status_code=404, detail="Video nicht gefunden")
         safe_name = (download_name or "video.mp4").replace('"', "")
@@ -1558,11 +1639,14 @@ def download_video(
 
 
 @app.get("/api/files/download_pdf")
-def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Optional[str] = None):
+def download_pdf(http_request: Request, username: str = "", folder_id: str = "",
+                 filename: str = "", file_id: Optional[str] = None, session_id: str = ""):
     """Downloads or displays a PDF file."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+
     from fastapi.responses import Response
     try:
-        pdf_bytes, download_name = DataManager.get_pdf_bytes(filename, username, folder_id, file_id=file_id)
+        pdf_bytes, download_name = DataManager.get_pdf_bytes(filename, user, folder_id, file_id=file_id)
         if not pdf_bytes:
             raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden oder Storage-Pfad ungültig")
         safe_name = (download_name or "dokument.pdf").replace('"', '')
@@ -1581,9 +1665,10 @@ def download_pdf(username: str, folder_id: str, filename: str = "", file_id: Opt
 
 
 @app.get("/api/files/{folder_id}")
-def get_files(folder_id: str, username: str):
+def get_files(http_request: Request, folder_id: str, username: str = "", session_id: str = ""):
     """Returns files in a specific folder."""
-    files = DataManager.list_files(username, folder_id)
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
+    files = DataManager.list_files(user, folder_id)
     return files
 
 
@@ -1612,11 +1697,12 @@ class AcceptShareRequestBody(BaseModel):
 
 
 @app.post("/api/shares/username")
-def create_share_request_to_username(body: ShareToUsernameRequest):
+def create_share_request_to_username(http_request: Request, body: ShareToUsernameRequest, session_id: str = ""):
     """Create a share request for another username."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     try:
         created = DataManager.create_share_request(
-            source_username=body.username,
+            source_username=user,
             target_username=body.target_username,
             file_id=body.file_id,
             message=body.message,
@@ -1629,19 +1715,21 @@ def create_share_request_to_username(body: ShareToUsernameRequest):
 
 
 @app.get("/api/shares/requests")
-def list_share_requests(username: str):
+def list_share_requests(http_request: Request, username: str = "", session_id: str = ""):
     """List incoming pending share requests for a user."""
+    user = require_session_user(http_request, session_id=session_id or None, username=username or None)
     try:
-        return {"status": "success", "items": DataManager.list_incoming_share_requests(username)}
+        return {"status": "success", "items": DataManager.list_incoming_share_requests(user)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Share-Requests konnten nicht geladen werden: {str(e)}")
 
 
 @app.post("/api/shares/requests/{share_request_id}/accept")
-def accept_share_request(share_request_id: str, body: AcceptShareRequestBody):
+def accept_share_request(http_request: Request, share_request_id: str, body: AcceptShareRequestBody, session_id: str = ""):
     """Accept pending share request and import file into target folder."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     try:
-        imported = DataManager.accept_share_request(share_request_id, body.username, body.folder_id)
+        imported = DataManager.accept_share_request(share_request_id, user, body.folder_id)
         return {"status": "success", "imported_file": imported}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1650,11 +1738,12 @@ def accept_share_request(share_request_id: str, body: AcceptShareRequestBody):
 
 
 @app.post("/api/shares/link")
-def create_share_link(body: CreateShareLinkRequest):
+def create_share_link(http_request: Request, body: CreateShareLinkRequest, session_id: str = ""):
     """Create a link-based share token."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     try:
         created = DataManager.create_share_link(
-            source_username=body.username,
+            source_username=user,
             file_id=body.file_id,
             expires_in_days=body.expires_in_days,
             max_uses=body.max_uses,
@@ -1674,7 +1763,7 @@ def create_share_link(body: CreateShareLinkRequest):
 
 @app.get("/api/shares/link/{token}")
 def resolve_share_link(token: str):
-    """Resolve share link metadata for preview before import."""
+    """Resolve share link metadata for preview before import (public, no auth required)."""
     info = DataManager.get_share_link_info(token)
     if not info:
         raise HTTPException(status_code=404, detail="Link ungültig oder abgelaufen")
@@ -1682,10 +1771,11 @@ def resolve_share_link(token: str):
 
 
 @app.post("/api/shares/link/{token}/import")
-def import_share_link(token: str, body: ImportShareLinkRequest):
+def import_share_link(http_request: Request, token: str, body: ImportShareLinkRequest, session_id: str = ""):
     """Import a shared file into user's folder."""
+    user = require_session_user(http_request, session_id=session_id or None, username=body.username or None)
     try:
-        imported = DataManager.import_share_link(token, body.username, body.folder_id)
+        imported = DataManager.import_share_link(token, user, body.folder_id)
         return {"status": "success", "imported_file": imported}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -24,6 +24,7 @@ export default function Settings() {
     const [savingModel, setSavingModel] = useState(false);
 
     const API_BASE = '/api';
+    const allowMockUpgrade = process.env.NEXT_PUBLIC_ALLOW_MOCK_UPGRADE === '1';
 
     useEffect(() => {
         const user = localStorage.getItem("username");
@@ -35,7 +36,8 @@ export default function Settings() {
 
     const fetchUserInfo = async (user: string) => {
         try {
-            const res = await fetch(`${API_BASE}/user/${user}`);
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/user/${user}?session_id=${encodeURIComponent(sid)}`);
             if (res.ok) {
                 const data = await res.json();
                 setTokens(data.tokens);
@@ -75,9 +77,10 @@ export default function Settings() {
         setUpgradeLoading(newTier);
         setUpgradeStatus(null);
         try {
-            const res = await fetch(`${API_BASE}/subscription/upgrade`, {
+            const sid = localStorage.getItem("session_id") || "";
+            const res = await fetch(`${API_BASE}/subscription/upgrade?session_id=${encodeURIComponent(sid)}`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
                 body: JSON.stringify({ username, tier: newTier })
             });
             const data = await res.json();
@@ -102,10 +105,11 @@ export default function Settings() {
         setDeleteError("");
 
         try {
+            const sid = localStorage.getItem("session_id") || "";
             const res = await fetch(`${API_BASE}/auth/user`, {
                 method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, password: deletePassword })
+                headers: { "Content-Type": "application/json", "X-Session-Id": sid },
+                body: JSON.stringify({ username, password: deletePassword, session_id: sid })
             });
 
             if (res.ok) {
@@ -191,23 +195,24 @@ export default function Settings() {
                                     Aktuelles Abo: {tier.toUpperCase()}
                                 </div>
                             </div>
-                            
+
+                            {allowMockUpgrade && (
                             <div className="flex flex-col gap-3 w-full md:w-auto shrink-0 md:min-w-[180px]">
-                                <button 
+                                <button
                                     onClick={() => handleUpgrade('basic')}
                                     disabled={upgradeLoading !== null}
                                     className="bg-[#333] hover:bg-[#444] text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
                                 >
                                     {upgradeLoading === 'basic' ? <Loader2 size={16} className="animate-spin" /> : "Basic (+1000)"}
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => handleUpgrade('pro')}
                                     disabled={upgradeLoading !== null}
                                     className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
                                 >
                                     {upgradeLoading === 'pro' ? <Loader2 size={16} className="animate-spin" /> : "Pro (+5000)"}
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => handleUpgrade('premium')}
                                     disabled={upgradeLoading !== null}
                                     className="bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-90 text-white shadow-lg shadow-orange-500/20 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center min-w-[140px]"
@@ -215,6 +220,7 @@ export default function Settings() {
                                     {upgradeLoading === 'premium' ? <Loader2 size={16} className="animate-spin" /> : "Premium (+15000)"}
                                 </button>
                             </div>
+                            )}
                         </div>
                         
                         {upgradeStatus && (

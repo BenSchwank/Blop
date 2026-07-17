@@ -138,9 +138,10 @@ export default function Dashboard() {
   const fetchFolders = useCallback(async () => {
     try {
       const username = localStorage.getItem("username");
+      const sid = localStorage.getItem("session_id") || "";
       if (!username) return;
 
-      const res = await fetch(`${API_BASE}/folders?username=${username}`);
+      const res = await fetch(`${API_BASE}/folders?username=${encodeURIComponent(username)}&session_id=${encodeURIComponent(sid)}`);
       if (res.ok) {
         const data = await res.json();
         setFolders(data);
@@ -187,9 +188,10 @@ export default function Dashboard() {
     setIsCreating(true);
     try {
       const username = localStorage.getItem("username");
-      const res = await fetch(`${API_BASE}/folders`, {
+      const sid = localStorage.getItem("session_id") || "";
+      const res = await fetch(`${API_BASE}/folders?session_id=${encodeURIComponent(sid)}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Session-Id": sid },
         body: JSON.stringify({ name: newFolderName, username }),
       });
 
@@ -212,9 +214,10 @@ export default function Dashboard() {
     setIsRenaming(true);
     try {
       const username = localStorage.getItem("username");
-      const res = await fetch(`${API_BASE}/folders/${folderToRename.id}`, {
+      const sid = localStorage.getItem("session_id") || "";
+      const res = await fetch(`${API_BASE}/folders/${folderToRename.id}?session_id=${encodeURIComponent(sid)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Session-Id": sid },
         body: JSON.stringify({ name: renameValue, username }),
       });
 
@@ -237,7 +240,8 @@ export default function Dashboard() {
 
     try {
       const username = localStorage.getItem("username");
-      await fetch(`${API_BASE}/folders/${folderId}?username=${username}`, {
+      const sid = localStorage.getItem("session_id") || "";
+      await fetch(`${API_BASE}/folders/${folderId}?username=${encodeURIComponent(username || "")}&session_id=${encodeURIComponent(sid)}`, {
         method: "DELETE",
       });
       fetchFolders(); // Refresh
@@ -276,10 +280,10 @@ export default function Dashboard() {
     // Call backend to move folder
     try {
       const username = localStorage.getItem("username");
-      // The API endpoint PUT /api/folders/{id}/move needs a body containing the new parent_id
-      const res = await fetch(`${API_BASE}/folders/${sourceFolder.id}/move`, {
+      const sid = localStorage.getItem("session_id") || "";
+      const res = await fetch(`${API_BASE}/folders/${sourceFolder.id}/move?session_id=${encodeURIComponent(sid)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Session-Id": sid },
         body: JSON.stringify({ parent_id: targetFolder.id, username }),
       });
 

@@ -14,7 +14,8 @@ export default function MobileNav() {
     React.useEffect(() => {
         setMounted(true);
         const username = localStorage.getItem('username');
-        setIsAdmin(username === 'admin_');
+        // Prefer the is_admin flag stored by Sidebar's refreshUserInfo; fall back to exact username match
+        setIsAdmin(localStorage.getItem('is_admin') === 'true' || username === 'admin_');
 
         const win = window as Window & { isBlopNativeApp?: boolean };
         if (win.isBlopNativeApp) {

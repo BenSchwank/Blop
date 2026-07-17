@@ -4,6 +4,11 @@
 #include <QGraphicsPixmapItem>
 #include <QFileDialog>
 #include <QApplication>
+#include <QPointer>
+
+#ifdef Q_OS_ANDROID
+#include "androidcontentpicker.h"
+#endif
 
 class ImageTool : public AbstractTool {
     Q_OBJECT
@@ -18,13 +23,32 @@ public:
         if (!scene) return false;
 
 #ifdef Q_OS_ANDROID
-        // QFileDialog is a top-level window and crashes Qt 6.10 Android.
-        // Native content picker is a follow-up; swallow the press so the tool
-        // doesn't fall through to drawing.
-        Q_UNUSED(event);
-        BlopDialogs::notify(
-            QApplication::activeWindow(), QStringLiteral("Bild"),
-            QStringLiteral("Bild-Import auf Android folgt in einem Update."));
+        const QPointF pos = event->scenePos();
+        QPointer<QGraphicsScene> safeScene(scene);
+        QPointer<ImageTool> self(this);
+        AndroidContentPicker::instance().pickOpen(
+            {QStringLiteral("image/*")},
+            [safeScene, pos, self](const QString &path) {
+                if (path.isEmpty() || !safeScene)
+                    return;
+                QPixmap pixmap(path);
+                if (pixmap.isNull()) {
+                    BlopDialogs::notify(
+                        QApplication::activeWindow(), QStringLiteral("Bild"),
+                        QStringLiteral("Bild konnte nicht geladen werden."));
+                    return;
+                }
+                if (pixmap.width() > 800)
+                    pixmap = pixmap.scaledToWidth(800, Qt::SmoothTransformation);
+                auto *item = new QGraphicsPixmapItem(pixmap);
+                item->setPos(pos);
+                item->setFlags(QGraphicsItem::ItemIsSelectable |
+                               QGraphicsItem::ItemIsMovable);
+                item->setZValue(5);
+                safeScene->addItem(item);
+                if (self)
+                    emit self->contentModified();
+            });
         return true;
 #else
         QString fileName = QFileDialog::getOpenFileName(nullptr, "Bild öffnen", "", "Bilder (*.png *.jpg *.jpeg)");

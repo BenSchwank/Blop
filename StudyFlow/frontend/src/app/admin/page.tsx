@@ -20,9 +20,10 @@ export default function AdminPanel() {
     const API_BASE = '/api';
 
     useEffect(() => {
-        // Check if user is admin
+        // Check if user is admin (check both username and stored is_admin flag)
         const username = localStorage.getItem('username');
-        if (username !== 'admin_') {
+        const storedIsAdmin = localStorage.getItem('is_admin') === 'true';
+        if (username !== 'admin_' && !storedIsAdmin) {
             window.location.href = '/';
             return;
         }
@@ -34,9 +35,13 @@ export default function AdminPanel() {
         setLoading(true);
         try {
             const username = localStorage.getItem('username');
+            const sid = localStorage.getItem('session_id') || '';
 
-            // Fetch all users
-            const usersRes = await fetch(`${API_BASE}/admin/users?admin_username=${username}`);
+            // Fetch all users — send session_id for auth
+            const usersRes = await fetch(
+                `${API_BASE}/admin/users?admin_username=${encodeURIComponent(username || '')}&session_id=${encodeURIComponent(sid)}`,
+                { headers: { 'X-Session-Id': sid } }
+            );
             if (usersRes.ok) {
                 const usersData = await usersRes.json();
                 setUsers(usersData);

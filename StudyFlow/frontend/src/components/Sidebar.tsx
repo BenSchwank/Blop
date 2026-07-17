@@ -26,10 +26,15 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const refreshUserInfo = async (user: string) => {
         if (!user) return;
         try {
-            const res = await fetch(`/api/user/${user}`);
+            const sid = localStorage.getItem('session_id') || '';
+            const res = await fetch(`/api/user/${user}?session_id=${encodeURIComponent(sid)}`);
             const data = await res.json();
             if (data && data.tokens !== undefined) setTokens(data.tokens);
             if (data && data.subscription_tier) setTier(data.subscription_tier);
+            if (data && typeof data.is_admin === 'boolean') {
+                setIsAdmin(data.is_admin);
+                localStorage.setItem('is_admin', String(data.is_admin));
+            }
         } catch (err) {
             console.error("Error fetching user info:", err);
         }
@@ -39,7 +44,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         setMounted(true);
         const user = localStorage.getItem('username') || '';
         setUsername(user);
-        setIsAdmin(user.startsWith('admin_'));
+        // Read is_admin from localStorage (set by refreshUserInfo); fall back to exact username match
+        setIsAdmin(localStorage.getItem('is_admin') === 'true' || user === 'admin_');
 
         if (user) void refreshUserInfo(user);
 

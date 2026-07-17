@@ -1,7 +1,9 @@
 import base64
 import hashlib
+import hmac
 import json
 import os
+import secrets
 from datetime import datetime
 import uuid
 
@@ -85,8 +87,33 @@ class AuthManager:
             AuthManager._save_sessions(sessions)
 
     @staticmethod
-    def _hash_password(password):
-        return hashlib.sha256(password.encode()).hexdigest()
+    def _hash_password(password: str) -> str:
+        """Returns pbkdf2_sha256$120000$<salt_hex>$<dk_hex>."""
+        salt = secrets.token_hex(16)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120000)
+        return f"pbkdf2_sha256$120000${salt}${dk.hex()}"
+
+    @staticmethod
+    def _verify_password(password: str, stored: str) -> bool:
+        """Verify password against stored hash. Supports PBKDF2 and legacy unsalted SHA-256."""
+        if not stored:
+            return False
+        if stored.startswith("pbkdf2_sha256$"):
+            parts = stored.split("$")
+            if len(parts) != 4:
+                return False
+            _, iters_str, salt, stored_dk = parts
+            try:
+                iters = int(iters_str)
+            except ValueError:
+                return False
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iters)
+            return hmac.compare_digest(dk.hex(), stored_dk)
+        # Legacy: unsalted SHA-256 (64-char hex)
+        if len(stored) == 64:
+            candidate = hashlib.sha256(password.encode()).hexdigest()
+            return hmac.compare_digest(candidate, stored)
+        return False
 
     @staticmethod
     def _email_from_jwt_unverified(jwt_token: str) -> str:
@@ -150,9 +177,20 @@ class AuthManager:
                 user = AuthManager.get_user(email_or_username)
                 if not user:
                     return False, "Benutzer nicht gefunden"
-                
-                hashed_pw = AuthManager._hash_password(password)
-                if user["password_hash"] == hashed_pw:
+
+                stored = user.get("password_hash", "")
+                if AuthManager._verify_password(password, stored):
+                    # Rehash legacy unsalted SHA-256 to PBKDF2 on successful login
+                    if stored and not stored.startswith("pbkdf2_sha256$"):
+                        try:
+                            new_hash = AuthManager._hash_password(password)
+                            db = AuthManager._get_db()
+                            if db:
+                                db.table("users").update({"password_hash": new_hash}).eq(
+                                    "username", user["username"]
+                                ).execute()
+                        except Exception as _rehash_err:
+                            print(f"AuthManager: rehash failed (non-fatal): {_rehash_err}")
                     return True, user["username"]
                 return False, "Passwort falsch"
         except Exception as e:
@@ -323,13 +361,15 @@ class AuthManager:
         user = AuthManager.get_user(username)
         if not user:
             return False, "Benutzer nicht gefunden."
-        
-        hashed_old = AuthManager._hash_password(old_password)
-        if user["password_hash"] != hashed_old:
+
+        stored = user.get("password_hash", "")
+        if not AuthManager._verify_password(old_password, stored):
             return False, "Altes Passwort ist falsch."
-        
+
         db = AuthManager._get_db()
-        db.table('users').update({"password_hash": AuthManager._hash_password(new_password)}).eq('username', username).execute()
+        db.table("users").update({"password_hash": AuthManager._hash_password(new_password)}).eq(
+            "username", username
+        ).execute()
         return True, "Passwort erfolgreich geändert!"
 
     @staticmethod
@@ -428,26 +468,26 @@ class AuthManager:
     @staticmethod
     def ensure_admin():
         admin_user = "admin_"
-        target_pw = "Martin400!"
-        target_hash = AuthManager._hash_password(target_pw)
-        
+        admin_pw = os.environ.get("BLOP_ADMIN_PASSWORD", "").strip()
+
         db = AuthManager._get_db()
-        if not db: return
-        
-        res = db.table('users').select('password_hash').eq('username', admin_user).execute()
+        if not db:
+            return
+
+        res = db.table("users").select("username").eq("username", admin_user).execute()
         if len(res.data) == 0:
-            # Admin doesn't exist — create
-            db.table('users').insert({
+            # Admin doesn't exist — only create if BLOP_ADMIN_PASSWORD is configured
+            if not admin_pw:
+                print(
+                    "WARNING: Admin user missing but BLOP_ADMIN_PASSWORD is not set "
+                    "— skipping admin creation."
+                )
+                return
+            db.table("users").insert({
                 "username": admin_user,
-                "password_hash": target_hash,
+                "password_hash": AuthManager._hash_password(admin_pw),
                 "tokens": 999999,
-                "is_admin": True
-            }).execute()
-        elif res.data[0]['password_hash'] != target_hash:
-            # Admin exists but hash is wrong (e.g. changed from another device) — force reset
-            db.table('users').update({
-                "password_hash": target_hash,
                 "is_admin": True,
-                "tokens": 999999
-            }).eq('username', admin_user).execute()
+            }).execute()
+        # Never force-reset an existing admin's password
 

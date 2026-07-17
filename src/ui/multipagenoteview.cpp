@@ -8,6 +8,9 @@
 #include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "editoroverlays.h"
+#ifdef Q_OS_ANDROID
+#include "androidcontentpicker.h"
+#endif
 #include "UIStyles.h"
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
@@ -34,6 +37,7 @@
 #include <QPdfWriter>
 #include <QPen>
 #include <QPixmapCache>
+#include <QPointer>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QPointingDevice>
 #include <QPolygonF>
@@ -2160,11 +2164,42 @@ void MultiPageNoteView::pickAndAddImagePage() {
   if (!note_)
     return;
 #ifdef Q_OS_ANDROID
-  // QFileDialog is a top-level window and crashes Qt 6.10 Android.
-  // Native content picker is a follow-up; for now fail soft.
-  BlopDialogs::notify(
-      this, QStringLiteral("Import"),
-      QStringLiteral("Bild-Import auf Android folgt in einem Update."));
+  QPointer<MultiPageNoteView> self(this);
+  AndroidContentPicker::instance().pickOpen(
+      {QStringLiteral("image/*")}, [self](const QString &path) {
+        if (!self || path.isEmpty() || !self->note_)
+          return;
+        QImage img(path);
+        if (img.isNull()) {
+          BlopDialogs::notify(self, QStringLiteral("Blop"),
+                              QStringLiteral("Bild konnte nicht geladen werden."));
+          return;
+        }
+        QImage scaled = img.scaled(self->a4wPx(), self->a4hPx(),
+                                   Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QImage canvas(self->a4wPx(), self->a4hPx(),
+                      QImage::Format_ARGB32_Premultiplied);
+        canvas.fill(Qt::white);
+        {
+          QPainter p(&canvas);
+          p.drawImage((self->a4wPx() - scaled.width()) / 2,
+                      (self->a4hPx() - scaled.height()) / 2, scaled);
+        }
+        int idx = self->note_->pages.size();
+        self->note_->ensurePage(idx);
+        self->note_->pages[idx].backgroundImage = canvas;
+        self->note_->pages[idx].backgroundType =
+            static_cast<int>(PageBackgroundType::Blank);
+        self->note_->pages[idx].paperColor = QColor(Qt::white);
+        self->layoutPages();
+        if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
+          RulerTool::ensureRulerExists(&self->scene_,
+                                       ToolManager::instance().config());
+        }
+        self->scrollToPage(idx);
+        if (self->onSaveRequested)
+          self->onSaveRequested(self->note_);
+      });
   return;
 #else
   const QString path = QFileDialog::getOpenFileName(
@@ -2204,9 +2239,21 @@ void MultiPageNoteView::pickAndAddImagePage() {
 
 void MultiPageNoteView::pickAndImportPdf() {
 #ifdef Q_OS_ANDROID
-  BlopDialogs::notify(
-      this, QStringLiteral("Import"),
-      QStringLiteral("PDF-Import auf Android folgt in einem Update."));
+  QPointer<MultiPageNoteView> self(this);
+  AndroidContentPicker::instance().pickOpen(
+      {QStringLiteral("application/pdf")}, [self](const QString &path) {
+        if (!self || path.isEmpty())
+          return;
+        if (!self->importPdfPages(path)) {
+          BlopDialogs::notify(
+              self, QStringLiteral("PDF"),
+              QStringLiteral(
+                  "PDF konnte nicht importiert werden (Datei ungültig oder "
+                  "PDF-Unterstützung nicht verfügbar)."));
+        } else if (self->note_) {
+          self->scrollToPage(self->note_->pages.size() - 1);
+        }
+      });
   return;
 #else
   const QString path = QFileDialog::getOpenFileName(

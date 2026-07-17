@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 class QWidget;
 
@@ -16,6 +17,16 @@ bool confirm(QWidget *parent, const QString &title, const QString &message,
 /// Returns empty string on cancel.
 QString promptText(QWidget *parent, const QString &title, const QString &label,
                    const QString &initial = QString());
+
+/// Single-choice list. Returns empty on cancel.
+QString promptChoice(QWidget *parent, const QString &title,
+                     const QString &label, const QStringList &options,
+                     int currentIndex = 0);
+
+/// Integer prompt. Sets *ok=false on cancel when ok is non-null.
+/// Returns `value` on cancel if ok is null (caller should check).
+int promptInt(QWidget *parent, const QString &title, const QString &label,
+              int value, int min, int max, bool *ok = nullptr);
 
 void notify(QWidget *parent, const QString &title, const QString &message);
 

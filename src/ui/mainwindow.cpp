@@ -485,6 +485,13 @@ QByteArray postJsonSync(QNetworkAccessManager *nam, const QUrl &url,
   }
   QNetworkRequest req(url);
   req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+  const QString sid =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("session_id"))
+          .toString()
+          .trimmed();
+  if (!sid.isEmpty())
+    req.setRawHeader("X-Session-Id", sid.toUtf8());
   QNetworkReply *reply =
       nam->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
   QEventLoop loop;
@@ -511,6 +518,13 @@ QByteArray getSync(QNetworkAccessManager *nam, const QUrl &url,
     return QByteArray();
   }
   QNetworkRequest req(url);
+  const QString sid =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("session_id"))
+          .toString()
+          .trimmed();
+  if (!sid.isEmpty())
+    req.setRawHeader("X-Session-Id", sid.toUtf8());
   QNetworkReply *reply = nam->get(req);
   QEventLoop loop;
   QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
@@ -532,6 +546,13 @@ QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
   QUrl foldersUrl(kBlopStudyUrl + "/api/folders");
   QUrlQuery query;
   query.addQueryItem("username", username);
+  const QString sid =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("session_id"))
+          .toString()
+          .trimmed();
+  if (!sid.isEmpty())
+    query.addQueryItem(QStringLiteral("session_id"), sid);
   foldersUrl.setQuery(query);
   const QByteArray raw = getSync(nam, foldersUrl, &status, &err);
   if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
@@ -583,6 +604,13 @@ QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
   QUrl foldersUrl(kBlopStudyUrl + "/api/folders");
   QUrlQuery folderQuery;
   folderQuery.addQueryItem("username", username);
+  const QString sid =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("session_id"))
+          .toString()
+          .trimmed();
+  if (!sid.isEmpty())
+    folderQuery.addQueryItem(QStringLiteral("session_id"), sid);
   foldersUrl.setQuery(folderQuery);
   const QByteArray foldersRaw = getSync(nam, foldersUrl, &status, &err);
   if (err != QNetworkReply::NoError || status < 200 || status >= 300)
@@ -600,6 +628,8 @@ QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
     QUrl filesUrl(kBlopStudyUrl + "/api/files/" + QUrl::toPercentEncoding(folderId));
     QUrlQuery filesQuery;
     filesQuery.addQueryItem("username", username);
+    if (!sid.isEmpty())
+      filesQuery.addQueryItem(QStringLiteral("session_id"), sid);
     filesUrl.setQuery(filesQuery);
 
     int filesStatus = 0;
@@ -7851,6 +7881,67 @@ void MainWindow::onEditorNoteOverflowMenu() {
   items.append({QStringLiteral("Optionen & Tags…"), QIcon(),
                 [this]() { setPageSettingsOverlayVisible(true); }});
 #ifdef Q_OS_ANDROID
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("Als PDF exportieren"), QIcon(),
+                [this, cv]() {
+                  if (!cv)
+                    return;
+                  const QString dir = QStandardPaths::writableLocation(
+                      QStandardPaths::DocumentsLocation);
+                  QDir().mkpath(dir);
+                  const QString path =
+                      dir +
+                      QStringLiteral("/Blop_%1.pdf")
+                          .arg(QDateTime::currentDateTime().toString(
+                              QStringLiteral("yyyyMMdd_HHmmss")));
+                  const bool ok = cv->exportToPDF(path);
+                  BlopDialogs::notify(
+                      this,
+                      ok ? QStringLiteral("Exportiert")
+                         : QStringLiteral("Fehler"),
+                      ok ? QStringLiteral("PDF gespeichert:\n%1").arg(path)
+                         : QStringLiteral("PDF-Export fehlgeschlagen."));
+                }});
+  items.append({QStringLiteral("Als Bild exportieren"), QIcon(),
+                [this, cv]() {
+                  if (!cv)
+                    return;
+                  const QString dir = QStandardPaths::writableLocation(
+                      QStandardPaths::PicturesLocation);
+                  QDir().mkpath(dir);
+                  const QString path =
+                      dir +
+                      QStringLiteral("/Blop_%1.png")
+                          .arg(QDateTime::currentDateTime().toString(
+                              QStringLiteral("yyyyMMdd_HHmmss")));
+                  const bool ok = cv->exportToImage(path);
+                  BlopDialogs::notify(
+                      this,
+                      ok ? QStringLiteral("Exportiert")
+                         : QStringLiteral("Fehler"),
+                      ok ? QStringLiteral("Bild gespeichert:\n%1").arg(path)
+                         : QStringLiteral("Bild-Export fehlgeschlagen."));
+                }});
+  items.append({QStringLiteral("PDF importieren"), QIcon(), [this, cv]() {
+                  if (!cv)
+                    return;
+                  AndroidContentPicker::instance().pickOpen(
+                      {QStringLiteral("application/pdf")},
+                      [this, cv](const QString &localPath) {
+                        if (localPath.isEmpty() || !cv)
+                          return;
+                        const bool ok = cv->importPdfIntoCanvas(localPath);
+                        BlopDialogs::notify(
+                            this,
+                            ok ? QStringLiteral("Importiert")
+                               : QStringLiteral("Fehler"),
+                            ok ? QStringLiteral(
+                                     "PDF wurde in die unendliche Seite "
+                                     "eingefügt.")
+                               : QStringLiteral(
+                                     "PDF konnte nicht importiert werden."));
+                      });
+                }});
   BlopInWindowMenu::show(this, globalPos, items);
 #else
   // Desktop infinite notes keep the floating ⋯; title-bar ⋯ is A4-only.
