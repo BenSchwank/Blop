@@ -1,10 +1,10 @@
 #pragma once
 
+#include <QColor>
 #include <QWidget>
 
 class QAbstractButton;
 class QButtonGroup;
-class QColor;
 class QHBoxLayout;
 class QPushButton;
 
