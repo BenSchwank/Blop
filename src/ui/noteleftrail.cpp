@@ -2,6 +2,7 @@
 
 #include "uiscale.h"
 
+#include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QToolButton>
