@@ -3139,10 +3139,10 @@ void MainWindow::applyTheme() {
 
   if (m_sidebarContainer)
     m_sidebarContainer->setStyleSheet(BlopTheme::themed(
-        "background-color: #0F111A; border-right: 1px solid rgba(255,255,255,0.06);"));
+        "background-color: #0B0912; border-right: 1px solid rgba(120,130,160,0.12);"));
   if (m_sidebarStrip)
     m_sidebarStrip->setStyleSheet(BlopTheme::themed(
-        "background-color: #0F111A; border-right: 1px solid rgba(255,255,255,0.06);"));
+        "background-color: #0B0912; border-right: 1px solid rgba(120,130,160,0.12);"));
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
 #ifdef Q_OS_ANDROID
