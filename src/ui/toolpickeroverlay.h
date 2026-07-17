@@ -2,6 +2,7 @@
 
 #include "ToolMode.h"
 
+#include <QEvent>
 #include <QWidget>
 #include <functional>
 
