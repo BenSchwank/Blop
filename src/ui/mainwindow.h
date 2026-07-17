@@ -42,6 +42,7 @@ class PageManager;
 class PageThumbnailSidebar;
 class PenPresetBar;
 class NoteLeftRail;
+class RadialToolbarFab;
 class QSortFilterProxyModel;
 class QShowEvent;
 struct WebBookmark {
@@ -426,6 +427,8 @@ private:
   PageThumbnailSidebar *m_pageThumbnailSidebar{nullptr};
   /// Slim floating left icon rail (Drawboard).
   NoteLeftRail *m_noteLeftRail{nullptr};
+  /// Movable radial tool FAB (expands to Drawboard-style wheel).
+  RadialToolbarFab *m_radialFab{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};
   QPushButton *m_btnTitleSettings{nullptr};
   QPushButton *m_btnTitleShare{nullptr};

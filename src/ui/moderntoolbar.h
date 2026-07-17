@@ -36,6 +36,8 @@ public:
     void setActive(bool active);
     void setBtnSize(int s);
     void setAccentColor(const QColor& c) { m_accentColor = c; update(); }
+    void setBadgeText(const QString &text);
+    QString badgeText() const { return m_badgeText; }
     QString iconName() const { return m_iconName; }
 
     void animateSelect();
@@ -71,6 +73,7 @@ private:
     bool m_hover{false};
     bool m_drawFloatingBg{false};
     int m_size{40};
+    QString m_badgeText;
 
     double m_animScale{1.0};
     bool m_pressing{false};
@@ -120,6 +123,9 @@ public:
     void setTopBound(int top);
     void requestAdaptiveReflow();
     int calculateMinLength();
+    void showToolPicker();
+    void syncToolBadges();
+    void openToolOptions();
 
 signals:
     void toolChanged(ToolMode mode);
@@ -200,6 +206,7 @@ private:
     ToolbarBtn *btnBackOverview{nullptr};
 
     ToolbarBtn* btnDockToggle; // New button for detach/dock
+    ToolbarBtn *btnAddTool{nullptr}; // Drawboard "+" — open tool picker
 
     // Extra features for docked mode (Seite/Notiz-Optionen nur über Notiz-⋯-Menü)
     ToolbarBtn *btnSave;

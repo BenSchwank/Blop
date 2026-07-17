@@ -11,6 +11,7 @@
 #include "cloudstoragestore.h"
 #include "pagethumbnailsidebar.h"
 #include "noteleftrail.h"
+#include "radialtoolbarfab.h"
 #include "penpresetbar.h"
 #include "newnotedialog.h"
 #include "overlayscrollindicator.h"
@@ -1776,6 +1777,8 @@ void MainWindow::applyThemeRefresh() {
       m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
     if (m_noteLeftRail)
       m_noteLeftRail->setAccentColor(m_currentAccentColor);
+    if (m_radialFab)
+      m_radialFab->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
       m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
     if (m_libraryOrgBar)
@@ -3210,6 +3213,8 @@ void MainWindow::applyTheme() {
       m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
     if (m_noteLeftRail)
       m_noteLeftRail->setAccentColor(m_currentAccentColor);
+    if (m_radialFab)
+      m_radialFab->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
       m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
     if (m_libraryOrgBar)
@@ -4729,6 +4734,23 @@ void MainWindow::setupUi() {
   }
   m_floatingTools->raise();
 
+#ifndef Q_OS_ANDROID
+  // Drawboard radial FAB — drag to move, tap to expand tool wheel.
+  m_radialFab = new RadialToolbarFab(m_editorCenterWidget);
+  m_radialFab->setAccentColor(m_currentAccentColor);
+  m_radialFab->hide();
+  connect(m_radialFab, &RadialToolbarFab::toolSelected, this,
+          [this](ToolMode mode) {
+            ToolManager::instance().selectTool(mode);
+            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+              tb->setToolMode(mode);
+              tb->openToolOptions();
+            }
+          });
+  connect(m_radialFab, &RadialToolbarFab::undoRequested, this,
+          &MainWindow::onUndo);
+#endif
+
   // Pen-preset brush-stroke chips removed from the note UI (v3.22.1 redesign).
   // Keep the object constructed but permanently hidden so older settings and
   // call sites stay safe; tools remain fully available via the toolbar.
@@ -5087,7 +5109,11 @@ void MainWindow::setupUi() {
     connect(topToolbar, &ModernToolbar::toolChanged, this, onToolModeChanged);
     connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
             [this, topToolbar, onToolModeChanged](AbstractTool *tool) {
-              if (tool && topToolbar->toolMode() != tool->mode()) {
+              if (!tool)
+                return;
+              if (m_radialFab)
+                m_radialFab->setActiveTool(tool->mode());
+              if (topToolbar->toolMode() != tool->mode()) {
                 // Ensure the topToolbar's own state updates, so icon highlights
                 // and double-click radial menus actually trigger.
                 topToolbar->setToolMode(tool->mode());
@@ -8196,6 +8222,15 @@ void MainWindow::updateSidebarState() {
     m_documentTabBar->setVisible(inNotesMode);
   if (m_noteLeftRail)
     m_noteLeftRail->setVisible(inNotesMode && isEditor);
+  if (m_radialFab) {
+    m_radialFab->setVisible(inNotesMode && isEditor);
+    if (isEditor && m_radialFab->x() <= 0 && m_radialFab->y() <= 0) {
+      // Seed initial position once when entering the editor.
+      const int fab = m_radialFab->collapsedSize();
+      m_radialFab->move(qMax(0, m_editorCenterWidget->width() - fab - UiScale::dp(80)),
+                        qMax(0, m_editorCenterWidget->height() - fab - UiScale::dp(80)));
+    }
+  }
   if (m_pageThumbnailSidebar) {
     const bool showPages =
         inNotesMode && isEditor &&
@@ -9878,6 +9913,25 @@ void MainWindow::positionNoteChrome() {
   positionDrawboardToolbar();
   if (m_floatingTools)
     m_floatingTools->raise();
+
+#ifndef Q_OS_ANDROID
+  // Radial FAB sits above the bottom strip, left of the right tool rail.
+  if (m_radialFab && m_radialFab->isVisible() && !m_radialFab->isExpanded()) {
+    const int fab = m_radialFab->collapsedSize();
+    const int railW = UiScale::dp(52);
+    const int x = qMax(margin, W - margin - railW - UiScale::dp(12) - fab);
+    const int y = qMax(margin, H - noteBottomChromeHeight() - fab - margin);
+    // Keep user-dragged position if still on-canvas; only seed once.
+    if (m_radialFab->x() <= 0 && m_radialFab->y() <= 0)
+      m_radialFab->move(x, y);
+    else {
+      const int nx = qBound(0, m_radialFab->x(), W - fab);
+      const int ny = qBound(0, m_radialFab->y(), H - fab);
+      m_radialFab->move(nx, ny);
+    }
+    m_radialFab->raise();
+  }
+#endif
 }
 
 void MainWindow::updateNoteBottomChrome() {

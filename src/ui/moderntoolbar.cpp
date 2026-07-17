@@ -3,6 +3,7 @@
 #include "blop_dialogs.h"
 #include "blopripple.h"
 #include "UIStyles.h"
+#include "toolpickeroverlay.h"
 #include "tools/ToolManager.h"
 #include "tools/ToolUIBridge.h"
 #include "tools/ShapeTool.h"
@@ -405,6 +406,12 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawEllipse(QPointF(32, 32), 3.4, 3.4);
     return;
   }
+  if (name == QLatin1String("add") || name == QLatin1String("plus")) {
+    p->setPen(QPen(primary, 4.0, Qt::SolidLine, Qt::RoundCap));
+    p->drawLine(QPointF(20, 32), QPointF(44, 32));
+    p->drawLine(QPointF(32, 20), QPointF(32, 44));
+    return;
+  }
   // Fallback: single-character / unknown (legacy)
   QFont f = p->font();
   f.setPixelSize(28);
@@ -550,6 +557,12 @@ void ToolbarBtn::setIcon(const QString &name) {
 }
 void ToolbarBtn::setDrawFloatingBg(bool draw) {
   m_drawFloatingBg = draw;
+  update();
+}
+void ToolbarBtn::setBadgeText(const QString &text) {
+  if (m_badgeText == text)
+    return;
+  m_badgeText = text;
   update();
 }
 void ToolbarBtn::setActive(bool active) {
@@ -720,6 +733,22 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.setBrush(Qt::NoBrush);
     const QRectF arcRect = rect().adjusted(3, 3, -3, -3);
     p.drawArc(arcRect, 90 * 16, -m_holdProgress * 360.0 * 16.0);
+  }
+
+  // Drawboard-style size badge (top-right of the tool slot).
+  if (!m_badgeText.isEmpty()) {
+    const int bw = qMax(UiScale::dp(16), 8 + m_badgeText.size() * UiScale::dp(6));
+    const int bh = UiScale::dp(16);
+    const QRectF badge(w - bw - 1, 1, bw, bh);
+    p.setPen(QPen(QColor(255, 255, 255, 35), 1));
+    p.setBrush(QColor(12, 10, 18, 230));
+    p.drawRoundedRect(badge, bh / 2.0, bh / 2.0);
+    p.setPen(Qt::white);
+    QFont f = p.font();
+    f.setPixelSize(UiScale::font(9));
+    f.setBold(true);
+    p.setFont(f);
+    p.drawText(badge, Qt::AlignCenter, m_badgeText);
   }
   p.restore();
 }
@@ -906,6 +935,46 @@ public:
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(15, 15, 15, 15);
     layout->setSpacing(12);
+
+    // Drawboard-like tool options header.
+    {
+      QString title = QStringLiteral("Werkzeug");
+      switch (m_mode) {
+      case ToolMode::Pen:
+        title = QStringLiteral("Stift");
+        break;
+      case ToolMode::Pencil:
+        title = QStringLiteral("Bleistift");
+        break;
+      case ToolMode::Highlighter:
+        title = QStringLiteral("Textmarker");
+        break;
+      case ToolMode::Eraser:
+        title = QStringLiteral("Radiergummi");
+        break;
+      case ToolMode::Lasso:
+        title = QStringLiteral("Auswahl");
+        break;
+      case ToolMode::Ruler:
+        title = QStringLiteral("Lineal / Messen");
+        break;
+      case ToolMode::Shape:
+        title = QStringLiteral("Formen");
+        break;
+      default:
+        break;
+      }
+      auto *header = new QLabel(title, this);
+      header->setStyleSheet(QStringLiteral(
+          "color: #F4F5FB; font-size: 16px; font-weight: 800; "
+          "letter-spacing: -0.2px; background: transparent;"));
+      layout->addWidget(header);
+      auto *sub = new QLabel(QStringLiteral("Tooloptionen"), this);
+      sub->setStyleSheet(QStringLiteral(
+          "color: rgba(180,188,215,0.70); font-size: 11px; font-weight: 600; "
+          "background: transparent;"));
+      layout->addWidget(sub);
+    }
 
     if (m_mode != ToolMode::Eraser && m_mode != ToolMode::Lasso) {
       m_previewWidget = new ToolPreviewWidget(this);
@@ -1816,6 +1885,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           [this]() { emit backToOverviewRequested(); });
 
   btnDockToggle = new ToolbarBtn("dock_float", this);
+  btnAddTool = new ToolbarBtn("add", this);
+  btnAddTool->setToolTip(QStringLiteral("Tool hinzufügen"));
 
   btnSave = new ToolbarBtn("save", this);
   btnPalette = new ToolbarBtn("palette", this);
@@ -1826,7 +1897,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   m_buttons = {btnSave,     btnPen,      btnPencil, btnHighlighter,
                  btnEraser,    btnLasso,    btnRuler,    btnShape,  btnStickyNote,
                  btnText,      btnImage,    btnHand,     btnBackOverview,
-                 btnUndo,      btnRedo,     btnPalette,  btnBrushSize, btnDockToggle};
+                 btnUndo,      btnRedo,     btnPalette,  btnBrushSize, btnDockToggle,
+                 btnAddTool};
 
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
@@ -1975,10 +2047,17 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           [this]() { toggleRadialSettings(); });
   connect(btnBrushSize, &ToolbarBtn::clicked, this,
           [this]() { toggleRadialSettings(); });
+  if (btnAddTool) {
+    connect(btnAddTool, &ToolbarBtn::clicked, this,
+            &ModernToolbar::showToolPicker);
+  }
+  connect(&ToolManager::instance(), &ToolManager::configChanged, this,
+          [this](const ToolConfig &) { syncToolBadges(); });
 
   setStyle(Normal);
   setToolMode(ToolMode::Pen);
   ToolManager::instance().selectTool(ToolMode::Pen);
+  syncToolBadges();
 }
 
 // --- WICHTIG: Event-Handler sind jetzt HIER OBEN, damit sie gefunden werden
@@ -2483,6 +2562,50 @@ void ModernToolbar::resizeEvent(QResizeEvent *) {
 void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 
 // --- RESTLICHE FUNKTIONEN ---
+
+void ModernToolbar::openToolOptions() { showSettingsPopup(); }
+
+void ModernToolbar::showToolPicker() {
+  QWidget *host = parentWidget() ? parentWidget()->window() : window();
+  if (!host)
+    host = window();
+#ifdef Q_OS_ANDROID
+  if (auto *mw = qobject_cast<QMainWindow *>(host)) {
+    if (QWidget *cw = mw->centralWidget())
+      host = cw;
+  }
+#endif
+  ToolPickerOverlay::present(host, m_accentColor, [this](ToolMode mode) {
+    ToolManager::instance().selectTool(mode);
+    setToolMode(mode);
+    emit toolChanged(mode);
+    // Open options for configurable tools after picking.
+    if (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
+        mode == ToolMode::Highlighter || mode == ToolMode::Eraser ||
+        mode == ToolMode::Lasso || mode == ToolMode::Ruler ||
+        mode == ToolMode::Shape) {
+      QTimer::singleShot(120, this, [this]() { showSettingsPopup(); });
+    }
+  });
+}
+
+void ModernToolbar::syncToolBadges() {
+  const ToolConfig cfg = ToolManager::instance().config();
+  const QString w = QString::number(qMax(1, cfg.penWidth));
+  auto setBadge = [](ToolbarBtn *b, const QString &t) {
+    if (b)
+      b->setBadgeText(t);
+  };
+  setBadge(btnPen, w);
+  setBadge(btnPencil, w);
+  setBadge(btnEraser, w);
+  setBadge(btnHighlighter, QString::number(qMax(8, cfg.penWidth * 4)));
+  setBadge(btnText, QStringLiteral("10"));
+  setBadge(btnShape, QStringLiteral("1"));
+  setBadge(btnRuler, QStringLiteral("1"));
+  if (btnAddTool)
+    btnAddTool->setBadgeText(QString());
+}
 
 void ModernToolbar::showSettingsPopup() {
   if (mode_ != ToolMode::Pen && mode_ != ToolMode::Pencil &&
@@ -3441,12 +3564,13 @@ void ModernToolbar::updateLayout(bool animate) {
       }
       }
 
-      // Drawboard-ish tool order inside the vertical pill.
+      // Drawboard-ish tool order inside the vertical pill (+ at bottom).
       QList<ToolbarBtn *> railOrder;
       if (m_orientation == Vertical) {
-        railOrder = {btnHand,         btnLasso, btnPen,   btnPencil,
-                     btnHighlighter,  btnText,  btnShape, btnImage,
-                     btnEraser,       btnRuler, btnStickyNote, btnDockToggle};
+        railOrder = {btnHand,        btnLasso,       btnPen,     btnPencil,
+                     btnHighlighter, btnEraser,      btnText,    btnImage,
+                     btnShape,       btnRuler,       btnStickyNote,
+                     btnAddTool,     btnDockToggle};
       } else {
         for (auto *b : m_buttons) {
           if (!chromeRow.contains(b))
