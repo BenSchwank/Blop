@@ -24,12 +24,12 @@ class DataManager:
         """Client für Storage-Signierung; bevorzugt SUPABASE_SERVICE_ROLE_KEY (Sign-API braucht oft Service-Role)."""
         if DataManager._supabase_signing is not None:
             return DataManager._supabase_signing
-        url: str = os.environ.get("SUPABASE_URL") or ""
+        url: str = (os.environ.get("SUPABASE_URL") or "").strip().strip('"').strip("'").rstrip("/")
         key: str = (
             os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
             or os.environ.get("SUPABASE_KEY")
             or ""
-        ).strip()
+        ).strip().strip('"').strip("'")
         if not url or not key:
             return None
         try:
@@ -113,18 +113,32 @@ class DataManager:
         if DataManager._supabase is not None:
             return DataManager._supabase
             
-        url: str = os.environ.get("SUPABASE_URL")
-        key: str = os.environ.get("SUPABASE_KEY")
+        # Strip whitespace/quotes — Render/env paste mistakes cause DNS "name not known".
+        url: str = (os.environ.get("SUPABASE_URL") or "").strip().strip('"').strip("'")
+        key: str = (os.environ.get("SUPABASE_KEY") or "").strip().strip('"').strip("'")
+        if url.endswith("/"):
+            url = url.rstrip("/")
         
         if not url or not key:
             print("FATAL: SUPABASE_URL or SUPABASE_KEY not found in environment!")
+            return None
+
+        # Basic sanity: must be https URL with a host
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                print(f"FATAL: SUPABASE_URL looks invalid (no host): {url!r}")
+                return None
+        except Exception as parse_err:
+            print(f"FATAL: SUPABASE_URL parse error: {parse_err} raw={url!r}")
             return None
             
         try:
             DataManager._supabase = create_client(url, key)
             return DataManager._supabase
         except Exception as e:
-            print(f"Supabase Init Error: {e}")
+            print(f"Supabase Init Error: {e} url_host={urlparse(url).hostname!r}")
             return None
 
     @staticmethod

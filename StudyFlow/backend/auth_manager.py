@@ -87,6 +87,23 @@ class AuthManager:
             AuthManager._save_sessions(sessions)
 
     @staticmethod
+    def _db_unreachable_message(exc: Exception = None) -> str:
+        from urllib.parse import urlparse
+        host = ""
+        try:
+            raw = (os.environ.get("SUPABASE_URL") or "").strip().strip('"').strip("'")
+            host = urlparse(raw).hostname or ""
+        except Exception:
+            host = ""
+        base = "Server kann die Datenbank nicht erreichen (DNS)."
+        if host:
+            base += f" Host: {host}."
+        base += " Bitte SUPABASE_URL auf Render prüfen (keine Anführungszeichen, https://xxx.supabase.co)."
+        if exc:
+            print(f"AuthManager DB unreachable: {exc}")
+        return base
+
+    @staticmethod
     def _hash_password(password: str) -> str:
         """Returns pbkdf2_sha256$120000$<salt_hex>$<dk_hex>."""
         salt = secrets.token_hex(16)
@@ -189,7 +206,7 @@ class AuthManager:
                     if "email not confirmed" in err_msg:
                         return False, "Bitte bestätige zuerst deine E-Mail Adresse über den Link in deinem Postfach."
                     if "name or service not known" in err_msg or "errno -2" in err_msg or "nodename nor servname" in err_msg:
-                        return False, "Server kann die Datenbank nicht erreichen (DNS). Bitte Admin prüfen (SUPABASE_URL)."
+                        return False, AuthManager._db_unreachable_message(e)
                     if "timed out" in err_msg or "connection" in err_msg:
                         return False, "Verbindung zur Anmeldung fehlgeschlagen. Bitte später erneut versuchen."
                     return False, "E-Mail oder Passwort falsch."
@@ -200,7 +217,7 @@ class AuthManager:
                 except Exception as e:
                     err_msg = str(e).lower()
                     if "name or service not known" in err_msg or "errno -2" in err_msg:
-                        return False, "Server kann die Datenbank nicht erreichen (DNS). Bitte Admin prüfen (SUPABASE_URL)."
+                        return False, AuthManager._db_unreachable_message(e)
                     print(f"AuthManager.login get_user crash: {e}")
                     return False, "Datenbankfehler bei der Anmeldung. Bitte später erneut versuchen."
 
@@ -228,7 +245,7 @@ class AuthManager:
             print(f"AuthManager.login crash: {e}")
             err_msg = str(e).lower()
             if "name or service not known" in err_msg or "errno -2" in err_msg:
-                return False, "Server kann die Datenbank nicht erreichen (DNS). Bitte Admin prüfen (SUPABASE_URL)."
+                return False, AuthManager._db_unreachable_message(e)
             return False, "Ein interner Fehler ist aufgetreten."
 
     @staticmethod
