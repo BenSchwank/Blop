@@ -9,6 +9,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -18,11 +19,20 @@ bool confirm(QWidget *parent, const QString &title, const QString &message,
              const QString &acceptLabel, const QString &rejectLabel) {
   QDialog dlg(parent);
   dlg.setWindowTitle(title);
+  dlg.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
   auto *lay = new QVBoxLayout(&dlg);
   lay->setContentsMargins(20, 18, 20, 16);
   lay->setSpacing(12);
+  auto *titleLbl = new QLabel(title, &dlg);
+  titleLbl->setStyleSheet(BlopTheme::themed(
+      QStringLiteral("color: %1; font-size: 16px; font-weight: 700; "
+                     "background: transparent;")
+          .arg(BlopTheme::textPrimary().name())));
+  lay->addWidget(titleLbl);
   auto *lbl = new QLabel(message, &dlg);
   lbl->setWordWrap(true);
+  lbl->setMaximumWidth(360);
+  lbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
   lbl->setStyleSheet(BlopTheme::themed(
       QStringLiteral("color: %1; background: transparent;")
           .arg(BlopTheme::textPrimary().name())));
@@ -50,6 +60,7 @@ QString promptText(QWidget *parent, const QString &title, const QString &label,
                    const QString &initial) {
   QDialog dlg(parent);
   dlg.setWindowTitle(title);
+  dlg.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
   auto *lay = new QVBoxLayout(&dlg);
   lay->setContentsMargins(20, 18, 20, 16);
   lay->setSpacing(12);
@@ -225,11 +236,20 @@ int promptInt(QWidget *parent, const QString &title, const QString &label,
 void notify(QWidget *parent, const QString &title, const QString &message) {
   QDialog dlg(parent);
   dlg.setWindowTitle(title);
+  dlg.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
   auto *lay = new QVBoxLayout(&dlg);
   lay->setContentsMargins(20, 18, 20, 16);
   lay->setSpacing(12);
+  auto *titleLbl = new QLabel(title, &dlg);
+  titleLbl->setStyleSheet(BlopTheme::themed(
+      QStringLiteral("color: %1; font-size: 16px; font-weight: 700; "
+                     "background: transparent;")
+          .arg(BlopTheme::textPrimary().name())));
+  lay->addWidget(titleLbl);
   auto *lbl = new QLabel(message, &dlg);
   lbl->setWordWrap(true);
+  lbl->setMaximumWidth(360);
+  lbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
   lbl->setStyleSheet(BlopTheme::themed(
       QStringLiteral("color: %1; background: transparent;")
           .arg(BlopTheme::textPrimary().name())));

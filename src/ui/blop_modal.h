@@ -90,7 +90,7 @@ private:
   QPropertyAnimation *m_backdropAnim{nullptr};
   QPropertyAnimation *m_cardAnim{nullptr};
   Mode m_mode{Mode::Auto};
-  int m_preferredCardWidth{520};
+  int m_preferredCardWidth{420};
   bool m_dismissing{false};
   bool m_dragging{false};
   QPoint m_dragStart;

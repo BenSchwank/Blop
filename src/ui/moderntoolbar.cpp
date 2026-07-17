@@ -2429,20 +2429,32 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         QRect snapGeom = m_snapPreview->geometry();
         m_snapPreview->hide();
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        
-        bool isTopSnap = (snapGeom.y() == 10 && snapGeom.width() > 100);
-        bool isVertical = !isTopSnap;
-        
+        setMinimumSize(0, 0);
+        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+
+        // Prefer geometry shape over fragile y==10 checks (DPI/safe-area
+        // offsets broke top-snap → left a tall vertical pill on Windows).
+        const bool isTopSnap = snapGeom.width() >= snapGeom.height();
+
         if (isTopSnap) {
-            setMaximumSize(snapGeom.size());
+            setOrientation(Horizontal, false);
             setFixedSize(snapGeom.size());
-            setOrientation(Horizontal, false); // no internal animation, we'll do geom animation
         } else {
-            setMaximumSize(snapGeom.size());
-            setFixedSize(snapGeom.size());
-            setOrientation(Vertical, false);
+            // Desktop: keep horizontal toolbar; side-snap only repositions.
+            // Vertical pill layout was the "verpackt" one-icon bar.
+            setOrientation(Horizontal, false);
+            const int h = UiScale::dp(52);
+            const int w = qMax(calculateMinLength(), snapGeom.width());
+            snapGeom.setHeight(h);
+            snapGeom.setWidth(w);
+            if (snapGeom.x() > parentWidget()->width() / 2)
+              snapGeom.moveLeft(parentWidget()->width() - w -
+                                UiScale::safeHorizontalPaddingPx(parentWidget()));
+            else
+              snapGeom.moveLeft(UiScale::safeHorizontalPaddingPx(parentWidget()));
+            setFixedSize(w, h);
         }
-        
+
         // Smooth snap animation
         QPropertyAnimation *snapAnim = new QPropertyAnimation(this, "geometry");
         snapAnim->setDuration(220);
@@ -3054,6 +3066,13 @@ void ModernToolbar::checkOrientation(const QPoint &globalPos) {
   Q_UNUSED(globalPos);
   if (!parentWidget() || m_style != Normal)
     return;
+#ifndef Q_OS_ANDROID
+  // Desktop: never flip to a vertical pill. Side proximity used to leave a
+  // tall one-icon "verpackt" bar on Windows (DPI + snap fighting).
+  if (m_orientation != Horizontal)
+    setOrientation(Horizontal, false);
+  return;
+#else
   QRect myRect = geometry();
   int parentW = parentWidget()->width();
   int parentH = parentWidget()->height();
@@ -3070,14 +3089,33 @@ void ModernToolbar::checkOrientation(const QPoint &globalPos) {
   else
     return;
   setOrientation(horizontal ? Horizontal : Vertical, true);
+#endif
 }
 void ModernToolbar::setOrientation(Orientation o, bool animate) {
   if (m_orientation == o)
     return;
   m_orientation = o;
   m_cachedMask = QRegion();
+  // Clear stale min/max from the previous orientation before applying new
+  // locks — leftover Vertical fixed-width is what produced the packed pill.
+  setMinimumSize(0, 0);
+  setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+
   QSize currentS = size();
-  QSize targetS(currentS.height(), currentS.width());
+  QSize targetS;
+  if (m_orientation == Vertical) {
+    const int w = UiScale::dp(65);
+    const int h = qMax(calculateMinLength(), currentS.width());
+    targetS = QSize(w, h);
+    setFixedWidth(w);
+    setMinimumHeight(h);
+  } else {
+    const int h = UiScale::dp(56);
+    const int w = qMax(calculateMinLength(), currentS.height());
+    targetS = QSize(w, h);
+    setFixedHeight(h);
+    setMinimumWidth(w);
+  }
   if (animate) {
     QPropertyAnimation *anim = new QPropertyAnimation(this, "size");
     anim->setDuration(250);
@@ -3086,6 +3124,10 @@ void ModernToolbar::setOrientation(Orientation o, bool animate) {
     anim->setEasingCurve(QEasingCurve::OutCubic);
     connect(anim, &QPropertyAnimation::valueChanged, this,
             [this](const QVariant &) { updateLayout(); });
+    connect(anim, &QPropertyAnimation::finished, this, [this]() {
+      updateLayout();
+      update();
+    });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
   } else {
     resize(targetS);

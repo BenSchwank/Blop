@@ -45,8 +45,9 @@ jobs:
           $qtDir = "${{ runner.workspace }}\Qt"
           $qtBase = "$qtDir\6.9.1\msvc2022_64"
 
-          # Step 1: install main modules (all have clean archives)
-          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtmultimedia qtnetworkauth --outputdir $qtDir
+          # Step 1: install main modules (all have clean archives).
+          # qtpdf is required for PDF page import on Windows desktop.
+          aqt install-qt windows desktop 6.9.1 win64_msvc2022_64 -m qtwebengine qtwebchannel qtmultimedia qtnetworkauth qtpdf --outputdir $qtDir
           if ($LASTEXITCODE -ne 0) {
             Write-Warning "Primary Qt install exited $LASTEXITCODE — will verify critical cmake configs"
           }
@@ -74,6 +75,7 @@ jobs:
           Assert-QtCMakeConfig "qtwebchannel" "Qt6WebChannel" "$qtBase\lib\cmake\Qt6WebChannel\Qt6WebChannelConfig.cmake"
           Assert-QtCMakeConfig "qtwebengine" "Qt6WebEngineCore" "$qtBase\lib\cmake\Qt6WebEngineCore\Qt6WebEngineCoreConfig.cmake"
           Assert-QtCMakeConfig "qtwebengine" "Qt6WebEngineWidgets" "$qtBase\lib\cmake\Qt6WebEngineWidgets\Qt6WebEngineWidgetsConfig.cmake"
+          Assert-QtCMakeConfig "qtpdf" "Qt6Pdf" "$qtBase\lib\cmake\Qt6Pdf\Qt6PdfConfig.cmake"
 
           # Überprüfung: Existiert qmake?
           if (-not (Test-Path "$qtBase\bin\qmake.exe")) {

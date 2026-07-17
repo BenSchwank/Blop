@@ -1,6 +1,7 @@
 #include "pagethumbnailsidebar.h"
 
 #include <QAbstractItemView>
+#include <QFrame>
 #include <QIcon>
 #include <QListWidget>
 #include <QPushButton>
@@ -39,18 +40,29 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
   setObjectName(QStringLiteral("PageThumbnailSidebar"));
   setAttribute(Qt::WA_StyledBackground, true);
   const RailMetrics m = railMetrics(this);
-  setFixedWidth(m.width);
-  setStyleSheet(QStringLiteral(
-      "QWidget#PageThumbnailSidebar {"
-      "  background-color: rgba(16, 14, 24, 0.72);"
-      "  border-right: 1px solid rgba(120, 130, 160, 0.16);"
-      "}"));
+  m_expandedWidth = m.width;
+  setFixedWidth(m_expandedWidth);
 
-  QVBoxLayout *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(m.pad, UiScale::dp(10), m.pad, UiScale::dp(10));
+  auto *root = new QVBoxLayout(this);
+  root->setContentsMargins(0, 0, 0, 0);
+  root->setSpacing(0);
+
+  m_btnToggle = new QPushButton(QStringLiteral("›"), this);
+  m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
+  m_btnToggle->setFixedHeight(UiScale::dp(28));
+  m_btnToggle->setCursor(Qt::PointingHandCursor);
+  m_btnToggle->setToolTip(QStringLiteral("Seitenmanager einklappen"));
+  connect(m_btnToggle, &QPushButton::clicked, this,
+          &PageThumbnailSidebar::toggleCollapsed);
+  root->addWidget(m_btnToggle);
+
+  m_railBody = new QWidget(this);
+  m_railBody->setObjectName(QStringLiteral("PageRailBody"));
+  auto *lay = new QVBoxLayout(m_railBody);
+  lay->setContentsMargins(m.pad, UiScale::dp(6), m.pad, UiScale::dp(10));
   lay->setSpacing(UiScale::dp(6));
 
-  m_list = new QListWidget(this);
+  m_list = new QListWidget(m_railBody);
   m_list->setFrameStyle(QFrame::NoFrame);
   m_list->setSpacing(UiScale::dp(6));
   m_list->setIconSize(QSize(m.thumbW, m.thumbH));
@@ -60,40 +72,95 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
           [this](QListWidgetItem *item) { onItemClicked(m_list->row(item)); });
   lay->addWidget(m_list, 1);
 
-  m_btnAddPage = new QPushButton(QStringLiteral("+"), this);
+  m_btnAddPage = new QPushButton(QStringLiteral("+"), m_railBody);
   m_btnAddPage->setObjectName(QStringLiteral("PageRailAddBtn"));
   m_btnAddPage->setFixedHeight(UiScale::dp(30));
   m_btnAddPage->setCursor(Qt::PointingHandCursor);
   m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
-  connect(m_btnAddPage, &QPushButton::clicked, this, &PageThumbnailSidebar::addPageRequested);
+  connect(m_btnAddPage, &QPushButton::clicked, this,
+          &PageThumbnailSidebar::addPageRequested);
   lay->addWidget(m_btnAddPage);
 
+  root->addWidget(m_railBody, 1);
+  refreshListStyle();
+}
+
+void PageThumbnailSidebar::setCollapsed(bool collapsed) {
+  if (m_collapsed == collapsed)
+    return;
+  m_collapsed = collapsed;
+  applyCollapsedState();
+  emit collapsedChanged(m_collapsed);
+}
+
+void PageThumbnailSidebar::toggleCollapsed() {
+  setCollapsed(!m_collapsed);
+}
+
+void PageThumbnailSidebar::applyCollapsedState() {
+  if (m_railBody)
+    m_railBody->setVisible(!m_collapsed);
+  if (m_collapsed) {
+    setFixedWidth(UiScale::dp(28));
+    if (m_btnToggle) {
+      m_btnToggle->setText(QStringLiteral("‹"));
+      m_btnToggle->setToolTip(QStringLiteral("Seitenmanager aufklappen"));
+    }
+  } else {
+    if (m_expandedWidth <= 0)
+      m_expandedWidth = railMetrics(this).width;
+    setFixedWidth(m_expandedWidth);
+    if (m_btnToggle) {
+      m_btnToggle->setText(QStringLiteral("›"));
+      m_btnToggle->setToolTip(QStringLiteral("Seitenmanager einklappen"));
+    }
+  }
   refreshListStyle();
 }
 
 void PageThumbnailSidebar::refreshListStyle() {
   const QString accent = m_accentColor.name(QColor::HexRgb);
-  m_list->setStyleSheet(
-      QStringLiteral("QListWidget { background: transparent; border: none; outline: 0; }"
-                     "QListWidget::item {"
-                     "  border: 1px solid rgba(120,130,160,0.18);"
-                     "  border-radius: 10px;"
-                     "  color: rgba(232,228,255,0.75);"
-                     "  padding: 2px;"
-                     "  background: rgba(255,255,255,0.03);"
-                     "}"
-                     "QListWidget::item:selected {"
-                     "  background: %1;"
-                     "  border: 1.5px solid %2;"
-                     "  color: #F4F5FB;"
-                     "}"
-                     "QListWidget::item:hover {"
-                     "  background: rgba(255,255,255,0.07);"
-                     "}")
-          .arg(QColor(m_accentColor.red(), m_accentColor.green(),
-                      m_accentColor.blue(), 48)
-                   .name(QColor::HexArgb),
-               accent));
+  setStyleSheet(QStringLiteral(
+      "QWidget#PageThumbnailSidebar {"
+      "  background-color: rgba(16, 14, 24, 0.72);"
+      "  border-left: 1px solid rgba(120, 130, 160, 0.16);"
+      "}"
+      "QPushButton#PageRailToggleBtn {"
+      "  background: transparent;"
+      "  color: rgba(232,228,255,0.70);"
+      "  border: none;"
+      "  border-bottom: 1px solid rgba(120,130,160,0.16);"
+      "  font-size: 16px;"
+      "  font-weight: 700;"
+      "}"
+      "QPushButton#PageRailToggleBtn:hover {"
+      "  background: rgba(124,92,252,0.14);"
+      "  color: #F4F5FB;"
+      "}"));
+
+  if (m_list) {
+    m_list->setStyleSheet(
+        QStringLiteral("QListWidget { background: transparent; border: none; outline: 0; }"
+                       "QListWidget::item {"
+                       "  border: 1px solid rgba(120,130,160,0.18);"
+                       "  border-radius: 10px;"
+                       "  color: rgba(232,228,255,0.75);"
+                       "  padding: 2px;"
+                       "  background: rgba(255,255,255,0.03);"
+                       "}"
+                       "QListWidget::item:selected {"
+                       "  background: %1;"
+                       "  border: 1.5px solid %2;"
+                       "  color: #F4F5FB;"
+                       "}"
+                       "QListWidget::item:hover {"
+                       "  background: rgba(255,255,255,0.07);"
+                       "}")
+            .arg(QColor(m_accentColor.red(), m_accentColor.green(),
+                        m_accentColor.blue(), 48)
+                     .name(QColor::HexArgb),
+                 accent));
+  }
 
   if (m_btnAddPage) {
     m_btnAddPage->setStyleSheet(
@@ -135,11 +202,16 @@ void PageThumbnailSidebar::setAccentColor(const QColor &color) {
 void PageThumbnailSidebar::rebuild() {
   ++m_rebuildEpoch;
   const int epoch = m_rebuildEpoch;
+  if (!m_list)
+    return;
   m_list->clear();
   if (!m_view || !m_view->note())
     return;
 
   const RailMetrics m = railMetrics(this);
+  m_expandedWidth = m.width;
+  if (!m_collapsed)
+    setFixedWidth(m_expandedWidth);
   m_list->setIconSize(QSize(m.thumbW, m.thumbH));
   const Note *note = m_view->note();
   const int count = note->pages.size();
@@ -157,7 +229,8 @@ void PageThumbnailSidebar::rebuild() {
     m_list->setCurrentRow(m_currentPage);
 }
 
-void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item, int epoch) {
+void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item,
+                                            int epoch) {
   if (!m_view || !item)
     return;
   const RailMetrics m = railMetrics(this);

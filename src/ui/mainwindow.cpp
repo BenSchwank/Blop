@@ -6,6 +6,7 @@
 #include "documenttabbar.h"
 #include "librarytagspanel.h"
 #include "librarytagstore.h"
+#include "cloudstoragestore.h"
 #include "pagethumbnailsidebar.h"
 #include "penpresetbar.h"
 #include "newnotedialog.h"
@@ -96,6 +97,8 @@
 #include <QSettings>
 #include <QSlider>
 #include <QStandardPaths>
+#include <QFileDialog>
+#include <QUuid>
 #include <QStyle>
 #include <QTimer>
 #include <QSignalBlocker>
@@ -2577,7 +2580,9 @@ void MainWindow::setupTitleBar() {
   m_titleSearchBar->setPlaceholderText(
       QStringLiteral("Notizen durchsuchen..."));
   m_titleSearchBar->setFixedHeight(32);
-  m_titleSearchBar->setFixedWidth(200);
+  m_titleSearchBar->setMinimumWidth(UiScale::dp(140));
+  m_titleSearchBar->setMaximumWidth(UiScale::dp(260));
+  m_titleSearchBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
   m_titleSearchBar->setStyleSheet(
       "QLineEdit {"
       "  background: rgba(255,255,255,0.06);"
@@ -2730,6 +2735,15 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
           dockX = m_editorCenterWidget->width() - dockW;
         tb->setGeometry(dockX, headerH, dockW, 48);
       } else {
+        // Recover from a leftover vertical pill size (Windows DPI / snap).
+        const int idealW = tb->calculateMinLength();
+        if (tb->width() < idealW / 2 || tb->height() > UiScale::dp(80)) {
+          tb->setOrientation(ModernToolbar::Horizontal, false);
+          tb->setMinimumSize(0, 0);
+          tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+          tb->setFixedHeight(UiScale::dp(56));
+          tb->resize(idealW, UiScale::dp(56));
+        }
         int xPos = (m_editorCenterWidget->width() - tb->width()) / 2;
         int yPos = qMax(headerH + UiScale::dp(10), tb->y());
         tb->move(xPos, yPos);
@@ -4197,7 +4211,10 @@ void MainWindow::setupUi() {
   connect(btnTagsShelf, &QPushButton::clicked, this, [this]() {
     if (!m_libraryTagsPanel)
       return;
-    m_libraryTagsPanel->setVisible(!m_libraryTagsPanel->isVisible());
+    const bool next = !m_libraryTagsPanel->isVisible();
+    m_libraryTagsPanel->setVisible(next);
+    QSettings tagUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    tagUi.setValue(QStringLiteral("ui/libraryTagsOpen"), next);
   });
   BlopRipple::attachPressFeedback(btnTagsShelf, 0.94);
   titleRow->addWidget(btnTagsShelf, 0);
@@ -4422,11 +4439,14 @@ void MainWindow::setupUi() {
             applyLibraryFilters();
             rebuildPageSettingsTags();
           });
-#ifdef Q_OS_ANDROID
-  // Phones: keep the shelf collapsible-width by hiding until landscape/tablet.
-  if (!UiScale::isAndroidTablet(this))
-    m_libraryTagsPanel->hide();
-#endif
+  // Collapsible tags shelf on all platforms — default closed so the library
+  // matches the left folder sidebar (open on demand via Tags button).
+  {
+    QSettings tagUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    const bool tagsOpen =
+        tagUi.value(QStringLiteral("ui/libraryTagsOpen"), false).toBool();
+    m_libraryTagsPanel->setVisible(tagsOpen);
+  }
   libraryBodyLay->addWidget(m_libraryTagsPanel, 0);
   overviewLayout->addWidget(libraryBody, 1);
 
@@ -4471,8 +4491,12 @@ void MainWindow::setupUi() {
     topToolbar->setDockMode(false);
 #endif
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    // Force a clean horizontal size — never inherit a leftover vertical pill.
+    topToolbar->setMinimumSize(0, 0);
+    topToolbar->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     int idealW = topToolbar->calculateMinLength();
-    topToolbar->resize(idealW, 52);
+    topToolbar->setFixedHeight(UiScale::dp(56));
+    topToolbar->resize(idealW, UiScale::dp(56));
     m_floatingTools = topToolbar;
   }
   m_floatingTools->raise();
@@ -4576,9 +4600,21 @@ void MainWindow::setupUi() {
   m_noteHeader->hide();
   centerLayout->insertWidget(0, m_noteHeader);
 
-  // ── Page Thumbnail Sidebar (persistent left strip) ───────────────────────
+  // ── Page Thumbnail Sidebar (collapsible right rail) ──────────────────────
   m_pageThumbnailSidebar = new PageThumbnailSidebar(m_editorContainer);
   m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+  {
+    QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    // Default collapsed — user opens when needed (not permanently on).
+    const bool collapsed =
+        pageUi.value(QStringLiteral("ui/pageRailCollapsed"), true).toBool();
+    m_pageThumbnailSidebar->setCollapsed(collapsed);
+  }
+  connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::collapsedChanged, this,
+          [](bool collapsed) {
+            QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            pageUi.setValue(QStringLiteral("ui/pageRailCollapsed"), collapsed);
+          });
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::pageSelected, this,
           [this](int pageIndex) {
             if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
@@ -4599,7 +4635,9 @@ void MainWindow::setupUi() {
               }
             }
           });
-  editorMainLayout->insertWidget(0, m_pageThumbnailSidebar);
+  // Right side of the editor (after the center widget is added below).
+  editorMainLayout->addWidget(m_editorCenterWidget, 1);
+  editorMainLayout->addWidget(m_pageThumbnailSidebar, 0);
 
   // Shared handlers: the same code runs whether the active toolbar is
   // ModernToolbar (desktop / Android tablet) or AndroidPhoneToolbar (phone).
@@ -4694,7 +4732,6 @@ void MainWindow::setupUi() {
     connect(phoneToolbar, &AndroidPhoneToolbar::penConfigChanged, this,
             onPenConfigChanged);
   }
-  editorMainLayout->addWidget(m_editorCenterWidget);
   setupRightSidebar();
   qDebug() << "setupUi() nach setupRightSidebar";
 #ifdef Q_OS_ANDROID
@@ -6057,8 +6094,43 @@ void MainWindow::setupSidebar() {
   addItem(QStringLiteral("Alle"), QStringLiteral("folder"));
   addItem(QStringLiteral("Blop Notizen"), QStringLiteral("folder"));
   addItem(QStringLiteral("Gerät"), QStringLiteral("device"));
-  // Cloud / Shared rows intentionally omitted until integrations ship —
-  // leaving stub entries caused dead clicks and "coming soon" dialogs.
+
+  // Cloud sync folders (Google Drive / Nextcloud / … / custom).
+  {
+    auto *cloudsHeader = new QListWidgetItem(m_navSidebar);
+    cloudsHeader->setText(QStringLiteral("Cloud-Speicher"));
+    cloudsHeader->setData(Qt::UserRole + 1, true); // header
+    cloudsHeader->setData(Qt::UserRole + 4, QStringLiteral("clouds_header"));
+    cloudsHeader->setFlags(Qt::ItemIsEnabled);
+
+    const QVector<CloudStorageEntry> clouds = CloudStorageStore::load();
+    for (const CloudStorageEntry &e : clouds) {
+      auto *item = new QListWidgetItem(m_navSidebar);
+      item->setText(e.name);
+      item->setIcon(createModernIcon(CloudStorageStore::iconForType(e.type),
+                                     BlopTheme::textSecondary()));
+      item->setData(Qt::UserRole + 11, CloudStorageStore::iconForType(e.type));
+      item->setData(Qt::UserRole + 5, QStringLiteral("clouds_item"));
+      item->setData(Qt::UserRole + 12, e.id);
+      item->setData(Qt::UserRole + 13, e.type);
+      if (!e.path.isEmpty() && QDir(e.path).exists())
+        item->setData(Qt::UserRole + 10, e.path);
+      item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+      const QString tip = e.path.isEmpty()
+                              ? QStringLiteral("Tippen zum Verknüpfen eines Sync-Ordners")
+                              : e.path;
+      item->setToolTip(tip);
+    }
+
+    auto *addCloud = new QListWidgetItem(m_navSidebar);
+    addCloud->setText(QStringLiteral("Eigene Cloud hinzufügen…"));
+    addCloud->setIcon(
+        createModernIcon(QStringLiteral("cloud"), BlopTheme::textSecondary()));
+    addCloud->setData(Qt::UserRole + 11, QStringLiteral("cloud"));
+    addCloud->setData(Qt::UserRole + 5, QStringLiteral("clouds_add"));
+    addCloud->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+  }
+
   m_navSidebar->setCurrentRow(1);
   connect(m_navSidebar, &QListWidget::itemClicked, this,
           &MainWindow::onNavItemClicked);
@@ -6411,6 +6483,81 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   if (name == QStringLiteral("Gerät")) {
     m_fileModel->setRootPath(QDir::rootPath());
     setLibraryRootFromSource(m_fileModel->index(QDir::rootPath()));
+#ifdef Q_OS_ANDROID
+    onToggleSidebar();
+#endif
+    return;
+  }
+
+  const QString cloudRole = item->data(Qt::UserRole + 5).toString();
+  if (cloudRole == QLatin1String("clouds_add")) {
+    const QString label = BlopDialogs::promptText(
+        this, QStringLiteral("Eigene Cloud"),
+        QStringLiteral("Anzeigename:"), QStringLiteral("Meine Cloud"));
+    if (label.isEmpty())
+      return;
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Sync-Ordner wählen"),
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
+    if (folder.isEmpty())
+      return;
+    QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+    CloudStorageEntry e;
+    e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    e.name = label;
+    e.type = QStringLiteral("custom");
+    e.path = folder;
+    entries.append(e);
+    CloudStorageStore::save(entries);
+    // Insert before the trailing "Eigene Cloud hinzufügen…" row.
+    int insertAt = m_navSidebar->count();
+    for (int i = 0; i < m_navSidebar->count(); ++i) {
+      if (m_navSidebar->item(i)->data(Qt::UserRole + 5).toString() ==
+          QLatin1String("clouds_add")) {
+        insertAt = i;
+        break;
+      }
+    }
+    auto *navItem = new QListWidgetItem();
+    navItem->setText(e.name);
+    navItem->setIcon(createModernIcon(QStringLiteral("cloud"),
+                                      BlopTheme::textSecondary()));
+    navItem->setData(Qt::UserRole + 11, QStringLiteral("cloud"));
+    navItem->setData(Qt::UserRole + 5, QStringLiteral("clouds_item"));
+    navItem->setData(Qt::UserRole + 12, e.id);
+    navItem->setData(Qt::UserRole + 13, e.type);
+    navItem->setData(Qt::UserRole + 10, e.path);
+    navItem->setToolTip(e.path);
+    navItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    m_navSidebar->insertItem(insertAt, navItem);
+    m_fileModel->setRootPath(folder);
+    setLibraryRootFromSource(m_fileModel->index(folder));
+#ifdef Q_OS_ANDROID
+    onToggleSidebar();
+#endif
+    return;
+  }
+
+  if (cloudRole == QLatin1String("clouds_item")) {
+    const QString id = item->data(Qt::UserRole + 12).toString();
+    QString path = item->data(Qt::UserRole + 10).toString();
+    if (path.isEmpty() || !QDir(path).exists()) {
+      path = QFileDialog::getExistingDirectory(
+          this,
+          QStringLiteral("%1 — Sync-Ordner wählen").arg(item->text()),
+          QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
+      if (path.isEmpty())
+        return;
+      QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+      if (CloudStorageEntry *e = CloudStorageStore::findMutable(entries, id)) {
+        e->path = path;
+        CloudStorageStore::save(entries);
+      }
+      item->setData(Qt::UserRole + 10, path);
+      item->setToolTip(path);
+    }
+    m_fileModel->setRootPath(path);
+    setLibraryRootFromSource(m_fileModel->index(path));
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
@@ -7612,9 +7759,9 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
-    // Everyday page nav lives on the left rail; full PageManager opens from ⋯.
+    // Everyday page nav lives on the right rail; title-bar button toggles it.
     if (m_btnTitleBarPageManager)
-      m_btnTitleBarPageManager->setVisible(false);
+      m_btnTitleBarPageManager->setVisible(inNotesMode && isEditor);
   }
 #endif
   
@@ -7959,6 +8106,13 @@ void MainWindow::onEditorNoteOverflowMenu() {
 }
 
 void MainWindow::onTogglePageManager() {
+  // Prefer the lightweight right page rail when the editor is open.
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
+    m_pageThumbnailSidebar->toggleCollapsed();
+    return;
+  }
+  if (!m_pageManager)
+    return;
   if (m_pageManager->isVisible()) {
     m_pageManager->hide();
   } else {

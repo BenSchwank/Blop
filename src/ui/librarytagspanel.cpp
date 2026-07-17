@@ -186,8 +186,11 @@ void LibraryTagsPanel::rebuildList(const QStringList &preserveSelection) {
 
 void LibraryTagsPanel::refreshTheme() {
   const bool dark = BlopTheme::instance().isDark();
-  const QString bg = BlopTheme::surfaceMuted().name(QColor::HexRgb);
-  const QString panelBg = dark ? QStringLiteral("#12101C")
+  // Match left Super/folder sidebar surface so Tags doesn't look like a
+  // foreign panel on the right.
+  const QString bg = dark ? QStringLiteral("rgba(255,255,255,0.04)")
+                          : BlopTheme::surfaceMuted().name(QColor::HexRgb);
+  const QString panelBg = dark ? QStringLiteral("rgba(16, 14, 24, 0.92)")
                                : BlopTheme::surfaceBase().name(QColor::HexRgb);
   const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
   const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
@@ -201,8 +204,9 @@ void LibraryTagsPanel::refreshTheme() {
       "  border-left: 1px solid %2;"
       "}"
       "QLabel#libraryTagsTitle {"
-      "  color: %3; font-size: 15px; font-weight: 700;"
-      "  letter-spacing: -0.2px; background: transparent;"
+      "  color: %3; font-size: 13px; font-weight: 700;"
+      "  letter-spacing: 0.2px; background: transparent;"
+      "  text-transform: uppercase;"
       "}"
       "QLabel#libraryTagsHint {"
       "  color: %4; font-size: 11px; font-weight: 500;"
@@ -210,7 +214,7 @@ void LibraryTagsPanel::refreshTheme() {
       "}"
       "QLineEdit#libraryTagsInput {"
       "  background: %5; color: %3; border: 1px solid %2;"
-      "  border-radius: 12px; padding: 0 12px; min-height: 34px;"
+      "  border-radius: 10px; padding: 0 12px; min-height: 34px;"
       "  font-size: 12px;"
       "}"
       "QLineEdit#libraryTagsInput:focus { border: 1px solid %6; }"
@@ -229,14 +233,14 @@ void LibraryTagsPanel::refreshTheme() {
       "  font-size: 12px;"
       "}"
       "QListWidget#libraryTagsList::item {"
-      "  background: %5; border: 1px solid %2; border-radius: 12px;"
-      "  padding: 8px 10px; margin: 2px 0;"
+      "  background: transparent; border: none; border-radius: 8px;"
+      "  padding: 8px 10px; margin: 1px 0;"
       "}"
       "QListWidget#libraryTagsList::item:selected {"
       "  background: rgba(124,92,252,0.18); border: 1px solid %6; color: %3;"
       "}"
       "QListWidget#libraryTagsList::item:hover:!selected {"
-      "  border-color: %6;"
+      "  background: rgba(255,255,255,0.05);"
       "}")
                     .arg(panelBg, border, text, muted, bg, accent));
   Q_UNUSED(radius);

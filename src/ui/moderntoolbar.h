@@ -143,7 +143,7 @@ protected:
 private:
     Style m_style{Normal};
     RadialType m_radialType{FullCircle};
-    Orientation m_orientation{Vertical};
+    Orientation m_orientation{Horizontal};
 
     ToolMode mode_{ToolMode::Pen};
     ToolConfig m_config;

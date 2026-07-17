@@ -88,8 +88,9 @@ else()
     # error instead of a nested WebEngineWidgets failure.
     find_package(Qt6 REQUIRED COMPONENTS WebChannel)
     find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets)
-    # PDF support for import (optional, but present in standard Qt6 desktop install)
-    find_package(Qt6 OPTIONAL_COMPONENTS Pdf)
+    # PDF support for import — required on desktop so Windows builds don't
+    # ship with a dead "PDF-Unterstützung nicht verfügbar" path.
+    find_package(Qt6 REQUIRED COMPONENTS Pdf)
 endif()
 
 qt_add_executable(Blop
@@ -148,6 +149,8 @@ qt_add_executable(Blop
     src/ui/librarytagstore.h
     src/ui/librarytagspanel.cpp
     src/ui/librarytagspanel.h
+    src/ui/cloudstoragestore.cpp
+    src/ui/cloudstoragestore.h
     src/ui/blop_dialogs.cpp
     src/ui/blop_dialogs.h
     src/ui/introscreen.h
@@ -426,11 +429,8 @@ else()
     # Desktop: WebEngine linken und Define setzen
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
-    # Optional PDF module
-    if(Qt6Pdf_FOUND)
-        target_link_libraries(Blop PRIVATE Qt6::Pdf)
-        target_compile_definitions(Blop PRIVATE BLOP_HAS_PDF)
-    endif()
+    target_link_libraries(Blop PRIVATE Qt6::Pdf)
+    target_compile_definitions(Blop PRIVATE BLOP_HAS_PDF)
 endif()
 
 # --- ONNX Runtime (Offline Math OCR) ---

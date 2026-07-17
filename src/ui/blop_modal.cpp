@@ -144,7 +144,8 @@ BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,
   }
 
   content->setParent(m_card);
-  cardLay->addWidget(content, 1);
+  // Don't stretch short dialogs to fill 85% of the window height.
+  cardLay->addWidget(content, 0);
 
   applyTheme();
   connect(&BlopTheme::instance(), &BlopTheme::themeChanged, this,
@@ -264,11 +265,33 @@ void BlopModal::layoutContent() {
                               qMin(W - pad, UiScale::dp(560)));
     m_card->setGeometry(W - sheetW, 0, sheetW, H);
   } else {
+    // Compact centered card. Measure height *after* giving content a real
+    // width — word-wrapped QLabels otherwise report a skyscraper sizeHint
+    // (one glyph per line) and overlays look "extrem lang gestreckt".
     const int cardW = qBound(UiScale::dp(320),
-                             qMin(m_preferredCardWidth, W - 2 * pad),
-                             qMin(W - 2 * pad, UiScale::dp(720)));
-    const int cardH = qBound(UiScale::dp(220), int(H * 0.85),
-                             H - 2 * pad);
+                             qMin(m_preferredCardWidth > 0
+                                      ? m_preferredCardWidth
+                                      : UiScale::dp(420),
+                                  W - 2 * pad),
+                             qMin(W - 2 * pad, UiScale::dp(520)));
+    int contentH = UiScale::dp(140);
+    if (m_content) {
+      m_content->setMaximumWidth(cardW);
+      m_content->setMinimumWidth(qMin(cardW, UiScale::dp(280)));
+      if (auto *lay = m_content->layout())
+        lay->activate();
+      m_content->adjustSize();
+      const QSize hint = m_content->sizeHint().isValid()
+                             ? m_content->sizeHint()
+                             : m_content->minimumSizeHint();
+      // Prefer layout's heightForWidth when available (dialogs with wrap).
+      int measured = hint.height();
+      if (m_content->hasHeightForWidth())
+        measured = qMax(measured, m_content->heightForWidth(cardW));
+      contentH = qMax(UiScale::dp(120), measured + UiScale::dp(8));
+    }
+    const int maxH = qMin(int(H * 0.72), H - 2 * pad);
+    const int cardH = qBound(UiScale::dp(120), contentH, maxH);
     const int x = (W - cardW) / 2;
     const int y = (H - cardH) / 2;
     m_card->setGeometry(x, y, cardW, cardH);
