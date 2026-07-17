@@ -47,7 +47,8 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
   root->setContentsMargins(0, 0, 0, 0);
   root->setSpacing(0);
 
-  m_btnToggle = new QPushButton(QStringLiteral("›"), this);
+  // Left-rail chevron: › collapses toward the left edge, ‹ expands.
+  m_btnToggle = new QPushButton(QStringLiteral("‹"), this);
   m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
   m_btnToggle->setFixedHeight(UiScale::dp(28));
   m_btnToggle->setCursor(Qt::PointingHandCursor);
@@ -103,7 +104,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
   if (m_collapsed) {
     setFixedWidth(UiScale::dp(28));
     if (m_btnToggle) {
-      m_btnToggle->setText(QStringLiteral("‹"));
+      m_btnToggle->setText(QStringLiteral("›"));
       m_btnToggle->setToolTip(QStringLiteral("Seitenmanager aufklappen"));
     }
   } else {
@@ -111,7 +112,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
       m_expandedWidth = railMetrics(this).width;
     setFixedWidth(m_expandedWidth);
     if (m_btnToggle) {
-      m_btnToggle->setText(QStringLiteral("›"));
+      m_btnToggle->setText(QStringLiteral("‹"));
       m_btnToggle->setToolTip(QStringLiteral("Seitenmanager einklappen"));
     }
   }
@@ -123,7 +124,7 @@ void PageThumbnailSidebar::refreshListStyle() {
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
       "  background-color: rgba(11, 9, 18, 0.94);"
-      "  border-left: 1px solid rgba(120, 130, 160, 0.14);"
+      "  border-right: 1px solid rgba(120, 130, 160, 0.14);"
       "}"
       "QPushButton#PageRailToggleBtn {"
       "  background: transparent;"

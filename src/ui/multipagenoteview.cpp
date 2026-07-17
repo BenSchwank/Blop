@@ -2393,6 +2393,29 @@ void MultiPageNoteView::showEvent(QShowEvent *e) {
 #endif
 }
 
+void MultiPageNoteView::setZoomFactor(qreal factor) {
+  factor = qBound<qreal>(0.25, factor, 4.0);
+  if (qFuzzyCompare(factor, zoom_))
+    return;
+  QTransform t;
+  t.scale(factor, factor);
+  setTransform(t);
+  zoom_ = factor;
+#ifdef Q_OS_ANDROID
+  m_userTouchedZoom = true;
+  ensureSceneRectCoversViewport();
+#endif
+  syncPagesBarVisibility();
+  syncGraphLegendLayout();
+  repositionGraphEntryBar();
+}
+
+void MultiPageNoteView::zoomBy(qreal factor) {
+  if (factor <= 0.0)
+    return;
+  setZoomFactor(zoom_ * factor);
+}
+
 void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
     const QPointF scenePos = mapToScene(e->position().toPoint());
@@ -2408,15 +2431,7 @@ void MultiPageNoteView::wheelEvent(QWheelEvent *e) {
   if (e->modifiers() & Qt::ControlModifier) {
     qreal delta = e->angleDelta().y() / 120.0;
     qreal factor = (delta > 0) ? 1.1 : 0.9;
-    scale(factor, factor);
-    zoom_ *= factor;
-#ifdef Q_OS_ANDROID
-    m_userTouchedZoom = true;
-    ensureSceneRectCoversViewport();
-#endif
-    syncPagesBarVisibility();
-    syncGraphLegendLayout();
-    repositionGraphEntryBar();
+    zoomBy(factor);
     e->accept();
   } else {
     QScrollBar *vb = verticalScrollBar();

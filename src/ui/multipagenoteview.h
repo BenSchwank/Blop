@@ -80,6 +80,9 @@ public:
     void scrollToPage(int pageIndex, bool animate = true);
     int pageCount() const;
     int currentPageIndex() const { return visiblePageIndex(); }
+    qreal zoomFactor() const { return zoom_; }
+    void setZoomFactor(qreal factor);
+    void zoomBy(qreal factor);
     QString pageTitle(int pageIndex) const;
     void renamePage(int pageIndex, const QString &title);
     void duplicatePages(const QList<int> &pageIndices);

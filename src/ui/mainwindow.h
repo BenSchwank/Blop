@@ -319,8 +319,11 @@ private:
   CanvasView *getCurrentCanvas();
   void setActiveTool(CanvasView::ToolType tool);
   int noteHeaderHeight() const;
+  int noteBottomChromeHeight() const;
   /// Keep PenPresetBar pinned under the floating/docked toolbar as one cluster.
   void syncPenPresetBarGeometry();
+  void updateNoteBottomChrome();
+  void positionDrawboardToolbar();
 
   // --- Web Integration ---
   void setupWebBrowser();
@@ -477,6 +480,17 @@ private:
   QWidget *m_noteHeader{nullptr};
   QLabel *m_lblNoteHeaderTitle{nullptr};
   QLabel *m_lblNoteHeaderMeta{nullptr};
+
+  /// Drawboard-style bottom chrome: undo/redo · page · zoom.
+  QWidget *m_noteBottomChrome{nullptr};
+  QPushButton *m_btnNoteUndo{nullptr};
+  QPushButton *m_btnNoteRedo{nullptr};
+  QPushButton *m_btnNotePagePrev{nullptr};
+  QLabel *m_lblNotePage{nullptr};
+  QPushButton *m_btnNotePageNext{nullptr};
+  QPushButton *m_btnNoteZoomOut{nullptr};
+  QLabel *m_lblNoteZoom{nullptr};
+  QPushButton *m_btnNoteZoomIn{nullptr};
 
   QWidget *m_pageSettingsOverlay{nullptr};
   QWidget *m_pageSettingsCard{nullptr};

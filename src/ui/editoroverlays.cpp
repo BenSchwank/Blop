@@ -593,31 +593,13 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   card->setStyleSheet(
       BlopStyle::surfaceStyle(QStringLiteral("A4LayoutCard")) +
       BlopTheme::themed(QStringLiteral(
-      "#LayoutPanel {"
-      "  background: rgba(18, 21, 32, 0.72);"
-      "  border: 1px solid rgba(120, 132, 165, 0.22);"
-      "  border-radius: 16px;"
-      "}"
       "QLabel { color: rgba(235, 237, 245, 0.95); }"
-      "QStackedWidget { background: transparent; }"
-      "QPushButton#segTab {"
-      "  background: transparent; border: none;"
-      "  border-radius: 10px; padding: 10px 16px;"
-      "  color: rgba(196, 202, 224, 0.72); font-weight: 600; font-size: 13px;"
-      "}"
-      "QPushButton#segTab:checked {"
-      "  background: rgba(107, 163, 245, 0.22);"
-      "  color: #EEF4FF;"
-      "}"
-      "QPushButton#segTab:hover {"
-      "  background: rgba(255,255,255,0.08);"
-      "}"
       "QToolButton {"
       "  border-radius: 12px;"
       "  border: 1px solid rgba(132, 144, 182, 0.36);"
       "  background: rgba(30, 34, 50, 0.92);"
       "  color: rgba(236, 239, 248, 0.96);"
-      "  font-size: 11px; font-weight: 600; padding: 8px 8px;"
+      "  font-size: 11px; font-weight: 600; padding: 6px 6px;"
       "}"
       "QToolButton:hover {"
       "  background: rgba(44, 49, 72, 0.95);"
@@ -628,7 +610,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
       "  background: rgba(107, 163, 245, 0.18);"
       "}"
       "QDialogButtonBox QPushButton {"
-      "  min-height: 36px; min-width: 88px; border-radius: 10px; font-weight: 600;"
+      "  min-height: 34px; min-width: 84px; border-radius: 10px; font-weight: 600;"
       "}")));
 
   QScreen *screen = nullptr;
@@ -649,8 +631,9 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   const int cardH =
       qMax(420, avail.height() - safeTop - safeBot - 2 * marginH);
 #else
-  const int cardW = qMin(780, qMax(620, avail.width() * 86 / 100));
-  const int cardH = qMin(830, qMax(620, avail.height() * 88 / 100));
+  // Compact centered card — no more full-width stretched overlay.
+  const int cardW = qMin(440, qMax(360, avail.width() * 42 / 100));
+  const int cardH = qMin(560, qMax(460, avail.height() * 72 / 100));
 #endif
   centerCardInOverlay(overlay, card, cardW, cardH);
 
@@ -662,8 +645,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
                            UiScale::dp(20), UiScale::dp(16));
   root->setSpacing(UiScale::dp(14));
 #else
-  root->setContentsMargins(40, 34, 40, 30);
-  root->setSpacing(26);
+  root->setContentsMargins(24, 22, 24, 18);
+  root->setSpacing(14);
 #endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
@@ -676,53 +659,29 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
     auto *sub = new QLabel(subtitle, card);
     sub->setWordWrap(true);
     sub->setStyleSheet(BlopTheme::themed(
-        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;")));
+        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 13px;")));
     root->addWidget(sub);
   }
 
-  root->addSpacing(10);
-
-  auto *segRow = new QHBoxLayout();
-  segRow->setSpacing(16);
-  auto *segGroup = new QButtonGroup(card);
-  segGroup->setExclusive(true);
-  auto makeSeg = [&](const QString &text) {
-    auto *b = new QPushButton(text, card);
-    b->setObjectName(QStringLiteral("segTab"));
-    b->setCheckable(true);
-    segGroup->addButton(b);
-    segRow->addWidget(b);
-    return b;
-  };
-  QPushButton *segBasic = makeSeg(QStringLiteral("Grundlegendes"));
-  QPushButton *segLib = makeSeg(QStringLiteral("Bibliothek"));
-  QPushButton *segCust = makeSeg(QStringLiteral("Benutzerdefiniert"));
-  segBasic->setChecked(true);
-  segRow->addStretch();
-
-  auto *stack = new QStackedWidget(card);
-  stack->setMinimumHeight(470);
-
   auto *basics = new QWidget(card);
   auto *basicsRoot = new QVBoxLayout(basics);
-  basicsRoot->setContentsMargins(4, 12, 4, 14);
-  basicsRoot->setSpacing(30);
+  basicsRoot->setContentsMargins(0, 4, 0, 0);
+  basicsRoot->setSpacing(12);
 
   auto *colorRow = new QHBoxLayout();
-  colorRow->setSpacing(16);
-  auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe:"), basics);
+  colorRow->setSpacing(12);
+  auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe"), basics);
   lblColor->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "font-size: 15px; color: rgba(225, 230, 246, 0.92);")));
+      "font-size: 13px; font-weight: 600; color: rgba(225, 230, 246, 0.92);")));
   colorRow->addWidget(lblColor);
   QColor paperColor = initialPaper.isValid() ? initialPaper : QColor(Qt::white);
   auto *colorBtn = new QPushButton(basics);
-  colorBtn->setFixedHeight(50);
-  colorBtn->setMinimumWidth(220);
+  colorBtn->setFixedSize(UiScale::dp(44), UiScale::dp(32));
   colorBtn->setCursor(Qt::PointingHandCursor);
   auto refreshColorBtn = [colorBtn, &paperColor]() {
     colorBtn->setStyleSheet(QStringLiteral(
         "QPushButton { background-color: %1; border: 1px solid rgba(180,180,200,0.45); "
-        "border-radius: 12px; min-height: 48px; }")
+        "border-radius: 10px; }")
                                 .arg(paperColor.name()));
   };
   refreshColorBtn();
@@ -743,11 +702,9 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   colorRow->addStretch();
   basicsRoot->addLayout(colorRow);
 
-  basicsRoot->addSpacing(6);
-
   auto *g = new QGridLayout();
-  g->setHorizontalSpacing(20);
-  g->setVerticalSpacing(20);
+  g->setHorizontalSpacing(10);
+  g->setVerticalSpacing(10);
   g->setColumnStretch(0, 1);
   g->setColumnStretch(1, 1);
   g->setColumnStretch(2, 1);
@@ -755,15 +712,15 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *tplGroup = new QButtonGroup(card);
   tplGroup->setExclusive(true);
 
-  constexpr int kTplIconW = 104;
-  constexpr int kTplIconH = 84;
+  constexpr int kTplIconW = 72;
+  constexpr int kTplIconH = 58;
   auto addTplBtn = [&](int row, int col, const QString &name, PageBackgroundType t) {
     auto *tb = new QToolButton(basics);
     tb->setText(name);
     tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH));
     tb->setIconSize(QSize(kTplIconW, kTplIconH));
     tb->setCheckable(true);
-    tb->setFixedSize(132, 154);
+    tb->setFixedSize(112, 118);
     tb->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     const int ti = static_cast<int>(t);
@@ -772,7 +729,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
         chosen = ti;
     });
     tplGroup->addButton(tb);
-    g->addWidget(tb, row, col);
+    g->addWidget(tb, row, col, Qt::AlignCenter);
     return tb;
   };
 
@@ -809,85 +766,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   }
   initialTpl->setChecked(true);
 
-  basicsRoot->addLayout(g);
-
-  auto *libPage = new QWidget(card);
-  auto *libLay = new QVBoxLayout(libPage);
-  libLay->addStretch();
-  auto *libIcon = new QLabel(QStringLiteral("☆"), card);
-  libIcon->setAlignment(Qt::AlignCenter);
-  QFont f = libIcon->font();
-  f.setPointSize(28);
-  libIcon->setFont(f);
-  libIcon->setStyleSheet(QStringLiteral("color:#94a3b8;"));
-  libLay->addWidget(libIcon);
-  auto *libTitle =
-      new QLabel(QStringLiteral("Bibliothek ist leer"), card);
-  libTitle->setAlignment(Qt::AlignCenter);
-  libTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
-  libLay->addWidget(libTitle);
-  auto *libSub = new QLabel(
-      QStringLiteral("Fügen Sie Vorlagen später über den Vorlagenbereich hinzu."),
-      card);
-  libSub->setWordWrap(true);
-  libSub->setAlignment(Qt::AlignCenter);
-  libSub->setStyleSheet(QStringLiteral("color:#64748b;font-size:12px;"));
-  libLay->addWidget(libSub);
-  libLay->addStretch();
-
-  auto *custPage = new QWidget(card);
-  auto *custLay = new QVBoxLayout(custPage);
-  custLay->addStretch();
-  auto *custTitle =
-      new QLabel(QStringLiteral("Benutzerdefinierte Vorlagen"), card);
-  custTitle->setAlignment(Qt::AlignCenter);
-  custTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "font-weight:600;font-size:14px;color:#E6E4F0;")));
-  custLay->addWidget(custTitle);
-  auto *custSub = new QLabel(
-      QStringLiteral("Importieren Sie PDFs und Bilder über „Importieren“ oder "
-                     "„Bild“, um sie als Seitenhintergrund zu nutzen."),
-      card);
-  custSub->setWordWrap(true);
-  custSub->setAlignment(Qt::AlignCenter);
-  custSub->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "color: rgba(180,178,200,0.85); font-size: 12px;")));
-  custLay->addWidget(custSub);
-  custLay->addStretch();
-
-  stack->addWidget(basics);
-  stack->addWidget(libPage);
-  stack->addWidget(custPage);
-
-  QObject::connect(segBasic, &QPushButton::clicked, stack,
-                   [stack]() { stack->setCurrentIndex(0); });
-  QObject::connect(segLib, &QPushButton::clicked, stack,
-                   [stack]() { stack->setCurrentIndex(1); });
-  QObject::connect(segCust, &QPushButton::clicked, stack,
-                   [stack]() { stack->setCurrentIndex(2); });
-
-  auto *content = new QWidget(card);
-  auto *contentLay = new QVBoxLayout(content);
-  contentLay->setContentsMargins(0, 0, 0, 0);
-  contentLay->setSpacing(0);
-
-  auto *panel = new QFrame(content);
-  panel->setObjectName(QStringLiteral("LayoutPanel"));
-  auto *panelLay = new QVBoxLayout(panel);
-  panelLay->setContentsMargins(18, 14, 18, 16);
-  panelLay->setSpacing(10);
-  panelLay->addLayout(segRow);
-  panelLay->addWidget(stack, 1);
-  contentLay->addWidget(panel, 1);
-
-  auto *scroll = new QScrollArea(card);
-  scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setWidgetResizable(true);
-  scroll->setWidget(content);
-  scroll->setStyleSheet(QStringLiteral(
-      "QScrollArea { background: transparent; border: none; }"));
-  OverlayScrollIndicator::install(scroll);
-  root->addWidget(scroll, 1);
+  basicsRoot->addLayout(g, 1);
+  root->addWidget(basics, 1);
 
   auto *bbox =
       new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);
@@ -970,8 +850,8 @@ void showA4LayoutOverlayAsync(
       "  background: rgba(107, 163, 245, 0.18);"
       "}")));
 
-  int cardW = 720;
-  int cardH = 700;
+  int cardW = 420;
+  int cardH = 520;
 #ifdef Q_OS_ANDROID
   cardW = qBound(UiScale::dp(300), int(qreal(qMax(1, parent->width())) * 0.94),
                  UiScale::dp(540));
@@ -986,8 +866,8 @@ void showA4LayoutOverlayAsync(
                            UiScale::dp(16));
   root->setSpacing(UiScale::dp(10));
 #else
-  root->setContentsMargins(32, 26, 32, 24);
-  root->setSpacing(14);
+  root->setContentsMargins(22, 20, 22, 16);
+  root->setSpacing(12);
 #endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
@@ -1009,13 +889,13 @@ void showA4LayoutOverlayAsync(
       initialPaper.isValid() ? initialPaper : QColor(Qt::white));
 
   auto *grid = new QGridLayout();
-  grid->setHorizontalSpacing(16);
-  grid->setVerticalSpacing(16);
+  grid->setHorizontalSpacing(10);
+  grid->setVerticalSpacing(10);
   auto *tplGroup = new QButtonGroup(card);
   tplGroup->setExclusive(true);
-  int kTplIconW = 104;
-  int kTplIconH = 84;
-  QSize tplButtonSize(132, 154);
+  int kTplIconW = 72;
+  int kTplIconH = 58;
+  QSize tplButtonSize(112, 118);
 #ifdef Q_OS_ANDROID
   kTplIconW = UiScale::dp(84);
   kTplIconH = UiScale::dp(68);

@@ -8,7 +8,8 @@ class QButtonGroup;
 class QHBoxLayout;
 class QPushButton;
 
-/// Smart-view + sort chip strip above the library grid.
+/// Smart-view chip strip for the library. Sort lives in the top action bar
+/// (Drawboard-style) via takeSortButton()/sortButton().
 class LibraryOrgBar : public QWidget {
   Q_OBJECT
 public:
@@ -22,14 +23,21 @@ public:
 
   void setAccentColor(const QColor &color);
 
+  /// Sort control for embedding in the library action bar (higher up).
+  QPushButton *sortButton() const { return m_btnSort; }
+  void placeSortInActionBar(QLayout *actionRow);
+
 signals:
   void smartViewChanged(LibraryOrgBar::SmartView view);
   void sortModeChanged(LibraryOrgBar::SortMode mode);
 
+public slots:
+  void cycleSortMode();
+
 private:
   void rebuildStyles();
   void onViewClicked(int id);
-  void onSortClicked();
+  void refreshSortLabel();
 
   QButtonGroup *m_viewGroup{nullptr};
   QPushButton *m_btnSort{nullptr};

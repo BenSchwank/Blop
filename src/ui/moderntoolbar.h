@@ -104,6 +104,7 @@ public:
     Style currentStyle() const { return m_style; }
 
     void setOrientation(Orientation o, bool animate = false);
+    Orientation orientation() const { return m_orientation; }
 
     void setRadialType(RadialType type);
     RadialType radialType() const { return m_radialType; }

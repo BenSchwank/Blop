@@ -2435,13 +2435,12 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
             setOrientation(Horizontal, false);
             setFixedSize(snapGeom.size());
         } else {
-            // Desktop: keep horizontal toolbar; side-snap only repositions.
-            // Vertical pill layout was the "verpackt" one-icon bar.
-            setOrientation(Horizontal, false);
-            const int h = UiScale::dp(52);
-            const int w = qMax(calculateMinLength(), snapGeom.width());
-            snapGeom.setHeight(h);
+            // Side snap → Drawboard vertical tool rail.
+            setOrientation(Vertical, false);
+            const int w = UiScale::dp(56);
+            const int h = qMax(calculateMinLength(), snapGeom.height());
             snapGeom.setWidth(w);
+            snapGeom.setHeight(h);
             if (snapGeom.x() > parentWidget()->width() / 2)
               snapGeom.moveLeft(parentWidget()->width() - w -
                                 UiScale::safeHorizontalPaddingPx(parentWidget()));
@@ -3061,13 +3060,6 @@ void ModernToolbar::checkOrientation(const QPoint &globalPos) {
   Q_UNUSED(globalPos);
   if (!parentWidget() || m_style != Normal)
     return;
-#ifndef Q_OS_ANDROID
-  // Desktop: never flip to a vertical pill. Side proximity used to leave a
-  // tall one-icon "verpackt" bar on Windows (DPI + snap fighting).
-  if (m_orientation != Horizontal)
-    setOrientation(Horizontal, false);
-  return;
-#else
   QRect myRect = geometry();
   int parentW = parentWidget()->width();
   int parentH = parentWidget()->height();
@@ -3083,8 +3075,11 @@ void ModernToolbar::checkOrientation(const QPoint &globalPos) {
     horizontal = false;
   else
     return;
-  setOrientation(horizontal ? Horizontal : Vertical, true);
+#ifndef Q_OS_ANDROID
+  // Desktop Drawboard default is the right vertical rail; only flip when
+  // the user explicitly snaps to a horizontal edge.
 #endif
+  setOrientation(horizontal ? Horizontal : Vertical, true);
 }
 void ModernToolbar::setOrientation(Orientation o, bool animate) {
   if (m_orientation == o)

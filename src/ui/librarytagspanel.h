@@ -8,10 +8,11 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
-class QVBoxLayout;
+class QToolButton;
 
-/// Right-hand library shelf for organizing tags (Blop-native, not a Drawboard clone).
-/// Provides create / rename / delete / multi-select filter.
+/// Compact tag organizer — Drawboard-style section for the left Super sidebar.
+/// Click tags to filter the library; long-press/context for rename/delete;
+/// type + Enter to add. Assigning tags to notes happens via note ⋯ menu.
 class LibraryTagsPanel : public QWidget {
   Q_OBJECT
 public:
@@ -23,6 +24,9 @@ public:
   QStringList selectedTags() const;
   void clearSelection();
 
+  /// Compact sidebar chrome (no huge right shelf).
+  void setSidebarMode(bool on);
+
 signals:
   void filterChanged(const QStringList &selectedTags);
   void catalogChanged();
@@ -32,17 +36,22 @@ private slots:
   void onRenameClicked();
   void onDeleteClicked();
   void onSelectionChanged();
+  void onToggleCollapsed();
 
 private:
   void refreshTheme();
   void rebuildList(const QStringList &preserveSelection = {});
+  void applyCollapsed();
 
+  QWidget *m_header{nullptr};
+  QToolButton *m_btnToggle{nullptr};
   QLabel *m_title{nullptr};
-  QLabel *m_hint{nullptr};
+  QWidget *m_body{nullptr};
   QLineEdit *m_input{nullptr};
   QListWidget *m_list{nullptr};
   QPushButton *m_btnAdd{nullptr};
-  QPushButton *m_btnRename{nullptr};
-  QPushButton *m_btnDelete{nullptr};
+  QPushButton *m_btnManage{nullptr};
   QColor m_accent{QColor(QStringLiteral("#7C5CFC"))};
+  bool m_sidebarMode{false};
+  bool m_collapsed{false};
 };

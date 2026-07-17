@@ -14,7 +14,7 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_StyledBackground, true);
 
   auto *lay = new QHBoxLayout(this);
-  lay->setContentsMargins(0, UiScale::dp(4), 0, UiScale::dp(10));
+  lay->setContentsMargins(0, UiScale::dp(2), 0, UiScale::dp(8));
   lay->setSpacing(UiScale::dp(8));
 
   m_viewGroup = new QButtonGroup(this);
@@ -46,7 +46,7 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     auto *btn = new QPushButton(QString::fromUtf8(c.label), this);
     btn->setCheckable(true);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedHeight(UiScale::dp(30));
+    btn->setFixedHeight(UiScale::dp(28));
     btn->setObjectName(QStringLiteral("libraryOrgChip"));
     m_viewGroup->addButton(btn, int(c.view));
     if (c.view == m_view)
@@ -61,14 +61,21 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   m_btnSort = new QPushButton(this);
   m_btnSort->setObjectName(QStringLiteral("libraryOrgSort"));
   m_btnSort->setCursor(Qt::PointingHandCursor);
-  m_btnSort->setFixedHeight(UiScale::dp(30));
-  m_btnSort->setText(m_sort == SortMode::Modified
-                         ? QStringLiteral("Sortierung · Datum")
-                         : QStringLiteral("Sortierung · Name"));
-  connect(m_btnSort, &QPushButton::clicked, this, &LibraryOrgBar::onSortClicked);
+  m_btnSort->setFixedHeight(UiScale::dp(34));
+  refreshSortLabel();
+  connect(m_btnSort, &QPushButton::clicked, this, &LibraryOrgBar::cycleSortMode);
+  // Sort starts in this bar; placeSortInActionBar() can lift it into the header.
   lay->addWidget(m_btnSort);
 
   rebuildStyles();
+}
+
+void LibraryOrgBar::placeSortInActionBar(QLayout *actionRow) {
+  if (!actionRow || !m_btnSort)
+    return;
+  if (auto *parentLay = qobject_cast<QHBoxLayout *>(layout()))
+    parentLay->removeWidget(m_btnSort);
+  actionRow->addWidget(m_btnSort);
 }
 
 void LibraryOrgBar::setAccentColor(const QColor &color) {
@@ -85,14 +92,23 @@ void LibraryOrgBar::onViewClicked(int id) {
   emit smartViewChanged(m_view);
 }
 
-void LibraryOrgBar::onSortClicked() {
+void LibraryOrgBar::cycleSortMode() {
   m_sort = (m_sort == SortMode::Name) ? SortMode::Modified : SortMode::Name;
-  m_btnSort->setText(m_sort == SortMode::Modified
-                         ? QStringLiteral("Sortierung · Datum")
-                         : QStringLiteral("Sortierung · Name"));
+  refreshSortLabel();
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   s.setValue(QStringLiteral("ui/librarySortMode"), int(m_sort));
   emit sortModeChanged(m_sort);
+}
+
+void LibraryOrgBar::refreshSortLabel() {
+  if (!m_btnSort)
+    return;
+  m_btnSort->setText(m_sort == SortMode::Modified
+                         ? QStringLiteral("Datum")
+                         : QStringLiteral("Name"));
+  m_btnSort->setToolTip(m_sort == SortMode::Modified
+                            ? QStringLiteral("Sortierung: zuletzt geändert")
+                            : QStringLiteral("Sortierung: Name A–Z"));
 }
 
 void LibraryOrgBar::rebuildStyles() {
@@ -104,8 +120,8 @@ void LibraryOrgBar::rebuildStyles() {
       "QWidget#LibraryOrgBar { background: transparent; }"
       "QPushButton#libraryOrgChip {"
       "  background: rgba(255,255,255,0.04); color: %1;"
-      "  border: 1px solid %2; border-radius: 15px;"
-      "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+      "  border: 1px solid %2; border-radius: 14px;"
+      "  padding: 0 11px; font-size: 12px; font-weight: 600;"
       "}"
       "QPushButton#libraryOrgChip:checked {"
       "  background: rgba(%3,%4,%5,0.22); color: %6;"
@@ -115,12 +131,13 @@ void LibraryOrgBar::rebuildStyles() {
       "  background: rgba(255,255,255,0.07);"
       "}"
       "QPushButton#libraryOrgSort {"
-      "  background: transparent; color: %1;"
-      "  border: 1px solid %2; border-radius: 15px;"
-      "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+      "  background: rgba(255,255,255,0.04); color: %6;"
+      "  border: 1px solid %2; border-radius: 12px;"
+      "  padding: 0 14px; font-size: 12px; font-weight: 600;"
+      "  min-width: 72px;"
       "}"
       "QPushButton#libraryOrgSort:hover {"
-      "  border-color: %7; color: %6;"
+      "  border-color: %7; background: rgba(%3,%4,%5,0.14);"
       "}")
                     .arg(muted, border)
                     .arg(m_accent.red())

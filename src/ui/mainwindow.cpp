@@ -50,6 +50,7 @@
 #include <QColor>
 #include <QMessageBox>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDataStream>
 #include <QDateTime>
@@ -2883,7 +2884,9 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
           dockX = m_editorCenterWidget->width() - dockW;
         tb->setGeometry(dockX, headerH, dockW, 48);
       } else {
-        // Recover from a leftover vertical pill size (Windows DPI / snap).
+#ifndef Q_OS_ANDROID
+        positionDrawboardToolbar();
+#else
         const int idealW = tb->calculateMinLength();
         if (tb->width() < idealW / 2 || tb->height() > UiScale::dp(80)) {
           tb->setOrientation(ModernToolbar::Horizontal, false);
@@ -2895,6 +2898,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         int xPos = (m_editorCenterWidget->width() - tb->width()) / 2;
         int yPos = qMax(headerH + UiScale::dp(10), tb->y());
         tb->move(xPos, yPos);
+#endif
       }
       tb->raise();
       syncPenPresetBarGeometry();
@@ -4396,32 +4400,7 @@ void MainWindow::setupUi() {
   BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
   titleRow->addWidget(btnNewFolder, 0);
 
-  QPushButton *btnTagsShelf = new QPushButton(QStringLiteral("Tags"), m_overviewContainer);
-  btnTagsShelf->setObjectName(QStringLiteral("overviewBtnTags"));
-  btnTagsShelf->setFixedHeight(UiScale::dp(34));
-  btnTagsShelf->setCursor(Qt::PointingHandCursor);
-  btnTagsShelf->setStyleSheet(
-      "QPushButton {"
-      "  background-color: transparent;"
-      "  color: rgba(232,228,255,0.85);"
-      "  border-radius: 12px;"
-      "  padding: 0 12px;"
-      "  font-weight: 500;"
-      "  font-size: 12px;"
-      "  border: 1px solid rgba(120,130,160,0.28);"
-      "}"
-      "QPushButton:pressed { background-color: rgba(255,255,255,0.06); }"
-  );
-  connect(btnTagsShelf, &QPushButton::clicked, this, [this]() {
-    if (!m_libraryTagsPanel)
-      return;
-    const bool next = !m_libraryTagsPanel->isVisible();
-    m_libraryTagsPanel->setVisible(next);
-    QSettings tagUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    tagUi.setValue(QStringLiteral("ui/libraryTagsOpen"), next);
-  });
-  BlopRipple::attachPressFeedback(btnTagsShelf, 0.94);
-  titleRow->addWidget(btnTagsShelf, 0);
+  // Tags live in the left sidebar (Drawboard-style) — no header shelf button.
   headerLayout->addLayout(titleRow);
 
   m_overviewSearchBar = new QLineEdit(m_overviewContainer);
@@ -4446,25 +4425,17 @@ void MainWindow::setupUi() {
   headerLayout->addWidget(m_overviewSearchBar);
 
 #else
-  // Desktop library chrome — airy title band + solid primary action.
+  // Desktop — Drawboard-ähnliche Bibliothek: Titel, Action-Bar (Suche·Sort·Aktionen) hoch oben.
   headerLayout->setContentsMargins(UiScale::dp(4), UiScale::dp(4),
-                                   UiScale::dp(4), UiScale::dp(16));
-  headerLayout->setSpacing(UiScale::dp(14));
-
-  QHBoxLayout *titleRow = new QHBoxLayout();
-  titleRow->setContentsMargins(0, 0, 0, 0);
-  titleRow->setSpacing(UiScale::dp(10));
-
-  QVBoxLayout *titleCol = new QVBoxLayout();
-  titleCol->setContentsMargins(0, 0, 0, 0);
-  titleCol->setSpacing(UiScale::dp(2));
+                                   UiScale::dp(4), UiScale::dp(12));
+  headerLayout->setSpacing(UiScale::dp(10));
 
   QLabel *lblWelcome = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
   lblWelcome->setObjectName(QStringLiteral("overviewLibraryTitle"));
   lblWelcome->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "color: #F4F5FB; font-size: 28px; font-weight: 800;"
-      " letter-spacing: -0.6px; background: transparent;")));
-  titleCol->addWidget(lblWelcome);
+      "color: #F4F5FB; font-size: 26px; font-weight: 800;"
+      " letter-spacing: -0.5px; background: transparent;")));
+  headerLayout->addWidget(lblWelcome);
 
   QLabel *lblSubtitle = new QLabel(
       QStringLiteral("Bibliothek · Ordner · Cloud"), m_overviewContainer);
@@ -4472,21 +4443,69 @@ void MainWindow::setupUi() {
   lblSubtitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "color: rgba(180,188,215,0.55); font-size: 12px; font-weight: 500;"
       " background: transparent;")));
-  titleCol->addWidget(lblSubtitle);
-  titleRow->addLayout(titleCol, 1);
+  headerLayout->addWidget(lblSubtitle);
 
-  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+ Notiz"), m_overviewContainer);
+  m_overviewSearchBar = new QLineEdit(m_overviewContainer);
+  m_overviewSearchBar->setObjectName("overviewSearchBar");
+  m_overviewSearchBar->setPlaceholderText(
+      QStringLiteral("Durchsuchen Sie Ihre Notizen, Ordner oder Tags"));
+  m_overviewSearchBar->setFrame(false);
+  m_overviewSearchBar->setAttribute(Qt::WA_StyledBackground, true);
+  m_overviewSearchBar->setFixedHeight(UiScale::dp(40));
+  m_overviewSearchBar->setStyleSheet(BlopTheme::themed(
+      "QLineEdit {"
+      "  background-color: #14121F;"
+      "  color: #F4F5FB;"
+      "  border: 1px solid rgba(120,130,160,0.18);"
+      "  border-radius: 12px;"
+      "  padding: 0 14px;"
+      "  font-size: 13px;"
+      "}"
+      "QLineEdit:focus {"
+      "  border: 1px solid rgba(124,92,252,0.65);"
+      "  background-color: #171524;"
+      "}"
+  ));
+
+  // Org bar created early so Sort can sit in the action row (Drawboard).
+  m_libraryOrgBar = new LibraryOrgBar(m_overviewContainer);
+  m_libraryOrgBar->setAccentColor(m_currentAccentColor);
+  connect(m_libraryOrgBar, &LibraryOrgBar::smartViewChanged, this,
+          [this](LibraryOrgBar::SmartView) { applyLibraryFilters(); });
+  connect(m_libraryOrgBar, &LibraryOrgBar::sortModeChanged, this,
+          [this](LibraryOrgBar::SortMode) { applyLibraryFilters(); });
+
+  QPushButton *btnNewFolder = new QPushButton(m_overviewContainer);
+  btnNewFolder->setObjectName("overviewBtnNewFolder");
+  btnNewFolder->setToolTip(QStringLiteral("Neuer Ordner"));
+  btnNewFolder->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  btnNewFolder->setCursor(Qt::PointingHandCursor);
+  btnNewFolder->setIcon(createModernIcon(QStringLiteral("folder"),
+                                          QColor(QStringLiteral("#E8E4FF"))));
+  btnNewFolder->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
+  btnNewFolder->setStyleSheet(
+      "QPushButton {"
+      "  background-color: rgba(255,255,255,0.04);"
+      "  border-radius: 12px;"
+      "  border: 1px solid rgba(120,130,160,0.22);"
+      "}"
+      "QPushButton:hover { background-color: rgba(255,255,255,0.07); border-color: rgba(124,92,252,0.45); }"
+  );
+  connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
+  BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
+
+  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
-  btnNewNote->setFixedHeight(UiScale::dp(36));
+  btnNewNote->setToolTip(QStringLiteral("Neue Notiz"));
+  btnNewNote->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
       "QPushButton {"
       "  background-color: #7C5CFC;"
       "  color: #FFFFFF;"
-      "  border-radius: 14px;"
-      "  padding: 0 18px;"
-      "  font-weight: 700;"
-      "  font-size: 13px;"
+      "  border-radius: 12px;"
+      "  font-weight: 800;"
+      "  font-size: 20px;"
       "  border: none;"
       "}"
       "QPushButton:hover { background-color: #8B6CFF; }"
@@ -4494,77 +4513,15 @@ void MainWindow::setupUi() {
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   BlopRipple::attachPressFeedback(btnNewNote, 0.94);
-  titleRow->addWidget(btnNewNote);
 
-  QPushButton *btnNewFolder = new QPushButton(QStringLiteral("Ordner"), m_overviewContainer);
-  btnNewFolder->setObjectName("overviewBtnNewFolder");
-  btnNewFolder->setFixedHeight(UiScale::dp(36));
-  btnNewFolder->setCursor(Qt::PointingHandCursor);
-  btnNewFolder->setStyleSheet(
-      "QPushButton {"
-      "  background-color: rgba(255,255,255,0.04);"
-      "  color: rgba(232,228,255,0.90);"
-      "  border-radius: 14px;"
-      "  padding: 0 16px;"
-      "  font-weight: 600;"
-      "  font-size: 13px;"
-      "  border: 1px solid rgba(120,130,160,0.22);"
-      "}"
-      "QPushButton:hover { background-color: rgba(255,255,255,0.07); border-color: rgba(124,92,252,0.45); }"
-  );
-  connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
-  BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
-  titleRow->addWidget(btnNewFolder);
-
-  QPushButton *btnTagsShelf = new QPushButton(QStringLiteral("Tags"), m_overviewContainer);
-  btnTagsShelf->setObjectName(QStringLiteral("overviewBtnTags"));
-  btnTagsShelf->setFixedHeight(UiScale::dp(36));
-  btnTagsShelf->setCursor(Qt::PointingHandCursor);
-  btnTagsShelf->setStyleSheet(
-      "QPushButton {"
-      "  background-color: rgba(255,255,255,0.04);"
-      "  color: rgba(232,228,255,0.90);"
-      "  border-radius: 14px;"
-      "  padding: 0 16px;"
-      "  font-weight: 600;"
-      "  font-size: 13px;"
-      "  border: 1px solid rgba(120,130,160,0.22);"
-      "}"
-      "QPushButton:hover { background-color: rgba(255,255,255,0.07); border-color: rgba(124,92,252,0.45); }"
-  );
-  connect(btnTagsShelf, &QPushButton::clicked, this, [this]() {
-    if (!m_libraryTagsPanel)
-      return;
-    const bool next = !m_libraryTagsPanel->isVisible();
-    m_libraryTagsPanel->setVisible(next);
-    QSettings tagUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    tagUi.setValue(QStringLiteral("ui/libraryTagsOpen"), next);
-  });
-  BlopRipple::attachPressFeedback(btnTagsShelf, 0.94);
-  titleRow->addWidget(btnTagsShelf);
-  headerLayout->addLayout(titleRow);
-
-  m_overviewSearchBar = new QLineEdit(m_overviewContainer);
-  m_overviewSearchBar->setObjectName("overviewSearchBar");
-  m_overviewSearchBar->setPlaceholderText("Notizen, Ordner und Tags durchsuchen…");
-  m_overviewSearchBar->setFrame(false);
-  m_overviewSearchBar->setAttribute(Qt::WA_StyledBackground, true);
-  m_overviewSearchBar->setFixedHeight(UiScale::dp(42));
-  m_overviewSearchBar->setStyleSheet(BlopTheme::themed(
-      "QLineEdit {"
-      "  background-color: #14121F;"
-      "  color: #F4F5FB;"
-      "  border: 1px solid rgba(120,130,160,0.18);"
-      "  border-radius: 16px;"
-      "  padding: 0 18px;"
-      "  font-size: 14px;"
-      "}"
-      "QLineEdit:focus {"
-      "  border: 1px solid rgba(124,92,252,0.65);"
-      "  background-color: #171524;"
-      "}"
-  ));
-  headerLayout->addWidget(m_overviewSearchBar);
+  auto *actionRow = new QHBoxLayout();
+  actionRow->setContentsMargins(0, 0, 0, 0);
+  actionRow->setSpacing(UiScale::dp(10));
+  actionRow->addWidget(m_overviewSearchBar, 1);
+  m_libraryOrgBar->placeSortInActionBar(actionRow);
+  actionRow->addWidget(btnNewFolder, 0);
+  actionRow->addWidget(btnNewNote, 0);
+  headerLayout->addLayout(actionRow);
 #endif
 
   overviewLayout->addLayout(headerLayout);
@@ -4588,13 +4545,19 @@ void MainWindow::setupUi() {
   m_libraryProxy = new LibraryFilterProxy(this);
   m_libraryProxy->setSourceModel(m_fileModel);
 
+#ifdef Q_OS_ANDROID
   m_libraryOrgBar = new LibraryOrgBar(libraryMain);
   m_libraryOrgBar->setAccentColor(m_currentAccentColor);
   connect(m_libraryOrgBar, &LibraryOrgBar::smartViewChanged, this,
           [this](LibraryOrgBar::SmartView) { applyLibraryFilters(); });
   connect(m_libraryOrgBar, &LibraryOrgBar::sortModeChanged, this,
           [this](LibraryOrgBar::SortMode) { applyLibraryFilters(); });
-  libraryMainLay->addWidget(m_libraryOrgBar, 0);
+#else
+  if (m_libraryOrgBar)
+    m_libraryOrgBar->setParent(libraryMain);
+#endif
+  if (m_libraryOrgBar)
+    libraryMainLay->addWidget(m_libraryOrgBar, 0);
 
   m_fileListView = new FreeGridView(this);
   m_fileListView->setModel(m_libraryProxy);
@@ -4686,25 +4649,7 @@ void MainWindow::setupUi() {
   m_lblEmptyState->hide();
   libraryMainLay->addWidget(m_lblEmptyState);
   libraryBodyLay->addWidget(libraryMain, 1);
-
-  m_libraryTagsPanel = new LibraryTagsPanel(libraryBody);
-  m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
-  connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
-          [this](const QStringList &) { applyLibraryFilters(); });
-  connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
-          [this]() {
-            applyLibraryFilters();
-            rebuildPageSettingsTags();
-          });
-  // Collapsible tags shelf on all platforms — default closed so the library
-  // matches the left folder sidebar (open on demand via Tags button).
-  {
-    QSettings tagUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    const bool tagsOpen =
-        tagUi.value(QStringLiteral("ui/libraryTagsOpen"), false).toBool();
-    m_libraryTagsPanel->setVisible(tagsOpen);
-  }
-  libraryBodyLay->addWidget(m_libraryTagsPanel, 0);
+  // Tags panel is hosted in the left Super sidebar (setupSidebar).
   overviewLayout->addWidget(libraryBody, 1);
 
 
@@ -4737,23 +4682,29 @@ void MainWindow::setupUi() {
     m_floatingTools = phoneToolbar;
   } else {
     topToolbar = new ModernToolbar(m_editorCenterWidget);
-    topToolbar->setOrientation(ModernToolbar::Horizontal);
 #ifdef Q_OS_ANDROID
+    topToolbar->setOrientation(ModernToolbar::Horizontal);
     // Android Tablet: keep toolbar behavior deterministic (fixed/docked).
     topToolbar->setDraggable(false);
     topToolbar->setDockMode(true);
-#else
-    // Desktop canvas-first: floating toolbar by default (dock via drag-to-top / toggle).
-    topToolbar->setDraggable(true);
-    topToolbar->setDockMode(false);
-#endif
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    // Force a clean horizontal size — never inherit a leftover vertical pill.
     topToolbar->setMinimumSize(0, 0);
     topToolbar->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     int idealW = topToolbar->calculateMinLength();
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
+#else
+    // Desktop Drawboard layout: vertical tool rail on the right edge.
+    topToolbar->setOrientation(ModernToolbar::Vertical);
+    topToolbar->setDraggable(true);
+    topToolbar->setDockMode(false);
+    topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    topToolbar->setMinimumSize(0, 0);
+    topToolbar->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    const int idealH = topToolbar->calculateMinLength();
+    topToolbar->setFixedWidth(UiScale::dp(56));
+    topToolbar->resize(UiScale::dp(56), idealH);
+#endif
     m_floatingTools = topToolbar;
   }
   m_floatingTools->raise();
@@ -4845,14 +4796,119 @@ void MainWindow::setupUi() {
   m_noteHeader->hide();
   centerLayout->insertWidget(0, m_noteHeader);
 
-  // ── Page Thumbnail Sidebar (collapsible right rail) ──────────────────────
+  // ── Drawboard bottom chrome: undo/redo · page · zoom ─────────────────────
+  m_noteBottomChrome = new QWidget(m_editorCenterWidget);
+  m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
+  m_noteBottomChrome->setFixedHeight(UiScale::dp(44));
+  m_noteBottomChrome->setStyleSheet(QStringLiteral(
+      "QWidget#NoteBottomChrome {"
+      "  background: rgba(12, 10, 20, 0.92);"
+      "  border-top: 1px solid rgba(120, 130, 160, 0.14);"
+      "}"
+      "QPushButton {"
+      "  background: transparent; color: rgba(232,228,255,0.85);"
+      "  border: 1px solid rgba(120,130,160,0.20); border-radius: 10px;"
+      "  font-size: 13px; font-weight: 600; min-width: 34px; min-height: 30px;"
+      "}"
+      "QPushButton:hover { background: rgba(124,92,252,0.16); border-color: rgba(124,92,252,0.40); }"
+      "QLabel { background: transparent; color: rgba(232,228,255,0.80);"
+      "  font-size: 12px; font-weight: 600; }"));
+  auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
+  bottomLay->setContentsMargins(UiScale::dp(14), UiScale::dp(6),
+                                UiScale::dp(14), UiScale::dp(6));
+  bottomLay->setSpacing(UiScale::dp(8));
+
+  m_btnNoteUndo = new QPushButton(QStringLiteral("↶"), m_noteBottomChrome);
+  m_btnNoteUndo->setToolTip(QStringLiteral("Rückgängig"));
+  m_btnNoteUndo->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNoteUndo, &QPushButton::clicked, this, &MainWindow::onUndo);
+  bottomLay->addWidget(m_btnNoteUndo);
+
+  m_btnNoteRedo = new QPushButton(QStringLiteral("↷"), m_noteBottomChrome);
+  m_btnNoteRedo->setToolTip(QStringLiteral("Wiederholen"));
+  m_btnNoteRedo->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNoteRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
+  bottomLay->addWidget(m_btnNoteRedo);
+
+  bottomLay->addStretch(1);
+
+  m_btnNotePagePrev = new QPushButton(QStringLiteral("<"), m_noteBottomChrome);
+  m_btnNotePagePrev->setToolTip(QStringLiteral("Vorherige Seite"));
+  m_btnNotePagePrev->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNotePagePrev, &QPushButton::clicked, this, [this]() {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+      if (auto *view = editor->view()) {
+        const int idx = view->currentPageIndex();
+        if (idx > 0)
+          view->scrollToPage(idx - 1, true);
+        updateNoteBottomChrome();
+      }
+    }
+  });
+  bottomLay->addWidget(m_btnNotePagePrev);
+
+  m_lblNotePage = new QLabel(QStringLiteral("1 / 1"), m_noteBottomChrome);
+  m_lblNotePage->setAlignment(Qt::AlignCenter);
+  m_lblNotePage->setMinimumWidth(UiScale::dp(64));
+  bottomLay->addWidget(m_lblNotePage);
+
+  m_btnNotePageNext = new QPushButton(QStringLiteral(">"), m_noteBottomChrome);
+  m_btnNotePageNext->setToolTip(QStringLiteral("Nächste Seite"));
+  m_btnNotePageNext->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNotePageNext, &QPushButton::clicked, this, [this]() {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+      if (auto *view = editor->view()) {
+        const int idx = view->currentPageIndex();
+        if (idx + 1 < view->pageCount())
+          view->scrollToPage(idx + 1, true);
+        updateNoteBottomChrome();
+      }
+    }
+  });
+  bottomLay->addWidget(m_btnNotePageNext);
+
+  bottomLay->addStretch(1);
+
+  m_btnNoteZoomOut = new QPushButton(QStringLiteral("−"), m_noteBottomChrome);
+  m_btnNoteZoomOut->setToolTip(QStringLiteral("Verkleinern"));
+  m_btnNoteZoomOut->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNoteZoomOut, &QPushButton::clicked, this, [this]() {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+      if (auto *view = editor->view()) {
+        view->zoomBy(1.0 / 1.1);
+        updateNoteBottomChrome();
+      }
+  });
+  bottomLay->addWidget(m_btnNoteZoomOut);
+
+  m_lblNoteZoom = new QLabel(QStringLiteral("100%"), m_noteBottomChrome);
+  m_lblNoteZoom->setAlignment(Qt::AlignCenter);
+  m_lblNoteZoom->setMinimumWidth(UiScale::dp(48));
+  bottomLay->addWidget(m_lblNoteZoom);
+
+  m_btnNoteZoomIn = new QPushButton(QStringLiteral("+"), m_noteBottomChrome);
+  m_btnNoteZoomIn->setToolTip(QStringLiteral("Vergrößern"));
+  m_btnNoteZoomIn->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNoteZoomIn, &QPushButton::clicked, this, [this]() {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+      if (auto *view = editor->view()) {
+        view->zoomBy(1.1);
+        updateNoteBottomChrome();
+      }
+  });
+  bottomLay->addWidget(m_btnNoteZoomIn);
+
+  m_noteBottomChrome->hide();
+  centerLayout->addWidget(m_noteBottomChrome, 0);
+
+  // ── Page Thumbnail Sidebar (collapsible LEFT rail, Drawboard) ────────────
   m_pageThumbnailSidebar = new PageThumbnailSidebar(m_editorContainer);
   m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
   {
     QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-    // Default collapsed — user opens when needed (not permanently on).
+    // Default expanded on desktop so the Drawboard left rail is discoverable.
     const bool collapsed =
-        pageUi.value(QStringLiteral("ui/pageRailCollapsed"), true).toBool();
+        pageUi.value(QStringLiteral("ui/pageRailCollapsed"), false).toBool();
     m_pageThumbnailSidebar->setCollapsed(collapsed);
   }
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::collapsedChanged, this,
@@ -4863,8 +4919,10 @@ void MainWindow::setupUi() {
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::pageSelected, this,
           [this](int pageIndex) {
             if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
-              if (auto *view = editor->view())
+              if (auto *view = editor->view()) {
                 view->scrollToPage(pageIndex, true);
+                updateNoteBottomChrome();
+              }
           });
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::addPageRequested, this,
           [this]() {
@@ -4876,13 +4934,14 @@ void MainWindow::setupUi() {
                   view->setNote(n);
                   m_pageThumbnailSidebar->rebuild();
                   view->scrollToPage(idx, true);
+                  updateNoteBottomChrome();
                 }
               }
             }
           });
-  // Right side of the editor (after the center widget is added below).
-  editorMainLayout->addWidget(m_editorCenterWidget, 1);
+  // Left rail · canvas · (tools float on the right inside the center).
   editorMainLayout->addWidget(m_pageThumbnailSidebar, 0);
+  editorMainLayout->addWidget(m_editorCenterWidget, 1);
 
   // Shared handlers: the same code runs whether the active toolbar is
   // ModernToolbar (desktop / Android tablet) or AndroidPhoneToolbar (phone).
@@ -6379,8 +6438,21 @@ void MainWindow::setupSidebar() {
   m_navSidebar->setCurrentRow(1);
   connect(m_navSidebar, &QListWidget::itemClicked, this,
           &MainWindow::onNavItemClicked);
-  layout->addWidget(m_navSidebar);
+  layout->addWidget(m_navSidebar, 1);
   updateSidebarBadges();
+
+  // Tags — Drawboard-style collapsible section in the left nav.
+  m_libraryTagsPanel = new LibraryTagsPanel(m_sidebarContainer);
+  m_libraryTagsPanel->setSidebarMode(true);
+  m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
+  connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
+          [this](const QStringList &) { applyLibraryFilters(); });
+  connect(m_libraryTagsPanel, &LibraryTagsPanel::catalogChanged, this,
+          [this]() {
+            applyLibraryFilters();
+            rebuildPageSettingsTags();
+          });
+  layout->addWidget(m_libraryTagsPanel, 0);
 
   // --- BOTTOM: quiet account + settings row ---
   QWidget *bottomBar = new QWidget(m_sidebarContainer);
@@ -7997,6 +8069,10 @@ void MainWindow::updateSidebarState() {
   const bool prevIsEditor = m_lastIsEditor;
   const bool shouldMorphTopButtons =
       isEditor && !prevIsEditor && !m_isSidebarOpen;
+  if (m_noteBottomChrome)
+    m_noteBottomChrome->setVisible(isEditor);
+  if (isEditor)
+    updateNoteBottomChrome();
   if (m_floatingTools) {
     m_floatingTools->setVisible(isEditor);
   }
@@ -9084,6 +9160,62 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
       addColor(LibraryOrgStore::ColorLabel::Sky);
       addColor(LibraryOrgStore::ColorLabel::Violet);
       addColor(LibraryOrgStore::ColorLabel::Slate);
+
+      menu->addAction(QStringLiteral("Tags zuweisen\u2026"), [this, path]() {
+        QStringList catalog = LibraryTagStore::catalog();
+        if (catalog.isEmpty()) {
+          LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
+          LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
+          catalog = LibraryTagStore::catalog();
+        }
+        const QStringList current = LibraryTagStore::tagsForPath(path);
+
+        QDialog dlg(this);
+        dlg.setWindowTitle(QStringLiteral("Tags zuweisen"));
+        dlg.setModal(true);
+        dlg.setMinimumWidth(UiScale::dp(280));
+        auto *lay = new QVBoxLayout(&dlg);
+        auto *hint = new QLabel(
+            QStringLiteral("Hake Tags an, um sie an diese Notiz zu hängen."),
+            &dlg);
+        hint->setWordWrap(true);
+        lay->addWidget(hint);
+        QList<QCheckBox *> boxes;
+        for (const QString &tag : catalog) {
+          auto *cb = new QCheckBox(tag, &dlg);
+          for (const QString &c : current) {
+            if (c.compare(tag, Qt::CaseInsensitive) == 0) {
+              cb->setChecked(true);
+              break;
+            }
+          }
+          boxes.append(cb);
+          lay->addWidget(cb);
+        }
+        auto *bbox = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
+        bbox->button(QDialogButtonBox::Cancel)
+            ->setText(QStringLiteral("Abbrechen"));
+        lay->addWidget(bbox);
+        QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg,
+                         &QDialog::accept);
+        QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg,
+                         &QDialog::reject);
+        if (dlg.exec() != QDialog::Accepted)
+          return;
+        QStringList next;
+        for (QCheckBox *cb : boxes) {
+          if (cb && cb->isChecked())
+            next.append(cb->text());
+        }
+        LibraryTagStore::setTagsForPath(path, next);
+        if (m_libraryTagsPanel)
+          m_libraryTagsPanel->reload();
+        applyLibraryFilters();
+        if (m_fileListView)
+          m_fileListView->viewport()->update();
+      });
     }
 
     menu->addSeparator();
@@ -9133,6 +9265,54 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                       if (m_fileListView)
                         m_fileListView->viewport()->update();
                       applyLibraryFilters();
+                    },
+                    false, false});
+      items.append({QStringLiteral("Tags zuweisen\u2026"), QIcon(),
+                    [this, path]() {
+                      QStringList catalog = LibraryTagStore::catalog();
+                      if (catalog.isEmpty()) {
+                        LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
+                        LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
+                        catalog = LibraryTagStore::catalog();
+                      }
+                      const QStringList current = LibraryTagStore::tagsForPath(path);
+                      QStringList next = current;
+                      // Simple cycle attach: if empty catalog selection, prompt via dialog.
+                      QDialog dlg(this);
+                      dlg.setWindowTitle(QStringLiteral("Tags zuweisen"));
+                      auto *lay = new QVBoxLayout(&dlg);
+                      QList<QCheckBox *> boxes;
+                      for (const QString &tag : catalog) {
+                        auto *cb = new QCheckBox(tag, &dlg);
+                        for (const QString &c : current) {
+                          if (c.compare(tag, Qt::CaseInsensitive) == 0) {
+                            cb->setChecked(true);
+                            break;
+                          }
+                        }
+                        boxes.append(cb);
+                        lay->addWidget(cb);
+                      }
+                      auto *bbox = new QDialogButtonBox(
+                          QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+                      lay->addWidget(bbox);
+                      QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg,
+                                       &QDialog::accept);
+                      QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg,
+                                       &QDialog::reject);
+                      if (dlg.exec() != QDialog::Accepted)
+                        return;
+                      next.clear();
+                      for (QCheckBox *cb : boxes) {
+                        if (cb && cb->isChecked())
+                          next.append(cb->text());
+                      }
+                      LibraryTagStore::setTagsForPath(path, next);
+                      if (m_libraryTagsPanel)
+                        m_libraryTagsPanel->reload();
+                      applyLibraryFilters();
+                      if (m_fileListView)
+                        m_fileListView->viewport()->update();
                     },
                     false, false});
     }
@@ -9509,6 +9689,64 @@ int MainWindow::noteHeaderHeight() const {
   return (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
 }
 
+int MainWindow::noteBottomChromeHeight() const {
+  return (m_noteBottomChrome && m_noteBottomChrome->isVisible())
+             ? m_noteBottomChrome->height()
+             : 0;
+}
+
+void MainWindow::positionDrawboardToolbar() {
+  auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
+  if (!tb || !m_editorCenterWidget || tb->isDockedMode())
+    return;
+
+  if (tb->orientation() != ModernToolbar::Vertical)
+    tb->setOrientation(ModernToolbar::Vertical, false);
+
+  const int headerH = noteHeaderHeight();
+  const int bottomH = noteBottomChromeHeight();
+  const int margin = UiScale::dp(12);
+  const int railW = UiScale::dp(56);
+  const int idealH = tb->calculateMinLength();
+  const int availH = qMax(UiScale::dp(160),
+                          m_editorCenterWidget->height() - headerH - bottomH -
+                              2 * margin);
+  const int h = qMin(idealH, availH);
+  const int x = qMax(margin, m_editorCenterWidget->width() - railW - margin);
+  const int y = headerH + margin + qMax(0, (availH - h) / 2);
+  tb->setMinimumSize(0, 0);
+  tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  tb->setFixedWidth(railW);
+  tb->setGeometry(x, y, railW, h);
+  tb->raise();
+}
+
+void MainWindow::updateNoteBottomChrome() {
+  if (!m_noteBottomChrome)
+    return;
+  MultiPageNoteView *view = nullptr;
+  if (m_editorTabs) {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+      view = editor->view();
+  }
+  if (!view) {
+    m_noteBottomChrome->hide();
+    return;
+  }
+  m_noteBottomChrome->show();
+  const int pages = qMax(1, view->pageCount());
+  const int cur = qBound(1, view->currentPageIndex() + 1, pages);
+  if (m_lblNotePage)
+    m_lblNotePage->setText(QStringLiteral("%1 / %2").arg(cur).arg(pages));
+  if (m_lblNoteZoom)
+    m_lblNoteZoom->setText(
+        QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
+  if (m_btnNotePagePrev)
+    m_btnNotePagePrev->setEnabled(cur > 1);
+  if (m_btnNotePageNext)
+    m_btnNotePageNext->setEnabled(cur < pages);
+}
+
 void MainWindow::syncPenPresetBarGeometry() {
   // v3.22.1: preset brush chips are retired from the note chrome.
   if (m_penPresetBar)
@@ -9661,11 +9899,15 @@ void MainWindow::onTabChanged(int index) {
     } else {
       m_noteHeader->hide();
     }
-    if (m_editorCenterWidget)
-      QCoreApplication::postEvent(
-          m_editorCenterWidget,
-          new QResizeEvent(m_editorCenterWidget->size(), m_editorCenterWidget->size()));
   }
+  updateNoteBottomChrome();
+#ifndef Q_OS_ANDROID
+  positionDrawboardToolbar();
+#endif
+  if (m_editorCenterWidget)
+    QCoreApplication::postEvent(
+        m_editorCenterWidget,
+        new QResizeEvent(m_editorCenterWidget->size(), m_editorCenterWidget->size()));
 
   // Metadaten aus der Datei lesen (Erstellt / Geändert) — Canvas + A4 NoteEditor.
   {
