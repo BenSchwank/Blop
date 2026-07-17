@@ -2019,25 +2019,29 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
           p.drawLine(sx, 12, sx, h - 12);
         }
       } else {
-        // Floating tool cluster — flat dark plate, no decorative glow.
-        const int radius = qMin(w, h) / 2;
+        // Floating Drawboard tool pill — Blop dark plate + accent hairline.
+        const int radius = (m_orientation == Vertical)
+                               ? UiScale::dp(18)
+                               : qMin(w, h) / 2;
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0, 0, 0, 70));
         p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), radius, radius);
 
-        p.setBrush(QColor(18, 16, 30, 252));
+        p.setBrush(QColor(14, 12, 24, 248));
         QColor floatingBorder = m_accentColor;
-        floatingBorder.setAlpha(70);
+        floatingBorder.setAlpha(80);
         p.setPen(QPen(floatingBorder, 1));
         p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), radius, radius);
 
         // Quiet drag grip
         if (m_draggable) {
           if (m_orientation == Vertical) {
-            p.setBrush(QColor(255, 255, 255, 50));
+            // Grip near the TOP of the rail (Drawboard-like).
+            p.setBrush(QColor(255, 255, 255, 55));
             p.setPen(Qt::NoPen);
+            const int gy = UiScale::dp(8);
             for (int i = -1; i <= 1; ++i)
-              p.drawEllipse(w / 2 - 2, h / 2 + i * 7 - 2, 4, 4);
+              p.drawEllipse(w / 2 + i * 6 - 2, gy, 4, 4);
           } else {
             p.setPen(QPen(QColor(255, 255, 255, 42), 2, Qt::SolidLine, Qt::RoundCap));
             p.drawLine(11, h / 2 - 7, 11, h / 2 + 7);
@@ -2933,7 +2937,7 @@ void ModernToolbar::setStyle(Style style) {
     setMinimumSize(UiScale::dp(50), UiScale::dp(65));
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     if (m_orientation == Vertical) {
-      setFixedWidth(UiScale::dp(65));
+      setFixedWidth(UiScale::dp(52));
       setMinimumHeight(calculateMinLength());
       setMaximumHeight(QWIDGETSIZE_MAX);
     } else {
@@ -3094,7 +3098,7 @@ void ModernToolbar::setOrientation(Orientation o, bool animate) {
   QSize currentS = size();
   QSize targetS;
   if (m_orientation == Vertical) {
-    const int w = UiScale::dp(65);
+    const int w = UiScale::dp(52);
     const int h = qMax(calculateMinLength(), currentS.width());
     targetS = QSize(w, h);
     setFixedWidth(w);
@@ -3288,7 +3292,9 @@ void ModernToolbar::updateLayout(bool animate) {
       if (b->isVisible()) numVisible++;
     }
     
-    int dragSize = (m_draggable && !m_isDockedMode) ? UiScale::dp(14) : UiScale::dp(8);
+    int dragSize = UiScale::dp(8);
+    if (m_draggable && !m_isDockedMode)
+      dragSize = (m_orientation == Vertical) ? UiScale::dp(22) : UiScale::dp(14);
     int gap = effectiveGap();
     m_separatorXPositions.clear();
     
@@ -3392,7 +3398,22 @@ void ModernToolbar::updateLayout(bool animate) {
       int currentPos = dragSize;
       const QList<ToolbarBtn *> chromeRow = leftChromeButtons();
 
-      // Undock: back + undo + redo in one row on the editor surface
+#ifndef Q_OS_ANDROID
+      // Desktop Drawboard vertical rail: undo/redo/back live in bottom/title
+      // chrome — keep them out of the floating pill (no top-left floaters).
+      if (m_orientation == Vertical) {
+        for (ToolbarBtn *b : chromeRow) {
+          if (!b)
+            continue;
+          b->setDrawFloatingBg(false);
+          b->hide();
+          if (b->parentWidget() != this)
+            b->setParent(this);
+        }
+      } else
+#endif
+      {
+      // Undock horizontal: back + undo + redo in one row on the editor surface
       int floaterX = 16;
       const int floaterY = 18;
       for (ToolbarBtn *b : chromeRow) {
@@ -3418,10 +3439,30 @@ void ModernToolbar::updateLayout(bool animate) {
           floaterX += btnS + gap;
         }
       }
+      }
 
-      for (auto *b : m_buttons) {
-        if (chromeRow.contains(b)) continue;
-        if (!b->isVisible()) continue;
+      // Drawboard-ish tool order inside the vertical pill.
+      QList<ToolbarBtn *> railOrder;
+      if (m_orientation == Vertical) {
+        railOrder = {btnHand,         btnLasso, btnPen,   btnPencil,
+                     btnHighlighter,  btnText,  btnShape, btnImage,
+                     btnEraser,       btnRuler, btnStickyNote, btnDockToggle};
+      } else {
+        for (auto *b : m_buttons) {
+          if (!chromeRow.contains(b))
+            railOrder.append(b);
+        }
+      }
+
+      for (auto *b : railOrder) {
+        if (!b)
+          continue;
+        if (chromeRow.contains(b))
+          continue;
+        if (m_dockedOnlyButtons.contains(b)) {
+          b->hide();
+          continue;
+        }
         int bx, by;
         if (m_orientation == Vertical) {
           bx = (w - btnS) / 2;
@@ -3440,6 +3481,15 @@ void ModernToolbar::updateLayout(bool animate) {
           b->move(bx, by);
         }
         b->show();
+      }
+      // Hide any leftover buttons not in the rail order (vertical).
+      if (m_orientation == Vertical) {
+        for (auto *b : m_buttons) {
+          if (!b || chromeRow.contains(b) || railOrder.contains(b))
+            continue;
+          if (m_dockedOnlyButtons.contains(b))
+            b->hide();
+        }
       }
     }
   } else {

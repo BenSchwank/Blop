@@ -121,23 +121,40 @@ void PageThumbnailSidebar::applyCollapsedState() {
 
 void PageThumbnailSidebar::refreshListStyle() {
   const QString accent = m_accentColor.name(QColor::HexRgb);
-  setStyleSheet(QStringLiteral(
-      "QWidget#PageThumbnailSidebar {"
-      "  background-color: rgba(11, 9, 18, 0.94);"
-      "  border-right: 1px solid rgba(120, 130, 160, 0.14);"
-      "}"
-      "QPushButton#PageRailToggleBtn {"
-      "  background: transparent;"
-      "  color: rgba(232,228,255,0.70);"
-      "  border: none;"
-      "  border-bottom: 1px solid rgba(120,130,160,0.14);"
-      "  font-size: 16px;"
-      "  font-weight: 700;"
-      "}"
-      "QPushButton#PageRailToggleBtn:hover {"
-      "  background: rgba(124,92,252,0.14);"
-      "  color: #F4F5FB;"
-      "}"));
+  if (m_floatingMode) {
+    setStyleSheet(QStringLiteral(
+        "QWidget#PageThumbnailSidebar {"
+        "  background: transparent;"
+        "  border: none;"
+        "}"
+        "QWidget#PageRailBody {"
+        "  background: rgba(14, 12, 24, 0.96);"
+        "  border: 1px solid rgba(%1,%2,%3,0.35);"
+        "  border-radius: 16px;"
+        "}"
+        "QPushButton#PageRailToggleBtn { background: transparent; border: none; }")
+                      .arg(m_accentColor.red())
+                      .arg(m_accentColor.green())
+                      .arg(m_accentColor.blue()));
+  } else {
+    setStyleSheet(QStringLiteral(
+        "QWidget#PageThumbnailSidebar {"
+        "  background-color: rgba(11, 9, 18, 0.94);"
+        "  border-right: 1px solid rgba(120, 130, 160, 0.14);"
+        "}"
+        "QPushButton#PageRailToggleBtn {"
+        "  background: transparent;"
+        "  color: rgba(232,228,255,0.70);"
+        "  border: none;"
+        "  border-bottom: 1px solid rgba(120,130,160,0.14);"
+        "  font-size: 16px;"
+        "  font-weight: 700;"
+        "}"
+        "QPushButton#PageRailToggleBtn:hover {"
+        "  background: rgba(124,92,252,0.14);"
+        "  color: #F4F5FB;"
+        "}"));
+  }
 
   if (m_list) {
     m_list->setStyleSheet(
@@ -198,6 +215,21 @@ void PageThumbnailSidebar::setAccentColor(const QColor &color) {
   m_accentColor = color;
   refreshListStyle();
   rebuild();
+}
+
+void PageThumbnailSidebar::setFloatingMode(bool on) {
+  m_floatingMode = on;
+  setAttribute(Qt::WA_TranslucentBackground, on);
+  if (on) {
+    setCollapsed(false);
+    // Hide the docked-style toggle; left icon rail owns expand/collapse.
+    if (m_btnToggle)
+      m_btnToggle->hide();
+  } else if (m_btnToggle) {
+    m_btnToggle->show();
+  }
+  refreshListStyle();
+  update();
 }
 
 void PageThumbnailSidebar::rebuild() {

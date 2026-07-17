@@ -24,6 +24,10 @@ public:
   void setNoteView(MultiPageNoteView *view);
   void setAccentColor(const QColor &color);
 
+  /// Floating Drawboard panel (rounded, translucent) vs docked column.
+  void setFloatingMode(bool on);
+  bool isFloatingMode() const { return m_floatingMode; }
+
   void rebuild();
 
   bool isCollapsed() const { return m_collapsed; }
@@ -53,5 +57,6 @@ private:
   int m_currentPage{-1};
   int m_rebuildEpoch{0};
   bool m_collapsed{false};
+  bool m_floatingMode{false};
   int m_expandedWidth{0};
 };

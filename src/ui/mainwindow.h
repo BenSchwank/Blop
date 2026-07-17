@@ -41,6 +41,7 @@ class MainWindow;
 class PageManager;
 class PageThumbnailSidebar;
 class PenPresetBar;
+class NoteLeftRail;
 class QSortFilterProxyModel;
 class QShowEvent;
 struct WebBookmark {
@@ -324,6 +325,7 @@ private:
   void syncPenPresetBarGeometry();
   void updateNoteBottomChrome();
   void positionDrawboardToolbar();
+  void positionNoteChrome();
 
   // --- Web Integration ---
   void setupWebBrowser();
@@ -422,6 +424,8 @@ private:
   DocumentTabBar *m_documentTabBar{nullptr};
   /// Persistent left page thumbnail strip, Drawboard-style.
   PageThumbnailSidebar *m_pageThumbnailSidebar{nullptr};
+  /// Slim floating left icon rail (Drawboard).
+  NoteLeftRail *m_noteLeftRail{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};
   QPushButton *m_btnTitleSettings{nullptr};
   QPushButton *m_btnTitleShare{nullptr};
