@@ -2019,34 +2019,29 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
           p.drawLine(sx, 12, sx, h - 12);
         }
       } else {
-        // Floating pill container
-        int radius = std::min(w, h) / 2;
-        // Outer glow / shadow
+        // Floating tool cluster — flat dark plate, no decorative glow.
+        const int radius = qMin(w, h) / 2;
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 60));
-        p.drawRoundedRect(rect().adjusted(2, 4, -2, -2), radius, radius);
-        
-        // Container body
-        QLinearGradient grad(0, 0, w, h);
-        grad.setColorAt(0, QColor(30, 28, 52, 248));
-        grad.setColorAt(1, QColor(20, 18, 40, 248));
-        p.setBrush(grad);
+        p.setBrush(QColor(0, 0, 0, 70));
+        p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), radius, radius);
+
+        p.setBrush(QColor(18, 16, 30, 252));
         QColor floatingBorder = m_accentColor;
-        floatingBorder.setAlpha(60);
+        floatingBorder.setAlpha(70);
         p.setPen(QPen(floatingBorder, 1));
         p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), radius, radius);
 
-        // Drag grip
+        // Quiet drag grip
         if (m_draggable) {
           if (m_orientation == Vertical) {
-            p.setBrush(QColor(255, 255, 255, 55));
+            p.setBrush(QColor(255, 255, 255, 50));
             p.setPen(Qt::NoPen);
             for (int i = -1; i <= 1; ++i)
               p.drawEllipse(w / 2 - 2, h / 2 + i * 7 - 2, 4, 4);
           } else {
-            p.setPen(QPen(QColor(255, 255, 255, 50), 2));
-            p.drawLine(10, h / 2 - 8, 10, h / 2 + 8);
-            p.drawLine(14, h / 2 - 8, 14, h / 2 + 8);
+            p.setPen(QPen(QColor(255, 255, 255, 42), 2, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(11, h / 2 - 7, 11, h / 2 + 7);
+            p.drawLine(15, h / 2 - 7, 15, h / 2 + 7);
           }
         }
       }

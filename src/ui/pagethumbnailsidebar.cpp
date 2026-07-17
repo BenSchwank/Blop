@@ -122,14 +122,14 @@ void PageThumbnailSidebar::refreshListStyle() {
   const QString accent = m_accentColor.name(QColor::HexRgb);
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
-      "  background-color: rgba(16, 14, 24, 0.72);"
-      "  border-left: 1px solid rgba(120, 130, 160, 0.16);"
+      "  background-color: rgba(11, 9, 18, 0.94);"
+      "  border-left: 1px solid rgba(120, 130, 160, 0.14);"
       "}"
       "QPushButton#PageRailToggleBtn {"
       "  background: transparent;"
       "  color: rgba(232,228,255,0.70);"
       "  border: none;"
-      "  border-bottom: 1px solid rgba(120,130,160,0.16);"
+      "  border-bottom: 1px solid rgba(120,130,160,0.14);"
       "  font-size: 16px;"
       "  font-weight: 700;"
       "}"
