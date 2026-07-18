@@ -3,6 +3,9 @@
 #include "canvasview.h"
 #include "moderntoolbar.h"
 #include "notechrome.h"
+#include "toolpropertiespanel.h"
+#include "allpagesoverlay.h"
+#include "blop_inwindow_menu.h"
 #include "androidphonetoolbar.h"
 #include "documenttabbar.h"
 #include "librarytagspanel.h"
@@ -4728,6 +4731,14 @@ void MainWindow::setupUi() {
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) { positionNoteChrome(); });
+    connect(topToolbar, &ModernToolbar::toolOptionsRequested, this, [this]() {
+      m_toolPropertiesVisible = true;
+      if (m_toolPropertiesPanel) {
+        m_toolPropertiesPanel->show();
+        m_toolPropertiesPanel->syncFromToolManager();
+      }
+      positionNoteChrome();
+    });
 #endif
     m_floatingTools = topToolbar;
   }
@@ -4751,12 +4762,21 @@ void MainWindow::setupUi() {
           &MainWindow::onUndo);
 #endif
 
-  // Pen-preset brush-stroke chips removed from the note UI (v3.22.1 redesign).
-  // Keep the object constructed but permanently hidden so older settings and
-  // call sites stay safe; tools remain fully available via the toolbar.
+  // Drawboard Favorites — preset chips under the markup toolbar.
   m_penPresetBar = new PenPresetBar(m_editorCenterWidget);
+  m_penPresetBar->setAccentColor(NoteChrome::accent());
   m_penPresetBar->hide();
-  m_penPresetBar->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  connect(m_penPresetBar, &PenPresetBar::presetSelected, this,
+          [this](const PenPreset &preset) {
+            ToolManager::instance().selectTool(preset.mode);
+            ToolConfig cfg = ToolManager::instance().config();
+            cfg.penColor = preset.color;
+            cfg.penWidth = preset.width;
+            cfg.opacity = preset.opacity;
+            ToolManager::instance().setConfig(cfg);
+            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+              tb->setToolMode(preset.mode);
+          });
 
   // Install event filter to center the floating tools automatically on resize
   m_editorCenterWidget->installEventFilter(this);
@@ -4949,13 +4969,34 @@ void MainWindow::setupUi() {
   m_btnNoteZoomIn->setToolTip(QStringLiteral("Vergrößern"));
   m_btnNoteZoomIn->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteZoomIn, &QPushButton::clicked, this, [this]() {
-    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
-      if (auto *view = editor->view()) {
-        view->zoomBy(1.1);
-        updateNoteBottomChrome();
-      }
+    if (auto *view = currentNoteView()) {
+      view->zoomBy(1.1);
+      updateNoteBottomChrome();
+    }
   });
   bottomLay->addWidget(m_btnNoteZoomIn);
+
+  m_btnNoteFitWidth = new QPushButton(QStringLiteral("⟷"), m_noteBottomChrome);
+  m_btnNoteFitWidth->setToolTip(QStringLiteral("An Breite anpassen"));
+  m_btnNoteFitWidth->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNoteFitWidth, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView()) {
+      view->fitToWidth();
+      updateNoteBottomChrome();
+    }
+  });
+  bottomLay->addWidget(m_btnNoteFitWidth);
+
+  m_btnNoteFitPage = new QPushButton(QStringLiteral("▢"), m_noteBottomChrome);
+  m_btnNoteFitPage->setToolTip(QStringLiteral("Ganze Seite"));
+  m_btnNoteFitPage->setCursor(Qt::PointingHandCursor);
+  connect(m_btnNoteFitPage, &QPushButton::clicked, this, [this]() {
+    if (auto *view = currentNoteView()) {
+      view->fitPage();
+      updateNoteBottomChrome();
+    }
+  });
+  bottomLay->addWidget(m_btnNoteFitPage);
 
   m_noteBottomChrome->hide();
   // Floating overlay — not in the VBox (Drawboard bottom strip).
@@ -4984,12 +5025,22 @@ void MainWindow::setupUi() {
   const QColor railIcon(QStringLiteral("#E0E0E0"));
   m_noteLeftRail->setIcon(QStringLiteral("pages"),
                           createModernIcon(QStringLiteral("pages"), railIcon));
+  m_noteLeftRail->setIcon(QStringLiteral("allpages"),
+                          createModernIcon(QStringLiteral("pages_pill"), railIcon));
+  m_noteLeftRail->setIcon(QStringLiteral("bookmarks"),
+                          createModernIcon(QStringLiteral("home"), railIcon));
+  m_noteLeftRail->setIcon(QStringLiteral("history"),
+                          createModernIcon(QStringLiteral("more_pill"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("search"),
                           createModernIcon(QStringLiteral("search"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("more"),
                           createModernIcon(QStringLiteral("more_vert"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("select"),
                           createModernIcon(QStringLiteral("select"), railIcon));
+  m_noteLeftRail->setIcon(QStringLiteral("props"),
+                          createModernIcon(QStringLiteral("palette"), railIcon));
+  m_noteLeftRail->setIcon(QStringLiteral("theme"),
+                          createModernIcon(QStringLiteral("palette"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("export"),
                           createModernIcon(QStringLiteral("export"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("settings"),
@@ -5004,6 +5055,18 @@ void MainWindow::setupUi() {
     }
     positionNoteChrome();
   });
+  connect(m_noteLeftRail, &NoteLeftRail::allPagesClicked, this, [this]() {
+    if (!m_allPagesOverlay)
+      return;
+    m_allPagesOverlay->setNoteView(currentNoteView());
+    m_allPagesOverlay->setGeometry(0, 0, m_editorCenterWidget->width(),
+                                   m_editorCenterWidget->height());
+    m_allPagesOverlay->present();
+  });
+  connect(m_noteLeftRail, &NoteLeftRail::bookmarksClicked, this,
+          &MainWindow::showNoteBookmarksMenu);
+  connect(m_noteLeftRail, &NoteLeftRail::historyClicked, this,
+          &MainWindow::showNoteHistoryMenu);
   connect(m_noteLeftRail, &NoteLeftRail::searchClicked, this, [this]() {
     if (m_titleSearchBar) {
       m_titleSearchBar->show();
@@ -5014,12 +5077,49 @@ void MainWindow::setupUi() {
           &MainWindow::onEditorNoteOverflowMenu);
   connect(m_noteLeftRail, &NoteLeftRail::selectClicked, this,
           &MainWindow::onToolLasso);
+  connect(m_noteLeftRail, &NoteLeftRail::propertiesClicked, this, [this]() {
+    m_toolPropertiesVisible = !m_toolPropertiesVisible;
+    if (m_toolPropertiesPanel)
+      m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
+    positionNoteChrome();
+  });
+  connect(m_noteLeftRail, &NoteLeftRail::themeToggleClicked, this, [this]() {
+    NoteChrome::toggleMode();
+    applyNoteChromeTheme();
+  });
   connect(m_noteLeftRail, &NoteLeftRail::exportClicked, this, [this]() {
     onEditorNoteOverflowMenu();
   });
   connect(m_noteLeftRail, &NoteLeftRail::settingsClicked, this,
           &MainWindow::onOpenSettings);
   m_noteLeftRail->hide();
+
+  m_toolPropertiesPanel = new ToolPropertiesPanel(m_editorCenterWidget);
+  m_toolPropertiesPanel->setAccentColor(NoteChrome::accent());
+  m_toolPropertiesPanel->hide();
+  connect(m_toolPropertiesPanel, &ToolPropertiesPanel::closeRequested, this,
+          [this]() {
+            m_toolPropertiesVisible = false;
+            m_toolPropertiesPanel->hide();
+            positionNoteChrome();
+          });
+
+  m_allPagesOverlay = new AllPagesOverlay(m_editorCenterWidget);
+  m_allPagesOverlay->setAccentColor(NoteChrome::accent());
+  connect(m_allPagesOverlay, &AllPagesOverlay::pageActivated, this,
+          [this](int idx) {
+            if (auto *view = currentNoteView()) {
+              view->scrollToPage(idx, true);
+              updateNoteBottomChrome();
+              if (m_pageThumbnailSidebar)
+                m_pageThumbnailSidebar->onCurrentPageChanged(idx);
+            }
+          });
+  connect(m_allPagesOverlay, &AllPagesOverlay::pagesChanged, this, [this]() {
+    if (m_pageThumbnailSidebar)
+      m_pageThumbnailSidebar->rebuild();
+    updateNoteBottomChrome();
+  });
 #endif
 
   // ── Page Thumbnail Sidebar ───────────────────────────────────────────────
@@ -5055,18 +5155,32 @@ void MainWindow::setupUi() {
           });
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::addPageRequested, this,
           [this]() {
-            if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-              if (auto *view = editor->view()) {
-                if (Note *n = view->note()) {
-                  const int idx = n->pages.size();
-                  n->ensurePage(idx);
-                  view->setNote(n);
-                  m_pageThumbnailSidebar->rebuild();
-                  view->scrollToPage(idx, true);
-                  updateNoteBottomChrome();
-                }
+            if (auto *view = currentNoteView()) {
+              if (Note *n = view->note()) {
+                const int idx = n->pages.size();
+                n->ensurePage(idx);
+                view->setNote(n);
+                m_pageThumbnailSidebar->rebuild();
+                view->scrollToPage(idx, true);
+                updateNoteBottomChrome();
               }
             }
+          });
+  connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::pagesMutated, this,
+          [this]() {
+            updateNoteBottomChrome();
+            positionNoteChrome();
+          });
+  connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::openAllPagesRequested,
+          this, [this]() {
+#ifndef Q_OS_ANDROID
+            if (!m_allPagesOverlay || !m_editorCenterWidget)
+              return;
+            m_allPagesOverlay->setNoteView(currentNoteView());
+            m_allPagesOverlay->setGeometry(0, 0, m_editorCenterWidget->width(),
+                                           m_editorCenterWidget->height());
+            m_allPagesOverlay->present();
+#endif
           });
   m_pageThumbnailSidebar->hide();
 
@@ -8249,6 +8363,10 @@ void MainWindow::updateSidebarState() {
       if (tb->currentStyle() == ModernToolbar::Normal)
         tb->applyDrawboardMarkupToolbar();
     }
+    if (m_toolPropertiesPanel)
+      m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
+  } else if (m_toolPropertiesPanel) {
+    m_toolPropertiesPanel->hide();
   }
 
   // FAB only for Radial toolbar style.
@@ -9909,19 +10027,21 @@ void MainWindow::positionDrawboardToolbar() {
   const int W = m_editorCenterWidget->width();
   const int margin = UiScale::dp(12);
 
-  // Content starts after left menu + optional Pages panel.
   int leftInset = 0;
+  int rightInset = 0;
 #ifndef Q_OS_ANDROID
   if (m_noteLeftRail && m_noteLeftRail->isVisible())
     leftInset += m_noteLeftRail->preferredWidth();
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
     leftInset += m_pageThumbnailSidebar->width();
+  if (m_toolPropertiesPanel && m_toolPropertiesPanel->isVisible())
+    rightInset += m_toolPropertiesPanel->preferredWidth();
 #endif
 
   if (tb->isDockedMode() || tb->orientation() == ModernToolbar::Horizontal) {
     tb->applyDrawboardMarkupToolbar();
     const int barH = UiScale::dp(48);
-    const int contentW = qMax(UiScale::dp(200), W - leftInset);
+    const int contentW = qMax(UiScale::dp(200), W - leftInset - rightInset);
     const int idealW = tb->calculateMinLength();
     const int barW = qBound(UiScale::dp(260), idealW, contentW - 2 * margin);
     const int x = leftInset + qMax(margin, (contentW - barW) / 2);
@@ -9931,7 +10051,6 @@ void MainWindow::positionDrawboardToolbar() {
     tb->setFixedHeight(barH);
     tb->setGeometry(x, y, barW, barH);
   } else {
-    // Optional vertical rail (settings / side-snap).
     tb->applyDrawboardVerticalRail();
     const int bottomH = noteBottomChromeHeight();
     const int railW = UiScale::dp(52);
@@ -9940,7 +10059,7 @@ void MainWindow::positionDrawboardToolbar() {
                             m_editorCenterWidget->height() - noteHeaderHeight() -
                                 bottomH - 2 * margin);
     const int h = qBound(UiScale::dp(200), idealH, availH);
-    const int x = qMax(margin, W - railW - margin);
+    const int x = qMax(margin, W - rightInset - railW - margin);
     const int y = noteHeaderHeight() + margin + qMax(0, (availH - h) / 2);
     tb->setFixedWidth(railW);
     tb->setGeometry(x, y, railW, h);
@@ -9957,7 +10076,6 @@ void MainWindow::positionNoteChrome() {
   const int H = m_editorCenterWidget->height();
 
 #ifndef Q_OS_ANDROID
-  // Drawboard left menu — full-height flush strip.
   int leftX = 0;
   if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
     const int railW = m_noteLeftRail->preferredWidth();
@@ -9966,7 +10084,6 @@ void MainWindow::positionNoteChrome() {
     leftX = railW;
   }
 
-  // Pages panel — solid column to the right of the left menu.
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
     if (m_pageThumbnailSidebar->isCollapsed())
       m_pageThumbnailSidebar->setCollapsed(false);
@@ -9975,16 +10092,29 @@ void MainWindow::positionNoteChrome() {
     m_pageThumbnailSidebar->raise();
     leftX += thumbW;
   }
+
+  int rightInset = 0;
+  if (m_toolPropertiesPanel && m_toolPropertiesVisible) {
+    m_toolPropertiesPanel->show();
+    const int propsW = m_toolPropertiesPanel->preferredWidth();
+    m_toolPropertiesPanel->setGeometry(W - propsW, 0, propsW, H);
+    m_toolPropertiesPanel->raise();
+    m_toolPropertiesPanel->syncFromToolManager();
+    rightInset = propsW;
+  } else if (m_toolPropertiesPanel) {
+    m_toolPropertiesPanel->hide();
+  }
 #else
   const int leftX = 0;
+  const int rightInset = 0;
 #endif
 
-  // Utilities bar — sits in the content area under the page.
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
     const int stripH = m_noteBottomChrome->height();
+    const int availW = W - leftX - rightInset;
     const int stripW =
-        qBound(UiScale::dp(300), UiScale::dp(460), W - leftX - 2 * margin);
-    const int x = leftX + (W - leftX - stripW) / 2;
+        qBound(UiScale::dp(340), UiScale::dp(520), availW - 2 * margin);
+    const int x = leftX + qMax(0, (availW - stripW) / 2);
     const int y = H - stripH - margin;
     m_noteBottomChrome->setGeometry(x, y, stripW, stripH);
     m_noteBottomChrome->raise();
@@ -9993,11 +10123,12 @@ void MainWindow::positionNoteChrome() {
   positionDrawboardToolbar();
   if (m_floatingTools)
     m_floatingTools->raise();
+  syncPenPresetBarGeometry();
 
 #ifndef Q_OS_ANDROID
   if (m_radialFab && m_radialFab->isVisible() && !m_radialFab->isExpanded()) {
     const int fab = m_radialFab->collapsedSize();
-    const int x = qMax(leftX + margin, W - margin - fab);
+    const int x = qMax(leftX + margin, W - rightInset - margin - fab);
     const int y = qMax(margin, H - noteBottomChromeHeight() - fab - margin);
     if (m_radialFab->x() <= 0 && m_radialFab->y() <= 0)
       m_radialFab->move(x, y);
@@ -10007,6 +10138,10 @@ void MainWindow::positionNoteChrome() {
       m_radialFab->move(nx, ny);
     }
     m_radialFab->raise();
+  }
+  if (m_allPagesOverlay && m_allPagesOverlay->isVisible()) {
+    m_allPagesOverlay->setGeometry(0, 0, W, H);
+    m_allPagesOverlay->raise();
   }
 #endif
 }
@@ -10039,9 +10174,157 @@ void MainWindow::updateNoteBottomChrome() {
 }
 
 void MainWindow::syncPenPresetBarGeometry() {
-  // v3.22.1: preset brush chips are retired from the note chrome.
-  if (m_penPresetBar)
+  if (!m_penPresetBar || !m_editorCenterWidget)
+    return;
+  auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
+  const bool show = m_floatingTools && m_floatingTools->isVisible() && tb &&
+                    tb->currentStyle() == ModernToolbar::Normal &&
+                    tb->isDockedMode();
+  if (!show) {
     m_penPresetBar->hide();
+    return;
+  }
+  const int h = m_penPresetBar->preferredHeightPx();
+  const int x = m_floatingTools->x();
+  const int y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
+  const int w = m_floatingTools->width();
+  m_penPresetBar->setGeometry(x, y, w, h);
+  m_penPresetBar->show();
+  m_penPresetBar->raise();
+  const auto &cfg = ToolManager::instance().config();
+  m_penPresetBar->syncActive(ToolManager::instance().activeToolMode(),
+                             cfg.penColor, cfg.penWidth);
+}
+
+MultiPageNoteView *MainWindow::currentNoteView() const {
+  if (!m_editorTabs)
+    return nullptr;
+  if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+    return editor->view();
+  return nullptr;
+}
+
+void MainWindow::applyNoteChromeTheme() {
+#ifndef Q_OS_ANDROID
+  if (m_editorCenterWidget) {
+    m_editorCenterWidget->setStyleSheet(
+        QStringLiteral("QWidget { background: %1; }")
+            .arg(NoteChrome::canvasBg().name(QColor::HexRgb)));
+  }
+  if (m_noteLeftRail) {
+    m_noteLeftRail->setAccentColor(NoteChrome::accent());
+    m_noteLeftRail->update();
+  }
+  if (m_pageThumbnailSidebar) {
+    m_pageThumbnailSidebar->setAccentColor(NoteChrome::accent());
+    m_pageThumbnailSidebar->rebuild();
+  }
+  if (m_toolPropertiesPanel) {
+    m_toolPropertiesPanel->setAccentColor(NoteChrome::accent());
+    m_toolPropertiesPanel->syncFromToolManager();
+  }
+  if (m_allPagesOverlay)
+    m_allPagesOverlay->setAccentColor(NoteChrome::accent());
+  if (m_penPresetBar)
+    m_penPresetBar->setAccentColor(NoteChrome::accent());
+  if (m_noteBottomChrome) {
+    m_noteBottomChrome->setStyleSheet(QStringLiteral(
+        "QWidget#NoteBottomChrome {"
+        "  background: %1; border: 1px solid %2; border-radius: 8px;"
+        "}"
+        "QPushButton {"
+        "  background: transparent; color: %3; border: none; border-radius: 6px;"
+        "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
+        "  padding: 0 8px;"
+        "}"
+        "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
+        "QLabel { background: transparent; color: %3; font-size: 12px; font-weight: 600; }")
+                                          .arg(NoteChrome::panelElevated().name(),
+                                               NoteChrome::border().name(),
+                                               NoteChrome::textSecondary().name(),
+                                               NoteChrome::textPrimary().name()));
+  }
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+    tb->update();
+  positionNoteChrome();
+#endif
+}
+
+void MainWindow::showNoteBookmarksMenu() {
+  auto *view = currentNoteView();
+  if (!view || !view->note())
+    return;
+  QList<BlopInWindowMenu::Item> items;
+  const QList<int> bms = view->note()->bookmarkedPageIndices();
+  if (bms.isEmpty()) {
+    items.push_back(
+        {QStringLiteral("Keine Lesezeichen"), QIcon(), []() {}, false, false});
+  } else {
+    for (int idx : bms) {
+      const QString title = view->pageTitle(idx);
+      items.push_back(
+          {QStringLiteral("%1 — %2").arg(idx + 1).arg(
+               title.isEmpty() ? QStringLiteral("Seite") : title),
+           QIcon(),
+           [this, idx]() {
+             if (auto *v = currentNoteView()) {
+               v->scrollToPage(idx, true);
+               updateNoteBottomChrome();
+             }
+           }});
+    }
+  }
+  BlopInWindowMenu::Item sep;
+  sep.separator = true;
+  items.push_back(sep);
+  const int cur = view->currentPageIndex();
+  items.push_back({view->isPageBookmarked(cur)
+                       ? QStringLiteral("Lesezeichen hier entfernen")
+                       : QStringLiteral("Aktuelle Seite markieren"),
+                   QIcon(),
+                   [this, cur]() {
+                     if (auto *v = currentNoteView()) {
+                       v->togglePageBookmark(cur);
+                       if (m_pageThumbnailSidebar)
+                         m_pageThumbnailSidebar->rebuild();
+                     }
+                   }});
+  QPoint anchor(UiScale::dp(60), UiScale::dp(80));
+  if (m_noteLeftRail)
+    anchor = m_noteLeftRail->mapToGlobal(
+        QPoint(m_noteLeftRail->width(), UiScale::dp(80)));
+  BlopInWindowMenu::show(this, anchor, items);
+}
+
+void MainWindow::showNoteHistoryMenu() {
+  auto *view = currentNoteView();
+  if (!view)
+    return;
+  QList<BlopInWindowMenu::Item> items;
+  items.push_back({QStringLiteral("Undo-Schritte: %1").arg(view->undoDepth()),
+                   QIcon(), []() {}, false, false});
+  items.push_back({QStringLiteral("Redo-Schritte: %1").arg(view->redoDepth()),
+                   QIcon(), []() {}, false, false});
+  BlopInWindowMenu::Item sep;
+  sep.separator = true;
+  items.push_back(sep);
+  for (int i = 0; i < view->pageCount(); ++i) {
+    const int strokes = view->strokeCountOnPage(i);
+    items.push_back(
+        {QStringLiteral("Seite %1 · %2 Striche").arg(i + 1).arg(strokes),
+         QIcon(),
+         [this, i]() {
+           if (auto *v = currentNoteView()) {
+             v->scrollToPage(i, true);
+             updateNoteBottomChrome();
+           }
+         }});
+  }
+  QPoint anchor(UiScale::dp(60), UiScale::dp(120));
+  if (m_noteLeftRail)
+    anchor = m_noteLeftRail->mapToGlobal(
+        QPoint(m_noteLeftRail->width(), UiScale::dp(120)));
+  BlopInWindowMenu::show(this, anchor, items);
 }
 
 void MainWindow::switchToSelectTool() { onToolSelect(); }

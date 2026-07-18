@@ -5,6 +5,8 @@
 
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPen>
+#include <QSize>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -18,12 +20,17 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
                             UiScale::dp(12));
   m_lay->setSpacing(UiScale::dp(2));
 
-  makeBtn(QStringLiteral("pages"), QStringLiteral("Seiten"));
+  makeBtn(QStringLiteral("pages"), QStringLiteral("Seitenleiste"));
+  makeBtn(QStringLiteral("allpages"), QStringLiteral("Alle Seiten"));
+  makeBtn(QStringLiteral("bookmarks"), QStringLiteral("Lesezeichen"));
+  makeBtn(QStringLiteral("history"), QStringLiteral("Verlauf"));
   makeBtn(QStringLiteral("search"), QStringLiteral("Suche"));
   makeBtn(QStringLiteral("more"), QStringLiteral("Mehr"));
-  m_lay->addSpacing(UiScale::dp(10));
+  m_lay->addSpacing(UiScale::dp(8));
   makeBtn(QStringLiteral("select"), QStringLiteral("Auswahl"));
+  makeBtn(QStringLiteral("props"), QStringLiteral("Eigenschaften"));
   m_lay->addStretch(1);
+  makeBtn(QStringLiteral("theme"), QStringLiteral("Editor Hell/Dunkel"));
   makeBtn(QStringLiteral("export"), QStringLiteral("Exportieren"));
   makeBtn(QStringLiteral("settings"), QStringLiteral("Einstellungen"));
 
@@ -35,12 +42,22 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
       emit pagesToggled(m_pagesExpanded);
     });
   }
+  if (auto *b = m_btns.value(QStringLiteral("allpages")))
+    connect(b, &QToolButton::clicked, this, &NoteLeftRail::allPagesClicked);
+  if (auto *b = m_btns.value(QStringLiteral("bookmarks")))
+    connect(b, &QToolButton::clicked, this, &NoteLeftRail::bookmarksClicked);
+  if (auto *b = m_btns.value(QStringLiteral("history")))
+    connect(b, &QToolButton::clicked, this, &NoteLeftRail::historyClicked);
   if (auto *b = m_btns.value(QStringLiteral("search")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::searchClicked);
   if (auto *b = m_btns.value(QStringLiteral("more")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::moreClicked);
   if (auto *b = m_btns.value(QStringLiteral("select")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::selectClicked);
+  if (auto *b = m_btns.value(QStringLiteral("props")))
+    connect(b, &QToolButton::clicked, this, &NoteLeftRail::propertiesClicked);
+  if (auto *b = m_btns.value(QStringLiteral("theme")))
+    connect(b, &QToolButton::clicked, this, &NoteLeftRail::themeToggleClicked);
   if (auto *b = m_btns.value(QStringLiteral("export")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::exportClicked);
   if (auto *b = m_btns.value(QStringLiteral("settings")))
@@ -88,12 +105,9 @@ void NoteLeftRail::refreshStyles() {
   const QColor a = NoteChrome::accent();
   setStyleSheet(QStringLiteral(
       "QToolButton#NoteLeftRailBtn {"
-      "  background: transparent; border: none; border-radius: 8px;"
-      "  padding: 0;"
+      "  background: transparent; border: none; border-radius: 8px; padding: 0;"
       "}"
-      "QToolButton#NoteLeftRailBtn:hover {"
-      "  background: rgba(255,255,255,0.08);"
-      "}"
+      "QToolButton#NoteLeftRailBtn:hover { background: rgba(255,255,255,0.08); }"
       "QToolButton#NoteLeftRailBtn:checked {"
       "  background: rgba(%1,%2,%3,0.22);"
       "}")
@@ -105,9 +119,6 @@ void NoteLeftRail::refreshStyles() {
 void NoteLeftRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
-  p.setRenderHint(QPainter::Antialiasing, false);
-
-  // Drawboard left menu: flush charcoal strip, hairline separator.
   p.fillRect(rect(), NoteChrome::panelBg());
   p.setPen(QPen(NoteChrome::borderSoft(), 1));
   p.drawLine(width() - 1, 0, width() - 1, height());

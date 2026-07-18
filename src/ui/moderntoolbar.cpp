@@ -2558,7 +2558,10 @@ void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 
 // --- RESTLICHE FUNKTIONEN ---
 
-void ModernToolbar::openToolOptions() { showSettingsPopup(); }
+void ModernToolbar::openToolOptions() {
+  emit toolOptionsRequested();
+  showSettingsPopup();
+}
 
 void ModernToolbar::showToolPicker() {
   QWidget *host = parentWidget() ? parentWidget()->window() : window();

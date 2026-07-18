@@ -1,6 +1,7 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QList>
 #include <QVector>
 #include <QPointF>
 #include <QPainterPath>
@@ -60,6 +61,10 @@ struct NotePage {
     int backgroundType{2};
     /// Papierfarbe (Linien/Karo passen sich automatisch an)
     QColor paperColor{Qt::white};
+    /// Content rotation within the A4 frame (0 / 90 / 180 / 270).
+    int rotationDegrees{0};
+    /// Drawboard-style page bookmark (left-rail bookmarks list).
+    bool bookmarked{false};
 };
 
 struct Note {
@@ -74,5 +79,14 @@ struct Note {
             // Automatische Benennung: "Seite 1", "Seite 2" usw.
             pages[index].title = QString("Seite %1").arg(index + 1);
         }
+    }
+
+    QList<int> bookmarkedPageIndices() const {
+        QList<int> out;
+        for (int i = 0; i < pages.size(); ++i) {
+            if (pages[i].bookmarked)
+                out.append(i);
+        }
+        return out;
     }
 };

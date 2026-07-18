@@ -1,7 +1,6 @@
 #pragma once
 
-// Drawboard-style left menu strip — pages / search / more / utilities.
-// Page thumbnails open as a panel immediately to its right.
+// Drawboard-style left menu strip — pages / bookmarks / history / utilities.
 
 #include <QColor>
 #include <QHash>
@@ -31,6 +30,11 @@ signals:
   void selectClicked();
   void exportClicked();
   void settingsClicked();
+  void bookmarksClicked();
+  void historyClicked();
+  void allPagesClicked();
+  void themeToggleClicked();
+  void propertiesClicked();
 
 protected:
   void paintEvent(QPaintEvent *event) override;

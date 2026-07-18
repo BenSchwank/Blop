@@ -1,18 +1,23 @@
 #include "pagethumbnailsidebar.h"
 
+#include "Note.h"
+#include "blop_dialogs.h"
+#include "blop_inwindow_menu.h"
+#include "multipagenoteview.h"
+#include "notechrome.h"
+#include "uiscale.h"
+
 #include <QAbstractItemView>
 #include <QFrame>
+#include <QHBoxLayout>
 #include <QIcon>
+#include <QPixmap>
+#include <QListView>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPushButton>
 #include <QSize>
 #include <QVBoxLayout>
-
-#include "Note.h"
-#include "multipagenoteview.h"
-#include "notechrome.h"
-#include "uiscale.h"
 
 namespace {
 struct RailMetrics {
@@ -23,25 +28,28 @@ struct RailMetrics {
   int pad;
 };
 
-RailMetrics railMetrics(QWidget *ref) {
+RailMetrics railMetrics(QWidget *ref, bool twoCol) {
 #ifdef Q_OS_ANDROID
   if (!UiScale::isAndroidTablet(ref)) {
     return {UiScale::dp(68), UiScale::dp(52), UiScale::dp(72), UiScale::dp(90),
             UiScale::dp(6)};
   }
-#endif
+#else
   Q_UNUSED(ref);
-  // Drawboard Pages panel — roomy single-column thumbs.
+#endif
+  if (twoCol) {
+    return {UiScale::dp(196), UiScale::dp(78), UiScale::dp(104),
+            UiScale::dp(124), UiScale::dp(8)};
+  }
   return {UiScale::dp(120), UiScale::dp(92), UiScale::dp(120), UiScale::dp(142),
           UiScale::dp(10)};
 }
 } // namespace
 
-PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
-    : QWidget(parent) {
+PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("PageThumbnailSidebar"));
   setAttribute(Qt::WA_StyledBackground, true);
-  const RailMetrics m = railMetrics(this);
+  const RailMetrics m = railMetrics(this, m_twoColumn);
   m_expandedWidth = m.width;
   setFixedWidth(m_expandedWidth);
 
@@ -53,7 +61,6 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
   m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
   m_btnToggle->setFixedHeight(UiScale::dp(28));
   m_btnToggle->setCursor(Qt::PointingHandCursor);
-  m_btnToggle->setToolTip(QStringLiteral("Seitenmanager einklappen"));
   connect(m_btnToggle, &QPushButton::clicked, this,
           &PageThumbnailSidebar::toggleCollapsed);
   root->addWidget(m_btnToggle);
@@ -70,20 +77,35 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
   m_list->setIconSize(QSize(m.thumbW, m.thumbH));
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+  m_list->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) { onItemClicked(m_list->row(item)); });
+  connect(m_list, &QWidget::customContextMenuRequested, this,
+          &PageThumbnailSidebar::showItemContextMenu);
   lay->addWidget(m_list, 1);
 
+  auto *footer = new QHBoxLayout;
+  footer->setSpacing(UiScale::dp(6));
   m_btnAddPage = new QPushButton(QStringLiteral("+ Seite"), m_railBody);
   m_btnAddPage->setObjectName(QStringLiteral("PageRailAddBtn"));
   m_btnAddPage->setFixedHeight(UiScale::dp(34));
   m_btnAddPage->setCursor(Qt::PointingHandCursor);
-  m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
   connect(m_btnAddPage, &QPushButton::clicked, this,
           &PageThumbnailSidebar::addPageRequested);
-  lay->addWidget(m_btnAddPage);
+  footer->addWidget(m_btnAddPage, 1);
+
+  m_btnColumns = new QPushButton(QStringLiteral("⠿"), m_railBody);
+  m_btnColumns->setObjectName(QStringLiteral("PageRailColsBtn"));
+  m_btnColumns->setFixedSize(UiScale::dp(34), UiScale::dp(34));
+  m_btnColumns->setCursor(Qt::PointingHandCursor);
+  m_btnColumns->setToolTip(QStringLiteral("Ein-/Zweispaltig"));
+  connect(m_btnColumns, &QPushButton::clicked, this,
+          &PageThumbnailSidebar::toggleTwoColumnMode);
+  footer->addWidget(m_btnColumns);
+  lay->addLayout(footer);
 
   root->addWidget(m_railBody, 1);
+  applyViewMode();
   refreshListStyle();
 }
 
@@ -103,6 +125,42 @@ void PageThumbnailSidebar::toggleCollapsed() {
   setCollapsed(!m_collapsed);
 }
 
+void PageThumbnailSidebar::setTwoColumnMode(bool on) {
+  if (m_twoColumn == on)
+    return;
+  m_twoColumn = on;
+  applyViewMode();
+  rebuild();
+  emit pagesMutated(); // triggers MainWindow reposition for width change
+}
+
+void PageThumbnailSidebar::toggleTwoColumnMode() {
+  setTwoColumnMode(!m_twoColumn);
+}
+
+void PageThumbnailSidebar::applyViewMode() {
+  const RailMetrics m = railMetrics(this, m_twoColumn);
+  m_expandedWidth = m.width;
+  if (!m_collapsed)
+    setFixedWidth(m_expandedWidth);
+  if (!m_list)
+    return;
+  m_list->setIconSize(QSize(m.thumbW, m.thumbH));
+  if (m_twoColumn) {
+    m_list->setViewMode(QListView::IconMode);
+    m_list->setFlow(QListView::LeftToRight);
+    m_list->setWrapping(true);
+    m_list->setResizeMode(QListView::Adjust);
+    m_list->setMovement(QListView::Static);
+    m_list->setSpacing(UiScale::dp(6));
+  } else {
+    m_list->setViewMode(QListView::ListMode);
+    m_list->setFlow(QListView::TopToBottom);
+    m_list->setWrapping(false);
+    m_list->setSpacing(UiScale::dp(8));
+  }
+}
+
 void PageThumbnailSidebar::applyCollapsedState() {
   if (m_railBody)
     m_railBody->setVisible(!m_collapsed);
@@ -114,7 +172,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
     }
   } else {
     if (m_expandedWidth <= 0)
-      m_expandedWidth = railMetrics(this).width;
+      m_expandedWidth = railMetrics(this, m_twoColumn).width;
     setFixedWidth(m_expandedWidth);
     if (m_btnToggle) {
       m_btnToggle->setText(QStringLiteral("‹"));
@@ -126,104 +184,44 @@ void PageThumbnailSidebar::applyCollapsedState() {
 
 void PageThumbnailSidebar::refreshListStyle() {
   const QColor accent = NoteChrome::accent();
-  if (m_floatingMode) {
-    // Desktop Drawboard Pages panel — solid left column, not a floating pill.
-    setStyleSheet(QStringLiteral(
-        "QWidget#PageThumbnailSidebar {"
-        "  background: %1;"
-        "  border: none;"
-        "  border-right: 1px solid %2;"
-        "}"
-        "QWidget#PageRailBody {"
-        "  background: transparent;"
-        "  border: none;"
-        "}"
-        "QPushButton#PageRailToggleBtn { background: transparent; border: none; }")
-                      .arg(NoteChrome::panelBg().name(QColor::HexRgb),
-                           NoteChrome::borderSoft().name(QColor::HexRgb)));
-  } else {
-    setStyleSheet(QStringLiteral(
-        "QWidget#PageThumbnailSidebar {"
-        "  background-color: %1;"
-        "  border-right: 1px solid %2;"
-        "}"
-        "QPushButton#PageRailToggleBtn {"
-        "  background: transparent;"
-        "  color: %3;"
-        "  border: none;"
-        "  border-bottom: 1px solid %2;"
-        "  font-size: 16px;"
-        "  font-weight: 700;"
-        "}"
-        "QPushButton#PageRailToggleBtn:hover {"
-        "  background: rgba(255,255,255,0.06);"
-        "  color: %4;"
-        "}")
-                      .arg(NoteChrome::panelBg().name(QColor::HexRgb),
-                           NoteChrome::borderSoft().name(QColor::HexRgb),
-                           NoteChrome::textSecondary().name(QColor::HexRgb),
-                           NoteChrome::textPrimary().name(QColor::HexRgb)));
-  }
+  setStyleSheet(QStringLiteral(
+      "QWidget#PageThumbnailSidebar {"
+      "  background: %1; border: none; border-right: 1px solid %2;"
+      "}"
+      "QWidget#PageRailBody { background: transparent; border: none; }"
+      "QPushButton#PageRailToggleBtn { background: transparent; border: none; color: %3; }"
+      "QPushButton#PageRailAddBtn, QPushButton#PageRailColsBtn {"
+      "  background: %4; color: %3; border: 1px solid %2; border-radius: 6px;"
+      "  font-size: 12px; font-weight: 600;"
+      "}"
+      "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover {"
+      "  border-color: %5; color: %6;"
+      "}")
+                    .arg(NoteChrome::panelBg().name(),
+                         NoteChrome::borderSoft().name(),
+                         NoteChrome::textSecondary().name(),
+                         NoteChrome::panelElevated().name(), accent.name(),
+                         NoteChrome::textPrimary().name()));
 
   if (m_list) {
     m_list->setStyleSheet(
-        QStringLiteral("QListWidget { background: transparent; border: none; outline: 0; }"
-                       "QListWidget::item {"
-                       "  border: 1px solid %1;"
-                       "  border-radius: 6px;"
-                       "  color: %2;"
-                       "  padding: 3px;"
-                       "  background: %3;"
-                       "}"
-                       "QListWidget::item:selected {"
-                       "  background: rgba(%4,%5,%6,0.18);"
-                       "  border: 2px solid %7;"
-                       "  color: %8;"
-                       "}"
-                       "QListWidget::item:hover {"
-                       "  background: rgba(255,255,255,0.06);"
-                       "}")
-            .arg(NoteChrome::border().name(QColor::HexRgb),
-                 NoteChrome::textSecondary().name(QColor::HexRgb),
-                 NoteChrome::panelElevated().name(QColor::HexRgb),
-                 QString::number(accent.red()),
-                 QString::number(accent.green()),
-                 QString::number(accent.blue()),
-                 accent.name(QColor::HexRgb),
-                 NoteChrome::textPrimary().name(QColor::HexRgb)));
-  }
-
-  if (m_btnAddPage) {
-    m_btnAddPage->setStyleSheet(
-        QStringLiteral("QPushButton#PageRailAddBtn {"
-                       "  background: %1;"
-                       "  color: %2;"
-                       "  border: 1px solid %3;"
-                       "  border-radius: 6px;"
-                       "  font-size: 12px;"
-                       "  font-weight: 600;"
-                       "}"
-                       "QPushButton#PageRailAddBtn:hover {"
-                       "  background: rgba(%4,%5,%6,0.18);"
-                       "  border-color: %7;"
-                       "  color: %8;"
-                       "}")
-            .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
-                 NoteChrome::textSecondary().name(QColor::HexRgb),
-                 NoteChrome::border().name(QColor::HexRgb),
-                 QString::number(accent.red()),
-                 QString::number(accent.green()),
-                 QString::number(accent.blue()),
-                 accent.name(QColor::HexRgb),
-                 NoteChrome::textPrimary().name(QColor::HexRgb)));
+        QStringLiteral(
+            "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
+            "QListWidget::item {"
+            "  border: 1px solid %2; border-radius: 6px; padding: 3px;"
+            "  background: %3; color: %1;"
+            "}"
+            "QListWidget::item:selected { border: 2px solid %4; background: rgba(%5,%6,%7,0.18); }"
+            "QListWidget::item:hover { background: rgba(255,255,255,0.06); }")
+            .arg(NoteChrome::textSecondary().name(),
+                 NoteChrome::border().name(),
+                 NoteChrome::panelElevated().name(), accent.name(),
+                 QString::number(accent.red()), QString::number(accent.green()),
+                 QString::number(accent.blue())));
   }
 }
 
 void PageThumbnailSidebar::setNoteView(MultiPageNoteView *view) {
-  if (m_view == view) {
-    rebuild();
-    return;
-  }
   m_view = view;
   rebuild();
 }
@@ -261,23 +259,23 @@ void PageThumbnailSidebar::rebuild() {
   if (!m_view || !m_view->note())
     return;
 
-  const RailMetrics m = railMetrics(this);
-  m_expandedWidth = m.width;
-  if (!m_collapsed)
-    setFixedWidth(m_expandedWidth);
-  m_list->setIconSize(QSize(m.thumbW, m.thumbH));
+  applyViewMode();
+  const RailMetrics m = railMetrics(this, m_twoColumn);
   const Note *note = m_view->note();
   const int count = note->pages.size();
   for (int i = 0; i < count; ++i) {
-    QListWidgetItem *item = new QListWidgetItem(m_list);
+    auto *item = new QListWidgetItem(m_list);
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
-    item->setSizeHint(QSize(m.thumbW, m.itemH));
-    item->setText(QStringLiteral("%1").arg(i + 1));
+    item->setSizeHint(QSize(m.thumbW + (m_twoColumn ? 0 : 0), m.itemH));
+    QString label = QString::number(i + 1);
+    if (note->pages[i].bookmarked)
+      label += QStringLiteral(" ★");
+    item->setText(label);
     item->setForeground(NoteChrome::textSecondary());
+    item->setData(Qt::UserRole, i);
     m_list->addItem(item);
     requestThumbnail(i, item, epoch);
   }
-
   if (m_currentPage >= 0 && m_currentPage < count)
     m_list->setCurrentRow(m_currentPage);
 }
@@ -286,9 +284,9 @@ void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item
                                             int epoch) {
   if (!m_view || !item)
     return;
-  const RailMetrics m = railMetrics(this);
-  const QSize thumbSize(m.thumbW, m.thumbH);
-  m_view->generateThumbnailAsync(pageIndex, thumbSize,
+  const RailMetrics m = railMetrics(this, m_twoColumn);
+  m_view->generateThumbnailAsync(
+      pageIndex, QSize(m.thumbW, m.thumbH),
       [this, item, epoch](const QPixmap &pm) {
         if (!item || m_rebuildEpoch != epoch)
           return;
@@ -306,4 +304,71 @@ void PageThumbnailSidebar::onCurrentPageChanged(int pageIndex) {
 void PageThumbnailSidebar::onItemClicked(int row) {
   m_currentPage = row;
   emit pageSelected(row);
+}
+
+void PageThumbnailSidebar::showItemContextMenu(const QPoint &pos) {
+  auto *item = m_list->itemAt(pos);
+  if (!item || !m_view)
+    return;
+  const int idx = item->data(Qt::UserRole).toInt();
+  QList<BlopInWindowMenu::Item> items;
+  items.push_back({QStringLiteral("Öffnen"), QIcon(), [this, idx]() {
+                     emit pageSelected(idx);
+                   }});
+  items.push_back({m_view->isPageBookmarked(idx)
+                       ? QStringLiteral("Lesezeichen entfernen")
+                       : QStringLiteral("Lesezeichen setzen"),
+                   QIcon(),
+                   [this, idx]() {
+                     m_view->togglePageBookmark(idx);
+                     rebuild();
+                     emit pagesMutated();
+                   }});
+  items.push_back({QStringLiteral("Duplizieren"), QIcon(), [this, idx]() {
+                     m_view->duplicatePage(idx);
+                     rebuild();
+                     emit pagesMutated();
+                   }});
+  items.push_back({QStringLiteral("90° drehen"), QIcon(), [this, idx]() {
+                     m_view->rotatePage(idx, 1);
+                     rebuild();
+                     emit pagesMutated();
+                   }});
+  items.push_back({QStringLiteral("Umbenennen…"), QIcon(), [this, idx]() {
+                     const QString cur = m_view->pageTitle(idx);
+                     const QString name = BlopDialogs::promptText(
+                         this, QStringLiteral("Seite umbenennen"),
+                         QStringLiteral("Name"), cur);
+                     if (!name.isEmpty()) {
+                       m_view->renamePage(idx, name);
+                       rebuild();
+                     }
+                   }});
+  items.push_back({QStringLiteral("Alle Seiten…"), QIcon(), [this]() {
+                     emit openAllPagesRequested();
+                   }});
+  BlopInWindowMenu::Item sep;
+  sep.separator = true;
+  items.push_back(sep);
+  items.push_back({QStringLiteral("Löschen"), QIcon(),
+                   [this, idx]() {
+                     if (m_view->pageCount() <= 1) {
+                       BlopDialogs::notify(
+                           this, QStringLiteral("Seite löschen"),
+                           QStringLiteral("Mindestens eine Seite muss bleiben."));
+                       return;
+                     }
+                     if (!BlopDialogs::confirm(
+                             this, QStringLiteral("Seite löschen"),
+                             QStringLiteral("Seite %1 wirklich löschen?")
+                                 .arg(idx + 1),
+                             QStringLiteral("Löschen"),
+                             QStringLiteral("Abbrechen")))
+                       return;
+                     m_view->deletePage(idx);
+                     rebuild();
+                     emit pagesMutated();
+                   },
+                   true});
+  BlopInWindowMenu::show(this, m_list->viewport()->mapToGlobal(pos), items);
 }

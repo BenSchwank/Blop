@@ -141,6 +141,7 @@ signals:
     void rulerToggled(bool active); // NEU: Globaler Toggle für das Lineal
     void backToOverviewRequested();
     void dockModeChanged(bool docked);
+    void toolOptionsRequested();
 
 protected:
     void paintEvent(QPaintEvent*) override;

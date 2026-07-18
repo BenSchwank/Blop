@@ -43,6 +43,9 @@ class PageThumbnailSidebar;
 class PenPresetBar;
 class NoteLeftRail;
 class RadialToolbarFab;
+class MultiPageNoteView;
+class ToolPropertiesPanel;
+class AllPagesOverlay;
 class QSortFilterProxyModel;
 class QShowEvent;
 struct WebBookmark {
@@ -327,6 +330,10 @@ private:
   void updateNoteBottomChrome();
   void positionDrawboardToolbar();
   void positionNoteChrome();
+  void applyNoteChromeTheme();
+  void showNoteBookmarksMenu();
+  void showNoteHistoryMenu();
+  MultiPageNoteView *currentNoteView() const;
 
   // --- Web Integration ---
   void setupWebBrowser();
@@ -427,6 +434,11 @@ private:
   PageThumbnailSidebar *m_pageThumbnailSidebar{nullptr};
   /// Drawboard left menu strip (pages / search / utilities).
   NoteLeftRail *m_noteLeftRail{nullptr};
+  /// Right-side tool properties dock (color / width / opacity).
+  class ToolPropertiesPanel *m_toolPropertiesPanel{nullptr};
+  /// Full-note "All Pages" grid overlay.
+  class AllPagesOverlay *m_allPagesOverlay{nullptr};
+  bool m_toolPropertiesVisible{true};
   /// Movable radial tool FAB (expands to Drawboard-style wheel).
   RadialToolbarFab *m_radialFab{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};
@@ -498,6 +510,8 @@ private:
   QPushButton *m_btnNoteZoomOut{nullptr};
   QLabel *m_lblNoteZoom{nullptr};
   QPushButton *m_btnNoteZoomIn{nullptr};
+  QPushButton *m_btnNoteFitWidth{nullptr};
+  QPushButton *m_btnNoteFitPage{nullptr};
 
   QWidget *m_pageSettingsOverlay{nullptr};
   QWidget *m_pageSettingsCard{nullptr};

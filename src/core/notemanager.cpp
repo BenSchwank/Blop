@@ -124,6 +124,10 @@ QJsonDocument NoteManager::toJson(const Note &note) {
     }
     pageObj["graphs"] = graphsArr;
     pageObj["bg"] = p.backgroundType;
+    if (!p.title.isEmpty())
+      pageObj["title"] = p.title;
+    pageObj["rot"] = p.rotationDegrees;
+    pageObj["bm"] = p.bookmarked;
     if (p.paperColor.isValid())
       pageObj["paper"] = p.paperColor.name(QColor::HexRgb);
     if (!p.backgroundImage.isNull()) {
@@ -154,6 +158,10 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
   for (int i = 0; i < pagesArr.size(); ++i) {
     auto pageObj = pagesArr[i].toObject();
     out.pages[i].backgroundType = pageObj.value("bg").toInt(2);
+    out.pages[i].title = pageObj.value("title").toString(
+        QStringLiteral("Seite %1").arg(i + 1));
+    out.pages[i].rotationDegrees = pageObj.value("rot").toInt(0);
+    out.pages[i].bookmarked = pageObj.value("bm").toBool(false);
     {
       const QString pc = pageObj.value("paper").toString();
       if (!pc.isEmpty()) {

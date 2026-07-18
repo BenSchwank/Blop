@@ -38,6 +38,7 @@
 #include <QPen>
 #include <QPixmapCache>
 #include <QPointer>
+#include <QTransform>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QPointingDevice>
 #include <QPolygonF>
@@ -2301,17 +2302,8 @@ void MultiPageNoteView::ensureSceneRectCoversViewport() {
 #endif
 }
 
-#ifdef Q_OS_ANDROID
-// Compute and apply a transform so a single A4 page fits horizontally inside
-// the current viewport. Uses the horizontal scrollbar (cheap, no layout pass)
-// instead of centerOn(mapToScene(...)) which can trigger reentrant resize
-// events while the scene is being rebuilt by setNote().
-//
-// Defensive: only runs when the note + pages are actually present, the
-// viewport has a sensible width, and we're not already auto-fitting.
+// Fit a single A4 page horizontally inside the current viewport.
 void MultiPageNoteView::autoFitPageToViewportWidth() {
-  if (m_userTouchedZoom)
-    return;
   if (m_isAutoFitting)
     return;
   if (!note_)
@@ -2332,15 +2324,13 @@ void MultiPageNoteView::autoFitPageToViewportWidth() {
   const qreal targetPageW =
       qreal(viewW) - qreal(qMax(0, UiScale::safeHorizontalPaddingPx(this)));
   qreal scaleFactor = targetPageW / qreal(pageW);
-  scaleFactor = qBound<qreal>(0.30, scaleFactor, 1.0);
+  scaleFactor = qBound<qreal>(0.25, scaleFactor, 4.0);
 
   QTransform t;
   t.scale(scaleFactor, scaleFactor);
   setTransform(t);
   zoom_ = scaleFactor;
 
-  // Position via horizontal scrollbar so the first page is centred. Avoid
-  // centerOn(mapToScene(...)) which forces a layout pass and can recurse.
   const qreal pageCenterScene = qreal(pageW) / 2.0;
   const int targetScrollX =
       qRound(pageCenterScene * scaleFactor - qreal(viewW) / 2.0);
@@ -2352,19 +2342,36 @@ void MultiPageNoteView::autoFitPageToViewportWidth() {
   m_isAutoFitting = false;
 }
 
+void MultiPageNoteView::fitToWidth() {
+  m_userTouchedZoom = false;
+  autoFitPageToViewportWidth();
+  m_userTouchedZoom = true;
+}
+
+void MultiPageNoteView::fitPage() {
+  if (!viewport() || pageItems_.isEmpty())
+    return;
+  const int viewW = viewport()->width();
+  const int viewH = viewport()->height();
+  if (viewW <= UiScale::dp(80) || viewH <= UiScale::dp(80))
+    return;
+  const qreal sx = qreal(viewW - UiScale::dp(24)) / qreal(a4wPx());
+  const qreal sy = qreal(viewH - UiScale::dp(24)) / qreal(a4hPx());
+  setZoomFactor(qBound<qreal>(0.25, qMin(sx, sy), 4.0));
+  const int idx = qBound(0, currentPageIndex(), pageCount() - 1);
+  scrollToPage(idx, false);
+}
+
 void MultiPageNoteView::requestAutoFit() {
-  // Re-arm the one-shot fit so a new note opens at "page fits viewport".
   m_pendingInitialFit = true;
-  // Note: do NOT reset m_userTouchedZoom here - if the user explicitly zoomed,
-  // they probably want the same zoom to persist across notes within a session.
   if (isVisible()) {
     QTimer::singleShot(0, this, [this]() {
       m_pendingInitialFit = false;
-      autoFitPageToViewportWidth();
+      if (!m_userTouchedZoom)
+        autoFitPageToViewportWidth();
     });
   }
 }
-#endif
 
 void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   QGraphicsView::resizeEvent(e);
@@ -2373,24 +2380,17 @@ void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
   repositionGraphEntryBar();
 #ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
-  // We intentionally do NOT auto-fit on resize: that can recurse with
-  // scrollbar toggles caused by setTransform and has been the source of a
-  // crash when opening a note. requestAutoFit() handles the deliberate cases.
 #endif
 }
 
 void MultiPageNoteView::showEvent(QShowEvent *e) {
   QGraphicsView::showEvent(e);
   syncPagesBarVisibility();
-#ifdef Q_OS_ANDROID
   ensureSceneRectCoversViewport();
   if (m_pendingInitialFit && !m_userTouchedZoom) {
     m_pendingInitialFit = false;
-    // Defer one event-loop cycle so the viewport has its final size after the
-    // first show / layout pass.
     QTimer::singleShot(0, this, [this]() { autoFitPageToViewportWidth(); });
   }
-#endif
 }
 
 void MultiPageNoteView::setZoomFactor(qreal factor) {
@@ -2401,10 +2401,8 @@ void MultiPageNoteView::setZoomFactor(qreal factor) {
   t.scale(factor, factor);
   setTransform(t);
   zoom_ = factor;
-#ifdef Q_OS_ANDROID
   m_userTouchedZoom = true;
   ensureSceneRectCoversViewport();
-#endif
   syncPagesBarVisibility();
   syncGraphLegendLayout();
   repositionGraphEntryBar();
@@ -3397,6 +3395,86 @@ void MultiPageNoteView::deletePage(int pageIndex) {
   if (onSaveRequested)
     onSaveRequested(note_);
 }
+
+void MultiPageNoteView::rotatePage(int pageIndex, int quarterTurns) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return;
+  quarterTurns = ((quarterTurns % 4) + 4) % 4;
+  if (quarterTurns == 0)
+    return;
+
+  NotePage &page = note_->pages[pageIndex];
+  const qreal cx = a4wPx() * 0.5;
+  const qreal cy = a4hPx() * 0.5;
+  auto rotPoint = [&](QPointF p) {
+    for (int i = 0; i < quarterTurns; ++i) {
+      const qreal x = p.x() - cx;
+      const qreal y = p.y() - cy;
+      p = QPointF(cx - y, cy + x); // 90° CW
+    }
+    return p;
+  };
+
+  for (Stroke &s : page.strokes) {
+    for (QPointF &pt : s.points)
+      pt = rotPoint(pt);
+    s.path = QPainterPath();
+    if (!s.points.isEmpty()) {
+      s.path.moveTo(s.points.first());
+      for (int i = 1; i < s.points.size(); ++i)
+        s.path.lineTo(s.points[i]);
+    }
+  }
+  for (GraphObject &g : page.graphs) {
+    const QPointF c = rotPoint(g.rect.center());
+    // Keep size; recentre after rotation.
+    g.rect.moveCenter(c);
+  }
+  if (!page.backgroundImage.isNull()) {
+    QTransform t;
+    t.translate(page.backgroundImage.width() / 2.0,
+                page.backgroundImage.height() / 2.0);
+    t.rotate(90.0 * quarterTurns);
+    t.translate(-page.backgroundImage.width() / 2.0,
+                -page.backgroundImage.height() / 2.0);
+    page.backgroundImage =
+        page.backgroundImage.transformed(t, Qt::SmoothTransformation);
+  }
+  page.rotationDegrees = (page.rotationDegrees + 90 * quarterTurns) % 360;
+  setNote(note_);
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+bool MultiPageNoteView::isPageBookmarked(int pageIndex) const {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return false;
+  return note_->pages[pageIndex].bookmarked;
+}
+
+void MultiPageNoteView::setPageBookmarked(int pageIndex, bool on) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return;
+  if (note_->pages[pageIndex].bookmarked == on)
+    return;
+  note_->pages[pageIndex].bookmarked = on;
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
+void MultiPageNoteView::togglePageBookmark(int pageIndex) {
+  setPageBookmarked(pageIndex, !isPageBookmarked(pageIndex));
+}
+
+int MultiPageNoteView::strokeCountOnPage(int pageIndex) const {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return 0;
+  return note_->pages[pageIndex].strokes.size();
+}
+
+int MultiPageNoteView::undoDepth() const { return m_undoHistory.size(); }
+int MultiPageNoteView::redoDepth() const { return m_redoHistory.size(); }
+
 void MultiPageNoteView::scrollToPage(int pageIndex, bool animate) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return;

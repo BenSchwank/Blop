@@ -83,12 +83,23 @@ public:
     qreal zoomFactor() const { return zoom_; }
     void setZoomFactor(qreal factor);
     void zoomBy(qreal factor);
+    /// Fit current page width / whole page into the viewport (Drawboard utilities).
+    void fitToWidth();
+    void fitPage();
     QString pageTitle(int pageIndex) const;
     void renamePage(int pageIndex, const QString &title);
     void duplicatePages(const QList<int> &pageIndices);
     void deletePages(const QList<int> &pageIndices);
     void applyLayoutToPages(const QList<int> &pageIndices, int backgroundType,
                             const QColor &paperColor);
+    /// Rotate page content 90° clockwise within the A4 frame.
+    void rotatePage(int pageIndex, int quarterTurns = 1);
+    bool isPageBookmarked(int pageIndex) const;
+    void setPageBookmarked(int pageIndex, bool on);
+    void togglePageBookmark(int pageIndex);
+    int strokeCountOnPage(int pageIndex) const;
+    int undoDepth() const;
+    int redoDepth() const;
 
     std::function<void(Note*)> onSaveRequested;
 
@@ -115,23 +126,17 @@ public slots:
 
 
 public:
-#ifdef Q_OS_ANDROID
     /// Request a one-shot auto-fit-to-width on the next show / next event-loop
     /// cycle. Call this from the editor when a fresh note has been wired up.
-    /// No-op if the user has already manually zoomed.
     void requestAutoFit();
-#endif
 
 protected:
     void resizeEvent(QResizeEvent*) override;
     void showEvent(QShowEvent *event) override;
     void wheelEvent(QWheelEvent*) override;
 
-#ifdef Q_OS_ANDROID
-    /// Apply a fit-to-width transform so the A4 page exactly fits the current
-    /// viewport horizontally. No-op if the user has manually zoomed.
+    /// Apply a fit-to-width transform so the A4 page fits the viewport.
     void autoFitPageToViewportWidth();
-#endif
     void tabletEvent(QTabletEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
@@ -149,16 +154,13 @@ private:
     qreal zoom_{1.0};
     bool drawing_{false};
     int currentPage_{0};
-#ifdef Q_OS_ANDROID
-    /// True once the user has pinched/wheel-zoomed the canvas. Suppresses the
-    /// auto-fit-to-width behaviour that otherwise re-fits the page on resize.
+    /// True once the user has manually zoomed. Suppresses auto-fit.
     bool m_userTouchedZoom{false};
-    /// True until the very first auto-fit has been applied on Android, so we
-    /// don't override an already-restored zoom from a saved session.
+    /// True until the very first auto-fit has been applied.
     bool m_pendingInitialFit{true};
-    /// Reentrancy lock for autoFitPageToViewportWidth() so a scrollbar toggle
-    /// inside setTransform() cannot recursively trigger another auto-fit pass.
+    /// Reentrancy lock for autoFitPageToViewportWidth().
     bool m_isAutoFitting{false};
+#ifdef Q_OS_ANDROID
     /// Direct two-finger pinch tracking - bypasses Qt's QPinchGesture
     /// recogniser which is unreliable on Android when an active drawing
     /// tool consumes the first touch as a synthesised mouse-press.
