@@ -4726,8 +4726,8 @@ void MainWindow::setupUi() {
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
-    // Desktop Drawboard: Markup Toolbar docked at the top of the canvas.
-    topToolbar->applyDrawboardMarkupToolbar();
+    // Desktop Drawboard: vertical Favorites / tool rail on the right.
+    topToolbar->applyDrawboardVerticalRail();
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) { positionNoteChrome(); });
@@ -4763,7 +4763,8 @@ void MainWindow::setupUi() {
           &MainWindow::onUndo);
 #endif
 
-  // Drawboard Favorites — preset chips under the markup toolbar.
+  // Optional preset chips — hidden while the vertical Drawboard rail is the
+  // primary Favorites toolbar (rail slots already hold the tools).
   m_penPresetBar = new PenPresetBar(m_editorCenterWidget);
   m_penPresetBar->setAccentColor(NoteChrome::accent());
   m_penPresetBar->hide();
@@ -7845,7 +7846,7 @@ void MainWindow::setupRightSidebar() {
             if (tb) {
               if (index == 0) {
                 tb->setStyle(ModernToolbar::Normal);
-                tb->applyDrawboardMarkupToolbar();
+                tb->applyDrawboardVerticalRail();
                 if (m_radialFab)
                   m_radialFab->hide();
                 positionNoteChrome();
@@ -8360,11 +8361,11 @@ void MainWindow::updateSidebarState() {
   if (m_noteLeftRail)
     m_noteLeftRail->setVisible(inNotesMode && isEditor);
 
-  // Lock Drawboard Markup Toolbar (top) whenever the note editor is active.
+  // Lock Drawboard vertical Favorites rail whenever the note editor is active.
   if (isEditor) {
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       if (tb->currentStyle() == ModernToolbar::Normal)
-        tb->applyDrawboardMarkupToolbar();
+        tb->applyDrawboardVerticalRail();
     }
     if (m_toolPropertiesPanel)
       m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
@@ -10041,32 +10042,21 @@ void MainWindow::positionDrawboardToolbar() {
     rightInset += m_toolPropertiesPanel->preferredWidth();
 #endif
 
-  if (tb->isDockedMode() || tb->orientation() == ModernToolbar::Horizontal) {
-    tb->applyDrawboardMarkupToolbar();
-    const int barH = tb->preferredMarkupHeight();
-    const int contentW = qMax(UiScale::dp(200), W - leftInset - rightInset);
-    const int idealW = tb->calculateMinLength();
-    const int barW = qBound(UiScale::dp(360), idealW, contentW - 2 * margin);
-    const int x = leftInset + qMax(margin, (contentW - barW) / 2);
-    const int y = noteHeaderHeight();
-    tb->setMinimumSize(0, 0);
-    tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    tb->setFixedHeight(barH);
-    tb->setGeometry(x, y, barW, barH);
-  } else {
-    tb->applyDrawboardVerticalRail();
-    const int bottomH = noteBottomChromeHeight();
-    const int railW = UiScale::dp(52);
-    const int idealH = tb->calculateMinLength();
-    const int availH = qMax(UiScale::dp(160),
-                            m_editorCenterWidget->height() - noteHeaderHeight() -
-                                bottomH - 2 * margin);
-    const int h = qBound(UiScale::dp(200), idealH, availH);
-    const int x = qMax(margin, W - rightInset - railW - margin);
-    const int y = noteHeaderHeight() + margin + qMax(0, (availH - h) / 2);
-    tb->setFixedWidth(railW);
-    tb->setGeometry(x, y, railW, h);
-  }
+  // Desktop Drawboard default: vertical Favorites rail on the right.
+  tb->applyDrawboardVerticalRail();
+  const int bottomH = noteBottomChromeHeight();
+  const int railW = tb->preferredRailWidth();
+  const int idealH = tb->calculateMinLength();
+  const int availH = qMax(UiScale::dp(160),
+                          m_editorCenterWidget->height() - noteHeaderHeight() -
+                              bottomH - 2 * margin);
+  const int h = qBound(UiScale::dp(220), idealH, availH);
+  const int x = qMax(margin, W - rightInset - railW - margin);
+  const int y = noteHeaderHeight() + margin + qMax(0, (availH - h) / 2);
+  tb->setMinimumSize(0, 0);
+  tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  tb->setFixedWidth(railW);
+  tb->setGeometry(x, y, railW, h);
   tb->raise();
 }
 
@@ -10180,9 +10170,10 @@ void MainWindow::syncPenPresetBarGeometry() {
   if (!m_penPresetBar || !m_editorCenterWidget)
     return;
   auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
+  // Vertical Drawboard rail already acts as Favorites — keep chips hidden.
   const bool show = m_floatingTools && m_floatingTools->isVisible() && tb &&
                     tb->currentStyle() == ModernToolbar::Normal &&
-                    tb->isDockedMode();
+                    tb->isDockedMode() && !tb->isDrawboardVerticalRail();
   if (!show) {
     m_penPresetBar->hide();
     return;

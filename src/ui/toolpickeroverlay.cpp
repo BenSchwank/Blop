@@ -1,7 +1,7 @@
 #include "toolpickeroverlay.h"
 
-#include "blop_theme.h"
 #include "moderntoolbar.h"
+#include "notechrome.h"
 #include "uiscale.h"
 
 #include <QButtonGroup>
@@ -33,7 +33,7 @@ const ToolEntry kTools[] = {
     {ToolMode::Eraser, "Radiergummi", "eraser", 0},
     {ToolMode::Shape, "Formen", "shape", 1},
     {ToolMode::Ruler, "Lineal", "ruler", 1},
-    {ToolMode::Text, "Text", "text", 4},
+    {ToolMode::Text, "Text", "text", 2},
     {ToolMode::Image, "Bild", "image", 4},
     {ToolMode::StickyNote, "Notiz", "stickynote", 4},
     {ToolMode::Lasso, "Auswahl", "lasso", 5},
@@ -54,53 +54,64 @@ QIcon glyphIcon(const QString &name, const QColor &fg, int px) {
 }
 } // namespace
 
-void ToolPickerOverlay::present(QWidget *host, const QColor &accent, SelectFn onSelect) {
+void ToolPickerOverlay::present(QWidget *host, const QColor &accent,
+                                SelectFn onSelect) {
+  present(host, accent, {}, std::move(onSelect));
+}
+
+void ToolPickerOverlay::present(QWidget *host, const QColor &accent,
+                                const QSet<ToolMode> &alreadyInToolbar,
+                                SelectFn onSelect) {
   if (!host)
     return;
-  auto *overlay = new ToolPickerOverlay(host, accent, std::move(onSelect));
+  auto *overlay =
+      new ToolPickerOverlay(host, accent, alreadyInToolbar, std::move(onSelect));
   overlay->setGeometry(host->rect());
   overlay->show();
   overlay->raise();
 }
 
 ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
+                                     const QSet<ToolMode> &alreadyInToolbar,
                                      SelectFn onSelect)
-    : QWidget(host), m_accent(accent.isValid() ? accent
-                                               : QColor(QStringLiteral("#7C5CFC"))),
-      m_onSelect(std::move(onSelect)) {
+    : QWidget(host),
+      m_accent(accent.isValid() ? accent : NoteChrome::accent()),
+      m_onSelect(std::move(onSelect)), m_inToolbar(alreadyInToolbar) {
   setAttribute(Qt::WA_DeleteOnClose, true);
   setAttribute(Qt::WA_StyledBackground, true);
-  setStyleSheet(QStringLiteral("background: rgba(6, 8, 16, 0.55);"));
+  setStyleSheet(QStringLiteral("background: rgba(0, 0, 0, 0.55);"));
 
   auto *card = new QFrame(this);
   card->setObjectName(QStringLiteral("ToolPickerCard"));
-  card->setStyleSheet(QStringLiteral(
-      "QFrame#ToolPickerCard {"
-      "  background: rgba(22, 20, 36, 0.98);"
-      "  border: 1px solid rgba(%1,%2,%3,0.40);"
-      "  border-radius: 20px;"
-      "}"
-      "QLabel { background: transparent; color: #F4F5FB; }"
-      "QLineEdit {"
-      "  background: rgba(255,255,255,0.06); color: #F4F5FB;"
-      "  border: 1px solid rgba(120,130,160,0.25); border-radius: 12px;"
-      "  padding: 0 12px; min-height: 34px;"
-      "}"
-      "QPushButton#ToolPickerTab {"
-      "  background: transparent; color: rgba(200,205,230,0.70);"
-      "  border: none; border-bottom: 2px solid transparent;"
-      "  padding: 8px 12px; font-weight: 600; font-size: 13px;"
-      "}"
-      "QPushButton#ToolPickerTab:checked {"
-      "  color: #F4F5FB; border-bottom: 2px solid %4;"
-      "}")
-                          .arg(m_accent.red())
-                          .arg(m_accent.green())
-                          .arg(m_accent.blue())
-                          .arg(m_accent.name(QColor::HexRgb)));
+  card->setStyleSheet(
+      QStringLiteral("QFrame#ToolPickerCard {"
+                     "  background: %1;"
+                     "  border: 1px solid %2;"
+                     "  border-radius: 16px;"
+                     "}"
+                     "QLabel { background: transparent; color: %3; }"
+                     "QLineEdit {"
+                     "  background: %4; color: %3;"
+                     "  border: 1px solid %2; border-radius: 10px;"
+                     "  padding: 0 12px; min-height: 34px;"
+                     "}"
+                     "QPushButton#ToolPickerTab {"
+                     "  background: transparent; color: %5;"
+                     "  border: none; border-bottom: 2px solid transparent;"
+                     "  padding: 8px 12px; font-weight: 600; font-size: 13px;"
+                     "}"
+                     "QPushButton#ToolPickerTab:checked {"
+                     "  color: %3; border-bottom: 2px solid %6;"
+                     "}")
+          .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb),
+               NoteChrome::textPrimary().name(QColor::HexRgb),
+               NoteChrome::panelBg().name(QColor::HexRgb),
+               NoteChrome::textSecondary().name(QColor::HexRgb),
+               m_accent.name(QColor::HexRgb)));
 
-  const int cardW = qMin(720, qMax(480, int(host->width() * 0.62)));
-  const int cardH = qMin(480, qMax(360, int(host->height() * 0.62)));
+  const int cardW = qMin(720, qMax(520, int(host->width() * 0.58)));
+  const int cardH = qMin(500, qMax(380, int(host->height() * 0.62)));
   card->setGeometry((width() - cardW) / 2, (height() - cardH) / 2, cardW, cardH);
 
   auto *root = new QVBoxLayout(card);
@@ -146,16 +157,19 @@ ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
 
   auto *hint = new QLabel(
       QStringLiteral(
-          "Tippen — Tool auswählen und zur Symbolleiste hinzufügen."),
+          "Ziehen und Ablegen — Tippe +, um ein Tool zur Symbolleiste "
+          "hinzuzufügen."),
       card);
-  hint->setStyleSheet(QStringLiteral(
-      "color: rgba(180,188,215,0.70); font-size: 12px; font-weight: 500;"
-      " background: rgba(255,255,255,0.04); border-radius: 10px; padding: 10px 12px;"));
+  hint->setWordWrap(true);
+  hint->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 12px; font-weight: 500;"
+                     " background: %2; border-radius: 10px; padding: 10px 12px;")
+          .arg(NoteChrome::textSecondary().name(QColor::HexRgb),
+               NoteChrome::panelBg().name(QColor::HexRgb)));
   root->addWidget(hint);
 
-  connect(m_tabs, &QButtonGroup::idClicked, this, [this](int id) {
-    rebuildGrid(id);
-  });
+  connect(m_tabs, &QButtonGroup::idClicked, this,
+          [this](int id) { rebuildGrid(id); });
   connect(m_search, &QLineEdit::textChanged, this, [this](const QString &) {
     rebuildGrid(m_tabs ? m_tabs->checkedId() : 0);
   });
@@ -184,6 +198,7 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
   const QString q = m_search ? m_search->text().trimmed() : QString();
   int col = 0;
   int row = 0;
+  int shown = 0;
   for (const ToolEntry &e : kTools) {
     if (e.category != categoryIndex)
       continue;
@@ -197,35 +212,40 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
     cellLay->setSpacing(UiScale::dp(6));
     cellLay->setAlignment(Qt::AlignHCenter);
 
+    const bool inBar = m_inToolbar.contains(e.mode);
     auto *btn = new QToolButton(cell);
-    btn->setFixedSize(UiScale::dp(72), UiScale::dp(72));
-    btn->setIcon(glyphIcon(QString::fromUtf8(e.icon), QColor(244, 245, 251),
+    btn->setFixedSize(UiScale::dp(76), UiScale::dp(76));
+    btn->setIcon(glyphIcon(QString::fromUtf8(e.icon), NoteChrome::textPrimary(),
                            UiScale::dp(40)));
     btn->setIconSize(QSize(UiScale::dp(36), UiScale::dp(36)));
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setStyleSheet(QStringLiteral(
-        "QToolButton {"
-        "  background: rgba(255,255,255,0.05);"
-        "  border: 1px solid rgba(120,130,160,0.22);"
-        "  border-radius: 36px;"
-        "}"
-        "QToolButton:hover {"
-        "  background: rgba(%1,%2,%3,0.22);"
-        "  border-color: %4;"
-        "}")
-                           .arg(m_accent.red())
-                           .arg(m_accent.green())
-                           .arg(m_accent.blue())
-                           .arg(m_accent.name(QColor::HexRgb)));
+    btn->setStyleSheet(
+        QStringLiteral("QToolButton {"
+                       "  background: %1;"
+                       "  border: 1px solid %2;"
+                       "  border-radius: 38px;"
+                       "}"
+                       "QToolButton:hover {"
+                       "  background: rgba(%3,%4,%5,0.22);"
+                       "  border-color: %6;"
+                       "}")
+            .arg(NoteChrome::panelBg().name(QColor::HexRgb),
+                 NoteChrome::border().name(QColor::HexRgb))
+            .arg(m_accent.red())
+            .arg(m_accent.green())
+            .arg(m_accent.blue())
+            .arg(m_accent.name(QColor::HexRgb)));
 
-    auto *plus = new QLabel(QStringLiteral("+"), btn);
-    plus->setAlignment(Qt::AlignCenter);
-    plus->setFixedSize(UiScale::dp(20), UiScale::dp(20));
-    plus->move(btn->width() - UiScale::dp(22), UiScale::dp(2));
-    plus->setStyleSheet(QStringLiteral(
-        "background: %1; color: white; border-radius: 10px;"
-        " font-size: 14px; font-weight: 800;")
-                            .arg(m_accent.name(QColor::HexRgb)));
+    auto *badge = new QLabel(inBar ? QStringLiteral("✓") : QStringLiteral("+"),
+                             btn);
+    badge->setAlignment(Qt::AlignCenter);
+    badge->setFixedSize(UiScale::dp(22), UiScale::dp(22));
+    badge->move(btn->width() - UiScale::dp(24), UiScale::dp(2));
+    badge->setStyleSheet(
+        QStringLiteral("background: %1; color: white; border-radius: 11px;"
+                       " font-size: 13px; font-weight: 800;")
+            .arg(inBar ? QStringLiteral("#3D9B6E")
+                       : m_accent.name(QColor::HexRgb)));
 
     const ToolMode mode = e.mode;
     connect(btn, &QToolButton::clicked, this, [this, mode]() {
@@ -237,15 +257,27 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
 
     auto *lbl = new QLabel(label, cell);
     lbl->setAlignment(Qt::AlignHCenter);
-    lbl->setStyleSheet(QStringLiteral(
-        "color: rgba(220,225,245,0.85); font-size: 12px; font-weight: 600;"));
+    lbl->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px; font-weight: 600;")
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
     cellLay->addWidget(btn, 0, Qt::AlignHCenter);
     cellLay->addWidget(lbl);
     grid->addWidget(cell, row, col);
+    ++shown;
     if (++col >= 5) {
       col = 0;
       ++row;
     }
+  }
+
+  if (shown == 0) {
+    auto *empty = new QLabel(
+        QStringLiteral("Keine Tools in dieser Kategorie."), m_gridHost);
+    empty->setAlignment(Qt::AlignCenter);
+    empty->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 13px;")
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
+    grid->addWidget(empty, 0, 0, 1, 5);
   }
   grid->setRowStretch(row + 1, 1);
 }
@@ -269,8 +301,8 @@ bool ToolPickerOverlay::event(QEvent *e) {
     for (QObject *c : children()) {
       if (auto *w = qobject_cast<QWidget *>(c)) {
         if (w->objectName() == QStringLiteral("ToolPickerCard")) {
-          const int cardW = qMin(720, qMax(480, int(width() * 0.62)));
-          const int cardH = qMin(480, qMax(360, int(height() * 0.62)));
+          const int cardW = qMin(720, qMax(520, int(width() * 0.58)));
+          const int cardH = qMin(500, qMax(380, int(height() * 0.62)));
           w->setGeometry((width() - cardW) / 2, (height() - cardH) / 2, cardW,
                          cardH);
         }

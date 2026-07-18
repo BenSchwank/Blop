@@ -8,6 +8,8 @@
 #include <QPropertyAnimation>
 #include <QRegion>
 #include <QTimer>
+
+class QContextMenuEvent;
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
@@ -42,6 +44,10 @@ public:
 
     void animateSelect();
     void setDrawFloatingBg(bool draw);
+    /// Drawboard vertical rail: full-width slot highlight instead of circle lift.
+    void setRailSlotStyle(bool enable);
+    bool railSlotStyle() const { return m_railSlotStyle; }
+    void setBtnCell(int w, int h);
 
     double animScale() const { return m_animScale; }
     void setAnimScale(double s) { m_animScale = s; update(); }
@@ -59,6 +65,7 @@ public:
 signals:
     void clicked();
     void longPressed();
+    void removeFromRailRequested();
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -66,12 +73,14 @@ protected:
     void mouseReleaseEvent(QMouseEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
+    void contextMenuEvent(QContextMenuEvent *e) override;
 
 private:
     QString m_iconName;
     bool m_active{false};
     bool m_hover{false};
     bool m_drawFloatingBg{false};
+    bool m_railSlotStyle{false};
     int m_size{40};
     QString m_badgeText;
 
@@ -143,12 +152,20 @@ public:
 
     /// Desktop Drawboard Markup Toolbar: docked horizontal bar at the top.
     void applyDrawboardMarkupToolbar();
-    /// Optional alternate: floating vertical tool rail on the right.
+    /// Drawboard Favorites / tool rail — vertical bar on the right (desktop default).
     void applyDrawboardVerticalRail();
     bool isMarkupToolbar() const { return m_markupBarMode != MarkupOff; }
+    bool isDrawboardVerticalRail() const;
     MarkupBarMode markupBarMode() const { return m_markupBarMode; }
     void setMarkupBarMode(MarkupBarMode mode);
     int preferredMarkupHeight() const;
+    int preferredRailWidth() const;
+
+    /// Customize which tools appear in the vertical Drawboard rail.
+    void addToolToRail(ToolMode mode);
+    void removeToolFromRail(ToolMode mode);
+    bool railContains(ToolMode mode) const;
+    QList<ToolMode> railTools() const { return m_railToolModes; }
 
     void setStyle(Style style);
     Style currentStyle() const { return m_style; }
@@ -311,6 +328,13 @@ private:
 
     QWidget* m_snapPreview{nullptr};
     QList<int> m_separatorXPositions;  // x-coords of section dividers in horizontal mode
+    QList<int> m_separatorYPositions;  // y-coords of section dividers in vertical rail
+
+    /// Persisted Drawboard vertical-rail tool slots (order = top → bottom).
+    QList<ToolMode> m_railToolModes;
+    void loadRailTools();
+    void saveRailTools() const;
+    QList<ToolbarBtn *> currentRailButtons() const;
 
     QPointer<QWidget> m_toolSettingsSheet;
 
