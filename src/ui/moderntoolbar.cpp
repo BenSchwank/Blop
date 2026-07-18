@@ -4032,6 +4032,7 @@ void ModernToolbar::applyDrawboardVerticalRail() {
   m_style = Normal;
   if (m_railToolModes.isEmpty())
     loadRailTools();
+  syncDrawboardToolIcons();
   if (m_orientation != Vertical)
     setOrientation(Vertical, false);
   else {
@@ -4753,7 +4754,7 @@ void ModernToolbar::updateLayout(bool animate) {
       } else {
         for (auto *b : m_buttons) {
           if (!chromeRow.contains(b) && b != btnMoreProps &&
-              b != btnLayoutToggle)
+              b != btnLayoutToggle && b != btnLibrary && b != btnRailChevron)
             railOrder.append(b);
         }
       }

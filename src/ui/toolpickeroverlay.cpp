@@ -215,8 +215,14 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
     const bool inBar = m_inToolbar.contains(e.mode);
     auto *btn = new QToolButton(cell);
     btn->setFixedSize(UiScale::dp(76), UiScale::dp(76));
-    btn->setIcon(glyphIcon(QString::fromUtf8(e.icon), NoteChrome::textPrimary(),
-                           UiScale::dp(40)));
+    QColor tip = NoteChrome::textPrimary();
+    if (e.mode == ToolMode::Highlighter)
+      tip = QColor(90, 220, 70);
+    else if (e.mode == ToolMode::Ruler)
+      tip = QColor(235, 70, 70);
+    else if (e.mode == ToolMode::Pen)
+      tip = QColor(230, 60, 60);
+    btn->setIcon(glyphIcon(QString::fromUtf8(e.icon), tip, UiScale::dp(40)));
     btn->setIconSize(QSize(UiScale::dp(36), UiScale::dp(36)));
     btn->setCursor(Qt::PointingHandCursor);
     btn->setStyleSheet(
