@@ -275,4 +275,312 @@ private slots:
   void onWinMaximize();
   void onWinClose();
 
-  void onModeCha
+  void onModeChanged(int index);
+
+private:
+  void setupUi();
+  void setupTools(); // Initialisiert und registriert Tools
+  void flushPendingA4Save();
+  void setupTitleBar();
+  void setupSidebar();
+  void setupRightSidebar();
+  /// v3.18.5: (re-)apply theme-aware stylesheets to every control in
+  /// the right-side Page-Settings sheet. Called once from
+  /// setupRightSidebar() and again from applyThemeRefresh() so the
+  /// Light/Dark switch reskins the inner buttons/sliders/combos.
+  void refreshPageSettingsTheme();
+  void createDefaultFolder();
+  void applyTheme();
+  void applyLibraryFilters();
+  void rebuildPageSettingsTags();
+  QString currentEditorNotePath() const;
+  void setLibraryRootFromSource(const QModelIndex &sourceIndex);
+
+  void updateGrid();
+  void updateSidebarState();
+  void updateOverviewBackButton();
+  /// Sidebar rect in MainWindow coords (below title bar on desktop, under toolbar on Android).
+  QRect sidebarPushContentRect() const;
+  /// Drawer width: capped on narrow Android screens so the panel never exceeds ~86% of window width.
+  int effectiveSidebarWidthPx() const;
+  /// Keep push offset + sidebar geometry in sync (no overlap with main content).
+  void syncSidebarPushLayout();
+#ifdef Q_OS_ANDROID
+  void updateAndroidSidebarScrimGeometry();
+#endif
+
+  void showRenameOverlay(const QString &currentName);
+
+  void animateSidebar(bool show);
+
+  void performCopy(const QModelIndex &index);
+  bool copyRecursive(const QString &src, const QString &dst);
+
+  void toggleFolderContent(QListWidgetItem *parentItem);
+
+  CanvasView *getCurrentCanvas();
+  void setActiveTool(CanvasView::ToolType tool);
+  int noteHeaderHeight() const;
+  int noteBottomChromeHeight() const;
+  /// Keep PenPresetBar pinned under the floating/docked toolbar as one cluster.
+  void syncPenPresetBarGeometry();
+  void updateNoteBottomChrome();
+  void positionDrawboardToolbar();
+  void positionNoteChrome();
+
+  // --- Web Integration ---
+  void setupWebBrowser();
+  void updateSidebarUser(const QString &username); // syncs login from webview
+  void loadWebBookmarksFromSettings();
+  void saveWebBookmarksToSettings() const;
+  void rebuildModeSelectorItems();
+  QUrl normalizedUserWebUrl(QString input) const;
+  void showAddWebBookmarkDialog();
+  void showManageWebBookmarksDialog();
+  void openModeMenuAtButton();
+  void openWebBookmarkOverflowMenuFromWidget(QWidget *anchor);
+  void applyDesktopWebSubviewForModeIndex(int modeIndex);
+#ifdef Q_OS_ANDROID
+  void invokeAndroidWebDestination(int kind, const QString &url = QString());
+  void dismissAndroidOAuthOverlay();
+#endif
+  void resetEmbeddedWebToStudy();
+  QWidget *m_studyContainer{nullptr};
+#ifdef Q_OS_ANDROID
+  // Embedded Study UI (QML + QtWebView) using QQuickView for proper SurfaceView compositing.
+  QQuickView *m_studyQQuickView{nullptr};
+  QWidget *m_androidHeader{nullptr};
+  /// In-note top search for Android header (hidden outside editor mode).
+  QLineEdit *m_androidTopSearchBar{nullptr};
+  QVBoxLayout *m_studyVBoxLayout{nullptr};
+  QWidget *m_studyWindowContainer{nullptr}; // host widget for embedded Study view
+  /// Timestamp (ms since epoch) of when the user last left the Study tab.
+  /// Used by onModeChanged() to decide whether the SurfaceView likely lost
+  /// its surface during the absence and needs a budget-free refresh. Zero
+  /// means "never deactivated since startup".
+  qint64 m_lastStudyDeactivationMs{0};
+  QPushButton *m_btnAndroidNotes{nullptr};
+  QPushButton *m_btnAndroidStudy{nullptr};
+  QPushButton *m_btnAndroidAddWebBookmark{nullptr};
+  /// Overview/editor shortcut back to the file list (left of hamburger).
+  ModernButton *m_btnAndroidHome{nullptr};
+  /// Shown only while editing a note (overview uses floating btnEditorMenu).
+  ModernButton *m_btnAndroidToolbarMenu{nullptr};
+  void syncStudyChromeTheme();
+  /// Orange page manager button (only for A4 notes).
+  ModernButton *m_btnAndroidToolbarPageManager{nullptr};
+  /// Export current note while editing on Android.
+  ModernButton *m_btnAndroidToolbarExport{nullptr};
+  /// Dimmed overlay behind drawer; taps close the sidebar (Material-style).
+  QWidget *m_androidSidebarScrim{nullptr};
+  /// Android OAuth uses Chrome Custom Tabs (see showAuthOverlay); overlay slot unused.
+  QWidget *m_androidOAuthOverlay{nullptr};
+  /// Study boot spinner above QtWebView SurfaceView (sibling of content stack).
+  QWidget *m_androidStudyBootOverlay{nullptr};
+  QPushButton *m_androidStudyBootRetryBtn{nullptr};
+  QTimer *m_androidStudyBootRetryTimer{nullptr};
+  void ensureAndroidStudyBootOverlay();
+  void syncAndroidStudyBootOverlayGeometry();
+  void setAndroidStudyBootOverlayVisible(bool visible);
+#endif
+  QDialog *m_authOverlay{nullptr};
+  QStackedWidget *m_mainContentStack{nullptr};
+  QComboBox *m_modeSelector{nullptr};
+  /// Desktop title bar: visible Notizen/Study control (logic in m_modeSelector).
+  QPushButton *m_btnMode{nullptr};
+  QPushButton *m_btnAddWebBookmark{nullptr};
+#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  QStackedWidget *m_webViewStack{nullptr};
+  QWebEngineView *m_studyWebView{nullptr};
+  QWebEngineView *m_customWebView{nullptr};
+  QTimer *m_studySsoTimer{nullptr};
+#endif
+  QVector<WebBookmark> m_webBookmarks;
+  // ----------------------------
+  /// True while auth is unresolved: prevent switching from Study/Login to Notes.
+  bool m_authNavigationLocked{false};
+  /// Prevents duplicate OAuth browser launches from repeated poll triggers.
+  bool m_googleLoginInFlight{false};
+  /// Start timestamp for login in-flight guard; stale requests are auto-recovered.
+  qint64 m_googleLoginInFlightSinceMs{0};
+  /// Prevents multiple overlapping Android bookmark sheets.
+  bool m_androidWebMenuOpen{false};
+
+  // --- Sidebar user section labels (updated on webview login) ---
+  QLabel *m_lblSidebarUser{nullptr};
+  QLabel *m_lblSidebarAvatar{nullptr};
+  // ----------------------------
+
+  UiProfileManager *m_profileManager{nullptr};
+  UiProfile m_currentProfile;
+  ToolManager *m_toolManager{nullptr};
+
+  QWidget *m_centralContainer{nullptr};
+  /// Left column width for push-style sidebar (desktop only; Android uses layout margins).
+  QWidget *m_desktopSidebarPushSpacer{nullptr};
+
+  QWidget *m_titleBarWidget{nullptr};
+  QWidget *m_topNavControls{nullptr};
+  /// Home + note tabs row in title bar (hidden in Study / web bookmarks).
+  DocumentTabBar *m_documentTabBar{nullptr};
+  /// Drawboard Pages panel (left column thumbnails).
+  PageThumbnailSidebar *m_pageThumbnailSidebar{nullptr};
+  /// Drawboard left menu strip (pages / search / utilities).
+  NoteLeftRail *m_noteLeftRail{nullptr};
+  /// Movable radial tool FAB (expands to Drawboard-style wheel).
+  RadialToolbarFab *m_radialFab{nullptr};
+  QLineEdit *m_titleSearchBar{nullptr};
+  QPushButton *m_btnTitleSettings{nullptr};
+  QPushButton *m_btnTitleShare{nullptr};
+  QWidget *m_editorTitleControls{nullptr};
+  QPushButton *m_btnWinMin{nullptr};
+  QPushButton *m_btnWinMax{nullptr};
+  QPushButton *m_btnWinClose{nullptr};
+  QPoint m_windowDragPos;
+  bool m_isDragging{false};
+
+  QSplitter *m_mainSplitter{nullptr};
+  QStackedWidget *m_rightStack{nullptr};
+
+  QWidget *m_sidebarStrip{nullptr};
+  ModernButton *btnStripMenu{nullptr};
+  ModernButton *btnEditorMenu{nullptr};
+
+  ModernButton *btnOverviewMenu{nullptr};
+
+  bool m_isSidebarOpen;
+  bool m_lastIsEditor{false};
+
+  QWidget *m_sidebarContainer{nullptr};
+  QListWidget *m_navSidebar{nullptr};
+  QFileSystemModel *m_fileModel{nullptr};
+  QPushButton *m_closeSidebarBtn{nullptr};
+
+  QPushButton *m_btnSidebarSettings{nullptr};
+
+  QWidget *m_overviewContainer{nullptr};
+  FreeGridView *m_fileListView{nullptr};
+  QSortFilterProxyModel *m_libraryProxy{nullptr};
+  LibraryTagsPanel *m_libraryTagsPanel{nullptr};
+  LibraryOrgBar *m_libraryOrgBar{nullptr};
+  QLineEdit *m_overviewSearchBar{nullptr};
+  QLabel *m_lblEmptyState{nullptr};
+  QPushButton *m_fabNote{nullptr};
+
+  // Set true by AndroidTileDelegate when the user taps the three-dots
+  // pill on a Welcome tile. Consumed by the QListView::clicked lambda
+  // so that a single tap on the pill opens the context menu instead of
+  // also auto-opening the underlying note. Defined unconditionally so
+  // the inline setter above compiles on Windows too.
+  bool m_androidPillClickPending{false};
+
+  // v119 perf: dedupe QEvent::Move bursts on the floating toolbar
+  // (eventFilter); only re-evaluate the dock condition when y crosses
+  // an 8-px threshold instead of on every pixel of a drag.
+  int m_lastDockCheckY{-1000};
+
+  QWidget *m_editorContainer{nullptr};
+  QWidget *m_editorCenterWidget{nullptr};
+  QTabWidget *m_editorTabs{nullptr};
+
+  /// Floating note page header (title, page count, metadata).
+  QWidget *m_noteHeader{nullptr};
+  QLabel *m_lblNoteHeaderTitle{nullptr};
+  QLabel *m_lblNoteHeaderMeta{nullptr};
+
+  /// Drawboard-style bottom chrome: undo/redo · page · zoom.
+  QWidget *m_noteBottomChrome{nullptr};
+  QPushButton *m_btnNoteUndo{nullptr};
+  QPushButton *m_btnNoteRedo{nullptr};
+  QPushButton *m_btnNotePagePrev{nullptr};
+  QLabel *m_lblNotePage{nullptr};
+  QPushButton *m_btnNotePageNext{nullptr};
+  QPushButton *m_btnNoteZoomOut{nullptr};
+  QLabel *m_lblNoteZoom{nullptr};
+  QPushButton *m_btnNoteZoomIn{nullptr};
+
+  QWidget *m_pageSettingsOverlay{nullptr};
+  QWidget *m_pageSettingsCard{nullptr};
+  /// v3.17.0: BlopModal hosting the PageSettings card while visible. Null
+  /// when the panel is dismissed. The card is reparented back to
+  /// `m_pageSettingsOverlay` after dismissal so the next show finds it.
+  class BlopModal *m_pageSettingsModal{nullptr};
+  QLabel *m_lblActiveNote{nullptr};
+  /// v3.18.5: cached references for refreshPageSettingsTheme(). The
+  /// QTabWidget + the two tab pages are not Member-tracked by Qt's
+  /// child mechanism in a way that's easy to iterate, so we store
+  /// raw pointers here. Never own; the parent QWidget tree does.
+  class QTabWidget *m_pageSettingsTabs{nullptr};
+  QWidget *m_pageSettingsTabOptions{nullptr};
+  QWidget *m_pageSettingsTabTags{nullptr};
+
+  // Quick-Tags Sidebar
+  QWidget     *m_tagsContainer{nullptr};
+  QHBoxLayout *m_tagsFlowLayout{nullptr};
+  QLabel      *m_lblMetaCreated{nullptr};
+  QLabel      *m_lblMetaModified{nullptr};
+  QPushButton *m_btnFormatInfinite{nullptr};
+  QPushButton *m_btnFormatA4{nullptr};
+  QPushButton *m_btnColorWhite{nullptr};
+  QPushButton *m_btnColorDark{nullptr};
+  QPushButton *m_btnInputPen{nullptr};
+  QPushButton *m_btnInputTouch{nullptr};
+  QPushButton *m_btnUiDesktop{nullptr};
+  QPushButton *m_btnUiTouch{nullptr};
+
+  QButtonGroup *m_grpPageStyle{nullptr};
+  QPushButton *m_btnStyleBlank{nullptr};
+  QPushButton *m_btnStyleLined{nullptr};
+  QPushButton *m_btnStyleSquared{nullptr};
+  QPushButton *m_btnStyleDotted{nullptr};
+  QSlider *m_sliderGridSpacing{nullptr};
+
+  QComboBox *m_comboProfiles{nullptr};
+  QComboBox *m_comboToolbarStyle{nullptr};
+  QSlider *m_sliderToolbarScale{nullptr};
+
+  QWidget *m_floatingTools{nullptr};
+  PenPresetBar *m_penPresetBar{nullptr};
+
+  PageManager *m_pageManager{nullptr};
+
+  /// A4-Notiz: ⋯-Menü in der Desktop-Titelleiste (kein Floating-Button)
+  ModernButton *m_btnEditorNoteOverflow{nullptr};
+  /// A4-Notiz: Seitenmanager (gleiche Rolle wie Android-Topbar-Button)
+  ModernButton *m_btnTitleBarPageManager{nullptr};
+  ModernButton *btnBackOverview{nullptr};
+
+  QString m_rootPath;
+  QColor m_currentAccentColor;
+  QColor m_penColor;
+  int m_penWidth;
+
+  // v3.17.5: applyTheme() no-op gating. See implementation comment.
+  QRgb m_lastAppliedAccentRgb{0};
+  int m_lastAppliedModeKey{-1};
+  bool m_themeApplied{false};
+
+  int m_currentItemSize;
+  int m_currentSpacing;
+
+  bool m_penOnlyMode;
+  bool m_touchMode;
+
+  QTimer *m_autoSaveTimer{nullptr};
+  QTimer *m_gridSpacingTimer{nullptr};
+  NoteManager m_noteManager;
+  QTimer *m_a4SaveDebounce{nullptr};
+  Note *m_pendingA4SaveNote{nullptr};
+  QString m_pendingA4SavePath;
+
+  CanvasView::ToolType m_activeToolType;
+
+  QModelIndex m_indexToRename;
+  /// Kept for API compatibility; rename UI is BlopModal-based now.
+  QWidget *m_renameOverlay{nullptr};
+  QLineEdit *m_renameInput{nullptr};
+
+  QNetworkAccessManager *m_netManager{nullptr};
+};
+
+#endif // MAINWINDOW_H

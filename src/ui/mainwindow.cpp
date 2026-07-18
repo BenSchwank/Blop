@@ -4981,24 +4981,19 @@ void MainWindow::setupUi() {
   // ── Drawboard left menu strip ────────────────────────────────────────────
   m_noteLeftRail = new NoteLeftRail(m_editorCenterWidget);
   m_noteLeftRail->setAccentColor(NoteChrome::accent());
+  const QColor railIcon(QStringLiteral("#E0E0E0"));
   m_noteLeftRail->setIcon(QStringLiteral("pages"),
-                          createModernIcon(QStringLiteral("pages"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
+                          createModernIcon(QStringLiteral("pages"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("search"),
-                          createModernIcon(QStringLiteral("search"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
+                          createModernIcon(QStringLiteral("search"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("more"),
-                          createModernIcon(QStringLiteral("more_vert"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
+                          createModernIcon(QStringLiteral("more_vert"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("select"),
-                          createModernIcon(QStringLiteral("select"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
+                          createModernIcon(QStringLiteral("select"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("export"),
-                          createModernIcon(QStringLiteral("export"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
+                          createModernIcon(QStringLiteral("export"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("settings"),
-                          createModernIcon(QStringLiteral("settings"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
+                          createModernIcon(QStringLiteral("settings"), railIcon));
   connect(m_noteLeftRail, &NoteLeftRail::pagesToggled, this, [this](bool on) {
     if (m_pageThumbnailSidebar) {
       m_pageThumbnailSidebar->setVisible(on);
