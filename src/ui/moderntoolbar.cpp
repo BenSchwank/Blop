@@ -790,9 +790,16 @@ void ToolbarBtn::contextMenuEvent(QContextMenuEvent *e) {
                          .arg(NoteChrome::panelElevated().name(),
                               NoteChrome::textPrimary().name(),
                               NoteChrome::border().name()));
-  QAction *remove =
-      menu.addAction(tr("Aus Symbolleiste entfernen"));
-  if (menu.exec(e->globalPos()) == remove)
+  QAction *up = menu.addAction(tr("Nach oben"));
+  QAction *down = menu.addAction(tr("Nach unten"));
+  menu.addSeparator();
+  QAction *remove = menu.addAction(tr("Aus Symbolleiste entfernen"));
+  QAction *picked = menu.exec(e->globalPos());
+  if (picked == up)
+    emit moveInRailRequested(-1);
+  else if (picked == down)
+    emit moveInRailRequested(+1);
+  else if (picked == remove)
     emit removeFromRailRequested();
   e->accept();
 }
@@ -2147,6 +2154,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnLayoutToggle->setToolTip(tr("Switch markup toolbar layout"));
   btnLasso->setShowChevron(true);
   btnLasso->setToolTip(tr("Auswahl"));
+  btnShape->setShowChevron(true);
+  btnShape->setToolTip(tr("Formen"));
 
   btnSave = new ToolbarBtn("save", this);
   btnPalette = new ToolbarBtn("palette", this);
@@ -2207,8 +2216,16 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   auto handleToolClick = [this](ToolMode m) {
     if (mode_ == m) {
 #ifndef Q_OS_ANDROID
-      if (m_markupBarMode != MarkupOff || isDrawboardVerticalRail()) {
-        // Drawboard: re-select opens properties (right panel).
+      if (isDrawboardVerticalRail()) {
+        // Drawboard: family tools open a flyout; ink tools open properties.
+        if (toolHasFlyout(m)) {
+          showToolFlyout(m);
+          return;
+        }
+        emit toolOptionsRequested();
+        return;
+      }
+      if (m_markupBarMode != MarkupOff) {
         emit toolOptionsRequested();
         return;
       }
@@ -2269,6 +2286,9 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     connect(btn, &ToolbarBtn::clicked, this, [=]() { handleToolClick(m); });
     connect(btn, &ToolbarBtn::removeFromRailRequested, this, [this, m]() {
       removeToolFromRail(m);
+    });
+    connect(btn, &ToolbarBtn::moveInRailRequested, this, [this, m](int delta) {
+      moveRailTool(m, delta);
     });
   };
   wireTool(btnPen, ToolMode::Pen);
@@ -2356,14 +2376,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   }
   if (btnRailChevron) {
     connect(btnRailChevron, &ToolbarBtn::clicked, this, [this]() {
-      // Drawboard edge-dock affordance: snap rail flush to the right.
-      if (QWidget *pw = parentWidget()) {
-        const int w = preferredRailWidth();
-        const int h = height();
-        const int x = pw->width() - w;
-        const int y = qMax(0, y());
-        setGeometry(x, y, w, h);
-      }
+      // Drawboard edge chrome: toggle the pinned properties panel.
+      emit propertiesPanelToggleRequested();
     });
   }
   if (btnMoreProps) {
@@ -2930,16 +2944,22 @@ void ModernToolbar::showToolPicker() {
     already.insert(m);
   ToolPickerOverlay::present(
       host, m_accentColor, already, [this](ToolMode mode) {
-        // Drawboard: + adds the tool into the vertical Favorites rail.
+        // Already in Favorites → toggle remove (except Hand). Otherwise add.
+        if (railContains(mode)) {
+          if (mode != ToolMode::Hand)
+            removeToolFromRail(mode);
+          ToolManager::instance().selectTool(
+              m_railToolModes.isEmpty() ? ToolMode::Pen : m_railToolModes.first());
+          setToolMode(ToolManager::instance().activeToolMode());
+          return;
+        }
         addToolToRail(mode);
         ToolManager::instance().selectTool(mode);
         setToolMode(mode);
         emit toolChanged(mode);
 #ifndef Q_OS_ANDROID
-        if (isDrawboardVerticalRail()) {
-          emit toolOptionsRequested();
+        if (isDrawboardVerticalRail())
           return;
-        }
 #endif
         if (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
             mode == ToolMode::Highlighter || mode == ToolMode::Eraser ||
@@ -2951,11 +2971,26 @@ void ModernToolbar::showToolPicker() {
 }
 
 void ModernToolbar::syncToolBadges() {
+  auto clearAll = [this]() {
+    for (ToolbarBtn *b :
+         {btnPen, btnPencil, btnHighlighter, btnEraser, btnText, btnShape,
+          btnRuler, btnAddTool, btnLibrary, btnRailChevron, btnLasso, btnHand,
+          btnImage, btnStickyNote}) {
+      if (b)
+        b->setBadgeText(QString());
+    }
+  };
+#ifndef Q_OS_ANDROID
+  // Drawboard Favorites rail: clean icons without width chips.
+  if (isDrawboardVerticalRail()) {
+    clearAll();
+    return;
+  }
+#endif
   auto widthBadge = [](ToolMode m) -> QString {
     const ToolConfig &cfg = ToolManager::instance().configFor(m);
     if (m == ToolMode::Highlighter)
       return QString::number(qMax(8, cfg.penWidth * 4));
-    // Drawboard uses comma decimals for some tools; keep integer for clarity.
     return QString::number(qMax(1, cfg.penWidth));
   };
   auto setBadge = [](ToolbarBtn *b, const QString &t) {
@@ -2992,6 +3027,7 @@ void ModernToolbar::syncDrawboardToolIcons() {
     btnShape->setIcon(kind == ShapeToolKind::Circle ? QStringLiteral("ellipse")
                                                     : QStringLiteral("rect"));
     btnShape->setGlyphColor(QColor());
+    btnShape->setShowChevron(true);
   }
   if (btnPen) {
     const QColor c = ToolManager::instance().configFor(ToolMode::Pen).penColor;
@@ -3021,10 +3057,14 @@ void ModernToolbar::syncDrawboardToolIcons() {
 }
 
 void ModernToolbar::showMarkupLibrary() {
-  // Drawboard "Auszeichnungsbibliothek" — lightweight host overlay.
+  // Drawboard "Auszeichnungsbibliothek" — local empty-state + import CTA.
   QWidget *host = parentWidget() ? parentWidget()->window() : window();
   if (!host)
     host = window();
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const int deviceCount =
+      s.value(QStringLiteral("ui/markup_library_device_count"), 0).toInt();
+
   auto *layer = new QWidget(host);
   layer->setAttribute(Qt::WA_DeleteOnClose, true);
   layer->setAttribute(Qt::WA_StyledBackground, true);
@@ -3041,13 +3081,22 @@ void ModernToolbar::showMarkupLibrary() {
                      "QPushButton {"
                      "  background: %4; color: white; border: none;"
                      "  border-radius: 8px; padding: 10px 16px; font-weight: 700;"
+                     "}"
+                     "QPushButton#LibTab {"
+                     "  background: transparent; color: %5; border: none;"
+                     "  border-bottom: 2px solid transparent; border-radius: 0;"
+                     "  padding: 8px 12px;"
+                     "}"
+                     "QPushButton#LibTab:checked {"
+                     "  color: %3; border-bottom: 2px solid %4;"
                      "}")
           .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
                NoteChrome::border().name(QColor::HexRgb),
                NoteChrome::textPrimary().name(QColor::HexRgb),
-               NoteChrome::accent().name(QColor::HexRgb)));
+               NoteChrome::accent().name(QColor::HexRgb),
+               NoteChrome::textSecondary().name(QColor::HexRgb)));
   const int cardW = qMin(560, qMax(420, int(host->width() * 0.48)));
-  const int cardH = qMin(420, qMax(300, int(host->height() * 0.48)));
+  const int cardH = qMin(440, qMax(320, int(host->height() * 0.50)));
   card->setGeometry((layer->width() - cardW) / 2,
                     (layer->height() - cardH) / 2, cardW, cardH);
   auto *lay = new QVBoxLayout(card);
@@ -3055,25 +3104,57 @@ void ModernToolbar::showMarkupLibrary() {
                           UiScale::dp(18));
   lay->setSpacing(UiScale::dp(12));
   auto *title = new QLabel(tr("Auszeichnungsbibliothek"), card);
-  title->setStyleSheet(
-      QStringLiteral("font-size: 18px; font-weight: 800;"));
+  title->setStyleSheet(QStringLiteral("font-size: 18px; font-weight: 800;"));
   lay->addWidget(title);
-  auto *body = new QLabel(
-      tr("Markups auf diesem Gerät erstellen. Wähle Annotationen aus und "
-         "füge sie über „Hinzufügen“ in der Auswahlleiste hinzu."),
+
+  auto *tabRow = new QHBoxLayout;
+  auto *deviceTab = new QPushButton(
+      tr("Device (%1)").arg(deviceCount), card);
+  auto *cloudTab = new QPushButton(tr("Cloud (0)"), card);
+  deviceTab->setObjectName(QStringLiteral("LibTab"));
+  cloudTab->setObjectName(QStringLiteral("LibTab"));
+  deviceTab->setCheckable(true);
+  cloudTab->setCheckable(true);
+  deviceTab->setChecked(true);
+  tabRow->addWidget(deviceTab);
+  tabRow->addWidget(cloudTab);
+  tabRow->addStretch(1);
+  lay->addLayout(tabRow);
+
+  auto *steps = new QLabel(
+      tr("1. Auswählen   →   2. Hinzufügen   →   3. Verwenden\n\n"
+         "Markups auf diesem Gerät erstellen: Annotationen mit der Auswahl "
+         "markieren und über die Auswahlleiste zur Bibliothek hinzufügen."),
       card);
-  body->setWordWrap(true);
-  body->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 13px;")
-          .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
-  lay->addWidget(body, 1);
+  steps->setWordWrap(true);
+  steps->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 13px; background: %2;"
+                     " border-radius: 10px; padding: 14px;")
+          .arg(NoteChrome::textSecondary().name(QColor::HexRgb),
+               NoteChrome::panelBg().name(QColor::HexRgb)));
+  lay->addWidget(steps, 1);
+
   auto *importBtn = new QPushButton(tr("Import markups"), card);
+  importBtn->setEnabled(false);
+  importBtn->setToolTip(tr("Import folgt in einem späteren Update."));
   lay->addWidget(importBtn, 0, Qt::AlignLeft);
-  connect(importBtn, &QPushButton::clicked, layer, &QWidget::close);
+
+  auto *closeBtn = new QPushButton(tr("Schließen"), card);
+  closeBtn->setStyleSheet(
+      QStringLiteral("background: transparent; color: %1; border: 1px solid %2;")
+          .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb)));
+  lay->addWidget(closeBtn, 0, Qt::AlignRight);
+  connect(closeBtn, &QPushButton::clicked, layer, &QWidget::close);
+  connect(deviceTab, &QPushButton::clicked, cloudTab, [cloudTab]() {
+    cloudTab->setChecked(false);
+  });
+  connect(cloudTab, &QPushButton::clicked, deviceTab, [deviceTab]() {
+    deviceTab->setChecked(false);
+  });
+
   layer->show();
   layer->raise();
-  layer->installEventFilter(this);
-  // Close on backdrop click via a simple mouse handler.
   class BackdropCloser : public QObject {
   public:
     explicit BackdropCloser(QWidget *layer) : QObject(layer), m_layer(layer) {
@@ -4024,7 +4105,7 @@ void ModernToolbar::applyDrawboardVerticalRail() {
   if (btnLayoutToggle)
     btnLayoutToggle->hide();
   m_isDockedMode = false;
-  m_draggable = true;
+  m_draggable = false; // Drawboard Favorites rail is edge-anchored, not free-drag.
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_float"));
     btnDockToggle->hide();
@@ -4033,6 +4114,7 @@ void ModernToolbar::applyDrawboardVerticalRail() {
   if (m_railToolModes.isEmpty())
     loadRailTools();
   syncDrawboardToolIcons();
+  syncToolBadges();
   if (m_orientation != Vertical)
     setOrientation(Vertical, false);
   else {
@@ -4094,11 +4176,12 @@ void ModernToolbar::loadRailTools() {
   }
   if (m_railToolModes.isEmpty()) {
     // Drawboard-like Favorites defaults (top → bottom).
-    m_railToolModes = {ToolMode::Hand,        ToolMode::Lasso,
-                       ToolMode::Pen,         ToolMode::Highlighter,
-                       ToolMode::Eraser,      ToolMode::Text,
-                       ToolMode::Image,       ToolMode::StickyNote,
-                       ToolMode::Shape,       ToolMode::Ruler};
+    m_railToolModes = {ToolMode::Hand,         ToolMode::Lasso,
+                       ToolMode::Pen,          ToolMode::Pencil,
+                       ToolMode::Highlighter,  ToolMode::Eraser,
+                       ToolMode::Text,         ToolMode::Image,
+                       ToolMode::StickyNote,   ToolMode::Shape,
+                       ToolMode::Ruler};
   }
 }
 
@@ -4152,6 +4235,91 @@ void ModernToolbar::removeToolFromRail(ToolMode mode) {
   }
   updateLayout(false);
   update();
+}
+
+void ModernToolbar::moveRailTool(ToolMode mode, int delta) {
+  const int idx = m_railToolModes.indexOf(mode);
+  if (idx < 0 || delta == 0)
+    return;
+  const int target = idx + delta;
+  if (target < 0 || target >= m_railToolModes.size())
+    return;
+  m_railToolModes.move(idx, target);
+  saveRailTools();
+  updateLayout(false);
+  update();
+}
+
+bool ModernToolbar::toolHasFlyout(ToolMode mode) const {
+  return mode == ToolMode::Lasso || mode == ToolMode::Shape;
+}
+
+void ModernToolbar::showToolFlyout(ToolMode mode) {
+  ToolbarBtn *anchor = getButtonForMode(mode);
+  if (!anchor)
+    return;
+
+  QMenu menu(this);
+  menu.setStyleSheet(QStringLiteral(
+      "QMenu { background: %1; color: %2; border: 1px solid %3; padding: 6px; }"
+      "QMenu::item { padding: 8px 18px; border-radius: 6px; }"
+      "QMenu::item:selected { background: rgba(91,157,255,0.28); }"
+      "QMenu::item:checked { color: %4; font-weight: 700; }")
+                         .arg(NoteChrome::panelElevated().name(),
+                              NoteChrome::textPrimary().name(),
+                              NoteChrome::border().name(),
+                              NoteChrome::accent().name()));
+
+  if (mode == ToolMode::Lasso) {
+    auto *freehand = menu.addAction(tr("Freihand-Auswahl"));
+    auto *rect = menu.addAction(tr("Rechteck-Auswahl"));
+    freehand->setCheckable(true);
+    rect->setCheckable(true);
+    const LassoMode cur =
+        ToolManager::instance().configFor(ToolMode::Lasso).lassoMode;
+    freehand->setChecked(cur == LassoMode::Freehand);
+    rect->setChecked(cur == LassoMode::Rectangle);
+    QAction *picked = menu.exec(anchor->mapToGlobal(
+        QPoint(anchor->width() + UiScale::dp(6), UiScale::dp(4))));
+    if (!picked)
+      return;
+    ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Lasso);
+    cfg.lassoMode =
+        (picked == rect) ? LassoMode::Rectangle : LassoMode::Freehand;
+    ToolManager::instance().selectTool(ToolMode::Lasso);
+    ToolManager::instance().setConfig(cfg);
+    setToolMode(ToolMode::Lasso);
+    syncDrawboardToolIcons();
+    return;
+  }
+
+  if (mode == ToolMode::Shape) {
+    auto *rect = menu.addAction(tr("Rechteck"));
+    auto *circle = menu.addAction(tr("Kreis"));
+    rect->setCheckable(true);
+    circle->setCheckable(true);
+    const ShapeToolKind cur =
+        ToolManager::instance().configFor(ToolMode::Shape).shapeToolKind;
+    rect->setChecked(cur != ShapeToolKind::Circle);
+    circle->setChecked(cur == ShapeToolKind::Circle);
+    menu.addSeparator();
+    auto *more = menu.addAction(tr("Weitere Eigenschaften…"));
+    QAction *picked = menu.exec(anchor->mapToGlobal(
+        QPoint(anchor->width() + UiScale::dp(6), UiScale::dp(4))));
+    if (!picked)
+      return;
+    if (picked == more) {
+      emit toolOptionsRequested();
+      return;
+    }
+    ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Shape);
+    cfg.shapeToolKind = (picked == circle) ? ShapeToolKind::Circle
+                                           : ShapeToolKind::Rectangle;
+    ToolManager::instance().selectTool(ToolMode::Shape);
+    ToolManager::instance().setConfig(cfg);
+    setToolMode(ToolMode::Shape);
+    syncDrawboardToolIcons();
+  }
 }
 
 QList<ToolbarBtn *> ModernToolbar::currentRailButtons() const {

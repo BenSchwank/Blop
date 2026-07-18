@@ -438,7 +438,7 @@ private:
   class ToolPropertiesPanel *m_toolPropertiesPanel{nullptr};
   /// Full-note "All Pages" grid overlay.
   class AllPagesOverlay *m_allPagesOverlay{nullptr};
-  bool m_toolPropertiesVisible{true};
+  bool m_toolPropertiesVisible{false};
   /// Movable radial tool FAB (expands to Drawboard-style wheel).
   RadialToolbarFab *m_radialFab{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};

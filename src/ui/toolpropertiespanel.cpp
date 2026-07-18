@@ -4,6 +4,7 @@
 #include "tools/ToolManager.h"
 #include "uiscale.h"
 
+#include <QButtonGroup>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -65,13 +66,52 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_colorRow = new QWidget(this);
   addColorRow(m_root);
 
+  // Mode row for Lasso / Shape (rebuilt visibility in setVisibleForTool).
+  m_modeLbl = new QLabel(QStringLiteral("Modus"), this);
+  m_root->addWidget(m_modeLbl);
+  m_modeRow = new QWidget(this);
+  auto *modeLay = new QHBoxLayout(m_modeRow);
+  modeLay->setContentsMargins(0, 0, 0, 0);
+  modeLay->setSpacing(UiScale::dp(6));
+  m_modeA = new QPushButton(m_modeRow);
+  m_modeB = new QPushButton(m_modeRow);
+  for (QPushButton *b : {m_modeA, m_modeB}) {
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setMinimumHeight(UiScale::dp(32));
+    modeLay->addWidget(b, 1);
+  }
+  auto *grp = new QButtonGroup(this);
+  grp->setExclusive(true);
+  grp->addButton(m_modeA);
+  grp->addButton(m_modeB);
+  connect(m_modeA, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Lasso)
+      m_config.lassoMode = LassoMode::Freehand;
+    else if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::Rectangle;
+    applyConfig();
+  });
+  connect(m_modeB, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Lasso)
+      m_config.lassoMode = LassoMode::Rectangle;
+    else if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::Circle;
+    applyConfig();
+  });
+  m_root->addWidget(m_modeRow);
+
+  m_hintLbl = new QLabel(this);
+  m_hintLbl->setWordWrap(true);
+  m_hintLbl->setStyleSheet(QStringLiteral("font-size: 11px; font-weight: 500;"));
+  m_root->addWidget(m_hintLbl);
+
   m_root->addStretch(1);
 
   connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
           [this](auto *) { syncFromToolManager(); });
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,
           [this](const ToolConfig &) {
-            // Avoid feedback loops while dragging sliders.
             if (!m_widthSlider->isSliderDown() &&
                 !m_opacitySlider->isSliderDown())
               syncFromToolManager();
@@ -95,15 +135,57 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   m_mode = mode;
   const bool writing = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
                         mode == ToolMode::Highlighter ||
-                        mode == ToolMode::Eraser);
+                        mode == ToolMode::Eraser || mode == ToolMode::Shape ||
+                        mode == ToolMode::Text || mode == ToolMode::Ruler);
   m_widthSlider->setVisible(writing);
   m_widthLbl->setVisible(writing);
   const bool colorful = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
-                         mode == ToolMode::Highlighter);
+                         mode == ToolMode::Highlighter ||
+                         mode == ToolMode::Shape || mode == ToolMode::Text);
   m_opacitySlider->setVisible(colorful);
   m_opacityLbl->setVisible(colorful);
   if (m_colorRow)
     m_colorRow->setVisible(colorful);
+
+  const bool modeTools =
+      (mode == ToolMode::Lasso || mode == ToolMode::Shape);
+  if (m_modeLbl)
+    m_modeLbl->setVisible(modeTools);
+  if (m_modeRow)
+    m_modeRow->setVisible(modeTools);
+  if (mode == ToolMode::Lasso) {
+    m_modeA->setText(QStringLiteral("Freihand"));
+    m_modeB->setText(QStringLiteral("Rechteck"));
+    m_modeA->setChecked(m_config.lassoMode == LassoMode::Freehand);
+    m_modeB->setChecked(m_config.lassoMode == LassoMode::Rectangle);
+  } else if (mode == ToolMode::Shape) {
+    m_modeA->setText(QStringLiteral("Rechteck"));
+    m_modeB->setText(QStringLiteral("Kreis"));
+    m_modeA->setChecked(m_config.shapeToolKind != ShapeToolKind::Circle);
+    m_modeB->setChecked(m_config.shapeToolKind == ShapeToolKind::Circle);
+  }
+
+  if (m_hintLbl) {
+    QString hint;
+    switch (mode) {
+    case ToolMode::Hand:
+      hint = QStringLiteral("Zum Verschieben der Seite ziehen.");
+      break;
+    case ToolMode::Image:
+      hint = QStringLiteral("Tippe auf die Seite, um ein Bild einzufügen.");
+      break;
+    case ToolMode::StickyNote:
+      hint = QStringLiteral("Tippe auf die Seite, um eine Notiz zu setzen.");
+      break;
+    case ToolMode::Ruler:
+      hint = QStringLiteral("Lineal auf der Seite positionieren und zeichnen.");
+      break;
+    default:
+      break;
+    }
+    m_hintLbl->setText(hint);
+    m_hintLbl->setVisible(!hint.isEmpty());
+  }
 }
 
 void ToolPropertiesPanel::syncFromToolManager() {
@@ -133,6 +215,27 @@ void ToolPropertiesPanel::syncFromToolManager() {
     break;
   case ToolMode::Eraser:
     title = QStringLiteral("Radierer");
+    break;
+  case ToolMode::Lasso:
+    title = QStringLiteral("Auswahl");
+    break;
+  case ToolMode::Shape:
+    title = QStringLiteral("Formen");
+    break;
+  case ToolMode::Text:
+    title = QStringLiteral("Text");
+    break;
+  case ToolMode::Ruler:
+    title = QStringLiteral("Messen");
+    break;
+  case ToolMode::Hand:
+    title = QStringLiteral("Hand");
+    break;
+  case ToolMode::Image:
+    title = QStringLiteral("Bild");
+    break;
+  case ToolMode::StickyNote:
+    title = QStringLiteral("Notiz");
     break;
   default:
     break;
@@ -184,6 +287,7 @@ void ToolPropertiesPanel::rebuild() {
       "QWidget#ToolPropertiesPanel { background: %1; border-left: 1px solid %2; }"
       "QLabel { color: %3; background: transparent; font-size: 12px; font-weight: 600; }"
       "QPushButton { color: %3; background: transparent; border: none; font-size: 18px; }"
+      "QPushButton:checked { background: rgba(91,157,255,0.22); border-radius: 6px; color: %4; }"
       "QSlider::groove:horizontal { height: 4px; background: %2; border-radius: 2px; }"
       "QSlider::sub-page:horizontal { background: %4; border-radius: 2px; }"
       "QSlider::handle:horizontal { background: %5; width: 14px; height: 14px; "

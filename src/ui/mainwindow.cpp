@@ -4739,6 +4739,15 @@ void MainWindow::setupUi() {
       }
       positionNoteChrome();
     });
+    connect(topToolbar, &ModernToolbar::propertiesPanelToggleRequested, this,
+            [this]() {
+              m_toolPropertiesVisible = !m_toolPropertiesVisible;
+              if (m_toolPropertiesPanel)
+                m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
+              if (m_toolPropertiesVisible && m_toolPropertiesPanel)
+                m_toolPropertiesPanel->syncFromToolManager();
+              positionNoteChrome();
+            });
     topToolbar->setAccentColor(NoteChrome::accent());
 #endif
     m_floatingTools = topToolbar;

@@ -71,6 +71,8 @@ signals:
     void clicked();
     void longPressed();
     void removeFromRailRequested();
+    /// delta -1 = nach oben, +1 = nach unten (Favorites reorder).
+    void moveInRailRequested(int delta);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -199,6 +201,7 @@ public:
     void syncToolBadges();
     void syncDrawboardToolIcons();
     void openToolOptions();
+    void moveRailTool(ToolMode mode, int delta);
 
 signals:
     void toolChanged(ToolMode mode);
@@ -210,6 +213,8 @@ signals:
     void backToOverviewRequested();
     void dockModeChanged(bool docked);
     void toolOptionsRequested();
+    /// Edge chevron / rail chrome: toggle the right properties dock.
+    void propertiesPanelToggleRequested();
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -346,6 +351,8 @@ private:
     void loadRailTools();
     void saveRailTools() const;
     QList<ToolbarBtn *> currentRailButtons() const;
+    void showToolFlyout(ToolMode mode);
+    bool toolHasFlyout(ToolMode mode) const;
 
     QPointer<QWidget> m_toolSettingsSheet;
 

@@ -45,8 +45,13 @@ private:
   QLabel *m_title{nullptr};
   QLabel *m_widthLbl{nullptr};
   QLabel *m_opacityLbl{nullptr};
+  QLabel *m_modeLbl{nullptr};
+  QLabel *m_hintLbl{nullptr};
   QSlider *m_widthSlider{nullptr};
   QSlider *m_opacitySlider{nullptr};
   QWidget *m_colorRow{nullptr};
+  QWidget *m_modeRow{nullptr};
+  QPushButton *m_modeA{nullptr};
+  QPushButton *m_modeB{nullptr};
   QVBoxLayout *m_root{nullptr};
 };

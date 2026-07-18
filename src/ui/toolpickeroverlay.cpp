@@ -157,8 +157,8 @@ ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
 
   auto *hint = new QLabel(
       QStringLiteral(
-          "Ziehen und Ablegen — Tippe +, um ein Tool zur Symbolleiste "
-          "hinzuzufügen."),
+          "Tippe +, um ein Tool zur Symbolleiste hinzuzufügen. "
+          "Bereits hinzugefügte Tools (✓) erneut tippen zum Entfernen."),
       card);
   hint->setWordWrap(true);
   hint->setStyleSheet(
