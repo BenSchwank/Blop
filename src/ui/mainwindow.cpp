@@ -2945,6 +2945,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
     const int newY = m_floatingTools->y();
     if (qAbs(newY - m_lastDockCheckY) >= 8) {
       m_lastDockCheckY = newY;
+#ifdef Q_OS_ANDROID
       // Re-dock when floating toolbar is dragged to the top (y <= 10)
       if (newY <= 10) {
         if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
@@ -2952,6 +2953,10 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
           syncPenPresetBarGeometry();
         }
       }
+#else
+      // Desktop Drawboard: keep the vertical right rail — never top-dock.
+      Q_UNUSED(newY);
+#endif
     }
   }
 
@@ -4720,22 +4725,18 @@ void MainWindow::setupUi() {
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
     // Desktop Drawboard layout: vertical tool rail on the right edge.
-    topToolbar->setOrientation(ModernToolbar::Vertical);
-    topToolbar->setDraggable(true);
-    topToolbar->setDockMode(false);
+    topToolbar->applyDrawboardVerticalRail();
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    topToolbar->setMinimumSize(0, 0);
-    topToolbar->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    const int idealH = topToolbar->calculateMinLength();
-    topToolbar->setFixedWidth(UiScale::dp(56));
-    topToolbar->resize(UiScale::dp(56), idealH);
+    connect(topToolbar, &ModernToolbar::dockModeChanged, this,
+            [this](bool) { positionNoteChrome(); });
 #endif
     m_floatingTools = topToolbar;
   }
   m_floatingTools->raise();
 
 #ifndef Q_OS_ANDROID
-  // Drawboard radial FAB — drag to move, tap to expand tool wheel.
+  // Radial FAB is optional (Radial toolbar style only). Keep constructed but
+  // hidden in the default Drawboard vertical-rail layout to avoid overlap.
   m_radialFab = new RadialToolbarFab(m_editorCenterWidget);
   m_radialFab->setAccentColor(m_currentAccentColor);
   m_radialFab->hide();
@@ -4848,26 +4849,26 @@ void MainWindow::setupUi() {
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
   m_noteBottomChrome->setAttribute(Qt::WA_TranslucentBackground, true);
-  m_noteBottomChrome->setFixedHeight(UiScale::dp(48));
+  m_noteBottomChrome->setFixedHeight(UiScale::dp(44));
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
       "  background: rgba(14, 12, 24, 0.94);"
       "  border: 1px solid rgba(124, 92, 252, 0.28);"
-      "  border-radius: 16px;"
+      "  border-radius: 14px;"
       "}"
       "QPushButton {"
       "  background: transparent; color: rgba(232,228,255,0.88);"
       "  border: none; border-radius: 10px;"
-      "  font-size: 14px; font-weight: 600; min-width: 32px; min-height: 30px;"
-      "  padding: 0 8px;"
+      "  font-size: 14px; font-weight: 600; min-width: 28px; min-height: 28px;"
+      "  padding: 0 6px;"
       "}"
       "QPushButton:hover { background: rgba(124,92,252,0.18); }"
       "QLabel { background: transparent; color: rgba(232,228,255,0.85);"
       "  font-size: 12px; font-weight: 600; }"));
   auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
-  bottomLay->setContentsMargins(UiScale::dp(12), UiScale::dp(8),
-                                UiScale::dp(12), UiScale::dp(8));
-  bottomLay->setSpacing(UiScale::dp(6));
+  bottomLay->setContentsMargins(UiScale::dp(10), UiScale::dp(6),
+                                UiScale::dp(10), UiScale::dp(6));
+  bottomLay->setSpacing(UiScale::dp(4));
 
   m_btnNoteUndo = new QPushButton(QStringLiteral("↶"), m_noteBottomChrome);
   m_btnNoteUndo->setToolTip(QStringLiteral("Rückgängig"));
@@ -4880,16 +4881,6 @@ void MainWindow::setupUi() {
   m_btnNoteRedo->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
   bottomLay->addWidget(m_btnNoteRedo);
-
-  auto *btnNoteSettings = new QPushButton(m_noteBottomChrome);
-  btnNoteSettings->setToolTip(QStringLiteral("Einstellungen"));
-  btnNoteSettings->setCursor(Qt::PointingHandCursor);
-  btnNoteSettings->setIcon(createModernIcon(QStringLiteral("settings"),
-                                            QColor(QStringLiteral("#C8CDDC"))));
-  btnNoteSettings->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-  btnNoteSettings->setFixedSize(UiScale::dp(32), UiScale::dp(30));
-  connect(btnNoteSettings, &QPushButton::clicked, this, &MainWindow::onOpenSettings);
-  bottomLay->addWidget(btnNoteSettings);
 
   bottomLay->addStretch(1);
 
@@ -4972,9 +4963,6 @@ void MainWindow::setupUi() {
   m_noteLeftRail->setIcon(QStringLiteral("search"),
                           createModernIcon(QStringLiteral("search"),
                                            QColor(QStringLiteral("#E8E4FF"))));
-  m_noteLeftRail->setIcon(QStringLiteral("layers"),
-                          createModernIcon(QStringLiteral("pages_pill"),
-                                           QColor(QStringLiteral("#E8E4FF"))));
   m_noteLeftRail->setIcon(QStringLiteral("more"),
                           createModernIcon(QStringLiteral("more_vert"),
                                            QColor(QStringLiteral("#E8E4FF"))));
@@ -4988,8 +4976,13 @@ void MainWindow::setupUi() {
                           createModernIcon(QStringLiteral("settings"),
                                            QColor(QStringLiteral("#E8E4FF"))));
   connect(m_noteLeftRail, &NoteLeftRail::pagesToggled, this, [this](bool on) {
-    if (m_pageThumbnailSidebar)
+    if (m_pageThumbnailSidebar) {
       m_pageThumbnailSidebar->setVisible(on);
+      if (on) {
+        m_pageThumbnailSidebar->setCollapsed(false);
+        m_pageThumbnailSidebar->rebuild();
+      }
+    }
     positionNoteChrome();
   });
   connect(m_noteLeftRail, &NoteLeftRail::searchClicked, this, [this]() {
@@ -4998,8 +4991,6 @@ void MainWindow::setupUi() {
       m_titleSearchBar->setFocus(Qt::OtherFocusReason);
     }
   });
-  connect(m_noteLeftRail, &NoteLeftRail::pageManagerClicked, this,
-          &MainWindow::onTogglePageManager);
   connect(m_noteLeftRail, &NoteLeftRail::moreClicked, this,
           &MainWindow::onEditorNoteOverflowMenu);
   connect(m_noteLeftRail, &NoteLeftRail::selectClicked, this,
@@ -7716,14 +7707,24 @@ void MainWindow::setupRightSidebar() {
           [this](int index) {
             ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
             if (tb) {
-              if (index == 0)
+              if (index == 0) {
                 tb->setStyle(ModernToolbar::Normal);
-              else if (index == 1) {
+                tb->applyDrawboardVerticalRail();
+                if (m_radialFab)
+                  m_radialFab->hide();
+                positionNoteChrome();
+              } else if (index == 1) {
                 tb->setStyle(ModernToolbar::Radial);
                 tb->setRadialType(ModernToolbar::FullCircle);
+                if (m_radialFab)
+                  m_radialFab->setVisible(true);
+                positionNoteChrome();
               } else {
                 tb->setStyle(ModernToolbar::Radial);
                 tb->setRadialType(ModernToolbar::HalfEdge);
+                if (m_radialFab)
+                  m_radialFab->setVisible(true);
+                positionNoteChrome();
               }
             }
           });
@@ -8222,23 +8223,45 @@ void MainWindow::updateSidebarState() {
     m_documentTabBar->setVisible(inNotesMode);
   if (m_noteLeftRail)
     m_noteLeftRail->setVisible(inNotesMode && isEditor);
-  if (m_radialFab) {
-    m_radialFab->setVisible(inNotesMode && isEditor);
-    if (isEditor && m_radialFab->x() <= 0 && m_radialFab->y() <= 0) {
-      // Seed initial position once when entering the editor.
-      const int fab = m_radialFab->collapsedSize();
-      m_radialFab->move(qMax(0, m_editorCenterWidget->width() - fab - UiScale::dp(80)),
-                        qMax(0, m_editorCenterWidget->height() - fab - UiScale::dp(80)));
+
+  // Lock Drawboard vertical right rail whenever the note editor is active.
+  if (isEditor) {
+    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+      if (tb->currentStyle() == ModernToolbar::Normal)
+        tb->applyDrawboardVerticalRail();
     }
+  }
+
+  // FAB only for Radial toolbar style — default vertical rail must stay clean.
+  if (m_radialFab) {
+    bool showFab = false;
+    if (inNotesMode && isEditor) {
+      if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+        showFab = (tb->currentStyle() == ModernToolbar::Radial);
+    }
+    m_radialFab->setVisible(showFab);
+  }
+
+  bool hasA4Pages = false;
+  if (isEditor && m_editorTabs) {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+      hasA4Pages = (editor->view() != nullptr);
   }
   if (m_pageThumbnailSidebar) {
     const bool showPages =
-        inNotesMode && isEditor &&
+        inNotesMode && isEditor && hasA4Pages &&
         (!m_noteLeftRail || m_noteLeftRail->pagesExpanded());
     m_pageThumbnailSidebar->setVisible(showPages);
+    if (showPages) {
+      m_pageThumbnailSidebar->setCollapsed(false);
+      m_pageThumbnailSidebar->rebuild();
+    }
   }
-  if (isEditor)
+  if (isEditor) {
+    if (m_isSidebarOpen)
+      animateSidebar(false);
     positionNoteChrome();
+  }
   // Title-bar search competes with document tabs while editing; overview has its own.
   if (m_titleSearchBar)
     m_titleSearchBar->setVisible(inNotesMode && !isEditor);
@@ -8250,9 +8273,9 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
-    // Everyday page nav lives on the right rail; title-bar button toggles it.
+    // Title-bar page button toggles the right page-thumbnail rail.
     if (m_btnTitleBarPageManager)
-      m_btnTitleBarPageManager->setVisible(inNotesMode && isEditor);
+      m_btnTitleBarPageManager->setVisible(inNotesMode && isEditor && hasA4Pages);
   }
 #endif
   
@@ -8597,11 +8620,26 @@ void MainWindow::onEditorNoteOverflowMenu() {
 }
 
 void MainWindow::onTogglePageManager() {
-  // Prefer the lightweight right page rail when the editor is open.
-  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
-    m_pageThumbnailSidebar->toggleCollapsed();
+#ifndef Q_OS_ANDROID
+  // Desktop: toggle the floating right page-thumbnail rail (never collapse
+  // it to an empty 28dp sliver — that looked like a missing sidebar).
+  if (m_pageThumbnailSidebar && m_noteLeftRail) {
+    const bool on = !m_noteLeftRail->pagesExpanded();
+    m_noteLeftRail->setPagesExpanded(on);
+    m_pageThumbnailSidebar->setVisible(on);
+    if (on) {
+      m_pageThumbnailSidebar->setCollapsed(false);
+      m_pageThumbnailSidebar->rebuild();
+    }
+    positionNoteChrome();
     return;
   }
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
+    m_pageThumbnailSidebar->setVisible(false);
+    positionNoteChrome();
+    return;
+  }
+#endif
   if (!m_pageManager)
     return;
   if (m_pageManager->isVisible()) {
@@ -9844,11 +9882,12 @@ int MainWindow::noteBottomChromeHeight() const {
 
 void MainWindow::positionDrawboardToolbar() {
   auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
-  if (!tb || !m_editorCenterWidget || tb->isDockedMode())
+  if (!tb || !m_editorCenterWidget)
+    return;
+  if (tb->currentStyle() != ModernToolbar::Normal)
     return;
 
-  if (tb->orientation() != ModernToolbar::Vertical)
-    tb->setOrientation(ModernToolbar::Vertical, false);
+  tb->applyDrawboardVerticalRail();
 
   const int headerH = noteHeaderHeight();
   const int bottomH = noteBottomChromeHeight();
@@ -9875,11 +9914,14 @@ void MainWindow::positionNoteChrome() {
   const int margin = UiScale::dp(14);
   const int W = m_editorCenterWidget->width();
   const int H = m_editorCenterWidget->height();
+  const int toolW = UiScale::dp(52);
+  const int gap = UiScale::dp(10);
 
-  // Bottom floating strip — inset from edges like Drawboard.
+  // Compact centered bottom strip — do not span the full canvas width.
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
     const int stripH = m_noteBottomChrome->height();
-    const int stripW = qMax(UiScale::dp(320), W - 2 * margin);
+    const int stripW = qBound(UiScale::dp(280), UiScale::dp(400),
+                             W - 2 * margin - toolW - UiScale::dp(100));
     const int x = (W - stripW) / 2;
     const int y = H - stripH - margin;
     m_noteBottomChrome->setGeometry(x, y, stripW, stripH);
@@ -9887,25 +9929,25 @@ void MainWindow::positionNoteChrome() {
   }
 
 #ifndef Q_OS_ANDROID
-  // Left icon rail.
-  int leftX = margin;
+  // Left icon rail (navigation only).
   if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
     const int railW = m_noteLeftRail->preferredWidth();
     const int bottomClear = noteBottomChromeHeight();
     const int railH = qMax(UiScale::dp(220), H - bottomClear - 2 * margin);
     const int y = margin + qMax(0, (H - bottomClear - 2 * margin - railH) / 2);
-    m_noteLeftRail->setGeometry(leftX, y, railW, railH);
+    m_noteLeftRail->setGeometry(margin, y, railW, railH);
     m_noteLeftRail->raise();
-    leftX += railW + UiScale::dp(8);
   }
 
-  // Floating page thumbnails beside the left rail.
+  // Right page-thumbnail sidebar, immediately left of the vertical tool rail.
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
+    if (m_pageThumbnailSidebar->isCollapsed())
+      m_pageThumbnailSidebar->setCollapsed(false);
     const int thumbW = m_pageThumbnailSidebar->width();
     const int bottomClear = noteBottomChromeHeight();
     const int thumbH = qMax(UiScale::dp(200), H - bottomClear - 2 * margin);
-    const int y = margin;
-    m_pageThumbnailSidebar->setGeometry(leftX, y, thumbW, thumbH);
+    const int x = qMax(margin, W - margin - toolW - gap - thumbW);
+    m_pageThumbnailSidebar->setGeometry(x, margin, thumbW, thumbH);
     m_pageThumbnailSidebar->raise();
   }
 #endif
@@ -9915,13 +9957,16 @@ void MainWindow::positionNoteChrome() {
     m_floatingTools->raise();
 
 #ifndef Q_OS_ANDROID
-  // Radial FAB sits above the bottom strip, left of the right tool rail.
+  // Radial FAB only when Radial style is active (kept clear of the right rail).
   if (m_radialFab && m_radialFab->isVisible() && !m_radialFab->isExpanded()) {
     const int fab = m_radialFab->collapsedSize();
-    const int railW = UiScale::dp(52);
-    const int x = qMax(margin, W - margin - railW - UiScale::dp(12) - fab);
+    const int pageW =
+        (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
+            ? m_pageThumbnailSidebar->width() + gap
+            : 0;
+    const int x =
+        qMax(margin, W - margin - toolW - pageW - UiScale::dp(12) - fab);
     const int y = qMax(margin, H - noteBottomChromeHeight() - fab - margin);
-    // Keep user-dragged position if still on-canvas; only seed once.
     if (m_radialFab->x() <= 0 && m_radialFab->y() <= 0)
       m_radialFab->move(x, y);
     else {
@@ -10077,10 +10122,13 @@ void MainWindow::onTabChanged(int index) {
   QWidget *current = m_editorTabs->currentWidget();
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
   if (m_pageThumbnailSidebar) {
-    if (editor && editor->view())
+    if (editor && editor->view()) {
       m_pageThumbnailSidebar->setNoteView(editor->view());
-    else
+      m_pageThumbnailSidebar->onCurrentPageChanged(
+          editor->view()->currentPageIndex());
+    } else {
       m_pageThumbnailSidebar->setNoteView(nullptr);
+    }
   }
 
 

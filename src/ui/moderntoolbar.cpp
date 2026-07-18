@@ -2515,12 +2515,19 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         const bool isTopSnap = snapGeom.width() >= snapGeom.height();
 
         if (isTopSnap) {
-            setOrientation(Horizontal, false);
-            setFixedSize(snapGeom.size());
+            // Desktop Drawboard: never become a top horizontal shelf.
+            // Redirect top-snap into the right vertical rail.
+            applyDrawboardVerticalRail();
+            const int w = UiScale::dp(52);
+            const int h = qMax(calculateMinLength(), UiScale::dp(200));
+            const int margin = UiScale::dp(14);
+            snapGeom = QRect(parentWidget()->width() - w - margin,
+                             margin, w, h);
+            setFixedSize(w, h);
         } else {
             // Side snap → Drawboard vertical tool rail.
-            setOrientation(Vertical, false);
-            const int w = UiScale::dp(56);
+            applyDrawboardVerticalRail();
+            const int w = UiScale::dp(52);
             const int h = qMax(calculateMinLength(), snapGeom.height());
             snapGeom.setWidth(w);
             snapGeom.setHeight(h);
@@ -3251,6 +3258,31 @@ void ModernToolbar::setOrientation(Orientation o, bool animate) {
     updateLayout();
   }
 }
+void ModernToolbar::applyDrawboardVerticalRail() {
+#ifndef Q_OS_ANDROID
+  m_isDockedMode = false;
+  m_draggable = true;
+  if (btnDockToggle) {
+    btnDockToggle->setIcon(QStringLiteral("dock_float"));
+    // Dock toggle fights the Drawboard right-rail layout — hide it.
+    btnDockToggle->hide();
+  }
+  m_style = Normal;
+  if (m_orientation != Vertical)
+    setOrientation(Vertical, false);
+  else {
+    const int w = UiScale::dp(52);
+    const int h = qMax(calculateMinLength(), UiScale::dp(200));
+    setMinimumSize(0, 0);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    setFixedWidth(w);
+    resize(w, h);
+    updateLayout(false);
+  }
+  update();
+#endif
+}
+
 void ModernToolbar::setDockMode(bool docked) {
   if (m_isDockedMode == docked) return;
   m_isDockedMode = docked;
@@ -3263,6 +3295,22 @@ void ModernToolbar::setDockMode(bool docked) {
   setMinimumSize(0, 0);
   setMaximumSize(16777215, 16777215);
   setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+
+#ifndef Q_OS_ANDROID
+  // Desktop Drawboard: undocked Normal style is always the vertical right rail.
+  // Never animate into a top horizontal shelf — that caused overlapping chrome.
+  if (!docked && m_style == Normal) {
+    applyDrawboardVerticalRail();
+    emit dockModeChanged(false);
+    return;
+  }
+  if (docked && m_style == Normal) {
+    // Keep Drawboard vertical — ignore top-dock requests on desktop.
+    applyDrawboardVerticalRail();
+    emit dockModeChanged(false);
+    return;
+  }
+#endif
 
   if (QWidget *pw = parentWidget()) {
     QRect targetGeom;
@@ -3283,6 +3331,7 @@ void ModernToolbar::setDockMode(bool docked) {
 #else
     const int parentVisibleW = pw->width();
     const int visibleOffset = 0;
+    Q_UNUSED(visibleOffset);
 #endif
     if (docked) {
       m_orientation = Horizontal;
@@ -3355,6 +3404,7 @@ void ModernToolbar::setDockMode(bool docked) {
     updateLayout(false);
     update();
   }
+  emit dockModeChanged(m_isDockedMode);
 }
 
 QList<ToolbarBtn *> ModernToolbar::leftChromeButtons() const {
@@ -3570,7 +3620,7 @@ void ModernToolbar::updateLayout(bool animate) {
         railOrder = {btnHand,        btnLasso,       btnPen,     btnPencil,
                      btnHighlighter, btnEraser,      btnText,    btnImage,
                      btnShape,       btnRuler,       btnStickyNote,
-                     btnAddTool,     btnDockToggle};
+                     btnAddTool};
       } else {
         for (auto *b : m_buttons) {
           if (!chromeRow.contains(b))
@@ -3611,9 +3661,10 @@ void ModernToolbar::updateLayout(bool animate) {
         for (auto *b : m_buttons) {
           if (!b || chromeRow.contains(b) || railOrder.contains(b))
             continue;
-          if (m_dockedOnlyButtons.contains(b))
-            b->hide();
+          b->hide();
         }
+        if (btnDockToggle)
+          btnDockToggle->hide();
       }
     }
   } else {

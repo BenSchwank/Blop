@@ -18,9 +18,8 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
                             UiScale::dp(10));
   m_lay->setSpacing(UiScale::dp(4));
 
-  makeBtn(QStringLiteral("pages"), QStringLiteral("Seiten"));
+  makeBtn(QStringLiteral("pages"), QStringLiteral("Seitenleiste"));
   makeBtn(QStringLiteral("search"), QStringLiteral("Suche"));
-  makeBtn(QStringLiteral("layers"), QStringLiteral("Seitenmanager"));
   makeBtn(QStringLiteral("more"), QStringLiteral("Mehr"));
   m_lay->addSpacing(UiScale::dp(8));
   makeBtn(QStringLiteral("select"), QStringLiteral("Auswahl"));
@@ -38,8 +37,6 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   }
   if (auto *b = m_btns.value(QStringLiteral("search")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::searchClicked);
-  if (auto *b = m_btns.value(QStringLiteral("layers")))
-    connect(b, &QToolButton::clicked, this, &NoteLeftRail::pageManagerClicked);
   if (auto *b = m_btns.value(QStringLiteral("more")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::moreClicked);
   if (auto *b = m_btns.value(QStringLiteral("select")))

@@ -103,6 +103,9 @@ public:
     void setDockMode(bool docked);
     bool isDockedMode() const { return m_isDockedMode; }
 
+    /// Desktop Drawboard: keep Normal style as a vertical right rail (no top shelf).
+    void applyDrawboardVerticalRail();
+
     void setStyle(Style style);
     Style currentStyle() const { return m_style; }
 
@@ -135,6 +138,7 @@ signals:
     void scaleChanged(double newScale);
     void rulerToggled(bool active); // NEU: Globaler Toggle für das Lineal
     void backToOverviewRequested();
+    void dockModeChanged(bool docked);
 
 protected:
     void paintEvent(QPaintEvent*) override;

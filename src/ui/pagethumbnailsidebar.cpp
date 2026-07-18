@@ -30,8 +30,9 @@ RailMetrics railMetrics(QWidget *ref) {
   }
 #endif
   Q_UNUSED(ref);
-  return {UiScale::dp(92), UiScale::dp(72), UiScale::dp(98), UiScale::dp(118),
-          UiScale::dp(8)};
+  // Desktop floating right rail — wide enough for readable page thumbs.
+  return {UiScale::dp(104), UiScale::dp(80), UiScale::dp(108), UiScale::dp(128),
+          UiScale::dp(10)};
 }
 } // namespace
 
@@ -87,6 +88,10 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
 }
 
 void PageThumbnailSidebar::setCollapsed(bool collapsed) {
+  // Floating desktop mode must stay expanded — collapsing hid the body and
+  // left a useless 28dp sliver with no expand control.
+  if (m_floatingMode)
+    collapsed = false;
   if (m_collapsed == collapsed)
     return;
   m_collapsed = collapsed;
@@ -95,6 +100,10 @@ void PageThumbnailSidebar::setCollapsed(bool collapsed) {
 }
 
 void PageThumbnailSidebar::toggleCollapsed() {
+  if (m_floatingMode) {
+    // Visibility is owned by MainWindow / left rail — ignore collapse toggles.
+    return;
+  }
   setCollapsed(!m_collapsed);
 }
 
@@ -203,8 +212,11 @@ void PageThumbnailSidebar::refreshListStyle() {
 }
 
 void PageThumbnailSidebar::setNoteView(MultiPageNoteView *view) {
-  if (m_view == view)
+  if (m_view == view) {
+    // Same pointer — still refresh so newly added pages appear.
+    rebuild();
     return;
+  }
   m_view = view;
   rebuild();
 }
@@ -222,9 +234,12 @@ void PageThumbnailSidebar::setFloatingMode(bool on) {
   setAttribute(Qt::WA_TranslucentBackground, on);
   if (on) {
     setCollapsed(false);
-    // Hide the docked-style toggle; left icon rail owns expand/collapse.
+    // Floating desktop rail is shown/hidden by the left icon rail; keep
+    // the body expanded so the sidebar never collapses to an empty sliver.
     if (m_btnToggle)
       m_btnToggle->hide();
+    if (m_railBody)
+      m_railBody->show();
   } else if (m_btnToggle) {
     m_btnToggle->show();
   }

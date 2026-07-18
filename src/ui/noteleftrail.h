@@ -1,7 +1,7 @@
 #pragma once
 
 // Slim floating left icon rail — Drawboard PDF–style note chrome.
-// Hosts view/navigation icons; page thumbnails expand beside it.
+// Hosts view/navigation icons; page thumbnails expand on the right.
 
 #include <QColor>
 #include <QHash>
@@ -27,7 +27,6 @@ public:
 signals:
   void pagesToggled(bool expanded);
   void searchClicked();
-  void pageManagerClicked();
   void moreClicked();
   void selectClicked();
   void exportClicked();
