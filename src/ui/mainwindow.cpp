@@ -4739,6 +4739,7 @@ void MainWindow::setupUi() {
       }
       positionNoteChrome();
     });
+    topToolbar->setAccentColor(NoteChrome::accent());
 #endif
     m_floatingTools = topToolbar;
   }
@@ -5243,6 +5244,8 @@ void MainWindow::setupUi() {
                 topToolbar->setToolMode(tool->mode());
                 onToolModeChanged(tool->mode());
               }
+              if (m_toolPropertiesPanel && m_toolPropertiesVisible)
+                m_toolPropertiesPanel->syncFromToolManager();
             });
 
     connect(topToolbar, &ModernToolbar::rulerToggled, [this](bool active) {
@@ -10040,10 +10043,10 @@ void MainWindow::positionDrawboardToolbar() {
 
   if (tb->isDockedMode() || tb->orientation() == ModernToolbar::Horizontal) {
     tb->applyDrawboardMarkupToolbar();
-    const int barH = UiScale::dp(48);
+    const int barH = tb->preferredMarkupHeight();
     const int contentW = qMax(UiScale::dp(200), W - leftInset - rightInset);
     const int idealW = tb->calculateMinLength();
-    const int barW = qBound(UiScale::dp(260), idealW, contentW - 2 * margin);
+    const int barW = qBound(UiScale::dp(360), idealW, contentW - 2 * margin);
     const int x = leftInset + qMax(margin, (contentW - barW) / 2);
     const int y = noteHeaderHeight();
     tb->setMinimumSize(0, 0);
@@ -10244,8 +10247,10 @@ void MainWindow::applyNoteChromeTheme() {
                                                NoteChrome::textSecondary().name(),
                                                NoteChrome::textPrimary().name()));
   }
-  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    tb->setAccentColor(NoteChrome::accent());
     tb->update();
+  }
   positionNoteChrome();
 #endif
 }

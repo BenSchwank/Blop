@@ -85,6 +85,35 @@ private:
     QPointer<QPropertyAnimation> m_holdAnim;
 };
 
+// Drawboard Markup Toolbar category tab (icon + short label).
+class MarkupCategoryTab : public QWidget {
+    Q_OBJECT
+public:
+    MarkupCategoryTab(const QString &iconName, const QString &label,
+                      QWidget *parent = nullptr);
+    void setActive(bool active);
+    void setAccentColor(const QColor &c);
+    void setCompact(bool compact);
+    QString iconName() const { return m_icon; }
+
+signals:
+    void clicked();
+
+protected:
+    void paintEvent(QPaintEvent *) override;
+    void mousePressEvent(QMouseEvent *) override;
+    void enterEvent(QEnterEvent *) override;
+    void leaveEvent(QEvent *) override;
+
+private:
+    QString m_icon;
+    QString m_label;
+    bool m_active{false};
+    bool m_hover{false};
+    bool m_compact{false};
+    QColor m_accent{QColor(91, 157, 255)};
+};
+
 // --- Main Toolbar Class ---
 class ModernToolbar : public QWidget {
     Q_OBJECT
@@ -93,6 +122,15 @@ public:
     enum Style { Normal, Radial };
     enum RadialType { FullCircle, HalfEdge };
     enum Orientation { Vertical, Horizontal };
+    /// Drawboard Markup Toolbar layout (desktop docked top bar).
+    enum MarkupBarMode { MarkupOff = 0, MarkupTwoRow, MarkupSingleRow };
+    enum MarkupCategory {
+        CatSelect = 0,
+        CatFreeform,
+        CatShapes,
+        CatReview,
+        CatInsert
+    };
 
     explicit ModernToolbar(QWidget* parent=nullptr);
 
@@ -107,6 +145,10 @@ public:
     void applyDrawboardMarkupToolbar();
     /// Optional alternate: floating vertical tool rail on the right.
     void applyDrawboardVerticalRail();
+    bool isMarkupToolbar() const { return m_markupBarMode != MarkupOff; }
+    MarkupBarMode markupBarMode() const { return m_markupBarMode; }
+    void setMarkupBarMode(MarkupBarMode mode);
+    int preferredMarkupHeight() const;
 
     void setStyle(Style style);
     Style currentStyle() const { return m_style; }
@@ -214,6 +256,8 @@ private:
 
     ToolbarBtn* btnDockToggle; // New button for detach/dock
     ToolbarBtn *btnAddTool{nullptr}; // Drawboard "+" — open tool picker
+    ToolbarBtn *btnMoreProps{nullptr}; // Drawboard "More options" → right panel
+    ToolbarBtn *btnLayoutToggle{nullptr}; // 1-row / 2-row markup layout
 
     // Extra features for docked mode (Seite/Notiz-Optionen nur über Notiz-⋯-Menü)
     ToolbarBtn *btnSave;
@@ -224,7 +268,27 @@ private:
     QVector<ToolbarBtn*> m_buttons;
     QList<QColor> m_customColors;
 
+    // Drawboard Markup Toolbar state (desktop)
+    MarkupBarMode m_markupBarMode{MarkupOff};
+    MarkupCategory m_markupCategory{CatFreeform};
+    MarkupCategoryTab *m_catSelect{nullptr};
+    MarkupCategoryTab *m_catFreeform{nullptr};
+    MarkupCategoryTab *m_catShapes{nullptr};
+    MarkupCategoryTab *m_catReview{nullptr};
+    MarkupCategoryTab *m_catInsert{nullptr};
+    QList<MarkupCategoryTab *> m_categoryTabs;
+    QList<QPushButton *> m_inlineColorBtns;
+    QList<QPushButton *> m_inlineWidthBtns;
+    int m_markupRowDividerY{-1};
+
     void updateLayout(bool animate = false);
+    void updateMarkupLayout(bool animate = false);
+    void setMarkupCategory(MarkupCategory cat, bool selectDefaultTool = false);
+    MarkupCategory categoryForTool(ToolMode m) const;
+    QList<ToolbarBtn *> toolsForCategory(MarkupCategory cat) const;
+    void syncCategoryTabs();
+    void syncInlinePropertyControls();
+    void ensureInlinePropertyControls();
     bool supportsAdaptiveDockedScroll() const;
     int effectiveButtonSize(int w, int h) const;
     int effectiveGap() const;

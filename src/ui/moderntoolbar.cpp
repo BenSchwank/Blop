@@ -28,6 +28,8 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QEnterEvent>
+#include <QFont>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -413,6 +415,23 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(QPointF(32, 20), QPointF(32, 44));
     return;
   }
+  if (name == QLatin1String("layout_rows")) {
+    // Two-row markup layout glyph.
+    p->setPen(primaryThin);
+    p->drawRoundedRect(14, 16, 36, 12, 3, 3);
+    p->drawRoundedRect(14, 36, 36, 12, 3, 3);
+    p->setPen(accentPen);
+    p->drawLine(20, 22, 44, 22);
+    p->drawLine(20, 42, 36, 42);
+    return;
+  }
+  if (name == QLatin1String("layout_single")) {
+    p->setPen(primaryThin);
+    p->drawRoundedRect(14, 24, 36, 16, 4, 4);
+    p->setPen(accentPen);
+    p->drawLine(20, 32, 44, 32);
+    return;
+  }
   // Fallback: single-character / unknown (legacy)
   QFont f = p->font();
   f.setPixelSize(28);
@@ -461,6 +480,102 @@ protected:
 private:
   QColor m_accent;
 };
+
+// =============================================================================
+// Drawboard Markup category tab (icon + label)
+// =============================================================================
+MarkupCategoryTab::MarkupCategoryTab(const QString &iconName,
+                                     const QString &label, QWidget *parent)
+    : QWidget(parent), m_icon(iconName), m_label(label) {
+  setCursor(Qt::PointingHandCursor);
+  setAttribute(Qt::WA_TranslucentBackground, true);
+  setFixedHeight(UiScale::dp(34));
+  setMinimumWidth(UiScale::dp(72));
+}
+
+void MarkupCategoryTab::setActive(bool active) {
+  if (m_active == active)
+    return;
+  m_active = active;
+  update();
+}
+
+void MarkupCategoryTab::setAccentColor(const QColor &c) {
+  if (!c.isValid() || m_accent == c)
+    return;
+  m_accent = c;
+  update();
+}
+
+void MarkupCategoryTab::setCompact(bool compact) {
+  if (m_compact == compact)
+    return;
+  m_compact = compact;
+  setMinimumWidth(compact ? UiScale::dp(36) : UiScale::dp(72));
+  update();
+}
+
+void MarkupCategoryTab::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  const QRect r = rect().adjusted(1, 1, -1, -1);
+  if (m_active || m_hover) {
+    QColor fill = m_active ? QColor(m_accent.red(), m_accent.green(),
+                                    m_accent.blue(), 48)
+                           : QColor(255, 255, 255, 14);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawRoundedRect(r, UiScale::dp(8), UiScale::dp(8));
+  }
+
+  const int iconBox = m_compact ? qMin(width(), height()) - 4
+                                : UiScale::dp(18);
+  const int iconX = m_compact ? (width() - iconBox) / 2 : UiScale::dp(8);
+  const int iconY = (height() - iconBox) / 2;
+  p.save();
+  p.translate(iconX, iconY);
+  p.scale(iconBox / 64.0, iconBox / 64.0);
+  const QColor glyph =
+      m_active ? m_accent : NoteChrome::textPrimary();
+  blopDrawToolbarGlyph64(&p, m_icon, glyph);
+  p.restore();
+
+  if (!m_compact) {
+    QFont f = p.font();
+    f.setPixelSize(UiScale::sp(11));
+    f.setWeight(m_active ? QFont::DemiBold : QFont::Medium);
+    p.setFont(f);
+    p.setPen(m_active ? m_accent : NoteChrome::textSecondary());
+    const QRect textR(iconX + iconBox + UiScale::dp(6), 0,
+                      width() - iconX - iconBox - UiScale::dp(10), height());
+    p.drawText(textR, Qt::AlignVCenter | Qt::AlignLeft, m_label);
+  }
+
+  if (m_active) {
+    p.setPen(Qt::NoPen);
+    p.setBrush(m_accent);
+    p.drawRoundedRect(UiScale::dp(10), height() - UiScale::dp(3),
+                      width() - UiScale::dp(20), UiScale::dp(2), 1, 1);
+  }
+}
+
+void MarkupCategoryTab::mousePressEvent(QMouseEvent *e) {
+  if (e->button() == Qt::LeftButton)
+    emit clicked();
+  QWidget::mousePressEvent(e);
+}
+
+void MarkupCategoryTab::enterEvent(QEnterEvent *e) {
+  m_hover = true;
+  update();
+  QWidget::enterEvent(e);
+}
+
+void MarkupCategoryTab::leaveEvent(QEvent *e) {
+  m_hover = false;
+  update();
+  QWidget::leaveEvent(e);
+}
 
 // =============================================================================
 // v3.16.0: Morph-Tray container
@@ -1886,6 +2001,10 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnDockToggle = new ToolbarBtn("dock_float", this);
   btnAddTool = new ToolbarBtn("add", this);
   btnAddTool->setToolTip(QStringLiteral("Tool hinzufügen"));
+  btnMoreProps = new ToolbarBtn("more", this);
+  btnMoreProps->setToolTip(tr("More options"));
+  btnLayoutToggle = new ToolbarBtn("layout_rows", this);
+  btnLayoutToggle->setToolTip(tr("Switch markup toolbar layout"));
 
   btnSave = new ToolbarBtn("save", this);
   btnPalette = new ToolbarBtn("palette", this);
@@ -1897,10 +2016,43 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
                  btnEraser,    btnLasso,    btnRuler,    btnShape,  btnStickyNote,
                  btnText,      btnImage,    btnHand,     btnBackOverview,
                  btnUndo,      btnRedo,     btnPalette,  btnBrushSize, btnDockToggle,
-                 btnAddTool};
+                 btnAddTool, btnMoreProps, btnLayoutToggle};
 
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
+
+  // Drawboard Markup category tabs (desktop). Hidden until markup mode.
+  m_catSelect = new MarkupCategoryTab(QStringLiteral("hand"),
+                                      tr("Select"), this);
+  m_catFreeform = new MarkupCategoryTab(QStringLiteral("pen"),
+                                        tr("Free-form"), this);
+  m_catShapes = new MarkupCategoryTab(QStringLiteral("shape"),
+                                      tr("Shapes"), this);
+  m_catReview = new MarkupCategoryTab(QStringLiteral("text"),
+                                      tr("Review"), this);
+  m_catInsert = new MarkupCategoryTab(QStringLiteral("image"),
+                                      tr("Insert"), this);
+  m_categoryTabs = {m_catSelect, m_catFreeform, m_catShapes, m_catReview,
+                    m_catInsert};
+  for (auto *tab : m_categoryTabs) {
+    tab->hide();
+    tab->setAccentColor(m_accentColor);
+  }
+  connect(m_catSelect, &MarkupCategoryTab::clicked, this, [this]() {
+    setMarkupCategory(CatSelect, true);
+  });
+  connect(m_catFreeform, &MarkupCategoryTab::clicked, this, [this]() {
+    setMarkupCategory(CatFreeform, true);
+  });
+  connect(m_catShapes, &MarkupCategoryTab::clicked, this, [this]() {
+    setMarkupCategory(CatShapes, true);
+  });
+  connect(m_catReview, &MarkupCategoryTab::clicked, this, [this]() {
+    setMarkupCategory(CatReview, true);
+  });
+  connect(m_catInsert, &MarkupCategoryTab::clicked, this, [this]() {
+    setMarkupCategory(CatInsert, true);
+  });
 
   for (auto *b : m_buttons) {
     if (b)
@@ -1909,6 +2061,13 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
 
   auto handleToolClick = [this](ToolMode m) {
     if (mode_ == m) {
+      if (m_markupBarMode != MarkupOff) {
+        // Drawboard: re-select opens properties (right panel / More).
+        emit toolOptionsRequested();
+#ifndef Q_OS_ANDROID
+        return;
+#endif
+      }
       if (m_style == Radial) {
           if (!m_showRadialSettings)
               toggleRadialSettings();
@@ -1925,6 +2084,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
       QPoint pos = btn->mapToGlobal(QPoint(btn->width() + 15, 0));
       ToolUIBridge::instance().setOverlayPosition(pos);
     }
+    if (m_markupBarMode != MarkupOff)
+      m_markupCategory = categoryForTool(m);
     ToolManager::instance().selectTool(m);
     setToolMode(m);
     if (m_style == Radial)
@@ -2050,8 +2211,24 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     connect(btnAddTool, &ToolbarBtn::clicked, this,
             &ModernToolbar::showToolPicker);
   }
+  if (btnMoreProps) {
+    connect(btnMoreProps, &ToolbarBtn::clicked, this, [this]() {
+      emit toolOptionsRequested();
+    });
+  }
+  if (btnLayoutToggle) {
+    connect(btnLayoutToggle, &ToolbarBtn::clicked, this, [this]() {
+      if (m_markupBarMode == MarkupOff)
+        return;
+      setMarkupBarMode(m_markupBarMode == MarkupTwoRow ? MarkupSingleRow
+                                                       : MarkupTwoRow);
+    });
+  }
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,
-          [this](const ToolConfig &) { syncToolBadges(); });
+          [this](const ToolConfig &) {
+            syncToolBadges();
+            syncInlinePropertyControls();
+          });
 
   setStyle(Normal);
   setToolMode(ToolMode::Pen);
@@ -2089,7 +2266,18 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
         p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sx : m_separatorXPositions) {
-          p.drawLine(sx, 10, sx, h - 10);
+          const int y0 = (m_markupBarMode == MarkupTwoRow && m_markupRowDividerY > 0)
+                             ? m_markupRowDividerY + UiScale::dp(6)
+                             : UiScale::dp(10);
+          const int y1 = h - UiScale::dp(10);
+          if (y1 > y0)
+            p.drawLine(sx, y0, sx, y1);
+        }
+        // Two-row Drawboard Markup: divider between category and tool rows.
+        if (m_markupBarMode == MarkupTwoRow && m_markupRowDividerY > 0) {
+          p.setPen(QPen(NoteChrome::borderSoft(), 1));
+          p.drawLine(UiScale::dp(8), m_markupRowDividerY, w - UiScale::dp(8),
+                     m_markupRowDividerY);
         }
       } else {
         // Floating charcoal tool plate.
@@ -2507,7 +2695,7 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         if (isTopSnap) {
             // Drawboard Markup Toolbar — dock to top.
             applyDrawboardMarkupToolbar();
-            const int barH = UiScale::dp(48);
+            const int barH = preferredMarkupHeight();
             const int barW = qMin(calculateMinLength(),
                                  parentWidget()->width() - UiScale::dp(24));
             snapGeom = QRect((parentWidget()->width() - barW) / 2, 0, barW, barH);
@@ -2560,6 +2748,11 @@ void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 
 void ModernToolbar::openToolOptions() {
   emit toolOptionsRequested();
+#ifndef Q_OS_ANDROID
+  // Desktop Drawboard Markup: prefer the persistent right properties panel.
+  if (m_markupBarMode != MarkupOff)
+    return;
+#endif
   showSettingsPopup();
 }
 
@@ -2894,6 +3087,11 @@ void ModernToolbar::setAccentColor(const QColor &color) {
     if (b)
       b->setAccentColor(m_accentColor);
   }
+  for (auto *tab : m_categoryTabs) {
+    if (tab)
+      tab->setAccentColor(m_accentColor);
+  }
+  syncInlinePropertyControls();
   update();
 }
 void ModernToolbar::constrainToParent() {
@@ -2946,12 +3144,24 @@ void ModernToolbar::setToolMode(ToolMode mode) {
     activeBtn->setActive(true);
     activeBtn->animateSelect();
   }
+  if (m_markupBarMode != MarkupOff) {
+    const MarkupCategory cat = categoryForTool(mode);
+    if (cat != m_markupCategory) {
+      m_markupCategory = cat;
+      syncCategoryTabs();
+    } else {
+      syncCategoryTabs();
+    }
+  }
   if (changed) {
     emit rulerToggled(mode == ToolMode::Ruler);
   }
-  if (m_style == Radial && m_radialType == FullCircle && changed) {
+  if (m_markupBarMode != MarkupOff && changed) {
+    updateLayout(false);
+  } else if (m_style == Radial && m_radialType == FullCircle && changed) {
     updateLayout(true);
   }
+  syncInlinePropertyControls();
   updateActiveIndicator(true);
   update();
   updateHitbox();
@@ -3255,14 +3465,23 @@ void ModernToolbar::applyDrawboardMarkupToolbar() {
   m_isDockedMode = true;
   m_draggable = false;
   m_orientation = Horizontal;
+  if (m_markupBarMode == MarkupOff)
+    m_markupBarMode = MarkupTwoRow;
+  m_markupCategory = categoryForTool(mode_);
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
-    btnDockToggle->hide(); // cleaner Drawboard top bar
+    btnDockToggle->hide();
   }
+  if (btnLayoutToggle) {
+    btnLayoutToggle->setIcon(m_markupBarMode == MarkupTwoRow
+                                 ? QStringLiteral("layout_single")
+                                 : QStringLiteral("layout_rows"));
+  }
+  ensureInlinePropertyControls();
   setMinimumSize(0, 0);
   setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  const int barH = UiScale::dp(48);
-  const int barW = qMax(calculateMinLength(), UiScale::dp(280));
+  const int barH = preferredMarkupHeight();
+  const int barW = qMax(calculateMinLength(), UiScale::dp(360));
   setFixedHeight(barH);
   resize(barW, barH);
   updateLayout(false);
@@ -3270,8 +3489,235 @@ void ModernToolbar::applyDrawboardMarkupToolbar() {
 #endif
 }
 
+void ModernToolbar::setMarkupBarMode(MarkupBarMode mode) {
+#ifndef Q_OS_ANDROID
+  if (m_markupBarMode == mode)
+    return;
+  m_markupBarMode = mode;
+  if (mode != MarkupOff) {
+    applyDrawboardMarkupToolbar();
+    emit dockModeChanged(m_isDockedMode);
+  } else {
+    for (auto *tab : m_categoryTabs)
+      if (tab)
+        tab->hide();
+    for (auto *b : m_inlineColorBtns)
+      if (b)
+        b->hide();
+    for (auto *b : m_inlineWidthBtns)
+      if (b)
+        b->hide();
+    if (btnMoreProps)
+      btnMoreProps->hide();
+    if (btnLayoutToggle)
+      btnLayoutToggle->hide();
+    updateLayout(false);
+  }
+#else
+  Q_UNUSED(mode);
+#endif
+}
+
+int ModernToolbar::preferredMarkupHeight() const {
+#ifndef Q_OS_ANDROID
+  if (m_markupBarMode == MarkupTwoRow)
+    return UiScale::dp(86);
+  if (m_markupBarMode == MarkupSingleRow)
+    return UiScale::dp(48);
+#endif
+  return UiScale::dp(48);
+}
+
+ModernToolbar::MarkupCategory
+ModernToolbar::categoryForTool(ToolMode m) const {
+  switch (m) {
+  case ToolMode::Hand:
+  case ToolMode::Lasso:
+  case ToolMode::Eraser:
+    return CatSelect;
+  case ToolMode::Pen:
+  case ToolMode::Pencil:
+  case ToolMode::Highlighter:
+    return CatFreeform;
+  case ToolMode::Shape:
+  case ToolMode::Ruler:
+    return CatShapes;
+  case ToolMode::Text:
+    return CatReview;
+  case ToolMode::StickyNote:
+  case ToolMode::Image:
+    return CatInsert;
+  default:
+    return CatFreeform;
+  }
+}
+
+QList<ToolbarBtn *>
+ModernToolbar::toolsForCategory(MarkupCategory cat) const {
+  switch (cat) {
+  case CatSelect:
+    return {btnHand, btnLasso, btnEraser};
+  case CatFreeform:
+    return {btnPen, btnPencil, btnHighlighter};
+  case CatShapes:
+    return {btnShape, btnRuler};
+  case CatReview:
+    return {btnText};
+  case CatInsert:
+    return {btnStickyNote, btnImage};
+  }
+  return {};
+}
+
+void ModernToolbar::setMarkupCategory(MarkupCategory cat,
+                                      bool selectDefaultTool) {
+  m_markupCategory = cat;
+  syncCategoryTabs();
+  if (selectDefaultTool) {
+    const auto tools = toolsForCategory(cat);
+    if (!tools.isEmpty()) {
+      ToolMode target = mode_;
+      bool keep = false;
+      for (auto *b : tools) {
+        if (b == getButtonForMode(mode_)) {
+          keep = true;
+          break;
+        }
+      }
+      if (!keep) {
+        if (cat == CatSelect)
+          target = ToolMode::Hand;
+        else if (cat == CatFreeform)
+          target = ToolMode::Pen;
+        else if (cat == CatShapes)
+          target = ToolMode::Shape;
+        else if (cat == CatReview)
+          target = ToolMode::Text;
+        else
+          target = ToolMode::StickyNote;
+        ToolManager::instance().selectTool(target);
+        setToolMode(target);
+        emit toolChanged(target);
+      }
+    }
+  }
+  updateLayout(false);
+  update();
+}
+
+void ModernToolbar::syncCategoryTabs() {
+  if (m_catSelect)
+    m_catSelect->setActive(m_markupCategory == CatSelect);
+  if (m_catFreeform)
+    m_catFreeform->setActive(m_markupCategory == CatFreeform);
+  if (m_catShapes)
+    m_catShapes->setActive(m_markupCategory == CatShapes);
+  if (m_catReview)
+    m_catReview->setActive(m_markupCategory == CatReview);
+  if (m_catInsert)
+    m_catInsert->setActive(m_markupCategory == CatInsert);
+}
+
+void ModernToolbar::ensureInlinePropertyControls() {
+#ifndef Q_OS_ANDROID
+  if (!m_inlineColorBtns.isEmpty())
+    return;
+  const QList<QColor> swatches = {
+      QColor(20, 20, 20),    QColor(230, 50, 50),  QColor(40, 120, 255),
+      QColor(40, 170, 80),   QColor(255, 180, 0),  QColor(160, 80, 220)};
+  for (const QColor &c : swatches) {
+    auto *btn = new QPushButton(this);
+    btn->setFixedSize(UiScale::dp(18), UiScale::dp(18));
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFocusPolicy(Qt::NoFocus);
+    btn->setStyleSheet(
+        QStringLiteral("QPushButton { background: %1; border-radius: %2px; "
+                       "border: 1px solid rgba(255,255,255,40); }"
+                       "QPushButton:hover { border: 2px solid %3; }")
+            .arg(c.name(QColor::HexRgb))
+            .arg(UiScale::dp(9))
+            .arg(m_accentColor.name(QColor::HexRgb)));
+    btn->hide();
+    connect(btn, &QPushButton::clicked, this, [this, c]() {
+      ToolUIBridge::instance().setPenColor(c);
+      syncInlinePropertyControls();
+    });
+    m_inlineColorBtns.append(btn);
+  }
+  const QList<int> widths = {2, 6, 12};
+  for (int w : widths) {
+    auto *btn = new QPushButton(this);
+    btn->setFixedSize(UiScale::dp(22), UiScale::dp(22));
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFocusPolicy(Qt::NoFocus);
+    btn->setText(QString::number(w));
+    btn->hide();
+    connect(btn, &QPushButton::clicked, this, [this, w]() {
+      ToolUIBridge::instance().setPenWidth(w);
+      syncInlinePropertyControls();
+    });
+    m_inlineWidthBtns.append(btn);
+  }
+#endif
+}
+
+void ModernToolbar::syncInlinePropertyControls() {
+#ifndef Q_OS_ANDROID
+  if (m_markupBarMode == MarkupOff)
+    return;
+  const ToolConfig cfg = ToolManager::instance().config();
+  const bool showProps =
+      mode_ == ToolMode::Pen || mode_ == ToolMode::Pencil ||
+      mode_ == ToolMode::Highlighter || mode_ == ToolMode::Eraser ||
+      mode_ == ToolMode::Shape || mode_ == ToolMode::Text ||
+      mode_ == ToolMode::Ruler;
+  for (auto *btn : m_inlineColorBtns) {
+    if (!btn)
+      continue;
+    // Keep geometry from layout; only visibility here when not mid-layout.
+    Q_UNUSED(showProps);
+  }
+  for (int i = 0; i < m_inlineWidthBtns.size(); ++i) {
+    auto *btn = m_inlineWidthBtns[i];
+    if (!btn)
+      continue;
+    const int w = (i == 0) ? 2 : (i == 1 ? 6 : 12);
+    const bool active = cfg.penWidth == w;
+    btn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; color: %2; border-radius: %3px; "
+        "border: 1px solid %4; font-size: %5px; font-weight: 600; }"
+        "QPushButton:hover { border-color: %6; }")
+                           .arg(active ? m_accentColor.name(QColor::HexRgb)
+                                       : QStringLiteral("rgba(255,255,255,12)"))
+                           .arg(active ? QStringLiteral("#101010")
+                                       : NoteChrome::textPrimary().name())
+                           .arg(UiScale::dp(6))
+                           .arg(active ? m_accentColor.name(QColor::HexRgb)
+                                       : QStringLiteral("rgba(255,255,255,28)"))
+                           .arg(UiScale::sp(10))
+                           .arg(m_accentColor.name(QColor::HexRgb)));
+  }
+#else
+  Q_UNUSED(0);
+#endif
+}
+
 void ModernToolbar::applyDrawboardVerticalRail() {
 #ifndef Q_OS_ANDROID
+  m_markupBarMode = MarkupOff;
+  for (auto *tab : m_categoryTabs)
+    if (tab)
+      tab->hide();
+  for (auto *b : m_inlineColorBtns)
+    if (b)
+      b->hide();
+  for (auto *b : m_inlineWidthBtns)
+    if (b)
+      b->hide();
+  if (btnMoreProps)
+    btnMoreProps->hide();
+  if (btnLayoutToggle)
+    btnLayoutToggle->hide();
   m_isDockedMode = false;
   m_draggable = true;
   if (btnDockToggle) {
@@ -3314,6 +3760,9 @@ void ModernToolbar::setDockMode(bool docked) {
     emit dockModeChanged(true);
     return;
   }
+  // Leaving docked markup → classic floating tool plate.
+  if (!docked && m_markupBarMode != MarkupOff)
+    m_markupBarMode = MarkupOff;
 #endif
 
   if (QWidget *pw = parentWidget()) {
@@ -3423,6 +3872,21 @@ QList<ToolbarBtn *> ModernToolbar::leftChromeButtons() const {
 int ModernToolbar::calculateMinLength() {
   int btnS = UiScale::dp(40);
   int minGap = UiScale::dp(6);
+
+#ifndef Q_OS_ANDROID
+  if (m_markupBarMode != MarkupOff) {
+    // Category tabs + tools of active category + inline props + chrome.
+    const int catW = (m_markupBarMode == MarkupTwoRow)
+                         ? UiScale::dp(92) * 5 + UiScale::dp(8) * 4
+                         : UiScale::dp(40) * 5 + UiScale::dp(4) * 4;
+    const int tools = qMax(1, toolsForCategory(m_markupCategory).size());
+    const int toolsW = tools * btnS + (tools - 1) * minGap;
+    const int propsW = UiScale::dp(170);
+    const int chromeW = UiScale::dp(40) * 2 + minGap; // more + layout
+    return UiScale::dp(24) + catW + UiScale::dp(16) + toolsW + UiScale::dp(16) +
+           propsW + chromeW + UiScale::dp(16);
+  }
+#endif
   
   if (m_isDockedMode) {
     QList<ToolbarBtn *> leftGroup = leftChromeButtons();
@@ -3442,14 +3906,219 @@ int ModernToolbar::calculateMinLength() {
     int numButtons = 0;
     for (auto *b : m_buttons) {
       if (m_dockedOnlyButtons.contains(b)) continue;
+      if (b == btnMoreProps || b == btnLayoutToggle) continue;
       numButtons++;
     }
     return dragH + (numButtons * btnS) + ((numButtons - 1) * minGap) + 16;
   }
 }
+
+void ModernToolbar::updateMarkupLayout(bool animate) {
+#ifndef Q_OS_ANDROID
+  const int w = width();
+  const int h = height();
+  const bool twoRow = (m_markupBarMode == MarkupTwoRow);
+  const int btnS = twoRow ? UiScale::dp(36) : UiScale::dp(34);
+  const int gap = UiScale::dp(4);
+  const int margin = UiScale::dp(10);
+  m_separatorXPositions.clear();
+  m_markupRowDividerY = -1;
+
+  // Hide legacy chrome / clutter — utilities live in bottom bar.
+  for (ToolbarBtn *b : leftChromeButtons()) {
+    if (!b)
+      continue;
+    b->setDrawFloatingBg(false);
+    b->hide();
+    if (b->parentWidget() != this)
+      b->setParent(this);
+  }
+  for (ToolbarBtn *b : m_dockedOnlyButtons) {
+    if (b)
+      b->hide();
+  }
+  if (btnDockToggle)
+    btnDockToggle->hide();
+  if (btnAddTool)
+    btnAddTool->hide();
+
+  // Hide all tool buttons first; show only active-category tools.
+  const QList<ToolbarBtn *> markupTools = {btnHand,        btnLasso,
+                                           btnEraser,      btnPen,
+                                           btnPencil,      btnHighlighter,
+                                           btnShape,       btnRuler,
+                                           btnText,        btnStickyNote,
+                                           btnImage};
+  for (auto *b : markupTools) {
+    if (b) {
+      b->setBtnSize(btnS);
+      b->hide();
+    }
+  }
+  if (btnMoreProps)
+    btnMoreProps->setBtnSize(btnS);
+  if (btnLayoutToggle)
+    btnLayoutToggle->setBtnSize(UiScale::dp(30));
+
+  syncCategoryTabs();
+  ensureInlinePropertyControls();
+
+  const bool showProps =
+      mode_ == ToolMode::Pen || mode_ == ToolMode::Pencil ||
+      mode_ == ToolMode::Highlighter || mode_ == ToolMode::Eraser ||
+      mode_ == ToolMode::Shape || mode_ == ToolMode::Text ||
+      mode_ == ToolMode::Ruler;
+
+  auto place = [animate](QWidget *b, int x, int y) {
+    if (!b)
+      return;
+    if (animate) {
+      auto *anim = new QPropertyAnimation(b, "pos");
+      anim->setDuration(160);
+      anim->setEasingCurve(QEasingCurve::OutCubic);
+      anim->setEndValue(QPoint(x, y));
+      anim->start(QAbstractAnimation::DeleteWhenStopped);
+    } else {
+      b->move(x, y);
+    }
+    b->show();
+    b->raise();
+  };
+
+  // Right chrome: layout toggle + more options
+  int rightX = w - margin;
+  if (btnLayoutToggle) {
+    rightX -= btnLayoutToggle->width();
+    const int y = twoRow ? (UiScale::dp(34) - btnLayoutToggle->height()) / 2
+                         : (h - btnLayoutToggle->height()) / 2;
+    place(btnLayoutToggle, rightX, y);
+    rightX -= gap;
+  }
+  if (btnMoreProps) {
+    rightX -= btnMoreProps->width();
+    const int toolsRowY =
+        twoRow ? UiScale::dp(38) + (UiScale::dp(48) - btnS) / 2
+               : (h - btnS) / 2;
+    place(btnMoreProps, rightX, toolsRowY);
+    rightX -= UiScale::dp(10);
+  }
+
+  // Inline quick properties (color + width) just left of More.
+  int propsEndX = rightX;
+  if (showProps) {
+    int px = propsEndX;
+    for (int i = m_inlineWidthBtns.size() - 1; i >= 0; --i) {
+      auto *b = m_inlineWidthBtns[i];
+      if (!b)
+        continue;
+      px -= b->width();
+      const int toolsRowY =
+          twoRow ? UiScale::dp(38) + (UiScale::dp(48) - b->height()) / 2
+                 : (h - b->height()) / 2;
+      place(b, px, toolsRowY);
+      px -= UiScale::dp(4);
+    }
+    px -= UiScale::dp(6);
+    m_separatorXPositions.append(px);
+    px -= UiScale::dp(6);
+    for (int i = m_inlineColorBtns.size() - 1; i >= 0; --i) {
+      auto *b = m_inlineColorBtns[i];
+      if (!b)
+        continue;
+      px -= b->width();
+      const int toolsRowY =
+          twoRow ? UiScale::dp(38) + (UiScale::dp(48) - b->height()) / 2
+                 : (h - b->height()) / 2;
+      place(b, px, toolsRowY);
+      px -= UiScale::dp(4);
+    }
+    propsEndX = px;
+  } else {
+    for (auto *b : m_inlineColorBtns)
+      if (b)
+        b->hide();
+    for (auto *b : m_inlineWidthBtns)
+      if (b)
+        b->hide();
+  }
+
+  // Category tabs — shrink labels on narrow bars so tools still fit.
+  int catX = margin;
+  const int catH = twoRow ? UiScale::dp(34) : UiScale::dp(40);
+  const int catY = twoRow ? UiScale::dp(4) : (h - catH) / 2;
+  const int catCount = qMax(1, m_categoryTabs.size());
+  int catW = twoRow ? UiScale::dp(92) : UiScale::dp(36);
+  if (twoRow) {
+    const int budget = qMax(UiScale::dp(200), propsEndX - margin - UiScale::dp(8));
+    catW = qBound(UiScale::dp(56), budget / catCount - UiScale::dp(4),
+                 UiScale::dp(100));
+  }
+  for (auto *tab : m_categoryTabs) {
+    if (!tab)
+      continue;
+    // Compact (icon-only) when single-row, or when two-row tabs get narrow.
+    tab->setCompact(!twoRow || catW < UiScale::dp(70));
+    tab->setFixedHeight(catH);
+    tab->setFixedWidth(twoRow ? catW : UiScale::dp(36));
+    place(tab, catX, catY);
+    catX += tab->width() + (twoRow ? UiScale::dp(4) : UiScale::dp(2));
+  }
+  m_separatorXPositions.append(catX + UiScale::dp(4));
+
+  // Tools for active category
+  QList<ToolbarBtn *> tools = toolsForCategory(m_markupCategory);
+  int toolX = twoRow ? margin : (catX + UiScale::dp(12));
+  const int toolsRowY =
+      twoRow ? UiScale::dp(38) + (UiScale::dp(48) - btnS) / 2 : (h - btnS) / 2;
+  if (twoRow)
+    m_markupRowDividerY = UiScale::dp(38);
+
+  const int maxToolX = propsEndX - UiScale::dp(12);
+  for (auto *b : tools) {
+    if (!b)
+      continue;
+    if (toolX + btnS > maxToolX)
+      break;
+    place(b, toolX, toolsRowY);
+    toolX += btnS + gap;
+  }
+
+  syncInlinePropertyControls();
+  Q_UNUSED(animate);
+#else
+  Q_UNUSED(animate);
+#endif
+}
+
 void ModernToolbar::updateLayout(bool animate) {
   if (m_isDragging)
     animate = false;
+#ifndef Q_OS_ANDROID
+  if (m_style == Normal && m_markupBarMode != MarkupOff && m_isDockedMode &&
+      m_orientation == Horizontal) {
+    updateMarkupLayout(animate);
+    updateActiveIndicator(false);
+    return;
+  }
+#endif
+  // Hide markup-only chrome unless the docked markup layout is active.
+  const bool markupActive = (m_markupBarMode != MarkupOff && m_isDockedMode &&
+                             m_orientation == Horizontal && m_style == Normal);
+  if (!markupActive) {
+    for (auto *tab : m_categoryTabs)
+      if (tab)
+        tab->hide();
+    for (auto *b : m_inlineColorBtns)
+      if (b)
+        b->hide();
+    for (auto *b : m_inlineWidthBtns)
+      if (b)
+        b->hide();
+    if (btnMoreProps)
+      btnMoreProps->hide();
+    if (btnLayoutToggle)
+      btnLayoutToggle->hide();
+  }
   if (m_style == Normal) {
     int w = width();
     int h = height();
@@ -3461,6 +4130,10 @@ void ModernToolbar::updateLayout(bool animate) {
     
     int numVisible = 0;
     for (auto *b : m_buttons) {
+      if (b == btnMoreProps || b == btnLayoutToggle) {
+        b->hide();
+        continue;
+      }
       if (m_dockedOnlyButtons.contains(b)) {
         b->setVisible(m_isDockedMode);
       } else {
@@ -3492,7 +4165,8 @@ void ModernToolbar::updateLayout(bool animate) {
                                         btnDockToggle};
       QList<ToolbarBtn *> centerGroup;
       for (auto *b : m_buttons) {
-          if (!leftGroup.contains(b) && !rightGroup.contains(b)) {
+          if (!leftGroup.contains(b) && !rightGroup.contains(b) &&
+              b != btnMoreProps && b != btnLayoutToggle) {
               centerGroup.append(b);
           }
       }
