@@ -31,12 +31,12 @@ const ToolEntry kTools[] = {
     {ToolMode::Pencil, "Bleistift", "pencil", 0},
     {ToolMode::Highlighter, "Textmarker", "highlighter", 0},
     {ToolMode::Eraser, "Radiergummi", "eraser", 0},
-    {ToolMode::Shape, "Formen", "shape", 1},
-    {ToolMode::Ruler, "Lineal", "ruler", 1},
+    {ToolMode::Shape, "Rechteck", "rect", 1},
+    {ToolMode::Ruler, "Messen", "measure", 3},
     {ToolMode::Text, "Text", "text", 2},
     {ToolMode::Image, "Bild", "image", 4},
     {ToolMode::StickyNote, "Notiz", "stickynote", 4},
-    {ToolMode::Lasso, "Auswahl", "lasso", 5},
+    {ToolMode::Lasso, "Auswahl", "select", 5},
     {ToolMode::Hand, "Hand", "hand", 5},
 };
 

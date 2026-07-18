@@ -41,6 +41,11 @@ public:
     void setBadgeText(const QString &text);
     QString badgeText() const { return m_badgeText; }
     QString iconName() const { return m_iconName; }
+    /// Drawboard tip/body tint (pen ink, highlighter green, measure red, …).
+    void setGlyphColor(const QColor &c);
+    QColor glyphColor() const { return m_glyphColor; }
+    /// Small bottom-right chevron (tool family / flyout affordance).
+    void setShowChevron(bool show);
 
     void animateSelect();
     void setDrawFloatingBg(bool draw);
@@ -81,8 +86,10 @@ private:
     bool m_hover{false};
     bool m_drawFloatingBg{false};
     bool m_railSlotStyle{false};
+    bool m_showChevron{false};
     int m_size{40};
     QString m_badgeText;
+    QColor m_glyphColor; // invalid = use default chrome foreground
 
     double m_animScale{1.0};
     bool m_pressing{false};
@@ -188,7 +195,9 @@ public:
     void requestAdaptiveReflow();
     int calculateMinLength();
     void showToolPicker();
+    void showMarkupLibrary();
     void syncToolBadges();
+    void syncDrawboardToolIcons();
     void openToolOptions();
 
 signals:
@@ -273,6 +282,8 @@ private:
 
     ToolbarBtn* btnDockToggle; // New button for detach/dock
     ToolbarBtn *btnAddTool{nullptr}; // Drawboard "+" — open tool picker
+    ToolbarBtn *btnLibrary{nullptr}; // Drawboard Markup Library
+    ToolbarBtn *btnRailChevron{nullptr}; // Drawboard edge-dock chevron
     ToolbarBtn *btnMoreProps{nullptr}; // Drawboard "More options" → right panel
     ToolbarBtn *btnLayoutToggle{nullptr}; // 1-row / 2-row markup layout
 

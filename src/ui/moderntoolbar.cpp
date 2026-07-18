@@ -18,6 +18,7 @@
 #include <QGridLayout>
 #include "editoroverlays.h"
 #include <QDialog>
+#include <QFrame>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QMainWindow>
@@ -63,45 +64,23 @@
 
 namespace {
 
-// 64×64 logical coords (same convention as MainWindow::createModernIcon) — identical on all platforms.
+// 64×64 logical coords — Drawboard-faithful Favorites glyphs.
+// `color` is the functional tip tint when saturated (ink / highlighter / measure);
+// otherwise icons render as clean light outlines like Drawboard's dark rail.
 void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   p->setRenderHint(QPainter::Antialiasing);
-  const QColor primary(240, 244, 255, qBound(212, color.alpha(), 255));
-  auto familyAccent = [&](const QString &iconName) -> QColor {
-    // Writing tools: warmer creative family.
-    if (iconName == QLatin1String("pen") || iconName == QLatin1String("pencil") ||
-        iconName == QLatin1String("highlighter") || iconName == QLatin1String("eraser") ||
-        iconName == QLatin1String("lasso") || iconName == QLatin1String("ruler") ||
-        iconName == QLatin1String("shape") || iconName == QLatin1String("stickynote") ||
-        iconName == QLatin1String("text") || iconName == QLatin1String("image")) {
-      if (iconName == QLatin1String("pen"))
-        return QColor(122, 136, 255, qBound(185, color.alpha(), 255));
-      if (iconName == QLatin1String("pencil"))
-        return QColor(102, 170, 255, qBound(185, color.alpha(), 255));
-      if (iconName == QLatin1String("highlighter"))
-        return QColor(132, 206, 255, qBound(185, color.alpha(), 255));
-      if (iconName == QLatin1String("eraser"))
-        return QColor(244, 126, 176, qBound(185, color.alpha(), 255));
-      if (iconName == QLatin1String("ruler"))
-        return QColor(92, 214, 190, qBound(185, color.alpha(), 255));
-      return QColor(132, 140, 255, qBound(185, color.alpha(), 255));
-    }
-    // Navigation tools: cooler utility family.
-    if (iconName == QLatin1String("hand") || iconName == QLatin1String("overview") ||
-        iconName == QLatin1String("dock_float") || iconName == QLatin1String("dock_fixed")) {
-      return QColor(86, 184, 255, qBound(185, color.alpha(), 255));
-    }
-    // Action/system tools.
-    return QColor(110, 166, 255, qBound(185, color.alpha(), 255));
-  };
-  const QColor accent = familyAccent(name);
-  QColor accentSoft = accent;
-  accentSoft.setAlpha(132);
+  const bool hasTip =
+      color.isValid() && color.saturationF() > 0.18 && color.valueF() > 0.18;
+  const QColor primary(245, 247, 250, 235);
+  const QColor tip = hasTip ? color : primary;
+  const QColor accent = tip;
+  QColor accentSoft = tip;
+  accentSoft.setAlpha(hasTip ? 200 : 120);
 
-  const QPen primaryPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-  const QPen primaryThin(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen primaryPen(primary, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen primaryThin(primary, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
   const QPen accentPen(accent, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-  const QPen accentThick(accent, 5.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+  const QPen accentThick(accent, 5.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
 
   auto drawAccentDot = [&](qreal x, qreal y, qreal r) {
 #ifndef Q_OS_ANDROID
@@ -206,178 +185,223 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("pen")) {
+    // Drawboard felt-tip: body outline + colored tip.
     QPainterPath body;
-    body.moveTo(18, 44);
-    body.lineTo(37, 25);
-    body.lineTo(44, 32);
-    body.lineTo(25, 51);
+    body.moveTo(20, 46);
+    body.lineTo(38, 20);
+    body.lineTo(46, 26);
+    body.lineTo(28, 52);
     body.closeSubpath();
-    p->setPen(Qt::NoPen);
-    p->setBrush(accentSoft);
-    p->drawPath(body);
     p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
     p->drawPath(body);
-    p->setPen(accentPen);
-    p->drawLine(29, 47, 40, 36);
     QPainterPath nib;
-    nib.moveTo(44, 32);
-    nib.lineTo(49, 27);
-    nib.lineTo(46, 24);
-    nib.lineTo(41, 29);
+    nib.moveTo(38, 20);
+    nib.lineTo(48, 14);
+    nib.lineTo(46, 26);
     nib.closeSubpath();
-    p->setPen(primaryThin);
-    p->setBrush(QColor(236, 239, 248, 230));
+    p->setPen(Qt::NoPen);
+    p->setBrush(hasTip ? tip : primary);
     p->drawPath(nib);
+    p->setPen(QPen(hasTip ? tip : primary, 3.0, Qt::SolidLine, Qt::RoundCap));
+    p->drawLine(22, 48, 18, 54);
     return;
   }
   if (name == QLatin1String("pencil")) {
     QPainterPath shaft;
-    shaft.moveTo(16, 45);
-    shaft.lineTo(39, 22);
-    shaft.lineTo(45, 28);
-    shaft.lineTo(22, 51);
+    shaft.moveTo(18, 46);
+    shaft.lineTo(40, 20);
+    shaft.lineTo(48, 28);
+    shaft.lineTo(26, 54);
     shaft.closeSubpath();
-    p->setPen(Qt::NoPen);
-    p->setBrush(accentSoft);
-    p->drawPath(shaft);
     p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
     p->drawPath(shaft);
-    p->setPen(accentPen);
-    p->drawLine(24, 48, 42, 30);
-    QPainterPath woodTip;
-    woodTip.moveTo(45, 28);
-    woodTip.lineTo(50, 23);
-    woodTip.lineTo(46, 19);
-    woodTip.lineTo(41, 24);
-    woodTip.closeSubpath();
     p->setPen(primaryThin);
-    p->setBrush(QColor(225, 200, 158, 230));
-    p->drawPath(woodTip);
-    p->setPen(QPen(QColor(110, 114, 130, 230), 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p->drawLine(47, 22, 50, 19);
+    p->drawLine(24, 48, 42, 26);
+    QPainterPath tipPath;
+    tipPath.moveTo(40, 20);
+    tipPath.lineTo(50, 14);
+    tipPath.lineTo(48, 28);
+    tipPath.closeSubpath();
+    p->setPen(Qt::NoPen);
+    p->setBrush(hasTip ? tip : QColor(230, 210, 170, 230));
+    p->drawPath(tipPath);
     return;
   }
   if (name == QLatin1String("highlighter")) {
-    QPainterPath marker;
-    marker.moveTo(16, 44);
-    marker.lineTo(33, 27);
-    marker.lineTo(44, 38);
-    marker.lineTo(27, 55);
-    marker.closeSubpath();
-    p->setPen(Qt::NoPen);
-    p->setBrush(accentSoft);
-    p->drawPath(marker);
+    // Drawboard chisel highlighter — wide tip in tip color (default lime).
+    const QColor hi = hasTip ? tip : QColor(90, 220, 70);
+    QPainterPath body;
+    body.moveTo(16, 42);
+    body.lineTo(34, 18);
+    body.lineTo(48, 30);
+    body.lineTo(30, 54);
+    body.closeSubpath();
     p->setPen(primaryPen);
-    p->drawPath(marker);
-    p->setPen(accentPen);
-    p->drawLine(20, 45, 39, 26);
-    p->drawLine(25, 50, 44, 31);
-    QPainterPath cap;
-    cap.moveTo(33, 27);
-    cap.lineTo(39, 21);
-    cap.lineTo(50, 32);
-    cap.lineTo(44, 38);
-    cap.closeSubpath();
-    p->setPen(primaryThin);
-    p->setBrush(QColor(231, 236, 248, 232));
-    p->drawPath(cap);
-    p->setPen(accentThick);
-    p->drawLine(46, 35, 51, 30);
+    p->setBrush(Qt::NoBrush);
+    p->drawPath(body);
+    QPainterPath chisel;
+    chisel.moveTo(34, 18);
+    chisel.lineTo(42, 12);
+    chisel.lineTo(56, 26);
+    chisel.lineTo(48, 30);
+    chisel.closeSubpath();
+    p->setPen(Qt::NoPen);
+    p->setBrush(hi);
+    p->drawPath(chisel);
     return;
   }
   if (name == QLatin1String("eraser")) {
+    // Drawboard eraser block (angled).
+    QTransform t;
+    t.translate(32, 32);
+    t.rotate(-28);
+    t.translate(-32, -32);
+    p->save();
+    p->setTransform(t, true);
     p->setPen(primaryPen);
-    p->setBrush(accentSoft);
-    p->drawRoundedRect(15, 24, 33, 21, 6, 6);
-    p->setPen(accentPen);
-    p->drawLine(19, 35, 45, 35);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(16, 22, 32, 20), 4, 4);
+    p->setPen(primaryThin);
+    p->drawLine(16, 32, 48, 32);
+    p->restore();
     return;
   }
-  if (name == QLatin1String("lasso")) {
-    QPainterPath lasso;
-    lasso.moveTo(17, 32);
-    lasso.cubicTo(17, 20, 29, 14, 39, 21);
-    lasso.cubicTo(48, 28, 46, 42, 32, 44);
-    lasso.cubicTo(22, 46, 15, 41, 17, 32);
-    p->setPen(primaryPen);
-    p->drawPath(lasso);
-    p->setPen(accentPen);
-    p->drawArc(QRectF(34, 35, 11, 11), 20 * 16, 280 * 16);
+  if (name == QLatin1String("select") || name == QLatin1String("lasso")) {
+    // Drawboard rectangle-select: dashed marquee + cursor.
+    QPen dash(primary, 2.6, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin);
+    dash.setDashPattern({3.5, 2.8});
+    p->setPen(dash);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(12, 12, 30, 28), 3, 3);
+    // Cursor arrow
+    QPainterPath cursor;
+    cursor.moveTo(34, 30);
+    cursor.lineTo(34, 52);
+    cursor.lineTo(40, 46);
+    cursor.lineTo(46, 56);
+    cursor.lineTo(50, 54);
+    cursor.lineTo(44, 44);
+    cursor.lineTo(52, 44);
+    cursor.closeSubpath();
+    p->setPen(QPen(primary, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setBrush(primary);
+    p->drawPath(cursor);
     return;
   }
-  if (name == QLatin1String("ruler")) {
-    p->setPen(primaryPen);
-    p->drawRoundedRect(13, 32, 38, 9, 3, 3);
-    p->setBrush(accentSoft);
-    p->setPen(Qt::NoPen);
-    p->drawRect(15, 34, 34, 5);
-    p->setPen(accentPen);
-    for (int x = 18; x <= 46; x += 4)
-      p->drawLine(x, 32, x, (x % 8 == 2) ? 26 : 29);
+  if (name == QLatin1String("ruler") || name == QLatin1String("measure")) {
+    // Drawboard measure: dimension line with end ticks (red when tipped).
+    const QColor mcol = hasTip ? tip : QColor(235, 70, 70);
+    QPen mp(mcol, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p->setPen(mp);
+    p->drawLine(14, 40, 50, 22);
+    p->drawLine(14, 40, 14, 48);
+    p->drawLine(50, 22, 50, 30);
+    p->drawLine(14, 40, 20, 34);
+    p->drawLine(14, 40, 20, 46);
+    p->drawLine(50, 22, 44, 16);
+    p->drawLine(50, 22, 44, 28);
     return;
   }
-  if (name == QLatin1String("shape")) {
-    p->setPen(Qt::NoPen);
-    p->setBrush(accentSoft);
-    p->drawRoundedRect(19, 19, 10, 10, 4, 4);
+  if (name == QLatin1String("rect") || name == QLatin1String("shape")) {
     p->setPen(primaryPen);
-    p->drawRoundedRect(15, 15, 34, 34, 7, 7);
-    p->setPen(accentPen);
-    p->drawEllipse(24, 24, 16, 16);
+    p->setBrush(Qt::NoBrush);
+    p->drawRect(QRectF(16, 16, 32, 32));
     return;
   }
-  if (name == QLatin1String("stickynote")) {
+  if (name == QLatin1String("ellipse") || name == QLatin1String("circle")) {
     p->setPen(primaryPen);
-    p->drawRoundedRect(18, 14, 28, 36, 4, 4);
-    p->setPen(Qt::NoPen);
-    p->setBrush(accentSoft);
-    p->drawRect(22, 20, 16, 17);
-    p->setPen(accentPen);
-    p->drawLine(39, 14, 39, 22);
-    p->drawLine(33, 22, 39, 22);
+    p->setBrush(Qt::NoBrush);
+    p->drawEllipse(QRectF(15, 15, 34, 34));
+    return;
+  }
+  if (name == QLatin1String("line")) {
+    p->setPen(QPen(primary, 3.4, Qt::SolidLine, Qt::RoundCap));
+    p->drawLine(16, 48, 48, 16);
+    return;
+  }
+  if (name == QLatin1String("stickynote") || name == QLatin1String("note")) {
+    // Document / sticky note page.
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    QPainterPath page;
+    page.moveTo(20, 12);
+    page.lineTo(40, 12);
+    page.lineTo(48, 20);
+    page.lineTo(48, 52);
+    page.lineTo(16, 52);
+    page.lineTo(16, 12);
+    page.closeSubpath();
+    p->drawPath(page);
+    p->drawLine(40, 12, 40, 22);
+    p->drawLine(40, 22, 48, 22);
+    p->setPen(primaryThin);
+    p->drawLine(22, 30, 42, 30);
+    p->drawLine(22, 38, 38, 38);
     return;
   }
   if (name == QLatin1String("text")) {
     QFont f = p->font();
-    f.setPixelSize(30);
+    f.setPixelSize(34);
     f.setBold(true);
+    f.setFamily(QStringLiteral("Segoe UI"));
     p->setFont(f);
-    p->setPen(primaryPen);
-    p->drawText(QRect(0, 1, 64, 64), Qt::AlignCenter, QStringLiteral("T"));
-    p->setPen(accentPen);
-    p->drawLine(20, 46, 44, 46);
+    p->setPen(primary);
+    p->drawText(QRect(0, 0, 64, 64), Qt::AlignCenter, QStringLiteral("T"));
     return;
   }
   if (name == QLatin1String("image")) {
     p->setPen(primaryPen);
-    p->drawRoundedRect(14, 20, 36, 27, 4, 4);
-    p->setPen(accentPen);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(12, 16, 40, 32), 4, 4);
+    p->drawEllipse(QRectF(18, 22, 8, 8));
     QPainterPath mountain;
-    mountain.moveTo(16, 42);
-    mountain.lineTo(27, 30);
-    mountain.lineTo(35, 36);
-    mountain.lineTo(47, 24);
-    mountain.lineTo(48, 42);
+    mountain.moveTo(14, 42);
+    mountain.lineTo(26, 28);
+    mountain.lineTo(34, 36);
+    mountain.lineTo(44, 24);
+    mountain.lineTo(50, 42);
     p->drawPath(mountain);
-    drawAccentDot(41, 24, 3.0);
     return;
   }
   if (name == QLatin1String("hand")) {
+    // Drawboard pan hand — open outline.
     QPainterPath hand;
-    hand.moveTo(29, 41);
-    hand.cubicTo(23, 39, 20, 32, 22, 25);
-    hand.cubicTo(23, 19, 29, 16, 33, 20);
-    hand.lineTo(35, 14);
-    hand.cubicTo(39, 12, 43, 16, 43, 22);
-    hand.lineTo(43, 28);
-    hand.cubicTo(46, 34, 40, 42, 32, 44);
-    hand.cubicTo(27, 44, 24, 43, 29, 41);
+    hand.moveTo(24, 34);
+    hand.lineTo(24, 22);
+    hand.cubicTo(24, 18, 28, 16, 30, 20);
+    hand.lineTo(30, 30);
+    hand.lineTo(32, 16);
+    hand.cubicTo(32, 13, 36, 13, 36, 17);
+    hand.lineTo(36, 30);
+    hand.lineTo(40, 18);
+    hand.cubicTo(40, 15, 44, 15, 44, 19);
+    hand.lineTo(44, 34);
+    hand.cubicTo(44, 46, 36, 52, 28, 50);
+    hand.cubicTo(22, 48, 20, 42, 24, 34);
     p->setPen(primaryPen);
-    p->setBrush(accentSoft);
+    p->setBrush(Qt::NoBrush);
     p->drawPath(hand);
-    p->setPen(accentPen);
-    p->drawLine(29, 23, 29, 32);
-    p->drawLine(34, 21, 34, 31);
+    return;
+  }
+  if (name == QLatin1String("library")) {
+    // Drawboard markup library — three books.
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(12, 18, 12, 32), 2, 2);
+    p->drawRoundedRect(QRectF(26, 14, 12, 36), 2, 2);
+    p->drawRoundedRect(QRectF(40, 20, 12, 30), 2, 2);
+    p->setPen(primaryThin);
+    p->drawLine(15, 26, 21, 26);
+    p->drawLine(29, 22, 35, 22);
+    p->drawLine(43, 28, 49, 28);
+    return;
+  }
+  if (name == QLatin1String("chevron_rail") || name == QLatin1String("chevron_right")) {
+    p->setPen(QPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(26, 18, 40, 32);
+    p->drawLine(40, 32, 26, 46);
     return;
   }
   if (name == QLatin1String("undo")) {
@@ -696,6 +720,18 @@ void ToolbarBtn::setRailSlotStyle(bool enable) {
   }
   update();
 }
+void ToolbarBtn::setGlyphColor(const QColor &c) {
+  if (m_glyphColor == c)
+    return;
+  m_glyphColor = c;
+  update();
+}
+void ToolbarBtn::setShowChevron(bool show) {
+  if (m_showChevron == show)
+    return;
+  m_showChevron = show;
+  update();
+}
 void ToolbarBtn::setBadgeText(const QString &text) {
   if (m_badgeText == text)
     return;
@@ -853,38 +889,42 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     // Drawboard vertical Favorites rail: full-width active slot.
     if (m_active) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 160 : 40));
-      p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(6),
-                        UiScale::dp(6));
-      p.setBrush(NoteChrome::accent());
-      p.drawRoundedRect(QRect(0, UiScale::dp(6), UiScale::dp(3),
-                              h - UiScale::dp(12)),
-                        1, 1);
+      p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 170 : 36));
+      p.drawRoundedRect(rect().adjusted(0, 1, 0, -1), UiScale::dp(4),
+                        UiScale::dp(4));
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 18 : 30));
-      p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(6),
-                        UiScale::dp(6));
+      p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 16 : 28));
+      p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(4),
+                        UiScale::dp(4));
     }
 
-    const QColor fg = NoteChrome::textPrimary();
-    const int icon = qMin(w, h) - UiScale::dp(14);
+    const QColor tip =
+        m_glyphColor.isValid() ? m_glyphColor : NoteChrome::textPrimary();
+    const int icon = qMin(w, h) - UiScale::dp(16);
     p.save();
-    p.translate(w / 2.0, h / 2.0);
+    p.translate(w / 2.0, h / 2.0 - (m_showChevron ? UiScale::dp(1) : 0));
     p.scale(m_animScale, m_animScale);
     const qreal g = icon / 64.0;
     p.scale(g, g);
     p.translate(-32, -32);
-    drawToolbarGlyph64(&p, m_iconName, fg);
+    drawToolbarGlyph64(&p, m_iconName, tip);
     p.restore();
+
+    if (m_showChevron) {
+      p.setPen(QPen(NoteChrome::textSecondary(), 1.7, Qt::SolidLine,
+                    Qt::RoundCap, Qt::RoundJoin));
+      const int cx = w / 2;
+      const int cy = h - UiScale::dp(7);
+      p.drawLine(cx - 3, cy - 2, cx, cy + 1);
+      p.drawLine(cx, cy + 1, cx + 3, cy - 2);
+    }
 
     if (!m_badgeText.isEmpty()) {
       const int bw =
           qMax(UiScale::dp(12), 4 + m_badgeText.size() * UiScale::dp(5));
       const int bh = UiScale::dp(12);
-      const QRectF badge(w - bw - UiScale::dp(2), UiScale::dp(2), bw, bh);
-      p.setPen(Qt::NoPen);
-      p.setBrush(Qt::NoBrush);
+      const QRectF badge(w - bw - UiScale::dp(1), UiScale::dp(1), bw, bh);
       p.setPen(NoteChrome::textPrimary());
       QFont f = p.font();
       f.setPixelSize(UiScale::sp(9));
@@ -2079,9 +2119,9 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnPencil = new ToolbarBtn("pencil", this);
   btnHighlighter = new ToolbarBtn("highlighter", this);
   btnEraser = new ToolbarBtn("eraser", this);
-  btnLasso = new ToolbarBtn("lasso", this);
-  btnRuler = new ToolbarBtn("ruler", this);
-  btnShape = new ToolbarBtn("shape", this);
+  btnLasso = new ToolbarBtn("select", this); // Drawboard rectangle-select look
+  btnRuler = new ToolbarBtn("measure", this);
+  btnShape = new ToolbarBtn("rect", this);
   btnStickyNote = new ToolbarBtn("stickynote", this);
   btnText = new ToolbarBtn("text", this);
   btnImage = new ToolbarBtn("image", this);
@@ -2095,11 +2135,18 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
 
   btnDockToggle = new ToolbarBtn("dock_float", this);
   btnAddTool = new ToolbarBtn("add", this);
-  btnAddTool->setToolTip(QStringLiteral("Tool hinzufügen"));
+  btnAddTool->setToolTip(tr("Neues Tool wählen"));
+  btnLibrary = new ToolbarBtn("library", this);
+  btnLibrary->setToolTip(tr("Auszeichnungsbibliothek"));
+  btnLibrary->setShowChevron(true);
+  btnRailChevron = new ToolbarBtn("chevron_rail", this);
+  btnRailChevron->setToolTip(tr("An Kante andocken"));
   btnMoreProps = new ToolbarBtn("more", this);
   btnMoreProps->setToolTip(tr("More options"));
   btnLayoutToggle = new ToolbarBtn("layout_rows", this);
   btnLayoutToggle->setToolTip(tr("Switch markup toolbar layout"));
+  btnLasso->setShowChevron(true);
+  btnLasso->setToolTip(tr("Auswahl"));
 
   btnSave = new ToolbarBtn("save", this);
   btnPalette = new ToolbarBtn("palette", this);
@@ -2111,7 +2158,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
                  btnEraser,    btnLasso,    btnRuler,    btnShape,  btnStickyNote,
                  btnText,      btnImage,    btnHand,     btnBackOverview,
                  btnUndo,      btnRedo,     btnPalette,  btnBrushSize, btnDockToggle,
-                 btnAddTool, btnMoreProps, btnLayoutToggle};
+                 btnAddTool, btnLibrary, btnRailChevron, btnMoreProps,
+                 btnLayoutToggle};
 
   m_customColors = {Qt::black, Qt::white,         Qt::red,
                     Qt::blue,  QColor(0, 150, 0), QColor(255, 140, 0)};
@@ -2121,7 +2169,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
                                       tr("Select"), this);
   m_catFreeform = new MarkupCategoryTab(QStringLiteral("pen"),
                                         tr("Free-form"), this);
-  m_catShapes = new MarkupCategoryTab(QStringLiteral("shape"),
+  m_catShapes = new MarkupCategoryTab(QStringLiteral("rect"),
                                       tr("Shapes"), this);
   m_catReview = new MarkupCategoryTab(QStringLiteral("text"),
                                       tr("Review"), this);
@@ -2302,6 +2350,22 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     connect(btnAddTool, &ToolbarBtn::clicked, this,
             &ModernToolbar::showToolPicker);
   }
+  if (btnLibrary) {
+    connect(btnLibrary, &ToolbarBtn::clicked, this,
+            &ModernToolbar::showMarkupLibrary);
+  }
+  if (btnRailChevron) {
+    connect(btnRailChevron, &ToolbarBtn::clicked, this, [this]() {
+      // Drawboard edge-dock affordance: snap rail flush to the right.
+      if (QWidget *pw = parentWidget()) {
+        const int w = preferredRailWidth();
+        const int h = height();
+        const int x = pw->width() - w;
+        const int y = qMax(0, y());
+        setGeometry(x, y, w, h);
+      }
+    });
+  }
   if (btnMoreProps) {
     connect(btnMoreProps, &ToolbarBtn::clicked, this, [this]() {
       emit toolOptionsRequested();
@@ -2318,6 +2382,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,
           [this](const ToolConfig &) {
             syncToolBadges();
+            syncDrawboardToolIcons();
             syncInlinePropertyControls();
           });
 
@@ -2325,6 +2390,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   setToolMode(ToolMode::Pen);
   ToolManager::instance().selectTool(ToolMode::Pen);
   syncToolBadges();
+  syncDrawboardToolIcons();
 }
 
 // --- WICHTIG: Event-Handler sind jetzt HIER OBEN, damit sie gefunden werden
@@ -2889,6 +2955,7 @@ void ModernToolbar::syncToolBadges() {
     const ToolConfig &cfg = ToolManager::instance().configFor(m);
     if (m == ToolMode::Highlighter)
       return QString::number(qMax(8, cfg.penWidth * 4));
+    // Drawboard uses comma decimals for some tools; keep integer for clarity.
     return QString::number(qMax(1, cfg.penWidth));
   };
   auto setBadge = [](ToolbarBtn *b, const QString &t) {
@@ -2904,6 +2971,133 @@ void ModernToolbar::syncToolBadges() {
   setBadge(btnRuler, widthBadge(ToolMode::Ruler));
   if (btnAddTool)
     btnAddTool->setBadgeText(QString());
+  if (btnLibrary)
+    btnLibrary->setBadgeText(QString());
+  if (btnRailChevron)
+    btnRailChevron->setBadgeText(QString());
+}
+
+void ModernToolbar::syncDrawboardToolIcons() {
+  if (btnLasso) {
+    btnLasso->setIcon(QStringLiteral("select"));
+    btnLasso->setShowChevron(true);
+  }
+  if (btnRuler) {
+    btnRuler->setIcon(QStringLiteral("measure"));
+    btnRuler->setGlyphColor(QColor(235, 70, 70));
+  }
+  if (btnShape) {
+    const ShapeToolKind kind =
+        ToolManager::instance().configFor(ToolMode::Shape).shapeToolKind;
+    btnShape->setIcon(kind == ShapeToolKind::Circle ? QStringLiteral("ellipse")
+                                                    : QStringLiteral("rect"));
+    btnShape->setGlyphColor(QColor());
+  }
+  if (btnPen) {
+    const QColor c = ToolManager::instance().configFor(ToolMode::Pen).penColor;
+    btnPen->setGlyphColor(c);
+  }
+  if (btnPencil) {
+    const QColor c =
+        ToolManager::instance().configFor(ToolMode::Pencil).penColor;
+    btnPencil->setGlyphColor(c);
+  }
+  if (btnHighlighter) {
+    QColor c =
+        ToolManager::instance().configFor(ToolMode::Highlighter).penColor;
+    // Drawboard highlighters read as saturated neon tips.
+    if (c.saturationF() < 0.25)
+      c = QColor(90, 220, 70);
+    btnHighlighter->setGlyphColor(c);
+  }
+  if (btnEraser)
+    btnEraser->setGlyphColor(QColor());
+  if (btnLibrary) {
+    btnLibrary->setIcon(QStringLiteral("library"));
+    btnLibrary->setShowChevron(true);
+  }
+  if (btnRailChevron)
+    btnRailChevron->setIcon(QStringLiteral("chevron_rail"));
+}
+
+void ModernToolbar::showMarkupLibrary() {
+  // Drawboard "Auszeichnungsbibliothek" — lightweight host overlay.
+  QWidget *host = parentWidget() ? parentWidget()->window() : window();
+  if (!host)
+    host = window();
+  auto *layer = new QWidget(host);
+  layer->setAttribute(Qt::WA_DeleteOnClose, true);
+  layer->setAttribute(Qt::WA_StyledBackground, true);
+  layer->setStyleSheet(QStringLiteral("background: rgba(0,0,0,0.55);"));
+  layer->setGeometry(host->rect());
+
+  auto *card = new QFrame(layer);
+  card->setObjectName(QStringLiteral("MarkupLibraryCard"));
+  card->setStyleSheet(
+      QStringLiteral("QFrame#MarkupLibraryCard {"
+                     "  background: %1; border: 1px solid %2; border-radius: 14px;"
+                     "}"
+                     "QLabel { color: %3; background: transparent; }"
+                     "QPushButton {"
+                     "  background: %4; color: white; border: none;"
+                     "  border-radius: 8px; padding: 10px 16px; font-weight: 700;"
+                     "}")
+          .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb),
+               NoteChrome::textPrimary().name(QColor::HexRgb),
+               NoteChrome::accent().name(QColor::HexRgb)));
+  const int cardW = qMin(560, qMax(420, int(host->width() * 0.48)));
+  const int cardH = qMin(420, qMax(300, int(host->height() * 0.48)));
+  card->setGeometry((layer->width() - cardW) / 2,
+                    (layer->height() - cardH) / 2, cardW, cardH);
+  auto *lay = new QVBoxLayout(card);
+  lay->setContentsMargins(UiScale::dp(22), UiScale::dp(18), UiScale::dp(22),
+                          UiScale::dp(18));
+  lay->setSpacing(UiScale::dp(12));
+  auto *title = new QLabel(tr("Auszeichnungsbibliothek"), card);
+  title->setStyleSheet(
+      QStringLiteral("font-size: 18px; font-weight: 800;"));
+  lay->addWidget(title);
+  auto *body = new QLabel(
+      tr("Markups auf diesem Gerät erstellen. Wähle Annotationen aus und "
+         "füge sie über „Hinzufügen“ in der Auswahlleiste hinzu."),
+      card);
+  body->setWordWrap(true);
+  body->setStyleSheet(
+      QStringLiteral("color: %1; font-size: 13px;")
+          .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
+  lay->addWidget(body, 1);
+  auto *importBtn = new QPushButton(tr("Import markups"), card);
+  lay->addWidget(importBtn, 0, Qt::AlignLeft);
+  connect(importBtn, &QPushButton::clicked, layer, &QWidget::close);
+  layer->show();
+  layer->raise();
+  layer->installEventFilter(this);
+  // Close on backdrop click via a simple mouse handler.
+  class BackdropCloser : public QObject {
+  public:
+    explicit BackdropCloser(QWidget *layer) : QObject(layer), m_layer(layer) {
+      m_layer->installEventFilter(this);
+    }
+  protected:
+    bool eventFilter(QObject *o, QEvent *e) override {
+      if (o == m_layer && e->type() == QEvent::MouseButtonPress) {
+        auto *me = static_cast<QMouseEvent *>(e);
+        for (QObject *c : m_layer->children()) {
+          if (auto *w = qobject_cast<QWidget *>(c)) {
+            if (w->objectName() == QStringLiteral("MarkupLibraryCard") &&
+                w->geometry().contains(me->pos()))
+              return QObject::eventFilter(o, e);
+          }
+        }
+        m_layer->close();
+        return true;
+      }
+      return QObject::eventFilter(o, e);
+    }
+    QWidget *m_layer{nullptr};
+  };
+  new BackdropCloser(layer);
 }
 
 void ModernToolbar::showSettingsPopup() {
@@ -3270,6 +3464,7 @@ void ModernToolbar::setToolMode(ToolMode mode) {
     updateLayout(true);
   }
   syncInlinePropertyControls();
+  syncDrawboardToolIcons();
   updateActiveIndicator(true);
   update();
   updateHitbox();
@@ -3964,8 +4159,13 @@ QList<ToolbarBtn *> ModernToolbar::currentRailButtons() const {
     if (ToolbarBtn *b = const_cast<ModernToolbar *>(this)->getButtonForMode(m))
       out.append(b);
   }
+  // Drawboard footer: Markup Library → "+" → edge chevron.
+  if (btnLibrary)
+    out.append(btnLibrary);
   if (btnAddTool)
     out.append(btnAddTool);
+  if (btnRailChevron)
+    out.append(btnRailChevron);
   return out;
 }
 
@@ -4134,11 +4334,11 @@ int ModernToolbar::calculateMinLength() {
     int dragH = UiScale::dp(30);
 #ifndef Q_OS_ANDROID
     if (m_orientation == Vertical) {
-      const int n = qMax(1, m_railToolModes.size()) + 1; // tools + add
+      const int n = qMax(1, m_railToolModes.size()) + 3; // tools + library/+ /chevron
       const int cell = UiScale::dp(40);
       const int gap = UiScale::dp(2);
       // Two section dividers (select / ink / insert).
-      return dragH + n * cell + (n - 1) * gap + UiScale::dp(20) + 16;
+      return dragH + n * cell + (n - 1) * gap + UiScale::dp(28) + 16;
     }
 #endif
     int numButtons = 0;
@@ -4356,6 +4556,12 @@ void ModernToolbar::updateLayout(bool animate) {
       btnMoreProps->hide();
     if (btnLayoutToggle)
       btnLayoutToggle->hide();
+    if (!isDrawboardVerticalRail()) {
+      if (btnLibrary)
+        btnLibrary->hide();
+      if (btnRailChevron)
+        btnRailChevron->hide();
+    }
   }
   if (m_style == Normal) {
     int w = width();
@@ -4368,7 +4574,8 @@ void ModernToolbar::updateLayout(bool animate) {
     
     int numVisible = 0;
     for (auto *b : m_buttons) {
-      if (b == btnMoreProps || b == btnLayoutToggle) {
+      if (b == btnMoreProps || b == btnLayoutToggle || b == btnLibrary ||
+          b == btnRailChevron) {
         b->hide();
         continue;
       }
@@ -4574,9 +4781,15 @@ void ModernToolbar::updateLayout(bool animate) {
         }
         currentPos += (m_orientation == Vertical ? b->height() : btnS) + gap;
 
-        // Soft section dividers: after Select group / after ink group.
+        // Soft section dividers: after Select / after ink / before library footer.
         if (m_orientation == Vertical) {
-          if (b == btnLasso || b == btnEraser) {
+          bool afterSection = (b == btnLasso || b == btnEraser);
+          if (btnLibrary) {
+            const int libIdx = railOrder.indexOf(btnLibrary);
+            if (libIdx > 0 && b == railOrder.at(libIdx - 1))
+              afterSection = true;
+          }
+          if (afterSection) {
             currentPos += UiScale::dp(4);
             m_separatorYPositions.append(currentPos - gap / 2);
             currentPos += UiScale::dp(4);
