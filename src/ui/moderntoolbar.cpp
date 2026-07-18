@@ -3378,7 +3378,7 @@ void ModernToolbar::setStyle(Style style) {
     setMinimumSize(UiScale::dp(50), UiScale::dp(65));
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     if (m_orientation == Vertical) {
-      setFixedWidth(UiScale::dp(52));
+      setFixedWidth(preferredRailWidth());
       setMinimumHeight(calculateMinLength());
       setMaximumHeight(QWIDGETSIZE_MAX);
     } else {
