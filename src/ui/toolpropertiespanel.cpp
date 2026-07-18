@@ -10,6 +10,7 @@
 #include <QList>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPen>
 #include <QPushButton>
 #include <QSlider>
 #include <QVBoxLayout>
