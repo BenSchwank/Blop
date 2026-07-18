@@ -75,7 +75,9 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   modeLay->setSpacing(UiScale::dp(6));
   m_modeA = new QPushButton(m_modeRow);
   m_modeB = new QPushButton(m_modeRow);
-  for (QPushButton *b : {m_modeA, m_modeB}) {
+  m_modeC = new QPushButton(m_modeRow);
+  m_modeD = new QPushButton(m_modeRow);
+  for (QPushButton *b : {m_modeA, m_modeB, m_modeC, m_modeD}) {
     b->setCheckable(true);
     b->setCursor(Qt::PointingHandCursor);
     b->setMinimumHeight(UiScale::dp(32));
@@ -85,6 +87,8 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   grp->setExclusive(true);
   grp->addButton(m_modeA);
   grp->addButton(m_modeB);
+  grp->addButton(m_modeC);
+  grp->addButton(m_modeD);
   connect(m_modeA, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Lasso)
       m_config.lassoMode = LassoMode::Freehand;
@@ -97,6 +101,16 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
       m_config.lassoMode = LassoMode::Rectangle;
     else if (m_mode == ToolMode::Shape)
       m_config.shapeToolKind = ShapeToolKind::Circle;
+    applyConfig();
+  });
+  connect(m_modeC, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::Line;
+    applyConfig();
+  });
+  connect(m_modeD, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::Arrow;
     applyConfig();
   });
   m_root->addWidget(m_modeRow);
@@ -158,11 +172,27 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_modeB->setText(QStringLiteral("Rechteck"));
     m_modeA->setChecked(m_config.lassoMode == LassoMode::Freehand);
     m_modeB->setChecked(m_config.lassoMode == LassoMode::Rectangle);
+    if (m_modeC)
+      m_modeC->setVisible(false);
+    if (m_modeD)
+      m_modeD->setVisible(false);
   } else if (mode == ToolMode::Shape) {
     m_modeA->setText(QStringLiteral("Rechteck"));
     m_modeB->setText(QStringLiteral("Kreis"));
-    m_modeA->setChecked(m_config.shapeToolKind != ShapeToolKind::Circle);
+    if (m_modeC) {
+      m_modeC->setVisible(true);
+      m_modeC->setText(QStringLiteral("Linie"));
+    }
+    if (m_modeD) {
+      m_modeD->setVisible(true);
+      m_modeD->setText(QStringLiteral("Pfeil"));
+    }
+    m_modeA->setChecked(m_config.shapeToolKind == ShapeToolKind::Rectangle);
     m_modeB->setChecked(m_config.shapeToolKind == ShapeToolKind::Circle);
+    if (m_modeC)
+      m_modeC->setChecked(m_config.shapeToolKind == ShapeToolKind::Line);
+    if (m_modeD)
+      m_modeD->setChecked(m_config.shapeToolKind == ShapeToolKind::Arrow);
   }
 
   if (m_hintLbl) {

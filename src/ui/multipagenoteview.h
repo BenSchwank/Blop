@@ -116,6 +116,8 @@ public slots:
     void cutSelection();
     void duplicateSelection();
     void changeSelectionColor();
+    void addSelectionToMarkupLibrary();
+    void insertMarkupLibraryItem(const QString &itemId);
     void startTransformSession();
     void applyTransform();
     void screenshotSelection();

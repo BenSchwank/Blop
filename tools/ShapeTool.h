@@ -41,6 +41,31 @@ public:
             p.addEllipse(QRectF(c.x() - rad, c.y() - rad, 2.0 * rad, 2.0 * rad));
             return p;
         }
+        case ShapeToolKind::Line: {
+            QPainterPath p;
+            p.moveTo(rn.topLeft());
+            p.lineTo(rn.bottomRight());
+            return p;
+        }
+        case ShapeToolKind::Arrow: {
+            QPainterPath p;
+            const QPointF a = rn.topLeft();
+            const QPointF b = rn.bottomRight();
+            p.moveTo(a);
+            p.lineTo(b);
+            QLineF stem(a, b);
+            if (stem.length() < 1.0)
+                return p;
+            const qreal head = qBound(8.0, stem.length() * 0.22, 28.0);
+            QLineF u = stem.unitVector();
+            const QPointF dir(u.dx(), u.dy());
+            const QPointF n(-dir.y(), dir.x());
+            p.moveTo(b);
+            p.lineTo(b - dir * head + n * head * 0.45);
+            p.moveTo(b);
+            p.lineTo(b - dir * head - n * head * 0.45);
+            return p;
+        }
         case ShapeToolKind::Axes2D: {
             QPainterPath p;
             const qreal mx = (rn.left() + rn.right()) * 0.5;

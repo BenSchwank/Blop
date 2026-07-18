@@ -136,6 +136,9 @@
 #include <QClipboard>
 #include <QFrame>
 #include <QPlainTextEdit>
+#include <QTextEdit>
+#include <QKeyEvent>
+#include <QShortcut>
 #include <QPushButton>
 
 #include "blop_diag.h"
@@ -2961,7 +2964,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       }
     }
   }
-
   return QMainWindow::eventFilter(obj, event);
 }
 
@@ -4748,7 +4750,50 @@ void MainWindow::setupUi() {
                 m_toolPropertiesPanel->syncFromToolManager();
               positionNoteChrome();
             });
+    connect(topToolbar, &ModernToolbar::markupLibraryRequested, this, [this]() {
+      QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+      const QString id =
+          s.value(QStringLiteral("ui/markup_library_pending_insert")).toString();
+      s.remove(QStringLiteral("ui/markup_library_pending_insert"));
+      if (id.isEmpty())
+        return;
+      if (MultiPageNoteView *view = currentNoteView())
+        view->insertMarkupLibraryItem(id);
+    });
     topToolbar->setAccentColor(NoteChrome::accent());
+
+    // Drawboard-like tool shortcuts (editor surface, ignore when typing).
+    auto bindToolShortcut = [this, topToolbar](const QKeySequence &seq,
+                                               ToolMode mode) {
+      auto *sc = new QShortcut(seq, m_editorCenterWidget);
+      sc->setContext(Qt::WidgetWithChildrenShortcut);
+      connect(sc, &QShortcut::activated, this, [this, topToolbar, mode]() {
+        QWidget *fw = QApplication::focusWidget();
+        if (qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) ||
+            qobject_cast<QPlainTextEdit *>(fw))
+          return;
+        const QList<RailSlot> rail = topToolbar->railSlots();
+        int idx = -1;
+        for (int i = 0; i < rail.size(); ++i) {
+          if (rail[i].mode == mode) {
+            idx = i;
+            break;
+          }
+        }
+        if (idx >= 0)
+          topToolbar->applyRailSlot(idx);
+        else {
+          ToolManager::instance().selectTool(mode);
+          topToolbar->setToolMode(mode);
+        }
+      });
+    };
+    bindToolShortcut(QKeySequence(Qt::Key_P), ToolMode::Pen);
+    bindToolShortcut(QKeySequence(Qt::Key_H), ToolMode::Highlighter);
+    bindToolShortcut(QKeySequence(Qt::Key_E), ToolMode::Eraser);
+    bindToolShortcut(QKeySequence(Qt::Key_V), ToolMode::Lasso);
+    bindToolShortcut(QKeySequence(Qt::Key_T), ToolMode::Text);
+    bindToolShortcut(QKeySequence(Qt::Key_Space), ToolMode::Hand);
 #endif
     m_floatingTools = topToolbar;
   }
@@ -4772,8 +4817,7 @@ void MainWindow::setupUi() {
           &MainWindow::onUndo);
 #endif
 
-  // Optional preset chips — hidden while the vertical Drawboard rail is the
-  // primary Favorites toolbar (rail slots already hold the tools).
+  // Preset chips — also shown with the vertical Favorites rail (quick ink presets).
   m_penPresetBar = new PenPresetBar(m_editorCenterWidget);
   m_penPresetBar->setAccentColor(NoteChrome::accent());
   m_penPresetBar->hide();
@@ -4785,8 +4829,13 @@ void MainWindow::setupUi() {
             cfg.penWidth = preset.width;
             cfg.opacity = preset.opacity;
             ToolManager::instance().setConfig(cfg);
-            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
               tb->setToolMode(preset.mode);
+              // Re-clicking a chip with Shift adds it as a Favorites rail slot.
+              if (tb->isDrawboardVerticalRail() &&
+                  (QGuiApplication::keyboardModifiers() & Qt::ShiftModifier))
+                tb->addCurrentToolAsRailSlot();
+            }
           });
 
   // Install event filter to center the floating tools automatically on resize
@@ -10050,23 +10099,25 @@ void MainWindow::positionDrawboardToolbar() {
   if (m_toolPropertiesPanel && m_toolPropertiesPanel->isVisible())
     rightInset += m_toolPropertiesPanel->preferredWidth();
 #endif
+  Q_UNUSED(leftInset);
 
-  // Desktop Drawboard default: vertical Favorites rail on the right.
+  // Desktop Drawboard default: vertical Favorites rail edge-flush on the right.
   tb->applyDrawboardVerticalRail();
   const int bottomH = noteBottomChromeHeight();
   const int railW = tb->preferredRailWidth();
-  const int idealH = tb->calculateMinLength();
-  const int availH = qMax(UiScale::dp(160),
-                          m_editorCenterWidget->height() - noteHeaderHeight() -
-                              bottomH - 2 * margin);
-  const int h = qBound(UiScale::dp(220), idealH, availH);
-  const int x = qMax(margin, W - rightInset - railW - margin);
-  const int y = noteHeaderHeight() + margin + qMax(0, (availH - h) / 2);
+  const int topY = noteHeaderHeight();
+  const int availH = qMax(UiScale::dp(200),
+                          m_editorCenterWidget->height() - topY - bottomH);
+  // Edge-flush: full available height, no side margin from the window edge.
+  const int h = availH;
+  const int x = qMax(0, W - rightInset - railW);
+  const int y = topY;
   tb->setMinimumSize(0, 0);
   tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   tb->setFixedWidth(railW);
   tb->setGeometry(x, y, railW, h);
   tb->raise();
+  Q_UNUSED(margin);
 }
 
 void MainWindow::positionNoteChrome() {
@@ -10179,18 +10230,23 @@ void MainWindow::syncPenPresetBarGeometry() {
   if (!m_penPresetBar || !m_editorCenterWidget)
     return;
   auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
-  // Vertical Drawboard rail already acts as Favorites — keep chips hidden.
   const bool show = m_floatingTools && m_floatingTools->isVisible() && tb &&
                     tb->currentStyle() == ModernToolbar::Normal &&
-                    tb->isDockedMode() && !tb->isDrawboardVerticalRail();
+                    (tb->isDockedMode() || tb->isDrawboardVerticalRail());
   if (!show) {
     m_penPresetBar->hide();
     return;
   }
   const int h = m_penPresetBar->preferredHeightPx();
-  const int x = m_floatingTools->x();
-  const int y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
-  const int w = m_floatingTools->width();
+  int x = m_floatingTools->x();
+  int y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
+  int w = m_floatingTools->width();
+  // With the vertical Favorites rail: pin chips just left of the rail bottom.
+  if (tb->isDrawboardVerticalRail()) {
+    w = qMax(UiScale::dp(180), UiScale::dp(220));
+    x = qMax(UiScale::dp(8), m_floatingTools->x() - w - UiScale::dp(8));
+    y = m_floatingTools->y() + m_floatingTools->height() - h - UiScale::dp(12);
+  }
   m_penPresetBar->setGeometry(x, y, w, h);
   m_penPresetBar->show();
   m_penPresetBar->raise();

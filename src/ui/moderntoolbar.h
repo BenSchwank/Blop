@@ -13,9 +13,35 @@ class QContextMenuEvent;
 #include "ToolMode.h"
 #include "ToolSettings.h"
 
+#include <QString>
+#include <QUuid>
+
 // --- Helper Button Class ---
 class QPushButton;
 class QPainter;
+
+/// One Drawboard Favorites slot (same ToolMode may appear multiple times).
+struct RailSlot {
+  QString id;
+  ToolMode mode{ToolMode::Pen};
+  QColor color{Qt::black};
+  int width{3};
+  double opacity{1.0};
+  int shapeKind{0}; // ShapeToolKind
+  int lassoMode{0}; // LassoMode
+
+  static RailSlot fromTool(ToolMode mode, const ToolConfig &cfg) {
+    RailSlot s;
+    s.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    s.mode = mode;
+    s.color = cfg.penColor;
+    s.width = qMax(1, cfg.penWidth);
+    s.opacity = cfg.opacity;
+    s.shapeKind = static_cast<int>(cfg.shapeToolKind);
+    s.lassoMode = static_cast<int>(cfg.lassoMode);
+    return s;
+  }
+};
 
 // Draws one of the toolbar glyphs ("pen", "eraser", ...) into a 64x64 logical
 // coordinate space. Shared by ToolbarBtn and BloomMenu petals.
@@ -46,6 +72,9 @@ public:
     QColor glyphColor() const { return m_glyphColor; }
     /// Small bottom-right chevron (tool family / flyout affordance).
     void setShowChevron(bool show);
+    /// Slot index for Favorites rail (dynamic buttons); -1 = singleton tool btn.
+    void setRailSlotIndex(int index) { m_railSlotIndex = index; }
+    int railSlotIndex() const { return m_railSlotIndex; }
 
     void animateSelect();
     void setDrawFloatingBg(bool draw);
@@ -70,13 +99,19 @@ public:
 signals:
     void clicked();
     void longPressed();
+    void chevronClicked();
     void removeFromRailRequested();
     /// delta -1 = nach oben, +1 = nach unten (Favorites reorder).
     void moveInRailRequested(int delta);
+    /// Drag-reorder in progress / finished (slot buttons only).
+    void railDragStarted(int slotIndex);
+    void railDragMoved(int globalY);
+    void railDragFinished(int globalY);
 
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
@@ -90,12 +125,15 @@ private:
     bool m_railSlotStyle{false};
     bool m_showChevron{false};
     int m_size{40};
+    int m_railSlotIndex{-1};
     QString m_badgeText;
     QColor m_glyphColor; // invalid = use default chrome foreground
 
     double m_animScale{1.0};
     bool m_pressing{false};
     bool m_longPressTriggered{false};
+    bool m_railDragging{false};
+    QPoint m_pressPos;
     double m_holdProgress{0.0};
     QColor m_accentColor{QColor("#7C5CFC")};
     double m_liftOffset{0.0};
@@ -172,9 +210,13 @@ public:
 
     /// Customize which tools appear in the vertical Drawboard rail.
     void addToolToRail(ToolMode mode);
+    void addCurrentToolAsRailSlot();
     void removeToolFromRail(ToolMode mode);
+    void removeRailSlotAt(int index);
     bool railContains(ToolMode mode) const;
-    QList<ToolMode> railTools() const { return m_railToolModes; }
+    QList<ToolMode> railTools() const;
+    QList<RailSlot> railSlots() const { return m_railSlots; }
+    void applyRailSlot(int index);
 
     void setStyle(Style style);
     Style currentStyle() const { return m_style; }
@@ -202,8 +244,10 @@ public:
     void syncDrawboardToolIcons();
     void openToolOptions();
     void moveRailTool(ToolMode mode, int delta);
+    void moveRailSlot(int index, int delta);
 
 signals:
+    void markupLibraryRequested();
     void toolChanged(ToolMode mode);
     void undoRequested();
     void redoRequested();
@@ -347,12 +391,20 @@ private:
     QList<int> m_separatorYPositions;  // y-coords of section dividers in vertical rail
 
     /// Persisted Drawboard vertical-rail tool slots (order = top → bottom).
-    QList<ToolMode> m_railToolModes;
+    QList<RailSlot> m_railSlots;
+    int m_activeRailSlot{-1};
+    QList<ToolbarBtn *> m_slotButtons;
+    int m_railScrollPx{0};
+    int m_railDragFrom{-1};
+    int m_railDragGhostY{-1};
     void loadRailTools();
     void saveRailTools() const;
+    void rebuildSlotButtons();
+    void syncSlotButtonAppearance(int index);
     QList<ToolbarBtn *> currentRailButtons() const;
     void showToolFlyout(ToolMode mode);
     bool toolHasFlyout(ToolMode mode) const;
+    QString iconForSlot(const RailSlot &s) const;
 
     QPointer<QWidget> m_toolSettingsSheet;
 

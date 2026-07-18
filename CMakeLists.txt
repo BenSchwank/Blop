@@ -153,6 +153,8 @@ qt_add_executable(Blop
     src/ui/allpagesoverlay.h
     src/ui/toolpickeroverlay.cpp
     src/ui/toolpickeroverlay.h
+    src/ui/markuplibrarystore.cpp
+    src/ui/markuplibrarystore.h
     src/ui/radialtoolbarfab.cpp
     src/ui/radialtoolbarfab.h
     src/ui/librarytagstore.cpp

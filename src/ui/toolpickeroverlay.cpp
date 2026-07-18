@@ -2,6 +2,8 @@
 
 #include "moderntoolbar.h"
 #include "notechrome.h"
+#include "tools/ToolManager.h"
+#include "ToolSettings.h"
 #include "uiscale.h"
 
 #include <QButtonGroup>
@@ -24,20 +26,24 @@ struct ToolEntry {
   const char *name;
   const char *icon;
   int category; // 0 Free-form, 1 Shapes, 2 Review, 3 Messen, 4 Einfügen, 5 Auswählen
+  int shapeKind{-1}; // ShapeToolKind when mode==Shape; -1 = leave unchanged
 };
 
 const ToolEntry kTools[] = {
-    {ToolMode::Pen, "Stift", "pen", 0},
-    {ToolMode::Pencil, "Bleistift", "pencil", 0},
-    {ToolMode::Highlighter, "Textmarker", "highlighter", 0},
-    {ToolMode::Eraser, "Radiergummi", "eraser", 0},
-    {ToolMode::Shape, "Rechteck", "rect", 1},
-    {ToolMode::Ruler, "Messen", "measure", 3},
-    {ToolMode::Text, "Text", "text", 2},
-    {ToolMode::Image, "Bild", "image", 4},
-    {ToolMode::StickyNote, "Notiz", "stickynote", 4},
-    {ToolMode::Lasso, "Auswahl", "select", 5},
-    {ToolMode::Hand, "Hand", "hand", 5},
+    {ToolMode::Pen, "Stift", "pen", 0, -1},
+    {ToolMode::Pencil, "Bleistift", "pencil", 0, -1},
+    {ToolMode::Highlighter, "Textmarker", "highlighter", 0, -1},
+    {ToolMode::Eraser, "Radiergummi", "eraser", 0, -1},
+    {ToolMode::Shape, "Rechteck", "rect", 1, 0},
+    {ToolMode::Shape, "Kreis", "ellipse", 1, 1},
+    {ToolMode::Shape, "Linie", "line", 1, 5},
+    {ToolMode::Shape, "Pfeil", "arrow", 1, 6},
+    {ToolMode::Ruler, "Messen", "measure", 3, -1},
+    {ToolMode::Text, "Text", "text", 2, -1},
+    {ToolMode::Image, "Bild", "image", 4, -1},
+    {ToolMode::StickyNote, "Notiz", "stickynote", 4, -1},
+    {ToolMode::Lasso, "Auswahl", "select", 5, -1},
+    {ToolMode::Hand, "Hand", "hand", 5, -1},
 };
 
 QIcon glyphIcon(const QString &name, const QColor &fg, int px) {
@@ -212,7 +218,9 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
     cellLay->setSpacing(UiScale::dp(6));
     cellLay->setAlignment(Qt::AlignHCenter);
 
-    const bool inBar = m_inToolbar.contains(e.mode);
+    // Favorites allow duplicate presets — only Hand is unique (✓ when present).
+    const bool uniqueLocked =
+        (e.mode == ToolMode::Hand && m_inToolbar.contains(e.mode));
     auto *btn = new QToolButton(cell);
     btn->setFixedSize(UiScale::dp(76), UiScale::dp(76));
     QColor tip = NoteChrome::textPrimary();
@@ -242,7 +250,8 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
             .arg(m_accent.blue())
             .arg(m_accent.name(QColor::HexRgb)));
 
-    auto *badge = new QLabel(inBar ? QStringLiteral("✓") : QStringLiteral("+"),
+    auto *badge = new QLabel(uniqueLocked ? QStringLiteral("✓")
+                                          : QStringLiteral("+"),
                              btn);
     badge->setAlignment(Qt::AlignCenter);
     badge->setFixedSize(UiScale::dp(22), UiScale::dp(22));
@@ -250,11 +259,17 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
     badge->setStyleSheet(
         QStringLiteral("background: %1; color: white; border-radius: 11px;"
                        " font-size: 13px; font-weight: 800;")
-            .arg(inBar ? QStringLiteral("#3D9B6E")
-                       : m_accent.name(QColor::HexRgb)));
+            .arg(uniqueLocked ? QStringLiteral("#3D9B6E")
+                              : m_accent.name(QColor::HexRgb)));
 
     const ToolMode mode = e.mode;
-    connect(btn, &QToolButton::clicked, this, [this, mode]() {
+    const int shapeKind = e.shapeKind;
+    connect(btn, &QToolButton::clicked, this, [this, mode, shapeKind]() {
+      if (mode == ToolMode::Shape && shapeKind >= 0) {
+        ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Shape);
+        cfg.shapeToolKind = static_cast<ShapeToolKind>(shapeKind);
+        ToolManager::instance().setConfig(cfg);
+      }
       if (m_onSelect)
         m_onSelect(mode);
       emit toolPicked(mode);

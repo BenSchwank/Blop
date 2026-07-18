@@ -53,5 +53,7 @@ private:
   QWidget *m_modeRow{nullptr};
   QPushButton *m_modeA{nullptr};
   QPushButton *m_modeB{nullptr};
+  QPushButton *m_modeC{nullptr};
+  QPushButton *m_modeD{nullptr};
   QVBoxLayout *m_root{nullptr};
 };

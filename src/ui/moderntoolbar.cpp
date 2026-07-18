@@ -5,6 +5,7 @@
 #include "notechrome.h"
 #include "UIStyles.h"
 #include "toolpickeroverlay.h"
+#include "markuplibrarystore.h"
 #include "tools/ToolManager.h"
 #include "tools/ToolUIBridge.h"
 #include "tools/ShapeTool.h"
@@ -46,9 +47,14 @@
 #include <QRegion>
 #include <QSlider>
 #include <QTimer>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QResizeEvent>
+#include <QScrollArea>
+#include <QToolButton>
+#include <QPixmap>
+#include <QIcon>
 #include <cmath>
 #include <QtGlobal>
 #include <QtMath>
@@ -319,6 +325,13 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   if (name == QLatin1String("line")) {
     p->setPen(QPen(primary, 3.4, Qt::SolidLine, Qt::RoundCap));
     p->drawLine(16, 48, 48, 16);
+    return;
+  }
+  if (name == QLatin1String("arrow")) {
+    p->setPen(QPen(primary, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(16, 48, 48, 16);
+    p->drawLine(48, 16, 34, 18);
+    p->drawLine(48, 16, 46, 30);
     return;
   }
   if (name == QLatin1String("stickynote") || name == QLatin1String("note")) {
@@ -804,11 +817,19 @@ void ToolbarBtn::contextMenuEvent(QContextMenuEvent *e) {
   e->accept();
 }
 void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
+  if (e->button() != Qt::LeftButton && e->button() != Qt::NoButton) {
+    QWidget::mousePressEvent(e);
+    return;
+  }
+  m_pressing = true;
+  m_longPressTriggered = false;
+  m_railDragging = false;
+  m_pressPos = e->pos();
+  m_holdProgress = 0.0;
+
+  // Drawboard rail slots: defer click to release so drag-reorder / chevron work.
+  if (m_railSlotStyle) {
 #if BLOP_TOOLBAR_LONGPRESS
-  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton) {
-    m_pressing = true;
-    m_longPressTriggered = false;
-    m_holdProgress = 0.0;
     if (!m_holdAnim) {
       m_holdAnim = new QPropertyAnimation(this, "holdProgress", this);
       m_holdAnim->setEasingCurve(QEasingCurve::Linear);
@@ -819,41 +840,99 @@ void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
     m_holdAnim->setEndValue(1.0);
     m_holdAnim->setDuration(700);
     m_holdAnim->start();
+#endif
     update();
     e->accept();
     return;
   }
-  QWidget::mousePressEvent(e);
+
+#if BLOP_TOOLBAR_LONGPRESS
+  if (!m_holdAnim) {
+    m_holdAnim = new QPropertyAnimation(this, "holdProgress", this);
+    m_holdAnim->setEasingCurve(QEasingCurve::Linear);
+  } else {
+    m_holdAnim->stop();
+  }
+  m_holdAnim->setStartValue(0.0);
+  m_holdAnim->setEndValue(1.0);
+  m_holdAnim->setDuration(700);
+  m_holdAnim->start();
+  update();
+  e->accept();
 #else
-  if (e->button() == Qt::LeftButton || e->button() == Qt::NoButton) {
-    BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
-    emit clicked();
-  } else
-    QWidget::mousePressEvent(e);
+  BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
+  emit clicked();
 #endif
 }
+
+void ToolbarBtn::mouseMoveEvent(QMouseEvent *e) {
+  if (m_railSlotStyle && m_pressing && m_railSlotIndex >= 0 &&
+      !m_railDragging) {
+    const QPoint d = e->pos() - m_pressPos;
+    if (d.manhattanLength() >= QApplication::startDragDistance()) {
+      m_railDragging = true;
+      m_longPressTriggered = true;
+      if (m_holdAnim)
+        m_holdAnim->stop();
+      m_holdProgress = 0.0;
+      emit railDragStarted(m_railSlotIndex);
+    }
+  }
+  if (m_railDragging) {
+    emit railDragMoved(mapToGlobal(e->pos()).y());
+    e->accept();
+    return;
+  }
+  QWidget::mouseMoveEvent(e);
+}
+
 void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
-#if BLOP_TOOLBAR_LONGPRESS
   const bool inside = rect().contains(e->pos());
+  if (m_holdAnim)
+    m_holdAnim->stop();
+
+  if (m_railDragging) {
+    emit railDragFinished(mapToGlobal(e->pos()).y());
+    m_railDragging = false;
+    m_pressing = false;
+    m_longPressTriggered = false;
+    m_holdProgress = 0.0;
+    update();
+    e->accept();
+    return;
+  }
+
   const bool shouldClick = m_pressing && !m_longPressTriggered && inside &&
                            (e->button() == Qt::LeftButton ||
                             e->button() == Qt::NoButton);
-  if (m_holdAnim)
-    m_holdAnim->stop();
   m_pressing = false;
   m_longPressTriggered = false;
   m_holdProgress = 0.0;
   update();
+
+  if (shouldClick && m_railSlotStyle) {
+    // Bottom chevron hit zone → flyout affordance.
+    if (m_showChevron && e->pos().y() >= height() - UiScale::dp(14)) {
+      BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
+      emit chevronClicked();
+      e->accept();
+      return;
+    }
+    BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
+    emit clicked();
+    e->accept();
+    return;
+  }
+
+#if BLOP_TOOLBAR_LONGPRESS
   if (shouldClick) {
     BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
     emit clicked();
     e->accept();
     return;
   }
-  QWidget::mouseReleaseEvent(e);
-#else
-  QWidget::mouseReleaseEvent(e);
 #endif
+  QWidget::mouseReleaseEvent(e);
 }
 void ToolbarBtn::enterEvent(QEnterEvent *) {
   m_hover = true;
@@ -2147,7 +2226,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnLibrary->setToolTip(tr("Auszeichnungsbibliothek"));
   btnLibrary->setShowChevron(true);
   btnRailChevron = new ToolbarBtn("chevron_rail", this);
-  btnRailChevron->setToolTip(tr("An Kante andocken"));
+  btnRailChevron->setToolTip(tr("Eigenschaften ein-/ausblenden"));
   btnMoreProps = new ToolbarBtn("more", this);
   btnMoreProps->setToolTip(tr("More options"));
   btnLayoutToggle = new ToolbarBtn("layout_rows", this);
@@ -2394,7 +2473,20 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     });
   }
   connect(&ToolManager::instance(), &ToolManager::configChanged, this,
-          [this](const ToolConfig &) {
+          [this](const ToolConfig &cfg) {
+            // Persist property edits into the active Favorites preset slot.
+            if (m_activeRailSlot >= 0 &&
+                m_activeRailSlot < m_railSlots.size() &&
+                m_railSlots[m_activeRailSlot].mode ==
+                    ToolManager::instance().activeToolMode()) {
+              RailSlot &s = m_railSlots[m_activeRailSlot];
+              s.color = cfg.penColor;
+              s.width = qMax(1, cfg.penWidth);
+              s.opacity = cfg.opacity;
+              s.shapeKind = static_cast<int>(cfg.shapeToolKind);
+              s.lassoMode = static_cast<int>(cfg.lassoMode);
+              saveRailTools();
+            }
             syncToolBadges();
             syncDrawboardToolIcons();
             syncInlinePropertyControls();
@@ -2940,23 +3032,28 @@ void ModernToolbar::showToolPicker() {
   }
 #endif
   QSet<ToolMode> already;
-  for (ToolMode m : m_railToolModes)
-    already.insert(m);
+  for (const RailSlot &s : m_railSlots)
+    already.insert(s.mode);
   ToolPickerOverlay::present(
       host, m_accentColor, already, [this](ToolMode mode) {
-        // Already in Favorites → toggle remove (except Hand). Otherwise add.
-        if (railContains(mode)) {
-          if (mode != ToolMode::Hand)
-            removeToolFromRail(mode);
-          ToolManager::instance().selectTool(
-              m_railToolModes.isEmpty() ? ToolMode::Pen : m_railToolModes.first());
-          setToolMode(ToolManager::instance().activeToolMode());
+        // Hand is unique; other tools may appear multiple times as presets.
+        if (mode == ToolMode::Hand && railContains(ToolMode::Hand)) {
+          for (int i = 0; i < m_railSlots.size(); ++i) {
+            if (m_railSlots[i].mode == ToolMode::Hand) {
+              applyRailSlot(i);
+              return;
+            }
+          }
           return;
         }
         addToolToRail(mode);
-        ToolManager::instance().selectTool(mode);
-        setToolMode(mode);
-        emit toolChanged(mode);
+        // Select the newly added slot (last matching mode).
+        for (int i = m_railSlots.size() - 1; i >= 0; --i) {
+          if (m_railSlots[i].mode == mode) {
+            applyRailSlot(i);
+            break;
+          }
+        }
 #ifndef Q_OS_ANDROID
         if (isDrawboardVerticalRail())
           return;
@@ -3022,10 +3119,8 @@ void ModernToolbar::syncDrawboardToolIcons() {
     btnRuler->setGlyphColor(QColor(235, 70, 70));
   }
   if (btnShape) {
-    const ShapeToolKind kind =
-        ToolManager::instance().configFor(ToolMode::Shape).shapeToolKind;
-    btnShape->setIcon(kind == ShapeToolKind::Circle ? QStringLiteral("ellipse")
-                                                    : QStringLiteral("rect"));
+    btnShape->setIcon(iconForSlot(RailSlot::fromTool(
+        ToolMode::Shape, ToolManager::instance().configFor(ToolMode::Shape))));
     btnShape->setGlyphColor(QColor());
     btnShape->setShowChevron(true);
   }
@@ -3054,16 +3149,17 @@ void ModernToolbar::syncDrawboardToolIcons() {
   }
   if (btnRailChevron)
     btnRailChevron->setIcon(QStringLiteral("chevron_rail"));
+  for (int i = 0; i < m_slotButtons.size(); ++i)
+    syncSlotButtonAppearance(i);
 }
 
 void ModernToolbar::showMarkupLibrary() {
-  // Drawboard "Auszeichnungsbibliothek" — local empty-state + import CTA.
+  // Drawboard "Auszeichnungsbibliothek" — device store + insert / delete.
   QWidget *host = parentWidget() ? parentWidget()->window() : window();
   if (!host)
     host = window();
-  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  const int deviceCount =
-      s.value(QStringLiteral("ui/markup_library_device_count"), 0).toInt();
+  const QVector<MarkupLibraryItem> items = MarkupLibraryStore::load();
+  const int deviceCount = items.size();
 
   auto *layer = new QWidget(host);
   layer->setAttribute(Qt::WA_DeleteOnClose, true);
@@ -3089,14 +3185,20 @@ void ModernToolbar::showMarkupLibrary() {
                      "}"
                      "QPushButton#LibTab:checked {"
                      "  color: %3; border-bottom: 2px solid %4;"
-                     "}")
+                     "}"
+                     "QToolButton {"
+                     "  background: %6; color: %3; border: 1px solid %2;"
+                     "  border-radius: 10px; padding: 8px;"
+                     "}"
+                     "QToolButton:hover { border-color: %4; }")
           .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
                NoteChrome::border().name(QColor::HexRgb),
                NoteChrome::textPrimary().name(QColor::HexRgb),
                NoteChrome::accent().name(QColor::HexRgb),
-               NoteChrome::textSecondary().name(QColor::HexRgb)));
+               NoteChrome::textSecondary().name(QColor::HexRgb),
+               NoteChrome::panelBg().name(QColor::HexRgb)));
   const int cardW = qMin(560, qMax(420, int(host->width() * 0.48)));
-  const int cardH = qMin(440, qMax(320, int(host->height() * 0.50)));
+  const int cardH = qMin(480, qMax(340, int(host->height() * 0.55)));
   card->setGeometry((layer->width() - cardW) / 2,
                     (layer->height() - cardH) / 2, cardW, cardH);
   auto *lay = new QVBoxLayout(card);
@@ -3121,23 +3223,80 @@ void ModernToolbar::showMarkupLibrary() {
   tabRow->addStretch(1);
   lay->addLayout(tabRow);
 
-  auto *steps = new QLabel(
-      tr("1. Auswählen   →   2. Hinzufügen   →   3. Verwenden\n\n"
-         "Markups auf diesem Gerät erstellen: Annotationen mit der Auswahl "
-         "markieren und über die Auswahlleiste zur Bibliothek hinzufügen."),
-      card);
-  steps->setWordWrap(true);
-  steps->setStyleSheet(
-      QStringLiteral("color: %1; font-size: 13px; background: %2;"
-                     " border-radius: 10px; padding: 14px;")
-          .arg(NoteChrome::textSecondary().name(QColor::HexRgb),
-               NoteChrome::panelBg().name(QColor::HexRgb)));
-  lay->addWidget(steps, 1);
+  auto *scroll = new QScrollArea(card);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setStyleSheet(QStringLiteral("background: transparent;"));
+  auto *gridHost = new QWidget(scroll);
+  auto *grid = new QGridLayout(gridHost);
+  grid->setContentsMargins(0, 0, 0, 0);
+  grid->setSpacing(UiScale::dp(10));
 
-  auto *importBtn = new QPushButton(tr("Import markups"), card);
-  importBtn->setEnabled(false);
-  importBtn->setToolTip(tr("Import folgt in einem späteren Update."));
-  lay->addWidget(importBtn, 0, Qt::AlignLeft);
+  if (items.isEmpty()) {
+    auto *steps = new QLabel(
+        tr("1. Auswählen   →   2. Hinzufügen   →   3. Verwenden\n\n"
+           "Markups auf diesem Gerät erstellen: Annotationen mit der Auswahl "
+           "markieren und in der Auswahlleiste „Zur Bibliothek“ wählen."),
+        gridHost);
+    steps->setWordWrap(true);
+    steps->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 13px; background: %2;"
+                       " border-radius: 10px; padding: 14px;")
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb),
+                 NoteChrome::panelBg().name(QColor::HexRgb)));
+    grid->addWidget(steps, 0, 0, 1, 2);
+  } else {
+    int col = 0;
+    int row = 0;
+    for (const MarkupLibraryItem &item : items) {
+      auto *tile = new QToolButton(gridHost);
+      tile->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+      tile->setCursor(Qt::PointingHandCursor);
+      tile->setFixedSize(UiScale::dp(140), UiScale::dp(120));
+      // Mini preview from first stroke color.
+      QPixmap pm(UiScale::dp(72), UiScale::dp(72));
+      pm.fill(Qt::transparent);
+      {
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(QColor(item.previewColor.red(), item.previewColor.green(),
+                          item.previewColor.blue(), 40));
+        p.setPen(QPen(item.previewColor, 3, Qt::SolidLine, Qt::RoundCap));
+        p.drawRoundedRect(pm.rect().adjusted(6, 6, -6, -6), 10, 10);
+        p.drawLine(18, pm.height() - 22, pm.width() - 18, 22);
+      }
+      tile->setIcon(QIcon(pm));
+      tile->setIconSize(pm.size());
+      tile->setText(item.name);
+      const QString itemId = item.id;
+      connect(tile, &QToolButton::clicked, layer, [this, itemId, layer]() {
+        // Insert is handled by MainWindow via markupLibraryRequested + pending id.
+        QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        s.setValue(QStringLiteral("ui/markup_library_pending_insert"), itemId);
+        layer->close();
+        emit markupLibraryRequested();
+      });
+      // Right-click delete via context menu.
+      tile->setContextMenuPolicy(Qt::CustomContextMenu);
+      connect(tile, &QWidget::customContextMenuRequested, tile,
+              [tile, itemId, layer](const QPoint &pos) {
+                QMenu menu(tile);
+                QAction *del =
+                    menu.addAction(ModernToolbar::tr("Entfernen"));
+                if (menu.exec(tile->mapToGlobal(pos)) == del) {
+                  MarkupLibraryStore::removeItem(itemId);
+                  layer->close();
+                }
+              });
+      grid->addWidget(tile, row, col);
+      if (++col >= 3) {
+        col = 0;
+        ++row;
+      }
+    }
+  }
+  scroll->setWidget(gridHost);
+  lay->addWidget(scroll, 1);
 
   auto *closeBtn = new QPushButton(tr("Schließen"), card);
   closeBtn->setStyleSheet(
@@ -3522,8 +3681,16 @@ void ModernToolbar::setToolMode(ToolMode mode) {
   mode_ = mode;
   for (auto *b : m_buttons)
     b->setActive(false);
+  for (int i = 0; i < m_slotButtons.size(); ++i) {
+    if (!m_slotButtons[i])
+      continue;
+    const bool on = (m_activeRailSlot >= 0) ? (i == m_activeRailSlot)
+                                            : (i < m_railSlots.size() &&
+                                               m_railSlots[i].mode == mode);
+    m_slotButtons[i]->setActive(on);
+  }
   ToolbarBtn *activeBtn = getButtonForMode(mode);
-  if (activeBtn) {
+  if (activeBtn && m_slotButtons.isEmpty()) {
     activeBtn->setActive(true);
     activeBtn->animateSelect();
   }
@@ -3756,6 +3923,13 @@ void ModernToolbar::snapToEdge() {
   anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 void ModernToolbar::wheelEvent(QWheelEvent *e) {
+  if (isDrawboardVerticalRail() && m_orientation == Vertical) {
+    const int step = qRound(e->angleDelta().y() / 4.0);
+    m_railScrollPx = qMax(0, m_railScrollPx - step);
+    updateLayout(false);
+    e->accept();
+    return;
+  }
   if (m_style == Normal && m_isDockedMode && m_orientation == Horizontal &&
       supportsAdaptiveDockedScroll() && m_dockedCenterOverflowPx > 0) {
     const int step = qRound(e->angleDelta().y() / 12.0);
@@ -4111,8 +4285,10 @@ void ModernToolbar::applyDrawboardVerticalRail() {
     btnDockToggle->hide();
   }
   m_style = Normal;
-  if (m_railToolModes.isEmpty())
+  if (m_railSlots.isEmpty())
     loadRailTools();
+  else
+    rebuildSlotButtons();
   syncDrawboardToolIcons();
   syncToolBadges();
   if (m_orientation != Vertical)
@@ -4142,7 +4318,7 @@ bool ModernToolbar::isDrawboardVerticalRail() const {
 int ModernToolbar::preferredRailWidth() const { return UiScale::dp(48); }
 
 void ModernToolbar::loadRailTools() {
-  m_railToolModes.clear();
+  m_railSlots.clear();
   auto isKnown = [](ToolMode m) {
     switch (m) {
     case ToolMode::Pen:
@@ -4160,94 +4336,477 @@ void ModernToolbar::loadRailTools() {
     }
     return false;
   };
-  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  const QVariantList saved =
-      s.value(QStringLiteral("ui/drawboard_rail_tools")).toList();
-  for (const QVariant &v : saved) {
-    bool ok = false;
-    const int n = v.toInt(&ok);
-    if (!ok)
-      continue;
-    const auto mode = static_cast<ToolMode>(n);
+  auto defaultCfg = [](ToolMode mode) -> ToolConfig {
+    ToolConfig cfg = ToolManager::instance().configFor(mode);
+    return cfg;
+  };
+  auto appendSlot = [&](ToolMode mode) {
     if (!isKnown(mode))
-      continue;
-    if (!m_railToolModes.contains(mode))
-      m_railToolModes.append(mode);
+      return;
+    m_railSlots.append(RailSlot::fromTool(mode, defaultCfg(mode)));
+  };
+
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QVariantList slotMaps =
+      s.value(QStringLiteral("ui/drawboard_rail_slots")).toList();
+  if (!slotMaps.isEmpty()) {
+    for (const QVariant &v : slotMaps) {
+      const QVariantMap m = v.toMap();
+      bool ok = false;
+      const int n = m.value(QStringLiteral("mode")).toInt(&ok);
+      if (!ok)
+        continue;
+      const auto mode = static_cast<ToolMode>(n);
+      if (!isKnown(mode))
+        continue;
+      RailSlot slot;
+      slot.id = m.value(QStringLiteral("id")).toString();
+      if (slot.id.isEmpty())
+        slot.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+      slot.mode = mode;
+      const QString colorName = m.value(QStringLiteral("color")).toString();
+      slot.color = QColor(colorName);
+      if (!slot.color.isValid())
+        slot.color = defaultCfg(mode).penColor;
+      slot.width = qMax(1, m.value(QStringLiteral("width"), 3).toInt());
+      slot.opacity = m.value(QStringLiteral("opacity"), 1.0).toDouble();
+      slot.shapeKind = m.value(QStringLiteral("shapeKind"), 0).toInt();
+      slot.lassoMode = m.value(QStringLiteral("lassoMode"), 0).toInt();
+      m_railSlots.append(slot);
+    }
+  } else {
+    // Migrate legacy mode-only list.
+    const QVariantList saved =
+        s.value(QStringLiteral("ui/drawboard_rail_tools")).toList();
+    for (const QVariant &v : saved) {
+      bool ok = false;
+      const int n = v.toInt(&ok);
+      if (!ok)
+        continue;
+      appendSlot(static_cast<ToolMode>(n));
+    }
   }
-  if (m_railToolModes.isEmpty()) {
-    // Drawboard-like Favorites defaults (top → bottom).
-    m_railToolModes = {ToolMode::Hand,         ToolMode::Lasso,
-                       ToolMode::Pen,          ToolMode::Pencil,
-                       ToolMode::Highlighter,  ToolMode::Eraser,
-                       ToolMode::Text,         ToolMode::Image,
-                       ToolMode::StickyNote,   ToolMode::Shape,
-                       ToolMode::Ruler};
+
+  if (m_railSlots.isEmpty()) {
+    // Drawboard-like Favorites defaults (top → bottom), includes Pencil.
+    const QList<ToolMode> defaults = {
+        ToolMode::Hand,        ToolMode::Lasso,       ToolMode::Pen,
+        ToolMode::Pencil,      ToolMode::Highlighter, ToolMode::Eraser,
+        ToolMode::Text,        ToolMode::Image,       ToolMode::StickyNote,
+        ToolMode::Shape,       ToolMode::Ruler};
+    for (ToolMode m : defaults)
+      appendSlot(m);
+  } else {
+    // Ensure Pencil exists after older saves that omitted it.
+    bool hasPencil = false;
+    for (const RailSlot &sl : m_railSlots) {
+      if (sl.mode == ToolMode::Pencil) {
+        hasPencil = true;
+        break;
+      }
+    }
+    if (!hasPencil) {
+      int penIdx = -1;
+      for (int i = 0; i < m_railSlots.size(); ++i) {
+        if (m_railSlots[i].mode == ToolMode::Pen) {
+          penIdx = i;
+          break;
+        }
+      }
+      RailSlot pencil = RailSlot::fromTool(ToolMode::Pencil, defaultCfg(ToolMode::Pencil));
+      if (penIdx >= 0)
+        m_railSlots.insert(penIdx + 1, pencil);
+      else
+        m_railSlots.append(pencil);
+      saveRailTools();
+    }
   }
+  m_activeRailSlot = -1;
+  rebuildSlotButtons();
 }
 
 void ModernToolbar::saveRailTools() const {
   QVariantList out;
-  for (ToolMode m : m_railToolModes)
-    out.append(static_cast<int>(m));
+  for (const RailSlot &slot : m_railSlots) {
+    QVariantMap m;
+    m.insert(QStringLiteral("id"), slot.id);
+    m.insert(QStringLiteral("mode"), static_cast<int>(slot.mode));
+    m.insert(QStringLiteral("color"), slot.color.name(QColor::HexArgb));
+    m.insert(QStringLiteral("width"), slot.width);
+    m.insert(QStringLiteral("opacity"), slot.opacity);
+    m.insert(QStringLiteral("shapeKind"), slot.shapeKind);
+    m.insert(QStringLiteral("lassoMode"), slot.lassoMode);
+    out.append(m);
+  }
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
-  s.setValue(QStringLiteral("ui/drawboard_rail_tools"), out);
+  s.setValue(QStringLiteral("ui/drawboard_rail_slots"), out);
+  // Keep legacy key in sync (unique modes) for older builds.
+  QVariantList legacy;
+  QSet<int> seen;
+  for (const RailSlot &slot : m_railSlots) {
+    const int n = static_cast<int>(slot.mode);
+    if (seen.contains(n))
+      continue;
+    seen.insert(n);
+    legacy.append(n);
+  }
+  s.setValue(QStringLiteral("ui/drawboard_rail_tools"), legacy);
 }
 
 bool ModernToolbar::railContains(ToolMode mode) const {
-  return m_railToolModes.contains(mode);
+  for (const RailSlot &s : m_railSlots) {
+    if (s.mode == mode)
+      return true;
+  }
+  return false;
+}
+
+QList<ToolMode> ModernToolbar::railTools() const {
+  QList<ToolMode> out;
+  for (const RailSlot &s : m_railSlots) {
+    if (!out.contains(s.mode))
+      out.append(s.mode);
+  }
+  return out;
+}
+
+QString ModernToolbar::iconForSlot(const RailSlot &s) const {
+  switch (s.mode) {
+  case ToolMode::Pen:
+    return QStringLiteral("pen");
+  case ToolMode::Pencil:
+    return QStringLiteral("pencil");
+  case ToolMode::Highlighter:
+    return QStringLiteral("highlighter");
+  case ToolMode::Eraser:
+    return QStringLiteral("eraser");
+  case ToolMode::Lasso:
+    return QStringLiteral("select");
+  case ToolMode::Ruler:
+    return QStringLiteral("measure");
+  case ToolMode::Shape: {
+    const auto kind = static_cast<ShapeToolKind>(s.shapeKind);
+    if (kind == ShapeToolKind::Circle)
+      return QStringLiteral("ellipse");
+    if (kind == ShapeToolKind::Line)
+      return QStringLiteral("line");
+    if (kind == ShapeToolKind::Arrow)
+      return QStringLiteral("arrow");
+    return QStringLiteral("rect");
+  }
+  case ToolMode::StickyNote:
+    return QStringLiteral("stickynote");
+  case ToolMode::Text:
+    return QStringLiteral("text");
+  case ToolMode::Image:
+    return QStringLiteral("image");
+  case ToolMode::Hand:
+    return QStringLiteral("hand");
+  }
+  return QStringLiteral("pen");
+}
+
+void ModernToolbar::syncSlotButtonAppearance(int index) {
+  if (index < 0 || index >= m_railSlots.size() || index >= m_slotButtons.size())
+    return;
+  ToolbarBtn *btn = m_slotButtons[index];
+  const RailSlot &s = m_railSlots[index];
+  if (!btn)
+    return;
+  btn->setIcon(iconForSlot(s));
+  btn->setRailSlotIndex(index);
+  btn->setShowChevron(toolHasFlyout(s.mode));
+  btn->setRailSlotStyle(true);
+  QColor glyph;
+  if (s.mode == ToolMode::Pen || s.mode == ToolMode::Pencil)
+    glyph = s.color;
+  else if (s.mode == ToolMode::Highlighter) {
+    glyph = s.color;
+    if (glyph.saturationF() < 0.25)
+      glyph = QColor(90, 220, 70);
+  } else if (s.mode == ToolMode::Ruler) {
+    glyph = QColor(235, 70, 70);
+  }
+  btn->setGlyphColor(glyph);
+
+  QString tip;
+  switch (s.mode) {
+  case ToolMode::Hand:
+    tip = tr("Hand (Leertaste)");
+    break;
+  case ToolMode::Lasso:
+    tip = tr("Auswahl (V)");
+    break;
+  case ToolMode::Pen:
+    tip = tr("Stift (P)");
+    break;
+  case ToolMode::Pencil:
+    tip = tr("Bleistift");
+    break;
+  case ToolMode::Highlighter:
+    tip = tr("Textmarker (H)");
+    break;
+  case ToolMode::Eraser:
+    tip = tr("Radierer (E)");
+    break;
+  case ToolMode::Text:
+    tip = tr("Text (T)");
+    break;
+  case ToolMode::Shape:
+    tip = tr("Form");
+    break;
+  case ToolMode::Ruler:
+    tip = tr("Messen");
+    break;
+  case ToolMode::Image:
+    tip = tr("Bild");
+    break;
+  case ToolMode::StickyNote:
+    tip = tr("Notiz");
+    break;
+  default:
+    tip = tr("Werkzeug");
+    break;
+  }
+  if (s.mode == ToolMode::Pen || s.mode == ToolMode::Pencil ||
+      s.mode == ToolMode::Highlighter || s.mode == ToolMode::Shape) {
+    tip += QStringLiteral(" · %1px").arg(s.width);
+  }
+  btn->setToolTip(tip);
+  btn->setActive(index == m_activeRailSlot ||
+                 (m_activeRailSlot < 0 && s.mode == mode_));
+}
+
+void ModernToolbar::rebuildSlotButtons() {
+  for (ToolbarBtn *b : m_slotButtons) {
+    if (!b)
+      continue;
+    b->hide();
+    b->deleteLater();
+  }
+  m_slotButtons.clear();
+
+#ifndef Q_OS_ANDROID
+  if (!isDrawboardVerticalRail())
+    return;
+#else
+  return;
+#endif
+
+  for (int i = 0; i < m_railSlots.size(); ++i) {
+    auto *btn = new ToolbarBtn(iconForSlot(m_railSlots[i]), this);
+    btn->setAccentColor(m_accentColor);
+    btn->setRailSlotStyle(true);
+    btn->setRailSlotIndex(i);
+    m_slotButtons.append(btn);
+    syncSlotButtonAppearance(i);
+
+    connect(btn, &ToolbarBtn::clicked, this, [this, i]() { applyRailSlot(i); });
+    connect(btn, &ToolbarBtn::chevronClicked, this, [this, i]() {
+      if (i < 0 || i >= m_railSlots.size())
+        return;
+      if (m_activeRailSlot != i || mode_ != m_railSlots[i].mode) {
+        m_activeRailSlot = -2; // force apply without re-click flyout
+        applyRailSlot(i);
+      }
+      if (toolHasFlyout(m_railSlots[i].mode))
+        showToolFlyout(m_railSlots[i].mode);
+    });
+    connect(btn, &ToolbarBtn::removeFromRailRequested, this, [this, i]() {
+      removeRailSlotAt(i);
+    });
+    connect(btn, &ToolbarBtn::moveInRailRequested, this, [this, i](int delta) {
+      moveRailSlot(i, delta);
+    });
+    connect(btn, &ToolbarBtn::railDragStarted, this, [this](int idx) {
+      m_railDragFrom = idx;
+      m_railDragGhostY = -1;
+    });
+    connect(btn, &ToolbarBtn::railDragMoved, this, [this](int globalY) {
+      m_railDragGhostY = mapFromGlobal(QPoint(0, globalY)).y();
+      update();
+    });
+    connect(btn, &ToolbarBtn::railDragFinished, this, [this](int globalY) {
+      if (m_railDragFrom < 0 || m_railDragFrom >= m_railSlots.size()) {
+        m_railDragFrom = -1;
+        m_railDragGhostY = -1;
+        update();
+        return;
+      }
+      const int localY = mapFromGlobal(QPoint(0, globalY)).y();
+      int target = m_railDragFrom;
+      for (int j = 0; j < m_slotButtons.size(); ++j) {
+        ToolbarBtn *b = m_slotButtons[j];
+        if (!b || !b->isVisible())
+          continue;
+        if (localY < b->y() + b->height() / 2) {
+          target = j;
+          break;
+        }
+        target = j;
+      }
+      if (target != m_railDragFrom) {
+        m_railSlots.move(m_railDragFrom, target);
+        if (m_activeRailSlot == m_railDragFrom)
+          m_activeRailSlot = target;
+        else if (m_railDragFrom < m_activeRailSlot && target >= m_activeRailSlot)
+          --m_activeRailSlot;
+        else if (m_railDragFrom > m_activeRailSlot && target <= m_activeRailSlot)
+          ++m_activeRailSlot;
+        saveRailTools();
+        rebuildSlotButtons();
+        updateLayout(false);
+      }
+      m_railDragFrom = -1;
+      m_railDragGhostY = -1;
+      update();
+    });
+  }
+}
+
+void ModernToolbar::applyRailSlot(int index) {
+  if (index < 0 || index >= m_railSlots.size())
+    return;
+  const RailSlot slot = m_railSlots[index];
+
+  if (m_activeRailSlot == index && mode_ == slot.mode) {
+    if (toolHasFlyout(slot.mode)) {
+      showToolFlyout(slot.mode);
+      return;
+    }
+    emit toolOptionsRequested();
+    return;
+  }
+
+  m_activeRailSlot = index;
+  ToolConfig &cfg = ToolManager::instance().configFor(slot.mode);
+  cfg.penColor = slot.color;
+  cfg.penWidth = qMax(1, slot.width);
+  cfg.opacity = slot.opacity;
+  cfg.shapeToolKind = static_cast<ShapeToolKind>(
+      qBound(0, slot.shapeKind, 6));
+  cfg.lassoMode = (slot.lassoMode == 1) ? LassoMode::Rectangle
+                                        : LassoMode::Freehand;
+  ToolManager::instance().selectTool(slot.mode);
+  ToolManager::instance().setConfig(cfg);
+  setToolMode(slot.mode);
+  for (int i = 0; i < m_slotButtons.size(); ++i) {
+    if (m_slotButtons[i])
+      m_slotButtons[i]->setActive(i == m_activeRailSlot);
+  }
+  emit toolChanged(slot.mode);
+}
+
+void ModernToolbar::addCurrentToolAsRailSlot() {
+  const ToolMode mode = ToolManager::instance().activeToolMode();
+  if (mode == ToolMode::Hand && railContains(ToolMode::Hand))
+    return;
+  const ToolConfig &cfg = ToolManager::instance().config();
+  m_railSlots.append(RailSlot::fromTool(mode, cfg));
+  saveRailTools();
+  m_activeRailSlot = m_railSlots.size() - 1;
+  rebuildSlotButtons();
+  updateLayout(false);
+  update();
 }
 
 void ModernToolbar::addToolToRail(ToolMode mode) {
-  if (!getButtonForMode(mode))
+  if (!getButtonForMode(mode) && mode != ToolMode::Hand)
     return;
-  if (!m_railToolModes.contains(mode)) {
-    // Keep Hand/Lasso near top; append other tools before the end.
-    if (mode == ToolMode::Hand) {
-      m_railToolModes.prepend(mode);
-    } else if (mode == ToolMode::Lasso) {
-      int idx = m_railToolModes.indexOf(ToolMode::Hand);
-      m_railToolModes.insert(idx < 0 ? 0 : idx + 1, mode);
-    } else {
-      m_railToolModes.append(mode);
+  if (mode == ToolMode::Hand && railContains(ToolMode::Hand))
+    return;
+  RailSlot slot = RailSlot::fromTool(mode, ToolManager::instance().configFor(mode));
+  if (mode == ToolMode::Hand) {
+    m_railSlots.prepend(slot);
+  } else if (mode == ToolMode::Lasso) {
+    int idx = 0;
+    for (int i = 0; i < m_railSlots.size(); ++i) {
+      if (m_railSlots[i].mode == ToolMode::Hand) {
+        idx = i + 1;
+        break;
+      }
     }
-    saveRailTools();
+    m_railSlots.insert(idx, slot);
+  } else {
+    m_railSlots.append(slot);
+  }
+  saveRailTools();
+  rebuildSlotButtons();
+  updateLayout(false);
+  update();
+}
+
+void ModernToolbar::removeRailSlotAt(int index) {
+  if (index < 0 || index >= m_railSlots.size())
+    return;
+  if (m_railSlots.size() <= 2)
+    return;
+  if (m_railSlots[index].mode == ToolMode::Hand)
+    return;
+  const ToolMode removed = m_railSlots[index].mode;
+  m_railSlots.removeAt(index);
+  if (m_activeRailSlot == index)
+    m_activeRailSlot = -1;
+  else if (m_activeRailSlot > index)
+    --m_activeRailSlot;
+  saveRailTools();
+  if (mode_ == removed && !railContains(removed)) {
+    const ToolMode fallback = railContains(ToolMode::Pen)
+                                  ? ToolMode::Pen
+                                  : m_railSlots.first().mode;
+    int fi = 0;
+    for (int i = 0; i < m_railSlots.size(); ++i) {
+      if (m_railSlots[i].mode == fallback) {
+        fi = i;
+        break;
+      }
+    }
+    rebuildSlotButtons();
+    applyRailSlot(fi);
+  } else {
+    rebuildSlotButtons();
   }
   updateLayout(false);
   update();
 }
 
 void ModernToolbar::removeToolFromRail(ToolMode mode) {
-  // Keep at least Hand + one drawing tool so the rail never empties.
-  if (m_railToolModes.size() <= 2)
-    return;
   if (mode == ToolMode::Hand)
     return;
-  if (!m_railToolModes.removeOne(mode))
-    return;
-  saveRailTools();
-  if (mode_ == mode) {
-    const ToolMode fallback = m_railToolModes.contains(ToolMode::Pen)
-                                  ? ToolMode::Pen
-                                  : m_railToolModes.first();
-    ToolManager::instance().selectTool(fallback);
-    setToolMode(fallback);
-    emit toolChanged(fallback);
+  for (int i = 0; i < m_railSlots.size(); ++i) {
+    if (m_railSlots[i].mode == mode) {
+      removeRailSlotAt(i);
+      return;
+    }
   }
+}
+
+void ModernToolbar::moveRailSlot(int index, int delta) {
+  if (index < 0 || index >= m_railSlots.size() || delta == 0)
+    return;
+  const int target = index + delta;
+  if (target < 0 || target >= m_railSlots.size())
+    return;
+  m_railSlots.move(index, target);
+  if (m_activeRailSlot == index)
+    m_activeRailSlot = target;
+  else if (index < m_activeRailSlot && target >= m_activeRailSlot)
+    --m_activeRailSlot;
+  else if (index > m_activeRailSlot && target <= m_activeRailSlot)
+    ++m_activeRailSlot;
+  saveRailTools();
+  rebuildSlotButtons();
   updateLayout(false);
   update();
 }
 
 void ModernToolbar::moveRailTool(ToolMode mode, int delta) {
-  const int idx = m_railToolModes.indexOf(mode);
-  if (idx < 0 || delta == 0)
-    return;
-  const int target = idx + delta;
-  if (target < 0 || target >= m_railToolModes.size())
-    return;
-  m_railToolModes.move(idx, target);
-  saveRailTools();
-  updateLayout(false);
-  update();
+  for (int i = 0; i < m_railSlots.size(); ++i) {
+    if (m_railSlots[i].mode == mode) {
+      moveRailSlot(i, delta);
+      return;
+    }
+  }
 }
 
 bool ModernToolbar::toolHasFlyout(ToolMode mode) const {
@@ -4255,7 +4814,11 @@ bool ModernToolbar::toolHasFlyout(ToolMode mode) const {
 }
 
 void ModernToolbar::showToolFlyout(ToolMode mode) {
-  ToolbarBtn *anchor = getButtonForMode(mode);
+  ToolbarBtn *anchor = nullptr;
+  if (m_activeRailSlot >= 0 && m_activeRailSlot < m_slotButtons.size())
+    anchor = m_slotButtons[m_activeRailSlot];
+  if (!anchor)
+    anchor = getButtonForMode(mode);
   if (!anchor)
     return;
 
@@ -4280,7 +4843,7 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
     freehand->setChecked(cur == LassoMode::Freehand);
     rect->setChecked(cur == LassoMode::Rectangle);
     QAction *picked = menu.exec(anchor->mapToGlobal(
-        QPoint(anchor->width() + UiScale::dp(6), UiScale::dp(4))));
+        QPoint(-menu.sizeHint().width() - UiScale::dp(6), UiScale::dp(4))));
     if (!picked)
       return;
     ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Lasso);
@@ -4289,6 +4852,12 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
     ToolManager::instance().selectTool(ToolMode::Lasso);
     ToolManager::instance().setConfig(cfg);
     setToolMode(ToolMode::Lasso);
+    if (m_activeRailSlot >= 0 && m_activeRailSlot < m_railSlots.size() &&
+        m_railSlots[m_activeRailSlot].mode == ToolMode::Lasso) {
+      m_railSlots[m_activeRailSlot].lassoMode =
+          static_cast<int>(cfg.lassoMode);
+      saveRailTools();
+    }
     syncDrawboardToolIcons();
     return;
   }
@@ -4296,37 +4865,62 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
   if (mode == ToolMode::Shape) {
     auto *rect = menu.addAction(tr("Rechteck"));
     auto *circle = menu.addAction(tr("Kreis"));
+    auto *line = menu.addAction(tr("Linie"));
+    auto *arrow = menu.addAction(tr("Pfeil"));
     rect->setCheckable(true);
     circle->setCheckable(true);
+    line->setCheckable(true);
+    arrow->setCheckable(true);
     const ShapeToolKind cur =
         ToolManager::instance().configFor(ToolMode::Shape).shapeToolKind;
-    rect->setChecked(cur != ShapeToolKind::Circle);
+    rect->setChecked(cur == ShapeToolKind::Rectangle);
     circle->setChecked(cur == ShapeToolKind::Circle);
+    line->setChecked(cur == ShapeToolKind::Line);
+    arrow->setChecked(cur == ShapeToolKind::Arrow);
     menu.addSeparator();
     auto *more = menu.addAction(tr("Weitere Eigenschaften…"));
     QAction *picked = menu.exec(anchor->mapToGlobal(
-        QPoint(anchor->width() + UiScale::dp(6), UiScale::dp(4))));
+        QPoint(-menu.sizeHint().width() - UiScale::dp(6), UiScale::dp(4))));
     if (!picked)
       return;
     if (picked == more) {
       emit toolOptionsRequested();
       return;
     }
+    ShapeToolKind kind = ShapeToolKind::Rectangle;
+    if (picked == circle)
+      kind = ShapeToolKind::Circle;
+    else if (picked == line)
+      kind = ShapeToolKind::Line;
+    else if (picked == arrow)
+      kind = ShapeToolKind::Arrow;
     ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Shape);
-    cfg.shapeToolKind = (picked == circle) ? ShapeToolKind::Circle
-                                           : ShapeToolKind::Rectangle;
+    cfg.shapeToolKind = kind;
     ToolManager::instance().selectTool(ToolMode::Shape);
     ToolManager::instance().setConfig(cfg);
     setToolMode(ToolMode::Shape);
+    if (m_activeRailSlot >= 0 && m_activeRailSlot < m_railSlots.size() &&
+        m_railSlots[m_activeRailSlot].mode == ToolMode::Shape) {
+      m_railSlots[m_activeRailSlot].shapeKind = static_cast<int>(kind);
+      saveRailTools();
+    }
     syncDrawboardToolIcons();
   }
 }
 
 QList<ToolbarBtn *> ModernToolbar::currentRailButtons() const {
   QList<ToolbarBtn *> out;
-  for (ToolMode m : m_railToolModes) {
-    if (ToolbarBtn *b = const_cast<ModernToolbar *>(this)->getButtonForMode(m))
-      out.append(b);
+  if (!m_slotButtons.isEmpty()) {
+    for (ToolbarBtn *b : m_slotButtons) {
+      if (b)
+        out.append(b);
+    }
+  } else {
+    for (const RailSlot &s : m_railSlots) {
+      if (ToolbarBtn *b =
+              const_cast<ModernToolbar *>(this)->getButtonForMode(s.mode))
+        out.append(b);
+    }
   }
   // Drawboard footer: Markup Library → "+" → edge chevron.
   if (btnLibrary)
@@ -4503,7 +5097,7 @@ int ModernToolbar::calculateMinLength() {
     int dragH = UiScale::dp(30);
 #ifndef Q_OS_ANDROID
     if (m_orientation == Vertical) {
-      const int n = qMax(1, m_railToolModes.size()) + 3; // tools + library/+ /chevron
+      const int n = qMax(1, m_railSlots.size()) + 3; // tools + library/+ /chevron
       const int cell = UiScale::dp(40);
       const int gap = UiScale::dp(2);
       // Two section dividers (select / ink / insert).
@@ -4910,14 +5504,12 @@ void ModernToolbar::updateLayout(bool animate) {
       QList<ToolbarBtn *> railOrder;
       m_separatorYPositions.clear();
       if (m_orientation == Vertical) {
-        if (m_railToolModes.isEmpty())
+        if (m_railSlots.isEmpty())
           loadRailTools();
+        if (m_slotButtons.isEmpty())
+          rebuildSlotButtons();
         railOrder = currentRailButtons();
-        // Fit cells into available height.
-        const int n = qMax(1, railOrder.size());
-        const int avail = qMax(UiScale::dp(120), h - dragSize - UiScale::dp(8));
-        const int cell = qBound(UiScale::dp(30), avail / n, UiScale::dp(42));
-        btnS = cell;
+        btnS = UiScale::dp(40);
         gap = UiScale::dp(1);
       } else {
         for (auto *b : m_buttons) {
@@ -4927,56 +5519,81 @@ void ModernToolbar::updateLayout(bool animate) {
         }
       }
 
-      for (auto *b : railOrder) {
-        if (!b)
-          continue;
-        if (chromeRow.contains(b))
-          continue;
-        if (m_dockedOnlyButtons.contains(b)) {
-          b->hide();
-          continue;
+      if (m_orientation == Vertical) {
+        // Fixed footer (library / + / chevron); scrollable tool slots above.
+        QList<ToolbarBtn *> slotBtns;
+        QList<ToolbarBtn *> footerBtns;
+        for (ToolbarBtn *b : railOrder) {
+          if (!b)
+            continue;
+          if (b == btnLibrary || b == btnAddTool || b == btnRailChevron)
+            footerBtns.append(b);
+          else
+            slotBtns.append(b);
         }
-        int bx, by;
-        if (m_orientation == Vertical) {
+        const int footerGap = UiScale::dp(2);
+        const int footerH =
+            footerBtns.size() * btnS +
+            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(10);
+        const int contentTop = dragSize + UiScale::dp(4);
+        const int contentBottom = h - footerH - UiScale::dp(4);
+        const int contentH = qMax(btnS, contentBottom - contentTop);
+
+        // Content height of all slots (+ soft dividers).
+        int contentNeeded = 0;
+        for (int i = 0; i < slotBtns.size(); ++i) {
+          contentNeeded += btnS + gap;
+          // Dividers after select-group / ink-group.
+          if (i < m_railSlots.size()) {
+            const ToolMode m = m_railSlots[i].mode;
+            if (m == ToolMode::Lasso || m == ToolMode::Eraser)
+              contentNeeded += UiScale::dp(8);
+          }
+        }
+        const int maxScroll = qMax(0, contentNeeded - contentH);
+        m_railScrollPx = qBound(0, m_railScrollPx, maxScroll);
+
+        int y = contentTop - m_railScrollPx;
+        for (int i = 0; i < slotBtns.size(); ++i) {
+          ToolbarBtn *b = slotBtns[i];
           b->setRailSlotStyle(true);
           b->setBtnCell(w - UiScale::dp(4), btnS);
-          bx = UiScale::dp(2);
-          by = currentPos;
-        } else {
-          b->setRailSlotStyle(false);
-          b->setBtnSize(btnS);
-          bx = currentPos;
-          by = (h - btnS) / 2;
-        }
-        currentPos += (m_orientation == Vertical ? b->height() : btnS) + gap;
-
-        // Soft section dividers: after Select / after ink / before library footer.
-        if (m_orientation == Vertical) {
-          bool afterSection = (b == btnLasso || b == btnEraser);
-          if (btnLibrary) {
-            const int libIdx = railOrder.indexOf(btnLibrary);
-            if (libIdx > 0 && b == railOrder.at(libIdx - 1))
-              afterSection = true;
+          const int bx = UiScale::dp(2);
+          const int by = y;
+          y += b->height() + gap;
+          if (i < m_railSlots.size()) {
+            const ToolMode m = m_railSlots[i].mode;
+            if (m == ToolMode::Lasso || m == ToolMode::Eraser) {
+              y += UiScale::dp(4);
+              const int sepY = y - gap / 2;
+              if (sepY >= contentTop && sepY <= contentBottom)
+                m_separatorYPositions.append(sepY);
+              y += UiScale::dp(4);
+            }
           }
-          if (afterSection) {
-            currentPos += UiScale::dp(4);
-            m_separatorYPositions.append(currentPos - gap / 2);
-            currentPos += UiScale::dp(4);
+          const bool visible =
+              (by + b->height() > contentTop) && (by < contentBottom);
+          if (visible) {
+            b->move(bx, by);
+            b->show();
+            b->raise();
+          } else {
+            b->hide();
           }
         }
 
-        if (animate) {
-          QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
-          anim->setDuration(200);
-          anim->setEndValue(QPoint(bx, by));
-          anim->start(QAbstractAnimation::DeleteWhenStopped);
-        } else {
-          b->move(bx, by);
+        int fy = contentBottom + UiScale::dp(6);
+        // Divider before footer.
+        m_separatorYPositions.append(contentBottom + UiScale::dp(2));
+        for (ToolbarBtn *b : footerBtns) {
+          b->setRailSlotStyle(true);
+          b->setBtnCell(w - UiScale::dp(4), btnS);
+          b->move(UiScale::dp(2), fy);
+          b->show();
+          b->raise();
+          fy += b->height() + footerGap;
         }
-        b->show();
-      }
-      // Hide any leftover buttons not in the rail order (vertical).
-      if (m_orientation == Vertical) {
+
         for (auto *b : m_buttons) {
           if (!b || chromeRow.contains(b) || railOrder.contains(b))
             continue;
@@ -4987,6 +5604,31 @@ void ModernToolbar::updateLayout(bool animate) {
           btnDockToggle->hide();
         if (m_activeIndicator)
           m_activeIndicator->hide();
+      } else {
+        for (auto *b : railOrder) {
+          if (!b)
+            continue;
+          if (chromeRow.contains(b))
+            continue;
+          if (m_dockedOnlyButtons.contains(b)) {
+            b->hide();
+            continue;
+          }
+          b->setRailSlotStyle(false);
+          b->setBtnSize(btnS);
+          const int bx = currentPos;
+          const int by = (h - btnS) / 2;
+          currentPos += btnS + gap;
+          if (animate) {
+            QPropertyAnimation *anim = new QPropertyAnimation(b, "pos");
+            anim->setDuration(200);
+            anim->setEndValue(QPoint(bx, by));
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
+          } else {
+            b->move(bx, by);
+          }
+          b->show();
+        }
       }
     }
   } else {

@@ -10,7 +10,15 @@ enum class HighlighterTip { Round, Chisel };
 enum class ShapeType { Rectangle, Circle, Triangle, Arrow, Star, Graph };
 
 /// Modus des Formen-Werkzeugs (Aufzieh-Rechteck als Bounds).
-enum class ShapeToolKind { Rectangle = 0, Circle = 1, Axes2D = 2, SineGraph = 3, CoordinateGraph = 4 };
+enum class ShapeToolKind {
+  Rectangle = 0,
+  Circle = 1,
+  Axes2D = 2,
+  SineGraph = 3,
+  CoordinateGraph = 4,
+  Line = 5,
+  Arrow = 6
+};
 
 struct GraphFunctionSpec {
     QString expression{"sin(x)"};

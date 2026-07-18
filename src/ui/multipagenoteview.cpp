@@ -1,4 +1,5 @@
 #include "multipagenoteview.h"
+#include "markuplibrarystore.h"
 #include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
 #include "croptools.h"
@@ -88,6 +89,7 @@
 #include <QBuffer>
 #include <QPalette>
 #include <QDir>
+#include <QUuid>
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QShowEvent>
@@ -338,6 +340,15 @@ public:
                &NoteSelectionMenu::cropRequested);
     addIconBtn(SelectionMenuIcons::screenshotIcon(), QStringLiteral("Screenshot"),
                &NoteSelectionMenu::screenshotRequested);
+    {
+      auto *btnLib = new QPushButton(QStringLiteral("Lib"), this);
+      btnLib->setToolTip(QStringLiteral("Zur Bibliothek"));
+      btnLib->setFlat(true);
+      btnLib->setFixedWidth(36);
+      connect(btnLib, &QPushButton::clicked, this,
+              &NoteSelectionMenu::libraryRequested);
+      layout->addWidget(btnLib);
+    }
     QFrame *line = new QFrame;
     line->setFrameShape(QFrame::VLine);
     line->setStyleSheet("color: #555;");
@@ -362,6 +373,7 @@ signals:
   void colorRequested();
   void screenshotRequested();
   void cropRequested();
+  void libraryRequested();
 };
 
 class GraphInkInputWidget : public QWidget {
@@ -1251,6 +1263,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   connect(m_selectionMenu, &NoteSelectionMenu::colorRequested, this, &MultiPageNoteView::changeSelectionColor);
   connect(m_selectionMenu, &NoteSelectionMenu::screenshotRequested, this, &MultiPageNoteView::screenshotSelection);
   connect(m_selectionMenu, &NoteSelectionMenu::duplicateRequested, this, &MultiPageNoteView::duplicateSelection);
+  connect(m_selectionMenu, &NoteSelectionMenu::libraryRequested, this,
+          &MultiPageNoteView::addSelectionToMarkupLibrary);
   // v3.18.0: Crop war als Button + Signal vorhanden, aber nie verbunden.
   connect(m_selectionMenu, &NoteSelectionMenu::cropRequested, this, &MultiPageNoteView::startCropSession);
 
@@ -3785,6 +3799,119 @@ void MultiPageNoteView::duplicateSelection() {
   if (duplicatedGraph)
     syncGraphItemsToNote();
   onSelectionChanged();
+}
+
+void MultiPageNoteView::addSelectionToMarkupLibrary() {
+  if (!note_)
+    return;
+  const QList<QGraphicsItem *> selected = scene_.selectedItems();
+  if (selected.isEmpty())
+    return;
+
+  QVector<Stroke> strokes;
+  QRectF bounds;
+  QColor preview = Qt::black;
+  for (QGraphicsItem *item : selected) {
+    if (item->type() == GraphCanvasItem::Type)
+      continue;
+    if (item->parentItem() &&
+        item->parentItem()->type() == GraphCanvasItem::Type)
+      continue;
+    auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+    if (!pathItem)
+      continue;
+    QPainterPath scenePath = pathItem->mapToScene(pathItem->path());
+    bounds = bounds.united(scenePath.boundingRect());
+  }
+  if (bounds.isEmpty())
+    return;
+  const QPointF origin = bounds.topLeft();
+
+  for (QGraphicsItem *item : selected) {
+    if (item->type() == GraphCanvasItem::Type)
+      continue;
+    if (item->parentItem() &&
+        item->parentItem()->type() == GraphCanvasItem::Type)
+      continue;
+    auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item);
+    if (!pathItem)
+      continue;
+
+    QPainterPath scenePath = pathItem->mapToScene(pathItem->path());
+    scenePath.translate(-origin);
+
+    Stroke s;
+    s.pageIndex = 0;
+    const QPen pen = pathItem->pen();
+    s.width = pen.widthF();
+    QColor color = pen.color();
+    if (auto *si = dynamic_cast<StrokeItem *>(item)) {
+      s.isEraser = (si->strokeStyle() == StrokeItem::Eraser);
+      s.isHighlighter = (si->strokeStyle() == StrokeItem::Highlighter);
+    } else if (color.alpha() < 255) {
+      s.isHighlighter = true;
+    }
+    if (s.isHighlighter)
+      color.setAlpha(255);
+    s.color = color;
+    preview = color;
+    s.path = scenePath;
+    for (int i = 0; i < s.path.elementCount(); ++i)
+      s.points.append(QPointF(s.path.elementAt(i).x, s.path.elementAt(i).y));
+    strokes.append(s);
+  }
+  if (strokes.isEmpty())
+    return;
+
+  MarkupLibraryItem item;
+  item.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  item.name = tr("Markup %1").arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm")));
+  item.created = QDateTime::currentDateTime();
+  item.strokes = strokes;
+  item.previewColor = preview;
+  MarkupLibraryStore::addItem(item);
+  if (m_selectionMenu)
+    m_selectionMenu->hide();
+}
+
+void MultiPageNoteView::insertMarkupLibraryItem(const QString &itemId) {
+  if (!note_ || itemId.isEmpty())
+    return;
+  MarkupLibraryItem found;
+  bool ok = false;
+  for (const MarkupLibraryItem &it : MarkupLibraryStore::load()) {
+    if (it.id == itemId) {
+      found = it;
+      ok = true;
+      break;
+    }
+  }
+  if (!ok || found.strokes.isEmpty())
+    return;
+
+  const int pIdx = qMax(0, currentPage_);
+  note_->ensurePage(pIdx);
+  const QPointF pageTopLeft = pageRect(pIdx).topLeft();
+  // Place near the center of the visible page.
+  const QRectF pr = pageRect(pIdx);
+  const QPointF insertAt = pr.center() - QPointF(40, 40);
+
+  const bool useMacro = m_undoStack && found.strokes.size() > 1;
+  if (useMacro)
+    m_undoStack->beginMacro(tr("Markup einfügen"));
+  for (Stroke s : found.strokes) {
+    s.pageIndex = pIdx;
+    QPainterPath path = s.path.translated(insertAt - pageTopLeft);
+    s.path = path;
+    s.points.clear();
+    for (int i = 0; i < path.elementCount(); ++i)
+      s.points.append(QPointF(path.elementAt(i).x, path.elementAt(i).y));
+    pushStrokeUndoCommand(pIdx, std::move(s));
+  }
+  if (useMacro)
+    m_undoStack->endMacro();
+  if (onSaveRequested)
+    onSaveRequested(note_);
 }
 
 void MultiPageNoteView::changeSelectionColor() {
