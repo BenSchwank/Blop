@@ -2,6 +2,7 @@
 #include "UIStyles.h"
 #include "canvasview.h"
 #include "moderntoolbar.h"
+#include "notechrome.h"
 #include "androidphonetoolbar.h"
 #include "documenttabbar.h"
 #include "librarytagspanel.h"
@@ -2889,18 +2890,16 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
     } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       const int headerH = noteHeaderHeight();
       tb->setTopBound(headerH);
+#ifdef Q_OS_ANDROID
       if (tb->isDockedMode()) {
         int idealW = tb->calculateMinLength();
-        // Slightly shorter docked toolbar at full width.
         idealW = qMax(220, int(idealW * 0.90));
-        // Toolbar coordinates are relative to m_editorCenterWidget; no extra inset needed.
         const int availableW = qMax(240, m_editorCenterWidget->width());
         const int dockW = qMin(idealW, availableW);
         int dockX = qMax(0, (availableW - dockW) / 2);
         if (dockX + dockW > m_editorCenterWidget->width())
           dockX = m_editorCenterWidget->width() - dockW;
         tb->setGeometry(dockX, headerH, dockW, 48);
-        // Still float the bottom strip under a docked top bar.
         if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
           const int margin = UiScale::dp(14);
           const int stripH = m_noteBottomChrome->height();
@@ -2914,6 +2913,10 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       } else {
         positionNoteChrome();
       }
+#else
+      // Desktop Drawboard chrome owns geometry (left pages + top markup bar).
+      positionNoteChrome();
+#endif
       tb->raise();
       syncPenPresetBarGeometry();
     }
@@ -2945,18 +2948,14 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
     const int newY = m_floatingTools->y();
     if (qAbs(newY - m_lastDockCheckY) >= 8) {
       m_lastDockCheckY = newY;
-#ifdef Q_OS_ANDROID
-      // Re-dock when floating toolbar is dragged to the top (y <= 10)
+      // Re-dock Markup Toolbar when dragged to the top.
       if (newY <= 10) {
         if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
           tb->setDockMode(true);
+          positionNoteChrome();
           syncPenPresetBarGeometry();
         }
       }
-#else
-      // Desktop Drawboard: keep the vertical right rail — never top-dock.
-      Q_UNUSED(newY);
-#endif
     }
   }
 
@@ -4724,8 +4723,8 @@ void MainWindow::setupUi() {
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
-    // Desktop Drawboard layout: vertical tool rail on the right edge.
-    topToolbar->applyDrawboardVerticalRail();
+    // Desktop Drawboard: Markup Toolbar docked at the top of the canvas.
+    topToolbar->applyDrawboardMarkupToolbar();
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) { positionNoteChrome(); });
@@ -4845,29 +4844,37 @@ void MainWindow::setupUi() {
   centerLayout->insertWidget(0, m_noteHeader);
 #endif
 
-  // ── Drawboard floating bottom strip: undo/redo · page · zoom ─────────────
+  // ── Drawboard utilities bar: undo/redo · page · zoom ─────────────────────
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
-  m_noteBottomChrome->setAttribute(Qt::WA_TranslucentBackground, true);
+  m_noteBottomChrome->setAttribute(Qt::WA_StyledBackground, true);
   m_noteBottomChrome->setFixedHeight(UiScale::dp(44));
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
-      "  background: rgba(14, 12, 24, 0.94);"
-      "  border: 1px solid rgba(124, 92, 252, 0.28);"
-      "  border-radius: 14px;"
+      "  background: %1;"
+      "  border: 1px solid %2;"
+      "  border-radius: 8px;"
       "}"
       "QPushButton {"
-      "  background: transparent; color: rgba(232,228,255,0.88);"
-      "  border: none; border-radius: 10px;"
-      "  font-size: 14px; font-weight: 600; min-width: 28px; min-height: 28px;"
-      "  padding: 0 6px;"
+      "  background: transparent; color: %3;"
+      "  border: none; border-radius: 6px;"
+      "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
+      "  padding: 0 8px;"
       "}"
-      "QPushButton:hover { background: rgba(124,92,252,0.18); }"
-      "QLabel { background: transparent; color: rgba(232,228,255,0.85);"
-      "  font-size: 12px; font-weight: 600; }"));
+      "QPushButton:hover { background: rgba(255,255,255,0.08); color: %4; }"
+      "QLabel { background: transparent; color: %3;"
+      "  font-size: 12px; font-weight: 600; }")
+                                        .arg(NoteChrome::panelElevated().name(
+                                                 QColor::HexRgb),
+                                             NoteChrome::border().name(
+                                                 QColor::HexRgb),
+                                             NoteChrome::textSecondary().name(
+                                                 QColor::HexRgb),
+                                             NoteChrome::textPrimary().name(
+                                                 QColor::HexRgb)));
   auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
-  bottomLay->setContentsMargins(UiScale::dp(10), UiScale::dp(6),
-                                UiScale::dp(10), UiScale::dp(6));
+  bottomLay->setContentsMargins(UiScale::dp(12), UiScale::dp(6),
+                                UiScale::dp(12), UiScale::dp(6));
   bottomLay->setSpacing(UiScale::dp(4));
 
   m_btnNoteUndo = new QPushButton(QStringLiteral("↶"), m_noteBottomChrome);
@@ -4954,9 +4961,26 @@ void MainWindow::setupUi() {
   // Floating overlay — not in the VBox (Drawboard bottom strip).
 
 #ifndef Q_OS_ANDROID
-  // ── Slim left icon rail (Drawboard) ──────────────────────────────────────
+  // Canvas host — Drawboard charcoal around the white page.
+  m_editorCenterWidget->setStyleSheet(
+      QStringLiteral("QWidget { background: %1; }")
+          .arg(NoteChrome::canvasBg().name(QColor::HexRgb)));
+  if (m_editorTabs) {
+    m_editorTabs->setStyleSheet(
+        QStringLiteral(
+            "QTabBar::tab { background: transparent; color: #888; "
+            "padding: 6px 16px; border: none; font-size: 12px; }"
+            "QTabBar::tab:selected { color: #E8E8E8; "
+            "border-bottom: 2px solid %1; }"
+            "QTabBar::tab:hover { color: #ccc; }"
+            "QTabWidget::pane { border: none; background: %2; }")
+            .arg(NoteChrome::accent().name(QColor::HexRgb),
+                 NoteChrome::canvasBg().name(QColor::HexRgb)));
+  }
+
+  // ── Drawboard left menu strip ────────────────────────────────────────────
   m_noteLeftRail = new NoteLeftRail(m_editorCenterWidget);
-  m_noteLeftRail->setAccentColor(m_currentAccentColor);
+  m_noteLeftRail->setAccentColor(NoteChrome::accent());
   m_noteLeftRail->setIcon(QStringLiteral("pages"),
                           createModernIcon(QStringLiteral("pages"),
                                            QColor(QStringLiteral("#E8E4FF"))));
@@ -5009,7 +5033,7 @@ void MainWindow::setupUi() {
 #else
   m_pageThumbnailSidebar = new PageThumbnailSidebar(m_editorCenterWidget);
 #endif
-  m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+  m_pageThumbnailSidebar->setAccentColor(NoteChrome::accent());
 #ifndef Q_OS_ANDROID
   m_pageThumbnailSidebar->setFloatingMode(true);
   m_pageThumbnailSidebar->setCollapsed(false);
@@ -7709,7 +7733,7 @@ void MainWindow::setupRightSidebar() {
             if (tb) {
               if (index == 0) {
                 tb->setStyle(ModernToolbar::Normal);
-                tb->applyDrawboardVerticalRail();
+                tb->applyDrawboardMarkupToolbar();
                 if (m_radialFab)
                   m_radialFab->hide();
                 positionNoteChrome();
@@ -8224,15 +8248,15 @@ void MainWindow::updateSidebarState() {
   if (m_noteLeftRail)
     m_noteLeftRail->setVisible(inNotesMode && isEditor);
 
-  // Lock Drawboard vertical right rail whenever the note editor is active.
+  // Lock Drawboard Markup Toolbar (top) whenever the note editor is active.
   if (isEditor) {
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       if (tb->currentStyle() == ModernToolbar::Normal)
-        tb->applyDrawboardVerticalRail();
+        tb->applyDrawboardMarkupToolbar();
     }
   }
 
-  // FAB only for Radial toolbar style — default vertical rail must stay clean.
+  // FAB only for Radial toolbar style.
   if (m_radialFab) {
     bool showFab = false;
     if (inNotesMode && isEditor) {
@@ -8273,7 +8297,7 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
-    // Title-bar page button toggles the right page-thumbnail rail.
+    // Title-bar page button toggles the left Pages panel.
     if (m_btnTitleBarPageManager)
       m_btnTitleBarPageManager->setVisible(inNotesMode && isEditor && hasA4Pages);
   }
@@ -9887,23 +9911,45 @@ void MainWindow::positionDrawboardToolbar() {
   if (tb->currentStyle() != ModernToolbar::Normal)
     return;
 
-  tb->applyDrawboardVerticalRail();
+  const int W = m_editorCenterWidget->width();
+  const int margin = UiScale::dp(12);
 
-  const int headerH = noteHeaderHeight();
-  const int bottomH = noteBottomChromeHeight();
-  const int margin = UiScale::dp(14);
-  const int railW = UiScale::dp(52);
-  const int idealH = tb->calculateMinLength();
-  const int availH = qMax(UiScale::dp(160),
-                          m_editorCenterWidget->height() - headerH - bottomH -
-                              2 * margin);
-  const int h = qBound(UiScale::dp(200), idealH, availH);
-  const int x = qMax(margin, m_editorCenterWidget->width() - railW - margin);
-  const int y = headerH + margin + qMax(0, (availH - h) / 2);
-  tb->setMinimumSize(0, 0);
-  tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  tb->setFixedWidth(railW);
-  tb->setGeometry(x, y, railW, h);
+  // Content starts after left menu + optional Pages panel.
+  int leftInset = 0;
+#ifndef Q_OS_ANDROID
+  if (m_noteLeftRail && m_noteLeftRail->isVisible())
+    leftInset += m_noteLeftRail->preferredWidth();
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
+    leftInset += m_pageThumbnailSidebar->width();
+#endif
+
+  if (tb->isDockedMode() || tb->orientation() == ModernToolbar::Horizontal) {
+    tb->applyDrawboardMarkupToolbar();
+    const int barH = UiScale::dp(48);
+    const int contentW = qMax(UiScale::dp(200), W - leftInset);
+    const int idealW = tb->calculateMinLength();
+    const int barW = qBound(UiScale::dp(260), idealW, contentW - 2 * margin);
+    const int x = leftInset + qMax(margin, (contentW - barW) / 2);
+    const int y = noteHeaderHeight();
+    tb->setMinimumSize(0, 0);
+    tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    tb->setFixedHeight(barH);
+    tb->setGeometry(x, y, barW, barH);
+  } else {
+    // Optional vertical rail (settings / side-snap).
+    tb->applyDrawboardVerticalRail();
+    const int bottomH = noteBottomChromeHeight();
+    const int railW = UiScale::dp(52);
+    const int idealH = tb->calculateMinLength();
+    const int availH = qMax(UiScale::dp(160),
+                            m_editorCenterWidget->height() - noteHeaderHeight() -
+                                bottomH - 2 * margin);
+    const int h = qBound(UiScale::dp(200), idealH, availH);
+    const int x = qMax(margin, W - railW - margin);
+    const int y = noteHeaderHeight() + margin + qMax(0, (availH - h) / 2);
+    tb->setFixedWidth(railW);
+    tb->setGeometry(x, y, railW, h);
+  }
   tb->raise();
 }
 
@@ -9911,61 +9957,52 @@ void MainWindow::positionNoteChrome() {
   if (!m_editorCenterWidget)
     return;
 
-  const int margin = UiScale::dp(14);
+  const int margin = UiScale::dp(12);
   const int W = m_editorCenterWidget->width();
   const int H = m_editorCenterWidget->height();
-  const int toolW = UiScale::dp(52);
-  const int gap = UiScale::dp(10);
-
-  // Compact centered bottom strip — do not span the full canvas width.
-  if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
-    const int stripH = m_noteBottomChrome->height();
-    const int stripW = qBound(UiScale::dp(280), UiScale::dp(400),
-                             W - 2 * margin - toolW - UiScale::dp(100));
-    const int x = (W - stripW) / 2;
-    const int y = H - stripH - margin;
-    m_noteBottomChrome->setGeometry(x, y, stripW, stripH);
-    m_noteBottomChrome->raise();
-  }
 
 #ifndef Q_OS_ANDROID
-  // Left icon rail (navigation only).
+  // Drawboard left menu — full-height flush strip.
+  int leftX = 0;
   if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
     const int railW = m_noteLeftRail->preferredWidth();
-    const int bottomClear = noteBottomChromeHeight();
-    const int railH = qMax(UiScale::dp(220), H - bottomClear - 2 * margin);
-    const int y = margin + qMax(0, (H - bottomClear - 2 * margin - railH) / 2);
-    m_noteLeftRail->setGeometry(margin, y, railW, railH);
+    m_noteLeftRail->setGeometry(0, 0, railW, H);
     m_noteLeftRail->raise();
+    leftX = railW;
   }
 
-  // Right page-thumbnail sidebar, immediately left of the vertical tool rail.
+  // Pages panel — solid column to the right of the left menu.
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
     if (m_pageThumbnailSidebar->isCollapsed())
       m_pageThumbnailSidebar->setCollapsed(false);
     const int thumbW = m_pageThumbnailSidebar->width();
-    const int bottomClear = noteBottomChromeHeight();
-    const int thumbH = qMax(UiScale::dp(200), H - bottomClear - 2 * margin);
-    const int x = qMax(margin, W - margin - toolW - gap - thumbW);
-    m_pageThumbnailSidebar->setGeometry(x, margin, thumbW, thumbH);
+    m_pageThumbnailSidebar->setGeometry(leftX, 0, thumbW, H);
     m_pageThumbnailSidebar->raise();
+    leftX += thumbW;
   }
+#else
+  const int leftX = 0;
 #endif
+
+  // Utilities bar — sits in the content area under the page.
+  if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
+    const int stripH = m_noteBottomChrome->height();
+    const int stripW =
+        qBound(UiScale::dp(300), UiScale::dp(460), W - leftX - 2 * margin);
+    const int x = leftX + (W - leftX - stripW) / 2;
+    const int y = H - stripH - margin;
+    m_noteBottomChrome->setGeometry(x, y, stripW, stripH);
+    m_noteBottomChrome->raise();
+  }
 
   positionDrawboardToolbar();
   if (m_floatingTools)
     m_floatingTools->raise();
 
 #ifndef Q_OS_ANDROID
-  // Radial FAB only when Radial style is active (kept clear of the right rail).
   if (m_radialFab && m_radialFab->isVisible() && !m_radialFab->isExpanded()) {
     const int fab = m_radialFab->collapsedSize();
-    const int pageW =
-        (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
-            ? m_pageThumbnailSidebar->width() + gap
-            : 0;
-    const int x =
-        qMax(margin, W - margin - toolW - pageW - UiScale::dp(12) - fab);
+    const int x = qMax(leftX + margin, W - margin - fab);
     const int y = qMax(margin, H - noteBottomChromeHeight() - fab - margin);
     if (m_radialFab->x() <= 0 && m_radialFab->y() <= 0)
       m_radialFab->move(x, y);

@@ -103,7 +103,9 @@ public:
     void setDockMode(bool docked);
     bool isDockedMode() const { return m_isDockedMode; }
 
-    /// Desktop Drawboard: keep Normal style as a vertical right rail (no top shelf).
+    /// Desktop Drawboard Markup Toolbar: docked horizontal bar at the top.
+    void applyDrawboardMarkupToolbar();
+    /// Optional alternate: floating vertical tool rail on the right.
     void applyDrawboardVerticalRail();
 
     void setStyle(Style style);

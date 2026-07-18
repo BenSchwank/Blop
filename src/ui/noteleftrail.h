@@ -1,7 +1,7 @@
 #pragma once
 
-// Slim floating left icon rail — Drawboard PDF–style note chrome.
-// Hosts view/navigation icons; page thumbnails expand on the right.
+// Drawboard-style left menu strip — pages / search / more / utilities.
+// Page thumbnails open as a panel immediately to its right.
 
 #include <QColor>
 #include <QHash>
@@ -41,6 +41,6 @@ private:
 
   QVBoxLayout *m_lay{nullptr};
   QHash<QString, QToolButton *> m_btns;
-  QColor m_accent{QColor(QStringLiteral("#7C5CFC"))};
+  QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
   bool m_pagesExpanded{true};
 };

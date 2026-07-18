@@ -1,27 +1,27 @@
 #include "noteleftrail.h"
 
+#include "notechrome.h"
 #include "uiscale.h"
 
 #include <QPaintEvent>
 #include <QPainter>
-#include <QPainterPath>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("NoteLeftRail"));
-  setAttribute(Qt::WA_TranslucentBackground, true);
+  setAttribute(Qt::WA_StyledBackground, true);
   setFixedWidth(preferredWidth());
 
   m_lay = new QVBoxLayout(this);
-  m_lay->setContentsMargins(UiScale::dp(6), UiScale::dp(10), UiScale::dp(6),
-                            UiScale::dp(10));
-  m_lay->setSpacing(UiScale::dp(4));
+  m_lay->setContentsMargins(UiScale::dp(6), UiScale::dp(12), UiScale::dp(6),
+                            UiScale::dp(12));
+  m_lay->setSpacing(UiScale::dp(2));
 
-  makeBtn(QStringLiteral("pages"), QStringLiteral("Seitenleiste"));
+  makeBtn(QStringLiteral("pages"), QStringLiteral("Seiten"));
   makeBtn(QStringLiteral("search"), QStringLiteral("Suche"));
   makeBtn(QStringLiteral("more"), QStringLiteral("Mehr"));
-  m_lay->addSpacing(UiScale::dp(8));
+  m_lay->addSpacing(UiScale::dp(10));
   makeBtn(QStringLiteral("select"), QStringLiteral("Auswahl"));
   m_lay->addStretch(1);
   makeBtn(QStringLiteral("export"), QStringLiteral("Exportieren"));
@@ -49,7 +49,7 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   refreshStyles();
 }
 
-int NoteLeftRail::preferredWidth() const { return UiScale::dp(48); }
+int NoteLeftRail::preferredWidth() const { return UiScale::dp(52); }
 
 QToolButton *NoteLeftRail::makeBtn(const QString &id, const QString &tip) {
   auto *btn = new QToolButton(this);
@@ -57,7 +57,7 @@ QToolButton *NoteLeftRail::makeBtn(const QString &id, const QString &tip) {
   btn->setToolTip(tip);
   btn->setCursor(Qt::PointingHandCursor);
   btn->setAutoRaise(true);
-  btn->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  btn->setFixedSize(UiScale::dp(38), UiScale::dp(38));
   btn->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
   m_btns.insert(id, btn);
   m_lay->addWidget(btn, 0, Qt::AlignHCenter);
@@ -85,39 +85,30 @@ void NoteLeftRail::setPagesExpanded(bool on) {
 }
 
 void NoteLeftRail::refreshStyles() {
+  const QColor a = NoteChrome::accent();
   setStyleSheet(QStringLiteral(
       "QToolButton#NoteLeftRailBtn {"
-      "  background: transparent; border: none; border-radius: 10px;"
+      "  background: transparent; border: none; border-radius: 8px;"
       "  padding: 0;"
       "}"
       "QToolButton#NoteLeftRailBtn:hover {"
       "  background: rgba(255,255,255,0.08);"
       "}"
       "QToolButton#NoteLeftRailBtn:checked {"
-      "  background: rgba(%1,%2,%3,0.28);"
+      "  background: rgba(%1,%2,%3,0.22);"
       "}")
-                    .arg(m_accent.red())
-                    .arg(m_accent.green())
-                    .arg(m_accent.blue()));
+                    .arg(a.red())
+                    .arg(a.green())
+                    .arg(a.blue()));
 }
 
 void NoteLeftRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
-  p.setRenderHint(QPainter::Antialiasing, true);
+  p.setRenderHint(QPainter::Antialiasing, false);
 
-  const QRectF r = QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5);
-  const qreal radius = 18.0;
-
-  // Soft drop shadow
-  p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 70));
-  p.drawRoundedRect(r.translated(0, 2), radius, radius);
-
-  // Blop dark floating plate
-  p.setBrush(QColor(14, 12, 24, 245));
-  QColor border = m_accent;
-  border.setAlpha(75);
-  p.setPen(QPen(border, 1.0));
-  p.drawRoundedRect(r, radius, radius);
+  // Drawboard left menu: flush charcoal strip, hairline separator.
+  p.fillRect(rect(), NoteChrome::panelBg());
+  p.setPen(QPen(NoteChrome::borderSoft(), 1));
+  p.drawLine(width() - 1, 0, width() - 1, height());
 }

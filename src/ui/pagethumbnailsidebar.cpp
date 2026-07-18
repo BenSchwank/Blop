@@ -4,12 +4,14 @@
 #include <QFrame>
 #include <QIcon>
 #include <QListWidget>
+#include <QListWidgetItem>
 #include <QPushButton>
 #include <QSize>
 #include <QVBoxLayout>
 
 #include "Note.h"
 #include "multipagenoteview.h"
+#include "notechrome.h"
 #include "uiscale.h"
 
 namespace {
@@ -23,15 +25,14 @@ struct RailMetrics {
 
 RailMetrics railMetrics(QWidget *ref) {
 #ifdef Q_OS_ANDROID
-  // Phones: slim rail so the canvas keeps breathing room.
   if (!UiScale::isAndroidTablet(ref)) {
     return {UiScale::dp(68), UiScale::dp(52), UiScale::dp(72), UiScale::dp(90),
             UiScale::dp(6)};
   }
 #endif
   Q_UNUSED(ref);
-  // Desktop floating right rail — wide enough for readable page thumbs.
-  return {UiScale::dp(104), UiScale::dp(80), UiScale::dp(108), UiScale::dp(128),
+  // Drawboard Pages panel — roomy single-column thumbs.
+  return {UiScale::dp(120), UiScale::dp(92), UiScale::dp(120), UiScale::dp(142),
           UiScale::dp(10)};
 }
 } // namespace
@@ -48,7 +49,6 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
   root->setContentsMargins(0, 0, 0, 0);
   root->setSpacing(0);
 
-  // Left-rail chevron: › collapses toward the left edge, ‹ expands.
   m_btnToggle = new QPushButton(QStringLiteral("‹"), this);
   m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
   m_btnToggle->setFixedHeight(UiScale::dp(28));
@@ -61,12 +61,12 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
   m_railBody = new QWidget(this);
   m_railBody->setObjectName(QStringLiteral("PageRailBody"));
   auto *lay = new QVBoxLayout(m_railBody);
-  lay->setContentsMargins(m.pad, UiScale::dp(6), m.pad, UiScale::dp(10));
-  lay->setSpacing(UiScale::dp(6));
+  lay->setContentsMargins(m.pad, UiScale::dp(8), m.pad, UiScale::dp(10));
+  lay->setSpacing(UiScale::dp(8));
 
   m_list = new QListWidget(m_railBody);
   m_list->setFrameStyle(QFrame::NoFrame);
-  m_list->setSpacing(UiScale::dp(6));
+  m_list->setSpacing(UiScale::dp(8));
   m_list->setIconSize(QSize(m.thumbW, m.thumbH));
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -74,9 +74,9 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
           [this](QListWidgetItem *item) { onItemClicked(m_list->row(item)); });
   lay->addWidget(m_list, 1);
 
-  m_btnAddPage = new QPushButton(QStringLiteral("+"), m_railBody);
+  m_btnAddPage = new QPushButton(QStringLiteral("+ Seite"), m_railBody);
   m_btnAddPage->setObjectName(QStringLiteral("PageRailAddBtn"));
-  m_btnAddPage->setFixedHeight(UiScale::dp(30));
+  m_btnAddPage->setFixedHeight(UiScale::dp(34));
   m_btnAddPage->setCursor(Qt::PointingHandCursor);
   m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
   connect(m_btnAddPage, &QPushButton::clicked, this,
@@ -88,8 +88,6 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent)
 }
 
 void PageThumbnailSidebar::setCollapsed(bool collapsed) {
-  // Floating desktop mode must stay expanded — collapsing hid the body and
-  // left a useless 28dp sliver with no expand control.
   if (m_floatingMode)
     collapsed = false;
   if (m_collapsed == collapsed)
@@ -100,10 +98,8 @@ void PageThumbnailSidebar::setCollapsed(bool collapsed) {
 }
 
 void PageThumbnailSidebar::toggleCollapsed() {
-  if (m_floatingMode) {
-    // Visibility is owned by MainWindow / left rail — ignore collapse toggles.
+  if (m_floatingMode)
     return;
-  }
   setCollapsed(!m_collapsed);
 }
 
@@ -129,91 +125,102 @@ void PageThumbnailSidebar::applyCollapsedState() {
 }
 
 void PageThumbnailSidebar::refreshListStyle() {
-  const QString accent = m_accentColor.name(QColor::HexRgb);
+  const QColor accent = NoteChrome::accent();
   if (m_floatingMode) {
+    // Desktop Drawboard Pages panel — solid left column, not a floating pill.
     setStyleSheet(QStringLiteral(
         "QWidget#PageThumbnailSidebar {"
+        "  background: %1;"
+        "  border: none;"
+        "  border-right: 1px solid %2;"
+        "}"
+        "QWidget#PageRailBody {"
         "  background: transparent;"
         "  border: none;"
         "}"
-        "QWidget#PageRailBody {"
-        "  background: rgba(14, 12, 24, 0.96);"
-        "  border: 1px solid rgba(%1,%2,%3,0.35);"
-        "  border-radius: 16px;"
-        "}"
         "QPushButton#PageRailToggleBtn { background: transparent; border: none; }")
-                      .arg(m_accentColor.red())
-                      .arg(m_accentColor.green())
-                      .arg(m_accentColor.blue()));
+                      .arg(NoteChrome::panelBg().name(QColor::HexRgb),
+                           NoteChrome::borderSoft().name(QColor::HexRgb)));
   } else {
     setStyleSheet(QStringLiteral(
         "QWidget#PageThumbnailSidebar {"
-        "  background-color: rgba(11, 9, 18, 0.94);"
-        "  border-right: 1px solid rgba(120, 130, 160, 0.14);"
+        "  background-color: %1;"
+        "  border-right: 1px solid %2;"
         "}"
         "QPushButton#PageRailToggleBtn {"
         "  background: transparent;"
-        "  color: rgba(232,228,255,0.70);"
+        "  color: %3;"
         "  border: none;"
-        "  border-bottom: 1px solid rgba(120,130,160,0.14);"
+        "  border-bottom: 1px solid %2;"
         "  font-size: 16px;"
         "  font-weight: 700;"
         "}"
         "QPushButton#PageRailToggleBtn:hover {"
-        "  background: rgba(124,92,252,0.14);"
-        "  color: #F4F5FB;"
-        "}"));
+        "  background: rgba(255,255,255,0.06);"
+        "  color: %4;"
+        "}")
+                      .arg(NoteChrome::panelBg().name(QColor::HexRgb),
+                           NoteChrome::borderSoft().name(QColor::HexRgb),
+                           NoteChrome::textSecondary().name(QColor::HexRgb),
+                           NoteChrome::textPrimary().name(QColor::HexRgb)));
   }
 
   if (m_list) {
     m_list->setStyleSheet(
         QStringLiteral("QListWidget { background: transparent; border: none; outline: 0; }"
                        "QListWidget::item {"
-                       "  border: 1px solid rgba(120,130,160,0.18);"
-                       "  border-radius: 10px;"
-                       "  color: rgba(232,228,255,0.75);"
-                       "  padding: 2px;"
-                       "  background: rgba(255,255,255,0.03);"
+                       "  border: 1px solid %1;"
+                       "  border-radius: 6px;"
+                       "  color: %2;"
+                       "  padding: 3px;"
+                       "  background: %3;"
                        "}"
                        "QListWidget::item:selected {"
-                       "  background: %1;"
-                       "  border: 1.5px solid %2;"
-                       "  color: #F4F5FB;"
+                       "  background: rgba(%4,%5,%6,0.18);"
+                       "  border: 2px solid %7;"
+                       "  color: %8;"
                        "}"
                        "QListWidget::item:hover {"
-                       "  background: rgba(255,255,255,0.07);"
+                       "  background: rgba(255,255,255,0.06);"
                        "}")
-            .arg(QColor(m_accentColor.red(), m_accentColor.green(),
-                        m_accentColor.blue(), 48)
-                     .name(QColor::HexArgb),
-                 accent));
+            .arg(NoteChrome::border().name(QColor::HexRgb),
+                 NoteChrome::textSecondary().name(QColor::HexRgb),
+                 NoteChrome::panelElevated().name(QColor::HexRgb),
+                 QString::number(accent.red()),
+                 QString::number(accent.green()),
+                 QString::number(accent.blue()),
+                 accent.name(QColor::HexRgb),
+                 NoteChrome::textPrimary().name(QColor::HexRgb)));
   }
 
   if (m_btnAddPage) {
     m_btnAddPage->setStyleSheet(
         QStringLiteral("QPushButton#PageRailAddBtn {"
-                       "  background: transparent;"
-                       "  color: rgba(232,228,255,0.70);"
-                       "  border: 1px dashed rgba(120,130,160,0.35);"
-                       "  border-radius: 10px;"
-                       "  font-size: 18px;"
+                       "  background: %1;"
+                       "  color: %2;"
+                       "  border: 1px solid %3;"
+                       "  border-radius: 6px;"
+                       "  font-size: 12px;"
                        "  font-weight: 600;"
                        "}"
                        "QPushButton#PageRailAddBtn:hover {"
-                       "  background: %1;"
-                       "  border-color: %2;"
-                       "  color: #F4F5FB;"
+                       "  background: rgba(%4,%5,%6,0.18);"
+                       "  border-color: %7;"
+                       "  color: %8;"
                        "}")
-            .arg(QColor(m_accentColor.red(), m_accentColor.green(),
-                        m_accentColor.blue(), 40)
-                     .name(QColor::HexArgb),
-                 accent));
+            .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+                 NoteChrome::textSecondary().name(QColor::HexRgb),
+                 NoteChrome::border().name(QColor::HexRgb),
+                 QString::number(accent.red()),
+                 QString::number(accent.green()),
+                 QString::number(accent.blue()),
+                 accent.name(QColor::HexRgb),
+                 NoteChrome::textPrimary().name(QColor::HexRgb)));
   }
 }
 
 void PageThumbnailSidebar::setNoteView(MultiPageNoteView *view) {
   if (m_view == view) {
-    // Same pointer — still refresh so newly added pages appear.
     rebuild();
     return;
   }
@@ -231,11 +238,9 @@ void PageThumbnailSidebar::setAccentColor(const QColor &color) {
 
 void PageThumbnailSidebar::setFloatingMode(bool on) {
   m_floatingMode = on;
-  setAttribute(Qt::WA_TranslucentBackground, on);
+  setAttribute(Qt::WA_TranslucentBackground, false);
   if (on) {
     setCollapsed(false);
-    // Floating desktop rail is shown/hidden by the left icon rail; keep
-    // the body expanded so the sidebar never collapses to an empty sliver.
     if (m_btnToggle)
       m_btnToggle->hide();
     if (m_railBody)
@@ -268,7 +273,7 @@ void PageThumbnailSidebar::rebuild() {
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
     item->setSizeHint(QSize(m.thumbW, m.itemH));
     item->setText(QStringLiteral("%1").arg(i + 1));
-    item->setForeground(QColor(232, 228, 255, 200));
+    item->setForeground(NoteChrome::textSecondary());
     m_list->addItem(item);
     requestThumbnail(i, item, epoch);
   }

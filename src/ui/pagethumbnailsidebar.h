@@ -2,11 +2,9 @@
 
 // PageThumbnailSidebar - persistent vertical page strip, Drawboard-style.
 //
-// Shows all pages of the current note as a scrollable list of thumbnails
-// on the right edge of the editor (beside the vertical tool rail).
-// Clicking a thumbnail jumps to that page. A quiet "+" control at the bottom
-// appends a blank page. Collapsible so the canvas can go full-bleed when
-// the rail is not needed.
+// Drawboard Pages panel — scrollable page thumbnails on the left of the
+// canvas. Clicking a thumbnail jumps to that page; "+ Seite" appends a blank
+// page. On desktop this is a solid left column (not a floating pill).
 
 #include <QColor>
 #include <QWidget>
@@ -54,7 +52,7 @@ private:
   QPushButton *m_btnAddPage{nullptr};
   QPushButton *m_btnToggle{nullptr};
   QWidget *m_railBody{nullptr};
-  QColor m_accentColor{QColor(QStringLiteral("#7C5CFC"))};
+  QColor m_accentColor{QColor(QStringLiteral("#5B9DFF"))};
   int m_currentPage{-1};
   int m_rebuildEpoch{0};
   bool m_collapsed{false};

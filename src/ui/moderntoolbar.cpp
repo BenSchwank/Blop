@@ -2,6 +2,7 @@
 #include "blop_theme.h"
 #include "blop_dialogs.h"
 #include "blopripple.h"
+#include "notechrome.h"
 #include "UIStyles.h"
 #include "toolpickeroverlay.h"
 #include "tools/ToolManager.h"
@@ -675,10 +676,8 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   p.setRenderHint(QPainter::Antialiasing);
 
   if (m_drawFloatingBg) {
-    p.setBrush(QColor(30, 28, 52, 245));
-    QColor ring = m_accentColor;
-    ring.setAlpha(60);
-    p.setPen(QPen(ring, 1));
+    p.setBrush(NoteChrome::panelElevated());
+    p.setPen(QPen(NoteChrome::border(), 1));
     p.drawEllipse(rect().adjusted(2, 2, -2, -2));
   }
 
@@ -705,17 +704,17 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.translate(0.0, -m_liftOffset);
 
   if (m_active) {
-    p.setBrush(m_accentColor);
+    p.setBrush(NoteChrome::accent());
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   } else if (m_hover) {
-    p.setBrush(QColor(140, 156, 255, 64));
+    p.setBrush(QColor(255, 255, 255, 28));
     p.setPen(Qt::NoPen);
     p.drawEllipse(rect().center(), r, r);
   }
 
   const QColor fg =
-      m_active ? QColor(255, 255, 255, 255) : QColor(236, 240, 252, 250);
+      m_active ? QColor(255, 255, 255, 255) : NoteChrome::textPrimary();
   p.save();
   p.translate(w / 2.0, h / 2.0);
   p.scale(m_animScale, m_animScale);
@@ -735,17 +734,17 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.drawArc(arcRect, 90 * 16, -m_holdProgress * 360.0 * 16.0);
   }
 
-  // Drawboard-style size badge (top-right of the tool slot).
+  // Quiet size badge (Drawboard keeps properties elsewhere — keep subtle).
   if (!m_badgeText.isEmpty()) {
-    const int bw = qMax(UiScale::dp(16), 8 + m_badgeText.size() * UiScale::dp(6));
-    const int bh = UiScale::dp(16);
+    const int bw = qMax(UiScale::dp(14), 6 + m_badgeText.size() * UiScale::dp(5));
+    const int bh = UiScale::dp(13);
     const QRectF badge(w - bw - 1, 1, bw, bh);
-    p.setPen(QPen(QColor(255, 255, 255, 35), 1));
-    p.setBrush(QColor(12, 10, 18, 230));
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 160));
     p.drawRoundedRect(badge, bh / 2.0, bh / 2.0);
-    p.setPen(Qt::white);
+    p.setPen(NoteChrome::textSecondary());
     QFont f = p.font();
-    f.setPixelSize(UiScale::sp(9));
+    f.setPixelSize(UiScale::sp(8));
     f.setBold(true);
     p.setFont(f);
     p.drawText(badge, Qt::AlignCenter, m_badgeText);
@@ -2074,55 +2073,46 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
-        // Notch appearance for all platforms: flush on top, rounded
-        // bottom corners only. Drawing at y = -r lets the widget
-        // bounds clip the top corners square so the toolbar visually
-        // attaches to the parent's top edge.
-        QLinearGradient grad(0, 0, w, h);
-        grad.setColorAt(0, QColor(30, 28, 52, 255));
-        grad.setColorAt(1, QColor(20, 18, 40, 255));
+        // Drawboard Markup Toolbar: flat charcoal bar, soft bottom corners.
+        QLinearGradient grad(0, 0, 0, h);
+        grad.setColorAt(0, NoteChrome::toolbarFill());
+        grad.setColorAt(1, NoteChrome::toolbarFillEnd());
         p.setBrush(grad);
         p.setPen(Qt::NoPen);
 
-        int r = 16;
+        const int r = UiScale::dp(10);
         p.drawRoundedRect(0, -r, w, h + r, r, r);
 
         p.setBrush(Qt::NoBrush);
-        QColor accentBorder = m_accentColor;
-        accentBorder.setAlpha(100);
-        p.setPen(QPen(accentBorder, 2));
-        p.drawRoundedRect(1, -r, w - 2, h + r - 1, r, r);
+        p.setPen(QPen(NoteChrome::borderSoft(), 1));
+        p.drawRoundedRect(0, -r, w - 1, h + r - 1, r, r);
 
-        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sx : m_separatorXPositions) {
-          p.drawLine(sx, 12, sx, h - 12);
+          p.drawLine(sx, 10, sx, h - 10);
         }
       } else {
-        // Floating Drawboard tool pill — Blop dark plate + accent hairline.
+        // Floating charcoal tool plate.
         const int radius = (m_orientation == Vertical)
-                               ? UiScale::dp(18)
+                               ? UiScale::dp(14)
                                : qMin(w, h) / 2;
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 70));
+        p.setBrush(QColor(0, 0, 0, 55));
         p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), radius, radius);
 
-        p.setBrush(QColor(14, 12, 24, 248));
-        QColor floatingBorder = m_accentColor;
-        floatingBorder.setAlpha(80);
-        p.setPen(QPen(floatingBorder, 1));
+        p.setBrush(NoteChrome::panelElevated());
+        p.setPen(QPen(NoteChrome::border(), 1));
         p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), radius, radius);
 
-        // Quiet drag grip
         if (m_draggable) {
           if (m_orientation == Vertical) {
-            // Grip near the TOP of the rail (Drawboard-like).
-            p.setBrush(QColor(255, 255, 255, 55));
+            p.setBrush(QColor(255, 255, 255, 45));
             p.setPen(Qt::NoPen);
             const int gy = UiScale::dp(8);
             for (int i = -1; i <= 1; ++i)
               p.drawEllipse(w / 2 + i * 6 - 2, gy, 4, 4);
           } else {
-            p.setPen(QPen(QColor(255, 255, 255, 42), 2, Qt::SolidLine, Qt::RoundCap));
+            p.setPen(QPen(QColor(255, 255, 255, 40), 2, Qt::SolidLine, Qt::RoundCap));
             p.drawLine(11, h / 2 - 7, 11, h / 2 + 7);
             p.drawLine(15, h / 2 - 7, 15, h / 2 + 7);
           }
@@ -2515,17 +2505,15 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         const bool isTopSnap = snapGeom.width() >= snapGeom.height();
 
         if (isTopSnap) {
-            // Desktop Drawboard: never become a top horizontal shelf.
-            // Redirect top-snap into the right vertical rail.
-            applyDrawboardVerticalRail();
-            const int w = UiScale::dp(52);
-            const int h = qMax(calculateMinLength(), UiScale::dp(200));
-            const int margin = UiScale::dp(14);
-            snapGeom = QRect(parentWidget()->width() - w - margin,
-                             margin, w, h);
-            setFixedSize(w, h);
+            // Drawboard Markup Toolbar — dock to top.
+            applyDrawboardMarkupToolbar();
+            const int barH = UiScale::dp(48);
+            const int barW = qMin(calculateMinLength(),
+                                 parentWidget()->width() - UiScale::dp(24));
+            snapGeom = QRect((parentWidget()->width() - barW) / 2, 0, barW, barH);
+            setFixedHeight(barH);
         } else {
-            // Side snap → Drawboard vertical tool rail.
+            // Side snap → optional vertical tool rail.
             applyDrawboardVerticalRail();
             const int w = UiScale::dp(52);
             const int h = qMax(calculateMinLength(), snapGeom.height());
@@ -3258,13 +3246,33 @@ void ModernToolbar::setOrientation(Orientation o, bool animate) {
     updateLayout();
   }
 }
+void ModernToolbar::applyDrawboardMarkupToolbar() {
+#ifndef Q_OS_ANDROID
+  m_style = Normal;
+  m_isDockedMode = true;
+  m_draggable = false;
+  m_orientation = Horizontal;
+  if (btnDockToggle) {
+    btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
+    btnDockToggle->hide(); // cleaner Drawboard top bar
+  }
+  setMinimumSize(0, 0);
+  setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  const int barH = UiScale::dp(48);
+  const int barW = qMax(calculateMinLength(), UiScale::dp(280));
+  setFixedHeight(barH);
+  resize(barW, barH);
+  updateLayout(false);
+  update();
+#endif
+}
+
 void ModernToolbar::applyDrawboardVerticalRail() {
 #ifndef Q_OS_ANDROID
   m_isDockedMode = false;
   m_draggable = true;
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_float"));
-    // Dock toggle fights the Drawboard right-rail layout — hide it.
     btnDockToggle->hide();
   }
   m_style = Normal;
@@ -3297,17 +3305,10 @@ void ModernToolbar::setDockMode(bool docked) {
   setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
 
 #ifndef Q_OS_ANDROID
-  // Desktop Drawboard: undocked Normal style is always the vertical right rail.
-  // Never animate into a top horizontal shelf — that caused overlapping chrome.
-  if (!docked && m_style == Normal) {
-    applyDrawboardVerticalRail();
-    emit dockModeChanged(false);
-    return;
-  }
+  // Desktop Drawboard default: docked = top Markup Toolbar.
   if (docked && m_style == Normal) {
-    // Keep Drawboard vertical — ignore top-dock requests on desktop.
-    applyDrawboardVerticalRail();
-    emit dockModeChanged(false);
+    applyDrawboardMarkupToolbar();
+    emit dockModeChanged(true);
     return;
   }
 #endif
