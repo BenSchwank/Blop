@@ -4743,16 +4743,18 @@ void ModernToolbar::applyRailSlot(int index) {
   }
 
   m_activeRailSlot = index;
-  ToolConfig &cfg = ToolManager::instance().configFor(slot.mode);
-  cfg.penColor = slot.color;
-  cfg.penWidth = qMax(1, slot.width);
-  cfg.opacity = slot.opacity;
-  cfg.shapeToolKind = static_cast<ShapeToolKind>(
-      qBound(0, slot.shapeKind, 6));
-  cfg.lassoMode = (slot.lassoMode == 1) ? LassoMode::Rectangle
-                                        : LassoMode::Freehand;
-  ToolManager::instance().selectTool(slot.mode);
-  ToolManager::instance().setConfig(cfg);
+  if (slot.mode != ToolMode::Hand) {
+    ToolConfig &cfg = ToolManager::instance().configFor(slot.mode);
+    cfg.penColor = slot.color;
+    cfg.penWidth = qMax(1, slot.width);
+    cfg.opacity = slot.opacity;
+    cfg.shapeToolKind = static_cast<ShapeToolKind>(
+        qBound(0, slot.shapeKind, 6));
+    cfg.lassoMode = (slot.lassoMode == 1) ? LassoMode::Rectangle
+                                          : LassoMode::Freehand;
+    ToolManager::instance().selectTool(slot.mode);
+    ToolManager::instance().setConfig(cfg);
+  }
   setToolMode(slot.mode);
   for (int i = 0; i < m_slotButtons.size(); ++i) {
     if (m_slotButtons[i])
