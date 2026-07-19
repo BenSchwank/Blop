@@ -259,14 +259,13 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   refreshSwatchSelection();
 }
 
-void ToolPropertiesPanel::syncFromToolManager() {
-  auto &tm = ToolManager::instance();
-  m_mode = tm.activeToolMode();
-  // Prefer toolbar-reported Hand (no AbstractTool); fall back to config tool.
-  m_config = tm.config();
-  // If Hand was selected via Favorites, ToolManager may still hold the previous
-  // ink tool — keep panel title/hints driven by the last sync caller's mode
-  // when setVisibleForTool is used from outside. Here we use activeToolMode.
+void ToolPropertiesPanel::syncForMode(ToolMode mode) {
+  m_mode = mode;
+  if (mode != ToolMode::Hand)
+    m_config = ToolManager::instance().configFor(mode);
+  else
+    m_config = ToolManager::instance().config();
+
   m_widthSlider->blockSignals(true);
   m_opacitySlider->blockSignals(true);
   m_widthSlider->setValue(m_config.penWidth);
@@ -278,7 +277,7 @@ void ToolPropertiesPanel::syncFromToolManager() {
   m_opacitySlider->blockSignals(false);
 
   QString title = QStringLiteral("Eigenschaften");
-  switch (m_mode) {
+  switch (mode) {
   case ToolMode::Pen:
     title = QStringLiteral("Stift");
     break;
@@ -316,8 +315,12 @@ void ToolPropertiesPanel::syncFromToolManager() {
     break;
   }
   m_title->setText(title);
-  setVisibleForTool(m_mode);
+  setVisibleForTool(mode);
   rebuild();
+}
+
+void ToolPropertiesPanel::syncFromToolManager() {
+  syncForMode(ToolManager::instance().activeToolMode());
 }
 
 void ToolPropertiesPanel::applyConfig() {

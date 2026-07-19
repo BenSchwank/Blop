@@ -4932,33 +4932,34 @@ void MainWindow::setupUi() {
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
   m_noteBottomChrome->setAttribute(Qt::WA_StyledBackground, true);
-  m_noteBottomChrome->setFixedHeight(UiScale::dp(44));
+  m_noteBottomChrome->setFixedHeight(UiScale::dp(40));
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
       "  background: %1;"
-      "  border: 1px solid %2;"
-      "  border-radius: 8px;"
+      "  border: none;"
+      "  border-top: 1px solid %2;"
+      "  border-radius: 0;"
       "}"
       "QPushButton {"
       "  background: transparent; color: %3;"
-      "  border: none; border-radius: 6px;"
+      "  border: none; border-radius: 4px;"
       "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
       "  padding: 0 8px;"
       "}"
       "QPushButton:hover { background: rgba(255,255,255,0.08); color: %4; }"
       "QLabel { background: transparent; color: %3;"
       "  font-size: 12px; font-weight: 600; }")
-                                        .arg(NoteChrome::panelElevated().name(
+                                        .arg(NoteChrome::toolbarFill().name(
                                                  QColor::HexRgb),
-                                             NoteChrome::border().name(
+                                             NoteChrome::borderSoft().name(
                                                  QColor::HexRgb),
                                              NoteChrome::textSecondary().name(
                                                  QColor::HexRgb),
                                              NoteChrome::textPrimary().name(
                                                  QColor::HexRgb)));
   auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
-  bottomLay->setContentsMargins(UiScale::dp(12), UiScale::dp(6),
-                                UiScale::dp(12), UiScale::dp(6));
+  bottomLay->setContentsMargins(UiScale::dp(14), UiScale::dp(4),
+                                UiScale::dp(14), UiScale::dp(4));
   bottomLay->setSpacing(UiScale::dp(4));
 
   m_btnNoteUndo = new QPushButton(QStringLiteral("↶"), m_noteBottomChrome);
@@ -5297,7 +5298,12 @@ void MainWindow::setupUi() {
   };
 
   if (topToolbar) {
-    connect(topToolbar, &ModernToolbar::toolChanged, this, onToolModeChanged);
+    connect(topToolbar, &ModernToolbar::toolChanged, this,
+            [this, onToolModeChanged](ToolMode m) {
+              onToolModeChanged(m);
+              if (m_toolPropertiesPanel && m_toolPropertiesVisible)
+                m_toolPropertiesPanel->syncForMode(m);
+            });
     connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
             [this, topToolbar, onToolModeChanged](AbstractTool *tool) {
               if (!tool)
@@ -5311,7 +5317,7 @@ void MainWindow::setupUi() {
                 onToolModeChanged(tool->mode());
               }
               if (m_toolPropertiesPanel && m_toolPropertiesVisible)
-                m_toolPropertiesPanel->syncFromToolManager();
+                m_toolPropertiesPanel->syncForMode(tool->mode());
             });
 
     connect(topToolbar, &ModernToolbar::rulerToggled, [this](bool active) {
@@ -9272,6 +9278,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       crossfadeStackTo(m_rightStack, editorIdx);
 #endif
     }
+    if (m_documentTabBar)
+      m_documentTabBar->setNoteChromeMode(true);
+    applyNoteChromeTheme();
     setActiveTool(m_activeToolType);
     updateSidebarState();
   }
@@ -9291,6 +9300,8 @@ void MainWindow::flushPendingA4Save() {
 
 void MainWindow::onBackToOverview() {
   flushPendingA4Save();
+  if (m_documentTabBar)
+    m_documentTabBar->setNoteChromeMode(false);
   if (m_rightStack) {
     const int overviewIdx = m_rightStack->indexOf(m_overviewContainer);
 #ifdef Q_OS_ANDROID
@@ -10080,10 +10091,10 @@ int MainWindow::noteHeaderHeight() const {
 }
 
 int MainWindow::noteBottomChromeHeight() const {
-  // Floating strip: report height + outer margin so the tool rail clears it.
+  // Edge-docked strip: Favorites rail clears exactly the bar height.
   if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
     return 0;
-  return m_noteBottomChrome->height() + UiScale::dp(16);
+  return m_noteBottomChrome->height();
 }
 
 void MainWindow::positionDrawboardToolbar() {
@@ -10170,13 +10181,12 @@ void MainWindow::positionNoteChrome() {
 #endif
 
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
+    // Edge-docked Drawboard utility bar across the canvas bottom.
     const int stripH = m_noteBottomChrome->height();
-    const int availW = W - leftX - rightInset;
-    const int stripW =
-        qBound(UiScale::dp(340), UiScale::dp(520), availW - 2 * margin);
-    const int x = leftX + qMax(0, (availW - stripW) / 2);
-    const int y = H - stripH - margin;
-    m_noteBottomChrome->setGeometry(x, y, stripW, stripH);
+    const int availW = qMax(0, W - leftX - rightInset);
+    const int x = leftX;
+    const int y = H - stripH;
+    m_noteBottomChrome->setGeometry(x, y, availW, stripH);
     m_noteBottomChrome->raise();
   }
 
@@ -10291,20 +10301,22 @@ void MainWindow::applyNoteChromeTheme() {
   if (m_noteBottomChrome) {
     m_noteBottomChrome->setStyleSheet(QStringLiteral(
         "QWidget#NoteBottomChrome {"
-        "  background: %1; border: 1px solid %2; border-radius: 8px;"
+        "  background: %1; border: none; border-top: 1px solid %2; border-radius: 0;"
         "}"
         "QPushButton {"
-        "  background: transparent; color: %3; border: none; border-radius: 6px;"
+        "  background: transparent; color: %3; border: none; border-radius: 4px;"
         "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
         "  padding: 0 8px;"
         "}"
         "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
         "QLabel { background: transparent; color: %3; font-size: 12px; font-weight: 600; }")
-                                          .arg(NoteChrome::panelElevated().name(),
-                                               NoteChrome::border().name(),
+                                          .arg(NoteChrome::toolbarFill().name(),
+                                               NoteChrome::borderSoft().name(),
                                                NoteChrome::textSecondary().name(),
                                                NoteChrome::textPrimary().name()));
   }
+  if (m_documentTabBar)
+    m_documentTabBar->setNoteChromeMode(true);
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
     tb->setAccentColor(NoteChrome::accent());
     tb->update();

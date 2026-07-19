@@ -5,6 +5,7 @@
 #include "notechrome.h"
 #include "uiscale.h"
 
+#include <QAbstractItemModel>
 #include <QAbstractItemView>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -50,7 +51,9 @@ AllPagesOverlay::AllPagesOverlay(QWidget *parent) : QWidget(parent) {
   m_grid = new QListWidget(m_card);
   m_grid->setViewMode(QListView::IconMode);
   m_grid->setResizeMode(QListView::Adjust);
-  m_grid->setMovement(QListView::Static);
+  m_grid->setMovement(QListView::Snap);
+  m_grid->setDragDropMode(QAbstractItemView::InternalMove);
+  m_grid->setDefaultDropAction(Qt::MoveAction);
   m_grid->setUniformItemSizes(true);
   m_grid->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_grid->setSpacing(UiScale::dp(10));
@@ -63,6 +66,21 @@ AllPagesOverlay::AllPagesOverlay(QWidget *parent) : QWidget(parent) {
               return;
             emit pageActivated(item->data(Qt::UserRole).toInt());
             dismiss();
+          });
+  connect(m_grid->model(), &QAbstractItemModel::rowsMoved, this,
+          [this](const QModelIndex &, int start, int end, const QModelIndex &,
+                 int dest) {
+            Q_UNUSED(end);
+            if (!m_view || start < 0)
+              return;
+            int to = dest;
+            if (to > start)
+              --to;
+            if (to == start)
+              return;
+            m_view->movePage(start, to);
+            emit pagesChanged();
+            rebuild();
           });
   lay->addWidget(m_grid, 1);
 

@@ -16,6 +16,7 @@
 #include "blop_theme.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
+#include "notechrome.h"
 #include "uiscale.h"
 
 namespace {
@@ -50,6 +51,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   lay->setSpacing(UiScale::dp(6));
 
   QLabel *iconLbl = new QLabel(this);
+  iconLbl->setObjectName(QStringLiteral("DocumentTabIcon"));
   iconLbl->setPixmap(makeTabIcon(m_iconName, QColor(232, 228, 255), UiScale::dp(18))
                          .pixmap(UiScale::dp(18), UiScale::dp(18)));
   lay->addWidget(iconLbl);
@@ -66,6 +68,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
 
   if (m_closable) {
     QPushButton *closeBtn = new QPushButton(QStringLiteral("\u2715"), this);
+    closeBtn->setObjectName(QStringLiteral("DocumentTabClose"));
     closeBtn->setFixedSize(UiScale::dp(18), UiScale::dp(18));
     closeBtn->setCursor(Qt::PointingHandCursor);
     closeBtn->setStyleSheet(
@@ -86,6 +89,47 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
 
   setMouseTracking(true);
   setFixedWidth(sizeHint().width());
+}
+
+void DocumentTab::setNoteChromeMode(bool on) {
+  if (m_noteChromeMode == on)
+    return;
+  m_noteChromeMode = on;
+  refreshChromeStyle();
+  update();
+}
+
+void DocumentTab::refreshChromeStyle() {
+  const QColor fg =
+      m_noteChromeMode ? NoteChrome::textPrimary() : QColor(232, 228, 255);
+  if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
+    iconLbl->setPixmap(
+        makeTabIcon(m_iconName, fg, UiScale::dp(18))
+            .pixmap(UiScale::dp(18), UiScale::dp(18)));
+  }
+  if (m_textLbl) {
+    m_textLbl->setStyleSheet(
+        QStringLiteral("QLabel { color: %1; font-size: 13px; font-weight: 600; }")
+            .arg(fg.name(QColor::HexRgb)));
+  }
+  if (auto *closeBtn =
+          findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
+    const QString idle = m_noteChromeMode
+                             ? NoteChrome::textSecondary().name(QColor::HexRgb)
+                             : QStringLiteral("rgba(255,255,255,0.45)");
+    const QString hoverFg =
+        m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
+                         : QStringLiteral("white");
+    closeBtn->setStyleSheet(
+        QStringLiteral("QPushButton {"
+                       "  background-color: transparent; border: none;"
+                       "  color: %1; font-size: 11px; border-radius: 9px;"
+                       "}"
+                       "QPushButton:hover {"
+                       "  background-color: rgba(255,255,255,0.10); color: %2;"
+                       "}")
+            .arg(idle, hoverFg));
+  }
 }
 
 void DocumentTab::refreshTitleLabel() {
@@ -145,10 +189,29 @@ void DocumentTab::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
 
-  const qreal rad = UiScale::dp(14);
+  const qreal rad = m_noteChromeMode ? UiScale::dp(8) : UiScale::dp(14);
   QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
   QPainterPath path;
   path.addRoundedRect(r, rad, rad);
+
+  if (m_noteChromeMode) {
+    if (m_active) {
+      QColor bg = NoteChrome::panelElevated();
+      p.fillPath(path, bg);
+      p.setPen(QPen(m_accentColor.isValid() ? m_accentColor : NoteChrome::accent(),
+                    1.2));
+      p.drawPath(path);
+    } else if (m_hovered) {
+      QColor bg = NoteChrome::panelBg();
+      bg.setAlpha(220);
+      p.fillPath(path, bg);
+    } else {
+      QColor bg = NoteChrome::panelBg();
+      bg.setAlpha(140);
+      p.fillPath(path, bg);
+    }
+    return;
+  }
 
   if (m_active) {
     QColor bg = m_accentColor;
@@ -254,6 +317,7 @@ void DocumentTabBar::rebindTabSignals() {
 
 int DocumentTabBar::addTab(const QString &title, const QString &iconName) {
   DocumentTab *tab = new DocumentTab(title, iconName, true, m_scrollContent);
+  tab->setNoteChromeMode(m_noteChromeMode);
   int idx = m_tabs.size();
   m_tabs.append(tab);
 
@@ -350,6 +414,19 @@ void DocumentTabBar::setHomeVisible(bool visible) {
   m_homeTab->setVisible(visible);
   if (!visible)
     m_homeActive = false;
+  updateIndicator(false);
+}
+
+void DocumentTabBar::setNoteChromeMode(bool on) {
+  if (m_noteChromeMode == on)
+    return;
+  m_noteChromeMode = on;
+  if (on)
+    setAccentColor(NoteChrome::accent());
+  if (m_homeTab)
+    m_homeTab->setNoteChromeMode(on);
+  for (DocumentTab *tab : m_tabs)
+    tab->setNoteChromeMode(on);
   updateIndicator(false);
 }
 

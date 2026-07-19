@@ -994,12 +994,16 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   const int r = m_size / 2 - 4;
 
   if (m_railSlotStyle) {
-    // Drawboard vertical Favorites rail: full-width active slot.
+    // Drawboard vertical Favorites rail: full-width active slot + accent edge.
     if (m_active) {
       p.setPen(Qt::NoPen);
       p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 170 : 36));
       p.drawRoundedRect(rect().adjusted(0, 1, 0, -1), UiScale::dp(4),
                         UiScale::dp(4));
+      p.setBrush(m_accentColor.isValid() ? m_accentColor : NoteChrome::accent());
+      p.drawRoundedRect(QRect(0, UiScale::dp(6), UiScale::dp(3),
+                              h - UiScale::dp(12)),
+                        UiScale::dp(1), UiScale::dp(1));
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
       p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 16 : 28));
@@ -2583,6 +2587,12 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
         p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sy : m_separatorYPositions)
           p.drawLine(UiScale::dp(8), sy, w - UiScale::dp(8), sy);
+        // Drag-reorder drop indicator.
+        if (m_railDragFrom >= 0 && m_railDragGhostY >= 0) {
+          p.setPen(QPen(NoteChrome::accent(), 2, Qt::SolidLine, Qt::RoundCap));
+          const int gy = qBound(UiScale::dp(4), m_railDragGhostY, h - UiScale::dp(4));
+          p.drawLine(UiScale::dp(6), gy, w - UiScale::dp(6), gy);
+        }
       } else {
         // Floating charcoal tool plate.
         const int radius = (m_orientation == Vertical)
@@ -4379,7 +4389,7 @@ bool ModernToolbar::isDrawboardVerticalRail() const {
 #endif
 }
 
-int ModernToolbar::preferredRailWidth() const { return UiScale::dp(48); }
+int ModernToolbar::preferredRailWidth() const { return UiScale::dp(52); }
 
 void ModernToolbar::loadRailTools() {
   m_railSlots.clear();
@@ -4596,7 +4606,7 @@ void ModernToolbar::syncSlotButtonAppearance(int index) {
   QString tip;
   switch (s.mode) {
   case ToolMode::Hand:
-    tip = tr("Hand (Leertaste)");
+    tip = tr("Hand · Leertaste = vorübergehend schwenken");
     break;
   case ToolMode::Lasso:
     tip = tr("Auswahl (V)");
@@ -5575,7 +5585,7 @@ void ModernToolbar::updateLayout(bool animate) {
         if (m_slotButtons.isEmpty())
           rebuildSlotButtons();
         railOrder = currentRailButtons();
-        btnS = UiScale::dp(40);
+        btnS = UiScale::dp(44);
         gap = UiScale::dp(1);
       } else {
         for (auto *b : m_buttons) {

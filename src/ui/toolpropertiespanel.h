@@ -23,6 +23,8 @@ public:
 
   void setAccentColor(const QColor &c);
   void syncFromToolManager();
+  /// Sync panel for a tool that may not be registered in ToolManager (e.g. Hand).
+  void syncForMode(ToolMode mode);
   void setVisibleForTool(ToolMode mode);
 
   int preferredWidth() const;

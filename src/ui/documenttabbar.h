@@ -31,6 +31,9 @@ public:
   void setHomeActive(bool active);
   /// Hide the built-in home squircle when the host already has a Home button.
   void setHomeVisible(bool visible);
+  /// Charcoal NoteChrome look while the note editor is active.
+  void setNoteChromeMode(bool on);
+  bool noteChromeMode() const { return m_noteChromeMode; }
 
 signals:
   void currentChanged(int index);
@@ -57,6 +60,7 @@ private:
   QList<DocumentTab *> m_tabs;
   int m_currentIndex{-1};
   QColor m_accentColor{QColor(QStringLiteral("#7C5CFC"))};
+  bool m_noteChromeMode{false};
 
   QWidget *m_indicator{nullptr};
   QPropertyAnimation *m_indicatorAnim{nullptr};
@@ -77,6 +81,7 @@ public:
   void setActive(bool active, const QColor &accent);
   void setAccentColor(const QColor &color);
   void setTitle(const QString &title);
+  void setNoteChromeMode(bool on);
   bool isActive() const { return m_active; }
 
   QSize sizeHint() const override;
@@ -102,5 +107,7 @@ private:
   bool m_active{false};
   bool m_hovered{false};
   bool m_closable{true};
+  bool m_noteChromeMode{false};
   class QLabel *m_textLbl{nullptr};
+  void refreshChromeStyle();
 };
