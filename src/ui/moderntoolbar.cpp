@@ -439,6 +439,49 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(40, 32, 26, 46);
     return;
   }
+  if (name == QLatin1String("chevron_left")) {
+    p->setPen(QPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(38, 18, 24, 32);
+    p->drawLine(24, 32, 38, 46);
+    return;
+  }
+  if (name == QLatin1String("zoom_in")) {
+    p->setPen(primaryPen);
+    p->drawEllipse(QPointF(28, 28), 14, 14);
+    p->setPen(QPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap));
+    p->drawLine(38, 38, 50, 50);
+    p->drawLine(28, 21, 28, 35);
+    p->drawLine(21, 28, 35, 28);
+    return;
+  }
+  if (name == QLatin1String("zoom_out")) {
+    p->setPen(primaryPen);
+    p->drawEllipse(QPointF(28, 28), 14, 14);
+    p->setPen(QPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap));
+    p->drawLine(38, 38, 50, 50);
+    p->drawLine(21, 28, 35, 28);
+    return;
+  }
+  if (name == QLatin1String("fit_width")) {
+    p->setPen(primaryThin);
+    p->drawRoundedRect(14, 20, 36, 24, 3, 3);
+    p->setPen(QPen(primary, 3.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(18, 32, 46, 32);
+    p->drawLine(18, 32, 24, 26);
+    p->drawLine(18, 32, 24, 38);
+    p->drawLine(46, 32, 40, 26);
+    p->drawLine(46, 32, 40, 38);
+    return;
+  }
+  if (name == QLatin1String("fit_page")) {
+    p->setPen(primaryPen);
+    p->drawRoundedRect(18, 14, 28, 36, 4, 4);
+    p->setPen(accentPen);
+    p->drawLine(24, 24, 40, 24);
+    p->drawLine(24, 32, 40, 32);
+    p->drawLine(24, 40, 34, 40);
+    return;
+  }
   if (name == QLatin1String("undo")) {
     QPainterPath arc;
     arc.moveTo(48, 27);
@@ -752,7 +795,15 @@ void ToolbarBtn::setRailSlotStyle(bool enable) {
     if (m_liftAnim)
       m_liftAnim->stop();
     m_liftOffset = 0.0;
+  } else {
+    m_railFooterStyle = false;
   }
+  update();
+}
+void ToolbarBtn::setRailFooterStyle(bool enable) {
+  if (m_railFooterStyle == enable)
+    return;
+  m_railFooterStyle = enable;
   update();
 }
 void ToolbarBtn::setGlyphColor(const QColor &c) {
@@ -813,7 +864,7 @@ void ToolbarBtn::setActive(bool active) {
 }
 
 void ToolbarBtn::contextMenuEvent(QContextMenuEvent *e) {
-  if (!m_railSlotStyle) {
+  if (!m_railSlotStyle || m_railFooterStyle || m_railSlotIndex < 0) {
     QWidget::contextMenuEvent(e);
     return;
   }
@@ -995,7 +1046,13 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
 
   if (m_railSlotStyle) {
     // Drawboard vertical Favorites rail: full-width active slot + accent edge.
-    if (m_active) {
+    // Footer affordances stay quieter (no accent edge, softer glyphs).
+    if (m_pressing && !m_railDragging) {
+      p.setPen(Qt::NoPen);
+      p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 28 : 40));
+      p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(4),
+                        UiScale::dp(4));
+    } else if (m_active && !m_railFooterStyle) {
       p.setPen(Qt::NoPen);
       p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 170 : 36));
       p.drawRoundedRect(rect().adjusted(0, 1, 0, -1), UiScale::dp(4),
@@ -1006,14 +1063,23 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
                         UiScale::dp(1), UiScale::dp(1));
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 16 : 28));
+      const int a = m_railFooterStyle
+                        ? (NoteChrome::isDark() ? 12 : 20)
+                        : (NoteChrome::isDark() ? 16 : 28);
+      p.setBrush(QColor(255, 255, 255, a));
       p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(4),
                         UiScale::dp(4));
     }
 
-    const QColor tip =
+    QColor tip =
         m_glyphColor.isValid() ? m_glyphColor : NoteChrome::textPrimary();
-    const int icon = qMin(w, h) - UiScale::dp(16);
+    if (m_railFooterStyle && !m_glyphColor.isValid()) {
+      tip = NoteChrome::textSecondary();
+      if (m_hover || m_pressing)
+        tip = NoteChrome::textPrimary();
+    }
+    const int iconPad = m_railFooterStyle ? UiScale::dp(18) : UiScale::dp(16);
+    const int icon = qMin(w, h) - iconPad;
     p.save();
     p.translate(w / 2.0, h / 2.0 - (m_showChevron ? UiScale::dp(1) : 0));
     p.scale(m_animScale, m_animScale);
@@ -1023,7 +1089,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     drawToolbarGlyph64(&p, m_iconName, tip);
     p.restore();
 
-    if (m_showChevron) {
+    if (m_showChevron && !m_railFooterStyle) {
       p.setPen(QPen(NoteChrome::textSecondary(), 1.7, Qt::SolidLine,
                     Qt::RoundCap, Qt::RoundJoin));
       const int cx = w / 2;
@@ -2250,7 +2316,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnAddTool->setToolTip(tr("Neues Tool wählen"));
   btnLibrary = new ToolbarBtn("library", this);
   btnLibrary->setToolTip(tr("Auszeichnungsbibliothek"));
-  btnLibrary->setShowChevron(true);
+  btnLibrary->setShowChevron(false);
   btnRailChevron = new ToolbarBtn("chevron_rail", this);
   btnRailChevron->setToolTip(tr("Eigenschaften ein-/ausblenden"));
   btnMoreProps = new ToolbarBtn("more", this);
@@ -3195,7 +3261,7 @@ void ModernToolbar::syncDrawboardToolIcons() {
     btnEraser->setGlyphColor(QColor());
   if (btnLibrary) {
     btnLibrary->setIcon(QStringLiteral("library"));
-    btnLibrary->setShowChevron(true);
+    btnLibrary->setShowChevron(false);
   }
   if (btnRailChevron)
     btnRailChevron->setIcon(QStringLiteral("chevron_rail"));
@@ -3268,8 +3334,7 @@ void ModernToolbar::showMarkupLibrary() {
   deviceTab->setCheckable(true);
   cloudTab->setCheckable(true);
   deviceTab->setChecked(true);
-  cloudTab->setEnabled(false);
-  cloudTab->setToolTip(tr("Cloud-Bibliothek folgt später."));
+  cloudTab->setToolTip(tr("Cloud-Sync folgt später — Tippen für Infos."));
   tabRow->addWidget(deviceTab);
   tabRow->addWidget(cloudTab);
   tabRow->addStretch(1);
@@ -3279,33 +3344,115 @@ void ModernToolbar::showMarkupLibrary() {
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
   scroll->setStyleSheet(QStringLiteral("background: transparent;"));
-  auto *gridHost = new QWidget(scroll);
-  auto *grid = new QGridLayout(gridHost);
-  grid->setContentsMargins(0, 0, 0, 0);
-  grid->setSpacing(UiScale::dp(10));
+  auto *pagesHost = new QWidget(scroll);
+  auto *pagesLay = new QVBoxLayout(pagesHost);
+  pagesLay->setContentsMargins(0, 0, 0, 0);
+  pagesLay->setSpacing(0);
+
+  auto *devicePage = new QWidget(pagesHost);
+  auto *deviceLay = new QVBoxLayout(devicePage);
+  deviceLay->setContentsMargins(0, 0, 0, 0);
+  deviceLay->setSpacing(UiScale::dp(10));
+
+  auto *cloudPage = new QWidget(pagesHost);
+  auto *cloudLay = new QVBoxLayout(cloudPage);
+  cloudLay->setContentsMargins(UiScale::dp(8), UiScale::dp(20), UiScale::dp(8),
+                               UiScale::dp(8));
+  cloudLay->setSpacing(UiScale::dp(12));
+  cloudPage->hide();
+
+  {
+    QPixmap cloudIcon(UiScale::dp(56), UiScale::dp(56));
+    cloudIcon.fill(Qt::transparent);
+    {
+      QPainter ip(&cloudIcon);
+      ip.setRenderHint(QPainter::Antialiasing);
+      ip.setPen(QPen(NoteChrome::textSecondary(), 2.4, Qt::SolidLine,
+                     Qt::RoundCap, Qt::RoundJoin));
+      ip.setBrush(Qt::NoBrush);
+      ip.drawEllipse(8, 22, 18, 16);
+      ip.drawEllipse(18, 14, 24, 20);
+      ip.drawEllipse(34, 22, 16, 16);
+      ip.drawLine(10, 36, 48, 36);
+    }
+    auto *cloudIconLbl = new QLabel(cloudPage);
+    cloudIconLbl->setPixmap(cloudIcon);
+    cloudIconLbl->setAlignment(Qt::AlignHCenter);
+    cloudLay->addWidget(cloudIconLbl);
+    auto *cloudTitle = new QLabel(tr("Cloud-Bibliothek"), cloudPage);
+    cloudTitle->setAlignment(Qt::AlignHCenter);
+    cloudTitle->setStyleSheet(
+        QStringLiteral("font-size: 15px; font-weight: 700; color: %1;")
+            .arg(NoteChrome::textPrimary().name(QColor::HexRgb)));
+    cloudLay->addWidget(cloudTitle);
+    auto *cloudBody = new QLabel(
+        tr("Synchronisierte Auszeichnungen über Geräte folgen in einem "
+           "späteren Update. Bis dahin speichert die Device-Bibliothek lokal "
+           "auf diesem Gerät."),
+        cloudPage);
+    cloudBody->setWordWrap(true);
+    cloudBody->setAlignment(Qt::AlignHCenter);
+    cloudBody->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 13px;")
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
+    cloudLay->addWidget(cloudBody);
+    cloudLay->addStretch(1);
+  }
 
   if (items.isEmpty()) {
+    auto *emptyHost = new QWidget(devicePage);
+    auto *emptyLay = new QVBoxLayout(emptyHost);
+    emptyLay->setContentsMargins(UiScale::dp(12), UiScale::dp(16),
+                                 UiScale::dp(12), UiScale::dp(12));
+    emptyLay->setSpacing(UiScale::dp(10));
+    QPixmap libIcon(UiScale::dp(48), UiScale::dp(48));
+    libIcon.fill(Qt::transparent);
+    {
+      QPainter ip(&libIcon);
+      ip.setRenderHint(QPainter::Antialiasing);
+      const qreal s = libIcon.width() / 64.0;
+      ip.scale(s, s);
+      drawToolbarGlyph64(&ip, QStringLiteral("library"),
+                         NoteChrome::textSecondary());
+    }
+    auto *iconLbl = new QLabel(emptyHost);
+    iconLbl->setPixmap(libIcon);
+    iconLbl->setAlignment(Qt::AlignHCenter);
+    emptyLay->addWidget(iconLbl);
+    auto *emptyTitle = new QLabel(tr("Noch keine Auszeichnungen"), emptyHost);
+    emptyTitle->setAlignment(Qt::AlignHCenter);
+    emptyTitle->setStyleSheet(
+        QStringLiteral("font-size: 14px; font-weight: 700; color: %1;")
+            .arg(NoteChrome::textPrimary().name(QColor::HexRgb)));
+    emptyLay->addWidget(emptyTitle);
     auto *steps = new QLabel(
-        tr("1. Auswählen   →   2. Hinzufügen   →   3. Verwenden\n\n"
-           "Markups auf diesem Gerät erstellen: Annotationen mit der Auswahl "
-           "markieren und in der Auswahlleiste „Zur Bibliothek“ wählen."),
-        gridHost);
+        tr("1. Annotationen mit der Auswahl markieren\n"
+           "2. In der Auswahlleiste „Zur Bibliothek“ wählen\n"
+           "3. Hier tippen, um sie erneut einzufügen"),
+        emptyHost);
     steps->setWordWrap(true);
+    steps->setAlignment(Qt::AlignHCenter);
     steps->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 13px; background: %2;"
-                       " border-radius: 10px; padding: 14px;")
-            .arg(NoteChrome::textSecondary().name(QColor::HexRgb),
-                 NoteChrome::panelBg().name(QColor::HexRgb)));
-    grid->addWidget(steps, 0, 0, 1, 2);
+        QStringLiteral("color: %1; font-size: 13px;")
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
+    emptyLay->addWidget(steps);
+    emptyHost->setStyleSheet(
+        QStringLiteral("background: %1; border-radius: 12px;")
+            .arg(NoteChrome::panelBg().name(QColor::HexRgb)));
+    deviceLay->addWidget(emptyHost);
+    deviceLay->addStretch(1);
   } else {
+    auto *tilesHost = new QWidget(devicePage);
+    auto *tilesGrid = new QGridLayout(tilesHost);
+    tilesGrid->setContentsMargins(0, 0, 0, 0);
+    tilesGrid->setSpacing(UiScale::dp(10));
     int col = 0;
     int row = 0;
     for (const MarkupLibraryItem &item : items) {
-      auto *tile = new QToolButton(gridHost);
+      auto *tile = new QToolButton(tilesHost);
       tile->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
       tile->setCursor(Qt::PointingHandCursor);
       tile->setFixedSize(UiScale::dp(140), UiScale::dp(120));
-      // Real stroke preview fitted into the tile.
       QPixmap pm(UiScale::dp(72), UiScale::dp(72));
       pm.fill(Qt::transparent);
       {
@@ -3344,13 +3491,11 @@ void ModernToolbar::showMarkupLibrary() {
       tile->setText(item.name);
       const QString itemId = item.id;
       connect(tile, &QToolButton::clicked, layer, [this, itemId, layer]() {
-        // Insert is handled by MainWindow via markupLibraryRequested + pending id.
         QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
         s.setValue(QStringLiteral("ui/markup_library_pending_insert"), itemId);
         layer->close();
         emit markupLibraryRequested();
       });
-      // Right-click delete via context menu.
       tile->setContextMenuPolicy(Qt::CustomContextMenu);
       connect(tile, &QWidget::customContextMenuRequested, tile,
               [tile, itemId, layer](const QPoint &pos) {
@@ -3362,14 +3507,19 @@ void ModernToolbar::showMarkupLibrary() {
                   layer->close();
                 }
               });
-      grid->addWidget(tile, row, col);
+      tilesGrid->addWidget(tile, row, col);
       if (++col >= 3) {
         col = 0;
         ++row;
       }
     }
+    deviceLay->addWidget(tilesHost);
+    deviceLay->addStretch(1);
   }
-  scroll->setWidget(gridHost);
+
+  pagesLay->addWidget(devicePage);
+  pagesLay->addWidget(cloudPage);
+  scroll->setWidget(pagesHost);
   lay->addWidget(scroll, 1);
 
   auto *closeBtn = new QPushButton(tr("Schließen"), card);
@@ -3379,12 +3529,20 @@ void ModernToolbar::showMarkupLibrary() {
                NoteChrome::border().name(QColor::HexRgb)));
   lay->addWidget(closeBtn, 0, Qt::AlignRight);
   connect(closeBtn, &QPushButton::clicked, layer, &QWidget::close);
-  connect(deviceTab, &QPushButton::clicked, cloudTab, [cloudTab]() {
-    cloudTab->setChecked(false);
-  });
-  connect(cloudTab, &QPushButton::clicked, deviceTab, [deviceTab]() {
-    deviceTab->setChecked(false);
-  });
+  connect(deviceTab, &QPushButton::clicked, card,
+          [deviceTab, cloudTab, devicePage, cloudPage]() {
+            deviceTab->setChecked(true);
+            cloudTab->setChecked(false);
+            devicePage->show();
+            cloudPage->hide();
+          });
+  connect(cloudTab, &QPushButton::clicked, card,
+          [deviceTab, cloudTab, devicePage, cloudPage]() {
+            cloudTab->setChecked(true);
+            deviceTab->setChecked(false);
+            devicePage->hide();
+            cloudPage->show();
+          });
 
   layer->show();
   layer->raise();
@@ -4591,6 +4749,7 @@ void ModernToolbar::syncSlotButtonAppearance(int index) {
   btn->setRailSlotIndex(index);
   btn->setShowChevron(toolHasFlyout(s.mode));
   btn->setRailSlotStyle(true);
+  btn->setRailFooterStyle(false);
   QColor glyph;
   if (s.mode == ToolMode::Pen || s.mode == ToolMode::Pencil)
     glyph = s.color;
@@ -5608,8 +5767,9 @@ void ModernToolbar::updateLayout(bool animate) {
             slotBtns.append(b);
         }
         const int footerGap = UiScale::dp(2);
+        const int footerBtnS = UiScale::dp(40);
         const int footerH =
-            footerBtns.size() * btnS +
+            footerBtns.size() * footerBtnS +
             qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(10);
         const int contentTop = dragSize + UiScale::dp(4);
         const int contentBottom = h - footerH - UiScale::dp(4);
@@ -5663,7 +5823,8 @@ void ModernToolbar::updateLayout(bool animate) {
         m_separatorYPositions.append(contentBottom + UiScale::dp(2));
         for (ToolbarBtn *b : footerBtns) {
           b->setRailSlotStyle(true);
-          b->setBtnCell(w - UiScale::dp(4), btnS);
+          b->setRailFooterStyle(true);
+          b->setBtnCell(w - UiScale::dp(4), footerBtnS);
           b->move(UiScale::dp(2), fy);
           b->show();
           b->raise();

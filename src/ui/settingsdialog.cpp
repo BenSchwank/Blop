@@ -564,6 +564,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // v3.17.1/B4: the standalone "Akzentfarbe" row is removed -- the
     // Darstellung card above now owns the accent picker (persistent +
     // BlopTheme-backed). Toolbar mode stays here.
+    // Desktop Drawboard: Favorites rail is locked; Radial stays Android-only.
     auto *cardLook = new BlopSettingsCard(
         QStringLiteral("Erscheinungsbild"),
         QStringLiteral("Werkzeugleiste"),
@@ -575,7 +576,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "background: transparent;")));
         cardLook->addBodyWidget(lblTb);
 
-        auto *rNorm = new QRadioButton(QStringLiteral("Vertikal / Adaptiv"), cardLook);
+        auto *rNorm = new QRadioButton(
+#ifdef Q_OS_ANDROID
+            QStringLiteral("Vertikal / Adaptiv"),
+#else
+            QStringLiteral("Favorites-Leiste (Drawboard)"),
+#endif
+            cardLook);
         rNorm->setObjectName(QStringLiteral("radioVert"));
         auto *rFull = new QRadioButton(QStringLiteral("Radial"), cardLook);
         rFull->setObjectName(QStringLiteral("radioRadial"));
@@ -585,7 +592,21 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         rNorm->setStyleSheet(radioStyle);
         rFull->setStyleSheet(radioStyle);
         cardLook->addBodyWidget(rNorm);
+#ifdef Q_OS_ANDROID
         cardLook->addBodyWidget(rFull);
+#else
+        rFull->hide();
+        rFull->setEnabled(false);
+        auto *hint = new QLabel(
+            QStringLiteral("Radial-Toolbar und FAB sind auf Desktop "
+                           "deaktiviert — die Favorites-Leiste rechts ist fest."),
+            cardLook);
+        hint->setWordWrap(true);
+        hint->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(180, 188, 210, 0.78); font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;")));
+        cardLook->addBodyWidget(hint);
+#endif
 
         auto *bgToolbar = new QButtonGroup(this);
         bgToolbar->addButton(rNorm, 0);

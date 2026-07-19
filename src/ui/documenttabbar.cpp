@@ -485,6 +485,12 @@ void DocumentTabBar::updateIndicator(bool animate) {
   if (!m_indicator)
     return;
 
+  // NoteChrome chips already encode selection via fill/stroke — no underline.
+  if (m_noteChromeMode) {
+    m_indicator->hide();
+    return;
+  }
+
   DocumentTab *activeTab =
       m_homeActive ? m_homeTab
                    : (m_currentIndex >= 0 ? m_tabs.value(m_currentIndex) : nullptr);

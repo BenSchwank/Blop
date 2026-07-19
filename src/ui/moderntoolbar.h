@@ -81,6 +81,9 @@ public:
     /// Drawboard vertical rail: full-width slot highlight instead of circle lift.
     void setRailSlotStyle(bool enable);
     bool railSlotStyle() const { return m_railSlotStyle; }
+    /// Quieter footer affordances (library / + / props chevron).
+    void setRailFooterStyle(bool enable);
+    bool railFooterStyle() const { return m_railFooterStyle; }
     void setBtnCell(int w, int h);
 
     double animScale() const { return m_animScale; }
@@ -123,6 +126,7 @@ private:
     bool m_hover{false};
     bool m_drawFloatingBg{false};
     bool m_railSlotStyle{false};
+    bool m_railFooterStyle{false};
     bool m_showChevron{false};
     int m_size{40};
     int m_railSlotIndex{-1};

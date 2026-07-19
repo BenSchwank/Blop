@@ -512,6 +512,9 @@ private:
   QPushButton *m_btnNoteZoomIn{nullptr};
   QPushButton *m_btnNoteFitWidth{nullptr};
   QPushButton *m_btnNoteFitPage{nullptr};
+  QPushButton *m_btnNewTab{nullptr};
+  void refreshNoteBottomChromeIcons();
+  void refreshNoteTitleChrome(bool noteChrome);
 
   QWidget *m_pageSettingsOverlay{nullptr};
   QWidget *m_pageSettingsCard{nullptr};

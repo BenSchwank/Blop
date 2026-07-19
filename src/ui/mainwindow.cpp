@@ -2713,26 +2713,28 @@ void MainWindow::setupTitleBar() {
           &MainWindow::onBackToOverview);
 
   // "+ Tab" Button
-  QPushButton *btnNewTab = new QPushButton("+", m_topNavControls);
-  btnNewTab->setFixedSize(36, 36);
-  btnNewTab->setCursor(Qt::PointingHandCursor);
-  btnNewTab->setToolTip("Neue Notiz öffnen");
-  btnNewTab->setStyleSheet(
+  m_btnNewTab = new QPushButton(m_topNavControls);
+  m_btnNewTab->setObjectName(QStringLiteral("TitleBarNewTab"));
+  m_btnNewTab->setFixedSize(36, 36);
+  m_btnNewTab->setCursor(Qt::PointingHandCursor);
+  m_btnNewTab->setToolTip("Neue Notiz öffnen");
+  m_btnNewTab->setIcon(
+      createModernIcon(QStringLiteral("add"), QColor(200, 190, 255, 220)));
+  m_btnNewTab->setIconSize(QSize(18, 18));
+  m_btnNewTab->setStyleSheet(
       "QPushButton {"
       "  background: transparent;"
       "  border: none;"
       "  border-radius: 8px;"
-      "  color: rgba(255,255,255,0.45); font-size: 20px; font-weight: 500;"
       "}"
       "QPushButton:hover {"
       "  background: rgba(124,92,252,0.18);"
-      "  color: rgba(200,190,255,0.95);"
       "}");
-  connect(btnNewTab, &QPushButton::clicked, this,
+  connect(m_btnNewTab, &QPushButton::clicked, this,
           &MainWindow::onShowNewTabPopup);
 
   navLayout->addWidget(m_documentTabBar);
-  navLayout->addWidget(btnNewTab);
+  navLayout->addWidget(m_btnNewTab);
   navLayout->addSpacing(10);
   // Rest der Leiste nach rechts: Suche und Aktions-Icons
   navLayout->addStretch(1);
@@ -3873,6 +3875,11 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     blopDrawToolbarGlyph64(&p, QStringLiteral("bookmark"), color);
   } else if (name == "history" || name == "clock") {
     blopDrawToolbarGlyph64(&p, QStringLiteral("history"), color);
+  } else if (name == "undo" || name == "redo" || name == "chevron_left" ||
+             name == "chevron_right" || name == "chevron_rail" ||
+             name == "zoom_in" || name == "zoom_out" || name == "fit_width" ||
+             name == "fit_page" || name == "library") {
+    blopDrawToolbarGlyph64(&p, name, color);
   }
   return QIcon(pixmap);
 }
@@ -4962,13 +4969,13 @@ void MainWindow::setupUi() {
                                 UiScale::dp(14), UiScale::dp(4));
   bottomLay->setSpacing(UiScale::dp(4));
 
-  m_btnNoteUndo = new QPushButton(QStringLiteral("↶"), m_noteBottomChrome);
+  m_btnNoteUndo = new QPushButton(m_noteBottomChrome);
   m_btnNoteUndo->setToolTip(QStringLiteral("Rückgängig"));
   m_btnNoteUndo->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteUndo, &QPushButton::clicked, this, &MainWindow::onUndo);
   bottomLay->addWidget(m_btnNoteUndo);
 
-  m_btnNoteRedo = new QPushButton(QStringLiteral("↷"), m_noteBottomChrome);
+  m_btnNoteRedo = new QPushButton(m_noteBottomChrome);
   m_btnNoteRedo->setToolTip(QStringLiteral("Wiederholen"));
   m_btnNoteRedo->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
@@ -4976,7 +4983,7 @@ void MainWindow::setupUi() {
 
   bottomLay->addStretch(1);
 
-  m_btnNotePagePrev = new QPushButton(QStringLiteral("<"), m_noteBottomChrome);
+  m_btnNotePagePrev = new QPushButton(m_noteBottomChrome);
   m_btnNotePagePrev->setToolTip(QStringLiteral("Vorherige Seite"));
   m_btnNotePagePrev->setCursor(Qt::PointingHandCursor);
   connect(m_btnNotePagePrev, &QPushButton::clicked, this, [this]() {
@@ -4996,7 +5003,7 @@ void MainWindow::setupUi() {
   m_lblNotePage->setMinimumWidth(UiScale::dp(72));
   bottomLay->addWidget(m_lblNotePage);
 
-  m_btnNotePageNext = new QPushButton(QStringLiteral(">"), m_noteBottomChrome);
+  m_btnNotePageNext = new QPushButton(m_noteBottomChrome);
   m_btnNotePageNext->setToolTip(QStringLiteral("Nächste Seite"));
   m_btnNotePageNext->setCursor(Qt::PointingHandCursor);
   connect(m_btnNotePageNext, &QPushButton::clicked, this, [this]() {
@@ -5013,7 +5020,7 @@ void MainWindow::setupUi() {
 
   bottomLay->addStretch(1);
 
-  m_btnNoteZoomOut = new QPushButton(QStringLiteral("−"), m_noteBottomChrome);
+  m_btnNoteZoomOut = new QPushButton(m_noteBottomChrome);
   m_btnNoteZoomOut->setToolTip(QStringLiteral("Verkleinern"));
   m_btnNoteZoomOut->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteZoomOut, &QPushButton::clicked, this, [this]() {
@@ -5030,7 +5037,7 @@ void MainWindow::setupUi() {
   m_lblNoteZoom->setMinimumWidth(UiScale::dp(48));
   bottomLay->addWidget(m_lblNoteZoom);
 
-  m_btnNoteZoomIn = new QPushButton(QStringLiteral("+"), m_noteBottomChrome);
+  m_btnNoteZoomIn = new QPushButton(m_noteBottomChrome);
   m_btnNoteZoomIn->setToolTip(QStringLiteral("Vergrößern"));
   m_btnNoteZoomIn->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteZoomIn, &QPushButton::clicked, this, [this]() {
@@ -5041,7 +5048,7 @@ void MainWindow::setupUi() {
   });
   bottomLay->addWidget(m_btnNoteZoomIn);
 
-  m_btnNoteFitWidth = new QPushButton(QStringLiteral("⟷"), m_noteBottomChrome);
+  m_btnNoteFitWidth = new QPushButton(m_noteBottomChrome);
   m_btnNoteFitWidth->setToolTip(QStringLiteral("An Breite anpassen"));
   m_btnNoteFitWidth->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteFitWidth, &QPushButton::clicked, this, [this]() {
@@ -5052,7 +5059,7 @@ void MainWindow::setupUi() {
   });
   bottomLay->addWidget(m_btnNoteFitWidth);
 
-  m_btnNoteFitPage = new QPushButton(QStringLiteral("▢"), m_noteBottomChrome);
+  m_btnNoteFitPage = new QPushButton(m_noteBottomChrome);
   m_btnNoteFitPage->setToolTip(QStringLiteral("Ganze Seite"));
   m_btnNoteFitPage->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteFitPage, &QPushButton::clicked, this, [this]() {
@@ -5062,6 +5069,7 @@ void MainWindow::setupUi() {
     }
   });
   bottomLay->addWidget(m_btnNoteFitPage);
+  refreshNoteBottomChromeIcons();
 
   m_noteBottomChrome->hide();
   // Floating overlay — not in the VBox (Drawboard bottom strip).
@@ -7942,6 +7950,14 @@ void MainWindow::setupRightSidebar() {
     m_comboToolbarStyle->setToolTip(
         "Toolbar-Style ist auf Android Phones fest (Bottom-Pille).");
   }
+#ifndef Q_OS_ANDROID
+  // Desktop Drawboard locks the vertical Favorites rail — Radial/FAB are secondary.
+  lblToolbarStyle->setEnabled(false);
+  m_comboToolbarStyle->setEnabled(false);
+  m_comboToolbarStyle->setCurrentIndex(0);
+  m_comboToolbarStyle->setToolTip(
+      QStringLiteral("Desktop nutzt die Drawboard-Favorites-Leiste (vertikal)."));
+#endif
   optLayout->addWidget(m_comboToolbarStyle);
 
   optLayout->addWidget(new QLabel("UI Profile:", optContent));
@@ -8435,6 +8451,11 @@ void MainWindow::updateSidebarState() {
   // Lock Drawboard vertical Favorites rail whenever the note editor is active.
   if (isEditor) {
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+#ifndef Q_OS_ANDROID
+      // Desktop: always Favorites rail — never Radial/FAB.
+      if (tb->currentStyle() != ModernToolbar::Normal)
+        tb->setStyle(ModernToolbar::Normal);
+#endif
       if (tb->currentStyle() == ModernToolbar::Normal)
         tb->applyDrawboardVerticalRail();
     }
@@ -8444,13 +8465,18 @@ void MainWindow::updateSidebarState() {
     m_toolPropertiesPanel->hide();
   }
 
-  // FAB only for Radial toolbar style.
+  // FAB only for Radial toolbar style (Android / legacy).
   if (m_radialFab) {
     bool showFab = false;
+#ifndef Q_OS_ANDROID
+    Q_UNUSED(inNotesMode);
+    Q_UNUSED(isEditor);
+#else
     if (inNotesMode && isEditor) {
       if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
         showFab = (tb->currentStyle() == ModernToolbar::Radial);
     }
+#endif
     m_radialFab->setVisible(showFab);
   }
 
@@ -9302,6 +9328,7 @@ void MainWindow::onBackToOverview() {
   flushPendingA4Save();
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(false);
+  refreshNoteTitleChrome(false);
   if (m_rightStack) {
     const int overviewIdx = m_rightStack->indexOf(m_overviewContainer);
 #ifdef Q_OS_ANDROID
@@ -9975,9 +10002,23 @@ void MainWindow::onOpenSettings() {
           &MainWindow::updateTheme);
   connect(&dlg, &SettingsDialog::toolbarStyleChanged,
           [this, toolbar](bool radial) {
+#ifndef Q_OS_ANDROID
+            // Desktop Drawboard: keep Favorites rail; ignore Radial.
+            Q_UNUSED(radial);
+            if (toolbar) {
+              toolbar->setStyle(ModernToolbar::Normal);
+              toolbar->applyDrawboardVerticalRail();
+            }
+            if (m_radialFab)
+              m_radialFab->hide();
+            positionNoteChrome();
+#else
             if (toolbar)
               toolbar->setStyle(radial ? ModernToolbar::Radial
                                        : ModernToolbar::Normal);
+            if (m_radialFab)
+              m_radialFab->setVisible(radial);
+#endif
           });
   connect(&dlg, &SettingsDialog::logoutRequested, this, [this]() {
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -10306,22 +10347,130 @@ void MainWindow::applyNoteChromeTheme() {
         "QPushButton {"
         "  background: transparent; color: %3; border: none; border-radius: 4px;"
         "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
-        "  padding: 0 8px;"
+        "  padding: 0 6px;"
         "}"
         "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
+        "QPushButton:disabled { color: %3; }"
         "QLabel { background: transparent; color: %3; font-size: 12px; font-weight: 600; }")
                                           .arg(NoteChrome::toolbarFill().name(),
                                                NoteChrome::borderSoft().name(),
                                                NoteChrome::textSecondary().name(),
                                                NoteChrome::textPrimary().name()));
+    refreshNoteBottomChromeIcons();
   }
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(true);
+  refreshNoteTitleChrome(true);
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
     tb->setAccentColor(NoteChrome::accent());
     tb->update();
   }
   positionNoteChrome();
+#endif
+}
+
+void MainWindow::refreshNoteBottomChromeIcons() {
+#ifndef Q_OS_ANDROID
+  const QColor ic = NoteChrome::textSecondary();
+  const QSize sz(UiScale::dp(18), UiScale::dp(18));
+  auto apply = [&](QPushButton *btn, const QString &name) {
+    if (!btn)
+      return;
+    btn->setText(QString());
+    btn->setIcon(createModernIcon(name, ic));
+    btn->setIconSize(sz);
+  };
+  apply(m_btnNoteUndo, QStringLiteral("undo"));
+  apply(m_btnNoteRedo, QStringLiteral("redo"));
+  apply(m_btnNotePagePrev, QStringLiteral("chevron_left"));
+  apply(m_btnNotePageNext, QStringLiteral("chevron_right"));
+  apply(m_btnNoteZoomOut, QStringLiteral("zoom_out"));
+  apply(m_btnNoteZoomIn, QStringLiteral("zoom_in"));
+  apply(m_btnNoteFitWidth, QStringLiteral("fit_width"));
+  apply(m_btnNoteFitPage, QStringLiteral("fit_page"));
+#endif
+}
+
+void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
+#ifndef Q_OS_ANDROID
+  if (m_btnNewTab) {
+    if (noteChrome) {
+      m_btnNewTab->setIcon(
+          createModernIcon(QStringLiteral("add"), NoteChrome::textSecondary()));
+      m_btnNewTab->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
+      m_btnNewTab->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  background: transparent; border: none; border-radius: 8px;"
+          "}"
+          "QPushButton:hover { background: rgba(127,127,127,0.18); }"));
+    } else {
+      m_btnNewTab->setIcon(
+          createModernIcon(QStringLiteral("add"), QColor(200, 190, 255, 220)));
+      m_btnNewTab->setIconSize(QSize(18, 18));
+      m_btnNewTab->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  background: transparent; border: none; border-radius: 8px;"
+          "}"
+          "QPushButton:hover { background: rgba(124,92,252,0.18); }"));
+    }
+  }
+  if (m_titleSearchBar) {
+    if (noteChrome) {
+      m_titleSearchBar->setStyleSheet(QStringLiteral(
+          "QLineEdit {"
+          "  background: %1;"
+          "  border: 1px solid %2;"
+          "  border-radius: 10px;"
+          "  color: %3; font-size: 12px;"
+          "  padding: 0 14px;"
+          "}"
+          "QLineEdit:focus {"
+          "  background: %1;"
+          "  border: 1px solid %4;"
+          "}"
+          "QLineEdit::placeholder { color: %5; }")
+                                          .arg(NoteChrome::panelBg().name(
+                                                   QColor::HexRgb),
+                                               NoteChrome::borderSoft().name(
+                                                   QColor::HexRgb),
+                                               NoteChrome::textPrimary().name(
+                                                   QColor::HexRgb),
+                                               NoteChrome::accent().name(
+                                                   QColor::HexRgb),
+                                               NoteChrome::textSecondary().name(
+                                                   QColor::HexRgb)));
+    } else {
+      m_titleSearchBar->setStyleSheet(QStringLiteral(
+          "QLineEdit {"
+          "  background: rgba(255,255,255,0.05);"
+          "  border: 1px solid rgba(120,130,160,0.16);"
+          "  border-radius: 11px;"
+          "  color: #D8D5FF; font-size: 12px;"
+          "  padding: 0 14px;"
+          "}"
+          "QLineEdit:focus {"
+          "  background: rgba(124,92,252,0.10);"
+          "  border: 1px solid rgba(124,92,252,0.48);"
+          "}"
+          "QLineEdit::placeholder { color: rgba(255,255,255,0.32); }"));
+    }
+  }
+  if (m_btnEditorNoteOverflow) {
+    const QColor ic = noteChrome ? NoteChrome::textSecondary()
+                                 : QColor(QStringLiteral("#C8CDDC"));
+    m_btnEditorNoteOverflow->setIcon(
+        createModernIcon(QStringLiteral("more_pill"), ic));
+    m_btnEditorNoteOverflow->setStyleSheet(
+        noteChrome
+            ? QStringLiteral(
+                  "QToolButton { background: transparent; border: none; "
+                  "border-radius: 8px; }"
+                  "QToolButton:hover { background: rgba(127,127,127,0.18); }")
+            : QStringLiteral(
+                  "QToolButton { background: transparent; border: none; "
+                  "border-radius: 8px; }"
+                  "QToolButton:hover { background: rgba(124,92,252,0.22); }"));
+  }
 #endif
 }
 
