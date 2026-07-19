@@ -7,6 +7,7 @@
 #include "notechrome.h"
 #include "uiscale.h"
 
+#include <QAbstractItemModel>
 #include <QAbstractItemView>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -78,10 +79,30 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
   m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+  m_list->setDragDropMode(QAbstractItemView::InternalMove);
+  m_list->setDefaultDropAction(Qt::MoveAction);
+  m_list->setMovement(QListView::Snap);
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) { onItemClicked(m_list->row(item)); });
   connect(m_list, &QWidget::customContextMenuRequested, this,
           &PageThumbnailSidebar::showItemContextMenu);
+  connect(m_list->model(), &QAbstractItemModel::rowsMoved, this,
+          [this](const QModelIndex &, int start, int end,
+                 const QModelIndex &, int dest) {
+            Q_UNUSED(end);
+            if (!m_view || start < 0)
+              return;
+            // Qt dest is the row before which items are inserted after removal.
+            int to = dest;
+            if (to > start)
+              --to;
+            if (to == start)
+              return;
+            m_view->movePage(start, to);
+            rebuild();
+            emit pagesMutated();
+            emit pageSelected(to);
+          });
   lay->addWidget(m_list, 1);
 
   auto *footer = new QHBoxLayout;

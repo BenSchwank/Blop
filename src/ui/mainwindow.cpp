@@ -3869,6 +3869,10 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawEllipse(QPointF(32, 20), 3.5, 3.5);
     p.drawEllipse(QPointF(42, 26), 3.5, 3.5);
     p.drawEllipse(QPointF(28, 38), 4.0, 4.0);
+  } else if (name == "bookmark" || name == "bookmarks") {
+    blopDrawToolbarGlyph64(&p, QStringLiteral("bookmark"), color);
+  } else if (name == "history" || name == "clock") {
+    blopDrawToolbarGlyph64(&p, QStringLiteral("history"), color);
   }
   return QIcon(pixmap);
 }
@@ -4793,7 +4797,7 @@ void MainWindow::setupUi() {
     bindToolShortcut(QKeySequence(Qt::Key_E), ToolMode::Eraser);
     bindToolShortcut(QKeySequence(Qt::Key_V), ToolMode::Lasso);
     bindToolShortcut(QKeySequence(Qt::Key_T), ToolMode::Text);
-    bindToolShortcut(QKeySequence(Qt::Key_Space), ToolMode::Hand);
+    // Space is hold-to-pan in MultiPageNoteView (not a permanent Hand switch).
 #endif
     m_floatingTools = topToolbar;
   }
@@ -5088,9 +5092,9 @@ void MainWindow::setupUi() {
   m_noteLeftRail->setIcon(QStringLiteral("allpages"),
                           createModernIcon(QStringLiteral("pages_pill"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("bookmarks"),
-                          createModernIcon(QStringLiteral("home"), railIcon));
+                          createModernIcon(QStringLiteral("bookmark"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("history"),
-                          createModernIcon(QStringLiteral("more_pill"), railIcon));
+                          createModernIcon(QStringLiteral("history"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("search"),
                           createModernIcon(QStringLiteral("search"), railIcon));
   m_noteLeftRail->setIcon(QStringLiteral("more"),
@@ -5264,6 +5268,7 @@ void MainWindow::setupUi() {
       case ToolMode::Image: type = CanvasView::ToolType::Image; break;
       case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
       case ToolMode::Text: type = CanvasView::ToolType::Text; break;
+      case ToolMode::Hand: type = CanvasView::ToolType::Pen; break;
       default: type = CanvasView::ToolType::Pen; break;
     }
     setActiveTool(type);
@@ -5275,8 +5280,10 @@ void MainWindow::setupUi() {
     if (m_editorTabs) {
       if (auto *activeEditor =
               qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-        if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
+        if (auto *view = activeEditor->findChild<MultiPageNoteView *>()) {
+          view->setToolMode(m);
           view->toggleRuler(rulerActive);
+        }
       }
     }
   };
@@ -10230,23 +10237,18 @@ void MainWindow::syncPenPresetBarGeometry() {
   if (!m_penPresetBar || !m_editorCenterWidget)
     return;
   auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
+  // Favorites rail slots already act as Drawboard presets — hide chips there.
   const bool show = m_floatingTools && m_floatingTools->isVisible() && tb &&
                     tb->currentStyle() == ModernToolbar::Normal &&
-                    (tb->isDockedMode() || tb->isDrawboardVerticalRail());
+                    tb->isDockedMode() && !tb->isDrawboardVerticalRail();
   if (!show) {
     m_penPresetBar->hide();
     return;
   }
   const int h = m_penPresetBar->preferredHeightPx();
-  int x = m_floatingTools->x();
-  int y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
-  int w = m_floatingTools->width();
-  // With the vertical Favorites rail: pin chips just left of the rail bottom.
-  if (tb->isDrawboardVerticalRail()) {
-    w = qMax(UiScale::dp(180), UiScale::dp(220));
-    x = qMax(UiScale::dp(8), m_floatingTools->x() - w - UiScale::dp(8));
-    y = m_floatingTools->y() + m_floatingTools->height() - h - UiScale::dp(12);
-  }
+  const int x = m_floatingTools->x();
+  const int y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
+  const int w = m_floatingTools->width();
   m_penPresetBar->setGeometry(x, y, w, h);
   m_penPresetBar->show();
   m_penPresetBar->raise();

@@ -4,6 +4,7 @@
 // color swatches, stroke width, opacity — bound to ToolManager.
 
 #include <QColor>
+#include <QList>
 #include <QWidget>
 
 #include "ToolMode.h"
@@ -36,6 +37,7 @@ private:
   void rebuild();
   void applyConfig();
   void addColorRow(QVBoxLayout *lay);
+  void refreshSwatchSelection();
   QPushButton *makeSwatch(const QColor &c);
 
   ToolMode m_mode{ToolMode::Pen};
@@ -55,5 +57,7 @@ private:
   QPushButton *m_modeB{nullptr};
   QPushButton *m_modeC{nullptr};
   QPushButton *m_modeD{nullptr};
+  QPushButton *m_customColorBtn{nullptr};
+  QList<QPushButton *> m_swatches;
   QVBoxLayout *m_root{nullptr};
 };

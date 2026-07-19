@@ -126,6 +126,14 @@ inline void drawTrash(QPainter &p, const QColor &) {
   p.drawLine(QPointF(2, -3), QPointF(1, 6));
 }
 
+inline void drawLibrary(QPainter &p, const QColor &c) {
+  p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  p.drawRoundedRect(-10, -8, 6, 16, 1.5, 1.5);
+  p.drawRoundedRect(-3, -8, 6, 16, 1.5, 1.5);
+  p.drawRoundedRect(4, -8, 6, 16, 1.5, 1.5);
+}
+
 inline QIcon fallbackCutIcon() { return makeIcon(drawCut); }
 inline QIcon fallbackCopyIcon() { return makeIcon(drawCopy); }
 
@@ -152,6 +160,7 @@ inline QIcon duplicateIcon() { return makeIcon(drawDuplicate); }
 inline QIcon cropIcon() { return makeIcon(drawCrop); }
 inline QIcon screenshotIcon() { return makeIcon(drawScreenshot); }
 inline QIcon trashIcon() { return makeIcon(drawTrash); }
+inline QIcon libraryIcon() { return makeIcon(drawLibrary); }
 
 inline void drawPageLayout(QPainter &p, const QColor &c) {
   p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));

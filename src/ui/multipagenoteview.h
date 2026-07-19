@@ -43,7 +43,7 @@ public:
     void setNote(Note* note);
     Note* note() const { return note_; }
 
-    void setToolMode(ToolMode m) { mode_ = m; }
+    void setToolMode(ToolMode m);
     void toggleRuler(bool active);
 
     void setPenColor(const QColor& c) { penColor_ = c; }
@@ -136,6 +136,9 @@ protected:
     void resizeEvent(QResizeEvent*) override;
     void showEvent(QShowEvent *event) override;
     void wheelEvent(QWheelEvent*) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
     /// Apply a fit-to-width transform so the A4 page fits the viewport.
     void autoFitPageToViewportWidth();
@@ -191,6 +194,11 @@ private:
     bool m_isPanning{false};
     bool m_isZooming{false};
     QPoint m_lastPanPos;
+    /// Space hold-to-pan: temporary Hand while Space is held.
+    bool m_spacePanActive{false};
+    ToolMode m_toolBeforeSpacePan{ToolMode::Pen};
+    void beginSpacePan();
+    void endSpacePan();
 
     /// Kumuliertes „Überziehen“ am unteren Rand (Rad / Pan), bis das Blob-Overlay erscheint
     float m_pullDistance{0.0f};

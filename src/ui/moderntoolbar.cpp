@@ -334,6 +334,28 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(48, 16, 46, 30);
     return;
   }
+  if (name == QLatin1String("bookmark") || name == QLatin1String("bookmarks")) {
+    QPainterPath ribbon;
+    ribbon.moveTo(20, 12);
+    ribbon.lineTo(44, 12);
+    ribbon.lineTo(44, 52);
+    ribbon.lineTo(32, 42);
+    ribbon.lineTo(20, 52);
+    ribbon.closeSubpath();
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    p->drawPath(ribbon);
+    return;
+  }
+  if (name == QLatin1String("history") || name == QLatin1String("clock")) {
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    p->drawEllipse(QRectF(14, 14, 36, 36));
+    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap));
+    p->drawLine(32, 22, 32, 34);
+    p->drawLine(32, 34, 42, 34);
+    return;
+  }
   if (name == QLatin1String("stickynote") || name == QLatin1String("note")) {
     // Document / sticky note page.
     p->setPen(primaryPen);
@@ -2327,8 +2349,14 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     }
     if (m_markupBarMode != MarkupOff)
       m_markupCategory = categoryForTool(m);
-    ToolManager::instance().selectTool(m);
-    setToolMode(m);
+    // Hand has no AbstractTool registration — still switch UI + notify.
+    if (m == ToolMode::Hand) {
+      setToolMode(m);
+      emit toolChanged(m);
+    } else {
+      ToolManager::instance().selectTool(m);
+      setToolMode(m);
+    }
     if (m_style == Radial)
       m_radialCollapseTimer.start(180);
   };
@@ -2542,6 +2570,19 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
           p.drawLine(UiScale::dp(8), m_markupRowDividerY, w - UiScale::dp(8),
                      m_markupRowDividerY);
         }
+      } else if (isDrawboardVerticalRail()) {
+        // Edge-flush Favorites rail: square charcoal plate, no float shadow.
+        QLinearGradient grad(0, 0, 0, h);
+        grad.setColorAt(0, NoteChrome::toolbarFill());
+        grad.setColorAt(1, NoteChrome::toolbarFillEnd());
+        p.setPen(Qt::NoPen);
+        p.setBrush(grad);
+        p.drawRect(rect());
+        p.setPen(QPen(NoteChrome::borderSoft(), 1));
+        p.drawLine(0, 0, 0, h);
+        p.setPen(QPen(QColor(255, 255, 255, 22), 1));
+        for (int sy : m_separatorYPositions)
+          p.drawLine(UiScale::dp(8), sy, w - UiScale::dp(8), sy);
       } else {
         // Floating charcoal tool plate.
         const int radius = (m_orientation == Vertical)
@@ -2551,7 +2592,6 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
         p.setBrush(QColor(0, 0, 0, 55));
         p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), radius, radius);
 
-        // Drawboard Favorites rail: flat charcoal plate.
         QLinearGradient grad(0, 0, 0, h);
         grad.setColorAt(0, NoteChrome::toolbarFill());
         grad.setColorAt(1, NoteChrome::toolbarFillEnd());
@@ -3212,12 +3252,14 @@ void ModernToolbar::showMarkupLibrary() {
   auto *tabRow = new QHBoxLayout;
   auto *deviceTab = new QPushButton(
       tr("Device (%1)").arg(deviceCount), card);
-  auto *cloudTab = new QPushButton(tr("Cloud (0)"), card);
+  auto *cloudTab = new QPushButton(tr("Cloud"), card);
   deviceTab->setObjectName(QStringLiteral("LibTab"));
   cloudTab->setObjectName(QStringLiteral("LibTab"));
   deviceTab->setCheckable(true);
   cloudTab->setCheckable(true);
   deviceTab->setChecked(true);
+  cloudTab->setEnabled(false);
+  cloudTab->setToolTip(tr("Cloud-Bibliothek folgt später."));
   tabRow->addWidget(deviceTab);
   tabRow->addWidget(cloudTab);
   tabRow->addStretch(1);
@@ -3253,17 +3295,39 @@ void ModernToolbar::showMarkupLibrary() {
       tile->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
       tile->setCursor(Qt::PointingHandCursor);
       tile->setFixedSize(UiScale::dp(140), UiScale::dp(120));
-      // Mini preview from first stroke color.
+      // Real stroke preview fitted into the tile.
       QPixmap pm(UiScale::dp(72), UiScale::dp(72));
       pm.fill(Qt::transparent);
       {
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(QColor(item.previewColor.red(), item.previewColor.green(),
-                          item.previewColor.blue(), 40));
-        p.setPen(QPen(item.previewColor, 3, Qt::SolidLine, Qt::RoundCap));
-        p.drawRoundedRect(pm.rect().adjusted(6, 6, -6, -6), 10, 10);
-        p.drawLine(18, pm.height() - 22, pm.width() - 18, 22);
+        p.fillRect(pm.rect(), NoteChrome::panelBg());
+        QRectF bounds;
+        for (const Stroke &s : item.strokes)
+          bounds = bounds.united(s.path.boundingRect());
+        if (!bounds.isEmpty()) {
+          const qreal pad = 8.0;
+          const qreal sx =
+              (pm.width() - 2 * pad) / qMax(1.0, bounds.width());
+          const qreal sy =
+              (pm.height() - 2 * pad) / qMax(1.0, bounds.height());
+          const qreal scale = qMin(sx, sy);
+          p.translate(pm.width() / 2.0, pm.height() / 2.0);
+          p.scale(scale, scale);
+          p.translate(-bounds.center().x(), -bounds.center().y());
+          for (const Stroke &s : item.strokes) {
+            QColor c = s.color;
+            if (s.isHighlighter)
+              c.setAlpha(90);
+            p.setPen(QPen(c, qMax(1.0, s.width), Qt::SolidLine, Qt::RoundCap,
+                          Qt::RoundJoin));
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(s.path);
+          }
+        } else {
+          p.setPen(QPen(item.previewColor, 3, Qt::SolidLine, Qt::RoundCap));
+          p.drawLine(18, pm.height() - 22, pm.width() - 18, 22);
+        }
       }
       tile->setIcon(QIcon(pm));
       tile->setIconSize(pm.size());

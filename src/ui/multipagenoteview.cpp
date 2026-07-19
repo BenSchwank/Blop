@@ -1,5 +1,6 @@
 #include "multipagenoteview.h"
 #include "markuplibrarystore.h"
+#include "notechrome.h"
 #include "SelectionMenuIcons.h"
 #include "TransformOverlay.h"
 #include "croptools.h"
@@ -75,6 +76,8 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QFocusEvent>
 #include <QDoubleSpinBox>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -308,12 +311,17 @@ class NoteSelectionMenu : public QWidget {
   Q_OBJECT
 public:
   explicit NoteSelectionMenu(QWidget *parent = nullptr) : QWidget(parent) {
-    setStyleSheet(BlopTheme::themed(
-        "QWidget { background-color: #252526; border-radius: 8px; border: 1px "
-        "solid #444; }"
-        "QPushButton { background: transparent; border: none; color: #F4F2FF; "
-        "font-weight: bold; padding: 5px 8px; font-size: 14px; }"
-        "QPushButton:hover { background-color: #3E3E42; border-radius: 4px; }"));
+    setStyleSheet(
+        QStringLiteral(
+            "QWidget { background-color: %1; border-radius: 8px; border: 1px "
+            "solid %2; }"
+            "QPushButton { background: transparent; border: none; color: %3; "
+            "font-weight: 600; padding: 5px 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: %4; border-radius: 4px; }")
+            .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+                 NoteChrome::border().name(QColor::HexRgb),
+                 NoteChrome::textPrimary().name(QColor::HexRgb),
+                 NoteChrome::accentSoft().name(QColor::HexArgb)));
     setAttribute(Qt::WA_StyledBackground);
     QHBoxLayout *layout = new QHBoxLayout(this);
     layout->setContentsMargins(5, 5, 5, 5);
@@ -340,25 +348,20 @@ public:
                &NoteSelectionMenu::cropRequested);
     addIconBtn(SelectionMenuIcons::screenshotIcon(), QStringLiteral("Screenshot"),
                &NoteSelectionMenu::screenshotRequested);
-    {
-      auto *btnLib = new QPushButton(QStringLiteral("Lib"), this);
-      btnLib->setToolTip(QStringLiteral("Zur Bibliothek"));
-      btnLib->setFlat(true);
-      btnLib->setFixedWidth(36);
-      connect(btnLib, &QPushButton::clicked, this,
-              &NoteSelectionMenu::libraryRequested);
-      layout->addWidget(btnLib);
-    }
+    addIconBtn(SelectionMenuIcons::libraryIcon(),
+               QStringLiteral("Zur Bibliothek"),
+               &NoteSelectionMenu::libraryRequested);
     QFrame *line = new QFrame;
     line->setFrameShape(QFrame::VLine);
-    line->setStyleSheet("color: #555;");
+    line->setStyleSheet(
+        QStringLiteral("color: %1;").arg(NoteChrome::border().name()));
     layout->addWidget(line);
     QPushButton *btnDel = new QPushButton(this);
     btnDel->setIcon(SelectionMenuIcons::trashIcon());
     btnDel->setIconSize(QSize(22, 22));
     btnDel->setToolTip(QStringLiteral("Löschen"));
     btnDel->setFlat(true);
-    btnDel->setStyleSheet("color: #FF5555;");
+    btnDel->setStyleSheet(QStringLiteral("color: #FF5555;"));
     connect(btnDel, &QPushButton::clicked, this,
             &NoteSelectionMenu::deleteRequested);
     layout->addWidget(btnDel);
@@ -1230,6 +1233,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   setDragMode(QGraphicsView::NoDrag);
   setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
   setAcceptDrops(false);
+  setFocusPolicy(Qt::StrongFocus);
 
   viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
 
@@ -2397,6 +2401,62 @@ void MultiPageNoteView::resizeEvent(QResizeEvent *e) {
 #endif
 }
 
+void MultiPageNoteView::setToolMode(ToolMode m) {
+  mode_ = m;
+  if (m_spacePanActive)
+    return;
+  if (m == ToolMode::Hand)
+    setCursor(Qt::OpenHandCursor);
+  else if (!m_isPanning)
+    setCursor(Qt::ArrowCursor);
+}
+
+void MultiPageNoteView::beginSpacePan() {
+  if (m_spacePanActive)
+    return;
+  m_spacePanActive = true;
+  m_toolBeforeSpacePan = mode_;
+  mode_ = ToolMode::Hand;
+  setCursor(Qt::OpenHandCursor);
+}
+
+void MultiPageNoteView::endSpacePan() {
+  if (!m_spacePanActive)
+    return;
+  m_spacePanActive = false;
+  if (m_isPanning) {
+    m_isPanning = false;
+  }
+  mode_ = m_toolBeforeSpacePan;
+  if (mode_ == ToolMode::Hand)
+    setCursor(Qt::OpenHandCursor);
+  else
+    setCursor(Qt::ArrowCursor);
+}
+
+void MultiPageNoteView::keyPressEvent(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+    beginSpacePan();
+    event->accept();
+    return;
+  }
+  QGraphicsView::keyPressEvent(event);
+}
+
+void MultiPageNoteView::keyReleaseEvent(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+    endSpacePan();
+    event->accept();
+    return;
+  }
+  QGraphicsView::keyReleaseEvent(event);
+}
+
+void MultiPageNoteView::focusOutEvent(QFocusEvent *event) {
+  endSpacePan();
+  QGraphicsView::focusOutEvent(event);
+}
+
 void MultiPageNoteView::showEvent(QShowEvent *e) {
   QGraphicsView::showEvent(e);
   syncPagesBarVisibility();
@@ -2631,6 +2691,23 @@ void MultiPageNoteView::pinchTriggered(QPinchGesture *gesture) {
 
 void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
   if (m_isZooming) {
+    e->accept();
+    return;
+  }
+
+  // Hand tool / Space hold-to-pan: drag the canvas.
+  if (e->button() == Qt::LeftButton &&
+      (mode_ == ToolMode::Hand || m_spacePanActive)) {
+    m_isPanning = true;
+    m_lastPanPos = e->pos();
+    setCursor(Qt::ClosedHandCursor);
+    e->accept();
+    return;
+  }
+  if (e->button() == Qt::MiddleButton) {
+    m_isPanning = true;
+    m_lastPanPos = e->pos();
+    setCursor(Qt::ClosedHandCursor);
     e->accept();
     return;
   }
@@ -2968,7 +3045,10 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
 
   if (m_isPanning) {
     m_isPanning = false;
-    setCursor(Qt::ArrowCursor);
+    if (mode_ == ToolMode::Hand || m_spacePanActive)
+      setCursor(Qt::OpenHandCursor);
+    else
+      setCursor(Qt::ArrowCursor);
     e->accept();
     return;
   }

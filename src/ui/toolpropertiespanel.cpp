@@ -1,5 +1,6 @@
 #include "toolpropertiespanel.h"
 
+#include "editoroverlays.h"
 #include "notechrome.h"
 #include "tools/ToolManager.h"
 #include "uiscale.h"
@@ -8,7 +9,6 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QList>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPen>
@@ -66,7 +66,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_colorRow = new QWidget(this);
   addColorRow(m_root);
 
-  // Mode row for Lasso / Shape (rebuilt visibility in setVisibleForTool).
+  // Mode row for Lasso / Shape / Eraser / Highlighter.
   m_modeLbl = new QLabel(QStringLiteral("Modus"), this);
   m_root->addWidget(m_modeLbl);
   m_modeRow = new QWidget(this);
@@ -94,6 +94,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
       m_config.lassoMode = LassoMode::Freehand;
     else if (m_mode == ToolMode::Shape)
       m_config.shapeToolKind = ShapeToolKind::Rectangle;
+    else if (m_mode == ToolMode::Eraser)
+      m_config.eraserMode = EraserMode::Pixel;
+    else if (m_mode == ToolMode::Highlighter)
+      m_config.tipType = HighlighterTip::Round;
     applyConfig();
   });
   connect(m_modeB, &QPushButton::clicked, this, [this]() {
@@ -101,6 +105,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
       m_config.lassoMode = LassoMode::Rectangle;
     else if (m_mode == ToolMode::Shape)
       m_config.shapeToolKind = ShapeToolKind::Circle;
+    else if (m_mode == ToolMode::Eraser)
+      m_config.eraserMode = EraserMode::Object;
+    else if (m_mode == ToolMode::Highlighter)
+      m_config.tipType = HighlighterTip::Chisel;
     applyConfig();
   });
   connect(m_modeC, &QPushButton::clicked, this, [this]() {
@@ -142,6 +150,7 @@ void ToolPropertiesPanel::setAccentColor(const QColor &c) {
     return;
   m_accent = c;
   rebuild();
+  refreshSwatchSelection();
   update();
 }
 
@@ -161,17 +170,37 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   if (m_colorRow)
     m_colorRow->setVisible(colorful);
 
-  const bool modeTools =
-      (mode == ToolMode::Lasso || mode == ToolMode::Shape);
+  const bool modeTools = (mode == ToolMode::Lasso || mode == ToolMode::Shape ||
+                          mode == ToolMode::Eraser ||
+                          mode == ToolMode::Highlighter);
   if (m_modeLbl)
     m_modeLbl->setVisible(modeTools);
   if (m_modeRow)
     m_modeRow->setVisible(modeTools);
+
   if (mode == ToolMode::Lasso) {
     m_modeA->setText(QStringLiteral("Freihand"));
     m_modeB->setText(QStringLiteral("Rechteck"));
     m_modeA->setChecked(m_config.lassoMode == LassoMode::Freehand);
     m_modeB->setChecked(m_config.lassoMode == LassoMode::Rectangle);
+    if (m_modeC)
+      m_modeC->setVisible(false);
+    if (m_modeD)
+      m_modeD->setVisible(false);
+  } else if (mode == ToolMode::Eraser) {
+    m_modeA->setText(QStringLiteral("Pixel"));
+    m_modeB->setText(QStringLiteral("Objekt"));
+    m_modeA->setChecked(m_config.eraserMode == EraserMode::Pixel);
+    m_modeB->setChecked(m_config.eraserMode == EraserMode::Object);
+    if (m_modeC)
+      m_modeC->setVisible(false);
+    if (m_modeD)
+      m_modeD->setVisible(false);
+  } else if (mode == ToolMode::Highlighter) {
+    m_modeA->setText(QStringLiteral("Rund"));
+    m_modeB->setText(QStringLiteral("Meißel"));
+    m_modeA->setChecked(m_config.tipType == HighlighterTip::Round);
+    m_modeB->setChecked(m_config.tipType == HighlighterTip::Chisel);
     if (m_modeC)
       m_modeC->setVisible(false);
     if (m_modeD)
@@ -199,7 +228,9 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     QString hint;
     switch (mode) {
     case ToolMode::Hand:
-      hint = QStringLiteral("Zum Verschieben der Seite ziehen.");
+      hint = QStringLiteral(
+          "Ziehen zum Verschieben. Leertaste gedrückt halten zum "
+          "vorübergehenden Schwenken.");
       break;
     case ToolMode::Image:
       hint = QStringLiteral("Tippe auf die Seite, um ein Bild einzufügen.");
@@ -210,18 +241,32 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     case ToolMode::Ruler:
       hint = QStringLiteral("Lineal auf der Seite positionieren und zeichnen.");
       break;
+    case ToolMode::Eraser:
+      hint = QStringLiteral(
+          "Pixel radiert Tinte; Objekt entfernt ganze Striche.");
+      break;
+    case ToolMode::Lasso:
+      hint = QStringLiteral(
+          "Auswahl markieren, dann verschieben, duplizieren oder "
+          "zur Bibliothek hinzufügen.");
+      break;
     default:
       break;
     }
     m_hintLbl->setText(hint);
     m_hintLbl->setVisible(!hint.isEmpty());
   }
+  refreshSwatchSelection();
 }
 
 void ToolPropertiesPanel::syncFromToolManager() {
   auto &tm = ToolManager::instance();
   m_mode = tm.activeToolMode();
+  // Prefer toolbar-reported Hand (no AbstractTool); fall back to config tool.
   m_config = tm.config();
+  // If Hand was selected via Favorites, ToolManager may still hold the previous
+  // ink tool — keep panel title/hints driven by the last sync caller's mode
+  // when setVisibleForTool is used from outside. Here we use activeToolMode.
   m_widthSlider->blockSignals(true);
   m_opacitySlider->blockSignals(true);
   m_widthSlider->setValue(m_config.penWidth);
@@ -277,33 +322,72 @@ void ToolPropertiesPanel::syncFromToolManager() {
 
 void ToolPropertiesPanel::applyConfig() {
   ToolManager::instance().updateConfig(m_config);
+  refreshSwatchSelection();
 }
 
 void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_colorRow);
   grid->setContentsMargins(0, 0, 0, 0);
   grid->setSpacing(UiScale::dp(6));
-  QList<QColor> colors = {
+  const QList<QColor> colors = {
       Qt::black, Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
       QColor(40, 180, 80), QColor(250, 180, 30), QColor(160, 60, 200),
       QColor(30, 30, 30)};
   for (int i = 0; i < colors.size(); ++i) {
     auto *btn = makeSwatch(colors[i]);
+    m_swatches.append(btn);
     grid->addWidget(btn, i / 4, i % 4);
   }
+  m_customColorBtn = new QPushButton(QStringLiteral("…"), m_colorRow);
+  m_customColorBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  m_customColorBtn->setCursor(Qt::PointingHandCursor);
+  m_customColorBtn->setToolTip(QStringLiteral("Eigene Farbe…"));
+  connect(m_customColorBtn, &QPushButton::clicked, this, [this]() {
+    QColor c = m_config.penColor;
+    if (!showColorPickerOverlay(window(), &c, QStringLiteral("Stiftfarbe")))
+      return;
+    m_config.penColor = c;
+    applyConfig();
+  });
+  grid->addWidget(m_customColorBtn, 2, 0);
   lay->addWidget(m_colorRow);
+}
+
+void ToolPropertiesPanel::refreshSwatchSelection() {
+  for (QPushButton *btn : m_swatches) {
+    if (!btn)
+      continue;
+    const QColor c = btn->property("swatchColor").value<QColor>();
+    const bool selected = c.isValid() && c == m_config.penColor;
+    const QString border =
+        selected ? m_accent.name()
+                 : ((c == Qt::white) ? QStringLiteral("#888")
+                                     : c.darker(120).name());
+    const int bw = selected ? 2 : 1;
+    btn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; border: %2px solid %3; border-radius: 6px; }"
+        "QPushButton:hover { border: 2px solid %4; }")
+                           .arg(c.name())
+                           .arg(bw)
+                           .arg(border, m_accent.name()));
+  }
+  if (m_customColorBtn) {
+    m_customColorBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 6px; font-weight: 700; }"
+        "QPushButton:hover { border-color: %4; }")
+                                        .arg(NoteChrome::panelElevated().name(),
+                                             NoteChrome::textPrimary().name(),
+                                             NoteChrome::border().name(),
+                                             m_accent.name()));
+  }
 }
 
 QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c) {
   auto *btn = new QPushButton(m_colorRow);
   btn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   btn->setCursor(Qt::PointingHandCursor);
-  const QString border =
-      (c == Qt::white) ? QStringLiteral("#888") : c.darker(120).name();
-  btn->setStyleSheet(QStringLiteral(
-      "QPushButton { background: %1; border: 1px solid %2; border-radius: 6px; }"
-      "QPushButton:hover { border: 2px solid %3; }")
-                         .arg(c.name(), border, m_accent.name()));
+  btn->setProperty("swatchColor", c);
   connect(btn, &QPushButton::clicked, this, [this, c]() {
     m_config.penColor = c;
     applyConfig();
@@ -328,6 +412,7 @@ void ToolPropertiesPanel::rebuild() {
                                NoteChrome::accent().name(),
                                NoteChrome::textPrimary().name());
   setStyleSheet(qss);
+  refreshSwatchSelection();
 }
 
 void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
