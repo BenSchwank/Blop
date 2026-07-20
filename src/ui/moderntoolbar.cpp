@@ -1969,6 +1969,7 @@ public:
       const QList<KindEntry> kindList = {
           {QStringLiteral("Rechteck"), ShapeToolKind::Rectangle},
           {QStringLiteral("Kreis"), ShapeToolKind::Circle},
+          {QStringLiteral("Ellipse"), ShapeToolKind::Ellipse},
           {QStringLiteral("Linie"), ShapeToolKind::Line},
           {QStringLiteral("Pfeil"), ShapeToolKind::Arrow},
           {QStringLiteral("Achsen"), ShapeToolKind::Axes2D},
@@ -4811,6 +4812,8 @@ QString ModernToolbar::iconForSlot(const RailSlot &s) const {
     const auto kind = static_cast<ShapeToolKind>(s.shapeKind);
     if (kind == ShapeToolKind::Circle)
       return QStringLiteral("ellipse");
+    if (kind == ShapeToolKind::Ellipse)
+      return QStringLiteral("ellipse");
     if (kind == ShapeToolKind::Line)
       return QStringLiteral("line");
     if (kind == ShapeToolKind::Arrow)
@@ -5197,18 +5200,20 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
   if (mode == ToolMode::Shape) {
     auto *rect = menu.addAction(tr("Rechteck"));
     auto *circle = menu.addAction(tr("Kreis"));
+    auto *ellipse = menu.addAction(tr("Ellipse"));
     auto *line = menu.addAction(tr("Linie"));
     auto *arrow = menu.addAction(tr("Pfeil"));
     menu.addSeparator();
     auto *axes = menu.addAction(tr("Achsen"));
     auto *sine = menu.addAction(tr("Sinus"));
     auto *graph = menu.addAction(tr("Graph"));
-    for (QAction *a : {rect, circle, line, arrow, axes, sine, graph})
+    for (QAction *a : {rect, circle, ellipse, line, arrow, axes, sine, graph})
       a->setCheckable(true);
     const ShapeToolKind cur =
         ToolManager::instance().configFor(ToolMode::Shape).shapeToolKind;
     rect->setChecked(cur == ShapeToolKind::Rectangle);
     circle->setChecked(cur == ShapeToolKind::Circle);
+    ellipse->setChecked(cur == ShapeToolKind::Ellipse);
     line->setChecked(cur == ShapeToolKind::Line);
     arrow->setChecked(cur == ShapeToolKind::Arrow);
     axes->setChecked(cur == ShapeToolKind::Axes2D);
@@ -5227,6 +5232,8 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
     ShapeToolKind kind = ShapeToolKind::Rectangle;
     if (picked == circle)
       kind = ShapeToolKind::Circle;
+    else if (picked == ellipse)
+      kind = ShapeToolKind::Ellipse;
     else if (picked == line)
       kind = ShapeToolKind::Line;
     else if (picked == arrow)

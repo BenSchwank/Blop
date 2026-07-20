@@ -166,6 +166,16 @@ void NoteLeftRail::setThumbsAdjacent(bool on) {
   update();
 }
 
+void NoteLeftRail::setPageFeaturesVisible(bool on) {
+  for (const char *id : {"pages", "allpages", "bookmarks", "history"}) {
+    if (auto *b = m_btns.value(QString::fromLatin1(id)))
+      b->setVisible(on);
+  }
+  // Separators: hide trailing page-group separator when page features off.
+  if (!m_separators.isEmpty())
+    m_separators.first()->setVisible(on);
+}
+
 void NoteLeftRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);

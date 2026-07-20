@@ -36,6 +36,7 @@ const ToolEntry kTools[] = {
     {ToolMode::Eraser, "Radiergummi", "eraser", 0, -1},
     {ToolMode::Shape, "Rechteck", "rect", 1, 0},
     {ToolMode::Shape, "Kreis", "ellipse", 1, 1},
+    {ToolMode::Shape, "Ellipse", "ellipse", 1, 7},
     {ToolMode::Shape, "Linie", "line", 1, 5},
     {ToolMode::Shape, "Pfeil", "arrow", 1, 6},
     {ToolMode::Shape, "Achsen", "axes", 1, 2},

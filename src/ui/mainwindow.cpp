@@ -4439,7 +4439,9 @@ void MainWindow::setupUi() {
   // Android already has the hamburger in the androidHeader bar — hide duplicate
   btnOverviewMenu->hide();
 #else
-  // Desktop title bar owns navigation — keep overview free of duplicate chrome.
+  // Shown only while the library sidebar is collapsed (see updateSidebarState).
+  btnOverviewMenu->setToolTip(tr("Seitenleiste einblenden"));
+  btnOverviewMenu->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btnOverviewMenu->hide();
 #endif
   overviewTopRow->addWidget(btnOverviewMenu);
@@ -5108,11 +5110,13 @@ void MainWindow::setupUi() {
   m_btnNoteZoomOut->setToolTip(QStringLiteral("Verkleinern"));
   m_btnNoteZoomOut->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteZoomOut, &QPushButton::clicked, this, [this]() {
-    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
-      if (auto *view = editor->view()) {
-        view->zoomBy(1.0 / 1.1);
-        updateNoteBottomChrome();
-      }
+    if (auto *view = currentNoteView()) {
+      view->zoomBy(1.0 / 1.1);
+      updateNoteBottomChrome();
+    } else if (CanvasView *cv = getCurrentCanvas()) {
+      cv->scale(1.0 / 1.1, 1.0 / 1.1);
+      updateNoteBottomChrome();
+    }
   });
   bottomLay->addWidget(m_btnNoteZoomOut);
 
@@ -5127,6 +5131,9 @@ void MainWindow::setupUi() {
   connect(m_btnNoteZoomIn, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->zoomBy(1.1);
+      updateNoteBottomChrome();
+    } else if (CanvasView *cv = getCurrentCanvas()) {
+      cv->scale(1.1, 1.1);
       updateNoteBottomChrome();
     }
   });
@@ -5343,8 +5350,22 @@ void MainWindow::setupUi() {
       case ToolMode::Image: type = CanvasView::ToolType::Image; break;
       case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
       case ToolMode::Text: type = CanvasView::ToolType::Text; break;
+      case ToolMode::StickyNote:
+        // StickyNoteTool is registered — do not remap to Pen.
+        if (m_toolManager)
+          m_toolManager->selectTool(ToolMode::StickyNote);
+        if (m_editorTabs) {
+          if (auto *activeEditor =
+                  qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+            if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
+              view->setToolMode(ToolMode::StickyNote);
+          }
+        }
+        if (m_toolPropertiesPanel && m_toolPropertiesVisible)
+          m_toolPropertiesPanel->syncForMode(ToolMode::StickyNote);
+        return;
       case ToolMode::Hand:
-        // Pan is owned by MultiPageNoteView — do not force a stroke tool.
+        // Pan is owned by MultiPageNoteView / CanvasView — do not force a stroke tool.
         if (m_editorTabs) {
           if (auto *activeEditor =
                   qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
@@ -5352,8 +5373,10 @@ void MainWindow::setupUi() {
               view->setToolMode(ToolMode::Hand);
           }
         }
-        if (CanvasView *cv = getCurrentCanvas())
+        if (CanvasView *cv = getCurrentCanvas()) {
           cv->toggleRuler(false);
+          cv->setCursor(Qt::OpenHandCursor);
+        }
         return;
       default: type = CanvasView::ToolType::Pen; break;
     }
@@ -8524,6 +8547,8 @@ void MainWindow::updateSidebarState() {
     m_documentTabBar->setVisible(inNotesMode);
   if (m_noteLeftRail)
     m_noteLeftRail->setVisible(inNotesMode && isEditor);
+  if (m_noteLeftRail && m_noteLeftRail->isVisible())
+    m_noteLeftRail->setPageFeaturesVisible(currentNoteView() != nullptr);
 
   // Lock Drawboard vertical Favorites rail whenever the note editor is active.
   if (isEditor) {
@@ -8713,12 +8738,15 @@ void MainWindow::updateSidebarState() {
     m_sidebarStrip->hide();
     if (btnEditorMenu)
       btnEditorMenu->show();
+    if (btnOverviewMenu)
+      btnOverviewMenu->hide();
   } else {
-    // Übersicht: nur ein Hamburger — in overviewTopRow (btnOverviewMenu). Der schmale
-    // Strip links davon war redundant (zweites identisches Menü neben der Sidebar).
+    // Übersicht: Hamburger nur wenn Sidebar eingeklappt — sonst kein Re-Open.
     m_sidebarStrip->hide();
     if (btnEditorMenu)
       btnEditorMenu->hide();
+    if (btnOverviewMenu)
+      btnOverviewMenu->setVisible(!m_isSidebarOpen);
   }
 #endif
 
@@ -8997,6 +9025,30 @@ void MainWindow::onTogglePageManager() {
 #endif
     }
   }
+}
+
+void MainWindow::openNotePath(const QString &absolutePath) {
+  if (absolutePath.isEmpty() || !QFile::exists(absolutePath)) {
+    qWarning() << "openNotePath: missing file" << absolutePath;
+    return;
+  }
+  if (!m_fileModel) {
+    qWarning() << "openNotePath: file model not ready";
+    return;
+  }
+  // Ensure Notes mode + overview root can resolve the index.
+  if (m_modeSelector && m_modeSelector->currentIndex() != 0)
+    m_modeSelector->setCurrentIndex(0);
+  const QModelIndex idx = m_fileModel->index(absolutePath);
+  if (!idx.isValid()) {
+    // File may live outside current root — still open via temporary index.
+    m_fileModel->setRootPath(QFileInfo(absolutePath).absolutePath());
+  }
+  const QModelIndex openIdx = m_fileModel->index(absolutePath);
+  if (openIdx.isValid())
+    onFileDoubleClicked(openIdx);
+  else
+    qWarning() << "openNotePath: cannot resolve model index for" << absolutePath;
 }
 
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
@@ -10241,8 +10293,7 @@ void MainWindow::positionDrawboardToolbar() {
     leftInset += m_noteLeftRail->preferredWidth();
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
     leftInset += m_pageThumbnailSidebar->width();
-  if (m_toolPropertiesPanel && m_toolPropertiesPanel->isVisible())
-    rightInset += m_toolPropertiesPanel->preferredWidth();
+  // Props panel floats beside the rail — do not push the rail inward.
 #endif
   Q_UNUSED(leftInset);
 
@@ -10297,13 +10348,22 @@ void MainWindow::positionNoteChrome() {
   }
 
   int rightInset = 0;
+  // Tool options float as a card left of the Favorites rail (not a full-height
+  // sidebar dock). The rail stays edge-flush.
   if (m_toolPropertiesPanel && m_toolPropertiesVisible) {
     m_toolPropertiesPanel->show();
-    const int propsW = m_toolPropertiesPanel->preferredWidth();
-    m_toolPropertiesPanel->setGeometry(W - propsW, 0, propsW, H);
-    m_toolPropertiesPanel->raise();
     m_toolPropertiesPanel->syncFromToolManager();
-    rightInset = propsW;
+    const int propsW = m_toolPropertiesPanel->preferredWidth();
+    const int propsH = m_toolPropertiesPanel->preferredHeight();
+    int railW = UiScale::dp(56);
+    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+      railW = tb->preferredRailWidth();
+    const int bottomH = noteBottomChromeHeight();
+    const int x = qMax(leftX + margin, W - railW - propsW - margin);
+    const int y = noteHeaderHeight() + margin;
+    const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
+    m_toolPropertiesPanel->setGeometry(x, y, propsW, qMin(propsH, maxH));
+    m_toolPropertiesPanel->raise();
   } else if (m_toolPropertiesPanel) {
     m_toolPropertiesPanel->hide();
   }
@@ -10352,26 +10412,48 @@ void MainWindow::updateNoteBottomChrome() {
   if (!m_noteBottomChrome)
     return;
   MultiPageNoteView *view = nullptr;
+  CanvasView *canvas = nullptr;
   if (m_editorTabs) {
-    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
+    QWidget *w = m_editorTabs->currentWidget();
+    if (auto *editor = qobject_cast<NoteEditor *>(w))
       view = editor->view();
+    else if (auto *cv = qobject_cast<CanvasView *>(w))
+      canvas = cv;
+    else if (w)
+      canvas = w->findChild<CanvasView *>();
   }
-  if (!view) {
+  if (!view && !canvas) {
     m_noteBottomChrome->hide();
     return;
   }
   m_noteBottomChrome->show();
-  const int pages = qMax(1, view->pageCount());
-  const int cur = qBound(1, view->currentPageIndex() + 1, pages);
-  if (m_lblNotePage)
-    m_lblNotePage->setText(QStringLiteral("%1 of %2").arg(cur).arg(pages));
-  if (m_lblNoteZoom)
-    m_lblNoteZoom->setText(
-        QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
+
+  // Page controls only for A4 MultiPage notes — infinite canvas hides them.
+  const bool a4 = (view != nullptr);
   if (m_btnNotePagePrev)
-    m_btnNotePagePrev->setEnabled(cur > 1);
+    m_btnNotePagePrev->setVisible(a4);
   if (m_btnNotePageNext)
-    m_btnNotePageNext->setEnabled(cur < pages);
+    m_btnNotePageNext->setVisible(a4);
+  if (m_lblNotePage)
+    m_lblNotePage->setVisible(a4);
+
+  if (view) {
+    const int pages = qMax(1, view->pageCount());
+    const int cur = qBound(1, view->currentPageIndex() + 1, pages);
+    if (m_lblNotePage)
+      m_lblNotePage->setText(QStringLiteral("%1 of %2").arg(cur).arg(pages));
+    if (m_lblNoteZoom)
+      m_lblNoteZoom->setText(
+          QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
+    if (m_btnNotePagePrev)
+      m_btnNotePagePrev->setEnabled(cur > 1);
+    if (m_btnNotePageNext)
+      m_btnNotePageNext->setEnabled(cur < pages);
+  } else if (canvas) {
+    if (m_lblNoteZoom)
+      m_lblNoteZoom->setText(
+          QStringLiteral("%1%").arg(qRound(canvas->transform().m11() * 100.0)));
+  }
   positionNoteChrome();
 }
 

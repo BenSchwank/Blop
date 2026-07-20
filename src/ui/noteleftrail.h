@@ -21,6 +21,8 @@ public:
   void setIcon(const QString &id, const QIcon &icon);
   /// When page thumbnails are visible beside this rail, hide the shared edge.
   void setThumbsAdjacent(bool on);
+  /// Hide page/bookmark/history/all-pages controls (infinite canvas).
+  void setPageFeaturesVisible(bool on);
 
   bool pagesExpanded() const { return m_pagesExpanded; }
   void setPagesExpanded(bool on);

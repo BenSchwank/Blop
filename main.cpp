@@ -1,10 +1,13 @@
 #include <QApplication>
+#include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
 #include <QObject>
 #include <QGuiApplication>
 #include <QStandardPaths>
 #include <QDebug>
+#include <QFileInfo>
+#include <QTimer>
 #ifdef Q_OS_ANDROID
 #include <QSurfaceFormat>
 #include <QSslSocket>
@@ -28,7 +31,6 @@
 #include <QIcon>
 #include <QPixmap>
 #include <QPixmapCache>
-#include <QTimer>
 
 int main(int argc, char *argv[]) {
   // --- ANDROID WEBVIEW INIT ---
@@ -181,9 +183,26 @@ int main(int argc, char *argv[]) {
   // --- HAUPTFENSTER STARTEN ---
   MainWindow *w = new MainWindow();
 
+  QCommandLineParser parser;
+  parser.setApplicationDescription(QStringLiteral("Blop"));
+  parser.addHelpOption();
+  parser.addPositionalArgument(
+      QStringLiteral("file"),
+      QStringLiteral("Optional note file to open (.bnote / .blop)"),
+      QStringLiteral("[file]"));
+  parser.process(a);
+  const QStringList pos = parser.positionalArguments();
+  QString openPath;
+  if (!pos.isEmpty())
+    openPath = QFileInfo(pos.first()).absoluteFilePath();
+
   // Restore previous window size/position, or default to maximized/fullscreen
   w->restoreWindowState();
   w->show(); // ensure it's visible
+
+  if (!openPath.isEmpty() && QFileInfo::exists(openPath)) {
+    QTimer::singleShot(0, w, [w, openPath]() { w->openNotePath(openPath); });
+  }
 
   // Starten des normalen Eventloops
   return a.exec();

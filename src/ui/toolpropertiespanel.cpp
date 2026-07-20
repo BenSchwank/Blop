@@ -9,6 +9,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLinearGradient>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPen>
@@ -19,7 +20,9 @@
 ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("ToolPropertiesPanel"));
   setAttribute(Qt::WA_StyledBackground, true);
-  setFixedWidth(preferredWidth());
+  setAttribute(Qt::WA_TranslucentBackground, true);
+  setMinimumWidth(preferredWidth());
+  setMaximumWidth(preferredWidth());
 
   m_root = new QVBoxLayout(this);
   m_root->setContentsMargins(UiScale::dp(12), UiScale::dp(14), UiScale::dp(12),
@@ -121,22 +124,22 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   connect(m_modeC, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Shape)
-      m_config.shapeToolKind = ShapeToolKind::Line;
+      m_config.shapeToolKind = ShapeToolKind::Ellipse;
     applyConfig();
   });
   connect(m_modeD, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Shape)
-      m_config.shapeToolKind = ShapeToolKind::Arrow;
+      m_config.shapeToolKind = ShapeToolKind::Line;
     applyConfig();
   });
   connect(m_modeE, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Shape)
-      m_config.shapeToolKind = ShapeToolKind::Axes2D;
+      m_config.shapeToolKind = ShapeToolKind::Arrow;
     applyConfig();
   });
   connect(m_modeF, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Shape)
-      m_config.shapeToolKind = ShapeToolKind::SineGraph;
+      m_config.shapeToolKind = ShapeToolKind::Axes2D;
     applyConfig();
   });
   connect(m_modeG, &QPushButton::clicked, this, [this]() {
@@ -166,7 +169,12 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   rebuild();
 }
 
-int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(200); }
+int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(280); }
+
+int ToolPropertiesPanel::preferredHeight() const {
+  // Compact floating card — grows with content via layout, clamp for docking.
+  return qMax(UiScale::dp(320), sizeHint().height() + UiScale::dp(8));
+}
 
 void ToolPropertiesPanel::setAccentColor(const QColor &c) {
   if (!c.isValid())
@@ -245,10 +253,10 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     const KindBtn kinds[] = {
         {m_modeA, "Rechteck", ShapeToolKind::Rectangle},
         {m_modeB, "Kreis", ShapeToolKind::Circle},
-        {m_modeC, "Linie", ShapeToolKind::Line},
-        {m_modeD, "Pfeil", ShapeToolKind::Arrow},
-        {m_modeE, "Achsen", ShapeToolKind::Axes2D},
-        {m_modeF, "Sinus", ShapeToolKind::SineGraph},
+        {m_modeC, "Ellipse", ShapeToolKind::Ellipse},
+        {m_modeD, "Linie", ShapeToolKind::Line},
+        {m_modeE, "Pfeil", ShapeToolKind::Arrow},
+        {m_modeF, "Achsen", ShapeToolKind::Axes2D},
         {m_modeG, "Graph", ShapeToolKind::CoordinateGraph},
     };
     for (const KindBtn &k : kinds) {
@@ -297,8 +305,8 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
       break;
     case ToolMode::Shape:
       hint = QStringLiteral(
-          "Rechteck/Kreis/Linie/Pfeil aufziehen. Achsen, Sinus und Graph "
-          "nutzen die Bounds als Koordinatenrahmen.");
+          "Rechteck/Kreis/Ellipse/Linie/Pfeil aufziehen. Achsen und Graph "
+          "nutzen die Bounds als Koordinatenrahmen. Füllfarbe optional.");
       break;
     default:
       break;
@@ -457,20 +465,29 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c) {
 }
 
 void ToolPropertiesPanel::rebuild() {
+  const int radius = UiScale::dp(14);
   const QString qss = QStringLiteral(
-      "QWidget#ToolPropertiesPanel { background: %1; border-left: 1px solid %2; }"
+      "QWidget#ToolPropertiesPanel {"
+      "  background: %1;"
+      "  border: 1px solid %2;"
+      "  border-radius: %6px;"
+      "}"
       "QLabel { color: %3; background: transparent; font-size: 12px; font-weight: 600; }"
-      "QPushButton { color: %3; background: transparent; border: none; font-size: 18px; }"
-      "QPushButton:checked { background: rgba(91,157,255,0.22); border-radius: 6px; color: %4; }"
+      "QPushButton { color: %3; background: rgba(255,255,255,0.04);"
+      "  border: 1px solid %2; border-radius: 8px; font-size: 12px; font-weight: 650;"
+      "  padding: 6px 8px; }"
+      "QPushButton:checked { background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
+      "QPushButton:hover { background: rgba(255,255,255,0.08); }"
       "QSlider::groove:horizontal { height: 4px; background: %2; border-radius: 2px; }"
       "QSlider::sub-page:horizontal { background: %4; border-radius: 2px; }"
       "QSlider::handle:horizontal { background: %5; width: 14px; height: 14px; "
       "margin: -5px 0; border-radius: 7px; }")
-                          .arg(NoteChrome::panelBg().name(),
+                          .arg(NoteChrome::panelElevated().name(),
                                NoteChrome::border().name(),
-                               NoteChrome::textPrimary().name(),
+                               NoteChrome::textSecondary().name(),
                                NoteChrome::accent().name(),
-                               NoteChrome::textPrimary().name());
+                               NoteChrome::textPrimary().name())
+                          .arg(radius);
   setStyleSheet(qss);
   refreshSwatchSelection();
 }
@@ -478,7 +495,17 @@ void ToolPropertiesPanel::rebuild() {
 void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
-  p.fillRect(rect(), NoteChrome::panelBg());
+  p.setRenderHint(QPainter::Antialiasing, true);
+  const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+  const qreal radius = UiScale::dp(14);
+  // Soft drop shadow under the floating options card.
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(0, 0, 0, 55));
+  p.drawRoundedRect(r.translated(0, 2), radius, radius);
+  QLinearGradient grad(r.topLeft(), r.bottomLeft());
+  grad.setColorAt(0, NoteChrome::panelElevated());
+  grad.setColorAt(1, NoteChrome::panelBg());
+  p.setBrush(grad);
   p.setPen(QPen(NoteChrome::borderSoft(), 1));
-  p.drawLine(0, 0, 0, height());
+  p.drawRoundedRect(r, radius, radius);
 }

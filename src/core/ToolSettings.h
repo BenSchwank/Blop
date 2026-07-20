@@ -12,12 +12,13 @@ enum class ShapeType { Rectangle, Circle, Triangle, Arrow, Star, Graph };
 /// Modus des Formen-Werkzeugs (Aufzieh-Rechteck als Bounds).
 enum class ShapeToolKind {
   Rectangle = 0,
-  Circle = 1,
+  Circle = 1,   ///< inscribed circle (equal rx/ry)
   Axes2D = 2,
   SineGraph = 3,
   CoordinateGraph = 4,
   Line = 5,
-  Arrow = 6
+  Arrow = 6,
+  Ellipse = 7 ///< free ellipse from drag bounds
 };
 
 struct GraphFunctionSpec {
@@ -63,6 +64,8 @@ struct ToolConfig {
     // 6. IMAGE, SHAPES
     double imageOpacity = 1.0;
     bool showGrid = true;
+    /// Shape fill (transparent = stroke only).
+    QColor fillColor{Qt::transparent};
 
     // 7. RULER (NEU)
     RulerUnit rulerUnit = RulerUnit::Pixel;

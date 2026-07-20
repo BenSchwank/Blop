@@ -1269,6 +1269,16 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
 void CanvasView::mousePressEvent(QMouseEvent *event) {
   const QInputDevice *dev = event->device();
 
+  // Hand tool: pan the infinite canvas (mirrors MultiPageNoteView).
+  if (event->button() == Qt::LeftButton && m_toolManager &&
+      m_toolManager->activeToolMode() == ToolMode::Hand) {
+    m_isPanning = true;
+    m_lastPanPos = event->pos();
+    setCursor(Qt::ClosedHandCursor);
+    event->accept();
+    return;
+  }
+
   if (event->button() == Qt::LeftButton && m_interactionMode == InteractionMode::None &&
       m_scene) {
     const QPointF scenePos = mapToScene(event->pos());
@@ -1483,6 +1493,8 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
       viewport()->update();
     }
     setTool(m_currentTool);
+    if (m_toolManager && m_toolManager->activeToolMode() == ToolMode::Hand)
+      setCursor(Qt::OpenHandCursor);
     event->accept();
     return;
   }
@@ -1493,6 +1505,8 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
       viewport()->update();
     }
     setTool(m_currentTool);
+    if (m_toolManager && m_toolManager->activeToolMode() == ToolMode::Hand)
+      setCursor(Qt::OpenHandCursor);
     event->accept();
     return;
   }

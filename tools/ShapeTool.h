@@ -41,6 +41,11 @@ public:
             p.addEllipse(QRectF(c.x() - rad, c.y() - rad, 2.0 * rad, 2.0 * rad));
             return p;
         }
+        case ShapeToolKind::Ellipse: {
+            QPainterPath p;
+            p.addEllipse(rn.normalized());
+            return p;
+        }
         case ShapeToolKind::Line: {
             QPainterPath p;
             p.moveTo(rn.topLeft());
@@ -181,8 +186,15 @@ public:
         auto* pathItem = new QGraphicsPathItem();
         QColor pc = m_config.penColor;
         pc.setAlphaF(m_config.opacity);
-        pathItem->setPen(QPen(pc, m_config.penWidth));
-        pathItem->setBrush(Qt::NoBrush);
+        pathItem->setPen(QPen(pc, m_config.penWidth, Qt::SolidLine, Qt::RoundCap,
+                              Qt::RoundJoin));
+        if (m_config.fillColor.isValid() && m_config.fillColor.alpha() > 0) {
+          QColor fc = m_config.fillColor;
+          fc.setAlphaF(qBound(0.0, m_config.opacity, 1.0) * (fc.alphaF()));
+          pathItem->setBrush(fc);
+        } else {
+          pathItem->setBrush(Qt::NoBrush);
+        }
         pathItem->setZValue(5);
 
         m_currentShape = pathItem;

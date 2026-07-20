@@ -217,6 +217,8 @@ public slots:
   /// localStorage synchronously before the auth guard runs — closing the race
   /// where AuthCheck redirects to /login before C++'s async injectToken lands.
   QString savedStudySessionParam() const;
+  /// Open a note file by absolute path (CLI / automation).
+  void openNotePath(const QString &absolutePath);
 
 private slots:
   void checkForUpdates();

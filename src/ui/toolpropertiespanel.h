@@ -28,6 +28,8 @@ public:
   void setVisibleForTool(ToolMode mode);
 
   int preferredWidth() const;
+  /// Height of the floating options card for the current tool.
+  int preferredHeight() const;
 
 signals:
   void closeRequested();
