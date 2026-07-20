@@ -65,8 +65,8 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_body = new QWidget(m_scroll);
   m_body->setObjectName(QStringLiteral("ToolPropsBody"));
   m_root = new QVBoxLayout(m_body);
-  m_root->setContentsMargins(0, 0, UiScale::dp(4), UiScale::dp(4));
-  m_root->setSpacing(UiScale::dp(12));
+  m_root->setContentsMargins(0, 0, UiScale::dp(6), UiScale::dp(8));
+  m_root->setSpacing(UiScale::dp(14));
 
   // Compact single-line style chips (subtitle as tooltip) — avoids tall
   // stacked tiles that overflow the floating card and overlap other controls.
@@ -216,7 +216,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_smartRow = new QWidget(m_body);
   auto *smartLay = new QVBoxLayout(m_smartRow);
   smartLay->setContentsMargins(0, 0, 0, 0);
-  smartLay->setSpacing(UiScale::dp(8));
+  smartLay->setSpacing(UiScale::dp(12));
   m_chkPressure =
       new QCheckBox(QStringLiteral("Druckempfindlichkeit"), m_smartRow);
   m_chkInkToShape =
@@ -224,7 +224,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_chkSmartLine = new QCheckBox(QStringLiteral("Smart Line"), m_smartRow);
   for (QCheckBox *c : {m_chkPressure, m_chkInkToShape, m_chkSmartLine}) {
     c->setCursor(Qt::PointingHandCursor);
-    c->setMinimumHeight(UiScale::dp(28));
+    c->setMinimumHeight(UiScale::dp(30));
     smartLay->addWidget(c);
   }
   connect(m_chkPressure, &QCheckBox::toggled, this, [this](bool on) {
@@ -600,7 +600,7 @@ void ToolPropertiesPanel::refreshStyleTiles() {
     btn->setStyleSheet(
         QStringLiteral("QPushButton#ToolPropsStyle {"
                        "  background: %1; border: 1px solid %2; border-radius: 10px;"
-                       "  text-align: center; padding: 8px 6px;"
+                       "  text-align: center; padding: 10px 8px;"
                        "  color: %3; font-size: 12px; font-weight: 700;"
                        "}"
                        "QPushButton#ToolPropsStyle:hover { background: rgba(255,255,255,0.08); }")
