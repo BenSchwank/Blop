@@ -1109,10 +1109,10 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
       if (m_hover || m_pressing)
         tip = NoteChrome::textPrimary();
     }
-    const int iconPad = m_railFooterStyle ? UiScale::dp(18) : UiScale::dp(16);
+    const int iconPad = m_railFooterStyle ? UiScale::dp(14) : UiScale::dp(12);
     const int icon = qMin(w, h) - iconPad;
     p.save();
-    p.translate(w / 2.0, h / 2.0 - (m_showChevron ? UiScale::dp(1) : 0));
+    p.translate(w / 2.0, h / 2.0 - (m_showChevron ? UiScale::dp(2) : 0));
     p.scale(m_animScale, m_animScale);
     const qreal g = icon / 64.0;
     p.scale(g, g);
@@ -1124,9 +1124,9 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
       p.setPen(QPen(NoteChrome::textSecondary(), 1.7, Qt::SolidLine,
                     Qt::RoundCap, Qt::RoundJoin));
       const int cx = w / 2;
-      const int cy = h - UiScale::dp(7);
-      p.drawLine(cx - 3, cy - 2, cx, cy + 1);
-      p.drawLine(cx, cy + 1, cx + 3, cy - 2);
+      const int cy = h - UiScale::dp(9);
+      p.drawLine(cx - 4, cy - 2, cx, cy + 2);
+      p.drawLine(cx, cy + 2, cx + 4, cy - 2);
     }
 
     if (!m_badgeText.isEmpty()) {
@@ -4635,7 +4635,7 @@ bool ModernToolbar::isDrawboardVerticalRail() const {
 #endif
 }
 
-int ModernToolbar::preferredRailWidth() const { return UiScale::dp(52); }
+int ModernToolbar::preferredRailWidth() const { return UiScale::dp(60); }
 
 void ModernToolbar::loadRailTools() {
   m_railSlots.clear();
@@ -5164,10 +5164,11 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
 
   QMenu menu(this);
   menu.setStyleSheet(QStringLiteral(
-      "QMenu { background: %1; color: %2; border: 1px solid %3; padding: 6px; }"
-      "QMenu::item { padding: 8px 18px; border-radius: 6px; }"
+      "QMenu { background: %1; color: %2; border: 1px solid %3; padding: 10px; }"
+      "QMenu::item { padding: 10px 22px; border-radius: 8px; min-height: 28px; }"
       "QMenu::item:selected { background: rgba(91,157,255,0.28); }"
-      "QMenu::item:checked { color: %4; font-weight: 700; }")
+      "QMenu::item:checked { color: %4; font-weight: 700; }"
+      "QMenu::separator { height: 1px; background: %3; margin: 8px 6px; }")
                          .arg(NoteChrome::panelElevated().name(),
                               NoteChrome::textPrimary().name(),
                               NoteChrome::border().name(),
@@ -5453,10 +5454,10 @@ int ModernToolbar::calculateMinLength() {
 #ifndef Q_OS_ANDROID
     if (m_orientation == Vertical) {
       const int n = qMax(1, m_railSlots.size()) + 3; // tools + library/+ /chevron
-      const int cell = UiScale::dp(40);
-      const int gap = UiScale::dp(2);
+      const int cell = UiScale::dp(50);
+      const int gap = UiScale::dp(6);
       // Two section dividers (select / ink / insert).
-      return dragH + n * cell + (n - 1) * gap + UiScale::dp(28) + 16;
+      return dragH + n * cell + (n - 1) * gap + UiScale::dp(40) + 16;
     }
 #endif
     int numButtons = 0;
@@ -5864,8 +5865,8 @@ void ModernToolbar::updateLayout(bool animate) {
         if (m_slotButtons.isEmpty())
           rebuildSlotButtons();
         railOrder = currentRailButtons();
-        btnS = UiScale::dp(44);
-        gap = UiScale::dp(1);
+        btnS = UiScale::dp(50);
+        gap = UiScale::dp(6);
       } else {
         for (auto *b : m_buttons) {
           if (!chromeRow.contains(b) && b != btnMoreProps &&
@@ -5886,13 +5887,13 @@ void ModernToolbar::updateLayout(bool animate) {
           else
             slotBtns.append(b);
         }
-        const int footerGap = UiScale::dp(2);
-        const int footerBtnS = UiScale::dp(40);
+        const int footerGap = UiScale::dp(6);
+        const int footerBtnS = UiScale::dp(44);
         const int footerH =
             footerBtns.size() * footerBtnS +
-            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(10);
-        const int contentTop = dragSize + UiScale::dp(4);
-        const int contentBottom = h - footerH - UiScale::dp(4);
+            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(14);
+        const int contentTop = dragSize + UiScale::dp(8);
+        const int contentBottom = h - footerH - UiScale::dp(8);
         const int contentH = qMax(btnS, contentBottom - contentTop);
 
         // Content height of all slots (+ soft dividers).
@@ -5903,7 +5904,7 @@ void ModernToolbar::updateLayout(bool animate) {
           if (i < m_railSlots.size()) {
             const ToolMode m = m_railSlots[i].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser)
-              contentNeeded += UiScale::dp(4);
+              contentNeeded += UiScale::dp(10);
           }
         }
         const int maxScroll = qMax(0, contentNeeded - contentH);
@@ -5914,18 +5915,18 @@ void ModernToolbar::updateLayout(bool animate) {
         for (int i = 0; i < slotBtns.size(); ++i) {
           ToolbarBtn *b = slotBtns[i];
           b->setRailSlotStyle(true);
-          b->setBtnCell(w - UiScale::dp(4), btnS);
-          const int bx = UiScale::dp(2);
+          b->setBtnCell(w - UiScale::dp(6), btnS);
+          const int bx = UiScale::dp(3);
           const int by = y;
           y += b->height() + gap;
           if (i < m_railSlots.size()) {
             const ToolMode m = m_railSlots[i].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser) {
-              y += UiScale::dp(2);
+              y += UiScale::dp(4);
               const int sepY = y - gap / 2;
               if (sepY >= contentTop && sepY <= contentBottom)
                 m_separatorYPositions.append(sepY);
-              y += UiScale::dp(2);
+              y += UiScale::dp(4);
             }
           }
           lastSlotBottom = by + b->height();
@@ -5942,16 +5943,16 @@ void ModernToolbar::updateLayout(bool animate) {
 
         // Pack footer under the tool cluster when everything fits; otherwise
         // pin to the bottom edge (scrollable slots above).
-        int fy = contentBottom + UiScale::dp(6);
+        int fy = contentBottom + UiScale::dp(8);
         if (maxScroll == 0)
-          fy = qMin(contentBottom + UiScale::dp(6),
-                    lastSlotBottom + UiScale::dp(8));
-        m_separatorYPositions.append(fy - UiScale::dp(4));
+          fy = qMin(contentBottom + UiScale::dp(8),
+                    lastSlotBottom + UiScale::dp(12));
+        m_separatorYPositions.append(fy - UiScale::dp(6));
         for (ToolbarBtn *b : footerBtns) {
           b->setRailSlotStyle(true);
           b->setRailFooterStyle(true);
-          b->setBtnCell(w - UiScale::dp(4), footerBtnS);
-          b->move(UiScale::dp(2), fy);
+          b->setBtnCell(w - UiScale::dp(6), footerBtnS);
+          b->move(UiScale::dp(3), fy);
           b->show();
           b->raise();
           fy += b->height() + footerGap;

@@ -10376,7 +10376,7 @@ void MainWindow::positionNoteChrome() {
     m_toolPropertiesPanel->syncFromToolManager();
     const int propsW = m_toolPropertiesPanel->preferredWidth();
     const int propsH = m_toolPropertiesPanel->preferredHeight();
-    int railW = UiScale::dp(56);
+    int railW = UiScale::dp(60);
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
       railW = tb->preferredRailWidth();
     const int bottomH = noteBottomChromeHeight();

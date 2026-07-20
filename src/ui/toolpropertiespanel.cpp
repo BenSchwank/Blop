@@ -28,16 +28,17 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   setMaximumWidth(preferredWidth());
 
   m_root = new QVBoxLayout(this);
-  m_root->setContentsMargins(UiScale::dp(12), UiScale::dp(14), UiScale::dp(12),
-                             UiScale::dp(14));
-  m_root->setSpacing(UiScale::dp(10));
+  m_root->setContentsMargins(UiScale::dp(16), UiScale::dp(18), UiScale::dp(16),
+                             UiScale::dp(18));
+  m_root->setSpacing(UiScale::dp(14));
 
   auto *header = new QHBoxLayout;
+  header->setSpacing(UiScale::dp(8));
   m_title = new QLabel(QStringLiteral("Eigenschaften"), this);
-  m_title->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: 700;"));
+  m_title->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
   header->addWidget(m_title, 1);
   auto *closeBtn = new QPushButton(QStringLiteral("×"), this);
-  closeBtn->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+  closeBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   closeBtn->setCursor(Qt::PointingHandCursor);
   closeBtn->setFlat(true);
   connect(closeBtn, &QPushButton::clicked, this,
@@ -45,13 +46,13 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   header->addWidget(closeBtn);
   m_root->addLayout(header);
 
-  // Pen ink style tiles (Einfach / Pro / Kalligrafie) — Drawboard-like.
+  // Pen ink style tiles — stacked full-width so labels are not crushed.
   m_styleLbl = new QLabel(QStringLiteral("Stil"), this);
   m_root->addWidget(m_styleLbl);
   m_styleRow = new QWidget(this);
-  auto *styleLay = new QHBoxLayout(m_styleRow);
+  auto *styleLay = new QVBoxLayout(m_styleRow);
   styleLay->setContentsMargins(0, 0, 0, 0);
-  styleLay->setSpacing(UiScale::dp(6));
+  styleLay->setSpacing(UiScale::dp(8));
   m_styleEinfach =
       makeStyleTile(QStringLiteral("Einfach"), QStringLiteral("Gleichmäßig"),
                     PenInkStyle::Einfach);
@@ -60,9 +61,9 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_styleKalli =
       makeStyleTile(QStringLiteral("Kalligrafie"), QStringLiteral("Dynamisch"),
                     PenInkStyle::Kalligrafie);
-  styleLay->addWidget(m_styleEinfach, 1);
-  styleLay->addWidget(m_stylePro, 1);
-  styleLay->addWidget(m_styleKalli, 1);
+  styleLay->addWidget(m_styleEinfach);
+  styleLay->addWidget(m_stylePro);
+  styleLay->addWidget(m_styleKalli);
   m_root->addWidget(m_styleRow);
 
   m_widthLbl = new QLabel(QStringLiteral("Dicke"), this);
@@ -108,7 +109,8 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_modeRow = new QWidget(this);
   auto *modeLay = new QGridLayout(m_modeRow);
   modeLay->setContentsMargins(0, 0, 0, 0);
-  modeLay->setSpacing(UiScale::dp(6));
+  modeLay->setHorizontalSpacing(UiScale::dp(10));
+  modeLay->setVerticalSpacing(UiScale::dp(10));
   m_modeA = new QPushButton(m_modeRow);
   m_modeB = new QPushButton(m_modeRow);
   m_modeC = new QPushButton(m_modeRow);
@@ -125,7 +127,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
     QPushButton *b = modeBtns[i];
     b->setCheckable(true);
     b->setCursor(Qt::PointingHandCursor);
-    b->setMinimumHeight(UiScale::dp(30));
+    b->setMinimumHeight(UiScale::dp(40));
     modeLay->addWidget(b, i / 2, i % 2);
     grp->addButton(b);
   }
@@ -189,13 +191,14 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_smartRow = new QWidget(this);
   auto *smartLay = new QVBoxLayout(m_smartRow);
   smartLay->setContentsMargins(0, 0, 0, 0);
-  smartLay->setSpacing(UiScale::dp(4));
+  smartLay->setSpacing(UiScale::dp(10));
   m_chkPressure = new QCheckBox(QStringLiteral("Druckempfindlichkeit"), m_smartRow);
   m_chkInkToShape =
       new QCheckBox(QStringLiteral("Tinte → Form (halten)"), m_smartRow);
   m_chkSmartLine = new QCheckBox(QStringLiteral("Smart Line"), m_smartRow);
   for (QCheckBox *c : {m_chkPressure, m_chkInkToShape, m_chkSmartLine}) {
     c->setCursor(Qt::PointingHandCursor);
+    c->setMinimumHeight(UiScale::dp(28));
     smartLay->addWidget(c);
   }
   connect(m_chkPressure, &QCheckBox::toggled, this, [this](bool on) {
@@ -236,11 +239,11 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   rebuild();
 }
 
-int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(300); }
+int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(340); }
 
 int ToolPropertiesPanel::preferredHeight() const {
-  // Compact floating card — grows with content via layout, clamp for docking.
-  return qMax(UiScale::dp(360), sizeHint().height() + UiScale::dp(8));
+  // Floating card — roomy enough for style tiles + swatches without crush.
+  return qMax(UiScale::dp(420), sizeHint().height() + UiScale::dp(12));
 }
 
 void ToolPropertiesPanel::setAccentColor(const QColor &c) {
@@ -547,9 +550,9 @@ void ToolPropertiesPanel::refreshStyleTiles() {
                  : QStringLiteral("rgba(255,255,255,0.04)");
     btn->setStyleSheet(
         QStringLiteral("QPushButton {"
-                       "  background: %1; border: 1px solid %2; border-radius: 10px;"
-                       "  text-align: left; padding: 8px 10px;"
-                       "  color: %3; font-size: 12px; font-weight: 700;"
+                       "  background: %1; border: 1px solid %2; border-radius: 12px;"
+                       "  text-align: left; padding: 12px 14px;"
+                       "  color: %3; font-size: 13px; font-weight: 700;"
                        "}"
                        "QPushButton:hover { background: rgba(255,255,255,0.08); }")
             .arg(bg, border, NoteChrome::textPrimary().name()));
@@ -580,7 +583,7 @@ QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
   auto *btn = new QPushButton(m_styleRow);
   btn->setCheckable(true);
   btn->setCursor(Qt::PointingHandCursor);
-  btn->setMinimumHeight(UiScale::dp(52));
+  btn->setMinimumHeight(UiScale::dp(56));
   btn->setText(QStringLiteral("%1\n%2").arg(title, subtitle));
   connect(btn, &QPushButton::clicked, this,
           [this, style]() { applyPenInkStyle(style); });
@@ -590,7 +593,8 @@ QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
 void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_colorRow);
   grid->setContentsMargins(0, 0, 0, 0);
-  grid->setSpacing(UiScale::dp(6));
+  grid->setHorizontalSpacing(UiScale::dp(10));
+  grid->setVerticalSpacing(UiScale::dp(10));
   const QList<QColor> colors = {
       Qt::black, Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
       QColor(40, 180, 80), QColor(250, 180, 30), QColor(160, 60, 200),
@@ -601,7 +605,7 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
     grid->addWidget(btn, i / 4, i % 4);
   }
   m_customColorBtn = new QPushButton(QStringLiteral("…"), m_colorRow);
-  m_customColorBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  m_customColorBtn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   m_customColorBtn->setCursor(Qt::PointingHandCursor);
   m_customColorBtn->setToolTip(QStringLiteral("Eigene Farbe…"));
   connect(m_customColorBtn, &QPushButton::clicked, this, [this]() {
@@ -618,7 +622,8 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
 void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_fillRow);
   grid->setContentsMargins(0, 0, 0, 0);
-  grid->setSpacing(UiScale::dp(6));
+  grid->setHorizontalSpacing(UiScale::dp(10));
+  grid->setVerticalSpacing(UiScale::dp(10));
   // First swatch = none (transparent).
   const QList<QColor> colors = {
       QColor(0, 0, 0, 0), Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
@@ -632,7 +637,7 @@ void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
     grid->addWidget(btn, i / 4, i % 4);
   }
   m_customFillBtn = new QPushButton(QStringLiteral("…"), m_fillRow);
-  m_customFillBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  m_customFillBtn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   m_customFillBtn->setCursor(Qt::PointingHandCursor);
   m_customFillBtn->setToolTip(QStringLiteral("Eigene Füllfarbe…"));
   connect(m_customFillBtn, &QPushButton::clicked, this, [this]() {
@@ -659,7 +664,7 @@ void ToolPropertiesPanel::refreshSwatchSelection() {
                                      : c.darker(120).name());
     const int bw = selected ? 2 : 1;
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: %1; border: %2px solid %3; border-radius: 6px; }"
+        "QPushButton { background: %1; border: %2px solid %3; border-radius: 8px; }"
         "QPushButton:hover { border: 2px solid %4; }")
                            .arg(c.name())
                            .arg(bw)
@@ -668,7 +673,7 @@ void ToolPropertiesPanel::refreshSwatchSelection() {
   if (m_customColorBtn) {
     m_customColorBtn->setStyleSheet(QStringLiteral(
         "QPushButton { background: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; font-weight: 700; }"
+        " border-radius: 8px; font-weight: 700; }"
         "QPushButton:hover { border-color: %4; }")
                                         .arg(NoteChrome::panelElevated().name(),
                                              NoteChrome::textPrimary().name(),
@@ -708,7 +713,7 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
                                      : NoteChrome::border().name());
     const int bw = selected ? 2 : 1;
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: %1; border: %2px solid %3; border-radius: 6px; }"
+        "QPushButton { background: %1; border: %2px solid %3; border-radius: 8px; }"
         "QPushButton:hover { border: 2px solid %4; }")
                            .arg(bg)
                            .arg(bw)
@@ -717,7 +722,7 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
   if (m_customFillBtn) {
     m_customFillBtn->setStyleSheet(QStringLiteral(
         "QPushButton { background: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 6px; font-weight: 700; }"
+        " border-radius: 8px; font-weight: 700; }"
         "QPushButton:hover { border-color: %4; }")
                                        .arg(NoteChrome::panelElevated().name(),
                                             NoteChrome::textPrimary().name(),
@@ -729,7 +734,7 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
 QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
   QWidget *parent = fill ? m_fillRow : m_colorRow;
   auto *btn = new QPushButton(parent);
-  btn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  btn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btn->setCursor(Qt::PointingHandCursor);
   btn->setProperty("swatchColor", c);
   connect(btn, &QPushButton::clicked, this, [this, c, fill]() {
@@ -745,27 +750,27 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
 }
 
 void ToolPropertiesPanel::rebuild() {
-  const int radius = UiScale::dp(14);
+  const int radius = UiScale::dp(16);
   const QString qss = QStringLiteral(
       "QWidget#ToolPropertiesPanel {"
       "  background: %1;"
       "  border: 1px solid %2;"
       "  border-radius: %6px;"
       "}"
-      "QLabel { color: %3; background: transparent; font-size: 12px; font-weight: 600; }"
-      "QCheckBox { color: %3; background: transparent; font-size: 12px; font-weight: 600; spacing: 8px; }"
-      "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;"
+      "QLabel { color: %3; background: transparent; font-size: 13px; font-weight: 600; }"
+      "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 12px; }"
+      "QCheckBox::indicator { width: 20px; height: 20px; border-radius: 5px;"
       "  border: 1px solid %2; background: rgba(255,255,255,0.04); }"
       "QCheckBox::indicator:checked { background: %4; border-color: %4; }"
       "QPushButton { color: %3; background: rgba(255,255,255,0.04);"
-      "  border: 1px solid %2; border-radius: 8px; font-size: 12px; font-weight: 650;"
-      "  padding: 6px 8px; }"
+      "  border: 1px solid %2; border-radius: 10px; font-size: 13px; font-weight: 650;"
+      "  padding: 10px 12px; }"
       "QPushButton:checked { background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
       "QPushButton:hover { background: rgba(255,255,255,0.08); }"
-      "QSlider::groove:horizontal { height: 4px; background: %2; border-radius: 2px; }"
-      "QSlider::sub-page:horizontal { background: %4; border-radius: 2px; }"
-      "QSlider::handle:horizontal { background: %5; width: 14px; height: 14px; "
-      "margin: -5px 0; border-radius: 7px; }")
+      "QSlider::groove:horizontal { height: 6px; background: %2; border-radius: 3px; }"
+      "QSlider::sub-page:horizontal { background: %4; border-radius: 3px; }"
+      "QSlider::handle:horizontal { background: %5; width: 18px; height: 18px; "
+      "margin: -6px 0; border-radius: 9px; }")
                           .arg(NoteChrome::panelElevated().name(),
                                NoteChrome::border().name(),
                                NoteChrome::textSecondary().name(),
@@ -783,7 +788,7 @@ void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
   const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-  const qreal radius = UiScale::dp(14);
+  const qreal radius = UiScale::dp(16);
   // Soft drop shadow under the floating options card.
   p.setPen(Qt::NoPen);
   p.setBrush(QColor(0, 0, 0, 55));
