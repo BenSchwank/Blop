@@ -2306,9 +2306,11 @@ private:
 // =============================================================================
 
 ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
-  setAttribute(Qt::WA_TranslucentBackground);
+  // Stay a child QWidget (not a native top-level window). FramelessWindowHint
+  // alone promotes the toolbar to an override-redirect window and breaks
+  // parent-relative docking — especially under software GL / no compositor.
+  setAttribute(Qt::WA_StyledBackground, true);
   setAttribute(Qt::WA_AcceptTouchEvents, true);
-  setWindowFlags(Qt::FramelessWindowHint);
   setMouseTracking(true);
   if (parent)
     parent->installEventFilter(this);

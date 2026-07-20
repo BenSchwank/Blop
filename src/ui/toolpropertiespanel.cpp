@@ -21,7 +21,9 @@
 ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("ToolPropertiesPanel"));
   setAttribute(Qt::WA_StyledBackground, true);
-  setAttribute(Qt::WA_TranslucentBackground, true);
+  // Opaque child card — translucent + failed RHI made the panel invisible on
+  // software-GL Cloud Desktop. paintEvent still draws the rounded chrome.
+  setAttribute(Qt::WA_TranslucentBackground, false);
   setMinimumWidth(preferredWidth());
   setMaximumWidth(preferredWidth());
 

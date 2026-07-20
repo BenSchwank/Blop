@@ -10325,7 +10325,9 @@ void MainWindow::positionDrawboardToolbar() {
                           m_editorCenterWidget->height() - topY - bottomH);
   // Edge-flush: full available height, no side margin from the window edge.
   const int h = availH;
-  const int x = qMax(0, W - rightInset - railW);
+  // Clamp to the host rect so a mis-reported width cannot park the rail
+  // off-screen (seen when the toolbar briefly became a native window).
+  const int x = qBound(0, W - railW, W - rightInset - railW);
   const int y = topY;
   tb->setMinimumSize(0, 0);
   tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
