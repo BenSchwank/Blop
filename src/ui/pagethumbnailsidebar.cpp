@@ -3,6 +3,7 @@
 #include "Note.h"
 #include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
+#include "moderntoolbar.h"
 #include "multipagenoteview.h"
 #include "notechrome.h"
 #include "uiscale.h"
@@ -12,6 +13,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QPainter>
 #include <QPixmap>
 #include <QListView>
 #include <QListWidget>
@@ -45,6 +47,17 @@ RailMetrics railMetrics(QWidget *ref, bool twoCol) {
   return {UiScale::dp(120), UiScale::dp(92), UiScale::dp(120), UiScale::dp(142),
           UiScale::dp(10)};
 }
+
+QIcon railGlyph(const QString &name, const QColor &fg, int px) {
+  QPixmap pm(px, px);
+  pm.fill(Qt::transparent);
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing);
+  const qreal s = px / 64.0;
+  p.scale(s, s);
+  blopDrawToolbarGlyph64(&p, name, fg);
+  return QIcon(pm);
+}
 } // namespace
 
 PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
@@ -58,10 +71,14 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   root->setContentsMargins(0, 0, 0, 0);
   root->setSpacing(0);
 
-  m_btnToggle = new QPushButton(QStringLiteral("‹"), this);
+  m_btnToggle = new QPushButton(this);
   m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
   m_btnToggle->setFixedHeight(UiScale::dp(28));
   m_btnToggle->setCursor(Qt::PointingHandCursor);
+  m_btnToggle->setIcon(
+      railGlyph(QStringLiteral("chevron_left"), NoteChrome::textSecondary(),
+                UiScale::dp(16)));
+  m_btnToggle->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
   connect(m_btnToggle, &QPushButton::clicked, this,
           &PageThumbnailSidebar::toggleCollapsed);
   root->addWidget(m_btnToggle);
@@ -92,7 +109,6 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
             Q_UNUSED(end);
             if (!m_view || start < 0)
               return;
-            // Qt dest is the row before which items are inserted after removal.
             int to = dest;
             if (to > start)
               --to;
@@ -107,19 +123,29 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
 
   auto *footer = new QHBoxLayout;
   footer->setSpacing(UiScale::dp(6));
-  m_btnAddPage = new QPushButton(QStringLiteral("+ Seite"), m_railBody);
+  m_btnAddPage = new QPushButton(m_railBody);
   m_btnAddPage->setObjectName(QStringLiteral("PageRailAddBtn"));
   m_btnAddPage->setFixedHeight(UiScale::dp(34));
   m_btnAddPage->setCursor(Qt::PointingHandCursor);
+  m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
+  m_btnAddPage->setIcon(
+      railGlyph(QStringLiteral("add"), NoteChrome::textSecondary(),
+                UiScale::dp(16)));
+  m_btnAddPage->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
+  m_btnAddPage->setText(QStringLiteral(" Seite"));
   connect(m_btnAddPage, &QPushButton::clicked, this,
           &PageThumbnailSidebar::addPageRequested);
   footer->addWidget(m_btnAddPage, 1);
 
-  m_btnColumns = new QPushButton(QStringLiteral("⠿"), m_railBody);
+  m_btnColumns = new QPushButton(m_railBody);
   m_btnColumns->setObjectName(QStringLiteral("PageRailColsBtn"));
   m_btnColumns->setFixedSize(UiScale::dp(34), UiScale::dp(34));
   m_btnColumns->setCursor(Qt::PointingHandCursor);
   m_btnColumns->setToolTip(QStringLiteral("Ein-/Zweispaltig"));
+  m_btnColumns->setIcon(
+      railGlyph(QStringLiteral("layout_rows"), NoteChrome::textSecondary(),
+                UiScale::dp(16)));
+  m_btnColumns->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
   connect(m_btnColumns, &QPushButton::clicked, this,
           &PageThumbnailSidebar::toggleTwoColumnMode);
   footer->addWidget(m_btnColumns);
@@ -188,7 +214,9 @@ void PageThumbnailSidebar::applyCollapsedState() {
   if (m_collapsed) {
     setFixedWidth(UiScale::dp(28));
     if (m_btnToggle) {
-      m_btnToggle->setText(QStringLiteral("›"));
+      m_btnToggle->setIcon(
+          railGlyph(QStringLiteral("chevron_right"), NoteChrome::textSecondary(),
+                    UiScale::dp(16)));
       m_btnToggle->setToolTip(QStringLiteral("Seitenmanager aufklappen"));
     }
   } else {
@@ -196,7 +224,9 @@ void PageThumbnailSidebar::applyCollapsedState() {
       m_expandedWidth = railMetrics(this, m_twoColumn).width;
     setFixedWidth(m_expandedWidth);
     if (m_btnToggle) {
-      m_btnToggle->setText(QStringLiteral("‹"));
+      m_btnToggle->setIcon(
+          railGlyph(QStringLiteral("chevron_left"), NoteChrome::textSecondary(),
+                    UiScale::dp(16)));
       m_btnToggle->setToolTip(QStringLiteral("Seitenmanager einklappen"));
     }
   }
@@ -210,32 +240,50 @@ void PageThumbnailSidebar::refreshListStyle() {
       "  background: %1; border: none; border-right: 1px solid %2;"
       "}"
       "QWidget#PageRailBody { background: transparent; border: none; }"
-      "QPushButton#PageRailToggleBtn { background: transparent; border: none; color: %3; }"
+      "QPushButton#PageRailToggleBtn {"
+      "  background: transparent; border: none; color: %3;"
+      "  border-bottom: 1px solid %2;"
+      "}"
+      "QPushButton#PageRailToggleBtn:hover { background: rgba(127,127,127,0.16); }"
       "QPushButton#PageRailAddBtn, QPushButton#PageRailColsBtn {"
-      "  background: %4; color: %3; border: 1px solid %2; border-radius: 6px;"
+      "  background: %4; color: %3; border: 1px solid %2; border-radius: 4px;"
       "  font-size: 12px; font-weight: 600;"
       "}"
       "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover {"
-      "  border-color: %5; color: %6;"
+      "  border-color: %5; color: %6; background: rgba(127,127,127,0.14);"
       "}")
-                    .arg(NoteChrome::panelBg().name(),
+                    .arg(NoteChrome::toolbarFill().name(),
                          NoteChrome::borderSoft().name(),
                          NoteChrome::textSecondary().name(),
                          NoteChrome::panelElevated().name(), accent.name(),
                          NoteChrome::textPrimary().name()));
+
+  if (m_btnAddPage) {
+    m_btnAddPage->setIcon(
+        railGlyph(QStringLiteral("add"), NoteChrome::textSecondary(),
+                  UiScale::dp(16)));
+  }
+  if (m_btnColumns) {
+    m_btnColumns->setIcon(
+        railGlyph(m_twoColumn ? QStringLiteral("layout_single")
+                              : QStringLiteral("layout_rows"),
+                  NoteChrome::textSecondary(), UiScale::dp(16)));
+  }
 
   if (m_list) {
     m_list->setStyleSheet(
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
             "QListWidget::item {"
-            "  border: 1px solid %2; border-radius: 6px; padding: 3px;"
+            "  border: 1px solid %2; border-radius: 4px; padding: 2px;"
             "  background: %3; color: %1;"
             "}"
-            "QListWidget::item:selected { border: 2px solid %4; background: rgba(%5,%6,%7,0.18); }"
+            "QListWidget::item:selected {"
+            "  border: 1px solid %4; background: rgba(%5,%6,%7,0.16);"
+            "}"
             "QListWidget::item:hover { background: rgba(255,255,255,0.06); }")
             .arg(NoteChrome::textSecondary().name(),
-                 NoteChrome::border().name(),
+                 NoteChrome::borderSoft().name(),
                  NoteChrome::panelElevated().name(), accent.name(),
                  QString::number(accent.red()), QString::number(accent.green()),
                  QString::number(accent.blue())));
@@ -289,10 +337,17 @@ void PageThumbnailSidebar::rebuild() {
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
     item->setSizeHint(QSize(m.thumbW + (m_twoColumn ? 0 : 0), m.itemH));
     QString label = QString::number(i + 1);
-    if (note->pages[i].bookmarked)
-      label += QStringLiteral(" ★");
     item->setText(label);
-    item->setForeground(NoteChrome::textSecondary());
+    if (note->pages[i].bookmarked) {
+      item->setForeground(NoteChrome::accent());
+      item->setToolTip(QStringLiteral("Seite %1 · Lesezeichen").arg(i + 1));
+      // Tiny bookmark ribbon as decoration overlay on the right of the label.
+      item->setData(Qt::UserRole + 1, true);
+    } else {
+      item->setForeground(NoteChrome::textSecondary());
+      item->setToolTip(QStringLiteral("Seite %1").arg(i + 1));
+      item->setData(Qt::UserRole + 1, false);
+    }
     item->setData(Qt::UserRole, i);
     m_list->addItem(item);
     requestThumbnail(i, item, epoch);

@@ -70,25 +70,28 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_modeLbl = new QLabel(QStringLiteral("Modus"), this);
   m_root->addWidget(m_modeLbl);
   m_modeRow = new QWidget(this);
-  auto *modeLay = new QHBoxLayout(m_modeRow);
+  auto *modeLay = new QGridLayout(m_modeRow);
   modeLay->setContentsMargins(0, 0, 0, 0);
   modeLay->setSpacing(UiScale::dp(6));
   m_modeA = new QPushButton(m_modeRow);
   m_modeB = new QPushButton(m_modeRow);
   m_modeC = new QPushButton(m_modeRow);
   m_modeD = new QPushButton(m_modeRow);
-  for (QPushButton *b : {m_modeA, m_modeB, m_modeC, m_modeD}) {
-    b->setCheckable(true);
-    b->setCursor(Qt::PointingHandCursor);
-    b->setMinimumHeight(UiScale::dp(32));
-    modeLay->addWidget(b, 1);
-  }
+  m_modeE = new QPushButton(m_modeRow);
+  m_modeF = new QPushButton(m_modeRow);
+  m_modeG = new QPushButton(m_modeRow);
+  QList<QPushButton *> modeBtns = {m_modeA, m_modeB, m_modeC, m_modeD,
+                                   m_modeE, m_modeF, m_modeG};
   auto *grp = new QButtonGroup(this);
   grp->setExclusive(true);
-  grp->addButton(m_modeA);
-  grp->addButton(m_modeB);
-  grp->addButton(m_modeC);
-  grp->addButton(m_modeD);
+  for (int i = 0; i < modeBtns.size(); ++i) {
+    QPushButton *b = modeBtns[i];
+    b->setCheckable(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setMinimumHeight(UiScale::dp(30));
+    modeLay->addWidget(b, i / 2, i % 2);
+    grp->addButton(b);
+  }
   connect(m_modeA, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Lasso)
       m_config.lassoMode = LassoMode::Freehand;
@@ -119,6 +122,21 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   connect(m_modeD, &QPushButton::clicked, this, [this]() {
     if (m_mode == ToolMode::Shape)
       m_config.shapeToolKind = ShapeToolKind::Arrow;
+    applyConfig();
+  });
+  connect(m_modeE, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::Axes2D;
+    applyConfig();
+  });
+  connect(m_modeF, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::SineGraph;
+    applyConfig();
+  });
+  connect(m_modeG, &QPushButton::clicked, this, [this]() {
+    if (m_mode == ToolMode::Shape)
+      m_config.shapeToolKind = ShapeToolKind::CoordinateGraph;
     applyConfig();
   });
   m_root->addWidget(m_modeRow);
@@ -183,45 +201,47 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_modeB->setText(QStringLiteral("Rechteck"));
     m_modeA->setChecked(m_config.lassoMode == LassoMode::Freehand);
     m_modeB->setChecked(m_config.lassoMode == LassoMode::Rectangle);
-    if (m_modeC)
-      m_modeC->setVisible(false);
-    if (m_modeD)
-      m_modeD->setVisible(false);
+    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG})
+      if (b)
+        b->setVisible(false);
   } else if (mode == ToolMode::Eraser) {
     m_modeA->setText(QStringLiteral("Pixel"));
     m_modeB->setText(QStringLiteral("Objekt"));
     m_modeA->setChecked(m_config.eraserMode == EraserMode::Pixel);
     m_modeB->setChecked(m_config.eraserMode == EraserMode::Object);
-    if (m_modeC)
-      m_modeC->setVisible(false);
-    if (m_modeD)
-      m_modeD->setVisible(false);
+    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG})
+      if (b)
+        b->setVisible(false);
   } else if (mode == ToolMode::Highlighter) {
     m_modeA->setText(QStringLiteral("Rund"));
     m_modeB->setText(QStringLiteral("Meißel"));
     m_modeA->setChecked(m_config.tipType == HighlighterTip::Round);
     m_modeB->setChecked(m_config.tipType == HighlighterTip::Chisel);
-    if (m_modeC)
-      m_modeC->setVisible(false);
-    if (m_modeD)
-      m_modeD->setVisible(false);
+    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG})
+      if (b)
+        b->setVisible(false);
   } else if (mode == ToolMode::Shape) {
-    m_modeA->setText(QStringLiteral("Rechteck"));
-    m_modeB->setText(QStringLiteral("Kreis"));
-    if (m_modeC) {
-      m_modeC->setVisible(true);
-      m_modeC->setText(QStringLiteral("Linie"));
+    struct KindBtn {
+      QPushButton *btn;
+      const char *label;
+      ShapeToolKind kind;
+    };
+    const KindBtn kinds[] = {
+        {m_modeA, "Rechteck", ShapeToolKind::Rectangle},
+        {m_modeB, "Kreis", ShapeToolKind::Circle},
+        {m_modeC, "Linie", ShapeToolKind::Line},
+        {m_modeD, "Pfeil", ShapeToolKind::Arrow},
+        {m_modeE, "Achsen", ShapeToolKind::Axes2D},
+        {m_modeF, "Sinus", ShapeToolKind::SineGraph},
+        {m_modeG, "Graph", ShapeToolKind::CoordinateGraph},
+    };
+    for (const KindBtn &k : kinds) {
+      if (!k.btn)
+        continue;
+      k.btn->setVisible(true);
+      k.btn->setText(QString::fromUtf8(k.label));
+      k.btn->setChecked(m_config.shapeToolKind == k.kind);
     }
-    if (m_modeD) {
-      m_modeD->setVisible(true);
-      m_modeD->setText(QStringLiteral("Pfeil"));
-    }
-    m_modeA->setChecked(m_config.shapeToolKind == ShapeToolKind::Rectangle);
-    m_modeB->setChecked(m_config.shapeToolKind == ShapeToolKind::Circle);
-    if (m_modeC)
-      m_modeC->setChecked(m_config.shapeToolKind == ShapeToolKind::Line);
-    if (m_modeD)
-      m_modeD->setChecked(m_config.shapeToolKind == ShapeToolKind::Arrow);
   }
 
   if (m_hintLbl) {
@@ -249,6 +269,11 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
       hint = QStringLiteral(
           "Auswahl markieren, dann verschieben, duplizieren oder "
           "zur Bibliothek hinzufügen.");
+      break;
+    case ToolMode::Shape:
+      hint = QStringLiteral(
+          "Rechteck/Kreis/Linie/Pfeil aufziehen. Achsen, Sinus und Graph "
+          "nutzen die Bounds als Koordinatenrahmen.");
       break;
     default:
       break;

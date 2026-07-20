@@ -334,6 +334,37 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(48, 16, 46, 30);
     return;
   }
+  if (name == QLatin1String("axes") || name == QLatin1String("axes2d")) {
+    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(14, 50, 50, 50);
+    p->drawLine(14, 50, 14, 14);
+    p->drawLine(50, 50, 44, 46);
+    p->drawLine(50, 50, 44, 54);
+    p->drawLine(14, 14, 10, 20);
+    p->drawLine(14, 14, 18, 20);
+    return;
+  }
+  if (name == QLatin1String("sine") || name == QLatin1String("sinegraph")) {
+    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    QPainterPath wave;
+    wave.moveTo(12, 32);
+    wave.cubicTo(20, 12, 28, 12, 32, 32);
+    wave.cubicTo(36, 52, 44, 52, 52, 32);
+    p->drawPath(wave);
+    return;
+  }
+  if (name == QLatin1String("graph") || name == QLatin1String("coordinategraph")) {
+    p->setPen(primaryThin);
+    p->drawLine(14, 50, 50, 50);
+    p->drawLine(14, 50, 14, 14);
+    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    QPainterPath curve;
+    curve.moveTo(18, 44);
+    curve.cubicTo(26, 44, 30, 18, 38, 22);
+    curve.cubicTo(44, 24, 46, 36, 50, 30);
+    p->drawPath(curve);
+    return;
+  }
   if (name == QLatin1String("bookmark") || name == QLatin1String("bookmarks")) {
     QPainterPath ribbon;
     ribbon.moveTo(20, 12);
@@ -1938,6 +1969,8 @@ public:
       const QList<KindEntry> kindList = {
           {QStringLiteral("Rechteck"), ShapeToolKind::Rectangle},
           {QStringLiteral("Kreis"), ShapeToolKind::Circle},
+          {QStringLiteral("Linie"), ShapeToolKind::Line},
+          {QStringLiteral("Pfeil"), ShapeToolKind::Arrow},
           {QStringLiteral("Achsen"), ShapeToolKind::Axes2D},
           {QStringLiteral("Sinus"), ShapeToolKind::SineGraph},
           {QStringLiteral("Graph"), ShapeToolKind::CoordinateGraph}};
@@ -3333,7 +3366,12 @@ void ModernToolbar::showMarkupLibrary() {
   cloudTab->setObjectName(QStringLiteral("LibTab"));
   deviceTab->setCheckable(true);
   cloudTab->setCheckable(true);
-  deviceTab->setChecked(true);
+  QSettings libSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const bool openCloud =
+      libSettings.value(QStringLiteral("ui/markup_library_last_tab"), 0).toInt() ==
+      1;
+  deviceTab->setChecked(!openCloud);
+  cloudTab->setChecked(openCloud);
   cloudTab->setToolTip(tr("Cloud-Sync folgt später — Tippen für Infos."));
   tabRow->addWidget(deviceTab);
   tabRow->addWidget(cloudTab);
@@ -3359,7 +3397,7 @@ void ModernToolbar::showMarkupLibrary() {
   cloudLay->setContentsMargins(UiScale::dp(8), UiScale::dp(20), UiScale::dp(8),
                                UiScale::dp(8));
   cloudLay->setSpacing(UiScale::dp(12));
-  cloudPage->hide();
+  // Visibility set after pages are built (respect last-tab preference).
 
   {
     QPixmap cloudIcon(UiScale::dp(56), UiScale::dp(56));
@@ -3396,6 +3434,23 @@ void ModernToolbar::showMarkupLibrary() {
         QStringLiteral("color: %1; font-size: 13px;")
             .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
     cloudLay->addWidget(cloudBody);
+    auto *useDevice = new QPushButton(tr("Gerät nutzen"), cloudPage);
+    useDevice->setCursor(Qt::PointingHandCursor);
+    cloudLay->addWidget(useDevice, 0, Qt::AlignHCenter);
+    connect(useDevice, &QPushButton::clicked, deviceTab, &QPushButton::click);
+    auto *notifyChk = new QCheckBox(
+        tr("Benachrichtigen, wenn Cloud verfügbar ist"), cloudPage);
+    notifyChk->setChecked(
+        libSettings.value(QStringLiteral("ui/markup_library_cloud_notify"), false)
+            .toBool());
+    notifyChk->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px;")
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
+    connect(notifyChk, &QCheckBox::toggled, notifyChk, [](bool on) {
+      QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+      s.setValue(QStringLiteral("ui/markup_library_cloud_notify"), on);
+    });
+    cloudLay->addWidget(notifyChk, 0, Qt::AlignHCenter);
     cloudLay->addStretch(1);
   }
 
@@ -3519,6 +3574,13 @@ void ModernToolbar::showMarkupLibrary() {
 
   pagesLay->addWidget(devicePage);
   pagesLay->addWidget(cloudPage);
+  if (openCloud) {
+    devicePage->hide();
+    cloudPage->show();
+  } else {
+    devicePage->show();
+    cloudPage->hide();
+  }
   scroll->setWidget(pagesHost);
   lay->addWidget(scroll, 1);
 
@@ -3529,20 +3591,25 @@ void ModernToolbar::showMarkupLibrary() {
                NoteChrome::border().name(QColor::HexRgb)));
   lay->addWidget(closeBtn, 0, Qt::AlignRight);
   connect(closeBtn, &QPushButton::clicked, layer, &QWidget::close);
-  connect(deviceTab, &QPushButton::clicked, card,
-          [deviceTab, cloudTab, devicePage, cloudPage]() {
-            deviceTab->setChecked(true);
-            cloudTab->setChecked(false);
-            devicePage->show();
-            cloudPage->hide();
-          });
-  connect(cloudTab, &QPushButton::clicked, card,
-          [deviceTab, cloudTab, devicePage, cloudPage]() {
-            cloudTab->setChecked(true);
-            deviceTab->setChecked(false);
-            devicePage->hide();
-            cloudPage->show();
-          });
+  auto showDevice = [deviceTab, cloudTab, devicePage, cloudPage]() {
+    deviceTab->setChecked(true);
+    cloudTab->setChecked(false);
+    devicePage->show();
+    cloudPage->hide();
+    QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    s.setValue(QStringLiteral("ui/markup_library_last_tab"), 0);
+  };
+  auto showCloud = [deviceTab, cloudTab, devicePage, cloudPage]() {
+    cloudTab->setChecked(true);
+    deviceTab->setChecked(false);
+    devicePage->hide();
+    cloudPage->show();
+    QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    s.setValue(QStringLiteral("ui/markup_library_last_tab"), 1);
+    s.setValue(QStringLiteral("ui/markup_library_cloud_ack"), true);
+  };
+  connect(deviceTab, &QPushButton::clicked, card, showDevice);
+  connect(cloudTab, &QPushButton::clicked, card, showCloud);
 
   layer->show();
   layer->raise();
@@ -4724,6 +4791,12 @@ QString ModernToolbar::iconForSlot(const RailSlot &s) const {
       return QStringLiteral("line");
     if (kind == ShapeToolKind::Arrow)
       return QStringLiteral("arrow");
+    if (kind == ShapeToolKind::Axes2D)
+      return QStringLiteral("axes");
+    if (kind == ShapeToolKind::SineGraph)
+      return QStringLiteral("sine");
+    if (kind == ShapeToolKind::CoordinateGraph)
+      return QStringLiteral("graph");
     return QStringLiteral("rect");
   }
   case ToolMode::StickyNote:
@@ -5102,16 +5175,21 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
     auto *circle = menu.addAction(tr("Kreis"));
     auto *line = menu.addAction(tr("Linie"));
     auto *arrow = menu.addAction(tr("Pfeil"));
-    rect->setCheckable(true);
-    circle->setCheckable(true);
-    line->setCheckable(true);
-    arrow->setCheckable(true);
+    menu.addSeparator();
+    auto *axes = menu.addAction(tr("Achsen"));
+    auto *sine = menu.addAction(tr("Sinus"));
+    auto *graph = menu.addAction(tr("Graph"));
+    for (QAction *a : {rect, circle, line, arrow, axes, sine, graph})
+      a->setCheckable(true);
     const ShapeToolKind cur =
         ToolManager::instance().configFor(ToolMode::Shape).shapeToolKind;
     rect->setChecked(cur == ShapeToolKind::Rectangle);
     circle->setChecked(cur == ShapeToolKind::Circle);
     line->setChecked(cur == ShapeToolKind::Line);
     arrow->setChecked(cur == ShapeToolKind::Arrow);
+    axes->setChecked(cur == ShapeToolKind::Axes2D);
+    sine->setChecked(cur == ShapeToolKind::SineGraph);
+    graph->setChecked(cur == ShapeToolKind::CoordinateGraph);
     menu.addSeparator();
     auto *more = menu.addAction(tr("Weitere Eigenschaften…"));
     QAction *picked = menu.exec(anchor->mapToGlobal(
@@ -5129,6 +5207,12 @@ void ModernToolbar::showToolFlyout(ToolMode mode) {
       kind = ShapeToolKind::Line;
     else if (picked == arrow)
       kind = ShapeToolKind::Arrow;
+    else if (picked == axes)
+      kind = ShapeToolKind::Axes2D;
+    else if (picked == sine)
+      kind = ShapeToolKind::SineGraph;
+    else if (picked == graph)
+      kind = ShapeToolKind::CoordinateGraph;
     ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Shape);
     cfg.shapeToolKind = kind;
     ToolManager::instance().selectTool(ToolMode::Shape);

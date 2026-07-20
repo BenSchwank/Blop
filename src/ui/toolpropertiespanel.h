@@ -59,6 +59,9 @@ private:
   QPushButton *m_modeB{nullptr};
   QPushButton *m_modeC{nullptr};
   QPushButton *m_modeD{nullptr};
+  QPushButton *m_modeE{nullptr};
+  QPushButton *m_modeF{nullptr};
+  QPushButton *m_modeG{nullptr};
   QPushButton *m_customColorBtn{nullptr};
   QList<QPushButton *> m_swatches;
   QVBoxLayout *m_root{nullptr};

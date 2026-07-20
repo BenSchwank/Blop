@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QFileSystemModel>
+#include <QFrame>
 #include <QIcon>
 #include <QLabel>
 #include <QPersistentModelIndex>
@@ -426,6 +427,8 @@ private:
   /// Left column width for push-style sidebar (desktop only; Android uses layout margins).
   QWidget *m_desktopSidebarPushSpacer{nullptr};
 
+  QLabel *m_lblBrand{nullptr};
+  QFrame *m_titleBarSep{nullptr};
   QWidget *m_titleBarWidget{nullptr};
   QWidget *m_topNavControls{nullptr};
   /// Home + note tabs row in title bar (hidden in Study / web bookmarks).
@@ -515,6 +518,7 @@ private:
   QPushButton *m_btnNewTab{nullptr};
   void refreshNoteBottomChromeIcons();
   void refreshNoteTitleChrome(bool noteChrome);
+  void refreshNoteLeftRailIcons();
 
   QWidget *m_pageSettingsOverlay{nullptr};
   QWidget *m_pageSettingsCard{nullptr};

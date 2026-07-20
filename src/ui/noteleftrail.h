@@ -5,8 +5,10 @@
 #include <QColor>
 #include <QHash>
 #include <QIcon>
+#include <QList>
 #include <QWidget>
 
+class QFrame;
 class QToolButton;
 class QVBoxLayout;
 
@@ -41,10 +43,12 @@ protected:
 
 private:
   QToolButton *makeBtn(const QString &id, const QString &tip);
+  void addGroupSeparator();
   void refreshStyles();
 
   QVBoxLayout *m_lay{nullptr};
   QHash<QString, QToolButton *> m_btns;
+  QList<QFrame *> m_separators;
   QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
   bool m_pagesExpanded{true};
 };

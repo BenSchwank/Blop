@@ -2613,19 +2613,21 @@ void MainWindow::setupTitleBar() {
   mainLayout->addSpacing(6);
 
   // ── Blop Brand ────────────────────────────────────────────────────────────
-  QLabel *lblBrand = new QLabel("Blop", m_titleBarWidget);
-  lblBrand->setStyleSheet(
+  m_lblBrand = new QLabel("Blop", m_titleBarWidget);
+  m_lblBrand->setObjectName(QStringLiteral("TitleBarBrand"));
+  m_lblBrand->setStyleSheet(
       "color: #F0EEFF; font-size: 17px; font-weight: 800;"
       "letter-spacing: 0.4px; background: transparent; border: none;");
-  mainLayout->addWidget(lblBrand);
+  mainLayout->addWidget(m_lblBrand);
 
   // ── Separator ─────────────────────────────────────────────────────────────
-  QFrame *sep = new QFrame(m_titleBarWidget);
-  sep->setFrameShape(QFrame::VLine);
-  sep->setFixedSize(1, 16);
-  sep->setStyleSheet("background: rgba(255,255,255,0.10); border: none;");
+  m_titleBarSep = new QFrame(m_titleBarWidget);
+  m_titleBarSep->setObjectName(QStringLiteral("TitleBarSep"));
+  m_titleBarSep->setFrameShape(QFrame::VLine);
+  m_titleBarSep->setFixedSize(1, 16);
+  m_titleBarSep->setStyleSheet("background: rgba(255,255,255,0.10); border: none;");
   mainLayout->addSpacing(12);
-  mainLayout->addWidget(sep);
+  mainLayout->addWidget(m_titleBarSep);
   mainLayout->addSpacing(12);
 
   // ── Top Navigation Container ───────────────────────────────────────────────
@@ -3325,9 +3327,19 @@ void MainWindow::applyTheme() {
             .arg(UIStyles::PageBackground.name(),
                  QColor(124, 92, 252, 90).name(QColor::HexArgb)));
 
-  if (m_titleBarWidget)
-    m_titleBarWidget->setStyleSheet(BlopTheme::themed(
-        "background-color: #0B0912; border-bottom: 1px solid rgba(120,130,160,0.12);"));
+  if (m_titleBarWidget) {
+    // Keep overview purple chrome; while editing, NoteChrome owns the shell.
+    bool editorChrome = false;
+#ifndef Q_OS_ANDROID
+    if (m_documentTabBar && m_documentTabBar->noteChromeMode())
+      editorChrome = true;
+#endif
+    if (editorChrome)
+      refreshNoteTitleChrome(true);
+    else
+      m_titleBarWidget->setStyleSheet(BlopTheme::themed(
+          "background-color: #0B0912; border-bottom: 1px solid rgba(120,130,160,0.12);"));
+  }
 
   // Overview: redesigned library chrome (v3.22.1).
   if (m_overviewContainer) {
@@ -5095,29 +5107,7 @@ void MainWindow::setupUi() {
   // ── Drawboard left menu strip ────────────────────────────────────────────
   m_noteLeftRail = new NoteLeftRail(m_editorCenterWidget);
   m_noteLeftRail->setAccentColor(NoteChrome::accent());
-  const QColor railIcon(QStringLiteral("#E0E0E0"));
-  m_noteLeftRail->setIcon(QStringLiteral("pages"),
-                          createModernIcon(QStringLiteral("pages"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("allpages"),
-                          createModernIcon(QStringLiteral("pages_pill"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("bookmarks"),
-                          createModernIcon(QStringLiteral("bookmark"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("history"),
-                          createModernIcon(QStringLiteral("history"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("search"),
-                          createModernIcon(QStringLiteral("search"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("more"),
-                          createModernIcon(QStringLiteral("more_vert"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("select"),
-                          createModernIcon(QStringLiteral("select"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("props"),
-                          createModernIcon(QStringLiteral("palette"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("theme"),
-                          createModernIcon(QStringLiteral("palette"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("export"),
-                          createModernIcon(QStringLiteral("export"), railIcon));
-  m_noteLeftRail->setIcon(QStringLiteral("settings"),
-                          createModernIcon(QStringLiteral("settings"), railIcon));
+  refreshNoteLeftRailIcons();
   connect(m_noteLeftRail, &NoteLeftRail::pagesToggled, this, [this](bool on) {
     if (m_pageThumbnailSidebar) {
       m_pageThumbnailSidebar->setVisible(on);
@@ -10325,6 +10315,7 @@ void MainWindow::applyNoteChromeTheme() {
   }
   if (m_noteLeftRail) {
     m_noteLeftRail->setAccentColor(NoteChrome::accent());
+    refreshNoteLeftRailIcons();
     m_noteLeftRail->update();
   }
   if (m_pageThumbnailSidebar) {
@@ -10391,8 +10382,152 @@ void MainWindow::refreshNoteBottomChromeIcons() {
 #endif
 }
 
+void MainWindow::refreshNoteLeftRailIcons() {
+#ifndef Q_OS_ANDROID
+  if (!m_noteLeftRail)
+    return;
+  const QColor ic = NoteChrome::textSecondary();
+  m_noteLeftRail->setIcon(QStringLiteral("pages"),
+                          createModernIcon(QStringLiteral("pages"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("allpages"),
+                          createModernIcon(QStringLiteral("pages_pill"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("bookmarks"),
+                          createModernIcon(QStringLiteral("bookmark"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("history"),
+                          createModernIcon(QStringLiteral("history"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("search"),
+                          createModernIcon(QStringLiteral("search"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("more"),
+                          createModernIcon(QStringLiteral("more_vert"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("select"),
+                          createModernIcon(QStringLiteral("select"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("props"),
+                          createModernIcon(QStringLiteral("palette"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("theme"),
+                          createModernIcon(QStringLiteral("palette"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("export"),
+                          createModernIcon(QStringLiteral("export"), ic));
+  m_noteLeftRail->setIcon(QStringLiteral("settings"),
+                          createModernIcon(QStringLiteral("settings"), ic));
+#endif
+}
+
 void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 #ifndef Q_OS_ANDROID
+  const QString hoverGray =
+      QStringLiteral("background: rgba(127,127,127,0.18);");
+  const QString hoverPurple =
+      QStringLiteral("background: rgba(124,92,252,0.18);");
+
+  if (m_titleBarWidget) {
+    if (noteChrome) {
+      m_titleBarWidget->setStyleSheet(QStringLiteral(
+          "background: %1; border-bottom: 1px solid %2;")
+                                          .arg(NoteChrome::toolbarFill().name(
+                                                   QColor::HexRgb),
+                                               NoteChrome::borderSoft().name(
+                                                   QColor::HexRgb)));
+    } else {
+      m_titleBarWidget->setStyleSheet(BlopTheme::themed(
+          "background-color: #0B0912; border-bottom: 1px solid "
+          "rgba(120,130,160,0.12);"));
+    }
+  }
+
+  if (btnEditorMenu) {
+    if (noteChrome) {
+      btnEditorMenu->setIcon(
+          createModernIcon(QStringLiteral("menu"), NoteChrome::textSecondary()));
+      btnEditorMenu->setStyleSheet(QStringLiteral(
+          "QToolButton { background: transparent; border: none; border-radius: 10px; }"
+          "QToolButton:hover { %1 }")
+                                       .arg(hoverGray));
+    } else {
+      btnEditorMenu->setIcon(
+          createModernIcon(QStringLiteral("menu"), QColor(QStringLiteral("#B8B4E0"))));
+      btnEditorMenu->setStyleSheet(QStringLiteral(
+          "QToolButton { background: transparent; border: none; border-radius: 10px; }"
+          "QToolButton:hover { background: rgba(255,255,255,0.07); }"));
+    }
+  }
+
+  if (m_lblBrand) {
+    m_lblBrand->setStyleSheet(
+        noteChrome
+            ? QStringLiteral(
+                  "color: %1; font-size: 17px; font-weight: 800;"
+                  "letter-spacing: 0.4px; background: transparent; border: none;")
+                  .arg(NoteChrome::textPrimary().name(QColor::HexRgb))
+            : QStringLiteral(
+                  "color: #F0EEFF; font-size: 17px; font-weight: 800;"
+                  "letter-spacing: 0.4px; background: transparent; border: none;"));
+  }
+
+  if (m_titleBarSep) {
+    m_titleBarSep->setStyleSheet(
+        noteChrome
+            ? QStringLiteral("background: %1; border: none;")
+                  .arg(NoteChrome::borderSoft().name(QColor::HexRgb))
+            : QStringLiteral("background: rgba(255,255,255,0.10); border: none;"));
+  }
+
+  if (m_btnMode) {
+    if (noteChrome) {
+      m_btnMode->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  background: %1; border: 1px solid %2; border-radius: 10px;"
+          "  color: %3; font-size: 12px; font-weight: 650; padding: 0 14px;"
+          "}"
+          "QPushButton:hover { %4 border-color: %5; color: %6; }")
+                                   .arg(NoteChrome::panelBg().name(QColor::HexRgb),
+                                        NoteChrome::borderSoft().name(QColor::HexRgb),
+                                        NoteChrome::textSecondary().name(QColor::HexRgb),
+                                        hoverGray,
+                                        NoteChrome::accent().name(QColor::HexRgb),
+                                        NoteChrome::textPrimary().name(QColor::HexRgb)));
+    } else {
+      m_btnMode->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  background: rgba(255,255,255,0.05);"
+          "  border: 1px solid rgba(120,130,160,0.16);"
+          "  border-radius: 11px;"
+          "  color: rgba(220,216,255,0.92);"
+          "  font-size: 12px; font-weight: 650;"
+          "  padding: 0 14px;"
+          "}"
+          "QPushButton:hover {"
+          "  background: rgba(124,92,252,0.16);"
+          "  border-color: rgba(124,92,252,0.40);"
+          "  color: #FFFFFF;"
+          "}"));
+    }
+  }
+
+  if (m_btnAddWebBookmark) {
+    if (noteChrome) {
+      m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  background: %1; border: none; border-radius: 8px;"
+          "  color: %2; font-size: 18px; font-weight: 600;"
+          "}"
+          "QPushButton:hover { %3 }")
+                                             .arg(NoteChrome::panelBg().name(
+                                                      QColor::HexRgb),
+                                                  NoteChrome::textSecondary().name(
+                                                      QColor::HexRgb),
+                                                  hoverGray));
+    } else {
+      m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
+          "QPushButton {"
+          "  background: rgba(255,255,255,0.06);"
+          "  border: none; border-radius: 8px;"
+          "  color: rgba(200,196,255,0.95);"
+          "  font-size: 18px; font-weight: 600;"
+          "}"
+          "QPushButton:hover { background: rgba(124,92,252,0.22); }"));
+    }
+  }
+
   if (m_btnNewTab) {
     if (noteChrome) {
       m_btnNewTab->setIcon(
@@ -10402,7 +10537,8 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
           "QPushButton {"
           "  background: transparent; border: none; border-radius: 8px;"
           "}"
-          "QPushButton:hover { background: rgba(127,127,127,0.18); }"));
+          "QPushButton:hover { %1 }")
+                                     .arg(hoverGray));
     } else {
       m_btnNewTab->setIcon(
           createModernIcon(QStringLiteral("add"), QColor(200, 190, 255, 220)));
@@ -10411,9 +10547,11 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
           "QPushButton {"
           "  background: transparent; border: none; border-radius: 8px;"
           "}"
-          "QPushButton:hover { background: rgba(124,92,252,0.18); }"));
+          "QPushButton:hover { %1 }")
+                                     .arg(hoverPurple));
     }
   }
+
   if (m_titleSearchBar) {
     if (noteChrome) {
       m_titleSearchBar->setStyleSheet(QStringLiteral(
@@ -10455,6 +10593,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
           "QLineEdit::placeholder { color: rgba(255,255,255,0.32); }"));
     }
   }
+
   if (m_btnEditorNoteOverflow) {
     const QColor ic = noteChrome ? NoteChrome::textSecondary()
                                  : QColor(QStringLiteral("#C8CDDC"));
@@ -10465,12 +10604,69 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
             ? QStringLiteral(
                   "QToolButton { background: transparent; border: none; "
                   "border-radius: 8px; }"
-                  "QToolButton:hover { background: rgba(127,127,127,0.18); }")
+                  "QToolButton:hover { %1 }")
+                  .arg(hoverGray)
             : QStringLiteral(
                   "QToolButton { background: transparent; border: none; "
                   "border-radius: 8px; }"
                   "QToolButton:hover { background: rgba(124,92,252,0.22); }"));
   }
+
+  if (m_btnTitleBarPageManager) {
+    const QColor ic = noteChrome ? NoteChrome::textSecondary()
+                                 : QColor(QStringLiteral("#C8CDDC"));
+    m_btnTitleBarPageManager->setIcon(
+        createModernIcon(QStringLiteral("pages_pill"), ic));
+    m_btnTitleBarPageManager->setStyleSheet(
+        noteChrome
+            ? QStringLiteral(
+                  "QToolButton { background: transparent; border: none; "
+                  "border-radius: 8px; padding: 0; }"
+                  "QToolButton:hover { %1 }"
+                  "QToolButton:pressed { background: rgba(127,127,127,0.28); }")
+                  .arg(hoverGray)
+            : QStringLiteral(
+                  "QToolButton { background: transparent; border: none; "
+                  "border-radius: 8px; padding: 0; }"
+                  "QToolButton:hover { background: rgba(124,92,252,0.22); }"
+                  "QToolButton:pressed { background: rgba(124,92,252,0.32); }"));
+  }
+
+  auto styleWinBtn = [&](QPushButton *btn, bool isClose) {
+    if (!btn)
+      return;
+    if (noteChrome) {
+      const QString fg = NoteChrome::textSecondary().name(QColor::HexRgb);
+      const QString fgHover = NoteChrome::textPrimary().name(QColor::HexRgb);
+      btn->setStyleSheet(
+          isClose
+              ? QStringLiteral(
+                    "QPushButton { background: transparent; border: none;"
+                    "  color: %1; font-size: 14px; font-weight: 400; }"
+                    "QPushButton:hover { background: #E81123; color: white; }")
+                    .arg(fg)
+              : QStringLiteral(
+                    "QPushButton { background: transparent; border: none;"
+                    "  color: %1; font-size: 14px; font-weight: 400; }"
+                    "QPushButton:hover { %2 color: %3; }")
+                    .arg(fg, hoverGray, fgHover));
+    } else {
+      btn->setStyleSheet(
+          isClose
+              ? QStringLiteral(
+                    "QPushButton { background: transparent; border: none;"
+                    "  color: rgba(255,255,255,0.50); font-size: 14px; font-weight: 400; }"
+                    "QPushButton:hover { background: #E81123; color: white; }")
+              : QStringLiteral(
+                    "QPushButton { background: transparent; border: none;"
+                    "  color: rgba(255,255,255,0.50); font-size: 14px; font-weight: 400; }"
+                    "QPushButton:hover {"
+                    "  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.90); }"));
+    }
+  };
+  styleWinBtn(m_btnWinMin, false);
+  styleWinBtn(m_btnWinMax, false);
+  styleWinBtn(m_btnWinClose, true);
 #endif
 }
 
