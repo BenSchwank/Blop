@@ -31,11 +31,11 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   addGroupSeparator();
   makeBtn(QStringLiteral("select"), QStringLiteral("Auswahl"));
   makeBtn(QStringLiteral("props"), QStringLiteral("Eigenschaften"));
-  m_lay->addStretch(1);
   addGroupSeparator();
   makeBtn(QStringLiteral("theme"), QStringLiteral("Editor Hell/Dunkel"));
   makeBtn(QStringLiteral("export"), QStringLiteral("Exportieren"));
   makeBtn(QStringLiteral("settings"), QStringLiteral("Einstellungen"));
+  m_lay->addStretch(1);
 
   if (auto *pages = m_btns.value(QStringLiteral("pages"))) {
     pages->setCheckable(true);
@@ -159,6 +159,13 @@ void NoteLeftRail::refreshStyles() {
   }
 }
 
+void NoteLeftRail::setThumbsAdjacent(bool on) {
+  if (m_thumbsAdjacent == on)
+    return;
+  m_thumbsAdjacent = on;
+  update();
+}
+
 void NoteLeftRail::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
   QPainter p(this);
@@ -167,6 +174,9 @@ void NoteLeftRail::paintEvent(QPaintEvent *event) {
   grad.setColorAt(0, NoteChrome::toolbarFill());
   grad.setColorAt(1, NoteChrome::toolbarFillEnd());
   p.fillRect(rect(), grad);
-  p.setPen(QPen(NoteChrome::borderSoft(), 1));
-  p.drawLine(width() - 1, 0, width() - 1, height());
+  // When thumbnails sit next to us, skip the right edge so both read as one plate.
+  if (!m_thumbsAdjacent) {
+    p.setPen(QPen(NoteChrome::borderSoft(), 1));
+    p.drawLine(width() - 1, 0, width() - 1, height());
+  }
 }

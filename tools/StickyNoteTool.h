@@ -6,7 +6,7 @@
 #include <QGraphicsScene>
 #include <QFont>
 
-/// Sticky note: yellow card with editable text (session graphics, like Text/Image).
+/// Sticky note: yellow card with editable text (persisted via NotePage::stickies).
 class StickyNoteTool : public AbstractTool {
 public:
   using AbstractTool::AbstractTool;

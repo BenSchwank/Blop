@@ -2447,14 +2447,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     }
     if (m_markupBarMode != MarkupOff)
       m_markupCategory = categoryForTool(m);
-    // Hand has no AbstractTool registration — still switch UI + notify.
-    if (m == ToolMode::Hand) {
-      setToolMode(m);
-      emit toolChanged(m);
-    } else {
-      ToolManager::instance().selectTool(m);
-      setToolMode(m);
-    }
+    ToolManager::instance().selectTool(m);
+    setToolMode(m);
     if (m_style == Radial)
       m_radialCollapseTimer.start(180);
   };
@@ -3294,7 +3288,9 @@ void ModernToolbar::syncDrawboardToolIcons() {
     btnLibrary->setShowChevron(false);
   }
   if (btnRailChevron)
-    btnRailChevron->setIcon(QStringLiteral("chevron_rail"));
+    btnRailChevron->setIcon(m_propertiesPanelOpen
+                                ? QStringLiteral("chevron_left")
+                                : QStringLiteral("chevron_rail"));
   for (int i = 0; i < m_slotButtons.size(); ++i)
     syncSlotButtonAppearance(i);
 }
@@ -3930,12 +3926,32 @@ void ModernToolbar::setAccentColor(const QColor &color) {
     if (b)
       b->setAccentColor(m_accentColor);
   }
+  for (auto *b : m_slotButtons) {
+    if (b)
+      b->setAccentColor(m_accentColor);
+  }
+  for (ToolbarBtn *b : {btnLibrary, btnAddTool, btnRailChevron}) {
+    if (b)
+      b->setAccentColor(m_accentColor);
+  }
   for (auto *tab : m_categoryTabs) {
     if (tab)
       tab->setAccentColor(m_accentColor);
   }
   syncInlinePropertyControls();
   update();
+}
+
+void ModernToolbar::setPropertiesPanelOpen(bool open) {
+  if (m_propertiesPanelOpen == open)
+    return;
+  m_propertiesPanelOpen = open;
+  if (btnRailChevron) {
+    btnRailChevron->setIcon(open ? QStringLiteral("chevron_left")
+                                 : QStringLiteral("chevron_rail"));
+    btnRailChevron->setToolTip(open ? tr("Eigenschaften ausblenden")
+                                    : tr("Eigenschaften einblenden"));
+  }
 }
 void ModernToolbar::constrainToParent() {
   if (!parentWidget() || m_isPreview)
@@ -4700,11 +4716,16 @@ void ModernToolbar::loadRailTools() {
   } else {
     // Ensure Pencil exists after older saves that omitted it.
     bool hasPencil = false;
+    bool hasHand = false;
     for (const RailSlot &sl : m_railSlots) {
-      if (sl.mode == ToolMode::Pencil) {
+      if (sl.mode == ToolMode::Pencil)
         hasPencil = true;
-        break;
-      }
+      if (sl.mode == ToolMode::Hand)
+        hasHand = true;
+    }
+    if (!hasHand) {
+      RailSlot hand = RailSlot::fromTool(ToolMode::Hand, defaultCfg(ToolMode::Hand));
+      m_railSlots.prepend(hand);
     }
     if (!hasPencil) {
       int penIdx = -1;
@@ -4719,8 +4740,9 @@ void ModernToolbar::loadRailTools() {
         m_railSlots.insert(penIdx + 1, pencil);
       else
         m_railSlots.append(pencil);
-      saveRailTools();
     }
+    if (!hasHand || !hasPencil)
+      saveRailTools();
   }
   m_activeRailSlot = -1;
   rebuildSlotButtons();
@@ -5869,13 +5891,14 @@ void ModernToolbar::updateLayout(bool animate) {
           if (i < m_railSlots.size()) {
             const ToolMode m = m_railSlots[i].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser)
-              contentNeeded += UiScale::dp(8);
+              contentNeeded += UiScale::dp(4);
           }
         }
         const int maxScroll = qMax(0, contentNeeded - contentH);
         m_railScrollPx = qBound(0, m_railScrollPx, maxScroll);
 
         int y = contentTop - m_railScrollPx;
+        int lastSlotBottom = contentTop;
         for (int i = 0; i < slotBtns.size(); ++i) {
           ToolbarBtn *b = slotBtns[i];
           b->setRailSlotStyle(true);
@@ -5886,13 +5909,14 @@ void ModernToolbar::updateLayout(bool animate) {
           if (i < m_railSlots.size()) {
             const ToolMode m = m_railSlots[i].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser) {
-              y += UiScale::dp(4);
+              y += UiScale::dp(2);
               const int sepY = y - gap / 2;
               if (sepY >= contentTop && sepY <= contentBottom)
                 m_separatorYPositions.append(sepY);
-              y += UiScale::dp(4);
+              y += UiScale::dp(2);
             }
           }
+          lastSlotBottom = by + b->height();
           const bool visible =
               (by + b->height() > contentTop) && (by < contentBottom);
           if (visible) {
@@ -5904,9 +5928,13 @@ void ModernToolbar::updateLayout(bool animate) {
           }
         }
 
+        // Pack footer under the tool cluster when everything fits; otherwise
+        // pin to the bottom edge (scrollable slots above).
         int fy = contentBottom + UiScale::dp(6);
-        // Divider before footer.
-        m_separatorYPositions.append(contentBottom + UiScale::dp(2));
+        if (maxScroll == 0)
+          fy = qMin(contentBottom + UiScale::dp(6),
+                    lastSlotBottom + UiScale::dp(8));
+        m_separatorYPositions.append(fy - UiScale::dp(4));
         for (ToolbarBtn *b : footerBtns) {
           b->setRailSlotStyle(true);
           b->setRailFooterStyle(true);

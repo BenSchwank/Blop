@@ -266,6 +266,10 @@ private:
     /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
     void syncGraphItemsToNote();
+    void syncStickyNotesToNote();
+    void bindStickyNoteSignals(QGraphicsRectItem *card);
+    QGraphicsRectItem *createStickyNoteItem(const StickyNoteObject &data,
+                                            int pageIndex);
     /// v3.18.0: einmalige Signal-Verdrahtung eines GraphCanvasItem (Tap,
     /// Long-Press, Plus, Achsen, Geometrie). Idempotent über data(9001);
     /// vorher existierte der ~60-Zeilen-Block doppelt in
@@ -304,6 +308,7 @@ private:
     QPointF m_graphQuickAnchorScene;
     bool m_graphQuickPopupWanted{false};
     bool m_syncingGraphs{false};
+    bool m_syncingStickies{false};
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};

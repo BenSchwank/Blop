@@ -123,6 +123,19 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       graphsArr.append(go);
     }
     pageObj["graphs"] = graphsArr;
+    QJsonArray stickiesArr;
+    for (const auto &sn : p.stickies) {
+      QJsonObject so;
+      so["x"] = sn.pos.x();
+      so["y"] = sn.pos.y();
+      so["w"] = sn.width;
+      so["h"] = sn.height;
+      so["t"] = sn.text;
+      so["c"] = sn.color.name(QColor::HexArgb);
+      so["fs"] = sn.fontPointSize;
+      stickiesArr.append(so);
+    }
+    pageObj["stickies"] = stickiesArr;
     pageObj["bg"] = p.backgroundType;
     if (!p.title.isEmpty())
       pageObj["title"] = p.title;
@@ -266,6 +279,23 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
         g.selectedFunction = g.functions.size() - 1;
       }
       out.pages[i].graphs.push_back(std::move(g));
+    }
+    const auto stickiesArr = pageObj.value("stickies").toArray();
+    for (const auto &sv : stickiesArr) {
+      const auto so = sv.toObject();
+      StickyNoteObject sn;
+      sn.pos = QPointF(so.value("x").toDouble(0.0), so.value("y").toDouble(0.0));
+      sn.width = so.value("w").toDouble(168.0);
+      sn.height = so.value("h").toDouble(148.0);
+      sn.text = so.value("t").toString();
+      {
+        const QString cn = so.value("c").toString();
+        QColor c(cn);
+        if (c.isValid())
+          sn.color = c;
+      }
+      sn.fontPointSize = so.value("fs").toInt(14);
+      out.pages[i].stickies.push_back(std::move(sn));
     }
   }
   return true;

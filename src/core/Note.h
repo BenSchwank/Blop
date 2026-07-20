@@ -52,10 +52,20 @@ struct GraphObject {
     int yTickCount{8};
 };
 
+struct StickyNoteObject {
+    QPointF pos{0, 0}; // page-local top-left
+    qreal width{168.0};
+    qreal height{148.0};
+    QString text;
+    QColor color{QColor(255, 236, 120)};
+    int fontPointSize{14};
+};
+
 struct NotePage {
     QString title;        // Seitenname
     QVector<Stroke> strokes;
     QVector<GraphObject> graphs;
+    QVector<StickyNoteObject> stickies;
     QImage backgroundImage; // PDF-Import: Hintergrundbild (leer = nicht gesetzt)
     /// PageBackgroundType als int (0 Blank … 4 Legal); Standard = Grid (2)
     int backgroundType{2};

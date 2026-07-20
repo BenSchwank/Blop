@@ -139,7 +139,7 @@ private:
     bool m_railDragging{false};
     QPoint m_pressPos;
     double m_holdProgress{0.0};
-    QColor m_accentColor{QColor("#7C5CFC")};
+    QColor m_accentColor{QColor(91, 157, 255)};
     double m_liftOffset{0.0};
     QPointer<QPropertyAnimation> m_liftAnim;
     QPointer<QPropertyAnimation> m_holdAnim;
@@ -247,6 +247,9 @@ public:
     void syncToolBadges();
     void syncDrawboardToolIcons();
     void openToolOptions();
+    /// Sync Favorites footer chevron with properties panel open state.
+    void setPropertiesPanelOpen(bool open);
+    bool propertiesPanelOpen() const { return m_propertiesPanelOpen; }
     void moveRailTool(ToolMode mode, int delta);
     void moveRailSlot(int index, int delta);
 
@@ -388,7 +391,7 @@ private:
     void toggleRadialSettings();
     bool m_showRadialSettings{false};
     QList<QPushButton*> m_radialSettingsBtns;
-    QColor m_accentColor{QColor("#7C5CFC")};
+    QColor m_accentColor{QColor(91, 157, 255)};
 
     QWidget* m_snapPreview{nullptr};
     QList<int> m_separatorXPositions;  // x-coords of section dividers in horizontal mode
@@ -401,6 +404,7 @@ private:
     int m_railScrollPx{0};
     int m_railDragFrom{-1};
     int m_railDragGhostY{-1};
+    bool m_propertiesPanelOpen{false};
     void loadRailTools();
     void saveRailTools() const;
     void rebuildSlotButtons();

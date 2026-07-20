@@ -50,6 +50,7 @@
 #include "tools/ShapeTool.h"
 #include "tools/TextTool.h" // Neu: TextTool
 #include "tools/StickyNoteTool.h"
+#include "tools/HandTool.h"
 #include "tools/WritingTools.h" // Enthält PenTool, PencilTool, HighlighterTool
 // -------------------------------------
 
@@ -1773,18 +1774,44 @@ void MainWindow::applyThemeRefresh() {
   // re-skins their internal QSS off the current accent + base colors;
   // since UIStyles + BlopStyle now read from BlopTheme, calling that
   // is enough.
-  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+#ifndef Q_OS_ANDROID
+    const bool editorOpen =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    tb->setAccentColor(editorOpen ? NoteChrome::accent()
+                                  : m_currentAccentColor);
+#else
     tb->setAccentColor(m_currentAccentColor);
+#endif
+  }
   if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
     phone->setAccentColor(m_currentAccentColor);
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(m_currentAccentColor);
-  if (m_documentTabBar)
-    m_documentTabBar->setAccentColor(m_currentAccentColor);
+  if (m_documentTabBar) {
+#ifndef Q_OS_ANDROID
+    if (m_documentTabBar->noteChromeMode()) {
+      m_documentTabBar->setAccentColor(NoteChrome::accent());
+    } else
+#endif
+      m_documentTabBar->setAccentColor(m_currentAccentColor);
+  }
     if (m_pageThumbnailSidebar)
-      m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+      m_pageThumbnailSidebar->setAccentColor(
+#ifndef Q_OS_ANDROID
+          (m_documentTabBar && m_documentTabBar->noteChromeMode())
+              ? NoteChrome::accent()
+              :
+#endif
+              m_currentAccentColor);
     if (m_noteLeftRail)
-      m_noteLeftRail->setAccentColor(m_currentAccentColor);
+      m_noteLeftRail->setAccentColor(
+#ifndef Q_OS_ANDROID
+          (m_documentTabBar && m_documentTabBar->noteChromeMode())
+              ? NoteChrome::accent()
+              :
+#endif
+              m_currentAccentColor);
     if (m_radialFab)
       m_radialFab->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
@@ -1869,6 +1896,7 @@ void MainWindow::setupTools() {
     m_toolManager->registerTool(new ShapeTool());
     m_toolManager->registerTool(new TextTool()); // <--- TextTool Registrierung
     m_toolManager->registerTool(new StickyNoteTool());
+    m_toolManager->registerTool(new HandTool());
 
     m_toolManager->selectTool(ToolMode::Pen);
   }
@@ -2725,7 +2753,7 @@ void MainWindow::setupTitleBar() {
   // "+ Tab" Button
   m_btnNewTab = new QPushButton(m_topNavControls);
   m_btnNewTab->setObjectName(QStringLiteral("TitleBarNewTab"));
-  m_btnNewTab->setFixedSize(36, 36);
+  m_btnNewTab->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   m_btnNewTab->setCursor(Qt::PointingHandCursor);
   m_btnNewTab->setToolTip("Neue Notiz öffnen");
   m_btnNewTab->setIcon(
@@ -3224,16 +3252,42 @@ void MainWindow::applyTheme() {
 #endif
   if (m_fileListView)
     m_fileListView->setAccentColor(m_currentAccentColor);
-  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+#ifndef Q_OS_ANDROID
+    const bool editorOpen =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    tb->setAccentColor(editorOpen ? NoteChrome::accent()
+                                  : m_currentAccentColor);
+#else
     tb->setAccentColor(m_currentAccentColor);
+#endif
+  }
   if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
     phone->setAccentColor(m_currentAccentColor);
-  if (m_documentTabBar)
-    m_documentTabBar->setAccentColor(m_currentAccentColor);
+  if (m_documentTabBar) {
+#ifndef Q_OS_ANDROID
+    if (m_documentTabBar->noteChromeMode())
+      m_documentTabBar->setAccentColor(NoteChrome::accent());
+    else
+#endif
+      m_documentTabBar->setAccentColor(m_currentAccentColor);
+  }
     if (m_pageThumbnailSidebar)
-      m_pageThumbnailSidebar->setAccentColor(m_currentAccentColor);
+      m_pageThumbnailSidebar->setAccentColor(
+#ifndef Q_OS_ANDROID
+          (m_documentTabBar && m_documentTabBar->noteChromeMode())
+              ? NoteChrome::accent()
+              :
+#endif
+              m_currentAccentColor);
     if (m_noteLeftRail)
-      m_noteLeftRail->setAccentColor(m_currentAccentColor);
+      m_noteLeftRail->setAccentColor(
+#ifndef Q_OS_ANDROID
+          (m_documentTabBar && m_documentTabBar->noteChromeMode())
+              ? NoteChrome::accent()
+              :
+#endif
+              m_currentAccentColor);
     if (m_radialFab)
       m_radialFab->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
@@ -4770,6 +4824,8 @@ void MainWindow::setupUi() {
         m_toolPropertiesPanel->show();
         m_toolPropertiesPanel->syncFromToolManager();
       }
+      if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+        tb->setPropertiesPanelOpen(true);
       positionNoteChrome();
     });
     connect(topToolbar, &ModernToolbar::propertiesPanelToggleRequested, this,
@@ -4779,6 +4835,8 @@ void MainWindow::setupUi() {
                 m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
               if (m_toolPropertiesVisible && m_toolPropertiesPanel)
                 m_toolPropertiesPanel->syncFromToolManager();
+              if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+                tb->setPropertiesPanelOpen(m_toolPropertiesVisible);
               positionNoteChrome();
             });
     connect(topToolbar, &ModernToolbar::markupLibraryRequested, this, [this]() {
@@ -4965,7 +5023,7 @@ void MainWindow::setupUi() {
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
   m_noteBottomChrome->setAttribute(Qt::WA_StyledBackground, true);
-  m_noteBottomChrome->setFixedHeight(UiScale::dp(40));
+  m_noteBottomChrome->setFixedHeight(UiScale::dp(44));
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
       "  background: %1;"
@@ -4976,12 +5034,12 @@ void MainWindow::setupUi() {
       "QPushButton {"
       "  background: transparent; color: %3;"
       "  border: none; border-radius: 4px;"
-      "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
+      "  font-size: 13px; font-weight: 600; min-width: 32px; min-height: 32px;"
       "  padding: 0 8px;"
       "}"
       "QPushButton:hover { background: rgba(255,255,255,0.08); color: %4; }"
       "QLabel { background: transparent; color: %3;"
-      "  font-size: 12px; font-weight: 600; }")
+      "  font-size: 13px; font-weight: 600; }")
                                         .arg(NoteChrome::toolbarFill().name(
                                                  QColor::HexRgb),
                                              NoteChrome::borderSoft().name(
@@ -5158,6 +5216,8 @@ void MainWindow::setupUi() {
     m_toolPropertiesVisible = !m_toolPropertiesVisible;
     if (m_toolPropertiesPanel)
       m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
+    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+      tb->setPropertiesPanelOpen(m_toolPropertiesVisible);
     positionNoteChrome();
   });
   connect(m_noteLeftRail, &NoteLeftRail::themeToggleClicked, this, [this]() {
@@ -5178,6 +5238,8 @@ void MainWindow::setupUi() {
           [this]() {
             m_toolPropertiesVisible = false;
             m_toolPropertiesPanel->hide();
+            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+              tb->setPropertiesPanelOpen(false);
             positionNoteChrome();
           });
 
@@ -5281,7 +5343,18 @@ void MainWindow::setupUi() {
       case ToolMode::Image: type = CanvasView::ToolType::Image; break;
       case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
       case ToolMode::Text: type = CanvasView::ToolType::Text; break;
-      case ToolMode::Hand: type = CanvasView::ToolType::Pen; break;
+      case ToolMode::Hand:
+        // Pan is owned by MultiPageNoteView — do not force a stroke tool.
+        if (m_editorTabs) {
+          if (auto *activeEditor =
+                  qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+            if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
+              view->setToolMode(ToolMode::Hand);
+          }
+        }
+        if (CanvasView *cv = getCurrentCanvas())
+          cv->toggleRuler(false);
+        return;
       default: type = CanvasView::ToolType::Pen; break;
     }
     setActiveTool(type);
@@ -10202,14 +10275,19 @@ void MainWindow::positionNoteChrome() {
 
 #ifndef Q_OS_ANDROID
   int leftX = 0;
+  const bool thumbsVisible =
+      m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible();
   if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
     const int railW = m_noteLeftRail->preferredWidth();
     m_noteLeftRail->setGeometry(0, 0, railW, H);
+    m_noteLeftRail->setThumbsAdjacent(thumbsVisible);
     m_noteLeftRail->raise();
     leftX = railW;
+  } else if (m_noteLeftRail) {
+    m_noteLeftRail->setThumbsAdjacent(false);
   }
 
-  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
+  if (thumbsVisible) {
     if (m_pageThumbnailSidebar->isCollapsed())
       m_pageThumbnailSidebar->setCollapsed(false);
     const int thumbW = m_pageThumbnailSidebar->width();
@@ -10356,18 +10434,19 @@ void MainWindow::applyNoteChromeTheme() {
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(NoteChrome::accent());
   if (m_noteBottomChrome) {
+    m_noteBottomChrome->setFixedHeight(UiScale::dp(44));
     m_noteBottomChrome->setStyleSheet(QStringLiteral(
         "QWidget#NoteBottomChrome {"
         "  background: %1; border: none; border-top: 1px solid %2; border-radius: 0;"
         "}"
         "QPushButton {"
         "  background: transparent; color: %3; border: none; border-radius: 4px;"
-        "  font-size: 13px; font-weight: 600; min-width: 28px; min-height: 28px;"
+        "  font-size: 13px; font-weight: 600; min-width: 32px; min-height: 32px;"
         "  padding: 0 6px;"
         "}"
         "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
         "QPushButton:disabled { color: %3; }"
-        "QLabel { background: transparent; color: %3; font-size: 12px; font-weight: 600; }")
+        "QLabel { background: transparent; color: %3; font-size: 13px; font-weight: 600; }")
                                           .arg(NoteChrome::toolbarFill().name(),
                                                NoteChrome::borderSoft().name(),
                                                NoteChrome::textSecondary().name(),
@@ -10415,7 +10494,7 @@ void MainWindow::refreshNoteLeftRailIcons() {
   m_noteLeftRail->setIcon(QStringLiteral("pages"),
                           createModernIcon(QStringLiteral("pages"), ic));
   m_noteLeftRail->setIcon(QStringLiteral("allpages"),
-                          createModernIcon(QStringLiteral("pages_pill"), ic));
+                          createModernIcon(QStringLiteral("pages"), ic));
   m_noteLeftRail->setIcon(QStringLiteral("bookmarks"),
                           createModernIcon(QStringLiteral("bookmark"), ic));
   m_noteLeftRail->setIcon(QStringLiteral("history"),

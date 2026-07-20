@@ -19,6 +19,8 @@ public:
 
   void setAccentColor(const QColor &color);
   void setIcon(const QString &id, const QIcon &icon);
+  /// When page thumbnails are visible beside this rail, hide the shared edge.
+  void setThumbsAdjacent(bool on);
 
   bool pagesExpanded() const { return m_pagesExpanded; }
   void setPagesExpanded(bool on);
@@ -51,4 +53,5 @@ private:
   QList<QFrame *> m_separators;
   QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
   bool m_pagesExpanded{true};
+  bool m_thumbsAdjacent{false};
 };

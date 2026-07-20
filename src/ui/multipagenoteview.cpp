@@ -32,7 +32,9 @@
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QGraphicsRectItem>
+#include <QGraphicsTextItem>
 #include <QGraphicsSceneMouseEvent>
+#include <QTextDocument>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -1813,6 +1815,9 @@ void MultiPageNoteView::hydratePageContent(int i) {
     bindGraphItemSignals(gi);
     syncGraphPlusLayout(gi);
   }
+  for (const auto &sn : note_->pages[i].stickies) {
+    createStickyNoteItem(sn, i);
+  }
   scene_.blockSignals(wasBlocked);
 }
 
@@ -2902,6 +2907,8 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
 
     // An scene_ weiterleiten, damit Lineal-Tool Events bekommt
     if (tool->handleMousePress(&scEvent, &scene_)) {
+      if (tool->mode() == ToolMode::StickyNote)
+        syncStickyNotesToNote();
       e->accept();
       return;
     }
@@ -3152,6 +3159,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
       commitPendingStrokeItemsToNote(tool);
       syncGraphItemsToNote();
+      syncStickyNotesToNote();
       if (newGraph) {
         // v3.17.2: see comment in GraphQuickActionPopup connect site --
         // BlopModal::execBlocking avoids top-level QWindow on Android.
@@ -3179,7 +3187,21 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
                       e->button(), e->buttons());
     tabletEvent(&fake);
   } else {
+    bool stickyInPlay = false;
+    for (QGraphicsItem *it : scene_.selectedItems()) {
+      if (!it)
+        continue;
+      if (it->data(0).toString() == QLatin1String("sticky_note") ||
+          (it->parentItem() &&
+           it->parentItem()->data(0).toString() ==
+               QLatin1String("sticky_note"))) {
+        stickyInPlay = true;
+        break;
+      }
+    }
     QGraphicsView::mouseReleaseEvent(e);
+    if (e->button() == Qt::LeftButton && stickyInPlay)
+      syncStickyNotesToNote();
   }
 }
 
@@ -3281,6 +3303,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
         GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
         commitPendingStrokeItemsToNote(tool);
         syncGraphItemsToNote();
+        syncStickyNotesToNote();
         if (newGraph) {
 #ifdef Q_OS_ANDROID
           auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
@@ -3851,6 +3874,7 @@ void MultiPageNoteView::deleteSelection() {
     }
     if (m_selectionMenu) m_selectionMenu->hide();
     syncGraphItemsToNote();
+    syncStickyNotesToNote();
     if (onSaveRequested) onSaveRequested(note_);
 }
 
@@ -4752,6 +4776,105 @@ void MultiPageNoteView::syncGraphItemsToNote() {
   updateGraphChromeIfVisible();
   if (onSaveRequested) onSaveRequested(note_);
   m_syncingGraphs = false;
+}
+
+QGraphicsRectItem *
+MultiPageNoteView::createStickyNoteItem(const StickyNoteObject &data,
+                                        int pageIndex) {
+  if (pageIndex < 0 || pageIndex >= pageItems_.size())
+    return nullptr;
+
+  auto *card = new QGraphicsRectItem(0, 0, data.width, data.height);
+  card->setPos(data.pos);
+  card->setParentItem(pageItems_[pageIndex]);
+  QColor fill = data.color.isValid() ? data.color : QColor(255, 236, 120);
+  card->setBrush(fill);
+  card->setPen(QPen(QColor(210, 175, 55), 1.2));
+  card->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable |
+                 QGraphicsItem::ItemSendsGeometryChanges);
+  card->setZValue(6);
+  card->setData(0, QStringLiteral("sticky_note"));
+
+  auto *text = new QGraphicsTextItem(card);
+  text->setPos(10, 10);
+  text->setTextWidth(qMax(20.0, data.width - 20.0));
+  QFont font = text->font();
+  font.setPointSize(qBound(11, data.fontPointSize, 28));
+  text->setFont(font);
+  text->setDefaultTextColor(QColor(40, 36, 20));
+  text->setPlainText(data.text);
+  text->setTextInteractionFlags(Qt::TextEditorInteraction);
+  text->setFlag(QGraphicsItem::ItemIsFocusable, true);
+
+  bindStickyNoteSignals(card);
+  return card;
+}
+
+void MultiPageNoteView::bindStickyNoteSignals(QGraphicsRectItem *card) {
+  if (!card)
+    return;
+  if (card->data(9002).toBool())
+    return;
+  card->setData(9002, true);
+  for (QGraphicsItem *child : card->childItems()) {
+    auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(child);
+    if (!text || !text->document())
+      continue;
+    connect(text->document(), &QTextDocument::contentsChanged, this, [this]() {
+      if (!m_syncingStickies)
+        syncStickyNotesToNote();
+    });
+  }
+}
+
+void MultiPageNoteView::syncStickyNotesToNote() {
+  if (!note_)
+    return;
+  if (m_syncingStickies)
+    return;
+  m_syncingStickies = true;
+  for (auto &p : note_->pages)
+    p.stickies.clear();
+
+  const auto all = scene_.items(Qt::AscendingOrder);
+  for (QGraphicsItem *item : all) {
+    if (item->data(0).toString() != QLatin1String("sticky_note"))
+      continue;
+    auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item);
+    if (!card)
+      continue;
+
+    const QPointF sceneCenter = card->sceneBoundingRect().center();
+    int pIdx = pageAt(sceneCenter);
+    if (pIdx < 0 || pIdx >= pageItems_.size())
+      continue;
+
+    if (card->parentItem() != pageItems_[pIdx]) {
+      const QPointF sceneTopLeft = card->sceneBoundingRect().topLeft();
+      card->setParentItem(pageItems_[pIdx]);
+      card->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
+    }
+
+    StickyNoteObject sn;
+    sn.pos = card->pos();
+    sn.width = card->rect().width();
+    sn.height = card->rect().height();
+    sn.color = card->brush().color();
+    for (QGraphicsItem *child : card->childItems()) {
+      if (auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(child)) {
+        sn.text = text->toPlainText();
+        sn.fontPointSize = text->font().pointSize();
+        break;
+      }
+    }
+    note_->ensurePage(pIdx);
+    note_->pages[pIdx].stickies.push_back(std::move(sn));
+    bindStickyNoteSignals(card);
+  }
+
+  if (onSaveRequested)
+    onSaveRequested(note_);
+  m_syncingStickies = false;
 }
 
 // ============================================================================
