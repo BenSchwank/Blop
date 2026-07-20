@@ -1,7 +1,8 @@
 #pragma once
 
-// Persistent right-side Drawboard-style tool properties dock:
-// color swatches, stroke width, opacity — bound to ToolManager.
+// Floating Drawboard-style tool options card:
+// style tiles, color/fill swatches, stroke width, opacity, Smart Ink — bound
+// to ToolManager.
 
 #include <QColor>
 #include <QList>
@@ -15,6 +16,7 @@ class QSlider;
 class QVBoxLayout;
 class QHBoxLayout;
 class QPushButton;
+class QCheckBox;
 
 class ToolPropertiesPanel : public QWidget {
   Q_OBJECT
@@ -38,25 +40,48 @@ protected:
   void paintEvent(QPaintEvent *event) override;
 
 private:
+  enum class PenInkStyle { Einfach = 0, Pro = 1, Kalligrafie = 2 };
+
   void rebuild();
   void applyConfig();
   void addColorRow(QVBoxLayout *lay);
+  void addFillColorRow(QVBoxLayout *lay);
   void refreshSwatchSelection();
-  QPushButton *makeSwatch(const QColor &c);
+  void refreshFillSwatchSelection();
+  void applyPenInkStyle(PenInkStyle style);
+  PenInkStyle detectPenInkStyle() const;
+  void refreshStyleTiles();
+  void refreshSmartInk();
+  QPushButton *makeSwatch(const QColor &c, bool fill);
+  QPushButton *makeStyleTile(const QString &title, const QString &subtitle,
+                             PenInkStyle style);
 
   ToolMode m_mode{ToolMode::Pen};
   ToolConfig m_config;
   QColor m_accent{QColor(91, 157, 255)};
 
   QLabel *m_title{nullptr};
+  QLabel *m_styleLbl{nullptr};
+  QWidget *m_styleRow{nullptr};
+  QPushButton *m_styleEinfach{nullptr};
+  QPushButton *m_stylePro{nullptr};
+  QPushButton *m_styleKalli{nullptr};
+
   QLabel *m_widthLbl{nullptr};
   QLabel *m_opacityLbl{nullptr};
   QLabel *m_modeLbl{nullptr};
+  QLabel *m_fillLbl{nullptr};
+  QLabel *m_smartLbl{nullptr};
   QLabel *m_hintLbl{nullptr};
   QSlider *m_widthSlider{nullptr};
   QSlider *m_opacitySlider{nullptr};
   QWidget *m_colorRow{nullptr};
+  QWidget *m_fillRow{nullptr};
   QWidget *m_modeRow{nullptr};
+  QWidget *m_smartRow{nullptr};
+  QCheckBox *m_chkPressure{nullptr};
+  QCheckBox *m_chkInkToShape{nullptr};
+  QCheckBox *m_chkSmartLine{nullptr};
   QPushButton *m_modeA{nullptr};
   QPushButton *m_modeB{nullptr};
   QPushButton *m_modeC{nullptr};
@@ -64,7 +89,10 @@ private:
   QPushButton *m_modeE{nullptr};
   QPushButton *m_modeF{nullptr};
   QPushButton *m_modeG{nullptr};
+  QPushButton *m_modeH{nullptr};
   QPushButton *m_customColorBtn{nullptr};
+  QPushButton *m_customFillBtn{nullptr};
   QList<QPushButton *> m_swatches;
+  QList<QPushButton *> m_fillSwatches;
   QVBoxLayout *m_root{nullptr};
 };

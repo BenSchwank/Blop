@@ -5012,13 +5012,16 @@ void ModernToolbar::applyRailSlot(int index) {
   }
 
   m_activeRailSlot = index;
-  if (slot.mode != ToolMode::Hand) {
+  if (slot.mode == ToolMode::Hand) {
+    ToolManager::instance().selectTool(ToolMode::Hand);
+  } else {
     ToolConfig &cfg = ToolManager::instance().configFor(slot.mode);
     cfg.penColor = slot.color;
     cfg.penWidth = qMax(1, slot.width);
     cfg.opacity = slot.opacity;
+    // ShapeToolKind goes through Ellipse (=7).
     cfg.shapeToolKind = static_cast<ShapeToolKind>(
-        qBound(0, slot.shapeKind, 6));
+        qBound(0, slot.shapeKind, 7));
     cfg.lassoMode = (slot.lassoMode == 1) ? LassoMode::Rectangle
                                           : LassoMode::Freehand;
     ToolManager::instance().selectTool(slot.mode);

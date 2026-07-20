@@ -168,7 +168,7 @@ public:
     }
     void setShapeToolKind(int v) {
         updateConfig([v](ToolConfig& c) {
-            c.shapeToolKind = static_cast<ShapeToolKind>(qBound(0, v, 6));
+            c.shapeToolKind = static_cast<ShapeToolKind>(qBound(0, v, 7));
         });
     }
     void setShapeMathA(double v) {

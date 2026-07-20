@@ -5341,6 +5341,20 @@ void MainWindow::setupUi() {
   // Shared handlers: the same code runs whether the active toolbar is
   // ModernToolbar (desktop / Android tablet) or AndroidPhoneToolbar (phone).
   const auto onToolModeChanged = [this](ToolMode m) {
+    const auto syncNoteView = [this](ToolMode mode) {
+      if (!m_editorTabs)
+        return;
+      if (auto *activeEditor =
+              qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+        if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
+          view->setToolMode(mode);
+      }
+    };
+    const auto syncProps = [this](ToolMode mode) {
+      if (m_toolPropertiesPanel && m_toolPropertiesVisible)
+        m_toolPropertiesPanel->syncForMode(mode);
+    };
+
     CanvasView::ToolType type = CanvasView::ToolType::Pen;
     switch (m) {
       case ToolMode::Eraser: type = CanvasView::ToolType::Eraser; break;
@@ -5350,33 +5364,35 @@ void MainWindow::setupUi() {
       case ToolMode::Image: type = CanvasView::ToolType::Image; break;
       case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
       case ToolMode::Text: type = CanvasView::ToolType::Text; break;
+      case ToolMode::Pencil:
+        // CanvasView has no Pencil ToolType — select ToolManager directly.
+        if (m_toolManager)
+          m_toolManager->selectTool(ToolMode::Pencil);
+        syncNoteView(ToolMode::Pencil);
+        if (CanvasView *cv = getCurrentCanvas()) {
+          cv->toggleRuler(false);
+          cv->setCursor(Qt::CrossCursor);
+        }
+        syncProps(ToolMode::Pencil);
+        return;
       case ToolMode::StickyNote:
         // StickyNoteTool is registered — do not remap to Pen.
         if (m_toolManager)
           m_toolManager->selectTool(ToolMode::StickyNote);
-        if (m_editorTabs) {
-          if (auto *activeEditor =
-                  qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-            if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
-              view->setToolMode(ToolMode::StickyNote);
-          }
-        }
-        if (m_toolPropertiesPanel && m_toolPropertiesVisible)
-          m_toolPropertiesPanel->syncForMode(ToolMode::StickyNote);
+        syncNoteView(ToolMode::StickyNote);
+        syncProps(ToolMode::StickyNote);
         return;
       case ToolMode::Hand:
-        // Pan is owned by MultiPageNoteView / CanvasView — do not force a stroke tool.
-        if (m_editorTabs) {
-          if (auto *activeEditor =
-                  qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-            if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
-              view->setToolMode(ToolMode::Hand);
-          }
-        }
+        // Pan is owned by MultiPageNoteView — still select HandTool so
+        // ToolManager::activeToolMode() stays consistent with the rail.
+        if (m_toolManager)
+          m_toolManager->selectTool(ToolMode::Hand);
+        syncNoteView(ToolMode::Hand);
         if (CanvasView *cv = getCurrentCanvas()) {
           cv->toggleRuler(false);
           cv->setCursor(Qt::OpenHandCursor);
         }
+        syncProps(ToolMode::Hand);
         return;
       default: type = CanvasView::ToolType::Pen; break;
     }
@@ -10234,6 +10250,9 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
     break;
   case CanvasView::ToolType::Shape:
     tm = ToolMode::Shape;
+    break;
+  case CanvasView::ToolType::Text:
+    tm = ToolMode::Text;
     break;
   case CanvasView::ToolType::Pen:
   default:
