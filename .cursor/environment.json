@@ -1,0 +1,11 @@
+{
+  "name": "Blop Qt6 desktop",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "terminals": [
+    {
+      "name": "build",
+      "command": "cd build-check && ninja Blop && echo \"Blop binary: $(pwd)/Blop\"",
+      "description": "Incremental Blop build in build-check/"
+    }
+  ]
+}
