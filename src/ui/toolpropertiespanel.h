@@ -17,6 +17,7 @@ class QVBoxLayout;
 class QHBoxLayout;
 class QPushButton;
 class QCheckBox;
+class QScrollArea;
 
 class ToolPropertiesPanel : public QWidget {
   Q_OBJECT
@@ -38,6 +39,7 @@ signals:
 
 protected:
   void paintEvent(QPaintEvent *event) override;
+  void resizeEvent(QResizeEvent *event) override;
 
 private:
   enum class PenInkStyle { Einfach = 0, Pro = 1, Kalligrafie = 2 };
@@ -52,6 +54,7 @@ private:
   PenInkStyle detectPenInkStyle() const;
   void refreshStyleTiles();
   void refreshSmartInk();
+  void updateScrollMetrics();
   QPushButton *makeSwatch(const QColor &c, bool fill);
   QPushButton *makeStyleTile(const QString &title, const QString &subtitle,
                              PenInkStyle style);
@@ -59,6 +62,9 @@ private:
   ToolMode m_mode{ToolMode::Pen};
   ToolConfig m_config;
   QColor m_accent{QColor(91, 157, 255)};
+
+  QScrollArea *m_scroll{nullptr};
+  QWidget *m_body{nullptr};
 
   QLabel *m_title{nullptr};
   QLabel *m_styleLbl{nullptr};
@@ -69,6 +75,7 @@ private:
 
   QLabel *m_widthLbl{nullptr};
   QLabel *m_opacityLbl{nullptr};
+  QLabel *m_colorLbl{nullptr};
   QLabel *m_modeLbl{nullptr};
   QLabel *m_fillLbl{nullptr};
   QLabel *m_smartLbl{nullptr};
@@ -94,5 +101,6 @@ private:
   QPushButton *m_customFillBtn{nullptr};
   QList<QPushButton *> m_swatches;
   QList<QPushButton *> m_fillSwatches;
+  QVBoxLayout *m_outer{nullptr};
   QVBoxLayout *m_root{nullptr};
 };

@@ -10376,13 +10376,15 @@ void MainWindow::positionNoteChrome() {
     m_toolPropertiesPanel->syncFromToolManager();
     const int propsW = m_toolPropertiesPanel->preferredWidth();
     const int propsH = m_toolPropertiesPanel->preferredHeight();
-    int railW = UiScale::dp(60);
+    int railW = UiScale::dp(64);
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
       railW = tb->preferredRailWidth();
     const int bottomH = noteBottomChromeHeight();
     const int x = qMax(leftX + margin, W - railW - propsW - margin);
     const int y = noteHeaderHeight() + margin;
     const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
+    // Clamp height; ToolPropertiesPanel scrolls internally so controls never
+    // stack on top of each other when the card is shorter than its content.
     m_toolPropertiesPanel->setGeometry(x, y, propsW, qMin(propsH, maxH));
     m_toolPropertiesPanel->raise();
   } else if (m_toolPropertiesPanel) {

@@ -1109,10 +1109,14 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
       if (m_hover || m_pressing)
         tip = NoteChrome::textPrimary();
     }
+    // Reserve space for the flyout chevron so the glyph never overlaps it.
+    const int chevronReserve =
+        (m_showChevron && !m_railFooterStyle) ? UiScale::dp(14) : 0;
     const int iconPad = m_railFooterStyle ? UiScale::dp(14) : UiScale::dp(12);
-    const int icon = qMin(w, h) - iconPad;
+    const int iconBoxH = qMax(UiScale::dp(18), h - chevronReserve);
+    const int icon = qMin(w - iconPad, iconBoxH - UiScale::dp(4));
     p.save();
-    p.translate(w / 2.0, h / 2.0 - (m_showChevron ? UiScale::dp(2) : 0));
+    p.translate(w / 2.0, iconBoxH / 2.0);
     p.scale(m_animScale, m_animScale);
     const qreal g = icon / 64.0;
     p.scale(g, g);
@@ -1124,7 +1128,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
       p.setPen(QPen(NoteChrome::textSecondary(), 1.7, Qt::SolidLine,
                     Qt::RoundCap, Qt::RoundJoin));
       const int cx = w / 2;
-      const int cy = h - UiScale::dp(9);
+      const int cy = h - UiScale::dp(8);
       p.drawLine(cx - 4, cy - 2, cx, cy + 2);
       p.drawLine(cx, cy + 2, cx + 4, cy - 2);
     }

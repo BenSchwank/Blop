@@ -7,6 +7,7 @@
 
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,6 +16,9 @@
 #include <QPainter>
 #include <QPen>
 #include <QPushButton>
+#include <QResizeEvent>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSlider>
 #include <QVBoxLayout>
 
@@ -26,11 +30,14 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_TranslucentBackground, false);
   setMinimumWidth(preferredWidth());
   setMaximumWidth(preferredWidth());
+  // Allow the host to clamp height; scrolling prevents widget overlap.
+  setMinimumHeight(UiScale::dp(180));
+  setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
 
-  m_root = new QVBoxLayout(this);
-  m_root->setContentsMargins(UiScale::dp(16), UiScale::dp(18), UiScale::dp(16),
-                             UiScale::dp(18));
-  m_root->setSpacing(UiScale::dp(14));
+  m_outer = new QVBoxLayout(this);
+  m_outer->setContentsMargins(UiScale::dp(14), UiScale::dp(14), UiScale::dp(14),
+                              UiScale::dp(14));
+  m_outer->setSpacing(UiScale::dp(10));
 
   auto *header = new QHBoxLayout;
   header->setSpacing(UiScale::dp(8));
@@ -38,19 +45,35 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_title->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
   header->addWidget(m_title, 1);
   auto *closeBtn = new QPushButton(QStringLiteral("×"), this);
+  closeBtn->setObjectName(QStringLiteral("ToolPropsClose"));
   closeBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
   closeBtn->setCursor(Qt::PointingHandCursor);
   closeBtn->setFlat(true);
   connect(closeBtn, &QPushButton::clicked, this,
           &ToolPropertiesPanel::closeRequested);
   header->addWidget(closeBtn);
-  m_root->addLayout(header);
+  m_outer->addLayout(header);
 
-  // Pen ink style tiles — stacked full-width so labels are not crushed.
-  m_styleLbl = new QLabel(QStringLiteral("Stil"), this);
+  m_scroll = new QScrollArea(this);
+  m_scroll->setObjectName(QStringLiteral("ToolPropsScroll"));
+  m_scroll->setWidgetResizable(true);
+  m_scroll->setFrameShape(QFrame::NoFrame);
+  m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_scroll->viewport()->setAutoFillBackground(false);
+
+  m_body = new QWidget(m_scroll);
+  m_body->setObjectName(QStringLiteral("ToolPropsBody"));
+  m_root = new QVBoxLayout(m_body);
+  m_root->setContentsMargins(0, 0, UiScale::dp(4), UiScale::dp(4));
+  m_root->setSpacing(UiScale::dp(12));
+
+  // Compact single-line style chips (subtitle as tooltip) — avoids tall
+  // stacked tiles that overflow the floating card and overlap other controls.
+  m_styleLbl = new QLabel(QStringLiteral("Stil"), m_body);
   m_root->addWidget(m_styleLbl);
-  m_styleRow = new QWidget(this);
-  auto *styleLay = new QVBoxLayout(m_styleRow);
+  m_styleRow = new QWidget(m_body);
+  auto *styleLay = new QHBoxLayout(m_styleRow);
   styleLay->setContentsMargins(0, 0, 0, 0);
   styleLay->setSpacing(UiScale::dp(8));
   m_styleEinfach =
@@ -61,15 +84,16 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_styleKalli =
       makeStyleTile(QStringLiteral("Kalligrafie"), QStringLiteral("Dynamisch"),
                     PenInkStyle::Kalligrafie);
-  styleLay->addWidget(m_styleEinfach);
-  styleLay->addWidget(m_stylePro);
-  styleLay->addWidget(m_styleKalli);
+  styleLay->addWidget(m_styleEinfach, 1);
+  styleLay->addWidget(m_stylePro, 1);
+  styleLay->addWidget(m_styleKalli, 1);
   m_root->addWidget(m_styleRow);
 
-  m_widthLbl = new QLabel(QStringLiteral("Dicke"), this);
+  m_widthLbl = new QLabel(QStringLiteral("Dicke"), m_body);
   m_root->addWidget(m_widthLbl);
-  m_widthSlider = new QSlider(Qt::Horizontal, this);
+  m_widthSlider = new QSlider(Qt::Horizontal, m_body);
   m_widthSlider->setRange(1, 50);
+  m_widthSlider->setMinimumHeight(UiScale::dp(24));
   connect(m_widthSlider, &QSlider::valueChanged, this, [this](int v) {
     m_config.penWidth = v;
     if (m_mode == ToolMode::Text || m_mode == ToolMode::StickyNote)
@@ -80,10 +104,11 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   m_root->addWidget(m_widthSlider);
 
-  m_opacityLbl = new QLabel(QStringLiteral("Deckkraft"), this);
+  m_opacityLbl = new QLabel(QStringLiteral("Deckkraft"), m_body);
   m_root->addWidget(m_opacityLbl);
-  m_opacitySlider = new QSlider(Qt::Horizontal, this);
+  m_opacitySlider = new QSlider(Qt::Horizontal, m_body);
   m_opacitySlider->setRange(10, 100);
+  m_opacitySlider->setMinimumHeight(UiScale::dp(24));
   connect(m_opacitySlider, &QSlider::valueChanged, this, [this](int v) {
     m_config.opacity = v / 100.0;
     if (m_mode == ToolMode::Image)
@@ -93,24 +118,24 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   m_root->addWidget(m_opacitySlider);
 
-  auto *colorLbl = new QLabel(QStringLiteral("Farbe"), this);
-  m_root->addWidget(colorLbl);
-  m_colorRow = new QWidget(this);
+  m_colorLbl = new QLabel(QStringLiteral("Farbe"), m_body);
+  m_root->addWidget(m_colorLbl);
+  m_colorRow = new QWidget(m_body);
   addColorRow(m_root);
 
-  m_fillLbl = new QLabel(QStringLiteral("Füllung"), this);
+  m_fillLbl = new QLabel(QStringLiteral("Füllung"), m_body);
   m_root->addWidget(m_fillLbl);
-  m_fillRow = new QWidget(this);
+  m_fillRow = new QWidget(m_body);
   addFillColorRow(m_root);
 
   // Mode row for Lasso / Shape / Eraser / Highlighter.
-  m_modeLbl = new QLabel(QStringLiteral("Modus"), this);
+  m_modeLbl = new QLabel(QStringLiteral("Modus"), m_body);
   m_root->addWidget(m_modeLbl);
-  m_modeRow = new QWidget(this);
+  m_modeRow = new QWidget(m_body);
   auto *modeLay = new QGridLayout(m_modeRow);
   modeLay->setContentsMargins(0, 0, 0, 0);
-  modeLay->setHorizontalSpacing(UiScale::dp(10));
-  modeLay->setVerticalSpacing(UiScale::dp(10));
+  modeLay->setHorizontalSpacing(UiScale::dp(8));
+  modeLay->setVerticalSpacing(UiScale::dp(8));
   m_modeA = new QPushButton(m_modeRow);
   m_modeB = new QPushButton(m_modeRow);
   m_modeC = new QPushButton(m_modeRow);
@@ -125,9 +150,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   grp->setExclusive(true);
   for (int i = 0; i < modeBtns.size(); ++i) {
     QPushButton *b = modeBtns[i];
+    b->setObjectName(QStringLiteral("ToolPropsMode"));
     b->setCheckable(true);
     b->setCursor(Qt::PointingHandCursor);
-    b->setMinimumHeight(UiScale::dp(40));
+    b->setMinimumHeight(UiScale::dp(36));
     modeLay->addWidget(b, i / 2, i % 2);
     grp->addButton(b);
   }
@@ -185,14 +211,14 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   m_root->addWidget(m_modeRow);
 
-  // Smart Ink — pressure / ink→shape / smart line.
-  m_smartLbl = new QLabel(QStringLiteral("Smart Ink"), this);
+  m_smartLbl = new QLabel(QStringLiteral("Smart Ink"), m_body);
   m_root->addWidget(m_smartLbl);
-  m_smartRow = new QWidget(this);
+  m_smartRow = new QWidget(m_body);
   auto *smartLay = new QVBoxLayout(m_smartRow);
   smartLay->setContentsMargins(0, 0, 0, 0);
-  smartLay->setSpacing(UiScale::dp(10));
-  m_chkPressure = new QCheckBox(QStringLiteral("Druckempfindlichkeit"), m_smartRow);
+  smartLay->setSpacing(UiScale::dp(8));
+  m_chkPressure =
+      new QCheckBox(QStringLiteral("Druckempfindlichkeit"), m_smartRow);
   m_chkInkToShape =
       new QCheckBox(QStringLiteral("Tinte → Form (halten)"), m_smartRow);
   m_chkSmartLine = new QCheckBox(QStringLiteral("Smart Line"), m_smartRow);
@@ -219,12 +245,14 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   m_root->addWidget(m_smartRow);
 
-  m_hintLbl = new QLabel(this);
+  m_hintLbl = new QLabel(m_body);
   m_hintLbl->setWordWrap(true);
   m_hintLbl->setStyleSheet(QStringLiteral("font-size: 11px; font-weight: 500;"));
   m_root->addWidget(m_hintLbl);
+  m_root->addStretch(0);
 
-  m_root->addStretch(1);
+  m_scroll->setWidget(m_body);
+  m_outer->addWidget(m_scroll, 1);
 
   connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
           [this](auto *) { syncFromToolManager(); });
@@ -239,11 +267,29 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   rebuild();
 }
 
-int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(360); }
+int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(340); }
 
 int ToolPropertiesPanel::preferredHeight() const {
-  // Floating card — roomy enough for style tiles + swatches without crush.
-  return qMax(UiScale::dp(420), sizeHint().height() + UiScale::dp(12));
+  // Prefer natural content height, but keep a sensible floating-card size.
+  const int header = UiScale::dp(52);
+  const int body = m_body ? m_body->sizeHint().height() : UiScale::dp(360);
+  return qBound(UiScale::dp(280), header + body + UiScale::dp(28),
+               UiScale::dp(720));
+}
+
+void ToolPropertiesPanel::updateScrollMetrics() {
+  if (!m_scroll || !m_body)
+    return;
+  m_body->adjustSize();
+  const bool needScroll =
+      m_body->sizeHint().height() > m_scroll->viewport()->height() + 2;
+  m_scroll->setVerticalScrollBarPolicy(needScroll ? Qt::ScrollBarAsNeeded
+                                                 : Qt::ScrollBarAlwaysOff);
+}
+
+void ToolPropertiesPanel::resizeEvent(QResizeEvent *event) {
+  QWidget::resizeEvent(event);
+  updateScrollMetrics();
 }
 
 void ToolPropertiesPanel::setAccentColor(const QColor &c) {
@@ -281,6 +327,8 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   const bool opacityful = colorful || mode == ToolMode::Image;
   m_opacitySlider->setVisible(opacityful);
   m_opacityLbl->setVisible(opacityful);
+  if (m_colorLbl)
+    m_colorLbl->setVisible(colorful);
   if (m_colorRow)
     m_colorRow->setVisible(colorful);
 
@@ -320,6 +368,12 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   if (m_chkSmartLine)
     m_chkSmartLine->setVisible(mode == ToolMode::Highlighter);
 
+  auto hideExtraModes = [this]() {
+    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG, m_modeH})
+      if (b)
+        b->setVisible(false);
+  };
+
   if (mode == ToolMode::Lasso) {
     m_modeA->setText(QStringLiteral("Freihand"));
     m_modeB->setText(QStringLiteral("Rechteck"));
@@ -327,9 +381,7 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_modeB->setChecked(m_config.lassoMode == LassoMode::Rectangle);
     m_modeA->setVisible(true);
     m_modeB->setVisible(true);
-    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG, m_modeH})
-      if (b)
-        b->setVisible(false);
+    hideExtraModes();
   } else if (mode == ToolMode::Eraser) {
     m_modeA->setText(QStringLiteral("Pixel"));
     m_modeB->setText(QStringLiteral("Objekt"));
@@ -337,9 +389,7 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_modeB->setChecked(m_config.eraserMode == EraserMode::Object);
     m_modeA->setVisible(true);
     m_modeB->setVisible(true);
-    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG, m_modeH})
-      if (b)
-        b->setVisible(false);
+    hideExtraModes();
   } else if (mode == ToolMode::Highlighter) {
     m_modeA->setText(QStringLiteral("Rund"));
     m_modeB->setText(QStringLiteral("Meißel"));
@@ -347,9 +397,7 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_modeB->setChecked(m_config.tipType == HighlighterTip::Chisel);
     m_modeA->setVisible(true);
     m_modeB->setVisible(true);
-    for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG, m_modeH})
-      if (b)
-        b->setVisible(false);
+    hideExtraModes();
   } else if (mode == ToolMode::Shape) {
     struct KindBtn {
       QPushButton *btn;
@@ -430,6 +478,7 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   refreshFillSwatchSelection();
   refreshStyleTiles();
   refreshSmartInk();
+  updateScrollMetrics();
 }
 
 void ToolPropertiesPanel::syncForMode(ToolMode mode) {
@@ -497,6 +546,7 @@ void ToolPropertiesPanel::syncForMode(ToolMode mode) {
   m_title->setText(title);
   setVisibleForTool(mode);
   rebuild();
+  updateScrollMetrics();
 }
 
 void ToolPropertiesPanel::syncFromToolManager() {
@@ -539,28 +589,27 @@ void ToolPropertiesPanel::applyPenInkStyle(PenInkStyle style) {
 
 void ToolPropertiesPanel::refreshStyleTiles() {
   const PenInkStyle cur = detectPenInkStyle();
-  auto styleBtn = [this](QPushButton *btn, PenInkStyle s, bool selected) {
+  auto styleBtn = [this](QPushButton *btn, bool selected) {
     if (!btn)
       return;
-    Q_UNUSED(s);
     const QString border =
         selected ? m_accent.name() : NoteChrome::border().name();
     const QString bg =
         selected ? QStringLiteral("rgba(91,157,255,0.18)")
                  : QStringLiteral("rgba(255,255,255,0.04)");
     btn->setStyleSheet(
-        QStringLiteral("QPushButton {"
-                       "  background: %1; border: 1px solid %2; border-radius: 12px;"
-                       "  text-align: left; padding: 12px 14px;"
-                       "  color: %3; font-size: 13px; font-weight: 700;"
+        QStringLiteral("QPushButton#ToolPropsStyle {"
+                       "  background: %1; border: 1px solid %2; border-radius: 10px;"
+                       "  text-align: center; padding: 8px 6px;"
+                       "  color: %3; font-size: 12px; font-weight: 700;"
                        "}"
-                       "QPushButton:hover { background: rgba(255,255,255,0.08); }")
+                       "QPushButton#ToolPropsStyle:hover { background: rgba(255,255,255,0.08); }")
             .arg(bg, border, NoteChrome::textPrimary().name()));
     btn->setChecked(selected);
   };
-  styleBtn(m_styleEinfach, PenInkStyle::Einfach, cur == PenInkStyle::Einfach);
-  styleBtn(m_stylePro, PenInkStyle::Pro, cur == PenInkStyle::Pro);
-  styleBtn(m_styleKalli, PenInkStyle::Kalligrafie, cur == PenInkStyle::Kalligrafie);
+  styleBtn(m_styleEinfach, cur == PenInkStyle::Einfach);
+  styleBtn(m_stylePro, cur == PenInkStyle::Pro);
+  styleBtn(m_styleKalli, cur == PenInkStyle::Kalligrafie);
 }
 
 void ToolPropertiesPanel::refreshSmartInk() {
@@ -581,10 +630,12 @@ QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
                                                 const QString &subtitle,
                                                 PenInkStyle style) {
   auto *btn = new QPushButton(m_styleRow);
+  btn->setObjectName(QStringLiteral("ToolPropsStyle"));
   btn->setCheckable(true);
   btn->setCursor(Qt::PointingHandCursor);
-  btn->setMinimumHeight(UiScale::dp(56));
-  btn->setText(QStringLiteral("%1\n%2").arg(title, subtitle));
+  btn->setMinimumHeight(UiScale::dp(40));
+  btn->setText(title);
+  btn->setToolTip(subtitle);
   connect(btn, &QPushButton::clicked, this,
           [this, style]() { applyPenInkStyle(style); });
   return btn;
@@ -593,8 +644,8 @@ QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
 void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_colorRow);
   grid->setContentsMargins(0, 0, 0, 0);
-  grid->setHorizontalSpacing(UiScale::dp(12));
-  grid->setVerticalSpacing(UiScale::dp(12));
+  grid->setHorizontalSpacing(UiScale::dp(10));
+  grid->setVerticalSpacing(UiScale::dp(10));
   const QList<QColor> colors = {
       Qt::black, Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
       QColor(40, 180, 80), QColor(250, 180, 30), QColor(160, 60, 200),
@@ -602,10 +653,11 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
   for (int i = 0; i < colors.size(); ++i) {
     auto *btn = makeSwatch(colors[i], false);
     m_swatches.append(btn);
-    grid->addWidget(btn, i / 4, i % 4);
+    grid->addWidget(btn, i / 4, i % 4, Qt::AlignLeft);
   }
   m_customColorBtn = new QPushButton(QStringLiteral("…"), m_colorRow);
-  m_customColorBtn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+  m_customColorBtn->setObjectName(QStringLiteral("ToolPropsSwatch"));
+  m_customColorBtn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   m_customColorBtn->setCursor(Qt::PointingHandCursor);
   m_customColorBtn->setToolTip(QStringLiteral("Eigene Farbe…"));
   connect(m_customColorBtn, &QPushButton::clicked, this, [this]() {
@@ -615,16 +667,15 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
     m_config.penColor = c;
     applyConfig();
   });
-  grid->addWidget(m_customColorBtn, 2, 0);
+  grid->addWidget(m_customColorBtn, 2, 0, Qt::AlignLeft);
   lay->addWidget(m_colorRow);
 }
 
 void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_fillRow);
   grid->setContentsMargins(0, 0, 0, 0);
-  grid->setHorizontalSpacing(UiScale::dp(12));
-  grid->setVerticalSpacing(UiScale::dp(12));
-  // First swatch = none (transparent).
+  grid->setHorizontalSpacing(UiScale::dp(10));
+  grid->setVerticalSpacing(UiScale::dp(10));
   const QList<QColor> colors = {
       QColor(0, 0, 0, 0), Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
       QColor(40, 180, 80), QColor(250, 180, 30), QColor(160, 60, 200),
@@ -634,10 +685,11 @@ void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
     if (i == 0)
       btn->setToolTip(QStringLiteral("Keine Füllung"));
     m_fillSwatches.append(btn);
-    grid->addWidget(btn, i / 4, i % 4);
+    grid->addWidget(btn, i / 4, i % 4, Qt::AlignLeft);
   }
   m_customFillBtn = new QPushButton(QStringLiteral("…"), m_fillRow);
-  m_customFillBtn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+  m_customFillBtn->setObjectName(QStringLiteral("ToolPropsSwatch"));
+  m_customFillBtn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   m_customFillBtn->setCursor(Qt::PointingHandCursor);
   m_customFillBtn->setToolTip(QStringLiteral("Eigene Füllfarbe…"));
   connect(m_customFillBtn, &QPushButton::clicked, this, [this]() {
@@ -648,7 +700,7 @@ void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
     m_config.fillColor = c;
     applyConfig();
   });
-  grid->addWidget(m_customFillBtn, 2, 0);
+  grid->addWidget(m_customFillBtn, 2, 0, Qt::AlignLeft);
   lay->addWidget(m_fillRow);
 }
 
@@ -664,17 +716,18 @@ void ToolPropertiesPanel::refreshSwatchSelection() {
                                      : c.darker(120).name());
     const int bw = selected ? 2 : 1;
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: %1; border: %2px solid %3; border-radius: 8px; }"
-        "QPushButton:hover { border: 2px solid %4; }")
+        "QPushButton#ToolPropsSwatch { background: %1; border: %2px solid %3;"
+        " border-radius: 8px; padding: 0; margin: 0; }"
+        "QPushButton#ToolPropsSwatch:hover { border: 2px solid %4; }")
                            .arg(c.name())
                            .arg(bw)
                            .arg(border, m_accent.name()));
   }
   if (m_customColorBtn) {
     m_customColorBtn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 8px; font-weight: 700; }"
-        "QPushButton:hover { border-color: %4; }")
+        "QPushButton#ToolPropsSwatch { background: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 8px; font-weight: 700; padding: 0; }"
+        "QPushButton#ToolPropsSwatch:hover { border-color: %4; }")
                                         .arg(NoteChrome::panelElevated().name(),
                                              NoteChrome::textPrimary().name(),
                                              NoteChrome::border().name(),
@@ -692,7 +745,8 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
     const QColor c = btn->property("swatchColor").value<QColor>();
     const bool isNone = (c.alpha() == 0);
     const bool selected =
-        isNone ? none : (!none && c.rgb() == fill.rgb() && c.alpha() == fill.alpha());
+        isNone ? none
+               : (!none && c.rgb() == fill.rgb() && c.alpha() == fill.alpha());
     QString bg;
     if (isNone) {
       bg = QStringLiteral(
@@ -713,17 +767,18 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
                                      : NoteChrome::border().name());
     const int bw = selected ? 2 : 1;
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: %1; border: %2px solid %3; border-radius: 8px; }"
-        "QPushButton:hover { border: 2px solid %4; }")
+        "QPushButton#ToolPropsSwatch { background: %1; border: %2px solid %3;"
+        " border-radius: 8px; padding: 0; margin: 0; }"
+        "QPushButton#ToolPropsSwatch:hover { border: 2px solid %4; }")
                            .arg(bg)
                            .arg(bw)
                            .arg(border, m_accent.name()));
   }
   if (m_customFillBtn) {
     m_customFillBtn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 8px; font-weight: 700; }"
-        "QPushButton:hover { border-color: %4; }")
+        "QPushButton#ToolPropsSwatch { background: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 8px; font-weight: 700; padding: 0; }"
+        "QPushButton#ToolPropsSwatch:hover { border-color: %4; }")
                                        .arg(NoteChrome::panelElevated().name(),
                                             NoteChrome::textPrimary().name(),
                                             NoteChrome::border().name(),
@@ -734,7 +789,8 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
 QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
   QWidget *parent = fill ? m_fillRow : m_colorRow;
   auto *btn = new QPushButton(parent);
-  btn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+  btn->setObjectName(QStringLiteral("ToolPropsSwatch"));
+  btn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btn->setCursor(Qt::PointingHandCursor);
   btn->setProperty("swatchColor", c);
   connect(btn, &QPushButton::clicked, this, [this, c, fill]() {
@@ -757,20 +813,31 @@ void ToolPropertiesPanel::rebuild() {
       "  border: 1px solid %2;"
       "  border-radius: %6px;"
       "}"
+      "QWidget#ToolPropsBody, QScrollArea#ToolPropsScroll,"
+      " QScrollArea#ToolPropsScroll > QWidget > QWidget {"
+      "  background: transparent;"
+      "}"
       "QLabel { color: %3; background: transparent; font-size: 13px; font-weight: 600; }"
-      "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 12px; }"
-      "QCheckBox::indicator { width: 20px; height: 20px; border-radius: 5px;"
+      "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 10px; }"
+      "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px;"
       "  border: 1px solid %2; background: rgba(255,255,255,0.04); }"
       "QCheckBox::indicator:checked { background: %4; border-color: %4; }"
-      "QPushButton { color: %3; background: rgba(255,255,255,0.04);"
-      "  border: 1px solid %2; border-radius: 10px; font-size: 13px; font-weight: 650;"
-      "  padding: 10px 12px; }"
-      "QPushButton:checked { background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
-      "QPushButton:hover { background: rgba(255,255,255,0.08); }"
+      "QPushButton#ToolPropsMode {"
+      "  color: %3; background: rgba(255,255,255,0.04);"
+      "  border: 1px solid %2; border-radius: 10px; font-size: 12px; font-weight: 650;"
+      "  padding: 8px 10px; }"
+      "QPushButton#ToolPropsMode:checked {"
+      "  background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
+      "QPushButton#ToolPropsMode:hover { background: rgba(255,255,255,0.08); }"
+      "QPushButton#ToolPropsClose {"
+      "  color: %5; background: transparent; border: none; font-size: 18px; }"
       "QSlider::groove:horizontal { height: 6px; background: %2; border-radius: 3px; }"
       "QSlider::sub-page:horizontal { background: %4; border-radius: 3px; }"
-      "QSlider::handle:horizontal { background: %5; width: 18px; height: 18px; "
-      "margin: -6px 0; border-radius: 9px; }")
+      "QSlider::handle:horizontal { background: %5; width: 16px; height: 16px; "
+      "margin: -5px 0; border-radius: 8px; }"
+      "QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }"
+      "QScrollBar::handle:vertical { background: %2; border-radius: 4px; min-height: 24px; }"
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }")
                           .arg(NoteChrome::panelElevated().name(),
                                NoteChrome::border().name(),
                                NoteChrome::textSecondary().name(),
@@ -789,7 +856,6 @@ void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   p.setRenderHint(QPainter::Antialiasing, true);
   const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
   const qreal radius = UiScale::dp(16);
-  // Soft drop shadow under the floating options card.
   p.setPen(Qt::NoPen);
   p.setBrush(QColor(0, 0, 0, 55));
   p.drawRoundedRect(r.translated(0, 2), radius, radius);
