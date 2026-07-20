@@ -4635,7 +4635,7 @@ bool ModernToolbar::isDrawboardVerticalRail() const {
 #endif
 }
 
-int ModernToolbar::preferredRailWidth() const { return UiScale::dp(60); }
+int ModernToolbar::preferredRailWidth() const { return UiScale::dp(64); }
 
 void ModernToolbar::loadRailTools() {
   m_railSlots.clear();
@@ -5454,10 +5454,10 @@ int ModernToolbar::calculateMinLength() {
 #ifndef Q_OS_ANDROID
     if (m_orientation == Vertical) {
       const int n = qMax(1, m_railSlots.size()) + 3; // tools + library/+ /chevron
-      const int cell = UiScale::dp(50);
-      const int gap = UiScale::dp(6);
+      const int cell = UiScale::dp(52);
+      const int gap = UiScale::dp(8);
       // Two section dividers (select / ink / insert).
-      return dragH + n * cell + (n - 1) * gap + UiScale::dp(40) + 16;
+      return dragH + n * cell + (n - 1) * gap + UiScale::dp(48) + 16;
     }
 #endif
     int numButtons = 0;
@@ -5865,8 +5865,8 @@ void ModernToolbar::updateLayout(bool animate) {
         if (m_slotButtons.isEmpty())
           rebuildSlotButtons();
         railOrder = currentRailButtons();
-        btnS = UiScale::dp(50);
-        gap = UiScale::dp(6);
+        btnS = UiScale::dp(52);
+        gap = UiScale::dp(8);
       } else {
         for (auto *b : m_buttons) {
           if (!chromeRow.contains(b) && b != btnMoreProps &&

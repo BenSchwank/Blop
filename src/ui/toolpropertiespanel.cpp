@@ -239,7 +239,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   rebuild();
 }
 
-int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(340); }
+int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(360); }
 
 int ToolPropertiesPanel::preferredHeight() const {
   // Floating card — roomy enough for style tiles + swatches without crush.
@@ -593,8 +593,8 @@ QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
 void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_colorRow);
   grid->setContentsMargins(0, 0, 0, 0);
-  grid->setHorizontalSpacing(UiScale::dp(10));
-  grid->setVerticalSpacing(UiScale::dp(10));
+  grid->setHorizontalSpacing(UiScale::dp(12));
+  grid->setVerticalSpacing(UiScale::dp(12));
   const QList<QColor> colors = {
       Qt::black, Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
       QColor(40, 180, 80), QColor(250, 180, 30), QColor(160, 60, 200),
@@ -605,7 +605,7 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
     grid->addWidget(btn, i / 4, i % 4);
   }
   m_customColorBtn = new QPushButton(QStringLiteral("…"), m_colorRow);
-  m_customColorBtn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_customColorBtn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
   m_customColorBtn->setCursor(Qt::PointingHandCursor);
   m_customColorBtn->setToolTip(QStringLiteral("Eigene Farbe…"));
   connect(m_customColorBtn, &QPushButton::clicked, this, [this]() {
@@ -622,8 +622,8 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
 void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
   auto *grid = new QGridLayout(m_fillRow);
   grid->setContentsMargins(0, 0, 0, 0);
-  grid->setHorizontalSpacing(UiScale::dp(10));
-  grid->setVerticalSpacing(UiScale::dp(10));
+  grid->setHorizontalSpacing(UiScale::dp(12));
+  grid->setVerticalSpacing(UiScale::dp(12));
   // First swatch = none (transparent).
   const QList<QColor> colors = {
       QColor(0, 0, 0, 0), Qt::white, QColor(220, 50, 50), QColor(40, 120, 255),
@@ -637,7 +637,7 @@ void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
     grid->addWidget(btn, i / 4, i % 4);
   }
   m_customFillBtn = new QPushButton(QStringLiteral("…"), m_fillRow);
-  m_customFillBtn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_customFillBtn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
   m_customFillBtn->setCursor(Qt::PointingHandCursor);
   m_customFillBtn->setToolTip(QStringLiteral("Eigene Füllfarbe…"));
   connect(m_customFillBtn, &QPushButton::clicked, this, [this]() {
@@ -734,7 +734,7 @@ void ToolPropertiesPanel::refreshFillSwatchSelection() {
 QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
   QWidget *parent = fill ? m_fillRow : m_colorRow;
   auto *btn = new QPushButton(parent);
-  btn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  btn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
   btn->setCursor(Qt::PointingHandCursor);
   btn->setProperty("swatchColor", c);
   connect(btn, &QPushButton::clicked, this, [this, c, fill]() {
