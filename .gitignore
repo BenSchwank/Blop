@@ -68,6 +68,9 @@ CMakeLists.txt.user*
 # Python byte code
 *.pyc
 
+# Python virtualenv (local dev)
+.venv/
+
 # Binaries
 # --------
 *.dll
