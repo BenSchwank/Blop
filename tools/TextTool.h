@@ -45,9 +45,11 @@ public:
         newText->setPos(event->scenePos());
         
         QFont font = newText->font();
-        font.setPointSize(m_config.penWidth > 0 ? qMax(12, static_cast<int>(m_config.penWidth)) : 16);
+        font.setPointSize(m_config.penWidth > 0 ? qBound(8, static_cast<int>(m_config.penWidth), 72) : 16);
         newText->setFont(font);
-        newText->setDefaultTextColor(m_config.penColor);
+        QColor tc = m_config.penColor;
+        tc.setAlphaF(qBound(0.15, m_config.opacity, 1.0));
+        newText->setDefaultTextColor(tc);
         
         newText->setTextInteractionFlags(Qt::TextEditorInteraction);
         newText->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsFocusable | QGraphicsItem::ItemIsMovable);

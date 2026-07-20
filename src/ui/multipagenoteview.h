@@ -86,6 +86,12 @@ public:
     /// Fit current page width / whole page into the viewport (Drawboard utilities).
     void fitToWidth();
     void fitPage();
+    /// Refresh selection HUD colors/icons for NoteChrome theme toggles.
+    void applyNoteChrome();
+    /// Persist / restore zoom + page index via QSettings.
+    /// Prefer a stable key (file path); falls back to note id/title.
+    void persistViewState(const QString &keyOverride = QString()) const;
+    void restoreViewState(const QString &keyOverride = QString());
     QString pageTitle(int pageIndex) const;
     void renamePage(int pageIndex, const QString &title);
     void duplicatePages(const QList<int> &pageIndices);

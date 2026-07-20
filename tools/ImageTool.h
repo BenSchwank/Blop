@@ -45,6 +45,12 @@ public:
                 item->setFlags(QGraphicsItem::ItemIsSelectable |
                                QGraphicsItem::ItemIsMovable);
                 item->setZValue(5);
+                if (self) {
+                  const qreal op = self->config().imageOpacity > 0.01
+                                       ? self->config().imageOpacity
+                                       : self->config().opacity;
+                  item->setOpacity(qBound(0.1, op, 1.0));
+                }
                 safeScene->addItem(item);
                 if (self)
                     emit self->contentModified();
@@ -62,6 +68,10 @@ public:
                 item->setPos(event->scenePos());
                 item->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
                 item->setZValue(5);
+                const qreal op = m_config.imageOpacity > 0.01
+                                     ? m_config.imageOpacity
+                                     : m_config.opacity;
+                item->setOpacity(qBound(0.1, op, 1.0));
                 scene->addItem(item);
 
                 emit contentModified();

@@ -49,6 +49,7 @@
 #include "tools/RulerTool.h"
 #include "tools/ShapeTool.h"
 #include "tools/TextTool.h" // Neu: TextTool
+#include "tools/StickyNoteTool.h"
 #include "tools/WritingTools.h" // Enthält PenTool, PencilTool, HighlighterTool
 // -------------------------------------
 
@@ -1867,6 +1868,7 @@ void MainWindow::setupTools() {
     m_toolManager->registerTool(new ImageTool());
     m_toolManager->registerTool(new ShapeTool());
     m_toolManager->registerTool(new TextTool()); // <--- TextTool Registrierung
+    m_toolManager->registerTool(new StickyNoteTool());
 
     m_toolManager->selectTool(ToolMode::Pen);
   }
@@ -2706,6 +2708,12 @@ void MainWindow::setupTitleBar() {
   connect(m_documentTabBar, &DocumentTabBar::tabCloseRequested, this,
           [this](int index) {
             if (m_editorTabs) {
+              if (auto *ed = qobject_cast<NoteEditor *>(
+                      m_editorTabs->widget(index))) {
+                if (ed->view())
+                  ed->view()->persistViewState(
+                      ed->view()->property("viewStateKey").toString());
+              }
               m_editorTabs->removeTab(index);
               if (m_editorTabs->count() == 0)
                 onBackToOverview();
@@ -4885,6 +4893,12 @@ void MainWindow::setupUi() {
       "QTabBar::tab:hover { color: #ccc; }"
       "QTabWidget::pane { border: none; }"));
   connect(m_editorTabs, &QTabWidget::tabCloseRequested, [this](int index) {
+    if (auto *ed =
+            qobject_cast<NoteEditor *>(m_editorTabs->widget(index))) {
+      if (ed->view())
+        ed->view()->persistViewState(
+            ed->view()->property("viewStateKey").toString());
+    }
     m_editorTabs->removeTab(index);
     if (m_documentTabBar)
       m_documentTabBar->removeTab(index);
@@ -9245,8 +9259,15 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
           editor->setProperty("filePath", path);
           Note *heapNote = new Note(note);
           editor->setNote(heapNote);
-          if (editor->view())
+          if (editor->view()) {
             editor->view()->setPenOnlyMode(m_penOnlyMode);
+            editor->view()->setProperty("viewStateKey", path);
+            // Restore after layout settles so page scroll targets are valid.
+            QTimer::singleShot(0, editor->view(), [v = editor->view(), path]() {
+              if (v)
+                v->restoreViewState(path);
+            });
+          }
           editor->onSaveRequested = [this, path, editor](Note *n) {
             if (!n) return;
             LibraryTagStore::setTagsForPath(path, n->tags);
@@ -9315,6 +9336,8 @@ void MainWindow::flushPendingA4Save() {
 }
 
 void MainWindow::onBackToOverview() {
+  if (auto *view = currentNoteView())
+    view->persistViewState(view->property("viewStateKey").toString());
   flushPendingA4Save();
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(false);
@@ -10326,6 +10349,8 @@ void MainWindow::applyNoteChromeTheme() {
     m_toolPropertiesPanel->setAccentColor(NoteChrome::accent());
     m_toolPropertiesPanel->syncFromToolManager();
   }
+  if (auto *view = currentNoteView())
+    view->applyNoteChrome();
   if (m_allPagesOverlay)
     m_allPagesOverlay->setAccentColor(NoteChrome::accent());
   if (m_penPresetBar)
@@ -10847,6 +10872,10 @@ void MainWindow::onItemDropped(const QModelIndex &sourceIndex,
 }
 
 void MainWindow::onTabChanged(int index) {
+  // Persist view state of the note we're leaving.
+  if (auto *prev = currentNoteView())
+    prev->persistViewState(prev->property("viewStateKey").toString());
+
   if (m_documentTabBar) {
     if (index < 0)
       m_documentTabBar->setHomeActive(true);

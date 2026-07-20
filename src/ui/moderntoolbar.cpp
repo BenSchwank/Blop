@@ -2420,20 +2420,14 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   auto handleToolClick = [this](ToolMode m) {
     if (mode_ == m) {
 #ifndef Q_OS_ANDROID
-      if (isDrawboardVerticalRail()) {
-        // Drawboard: family tools open a flyout; ink tools open properties.
-        if (toolHasFlyout(m)) {
-          showToolFlyout(m);
-          return;
-        }
-        emit toolOptionsRequested();
+      // Desktop: flyout for family tools, otherwise properties panel — never MorphTray.
+      if (toolHasFlyout(m)) {
+        showToolFlyout(m);
         return;
       }
-      if (m_markupBarMode != MarkupOff) {
-        emit toolOptionsRequested();
-        return;
-      }
-#endif
+      emit toolOptionsRequested();
+      return;
+#else
       if (m_style == Radial) {
           if (!m_showRadialSettings)
               toggleRadialSettings();
@@ -2441,6 +2435,7 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
           showSettingsPopup();
       }
       return;
+#endif
     }
     if (m_showRadialSettings) {
         toggleRadialSettings(); // Hide settings when switching tools
@@ -3163,11 +3158,11 @@ void ModernToolbar::leaveEvent(QEvent *) { setCursor(Qt::ArrowCursor); }
 void ModernToolbar::openToolOptions() {
   emit toolOptionsRequested();
 #ifndef Q_OS_ANDROID
-  // Desktop Drawboard: prefer the persistent right properties panel.
-  if (m_markupBarMode != MarkupOff || isDrawboardVerticalRail())
-    return;
-#endif
+  // Desktop Drawboard: always use the persistent right properties panel.
+  return;
+#else
   showSettingsPopup();
+#endif
 }
 
 void ModernToolbar::showToolPicker() {
@@ -3204,15 +3199,17 @@ void ModernToolbar::showToolPicker() {
           }
         }
 #ifndef Q_OS_ANDROID
-        if (isDrawboardVerticalRail())
-          return;
-#endif
+        // Desktop: properties panel is the options surface.
+        emit toolOptionsRequested();
+        return;
+#else
         if (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
             mode == ToolMode::Highlighter || mode == ToolMode::Eraser ||
             mode == ToolMode::Lasso || mode == ToolMode::Ruler ||
             mode == ToolMode::Shape) {
           QTimer::singleShot(120, this, [this]() { showSettingsPopup(); });
         }
+#endif
       });
 }
 
@@ -3640,6 +3637,11 @@ void ModernToolbar::showMarkupLibrary() {
 }
 
 void ModernToolbar::showSettingsPopup() {
+#ifndef Q_OS_ANDROID
+  // Desktop never opens MorphTray — right properties panel owns tool options.
+  emit toolOptionsRequested();
+  return;
+#endif
   if (mode_ != ToolMode::Pen && mode_ != ToolMode::Pencil &&
       mode_ != ToolMode::Highlighter && mode_ != ToolMode::Eraser &&
       mode_ != ToolMode::Lasso && mode_ != ToolMode::Ruler &&

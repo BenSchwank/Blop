@@ -7,6 +7,7 @@
 #include "ImageTool.h"
 #include "RulerTool.h"
 #include "TextTool.h"
+#include "StickyNoteTool.h"
 
 class ToolFactory {
 public:
@@ -21,5 +22,6 @@ public:
         mgr.registerTool(new ImageTool(&mgr));
         mgr.registerTool(new RulerTool(&mgr));
         mgr.registerTool(new TextTool(&mgr));
+        mgr.registerTool(new StickyNoteTool(&mgr));
     }
 };

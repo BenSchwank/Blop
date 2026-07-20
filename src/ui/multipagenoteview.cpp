@@ -57,12 +57,14 @@
 #include <cmath>
 #include <QtGlobal>
 #include <QPushButton>
+#include <QSettings>
 #include <QSizePolicy>
 #include <QToolButton>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QLabel>
+#include <QList>
 #include <QFrame>
 #include <QStackedWidget>
 #include <QButtonGroup>
@@ -311,6 +313,50 @@ class NoteSelectionMenu : public QWidget {
   Q_OBJECT
 public:
   explicit NoteSelectionMenu(QWidget *parent = nullptr) : QWidget(parent) {
+    setAttribute(Qt::WA_StyledBackground);
+    m_layout = new QHBoxLayout(this);
+    m_layout->setContentsMargins(5, 5, 5, 5);
+    m_layout->setSpacing(2);
+    auto addIconBtn = [&](const QString &obj, const QString &tip, auto signal) {
+      auto *btn = new QPushButton(this);
+      btn->setObjectName(obj);
+      btn->setIconSize(QSize(22, 22));
+      btn->setToolTip(tip);
+      btn->setFlat(true);
+      connect(btn, &QPushButton::clicked, this, signal);
+      m_layout->addWidget(btn);
+      m_iconBtns.append(btn);
+    };
+    addIconBtn(QStringLiteral("selCut"), QStringLiteral("Ausschneiden"),
+               &NoteSelectionMenu::cutRequested);
+    addIconBtn(QStringLiteral("selCopy"), QStringLiteral("Kopieren"),
+               &NoteSelectionMenu::copyRequested);
+    addIconBtn(QStringLiteral("selDup"), QStringLiteral("Duplizieren"),
+               &NoteSelectionMenu::duplicateRequested);
+    addIconBtn(QStringLiteral("selColor"), QStringLiteral("Farbe"),
+               &NoteSelectionMenu::colorRequested);
+    addIconBtn(QStringLiteral("selCrop"), QStringLiteral("Zuschneiden"),
+               &NoteSelectionMenu::cropRequested);
+    addIconBtn(QStringLiteral("selShot"), QStringLiteral("Screenshot"),
+               &NoteSelectionMenu::screenshotRequested);
+    addIconBtn(QStringLiteral("selLib"), QStringLiteral("Zur Bibliothek"),
+               &NoteSelectionMenu::libraryRequested);
+    m_sep = new QFrame(this);
+    m_sep->setFrameShape(QFrame::VLine);
+    m_layout->addWidget(m_sep);
+    m_btnDel = new QPushButton(this);
+    m_btnDel->setObjectName(QStringLiteral("selDel"));
+    m_btnDel->setIconSize(QSize(22, 22));
+    m_btnDel->setToolTip(QStringLiteral("Löschen"));
+    m_btnDel->setFlat(true);
+    connect(m_btnDel, &QPushButton::clicked, this,
+            &NoteSelectionMenu::deleteRequested);
+    m_layout->addWidget(m_btnDel);
+    refreshChrome();
+    hide();
+  }
+
+  void refreshChrome() {
     setStyleSheet(
         QStringLiteral(
             "QWidget { background-color: %1; border-radius: 8px; border: 1px "
@@ -322,52 +368,26 @@ public:
                  NoteChrome::border().name(QColor::HexRgb),
                  NoteChrome::textPrimary().name(QColor::HexRgb),
                  NoteChrome::accentSoft().name(QColor::HexArgb)));
-    setAttribute(Qt::WA_StyledBackground);
-    QHBoxLayout *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(5, 5, 5, 5);
-    layout->setSpacing(2);
-    auto addIconBtn = [&](const QIcon &ico, const QString &tip, auto signal) {
-      auto *btn = new QPushButton(this);
-      btn->setIcon(ico);
-      btn->setIconSize(QSize(22, 22));
-      btn->setToolTip(tip);
-      btn->setFlat(true);
-      connect(btn, &QPushButton::clicked, this, signal);
-      layout->addWidget(btn);
+    const QColor fg = NoteChrome::textPrimary();
+    auto setIco = [&](const QString &obj, const QIcon &ico) {
+      if (auto *b = findChild<QPushButton *>(obj))
+        b->setIcon(ico);
     };
-    addIconBtn(SelectionMenuIcons::cutIcon(), QStringLiteral("Ausschneiden"),
-               &NoteSelectionMenu::cutRequested);
-    addIconBtn(SelectionMenuIcons::copyIcon(), QStringLiteral("Kopieren"),
-               &NoteSelectionMenu::copyRequested);
-    addIconBtn(SelectionMenuIcons::duplicateIcon(),
-               QStringLiteral("Duplizieren"),
-               &NoteSelectionMenu::duplicateRequested);
-    addIconBtn(SelectionMenuIcons::colorIcon(), QStringLiteral("Farbe"),
-               &NoteSelectionMenu::colorRequested);
-    addIconBtn(SelectionMenuIcons::cropIcon(), QStringLiteral("Zuschneiden"),
-               &NoteSelectionMenu::cropRequested);
-    addIconBtn(SelectionMenuIcons::screenshotIcon(), QStringLiteral("Screenshot"),
-               &NoteSelectionMenu::screenshotRequested);
-    addIconBtn(SelectionMenuIcons::libraryIcon(),
-               QStringLiteral("Zur Bibliothek"),
-               &NoteSelectionMenu::libraryRequested);
-    QFrame *line = new QFrame;
-    line->setFrameShape(QFrame::VLine);
-    line->setStyleSheet(
-        QStringLiteral("color: %1;").arg(NoteChrome::border().name()));
-    layout->addWidget(line);
-    QPushButton *btnDel = new QPushButton(this);
-    btnDel->setIcon(SelectionMenuIcons::trashIcon());
-    btnDel->setIconSize(QSize(22, 22));
-    btnDel->setToolTip(QStringLiteral("Löschen"));
-    btnDel->setFlat(true);
-    btnDel->setStyleSheet(QStringLiteral("color: #FF5555;"));
-    connect(btnDel, &QPushButton::clicked, this,
-            &NoteSelectionMenu::deleteRequested);
-    layout->addWidget(btnDel);
+    setIco(QStringLiteral("selCut"), SelectionMenuIcons::cutIcon(fg));
+    setIco(QStringLiteral("selCopy"), SelectionMenuIcons::copyIcon(fg));
+    setIco(QStringLiteral("selDup"), SelectionMenuIcons::duplicateIcon(fg));
+    setIco(QStringLiteral("selColor"), SelectionMenuIcons::colorIcon(fg));
+    setIco(QStringLiteral("selCrop"), SelectionMenuIcons::cropIcon(fg));
+    setIco(QStringLiteral("selShot"), SelectionMenuIcons::screenshotIcon(fg));
+    setIco(QStringLiteral("selLib"), SelectionMenuIcons::libraryIcon(fg));
+    if (m_btnDel)
+      m_btnDel->setIcon(SelectionMenuIcons::trashIcon(fg));
+    if (m_sep)
+      m_sep->setStyleSheet(
+          QStringLiteral("color: %1;").arg(NoteChrome::border().name()));
     adjustSize();
-    hide();
   }
+
 signals:
   void deleteRequested();
   void duplicateRequested();
@@ -377,6 +397,12 @@ signals:
   void screenshotRequested();
   void cropRequested();
   void libraryRequested();
+
+private:
+  QHBoxLayout *m_layout{nullptr};
+  QList<QPushButton *> m_iconBtns;
+  QFrame *m_sep{nullptr};
+  QPushButton *m_btnDel{nullptr};
 };
 
 class GraphInkInputWidget : public QWidget {
@@ -2480,6 +2506,63 @@ void MultiPageNoteView::setZoomFactor(qreal factor) {
   syncPagesBarVisibility();
   syncGraphLegendLayout();
   repositionGraphEntryBar();
+  const QString key = property("viewStateKey").toString();
+  persistViewState(key);
+}
+
+void MultiPageNoteView::applyNoteChrome() {
+  if (m_selectionMenu)
+    m_selectionMenu->refreshChrome();
+}
+
+void MultiPageNoteView::persistViewState(const QString &keyOverride) const {
+  if (!note_)
+    return;
+  QString key = keyOverride;
+  if (key.isEmpty())
+    key = note_->id;
+  if (key.isEmpty())
+    key = note_->title;
+  if (key.isEmpty())
+    return;
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString base = QStringLiteral("ui/note_view/%1/").arg(key);
+  s.setValue(base + QStringLiteral("zoom"), zoom_);
+  s.setValue(base + QStringLiteral("page"), currentPageIndex());
+}
+
+void MultiPageNoteView::restoreViewState(const QString &keyOverride) {
+  if (!note_)
+    return;
+  QString key = keyOverride;
+  if (key.isEmpty())
+    key = note_->id;
+  if (key.isEmpty())
+    key = note_->title;
+  if (key.isEmpty())
+    return;
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString base = QStringLiteral("ui/note_view/%1/").arg(key);
+  if (!s.contains(base + QStringLiteral("zoom")) &&
+      !s.contains(base + QStringLiteral("page")))
+    return;
+  const qreal z =
+      s.value(base + QStringLiteral("zoom"), zoom_).toDouble();
+  const int page =
+      s.value(base + QStringLiteral("page"), 0).toInt();
+  m_pendingInitialFit = false;
+  m_userTouchedZoom = true;
+  {
+    const qreal factor = qBound<qreal>(0.25, z, 4.0);
+    QTransform t;
+    t.scale(factor, factor);
+    setTransform(t);
+    zoom_ = factor;
+  }
+  if (page >= 0 && note_ && page < note_->pages.size())
+    scrollToPage(page, false);
+  ensureSceneRectCoversViewport();
+  syncPagesBarVisibility();
 }
 
 void MultiPageNoteView::zoomBy(qreal factor) {
@@ -3578,17 +3661,17 @@ void MultiPageNoteView::scrollToPage(int pageIndex, bool animate) {
   if (!animate || !vb) {
     if (vb)
       vb->setValue(target);
+    persistViewState(property("viewStateKey").toString());
     return;
   }
-  // v3.16.1: animated jump between pages. 280ms OutCubic matches the rest
-  // of the v3.16.1 unified animation language (BlopStyle slide-in, MorphTray
-  // geometry anim, etc.). The animation is parented to vb so it's cleaned
-  // up automatically if the view goes away mid-anim.
   auto *anim = new QPropertyAnimation(vb, "value", vb);
   anim->setDuration(280);
   anim->setEasingCurve(QEasingCurve::OutCubic);
   anim->setStartValue(vb->value());
   anim->setEndValue(target);
+  connect(anim, &QPropertyAnimation::finished, this, [this]() {
+    persistViewState(property("viewStateKey").toString());
+  });
   anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 

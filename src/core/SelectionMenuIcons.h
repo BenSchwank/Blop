@@ -11,16 +11,16 @@ namespace SelectionMenuIcons {
 
 namespace {
 constexpr int kPx = 26;
-inline QColor fgPrimary() { return QColor(210, 214, 232); }
 inline QColor danger() { return QColor(248, 113, 113); }
 
-inline QIcon makeIcon(void (*draw)(QPainter &, const QColor &)) {
+inline QIcon makeIcon(void (*draw)(QPainter &, const QColor &),
+                      const QColor &fg) {
   QPixmap pm(kPx, kPx);
   pm.fill(Qt::transparent);
   QPainter p(&pm);
   p.setRenderHint(QPainter::Antialiasing);
   p.translate(kPx / 2.0, kPx / 2.0);
-  draw(p, fgPrimary());
+  draw(p, fg);
   return QIcon(pm);
 }
 } // namespace
@@ -55,8 +55,8 @@ inline void drawCopy(QPainter &p, const QColor &c) {
   p.drawRoundedRect(-5, -11, 11, 14, 2.2, 2.2);
 }
 
-inline void drawColor(QPainter &p, const QColor &) {
-  const QColor a(142, 132, 255);
+inline void drawColor(QPainter &p, const QColor &c) {
+  const QColor a(91, 157, 255);
   const QColor b(96, 210, 255);
   const QColor y(255, 214, 120);
   p.setPen(Qt::NoPen);
@@ -66,7 +66,7 @@ inline void drawColor(QPainter &p, const QColor &) {
   p.drawEllipse(QPointF(4, 2), 5.5, 5.5);
   p.setBrush(y);
   p.drawEllipse(QPointF(-0.5, -4), 5.5, 5.5);
-  p.setPen(QPen(fgPrimary(), 1.4));
+  p.setPen(QPen(c, 1.4));
   p.setBrush(Qt::NoBrush);
   p.drawEllipse(QPointF(-5, 2), 5.5, 5.5);
   p.drawEllipse(QPointF(4, 2), 5.5, 5.5);
@@ -100,7 +100,7 @@ inline void drawScreenshot(QPainter &p, const QColor &c) {
   p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   p.setBrush(Qt::NoBrush);
   p.drawRoundedRect(-9, -7, 18, 14, 2.5, 2.5);
-  p.setBrush(QColor(142, 132, 255, 180));
+  p.setBrush(QColor(91, 157, 255, 180));
   p.setPen(Qt::NoPen);
   p.drawEllipse(QPointF(2, -1), 4.5, 4.5);
 }
@@ -134,33 +134,31 @@ inline void drawLibrary(QPainter &p, const QColor &c) {
   p.drawRoundedRect(4, -8, 6, 16, 1.5, 1.5);
 }
 
-inline QIcon fallbackCutIcon() { return makeIcon(drawCut); }
-inline QIcon fallbackCopyIcon() { return makeIcon(drawCopy); }
-
-inline QIcon cutIcon() {
-  QIcon themed =
-      QIcon::fromTheme(QStringLiteral("edit-cut"),
-                       QIcon::fromTheme(QStringLiteral("gtk-cut")));
-  if (!themed.isNull())
-    return themed;
-  return fallbackCutIcon();
+inline QIcon cutIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawCut, fg);
 }
-
-inline QIcon copyIcon() {
-  QIcon themed =
-      QIcon::fromTheme(QStringLiteral("edit-copy"),
-                       QIcon::fromTheme(QStringLiteral("gtk-copy")));
-  if (!themed.isNull())
-    return themed;
-  return fallbackCopyIcon();
+inline QIcon copyIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawCopy, fg);
 }
-
-inline QIcon colorIcon() { return makeIcon(drawColor); }
-inline QIcon duplicateIcon() { return makeIcon(drawDuplicate); }
-inline QIcon cropIcon() { return makeIcon(drawCrop); }
-inline QIcon screenshotIcon() { return makeIcon(drawScreenshot); }
-inline QIcon trashIcon() { return makeIcon(drawTrash); }
-inline QIcon libraryIcon() { return makeIcon(drawLibrary); }
+inline QIcon colorIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawColor, fg);
+}
+inline QIcon duplicateIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawDuplicate, fg);
+}
+inline QIcon cropIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawCrop, fg);
+}
+inline QIcon screenshotIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawScreenshot, fg);
+}
+inline QIcon trashIcon(const QColor &fg = QColor(210, 214, 232)) {
+  Q_UNUSED(fg);
+  return makeIcon(drawTrash, fg);
+}
+inline QIcon libraryIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawLibrary, fg);
+}
 
 inline void drawPageLayout(QPainter &p, const QColor &c) {
   p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -203,9 +201,17 @@ inline void drawImport(QPainter &p, const QColor &c) {
   p.drawLine(3, -9, 0, -6);
 }
 
-inline QIcon pageLayoutIcon() { return makeIcon(drawPageLayout); }
-inline QIcon gearIcon() { return makeIcon(drawGear); }
-inline QIcon pdfDocIcon() { return makeIcon(drawPdfDoc); }
-inline QIcon importIcon() { return makeIcon(drawImport); }
+inline QIcon pageLayoutIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawPageLayout, fg);
+}
+inline QIcon gearIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawGear, fg);
+}
+inline QIcon pdfDocIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawPdfDoc, fg);
+}
+inline QIcon importIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawImport, fg);
+}
 
 } // namespace SelectionMenuIcons

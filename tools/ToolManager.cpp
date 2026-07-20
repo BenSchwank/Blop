@@ -26,6 +26,23 @@ ToolManager::ToolManager(QObject* parent) : QObject(parent) {
     pencilCfg.penColor = QColor(40, 40, 40);
     pencilCfg.penWidth = 2;
     m_configs[ToolMode::Pencil] = pencilCfg;
+
+    ToolConfig textCfg;
+    textCfg.penColor = Qt::black;
+    textCfg.penWidth = 16;
+    textCfg.opacity = 1.0;
+    m_configs[ToolMode::Text] = textCfg;
+
+    ToolConfig stickyCfg;
+    stickyCfg.penColor = QColor(255, 236, 120);
+    stickyCfg.penWidth = 14;
+    stickyCfg.opacity = 0.95;
+    m_configs[ToolMode::StickyNote] = stickyCfg;
+
+    ToolConfig imageCfg;
+    imageCfg.imageOpacity = 1.0;
+    imageCfg.opacity = 1.0;
+    m_configs[ToolMode::Image] = imageCfg;
 }
 
 ToolManager::~ToolManager() {

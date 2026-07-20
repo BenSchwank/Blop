@@ -45,7 +45,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_widthSlider->setRange(1, 50);
   connect(m_widthSlider, &QSlider::valueChanged, this, [this](int v) {
     m_config.penWidth = v;
-    m_widthLbl->setText(QStringLiteral("Dicke  %1").arg(v));
+    if (m_mode == ToolMode::Text || m_mode == ToolMode::StickyNote)
+      m_widthLbl->setText(QStringLiteral("Schriftgröße  %1").arg(v));
+    else
+      m_widthLbl->setText(QStringLiteral("Dicke  %1").arg(v));
     applyConfig();
   });
   m_root->addWidget(m_widthSlider);
@@ -56,6 +59,8 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_opacitySlider->setRange(10, 100);
   connect(m_opacitySlider, &QSlider::valueChanged, this, [this](int v) {
     m_config.opacity = v / 100.0;
+    if (m_mode == ToolMode::Image)
+      m_config.imageOpacity = m_config.opacity;
     m_opacityLbl->setText(QStringLiteral("Deckkraft  %1%").arg(v));
     applyConfig();
   });
@@ -177,14 +182,25 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   const bool writing = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
                         mode == ToolMode::Highlighter ||
                         mode == ToolMode::Eraser || mode == ToolMode::Shape ||
-                        mode == ToolMode::Text || mode == ToolMode::Ruler);
+                        mode == ToolMode::Text || mode == ToolMode::Ruler ||
+                        mode == ToolMode::StickyNote);
   m_widthSlider->setVisible(writing);
   m_widthLbl->setVisible(writing);
+  if (mode == ToolMode::Text || mode == ToolMode::StickyNote) {
+    m_widthLbl->setText(
+        QStringLiteral("Schriftgröße  %1").arg(m_config.penWidth));
+    m_widthSlider->setRange(8, 72);
+  } else {
+    m_widthSlider->setRange(1, 50);
+    m_widthLbl->setText(QStringLiteral("Dicke  %1").arg(m_config.penWidth));
+  }
   const bool colorful = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
                          mode == ToolMode::Highlighter ||
-                         mode == ToolMode::Shape || mode == ToolMode::Text);
-  m_opacitySlider->setVisible(colorful);
-  m_opacityLbl->setVisible(colorful);
+                         mode == ToolMode::Shape || mode == ToolMode::Text ||
+                         mode == ToolMode::StickyNote);
+  const bool opacityful = colorful || mode == ToolMode::Image;
+  m_opacitySlider->setVisible(opacityful);
+  m_opacityLbl->setVisible(opacityful);
   if (m_colorRow)
     m_colorRow->setVisible(colorful);
 
@@ -253,10 +269,19 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
           "vorübergehenden Schwenken.");
       break;
     case ToolMode::Image:
-      hint = QStringLiteral("Tippe auf die Seite, um ein Bild einzufügen.");
+      hint = QStringLiteral(
+          "Tippe auf die Seite, um ein Bild einzufügen. Deckkraft gilt für "
+          "neue Einfügungen.");
       break;
     case ToolMode::StickyNote:
-      hint = QStringLiteral("Tippe auf die Seite, um eine Notiz zu setzen.");
+      hint = QStringLiteral(
+          "Tippe auf die Seite für eine Haftnotiz. Farbe und Schriftgröße "
+          "steuern das Aussehen.");
+      break;
+    case ToolMode::Text:
+      hint = QStringLiteral(
+          "Tippe auf die Seite, um Text zu setzen. Schriftgröße und Farbe "
+          "gelten für neue Textfelder.");
       break;
     case ToolMode::Ruler:
       hint = QStringLiteral("Lineal auf der Seite positionieren und zeichnen.");
@@ -294,10 +319,17 @@ void ToolPropertiesPanel::syncForMode(ToolMode mode) {
   m_widthSlider->blockSignals(true);
   m_opacitySlider->blockSignals(true);
   m_widthSlider->setValue(m_config.penWidth);
-  m_opacitySlider->setValue(qRound(m_config.opacity * 100.0));
-  m_widthLbl->setText(QStringLiteral("Dicke  %1").arg(m_config.penWidth));
+  const qreal op = (mode == ToolMode::Image && m_config.imageOpacity > 0.01)
+                       ? m_config.imageOpacity
+                       : m_config.opacity;
+  m_opacitySlider->setValue(qRound(op * 100.0));
+  if (mode == ToolMode::Text || mode == ToolMode::StickyNote)
+    m_widthLbl->setText(
+        QStringLiteral("Schriftgröße  %1").arg(m_config.penWidth));
+  else
+    m_widthLbl->setText(QStringLiteral("Dicke  %1").arg(m_config.penWidth));
   m_opacityLbl->setText(
-      QStringLiteral("Deckkraft  %1%").arg(qRound(m_config.opacity * 100.0)));
+      QStringLiteral("Deckkraft  %1%").arg(qRound(op * 100.0)));
   m_widthSlider->blockSignals(false);
   m_opacitySlider->blockSignals(false);
 
