@@ -2673,15 +2673,48 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
                      m_markupRowDividerY);
         }
       } else if (isDrawboardVerticalRail()) {
-        // Edge-flush Favorites rail: square charcoal plate, no float shadow.
+        // Edge-flush Favorites rail: soft inner corners, flush outer edge.
         QLinearGradient grad(0, 0, 0, h);
         grad.setColorAt(0, NoteChrome::toolbarFill());
         grad.setColorAt(1, NoteChrome::toolbarFillEnd());
         p.setPen(Qt::NoPen);
         p.setBrush(grad);
-        p.drawRect(rect());
+        const qreal rad = UiScale::dp(14);
+        QPainterPath plate;
+        const QRectF rf(0.5, 0.5, w - 1.0, h - 1.0);
+        const bool leftDock = (m_railDockEdge == RailDockEdge::Left);
+        // Round the canvas-facing corners; keep the screen edge square.
+        if (leftDock) {
+          plate.moveTo(rf.left(), rf.top());
+          plate.lineTo(rf.right() - rad, rf.top());
+          plate.quadTo(rf.right(), rf.top(), rf.right(), rf.top() + rad);
+          plate.lineTo(rf.right(), rf.bottom() - rad);
+          plate.quadTo(rf.right(), rf.bottom(), rf.right() - rad, rf.bottom());
+          plate.lineTo(rf.left(), rf.bottom());
+          plate.closeSubpath();
+        } else {
+          plate.moveTo(rf.left() + rad, rf.top());
+          plate.lineTo(rf.right(), rf.top());
+          plate.lineTo(rf.right(), rf.bottom());
+          plate.lineTo(rf.left() + rad, rf.bottom());
+          plate.quadTo(rf.left(), rf.bottom(), rf.left(), rf.bottom() - rad);
+          plate.lineTo(rf.left(), rf.top() + rad);
+          plate.quadTo(rf.left(), rf.top(), rf.left() + rad, rf.top());
+          plate.closeSubpath();
+        }
+        p.drawPath(plate);
+        p.setBrush(Qt::NoBrush);
         p.setPen(QPen(NoteChrome::borderSoft(), 1));
-        p.drawLine(0, 0, 0, h);
+        p.drawPath(plate);
+        // Drag handle (grip) at the top — invites moving / snapping the rail.
+        if (m_draggable) {
+          p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 55 : 90));
+          p.setPen(Qt::NoPen);
+          const int gy = UiScale::dp(8);
+          const int cx = w / 2;
+          for (int i = -1; i <= 1; ++i)
+            p.drawEllipse(cx + i * 6 - 2, gy, 4, 4);
+        }
         p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sy : m_separatorYPositions)
           p.drawLine(UiScale::dp(8), sy, w - UiScale::dp(8), sy);
@@ -2845,10 +2878,10 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     }
     if (!m_isPreview && !m_pressedButton) {
       bool canDrag = false;
-      if (m_style != Radial) {
-        if (m_orientation == Vertical && e->pos().y() < 50)
+      if (m_draggable && m_style != Radial) {
+        if (m_orientation == Vertical && e->pos().y() < UiScale::dp(36))
           canDrag = true;
-        if (m_orientation == Horizontal && e->pos().x() < 50)
+        if (m_orientation == Horizontal && e->pos().x() < UiScale::dp(36))
           canDrag = true;
       }
       if (canDrag) {
@@ -3029,8 +3062,28 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
       const int sidePad = UiScale::safeHorizontalPaddingPx(parentWidget());
       const int previewTop = safeTop + UiScale::dp(8);
       const int previewHeight = UiScale::dp(52);
+      const int railW = preferredRailWidth();
+      const int railTop = y(); // preserve header clearance while dragging
+      const int railH = qMax(idealL, parentH - railTop);
 
-      if (newY <= 50) {
+      if (isDrawboardVerticalRail()) {
+        // Favorites rail: only left/right full-height edge snap.
+        if (newX <= UiScale::dp(56)) {
+          m_snapPreview->setGeometry(0, railTop, railW, railH);
+          if (!m_snapPreview->isVisible()) {
+            m_snapPreview->show();
+            m_snapPreview->raise();
+          }
+        } else if (newX >= parentW - railW - UiScale::dp(56)) {
+          m_snapPreview->setGeometry(parentW - railW, railTop, railW, railH);
+          if (!m_snapPreview->isVisible()) {
+            m_snapPreview->show();
+            m_snapPreview->raise();
+          }
+        } else if (m_snapPreview->isVisible()) {
+          m_snapPreview->hide();
+        }
+      } else if (newY <= 50) {
         // Top Snap: Centered width
         m_snapPreview->setGeometry((parentW - idealL) / 2, previewTop, idealL, previewHeight);
         if (!m_snapPreview->isVisible()) {
@@ -3131,20 +3184,28 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         const bool isTopSnap = snapGeom.width() >= snapGeom.height();
 
         // Desktop Drawboard: always prefer the vertical Favorites rail.
-        // Top-edge snaps still resolve to a right-side vertical rail.
+        // Top-edge snaps still resolve to a vertical rail (nearest side).
         applyDrawboardVerticalRail();
         {
           const int w = preferredRailWidth();
-          const int h = qMax(calculateMinLength(), snapGeom.height());
+          const int parentH = parentWidget() ? parentWidget()->height() : height();
+          const int topY = y(); // keep under header; MainWindow repositions
+          const int h = qMax(calculateMinLength(), parentH - topY);
+          const bool dockLeft =
+              !isTopSnap &&
+              (snapGeom.center().x() <= parentWidget()->width() / 2);
+          setRailDockEdge(dockLeft ? RailDockEdge::Left : RailDockEdge::Right,
+                          true, false);
           snapGeom.setWidth(w);
           snapGeom.setHeight(h);
-          if (isTopSnap || snapGeom.x() > parentWidget()->width() / 2)
-            snapGeom.moveLeft(parentWidget()->width() - w -
-                              UiScale::safeHorizontalPaddingPx(parentWidget()));
+          snapGeom.moveTop(topY);
+          if (dockLeft)
+            snapGeom.moveLeft(0);
           else
-            snapGeom.moveLeft(
-                UiScale::safeHorizontalPaddingPx(parentWidget()));
-          setFixedSize(w, h);
+            snapGeom.moveLeft(parentWidget()->width() - w);
+          setFixedWidth(w);
+          setMinimumHeight(0);
+          setMaximumHeight(QWIDGETSIZE_MAX);
         }
 
         // Smooth snap animation
@@ -3153,10 +3214,23 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
         snapAnim->setStartValue(geometry());
         snapAnim->setEndValue(snapGeom);
         snapAnim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(snapAnim, &QPropertyAnimation::finished, this, [this]() {
+          emit railDockEdgeChanged(m_railDockEdge);
+        });
         snapAnim->start(QAbstractAnimation::DeleteWhenStopped);
     } else {
         if (m_snapPreview) m_snapPreview->hide();
-        if (m_style == Normal) checkOrientation(e->globalPosition().toPoint());
+        if (m_style == Normal) {
+          if (isDrawboardVerticalRail() && parentWidget()) {
+            // Snap to nearest left/right edge when released without preview.
+            const bool dockLeft =
+                geometry().center().x() <= parentWidget()->width() / 2;
+            setRailDockEdge(dockLeft ? RailDockEdge::Left : RailDockEdge::Right,
+                            true);
+          } else {
+            checkOrientation(e->globalPosition().toPoint());
+          }
+        }
     }
 #endif
   }
@@ -4625,7 +4699,9 @@ void ModernToolbar::applyDrawboardVerticalRail() {
   if (btnLayoutToggle)
     btnLayoutToggle->hide();
   m_isDockedMode = false;
-  m_draggable = false; // Drawboard Favorites rail is edge-anchored, not free-drag.
+  // Grip at top: drag the Favorites rail and snap to left/right edges.
+  m_draggable = true;
+  loadRailDockEdge();
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_float"));
     btnDockToggle->hide();
@@ -4648,8 +4724,63 @@ void ModernToolbar::applyDrawboardVerticalRail() {
     resize(w, h);
     updateLayout(false);
   }
+  setToolTip(QStringLiteral("Favorites — Griff oben zum Verschieben · Rechtsklick: Rand"));
   update();
 #endif
+}
+
+void ModernToolbar::loadRailDockEdge() {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const int v = s.value(QStringLiteral("ui/drawboard_rail_edge"),
+                        int(RailDockEdge::Right))
+                    .toInt();
+  m_railDockEdge = (v == int(RailDockEdge::Left)) ? RailDockEdge::Left
+                                                  : RailDockEdge::Right;
+  m_isDockedLeft = (m_railDockEdge == RailDockEdge::Left);
+}
+
+void ModernToolbar::persistRailDockEdge() const {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("ui/drawboard_rail_edge"), int(m_railDockEdge));
+}
+
+void ModernToolbar::setRailDockEdge(RailDockEdge edge, bool persist,
+                                    bool notify) {
+  const bool changed = (m_railDockEdge != edge);
+  m_railDockEdge = edge;
+  m_isDockedLeft = (edge == RailDockEdge::Left);
+  if (persist)
+    persistRailDockEdge();
+  if (changed)
+    update();
+  if (notify && changed)
+    emit railDockEdgeChanged(edge);
+}
+
+void ModernToolbar::showRailDockEdgeMenu(const QPoint &globalPos) {
+  QMenu menu(this);
+  auto addEdge = [&](const QString &label, RailDockEdge edge) {
+    QAction *a = menu.addAction(label);
+    a->setCheckable(true);
+    a->setChecked(m_railDockEdge == edge);
+    connect(a, &QAction::triggered, this, [this, edge]() {
+      setRailDockEdge(edge, true);
+    });
+  };
+  addEdge(QStringLiteral("Links andocken"), RailDockEdge::Left);
+  addEdge(QStringLiteral("Rechts andocken"), RailDockEdge::Right);
+  menu.exec(globalPos);
+}
+
+void ModernToolbar::contextMenuEvent(QContextMenuEvent *e) {
+#ifndef Q_OS_ANDROID
+  if (isDrawboardVerticalRail()) {
+    showRailDockEdgeMenu(e->globalPos());
+    e->accept();
+    return;
+  }
+#endif
+  QWidget::contextMenuEvent(e);
 }
 
 bool ModernToolbar::isDrawboardVerticalRail() const {
@@ -5930,10 +6061,10 @@ void ModernToolbar::updateLayout(bool animate) {
         const int footerGap = UiScale::dp(4);
         const int footerBtnS = UiScale::dp(40);
         // Extra bottom pad so the last chevron isn't flush-cut against the
-        // canvas / notch edge.
+        // window edge (rail now owns the bottom-right corner).
         const int footerH =
             footerBtns.size() * footerBtnS +
-            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(22);
+            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(12);
         const int contentTop = dragSize + UiScale::dp(8);
         const int contentBottom = h - footerH - UiScale::dp(10);
         const int contentH = qMax(btnS, contentBottom - contentTop);

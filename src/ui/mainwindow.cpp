@@ -60,6 +60,7 @@
 #include <QMessageBox>
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QRadioButton>
 #include <QAbstractButton>
 #include <QAbstractSlider>
 #include <QBoxLayout>
@@ -5086,6 +5087,8 @@ void MainWindow::setupUi() {
       if (MultiPageNoteView *view = currentNoteView())
         view->insertMarkupLibraryItem(id);
     });
+    connect(topToolbar, &ModernToolbar::railDockEdgeChanged, this,
+            [this](ModernToolbar::RailDockEdge) { positionNoteChrome(); });
     topToolbar->setAccentColor(NoteChrome::accent());
 
     // Drawboard-like tool shortcuts (editor surface, ignore when typing).
@@ -5478,6 +5481,7 @@ void MainWindow::setupUi() {
   }
 
   // ── Drawboard left menu strip ────────────────────────────────────────────
+  loadPageChromePrefs();
   m_noteLeftRail = new NoteLeftRail(m_editorCenterWidget);
   m_noteLeftRail->setAccentColor(NoteChrome::accent());
   refreshNoteLeftRailIcons();
@@ -5571,7 +5575,14 @@ void MainWindow::setupUi() {
   m_pageThumbnailSidebar->setAccentColor(NoteChrome::accent());
 #ifndef Q_OS_ANDROID
   m_pageThumbnailSidebar->setFloatingMode(true);
-  m_pageThumbnailSidebar->setCollapsed(false);
+  {
+    QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    const bool collapsed =
+        pageUi.value(QStringLiteral("ui/pageRailCollapsed"), false).toBool();
+    m_pageThumbnailSidebar->setCollapsed(collapsed);
+    if (m_noteLeftRail)
+      m_noteLeftRail->setPagesExpanded(!collapsed);
+  }
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::collapsedChanged, this,
           [this](bool collapsed) {
             QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -8321,6 +8332,83 @@ void MainWindow::setupRightSidebar() {
   styleBtnsLayout->addWidget(m_btnStyleDotted);
   optLayout->addWidget(styleBtnsContainer);
 
+#ifndef Q_OS_ANDROID
+  // --- Seitenleisten-Layout (hide / move) ---
+  optLayout->addWidget(
+      sectionLabel(QStringLiteral("SEITENLEISTE"), optContent));
+  auto *cbLeftRail = new QCheckBox(
+      QStringLiteral("Linke Werkzeugleiste anzeigen"), optContent);
+  cbLeftRail->setObjectName(QStringLiteral("pageSettingsLeftRailVisible"));
+  cbLeftRail->setChecked(m_noteLeftRailPrefVisible);
+  cbLeftRail->setStyleSheet(
+      QStringLiteral("QCheckBox { color: rgba(255,255,255,0.82); background: transparent; "
+                     "spacing: 8px; font-size: 12px; }"
+                     "QCheckBox::indicator { width: 16px; height: 16px; }"));
+  connect(cbLeftRail, &QCheckBox::toggled, this, [this](bool on) {
+    m_noteLeftRailPrefVisible = on;
+    persistPageChromePrefs();
+    applyPageChromePrefs();
+  });
+  optLayout->addWidget(cbLeftRail);
+
+  auto *cbPages = new QCheckBox(
+      QStringLiteral("Seiten-Manager anzeigen"), optContent);
+  cbPages->setObjectName(QStringLiteral("pageSettingsPagesVisible"));
+  cbPages->setChecked(m_pageThumbnailSidebar &&
+                      !m_pageThumbnailSidebar->isCollapsed());
+  cbPages->setStyleSheet(cbLeftRail->styleSheet());
+  connect(cbPages, &QCheckBox::toggled, this, [this](bool on) {
+    if (!m_pageThumbnailSidebar)
+      return;
+    if (on) {
+      m_pageThumbnailSidebar->setCollapsed(false);
+      m_pageThumbnailSidebar->show();
+      m_pageThumbnailSidebar->rebuild();
+      if (m_noteLeftRail)
+        m_noteLeftRail->setPagesExpanded(true);
+    } else {
+      m_pageThumbnailSidebar->setCollapsed(true);
+      m_pageThumbnailSidebar->hide();
+      if (m_noteLeftRail)
+        m_noteLeftRail->setPagesExpanded(false);
+    }
+    positionNoteChrome();
+  });
+  optLayout->addWidget(cbPages);
+
+  auto *lblEdge = new QLabel(QStringLiteral("Position:"), optContent);
+  lblEdge->setObjectName(QStringLiteral("pageSettingsRailEdgeLabel"));
+  lblEdge->setStyleSheet(
+      QStringLiteral("color: rgba(255,255,255,0.55); font-size: 11px; "
+                     "background: transparent;"));
+  optLayout->addWidget(lblEdge);
+  auto *edgeRow = new QWidget(optContent);
+  auto *edgeLay = new QHBoxLayout(edgeRow);
+  edgeLay->setContentsMargins(0, 0, 0, 0);
+  edgeLay->setSpacing(12);
+  auto *rLeft = new QRadioButton(QStringLiteral("Links"), edgeRow);
+  auto *rRight = new QRadioButton(QStringLiteral("Rechts"), edgeRow);
+  const QString radioCss = QStringLiteral(
+      "QRadioButton { color: rgba(255,255,255,0.85); background: transparent; "
+      "font-size: 12px; spacing: 6px; }");
+  rLeft->setStyleSheet(radioCss);
+  rRight->setStyleSheet(radioCss);
+  rLeft->setChecked(!m_pageRailOnRight);
+  rRight->setChecked(m_pageRailOnRight);
+  auto *edgeGroup = new QButtonGroup(edgeRow);
+  edgeGroup->addButton(rLeft, 0);
+  edgeGroup->addButton(rRight, 1);
+  connect(edgeGroup, &QButtonGroup::idClicked, this, [this](int id) {
+    m_pageRailOnRight = (id == 1);
+    persistPageChromePrefs();
+    positionNoteChrome();
+  });
+  edgeLay->addWidget(rLeft);
+  edgeLay->addWidget(rRight);
+  edgeLay->addStretch();
+  optLayout->addWidget(edgeRow);
+#endif
+
   QLabel *lblGrid = new QLabel("Grid Spacing (px):", optContent);
   lblGrid->setObjectName(QStringLiteral("pageSettingsGridLabel"));
   optLayout->addWidget(lblGrid);
@@ -8976,9 +9064,15 @@ void MainWindow::updateSidebarState() {
   if (m_documentTabBar)
     m_documentTabBar->setVisible(inNotesMode);
   if (m_noteLeftRail)
-    m_noteLeftRail->setVisible(inNotesMode && isEditor);
+    m_noteLeftRail->setVisible(inNotesMode && isEditor &&
+                               m_noteLeftRailPrefVisible);
   if (m_noteLeftRail && m_noteLeftRail->isVisible())
     m_noteLeftRail->setPageFeaturesVisible(currentNoteView() != nullptr);
+  // When the icon strip is hidden, still allow the pages panel if it was open.
+  if (m_pageThumbnailSidebar && inNotesMode && isEditor) {
+    if (!m_noteLeftRailPrefVisible && m_pageThumbnailSidebar->isCollapsed())
+      m_pageThumbnailSidebar->hide();
+  }
 
   // Lock Drawboard vertical Favorites rail whenever the note editor is active.
   if (isEditor) {
@@ -9018,9 +9112,11 @@ void MainWindow::updateSidebarState() {
       hasA4Pages = (editor->view() != nullptr);
   }
   if (m_pageThumbnailSidebar) {
+    const bool pagesWantedByRail =
+        !m_noteLeftRail || !m_noteLeftRail->isVisible() ||
+        m_noteLeftRail->pagesExpanded();
     const bool wantPages =
-        inNotesMode && isEditor && hasA4Pages &&
-        (!m_noteLeftRail || m_noteLeftRail->pagesExpanded());
+        inNotesMode && isEditor && hasA4Pages && pagesWantedByRail;
     // Respect an intentional collapse — never force-expand here (that left a
     // stubborn stub strip when the user tried to fold the pages rail).
     const bool showPages =
@@ -9257,6 +9353,23 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
     m_btnColorWhite->setVisible(canvasNote);
   if (m_btnColorDark)
     m_btnColorDark->setVisible(canvasNote);
+
+#ifndef Q_OS_ANDROID
+  if (m_pageSettingsCard) {
+    if (auto *cb = m_pageSettingsCard->findChild<QCheckBox *>(
+            QStringLiteral("pageSettingsLeftRailVisible"))) {
+      QSignalBlocker b(cb);
+      cb->setChecked(m_noteLeftRailPrefVisible);
+    }
+    if (auto *cb = m_pageSettingsCard->findChild<QCheckBox *>(
+            QStringLiteral("pageSettingsPagesVisible"))) {
+      QSignalBlocker b(cb);
+      cb->setChecked(m_pageThumbnailSidebar &&
+                     !m_pageThumbnailSidebar->isCollapsed() &&
+                     m_pageThumbnailSidebar->isVisible());
+    }
+  }
+#endif
 
   if (cv) {
     bool inf = cv->isInfinite();
@@ -10838,14 +10951,29 @@ QRect MainWindow::noteChromeContentRect() const {
   int right = W;
   int bottom = H;
 #ifndef Q_OS_ANDROID
-  if (m_noteLeftRail && m_noteLeftRail->isVisible())
-    left += m_noteLeftRail->preferredWidth();
-  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
-      !m_pageThumbnailSidebar->isCollapsed())
-    left += m_pageThumbnailSidebar->width();
+  const bool pagesOnRight = pageRailOnRight();
+  if (!pagesOnRight) {
+    if (m_noteLeftRail && m_noteLeftRail->isVisible())
+      left += m_noteLeftRail->preferredWidth();
+    if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+        !m_pageThumbnailSidebar->isCollapsed())
+      left += m_pageThumbnailSidebar->width();
+  }
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-    if (tb->isVisible() && tb->isDrawboardVerticalRail())
-      right -= tb->preferredRailWidth();
+    if (tb->isVisible() && tb->isDrawboardVerticalRail()) {
+      const int railW = tb->preferredRailWidth();
+      if (tb->isRailDockedLeft())
+        left += railW;
+      else
+        right -= railW;
+    }
+  }
+  if (pagesOnRight) {
+    if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+        !m_pageThumbnailSidebar->isCollapsed())
+      right -= m_pageThumbnailSidebar->width();
+    if (m_noteLeftRail && m_noteLeftRail->isVisible())
+      right -= m_noteLeftRail->preferredWidth();
   }
 #endif
   return QRect(QPoint(left, top), QPoint(qMax(left, right - 1), qMax(top, bottom - 1)));
@@ -10872,6 +11000,34 @@ NoteChromeEdge MainWindow::nearestNoteChromeEdge(const QPoint &posInParent) cons
 void MainWindow::persistNoteChromeEdge() const {
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   s.setValue(QStringLiteral("ui/noteChromeEdge"), int(m_noteChromeEdge));
+}
+
+void MainWindow::loadPageChromePrefs() {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  m_noteLeftRailPrefVisible =
+      s.value(QStringLiteral("ui/noteLeftRailVisible"), true).toBool();
+  m_pageRailOnRight =
+      s.value(QStringLiteral("ui/pageRailEdge"), 0).toInt() == 1;
+}
+
+void MainWindow::persistPageChromePrefs() const {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("ui/noteLeftRailVisible"), m_noteLeftRailPrefVisible);
+  s.setValue(QStringLiteral("ui/pageRailEdge"), m_pageRailOnRight ? 1 : 0);
+}
+
+bool MainWindow::noteLeftChromeVisible() const {
+  return m_noteLeftRailPrefVisible;
+}
+
+bool MainWindow::pageRailOnRight() const { return m_pageRailOnRight; }
+
+void MainWindow::applyPageChromePrefs() {
+#ifndef Q_OS_ANDROID
+  // Re-apply visibility from prefs when in the note editor.
+  updateSidebarState();
+  positionNoteChrome();
+#endif
 }
 
 void MainWindow::setNoteChromeEdge(NoteChromeEdge edge) {
@@ -10933,45 +11089,67 @@ void MainWindow::applyNoteChromeLayoutOrientation() {
 void MainWindow::refreshNoteChromeStyle() {
   if (!m_noteBottomChrome)
     return;
-  // Flush edge bar — square corners, Favorites-like fill, single inner border.
-  QString edgeBorder;
+  // Flush edge notch — rounded free corners, square flush edge.
+  const int rad = UiScale::dp(16);
+  QString radiusCss;
+  QString borderCss;
   switch (m_noteChromeEdge) {
   case NoteChromeEdge::Top:
-    edgeBorder = QStringLiteral("border: none; border-bottom: 1px solid %1;");
+    radiusCss = QStringLiteral(
+        "border-top-left-radius: 0px; border-top-right-radius: 0px;"
+        "border-bottom-left-radius: %1px; border-bottom-right-radius: %1px;")
+                     .arg(rad);
+    borderCss = QStringLiteral(
+        "border: 1px solid %1; border-top: none;");
     break;
   case NoteChromeEdge::Bottom:
-    edgeBorder = QStringLiteral("border: none; border-top: 1px solid %1;");
+    radiusCss = QStringLiteral(
+        "border-top-left-radius: %1px; border-top-right-radius: %1px;"
+        "border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;")
+                     .arg(rad);
+    borderCss = QStringLiteral(
+        "border: 1px solid %1; border-bottom: none;");
     break;
   case NoteChromeEdge::Left:
-    edgeBorder = QStringLiteral("border: none; border-right: 1px solid %1;");
+    radiusCss = QStringLiteral(
+        "border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
+        "border-top-right-radius: %1px; border-bottom-right-radius: %1px;")
+                     .arg(rad);
+    borderCss = QStringLiteral(
+        "border: 1px solid %1; border-left: none;");
     break;
   case NoteChromeEdge::Right:
-    edgeBorder = QStringLiteral("border: none; border-left: 1px solid %1;");
+    radiusCss = QStringLiteral(
+        "border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
+        "border-top-left-radius: %1px; border-bottom-left-radius: %1px;")
+                     .arg(rad);
+    borderCss = QStringLiteral(
+        "border: 1px solid %1; border-right: none;");
     break;
   }
-  const QString borderCss =
-      edgeBorder.arg(NoteChrome::border().name(QColor::HexRgb));
+  const QString borderResolved =
+      borderCss.arg(NoteChrome::notchBorder().name(QColor::HexRgb));
   m_noteBottomChrome->setGraphicsEffect(nullptr);
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
       "  background: %1;"
       "  %2"
-      "  border-radius: 0px;"
+      "  %3"
       "}"
       "QPushButton {"
-      "  background: transparent; color: %3;"
+      "  background: transparent; color: %4;"
       "  border: none; border-radius: 8px;"
       "  font-size: 12px; font-weight: 600; min-width: 32px; min-height: 32px;"
       "  padding: 0 4px;"
       "}"
-      "QPushButton:hover { background: rgba(127,127,127,0.16); color: %4; }"
-      "QPushButton:disabled { color: %3; }"
-      "QFrame#NoteChromeSep { background: %5; border: none; }"
-      "QLabel { background: transparent; color: %3;"
+      "QPushButton:hover { background: rgba(127,127,127,0.16); color: %5; }"
+      "QPushButton:disabled { color: %4; }"
+      "QFrame#NoteChromeSep { background: %6; border: none; }"
+      "QLabel { background: transparent; color: %4;"
       "  font-size: 12px; font-weight: 600; }")
                                         .arg(NoteChrome::toolbarFill().name(
                                                  QColor::HexRgb),
-                                             borderCss,
+                                             borderResolved, radiusCss,
                                              NoteChrome::textSecondary().name(
                                                  QColor::HexRgb),
                                              NoteChrome::textPrimary().name(
@@ -11001,42 +11179,42 @@ void MainWindow::positionDrawboardToolbar() {
     return;
   if (tb->currentStyle() != ModernToolbar::Normal)
     return;
+  // Don't fight the user while they drag/snap the Favorites rail.
+  if (tb->isDragging())
+    return;
 
   const int W = m_editorCenterWidget->width();
-  const int margin = UiScale::dp(12);
+  const int H = m_editorCenterWidget->height();
 
-  int leftInset = 0;
-  int rightInset = 0;
-#ifndef Q_OS_ANDROID
-  if (m_noteLeftRail && m_noteLeftRail->isVisible())
-    leftInset += m_noteLeftRail->preferredWidth();
-  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible())
-    leftInset += m_pageThumbnailSidebar->width();
-  // Props panel floats beside the rail — do not push the rail inward.
-#endif
-  Q_UNUSED(leftInset);
-
-  // Desktop Drawboard default: vertical Favorites rail edge-flush on the right.
+  // Desktop Drawboard: vertical Favorites rail, full page height into the corner.
   tb->applyDrawboardVerticalRail();
-  const int bottomH = noteBottomChromeHeight();
   const int railW = tb->preferredRailWidth();
   const int topY = noteHeaderHeight();
-  // Clear bottom-docked utilities bar so the rail footer stays usable.
-  const int railClearance = bottomH + (bottomH > 0 ? UiScale::dp(4) : 0);
-  const int availH = qMax(UiScale::dp(200),
-                          m_editorCenterWidget->height() - topY - railClearance);
-  // Edge-flush: full available height, no side margin from the window edge.
-  const int h = availH;
-  // Clamp to the host rect so a mis-reported width cannot park the rail
-  // off-screen (seen when the toolbar briefly became a native window).
-  const int x = qBound(0, W - railW, W - rightInset - railW);
+  // Own the bottom corner — no clearance for the utilities notch.
+  const int h = qMax(UiScale::dp(200), H - topY);
+  int x = 0;
+  if (tb->isRailDockedLeft()) {
+    // Flush to the window's left edge; page chrome stacks to the right of it.
+    x = 0;
+  } else {
+    int rightInset = 0;
+#ifndef Q_OS_ANDROID
+    if (pageRailOnRight()) {
+      if (m_noteLeftRail && m_noteLeftRail->isVisible())
+        rightInset += m_noteLeftRail->preferredWidth();
+      if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+          !m_pageThumbnailSidebar->isCollapsed())
+        rightInset += m_pageThumbnailSidebar->width();
+    }
+#endif
+    x = qBound(0, W - railW - rightInset, W - railW);
+  }
   const int y = topY;
   tb->setMinimumSize(0, 0);
   tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   tb->setFixedWidth(railW);
   tb->setGeometry(x, y, railW, h);
   tb->raise();
-  Q_UNUSED(margin);
 }
 
 void MainWindow::positionNoteChrome() {
@@ -11049,43 +11227,95 @@ void MainWindow::positionNoteChrome() {
 
 #ifndef Q_OS_ANDROID
   int leftX = 0;
+  int rightX = W;
+  const bool pagesOnRight = pageRailOnRight();
+  const bool thumbsExpanded =
+      m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+      !m_pageThumbnailSidebar->isCollapsed();
   const bool thumbsVisible =
       m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible();
-  if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
-    const int railW = m_noteLeftRail->preferredWidth();
-    m_noteLeftRail->setGeometry(0, 0, railW, H);
-    m_noteLeftRail->setThumbsAdjacent(thumbsVisible);
-    m_noteLeftRail->raise();
-    leftX = railW;
-  } else if (m_noteLeftRail) {
-    m_noteLeftRail->setThumbsAdjacent(false);
+
+  // Favorites rail may occupy left or right — reserve space first when pages
+  // share that edge so stacks don't overlap.
+  int favLeft = 0;
+  int favRight = 0;
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    if (tb->isVisible() && tb->isDrawboardVerticalRail()) {
+      if (tb->isRailDockedLeft())
+        favLeft = tb->preferredRailWidth();
+      else
+        favRight = tb->preferredRailWidth();
+    }
   }
 
-  if (thumbsVisible && !m_pageThumbnailSidebar->isCollapsed()) {
-    const int thumbW = m_pageThumbnailSidebar->width();
-    m_pageThumbnailSidebar->setGeometry(leftX, 0, thumbW, H);
-    m_pageThumbnailSidebar->raise();
-    leftX += thumbW;
-  } else if (thumbsVisible && m_pageThumbnailSidebar->isCollapsed()) {
-    // Fully folded: no stub strip. Pages button on the left rail re-opens it.
-    m_pageThumbnailSidebar->setGeometry(0, 0, 0, H);
+  if (!pagesOnRight) {
+    leftX = favLeft;
+    if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
+      const int railW = m_noteLeftRail->preferredWidth();
+      m_noteLeftRail->setGeometry(leftX, 0, railW, H);
+      m_noteLeftRail->setThumbsAdjacent(thumbsExpanded);
+      m_noteLeftRail->raise();
+      leftX += railW;
+    } else if (m_noteLeftRail) {
+      m_noteLeftRail->setThumbsAdjacent(false);
+    }
+
+    if (thumbsExpanded) {
+      const int thumbW = m_pageThumbnailSidebar->width();
+      m_pageThumbnailSidebar->setGeometry(leftX, 0, thumbW, H);
+      m_pageThumbnailSidebar->raise();
+      leftX += thumbW;
+    } else if (thumbsVisible && m_pageThumbnailSidebar->isCollapsed()) {
+      // Fully folded: no stub strip. Pages button on the left rail re-opens it.
+      m_pageThumbnailSidebar->setGeometry(0, 0, 0, H);
+    }
+  } else {
+    // Pages chrome on the right (inside of Favorites when Favorites is right).
+    rightX = W - favRight;
+    if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
+      const int railW = m_noteLeftRail->preferredWidth();
+      rightX -= railW;
+      m_noteLeftRail->setGeometry(rightX, 0, railW, H);
+      m_noteLeftRail->setThumbsAdjacent(thumbsExpanded);
+      m_noteLeftRail->raise();
+    } else if (m_noteLeftRail) {
+      m_noteLeftRail->setThumbsAdjacent(false);
+    }
+    if (thumbsExpanded) {
+      const int thumbW = m_pageThumbnailSidebar->width();
+      rightX -= thumbW;
+      m_pageThumbnailSidebar->setGeometry(rightX, 0, thumbW, H);
+      m_pageThumbnailSidebar->raise();
+    } else if (thumbsVisible && m_pageThumbnailSidebar->isCollapsed()) {
+      m_pageThumbnailSidebar->setGeometry(0, 0, 0, H);
+    }
+    leftX = favLeft;
   }
 
-  int rightInset = 0;
-  // Tool options float as a card left of the Favorites rail (not a full-height
-  // sidebar dock). The rail stays edge-flush.
+  // Tool options float as a card beside the Favorites rail (not a full-height
+  // sidebar dock). The rail stays edge-flush into the corner.
   if (m_toolPropertiesPanel && m_toolPropertiesVisible) {
     m_toolPropertiesPanel->show();
     m_toolPropertiesPanel->syncFromToolManager();
     const int propsW = m_toolPropertiesPanel->preferredWidth();
     const int propsH = m_toolPropertiesPanel->preferredHeight();
     int railW = UiScale::dp(64);
-    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+    bool railLeft = false;
+    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       railW = tb->preferredRailWidth();
+      railLeft = tb->isRailDockedLeft();
+    }
     const int bottomH = noteBottomChromeHeight();
     const int topClear = noteChromeClearanceTop();
-    const int x = qMax(leftX + margin + noteChromeClearanceLeft(),
-                       W - railW - propsW - margin - noteChromeClearanceRight());
+    int x = 0;
+    if (railLeft) {
+      x = leftX + margin + noteChromeClearanceLeft();
+    } else {
+      x = qMax(leftX + margin + noteChromeClearanceLeft(),
+               W - railW - propsW - margin - noteChromeClearanceRight());
+      if (pagesOnRight)
+        x = qMin(x, rightX - propsW - margin);
+    }
     const int y = noteHeaderHeight() + margin + topClear;
     const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
     // Clamp height; ToolPropertiesPanel scrolls internally so controls never
@@ -11098,32 +11328,57 @@ void MainWindow::positionNoteChrome() {
 #else
   const int leftX = 0;
   const int rightInset = 0;
+  Q_UNUSED(rightInset);
 #endif
 
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible() &&
       !m_noteChromeDragging) {
-    // Flush edge bar spanning the canvas content rect (between left tools
-    // and Favorites rail).
+    // Flush edge notch — content-sized, centered on the free edge (not a
+    // full-width wall). Favorites rail owns the bottom corner separately.
     const QRect content = noteChromeContentRect();
     const int thick = noteChromeThickness();
+    const bool a4 = (currentNoteView() != nullptr);
     m_noteBottomChrome->setMinimumSize(0, 0);
     m_noteBottomChrome->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    const QSize hint = m_noteBottomChrome->sizeHint();
     QRect geo;
     switch (m_noteChromeEdge) {
-    case NoteChromeEdge::Top:
-      geo = QRect(content.left(), content.top(), content.width(), thick);
+    case NoteChromeEdge::Top: {
+      const int pillW =
+          qBound(UiScale::dp(200),
+                qMax(hint.width(), UiScale::dp(a4 ? 320 : 240)),
+                content.width());
+      const int x = content.left() + qMax(0, (content.width() - pillW) / 2);
+      geo = QRect(x, content.top(), pillW, thick);
       break;
-    case NoteChromeEdge::Bottom:
-      geo = QRect(content.left(), content.bottom() - thick + 1, content.width(),
-                  thick);
+    }
+    case NoteChromeEdge::Bottom: {
+      const int pillW =
+          qBound(UiScale::dp(200),
+                qMax(hint.width(), UiScale::dp(a4 ? 320 : 240)),
+                content.width());
+      const int x = content.left() + qMax(0, (content.width() - pillW) / 2);
+      geo = QRect(x, content.bottom() - thick + 1, pillW, thick);
       break;
-    case NoteChromeEdge::Left:
-      geo = QRect(content.left(), content.top(), thick, content.height());
+    }
+    case NoteChromeEdge::Left: {
+      const int pillH =
+          qBound(UiScale::dp(160),
+                qMax(hint.height(), UiScale::dp(a4 ? 280 : 200)),
+                content.height());
+      const int y = content.top() + qMax(0, (content.height() - pillH) / 2);
+      geo = QRect(content.left(), y, thick, pillH);
       break;
-    case NoteChromeEdge::Right:
-      geo = QRect(content.right() - thick + 1, content.top(), thick,
-                  content.height());
+    }
+    case NoteChromeEdge::Right: {
+      const int pillH =
+          qBound(UiScale::dp(160),
+                qMax(hint.height(), UiScale::dp(a4 ? 280 : 200)),
+                content.height());
+      const int y = content.top() + qMax(0, (content.height() - pillH) / 2);
+      geo = QRect(content.right() - thick + 1, y, thick, pillH);
       break;
+    }
     }
     m_noteBottomChrome->setGeometry(geo);
     m_noteBottomChrome->raise();
@@ -11132,12 +11387,20 @@ void MainWindow::positionNoteChrome() {
   positionDrawboardToolbar();
   if (m_floatingTools)
     m_floatingTools->raise();
+  // Utilities notch sits under the Favorites rail at the corner so the rail
+  // owns the bottom-right (or bottom-left) flush edge.
+  if (m_noteBottomChrome && m_noteBottomChrome->isVisible())
+    m_noteBottomChrome->raise();
+  if (m_floatingTools &&
+      qobject_cast<ModernToolbar *>(m_floatingTools) &&
+      qobject_cast<ModernToolbar *>(m_floatingTools)->isDrawboardVerticalRail())
+    m_floatingTools->raise();
   syncPenPresetBarGeometry();
 
 #ifndef Q_OS_ANDROID
   if (m_radialFab && m_radialFab->isVisible() && !m_radialFab->isExpanded()) {
     const int fab = m_radialFab->collapsedSize();
-    const int x = qMax(leftX + margin, W - rightInset - margin - fab);
+    const int x = qMax(leftX + margin, W - margin - fab);
     const int y = qMax(margin, H - noteBottomChromeHeight() - fab - margin);
     if (m_radialFab->x() <= 0 && m_radialFab->y() <= 0)
       m_radialFab->move(x, y);
@@ -11246,14 +11509,20 @@ void MainWindow::syncPenPresetBarGeometry() {
   int y = 0;
   int w = 0;
   if (tb->isDrawboardVerticalRail()) {
-    // Sit above the bottom-docked utilities bar, left of the Favorites rail.
+    // Sit above the bottom utilities notch, beside the Favorites rail.
     const int margin = UiScale::dp(16);
     const int bottomH = noteBottomChromeHeight();
     const int rightClear = noteChromeClearanceRight();
+    const int leftClear = noteChromeClearanceLeft();
     w = qMin(UiScale::dp(280),
              qMax(UiScale::dp(160), m_editorCenterWidget->width() -
-                                        tb->width() - rightClear - margin * 3));
-    x = m_editorCenterWidget->width() - tb->width() - rightClear - w - margin;
+                                        tb->width() - rightClear - leftClear -
+                                        margin * 3));
+    if (tb->isRailDockedLeft()) {
+      x = tb->x() + tb->width() + margin;
+    } else {
+      x = m_editorCenterWidget->width() - tb->width() - rightClear - w - margin;
+    }
     y = qMax(noteChromeClearanceTop() + margin,
              m_editorCenterWidget->height() - bottomH - h - margin);
   } else {

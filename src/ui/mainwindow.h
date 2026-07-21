@@ -348,6 +348,11 @@ private:
   void refreshNoteChromeStyle();
   void persistNoteChromeEdge() const;
   void showNoteChromeEdgeMenu(const QPoint &globalPos);
+  void loadPageChromePrefs();
+  void persistPageChromePrefs() const;
+  void applyPageChromePrefs();
+  bool noteLeftChromeVisible() const;
+  bool pageRailOnRight() const;
   /// Keep PenPresetBar pinned under the floating/docked toolbar as one cluster.
   void syncPenPresetBarGeometry();
   void updateNoteBottomChrome();
@@ -542,6 +547,9 @@ private:
   QFrame *m_noteChromeSep2{nullptr};
   NoteChromeEdge m_noteChromeEdge{NoteChromeEdge::Bottom};
   bool m_noteChromeDragging{false};
+  /// Drawboard left icon strip + page manager preferences (desktop).
+  bool m_noteLeftRailPrefVisible{true};
+  bool m_pageRailOnRight{false};
   QPoint m_noteChromeDragHotspot;
   QPushButton *m_btnNoteUndo{nullptr};
   QPushButton *m_btnNoteRedo{nullptr};
