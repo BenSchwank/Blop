@@ -55,6 +55,8 @@ LibraryTagsPanel::LibraryTagsPanel(QWidget *parent) : QWidget(parent) {
   m_input->setObjectName(QStringLiteral("libraryTagsInput"));
   m_input->setPlaceholderText(QStringLiteral("Tag hinzufügen…"));
   m_input->setClearButtonEnabled(true);
+  m_input->setMinimumWidth(0);
+  m_input->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
   connect(m_input, &QLineEdit::returnPressed, this, &LibraryTagsPanel::onAddClicked);
   addRow->addWidget(m_input, 1);
 
@@ -114,6 +116,22 @@ void LibraryTagsPanel::setSidebarMode(bool on) {
   setMaximumWidth(QWIDGETSIZE_MAX);
   setSizePolicy(QSizePolicy::Expanding,
                 on ? QSizePolicy::Maximum : QSizePolicy::Expanding);
+  if (auto *root = qobject_cast<QVBoxLayout *>(layout())) {
+    // Tighter side padding in the narrow nav column so the "+" is not clipped.
+    if (on)
+      root->setContentsMargins(UiScale::dp(4), UiScale::dp(4), UiScale::dp(4),
+                               UiScale::dp(6));
+    else
+      root->setContentsMargins(UiScale::dp(8), UiScale::dp(6), UiScale::dp(8),
+                               UiScale::dp(8));
+  }
+  if (m_btnAdd)
+    m_btnAdd->setFixedSize(on ? UiScale::dp(26) : UiScale::dp(30),
+                           on ? UiScale::dp(26) : UiScale::dp(30));
+  if (m_input) {
+    m_input->setMinimumWidth(0);
+    m_input->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+  }
   if (m_list)
     m_list->setMaximumHeight(on ? UiScale::dp(140) : QWIDGETSIZE_MAX);
   refreshTheme();

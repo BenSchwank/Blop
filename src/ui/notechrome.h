@@ -43,7 +43,8 @@ inline void toggleMode() {
 inline bool isDark() { return mode() == Mode::Dark; }
 
 inline QColor canvasBg() {
-  return isDark() ? QColor(42, 42, 42) : QColor(232, 232, 232);
+  // True black around the page — avoid bluish library surfaces (#0B0B1A).
+  return isDark() ? QColor(0, 0, 0) : QColor(232, 232, 232);
 }
 inline QColor panelBg() {
   return isDark() ? QColor(30, 30, 30) : QColor(245, 245, 245);

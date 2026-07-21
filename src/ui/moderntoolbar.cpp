@@ -4792,7 +4792,7 @@ bool ModernToolbar::isDrawboardVerticalRail() const {
 #endif
 }
 
-int ModernToolbar::preferredRailWidth() const { return UiScale::dp(60); }
+int ModernToolbar::preferredRailWidth() const { return UiScale::dp(64); }
 
 void ModernToolbar::loadRailTools() {
   m_railSlots.clear();

@@ -127,7 +127,8 @@ BlopTheme::Accent BlopTheme::accentFromKey(const QString &k) {
 // =====================================================================
 
 QColor BlopTheme::surfaceBackground() {
-  return instance().isDark() ? QColor(0x0B, 0x0B, 0x1A) : QColor(0xF5, 0xF4, 0xF8);
+  // True black in dark mode — the previous #0B0B1A read as bluish navy.
+  return instance().isDark() ? QColor(0x00, 0x00, 0x00) : QColor(0xF5, 0xF4, 0xF8);
 }
 
 QColor BlopTheme::surfaceBase() {
@@ -396,6 +397,7 @@ const SurfaceHex kBackgroundHex[] = {
     {"#0B0B1A", BlopTheme::surfaceBackground},
     {"#0B0912", BlopTheme::surfaceBackground}, // title bar / sidebar chrome
     {"#0D0B14", BlopTheme::surfaceBackground},
+    {"#000000", BlopTheme::surfaceBackground},
     {"#0D0D12", BlopTheme::surfaceBackground},
     {"#0C0D17", BlopTheme::surfaceBackground},
     {"#0F111A", BlopTheme::surfaceBase}, // sidebar/header chrome

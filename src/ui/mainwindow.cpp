@@ -184,7 +184,7 @@
 static const int MARGIN_OVERVIEW = 20;
 
 #ifdef Q_OS_ANDROID
-static const int SIDEBAR_WIDTH = 236;
+static const int SIDEBAR_WIDTH = 248;
 // Sidebar list only (Overview grid still uses FONT_SIZE_BASE below)
 static const int ROW_HEIGHT_HEADER = 36;
 static const int ROW_HEIGHT_ITEM = 46;
@@ -196,7 +196,7 @@ static const int MARGIN_ANDROID_SIDE = 16;
 static const int FAB_SIZE_ANDROID = 56;
 static const int FAB_DISTANCE_FROM_BOTTOM = 30;
 #else
-static const int SIDEBAR_WIDTH = 236;
+static const int SIDEBAR_WIDTH = 248;
 static const int ROW_HEIGHT_HEADER = 34;
 static const int ROW_HEIGHT_ITEM = 38;
 static const int FONT_SIZE_BASE = 10;
@@ -1762,7 +1762,8 @@ MainWindow::~MainWindow() {}
 void MainWindow::refreshOpenEditorSceneBackgrounds() {
   if (!m_editorTabs)
     return;
-  const QColor sceneBg = UIStyles::SceneBackground;
+  // Editor surround uses NoteChrome black — not the bluish library surface.
+  const QColor sceneBg = NoteChrome::canvasBg();
   for (int i = 0; i < m_editorTabs->count(); ++i) {
     QWidget *tab = m_editorTabs->widget(i);
     if (!tab)
@@ -2699,9 +2700,11 @@ void MainWindow::showAndroidStudyBootRetry() {
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
   m_titleBarWidget->setFixedHeight(52);
-  m_titleBarWidget->setStyleSheet(
-      "background: #0B0912;"
-      "border-bottom: 1px solid rgba(120,130,160,0.12);");
+  // Match window fill exactly — no light top fringe / separator mismatch.
+  m_titleBarWidget->setStyleSheet(QStringLiteral(
+      "background: %1; border: none;")
+                                      .arg(BlopTheme::surfaceBackground().name(
+                                          QColor::HexRgb)));
 
   QHBoxLayout *mainLayout = new QHBoxLayout(m_titleBarWidget);
   mainLayout->setContentsMargins(10, 0, 0, 0);
@@ -3382,6 +3385,12 @@ bool titleBarRegionIsInteractive(QWidget *hit, QWidget *titleBar) {
 
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
   MSG *msg = static_cast<MSG *>(message);
+  // Remove the default non-client frame so WS_THICKFRAME does not paint a
+  // light 1px strip above our custom title bar.
+  if (msg->message == WM_NCCALCSIZE && msg->wParam == TRUE) {
+    *result = 0;
+    return true;
+  }
   if (msg->message == WM_NCHITTEST) {
     long x = GET_X_LPARAM(msg->lParam);
     long y = GET_Y_LPARAM(msg->lParam);
@@ -3514,23 +3523,23 @@ void MainWindow::applyTheme() {
     if (m_libraryOrgBar)
       m_libraryOrgBar->setAccentColor(m_currentAccentColor);
 
-  // Blop Notes Redesign (Etappe 1): #0D0B14 Main, #14121F Sidebar
-  // Custom scrollbars: Android only (Windows desktop uses native Qt scrollbar to avoid layout glitches).
+  // Main window fill — true black in dark mode (via BlopTheme tokens).
   QString style =
       QString(
-          "QMainWindow { background-color: #0D0B14; } "
+          "QMainWindow { background-color: %3; } "
           "* { outline: none; } "
           "QListView { background: transparent; border: none; outline: 0; } "
-          "QTabWidget::pane { border: 0; background: #0D0B14; } "
-          "QTabBar::tab { background: #0D0B14; color: #888; padding: 10px "
+          "QTabWidget::pane { border: 0; background: %3; } "
+          "QTabBar::tab { background: %3; color: #888; padding: 10px "
           "25px; border-top-left-radius: 12px; border-top-right-radius: 12px; "
           "margin-right: 2px;} "
           "QTabBar::tab:selected { background: %1; color: white; } "
-          "QMenu { background-color: #0D0B14; border: 1px solid #201E2E; "
+          "QMenu { background-color: %3; border: 1px solid #201E2E; "
           "border-radius: 10px; padding: 10px; color: #E0E0E0; } "
           "QMenu::item { padding: 8px 20px; border-radius: 5px; } "
           "QMenu::item:selected { background-color: %2; color: white; } ")
-          .arg(c, c_light);
+          .arg(c, c_light,
+               BlopTheme::surfaceBackground().name(QColor::HexRgb));
 #ifdef Q_OS_ANDROID
   style += QString(
       "QScrollBar:vertical {"
@@ -7151,6 +7160,7 @@ void MainWindow::setupSidebar() {
                                      BlopTheme::textSecondary()));
       item->setData(Qt::UserRole + 11, CloudStorageStore::iconForType(e.type));
       item->setData(Qt::UserRole + 5, QStringLiteral("clouds_item"));
+      item->setData(Qt::UserRole + 9, 1); // indent under Cloud-Speicher
       item->setData(Qt::UserRole + 12, e.id);
       item->setData(Qt::UserRole + 13, e.type);
       if (!e.path.isEmpty() && QDir(e.path).exists())
@@ -7168,6 +7178,7 @@ void MainWindow::setupSidebar() {
         createModernIcon(QStringLiteral("cloud"), BlopTheme::textSecondary()));
     addCloud->setData(Qt::UserRole + 11, QStringLiteral("cloud"));
     addCloud->setData(Qt::UserRole + 5, QStringLiteral("clouds_add"));
+    addCloud->setData(Qt::UserRole + 9, 1); // indent under Cloud-Speicher
     addCloud->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
   }
 
@@ -9693,7 +9704,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       // Wrapper widget so we can overlay a 3-dot action button on top of the canvas
       QWidget *canvasWrapper = new QWidget(this);
       canvasWrapper->setContentsMargins(0,0,0,0);
-      canvasWrapper->setStyleSheet("background-color: #0D0B14;");
+      canvasWrapper->setStyleSheet(
+          QStringLiteral("background-color: %1;")
+              .arg(NoteChrome::canvasBg().name(QColor::HexRgb)));
       QVBoxLayout *cwLay = new QVBoxLayout(canvasWrapper);
       cwLay->setContentsMargins(0,0,0,0);
       cwLay->setSpacing(0);
@@ -11089,46 +11102,12 @@ void MainWindow::applyNoteChromeLayoutOrientation() {
 void MainWindow::refreshNoteChromeStyle() {
   if (!m_noteBottomChrome)
     return;
-  // Flush edge notch — rounded free corners, square flush edge.
+  // Soft notch pill — full rounded corners (lightly inset from the window edge).
   const int rad = UiScale::dp(16);
-  QString radiusCss;
-  QString borderCss;
-  switch (m_noteChromeEdge) {
-  case NoteChromeEdge::Top:
-    radiusCss = QStringLiteral(
-        "border-top-left-radius: 0px; border-top-right-radius: 0px;"
-        "border-bottom-left-radius: %1px; border-bottom-right-radius: %1px;")
-                     .arg(rad);
-    borderCss = QStringLiteral(
-        "border: 1px solid %1; border-top: none;");
-    break;
-  case NoteChromeEdge::Bottom:
-    radiusCss = QStringLiteral(
-        "border-top-left-radius: %1px; border-top-right-radius: %1px;"
-        "border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;")
-                     .arg(rad);
-    borderCss = QStringLiteral(
-        "border: 1px solid %1; border-bottom: none;");
-    break;
-  case NoteChromeEdge::Left:
-    radiusCss = QStringLiteral(
-        "border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
-        "border-top-right-radius: %1px; border-bottom-right-radius: %1px;")
-                     .arg(rad);
-    borderCss = QStringLiteral(
-        "border: 1px solid %1; border-left: none;");
-    break;
-  case NoteChromeEdge::Right:
-    radiusCss = QStringLiteral(
-        "border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
-        "border-top-left-radius: %1px; border-bottom-left-radius: %1px;")
-                     .arg(rad);
-    borderCss = QStringLiteral(
-        "border: 1px solid %1; border-right: none;");
-    break;
-  }
-  const QString borderResolved =
-      borderCss.arg(NoteChrome::notchBorder().name(QColor::HexRgb));
+  const QString radiusCss = QStringLiteral("border-radius: %1px;").arg(rad);
+  const QString borderCss =
+      QStringLiteral("border: 1px solid %1;")
+          .arg(NoteChrome::notchBorder().name(QColor::HexRgb));
   m_noteBottomChrome->setGraphicsEffect(nullptr);
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
@@ -11149,7 +11128,7 @@ void MainWindow::refreshNoteChromeStyle() {
       "  font-size: 12px; font-weight: 600; }")
                                         .arg(NoteChrome::toolbarFill().name(
                                                  QColor::HexRgb),
-                                             borderResolved, radiusCss,
+                                             borderCss, radiusCss,
                                              NoteChrome::textSecondary().name(
                                                  QColor::HexRgb),
                                              NoteChrome::textPrimary().name(
@@ -11185,19 +11164,19 @@ void MainWindow::positionDrawboardToolbar() {
 
   const int W = m_editorCenterWidget->width();
   const int H = m_editorCenterWidget->height();
+  // Small inset so rounded corners / icons are not clipped by the window edge.
+  const int edgePad = UiScale::dp(4);
 
-  // Desktop Drawboard: vertical Favorites rail, full page height into the corner.
+  // Desktop Drawboard: vertical Favorites rail, nearly full page height.
   tb->applyDrawboardVerticalRail();
   const int railW = tb->preferredRailWidth();
   const int topY = noteHeaderHeight();
-  // Own the bottom corner — no clearance for the utilities notch.
-  const int h = qMax(UiScale::dp(200), H - topY);
-  int x = 0;
+  const int h = qMax(UiScale::dp(200), H - topY - edgePad);
+  int x = edgePad;
   if (tb->isRailDockedLeft()) {
-    // Flush to the window's left edge; page chrome stacks to the right of it.
-    x = 0;
+    x = edgePad;
   } else {
-    int rightInset = 0;
+    int rightInset = edgePad;
 #ifndef Q_OS_ANDROID
     if (pageRailOnRight()) {
       if (m_noteLeftRail && m_noteLeftRail->isVisible())
@@ -11207,7 +11186,7 @@ void MainWindow::positionDrawboardToolbar() {
         rightInset += m_pageThumbnailSidebar->width();
     }
 #endif
-    x = qBound(0, W - railW - rightInset, W - railW);
+    x = qBound(edgePad, W - railW - rightInset, W - railW - edgePad);
   }
   const int y = topY;
   tb->setMinimumSize(0, 0);
@@ -11333,10 +11312,10 @@ void MainWindow::positionNoteChrome() {
 
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible() &&
       !m_noteChromeDragging) {
-    // Flush edge notch — content-sized, centered on the free edge (not a
-    // full-width wall). Favorites rail owns the bottom corner separately.
+    // Edge notch — content-sized, lightly inset so radii/borders are not clipped.
     const QRect content = noteChromeContentRect();
     const int thick = noteChromeThickness();
+    const int edgePad = UiScale::dp(4);
     const bool a4 = (currentNoteView() != nullptr);
     m_noteBottomChrome->setMinimumSize(0, 0);
     m_noteBottomChrome->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
@@ -11347,36 +11326,36 @@ void MainWindow::positionNoteChrome() {
       const int pillW =
           qBound(UiScale::dp(200),
                 qMax(hint.width(), UiScale::dp(a4 ? 320 : 240)),
-                content.width());
-      const int x = content.left() + qMax(0, (content.width() - pillW) / 2);
-      geo = QRect(x, content.top(), pillW, thick);
+                qMax(0, content.width() - 2 * edgePad));
+      const int x = content.left() + qMax(edgePad, (content.width() - pillW) / 2);
+      geo = QRect(x, content.top() + edgePad, pillW, thick);
       break;
     }
     case NoteChromeEdge::Bottom: {
       const int pillW =
           qBound(UiScale::dp(200),
                 qMax(hint.width(), UiScale::dp(a4 ? 320 : 240)),
-                content.width());
-      const int x = content.left() + qMax(0, (content.width() - pillW) / 2);
-      geo = QRect(x, content.bottom() - thick + 1, pillW, thick);
+                qMax(0, content.width() - 2 * edgePad));
+      const int x = content.left() + qMax(edgePad, (content.width() - pillW) / 2);
+      geo = QRect(x, content.bottom() - thick - edgePad + 1, pillW, thick);
       break;
     }
     case NoteChromeEdge::Left: {
       const int pillH =
           qBound(UiScale::dp(160),
                 qMax(hint.height(), UiScale::dp(a4 ? 280 : 200)),
-                content.height());
-      const int y = content.top() + qMax(0, (content.height() - pillH) / 2);
-      geo = QRect(content.left(), y, thick, pillH);
+                qMax(0, content.height() - 2 * edgePad));
+      const int y = content.top() + qMax(edgePad, (content.height() - pillH) / 2);
+      geo = QRect(content.left() + edgePad, y, thick, pillH);
       break;
     }
     case NoteChromeEdge::Right: {
       const int pillH =
           qBound(UiScale::dp(160),
                 qMax(hint.height(), UiScale::dp(a4 ? 280 : 200)),
-                content.height());
-      const int y = content.top() + qMax(0, (content.height() - pillH) / 2);
-      geo = QRect(content.right() - thick + 1, y, thick, pillH);
+                qMax(0, content.height() - 2 * edgePad));
+      const int y = content.top() + qMax(edgePad, (content.height() - pillH) / 2);
+      geo = QRect(content.right() - thick - edgePad + 1, y, thick, pillH);
       break;
     }
     }
@@ -11511,20 +11490,23 @@ void MainWindow::syncPenPresetBarGeometry() {
   if (tb->isDrawboardVerticalRail()) {
     // Sit above the bottom utilities notch, beside the Favorites rail.
     const int margin = UiScale::dp(16);
+    const int edgePad = UiScale::dp(4);
     const int bottomH = noteBottomChromeHeight();
     const int rightClear = noteChromeClearanceRight();
     const int leftClear = noteChromeClearanceLeft();
+    const int hostW = m_editorCenterWidget->width();
+    const int hostH = m_editorCenterWidget->height();
     w = qMin(UiScale::dp(280),
-             qMax(UiScale::dp(160), m_editorCenterWidget->width() -
-                                        tb->width() - rightClear - leftClear -
-                                        margin * 3));
+             qMax(UiScale::dp(160),
+                  hostW - tb->width() - rightClear - leftClear - margin * 3));
     if (tb->isRailDockedLeft()) {
       x = tb->x() + tb->width() + margin;
     } else {
-      x = m_editorCenterWidget->width() - tb->width() - rightClear - w - margin;
+      x = hostW - tb->width() - rightClear - w - margin;
     }
+    x = qBound(edgePad, x, hostW - w - edgePad);
     y = qMax(noteChromeClearanceTop() + margin,
-             m_editorCenterWidget->height() - bottomH - h - margin);
+             hostH - bottomH - h - margin - edgePad);
   } else {
     x = m_floatingTools->x();
     y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
@@ -11583,6 +11565,7 @@ void MainWindow::applyNoteChromeTheme() {
     tb->setAccentColor(NoteChrome::accent());
     tb->update();
   }
+  refreshOpenEditorSceneBackgrounds();
   positionNoteChrome();
 #endif
 }
@@ -11643,16 +11626,16 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_titleBarWidget) {
     if (noteChrome) {
+      // Seamless with window — no light separator fringe at the top edge.
       m_titleBarWidget->setStyleSheet(QStringLiteral(
-          "background: %1; border-bottom: 1px solid %2;")
+          "background: %1; border: none;")
                                           .arg(NoteChrome::toolbarFill().name(
-                                                   QColor::HexRgb),
-                                               NoteChrome::borderSoft().name(
-                                                   QColor::HexRgb)));
+                                              QColor::HexRgb)));
     } else {
-      m_titleBarWidget->setStyleSheet(BlopTheme::themed(
-          "background-color: #0B0912; border-bottom: 1px solid "
-          "rgba(120,130,160,0.12);"));
+      m_titleBarWidget->setStyleSheet(QStringLiteral(
+          "background: %1; border: none;")
+                                          .arg(BlopTheme::surfaceBackground().name(
+                                              QColor::HexRgb)));
     }
   }
 
