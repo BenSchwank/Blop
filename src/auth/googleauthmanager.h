@@ -20,11 +20,11 @@ public:
     bool isAuthenticated() const { return m_authenticated; }
 
 #ifdef Q_OS_ANDROID
-    /// v3.18.6: clear the in-progress PKCE lock so the next login() tap
-    /// triggers a fresh flow. Called by MainWindow when the browser
-    /// could not be opened (otherwise the lock would only auto-clear
-    /// after the 60 s stale-timeout in startPkceLogin()).
+    /// Clear the in-progress PKCE lock so the next login() tap triggers a
+    /// fresh flow. Called when the browser could not be opened, the user
+    /// returned without a redirect, or MainWindow cancels the wait.
     void cancelPendingLogin();
+    bool isLoginInProgress() const { return m_loginInProgress; }
 #endif
 
     QString userEmail() const { return m_email; }
@@ -35,6 +35,10 @@ public:
     /// Called from JNI bridge (BlopOAuthBridge) when Android delivers the
     /// custom-scheme deep link with the OAuth response.
     void handleDeepLinkCallback(const QString &uri);
+    /// Activity resumed after Custom Tab; deep link may still arrive shortly.
+    void handleExternalAuthResume();
+    /// Browser handoff failed before any redirect.
+    void handleExternalAuthAbandoned(const QString &reason);
 #endif
 
 signals:
@@ -64,12 +68,14 @@ private:
     QString m_redirectUri;
     QString m_clientId;
     bool m_loginInProgress{false};
-    /// v3.18.6: timestamp of the most recent startPkceLogin(). If the
-    /// browser fails to open and `m_loginInProgress` is never cleared by
-    /// a callback, subsequent login() calls would be ignored forever.
-    /// We treat a lock older than 60 s as stale and let the next tap
-    /// restart the flow.
+    /// Timestamp of the most recent startPkceLogin(). If the browser fails
+    /// to open and `m_loginInProgress` is never cleared by a callback,
+    /// subsequent login() calls would be ignored forever. We treat a lock
+    /// older than 10 minutes as stale (user may spend minutes in Google
+    /// account picker / 2FA) and let the next tap restart the flow.
     qint64 m_loginInProgressSinceMs{0};
+    /// Serial for resume-grace timers so a late deep link wins over abandon.
+    int m_authResumeGeneration{0};
 #else
     void fetchUserInfo();
     QOAuth2AuthorizationCodeFlow* m_oauth2{nullptr};

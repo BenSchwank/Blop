@@ -1529,7 +1529,21 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
     m_googleLoginInFlight = false;
     m_googleLoginInFlightSinceMs = 0;
-    m_authNavigationLocked = false;
+    // Guests must stay gated on the login/Study surface; only clear the
+    // temporary Google-login lock, don't unlock Notes for anonymous users.
+    const QString user =
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username"))
+            .toString()
+            .trimmed();
+    m_authNavigationLocked = user.isEmpty();
+#ifdef Q_OS_ANDROID
+    if (m_androidHeader) {
+      m_androidHeader->setVisible(!m_authNavigationLocked);
+      if (!m_authNavigationLocked)
+        m_androidHeader->raise();
+    }
+#endif
     emit oauthFailed(reason);
   };
 
@@ -1674,7 +1688,12 @@ MainWindow::MainWindow(QWidget *parent)
       if (error.contains(QStringLiteral("state_mismatch")))
         friendly = QStringLiteral(
             "Die Anmeldung wurde unterbrochen (App neu gestartet). "
-            "Bitte tippe noch einmal auf „Über Google registrieren“.");
+            "Bitte tippe noch einmal auf „Über Google anmelden“.");
+      else if (error.contains(QStringLiteral("oauth_redirect_missing")))
+        friendly = QStringLiteral(
+            "Google hat dich nicht zurück in die App gebracht. "
+            "Bitte tippe erneut auf „Über Google anmelden“ "
+            "(am besten mit Chrome).");
       else if (error.contains(QStringLiteral("token_exchange")))
         friendly = QStringLiteral(
             "Google konnte den Login nicht bestätigen. Prüfe die "
@@ -1685,6 +1704,10 @@ MainWindow::MainWindow(QWidget *parent)
       else if (error.contains(QStringLiteral("backend_verify")))
         friendly = QStringLiteral(
             "Server-Bestätigung fehlgeschlagen. Bitte später erneut versuchen.");
+      else if (error.contains(QStringLiteral("browser_open")))
+        friendly = QStringLiteral(
+            "Es konnte kein Browser geöffnet werden. Installiere Chrome "
+            "oder einen anderen Browser und versuche es erneut.");
       BlopDialogs::notify(this, QStringLiteral("Google Login"), friendly);
   });
 
@@ -4907,6 +4930,10 @@ void MainWindow::setupUi() {
   editorMainLayout->setSpacing(0);
 
   m_editorCenterWidget = new QWidget(m_editorContainer);
+  m_editorCenterWidget->setObjectName(QStringLiteral("EditorCenter"));
+  // Allow the floating bottom notch to paint its full border-radius without
+  // the parent clipping the lower edge.
+  m_editorCenterWidget->setAttribute(Qt::WA_OpaquePaintEvent, false);
   QVBoxLayout *centerLayout = new QVBoxLayout(m_editorCenterWidget);
   centerLayout->setContentsMargins(0, 0, 0, 0);
   centerLayout->setSpacing(0);
@@ -5168,12 +5195,22 @@ void MainWindow::setupUi() {
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
   m_noteBottomChrome->setAttribute(Qt::WA_StyledBackground, true);
-  m_noteBottomChrome->setFixedHeight(UiScale::dp(48));
+  // Soft elevation so the pill reads as floating (light mode was nearly
+  // invisible on white canvas and looked "cut off").
+  {
+    auto *shadow = new QGraphicsDropShadowEffect(m_noteBottomChrome);
+    shadow->setBlurRadius(UiScale::dp(28));
+    shadow->setOffset(0, UiScale::dp(6));
+    shadow->setColor(QColor(0, 0, 0, NoteChrome::isDark() ? 140 : 70));
+    m_noteBottomChrome->setGraphicsEffect(shadow);
+  }
+  // Tall enough that 36dp buttons + vertical padding never look clipped.
+  m_noteBottomChrome->setFixedHeight(UiScale::dp(52));
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
       "  background: %1;"
       "  border: 1px solid %2;"
-      "  border-radius: 24px;"
+      "  border-radius: 26px;"
       "}"
       "QPushButton {"
       "  background: transparent; color: %3;"
@@ -5181,20 +5218,20 @@ void MainWindow::setupUi() {
       "  font-size: 13px; font-weight: 600; min-width: 36px; min-height: 36px;"
       "  padding: 0 8px;"
       "}"
-      "QPushButton:hover { background: rgba(255,255,255,0.10); color: %4; }"
+      "QPushButton:hover { background: rgba(127,127,127,0.16); color: %4; }"
       "QLabel { background: transparent; color: %3;"
       "  font-size: 13px; font-weight: 600; }")
-                                        .arg(NoteChrome::toolbarFill().name(
+                                        .arg(NoteChrome::panelElevated().name(
                                                  QColor::HexRgb),
-                                             NoteChrome::borderSoft().name(
+                                             NoteChrome::notchBorder().name(
                                                  QColor::HexRgb),
                                              NoteChrome::textSecondary().name(
                                                  QColor::HexRgb),
                                              NoteChrome::textPrimary().name(
                                                  QColor::HexRgb)));
   auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
-  bottomLay->setContentsMargins(UiScale::dp(10), UiScale::dp(4),
-                                UiScale::dp(10), UiScale::dp(4));
+  bottomLay->setContentsMargins(UiScale::dp(12), UiScale::dp(6),
+                                UiScale::dp(12), UiScale::dp(6));
   bottomLay->setSpacing(UiScale::dp(4));
 
   m_btnNoteUndo = new QPushButton(m_noteBottomChrome);
@@ -5353,10 +5390,14 @@ void MainWindow::setupUi() {
   refreshNoteLeftRailIcons();
   connect(m_noteLeftRail, &NoteLeftRail::pagesToggled, this, [this](bool on) {
     if (m_pageThumbnailSidebar) {
-      m_pageThumbnailSidebar->setVisible(on);
       if (on) {
         m_pageThumbnailSidebar->setCollapsed(false);
+        m_pageThumbnailSidebar->show();
         m_pageThumbnailSidebar->rebuild();
+      } else {
+        // Complete fold — hide the whole pages strip (no thin stub).
+        m_pageThumbnailSidebar->setCollapsed(true);
+        m_pageThumbnailSidebar->hide();
       }
     }
     refreshNoteLeftRailIcons();
@@ -5438,6 +5479,19 @@ void MainWindow::setupUi() {
 #ifndef Q_OS_ANDROID
   m_pageThumbnailSidebar->setFloatingMode(true);
   m_pageThumbnailSidebar->setCollapsed(false);
+  connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::collapsedChanged, this,
+          [this](bool collapsed) {
+            QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+            pageUi.setValue(QStringLiteral("ui/pageRailCollapsed"), collapsed);
+            if (m_noteLeftRail)
+              m_noteLeftRail->setPagesExpanded(!collapsed);
+            // Keep thumbsAdjacent in sync when the strip fully folds away.
+            if (m_noteLeftRail)
+              m_noteLeftRail->setThumbsAdjacent(!collapsed &&
+                                               m_pageThumbnailSidebar &&
+                                               m_pageThumbnailSidebar->isVisible());
+            positionNoteChrome();
+          });
 #else
   {
     QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -6376,12 +6430,21 @@ void MainWindow::onModeChanged(int index) {
 void MainWindow::requestGoogleLogin() {
     if (m_googleLoginInFlight) {
       const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+      // Only auto-recover after a very long hang (browser never returned).
       if (m_googleLoginInFlightSinceMs > 0 &&
-          (nowMs - m_googleLoginInFlightSinceMs) > 15000) {
+          (nowMs - m_googleLoginInFlightSinceMs) > 10 * 60 * 1000) {
         qWarning() << "Google login in-flight guard was stale, unlocking retry";
         m_googleLoginInFlight = false;
         m_googleLoginInFlightSinceMs = 0;
-        m_authNavigationLocked = false;
+#ifdef Q_OS_ANDROID
+        GoogleAuthManager::instance().cancelPendingLogin();
+#endif
+        const QString user =
+            QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                .value(QStringLiteral("username"))
+                .toString()
+                .trimmed();
+        m_authNavigationLocked = user.isEmpty();
       } else {
         qInfo() << "Google login already in flight, ignoring duplicate request";
         return;
@@ -6395,29 +6458,20 @@ void MainWindow::requestGoogleLogin() {
       if (!QSslSocket::supportsSsl()) {
         qCritical() << "Google login start skipped: TLS unavailable";
         emit oauthFailed(QStringLiteral("tls_unavailable"));
-        m_authNavigationLocked = false;
+        const QString user =
+            QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                .value(QStringLiteral("username"))
+                .toString()
+                .trimmed();
+        m_authNavigationLocked = user.isEmpty();
         return;
       }
 #endif
       m_googleLoginInFlight = true;
       m_googleLoginInFlightSinceMs = QDateTime::currentMSecsSinceEpoch();
-      m_authNavigationLocked = true;
+      // Keep Study/login gate for guests; do not flip chrome mid-OAuth.
+      // Unlock-on-resume / authenticationFailed handles abandoned flows.
       GoogleAuthManager::instance().login();
-
-      // Failsafe: if no browser handoff/response arrives, release lock to avoid dead button.
-      QTimer::singleShot(12000, this, [this]() {
-        if (!m_googleLoginInFlight)
-          return;
-        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-        if (m_googleLoginInFlightSinceMs > 0 &&
-            (nowMs - m_googleLoginInFlightSinceMs) >= 11500) {
-          qWarning() << "Google login timeout before browser handoff; unlocking.";
-          m_googleLoginInFlight = false;
-          m_googleLoginInFlightSinceMs = 0;
-          m_authNavigationLocked = false;
-          emit oauthFailed(QStringLiteral("google_login_start_timeout"));
-        }
-      });
     });
 }
 
@@ -6759,6 +6813,9 @@ QRect MainWindow::sidebarPushContentRect() const {
 void MainWindow::syncSidebarPushLayout() {
   if (!m_centralContainer)
     return;
+  // Don't fight an in-flight fold/unfold animation.
+  if (m_sidebarAnimating)
+    return;
   QRect r = sidebarPushContentRect();
   int h = r.height();
   if (h <= 0)
@@ -6814,7 +6871,9 @@ void MainWindow::setupSidebar() {
 
   m_sidebarContainer = new QWidget(this);
   m_sidebarContainer->setMinimumWidth(0);
+  m_sidebarContainer->setMinimumSize(0, 0);
   m_sidebarContainer->setMaximumWidth(SIDEBAR_WIDTH);
+  m_sidebarContainer->setAttribute(Qt::WA_LayoutUsesWidgetRect, true);
 #ifdef Q_OS_ANDROID
   // On Android, give the sidebar a solid background and enable styled background
   // so touch events are fully absorbed and don't pass through to the main content.
@@ -6824,6 +6883,7 @@ void MainWindow::setupSidebar() {
 #endif
 
   QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
+  layout->setSizeConstraint(QLayout::SetNoConstraint);
 #ifdef Q_OS_ANDROID
   layout->setContentsMargins(UiScale::dp(6), 0, UiScale::dp(6), 0);
 #else
@@ -8511,6 +8571,27 @@ void MainWindow::animateSidebar(bool show) {
 
   const int fullW = effectiveSidebarWidthPx();
 
+  // Cancel any in-flight fold so we never accumulate fighting animations.
+  const int animGen = ++m_sidebarAnimGeneration;
+  if (m_sidebarAnim) {
+    QObject::disconnect(m_sidebarAnim, nullptr, this, nullptr);
+    m_sidebarAnim->stop();
+    m_sidebarAnim->deleteLater();
+    m_sidebarAnim.clear();
+  }
+
+  if (m_sidebarContainer) {
+    // Layout min-size otherwise blocks setGeometry from shrinking to 0 —
+    // that was the "only folds a few pixels" bug.
+    m_sidebarContainer->setMinimumSize(0, 0);
+    m_sidebarContainer->setMaximumWidth(fullW);
+    if (QLayout *lay = m_sidebarContainer->layout())
+      lay->setSizeConstraint(QLayout::SetNoConstraint);
+    m_sidebarContainer->setAttribute(Qt::WA_LayoutUsesWidgetRect, true);
+  }
+
+  m_sidebarAnimating = true;
+
   if (show) {
     m_isSidebarOpen = true;
     m_sidebarContainer->setGeometry(r.x(), r.y(), 0, containerHeight);
@@ -8527,14 +8608,18 @@ void MainWindow::animateSidebar(bool show) {
     m_sidebarContainer->raise();
   }
 
-  QVariantAnimation *anim = new QVariantAnimation(this);
+  auto *anim = new QVariantAnimation(this);
+  m_sidebarAnim = anim;
   anim->setDuration(BlopMotion::kEmphasis);
   anim->setEasingCurve(BlopMotion::kEaseStandard);
-  anim->setStartValue(show ? 0 : fullW);
+  const int startW = show ? 0
+                          : (m_sidebarContainer ? m_sidebarContainer->width()
+                                                : fullW);
+  anim->setStartValue(startW);
   anim->setEndValue(show ? fullW : 0);
   connect(anim, &QVariantAnimation::valueChanged, this,
-          [this](const QVariant &v) {
-            const int w = v.toInt();
+          [this, fullW](const QVariant &v) {
+            const int w = qBound(0, v.toInt(), fullW);
             QRect r2 = sidebarPushContentRect();
             int h2 = r2.height();
             if (h2 <= 0)
@@ -8549,19 +8634,16 @@ void MainWindow::animateSidebar(bool show) {
             if (m_desktopSidebarPushSpacer)
               m_desktopSidebarPushSpacer->setFixedWidth(w);
 #endif
-            if (m_sidebarContainer)
+            if (m_sidebarContainer) {
+              m_sidebarContainer->setMaximumWidth(qMax(w, 1));
+              m_sidebarContainer->setFixedWidth(w);
               m_sidebarContainer->setGeometry(r2.x(), r2.y(), w, h2);
+            }
 #ifdef Q_OS_ANDROID
             if (m_androidSidebarScrim)
               m_androidSidebarScrim->raise();
             if (m_sidebarContainer)
               m_sidebarContainer->raise();
-            // v3.18.7: m_androidHeader->raise() removed here — chrome
-            // is a child of m_centralContainer, drawer is a sibling of
-            // m_centralContainer, so raise() cannot lift the chrome
-            // above the drawer. Now obsolete because the drawer's
-            // geometry no longer overlaps the chrome (see
-            // sidebarPushContentRect()).
 #endif
             // Keep docked toolbar fully visible while sidebar animates.
             if (m_floatingTools) {
@@ -8584,7 +8666,6 @@ void MainWindow::animateSidebar(bool show) {
                   idealW = qMax(220, int(idealW * 0.90));
                   const int availableW = qMax(240, m_editorCenterWidget->width());
                   const int dockW = qMin(idealW, availableW);
-                  // Same centering rule during sidebar animation.
                   int dockX = qMax(0, (availableW - dockW) / 2);
                   if (dockX + dockW > m_editorCenterWidget->width())
                     dockX = m_editorCenterWidget->width() - dockW;
@@ -8597,7 +8678,18 @@ void MainWindow::animateSidebar(bool show) {
               }
             }
           });
-  connect(anim, &QVariantAnimation::finished, this, [this, show]() {
+  connect(anim, &QVariantAnimation::finished, this, [this, show, fullW, animGen]() {
+    if (animGen != m_sidebarAnimGeneration)
+      return; // superseded by a newer toggle
+    m_sidebarAnimating = false;
+    m_sidebarAnim.clear();
+    if (m_sidebarContainer) {
+      m_sidebarContainer->setMaximumWidth(fullW);
+      m_sidebarContainer->setMinimumWidth(0);
+      // Clear fixed-width lock from the animation ticks.
+      m_sidebarContainer->setMinimumSize(0, 0);
+      m_sidebarContainer->setMaximumHeight(QWIDGETSIZE_MAX);
+    }
     if (show) {
       syncSidebarPushLayout();
 #ifdef Q_OS_ANDROID
@@ -8607,10 +8699,6 @@ void MainWindow::animateSidebar(bool show) {
       }
       if (m_sidebarContainer)
         m_sidebarContainer->raise();
-      // v3.18.7: see note above — chrome cannot be raised over the
-      // drawer (different parents), and after sidebarPushContentRect
-      // no longer maps the drawer onto the chrome rect, it doesn't
-      // need to be.
 #endif
     } else {
       m_isSidebarOpen = false;
@@ -8628,12 +8716,6 @@ void MainWindow::animateSidebar(bool show) {
     updateSidebarState();
   });
   anim->start(QAbstractAnimation::DeleteWhenStopped);
-  // v3.18.7: legacy m_androidHeader->raise() chains removed — they
-  // were attempts to lift the chrome above the drawer, but Qt's
-  // sibling z-order rules prevent that (chrome is inside
-  // m_centralContainer, drawer is its sibling at the MainWindow
-  // level). The drawer now starts BELOW the chrome row instead, so
-  // there is no overlap to fight.
 }
 void MainWindow::onToggleSidebar() {
 #ifdef Q_OS_ANDROID
@@ -8646,6 +8728,14 @@ void MainWindow::onToggleSidebar() {
     return;
   sidebarToggleCooldown.start();
 #endif
+  // Heal visibility/flag desync — otherwise a "close" click can start an open
+  // animation on an already-visible drawer (looks like a tiny fold twitch).
+  if (m_sidebarContainer) {
+    if (m_sidebarContainer->isVisible() && !m_isSidebarOpen)
+      m_isSidebarOpen = true;
+    else if (!m_sidebarContainer->isVisible() && m_isSidebarOpen)
+      m_isSidebarOpen = false;
+  }
   animateSidebar(!m_isSidebarOpen);
 }
 void MainWindow::updateSidebarState() {
@@ -8729,14 +8819,16 @@ void MainWindow::updateSidebarState() {
       hasA4Pages = (editor->view() != nullptr);
   }
   if (m_pageThumbnailSidebar) {
-    const bool showPages =
+    const bool wantPages =
         inNotesMode && isEditor && hasA4Pages &&
         (!m_noteLeftRail || m_noteLeftRail->pagesExpanded());
+    // Respect an intentional collapse — never force-expand here (that left a
+    // stubborn stub strip when the user tried to fold the pages rail).
+    const bool showPages =
+        wantPages && !m_pageThumbnailSidebar->isCollapsed();
     m_pageThumbnailSidebar->setVisible(showPages);
-    if (showPages) {
-      m_pageThumbnailSidebar->setCollapsed(false);
+    if (showPages)
       m_pageThumbnailSidebar->rebuild();
-    }
   }
   if (isEditor) {
     // Keep library sidebar state as the user left it (hamburger toggles).
@@ -9160,21 +9252,24 @@ void MainWindow::onEditorNoteOverflowMenu() {
 
 void MainWindow::onTogglePageManager() {
 #ifndef Q_OS_ANDROID
-  // Desktop: toggle the floating right page-thumbnail rail (never collapse
-  // it to an empty 28dp sliver — that looked like a missing sidebar).
+  // Desktop: toggle the floating page-thumbnail rail completely (no stub).
   if (m_pageThumbnailSidebar && m_noteLeftRail) {
     const bool on = !m_noteLeftRail->pagesExpanded();
     m_noteLeftRail->setPagesExpanded(on);
-    m_pageThumbnailSidebar->setVisible(on);
     if (on) {
       m_pageThumbnailSidebar->setCollapsed(false);
+      m_pageThumbnailSidebar->show();
       m_pageThumbnailSidebar->rebuild();
+    } else {
+      m_pageThumbnailSidebar->setCollapsed(true);
+      m_pageThumbnailSidebar->hide();
     }
     positionNoteChrome();
     return;
   }
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible()) {
-    m_pageThumbnailSidebar->setVisible(false);
+    m_pageThumbnailSidebar->setCollapsed(true);
+    m_pageThumbnailSidebar->hide();
     positionNoteChrome();
     return;
   }
@@ -10501,7 +10596,10 @@ int MainWindow::noteBottomChromeHeight() const {
   }
   if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
     return 0;
-  return m_noteBottomChrome->height() + UiScale::dp(14);
+  // Height + bottom gap used in positionNoteChrome (must match).
+  // Gap must clear the drop-shadow blur (28) + offset (6) or the pill looks
+  // cut off at the window edge.
+  return m_noteBottomChrome->height() + UiScale::dp(48);
 }
 
 void MainWindow::positionDrawboardToolbar() {
@@ -10530,8 +10628,11 @@ void MainWindow::positionDrawboardToolbar() {
   const int bottomH = noteBottomChromeHeight();
   const int railW = tb->preferredRailWidth();
   const int topY = noteHeaderHeight();
+  // Leave a clear gap above the floating bottom notch so the rail footer
+  // (library / + / chevron) is never visually clipped.
+  const int railClearance = bottomH + UiScale::dp(8);
   const int availH = qMax(UiScale::dp(200),
-                          m_editorCenterWidget->height() - topY - bottomH);
+                          m_editorCenterWidget->height() - topY - railClearance);
   // Edge-flush: full available height, no side margin from the window edge.
   const int h = availH;
   // Clamp to the host rect so a mis-reported width cannot park the rail
@@ -10568,13 +10669,14 @@ void MainWindow::positionNoteChrome() {
     m_noteLeftRail->setThumbsAdjacent(false);
   }
 
-  if (thumbsVisible) {
-    if (m_pageThumbnailSidebar->isCollapsed())
-      m_pageThumbnailSidebar->setCollapsed(false);
+  if (thumbsVisible && !m_pageThumbnailSidebar->isCollapsed()) {
     const int thumbW = m_pageThumbnailSidebar->width();
     m_pageThumbnailSidebar->setGeometry(leftX, 0, thumbW, H);
     m_pageThumbnailSidebar->raise();
     leftX += thumbW;
+  } else if (thumbsVisible && m_pageThumbnailSidebar->isCollapsed()) {
+    // Fully folded: no stub strip. Pages button on the left rail re-opens it.
+    m_pageThumbnailSidebar->setGeometry(0, 0, 0, H);
   }
 
   int rightInset = 0;
@@ -10605,16 +10707,15 @@ void MainWindow::positionNoteChrome() {
 #endif
 
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
-    // Floating centered notch — compact pill above the canvas bottom edge.
+    // Floating centered notch — lift clear of the window edge so the pill
+    // radius/border is never clipped (looked "cut off" when gap was ~12dp).
     const int stripH = m_noteBottomChrome->height();
-    const int gap = UiScale::dp(12);
-    // Content groups: undo/redo + pages + zoom ≈ 320–380dp depending on pages.
+    const int gap = UiScale::dp(48);
     const bool a4 = (currentNoteView() != nullptr);
-    const int pillW =
-        UiScale::dp(a4 ? 360 : 260);
+    const int pillW = UiScale::dp(a4 ? 360 : 260);
     const int avail = qMax(0, W - leftX - rightInset);
     const int x = leftX + qMax(0, (avail - pillW) / 2);
-    const int y = H - stripH - gap;
+    const int y = qMax(0, H - stripH - gap);
     m_noteBottomChrome->setGeometry(x, y, pillW, stripH);
     m_noteBottomChrome->raise();
   }
@@ -10727,13 +10828,13 @@ void MainWindow::syncPenPresetBarGeometry() {
   int w = 0;
   if (tb->isDrawboardVerticalRail()) {
     // Sit above the bottom chrome, left of the Favorites rail.
-    const int margin = UiScale::dp(12);
+    const int margin = UiScale::dp(16);
     const int bottomH = noteBottomChromeHeight();
     w = qMin(UiScale::dp(280),
              qMax(UiScale::dp(160), m_editorCenterWidget->width() -
                                         tb->width() - margin * 3));
     x = m_editorCenterWidget->width() - tb->width() - w - margin;
-    y = m_editorCenterWidget->height() - bottomH - h - margin;
+    y = qMax(0, m_editorCenterWidget->height() - bottomH - h - margin);
   } else {
     x = m_floatingTools->x();
     y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
@@ -10781,10 +10882,10 @@ void MainWindow::applyNoteChromeTheme() {
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(NoteChrome::accent());
   if (m_noteBottomChrome) {
-    m_noteBottomChrome->setFixedHeight(UiScale::dp(48));
+    m_noteBottomChrome->setFixedHeight(UiScale::dp(52));
     m_noteBottomChrome->setStyleSheet(QStringLiteral(
         "QWidget#NoteBottomChrome {"
-        "  background: %1; border: 1px solid %2; border-radius: 24px;"
+        "  background: %1; border: 1px solid %2; border-radius: 26px;"
         "}"
         "QPushButton {"
         "  background: transparent; color: %3; border: none; border-radius: 8px;"
@@ -10794,10 +10895,14 @@ void MainWindow::applyNoteChromeTheme() {
         "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
         "QPushButton:disabled { color: %3; }"
         "QLabel { background: transparent; color: %3; font-size: 13px; font-weight: 600; }")
-                                          .arg(NoteChrome::toolbarFill().name(),
-                                               NoteChrome::borderSoft().name(),
+                                          .arg(NoteChrome::panelElevated().name(),
+                                               NoteChrome::notchBorder().name(),
                                                NoteChrome::textSecondary().name(),
                                                NoteChrome::textPrimary().name()));
+    if (auto *shadow = qobject_cast<QGraphicsDropShadowEffect *>(
+            m_noteBottomChrome->graphicsEffect())) {
+      shadow->setColor(QColor(0, 0, 0, NoteChrome::isDark() ? 140 : 70));
+    }
     refreshNoteBottomChromeIcons();
   }
   if (m_documentTabBar)
@@ -11660,13 +11765,13 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
 
 #ifdef Q_OS_ANDROID
 void MainWindow::resetOAuthTimer() {
-    // Find the main window instance and reset the OAuth timer
+    // Kept for ABI/call-site compatibility. Deep-link success no longer clears
+    // in-flight here — MainWindow waits for idToken / authenticationFailed so
+    // a mid-exchange unlock cannot leave the UI inconsistent.
     for (QWidget *widget : QApplication::topLevelWidgets()) {
         MainWindow *mainWin = qobject_cast<MainWindow*>(widget);
         if (mainWin) {
-            qInfo() << "MainWindow: resetOAuthTimer called, resetting OAuth timer";
-            mainWin->m_googleLoginInFlight = false;
-            mainWin->m_googleLoginInFlightSinceMs = 0;
+            qInfo() << "MainWindow: resetOAuthTimer (no-op while verifying)";
             return;
         }
     }

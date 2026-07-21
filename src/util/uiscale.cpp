@@ -178,8 +178,23 @@ int safeTopPx(QWidget *reference) {
 
 int safeBottomPx(QWidget *reference) {
 #if defined(Q_OS_ANDROID)
-  return androidBottomInsetPx(reference);
+  int inset = androidBottomInsetPx(reference);
+  // Edge-to-edge immersive often reports 0 via availableGeometry while the
+  // gesture / nav bar still covers the bottom. Prefer QWindow safe margins,
+  // then a phone minimum so the floating pill is never clipped.
+  if (reference) {
+    if (QWidget *top = reference->window()) {
+      if (QWindow *win = top->windowHandle())
+        inset = qMax(inset, win->safeAreaMargins().bottom());
+    }
+  }
+  if (isAndroidPhoneUi(reference))
+    inset = qMax(inset, dp(24));
+  return inset;
 #else
+  // Desktop phone simulation: mimic a typical gesture-nav inset.
+  if (isAndroidPhoneUi(reference))
+    return dp(24);
   Q_UNUSED(reference);
   return 0;
 #endif

@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <QLabel>
 #include <QPersistentModelIndex>
+#include <QPointer>
 #include <QLineEdit>
 #include <QListView>
 #include <QListWidget>
@@ -35,6 +36,7 @@
 #include "uiprofilemanager.h"
 
 // Forward Declarations
+class QVariantAnimation;
 class DocumentTabBar;
 class LibraryTagsPanel;
 class LibraryOrgBar;
@@ -468,6 +470,11 @@ private:
 
   bool m_isSidebarOpen;
   bool m_lastIsEditor{false};
+  /// True while width animation runs — syncSidebarPushLayout must not snap
+  /// the drawer back to full width mid-fold.
+  bool m_sidebarAnimating{false};
+  int m_sidebarAnimGeneration{0};
+  QPointer<QVariantAnimation> m_sidebarAnim;
 
   QWidget *m_sidebarContainer{nullptr};
   QListWidget *m_navSidebar{nullptr};
