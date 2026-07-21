@@ -3,6 +3,7 @@
 #include "canvasview.h"
 #include "moderntoolbar.h"
 #include "notechrome.h"
+#include "notechromeedge.h"
 #include "toolpropertiespanel.h"
 #include "allpagesoverlay.h"
 #include "blop_inwindow_menu.h"
@@ -61,6 +62,7 @@
 #include <QCheckBox>
 #include <QAbstractButton>
 #include <QAbstractSlider>
+#include <QBoxLayout>
 #include <QComboBox>
 #include <QTabBar>
 #include <QWindow>
@@ -3058,16 +3060,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         if (dockX + dockW > m_editorCenterWidget->width())
           dockX = m_editorCenterWidget->width() - dockW;
         tb->setGeometry(dockX, headerH, dockW, 48);
-        if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
-          const int margin = UiScale::dp(14);
-          const int stripH = m_noteBottomChrome->height();
-          const int stripW =
-              qMax(UiScale::dp(320), m_editorCenterWidget->width() - 2 * margin);
-          m_noteBottomChrome->setGeometry(
-              (m_editorCenterWidget->width() - stripW) / 2,
-              m_editorCenterWidget->height() - stripH - margin, stripW, stripH);
-          m_noteBottomChrome->raise();
-        }
+        positionNoteChrome();
       } else {
         positionNoteChrome();
       }
@@ -3125,6 +3118,69 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       updateNoteBottomChrome();
     }
     return true;
+  } else if (m_noteBottomChrome &&
+             (obj == m_noteBottomChrome || obj == m_btnNoteChromeGrip)) {
+#ifndef Q_OS_ANDROID
+    if (event->type() == QEvent::MouseButtonPress ||
+        event->type() == QEvent::MouseMove ||
+        event->type() == QEvent::MouseButtonRelease) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if (event->type() == QEvent::MouseButtonPress &&
+          me->button() == Qt::RightButton) {
+        showNoteChromeEdgeMenu(me->globalPosition().toPoint());
+        return true;
+      }
+      if (event->type() == QEvent::MouseButtonPress &&
+          me->button() == Qt::LeftButton) {
+        bool startDrag = (obj == m_btnNoteChromeGrip);
+        if (!startDrag && obj == m_noteBottomChrome) {
+          QWidget *hit = m_noteBottomChrome->childAt(me->pos());
+          startDrag = !hit;
+          if (hit && m_btnNoteChromeGrip &&
+              (hit == m_btnNoteChromeGrip ||
+               m_btnNoteChromeGrip->isAncestorOf(hit)))
+            startDrag = true;
+          if (hit && (qobject_cast<QAbstractButton *>(hit) ||
+                      qobject_cast<QLabel *>(hit)))
+            startDrag = false;
+        }
+        if (startDrag) {
+          m_noteChromeDragging = true;
+          m_noteChromeDragHotspot = (obj == m_btnNoteChromeGrip)
+              ? me->pos() + m_btnNoteChromeGrip->pos()
+              : me->pos();
+          m_noteBottomChrome->grabMouse();
+          m_noteBottomChrome->raise();
+          return true;
+        }
+      }
+      if (m_noteChromeDragging && event->type() == QEvent::MouseMove) {
+        const QPoint parentPos =
+            m_editorCenterWidget
+                ? m_editorCenterWidget->mapFromGlobal(
+                      me->globalPosition().toPoint())
+                : me->globalPosition().toPoint();
+        QPoint topLeft = parentPos - m_noteChromeDragHotspot;
+        if (m_editorCenterWidget) {
+          const QRect bounds = m_editorCenterWidget->rect();
+          topLeft.setX(qBound(bounds.left(), topLeft.x(),
+                              bounds.right() - m_noteBottomChrome->width() + 1));
+          topLeft.setY(qBound(bounds.top(), topLeft.y(),
+                              bounds.bottom() - m_noteBottomChrome->height() + 1));
+        }
+        m_noteBottomChrome->move(topLeft);
+        return true;
+      }
+      if (m_noteChromeDragging && event->type() == QEvent::MouseButtonRelease &&
+          me->button() == Qt::LeftButton) {
+        m_noteChromeDragging = false;
+        m_noteBottomChrome->releaseMouse();
+        const QPoint center = m_noteBottomChrome->geometry().center();
+        setNoteChromeEdge(nearestNoteChromeEdge(center));
+        return true;
+      }
+    }
+#endif
   }
   return QMainWindow::eventFilter(obj, event);
 }
@@ -5191,48 +5247,40 @@ void MainWindow::setupUi() {
   centerLayout->insertWidget(0, m_noteHeader);
 #endif
 
-  // ── Drawboard utilities bar: undo/redo · page · zoom ─────────────────────
+  // ── Drawboard utilities bar: edge-dockable undo/redo · page · zoom ────────
+  {
+    QSettings edgeSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    const int edgeVal =
+        edgeSettings.value(QStringLiteral("ui/noteChromeEdge"),
+                           int(NoteChromeEdge::Bottom))
+            .toInt();
+    if (edgeVal >= int(NoteChromeEdge::Top) &&
+        edgeVal <= int(NoteChromeEdge::Right))
+      m_noteChromeEdge = static_cast<NoteChromeEdge>(edgeVal);
+    else
+      m_noteChromeEdge = NoteChromeEdge::Bottom;
+  }
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
   m_noteBottomChrome->setAttribute(Qt::WA_StyledBackground, true);
-  // Soft elevation so the pill reads as floating (light mode was nearly
-  // invisible on white canvas and looked "cut off").
-  {
-    auto *shadow = new QGraphicsDropShadowEffect(m_noteBottomChrome);
-    shadow->setBlurRadius(UiScale::dp(28));
-    shadow->setOffset(0, UiScale::dp(6));
-    shadow->setColor(QColor(0, 0, 0, NoteChrome::isDark() ? 140 : 70));
-    m_noteBottomChrome->setGraphicsEffect(shadow);
-  }
-  // Tall enough that 36dp buttons + vertical padding never look clipped.
-  m_noteBottomChrome->setFixedHeight(UiScale::dp(52));
-  m_noteBottomChrome->setStyleSheet(QStringLiteral(
-      "QWidget#NoteBottomChrome {"
-      "  background: %1;"
-      "  border: 1px solid %2;"
-      "  border-radius: 26px;"
-      "}"
-      "QPushButton {"
-      "  background: transparent; color: %3;"
-      "  border: none; border-radius: 8px;"
-      "  font-size: 13px; font-weight: 600; min-width: 36px; min-height: 36px;"
-      "  padding: 0 8px;"
-      "}"
-      "QPushButton:hover { background: rgba(127,127,127,0.16); color: %4; }"
-      "QLabel { background: transparent; color: %3;"
-      "  font-size: 13px; font-weight: 600; }")
-                                        .arg(NoteChrome::panelElevated().name(
-                                                 QColor::HexRgb),
-                                             NoteChrome::notchBorder().name(
-                                                 QColor::HexRgb),
-                                             NoteChrome::textSecondary().name(
-                                                 QColor::HexRgb),
-                                             NoteChrome::textPrimary().name(
-                                                 QColor::HexRgb)));
-  auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
-  bottomLay->setContentsMargins(UiScale::dp(12), UiScale::dp(6),
-                                UiScale::dp(12), UiScale::dp(6));
-  bottomLay->setSpacing(UiScale::dp(4));
+  m_noteBottomChrome->setCursor(Qt::ArrowCursor);
+  m_noteChromeLayout = new QBoxLayout(QBoxLayout::LeftToRight, m_noteBottomChrome);
+  m_noteChromeLayout->setContentsMargins(UiScale::dp(8), UiScale::dp(4),
+                                         UiScale::dp(8), UiScale::dp(4));
+  m_noteChromeLayout->setSpacing(UiScale::dp(4));
+
+  m_btnNoteChromeGrip = new QPushButton(m_noteBottomChrome);
+  m_btnNoteChromeGrip->setObjectName(QStringLiteral("NoteChromeGrip"));
+  m_btnNoteChromeGrip->setToolTip(
+      QStringLiteral("Ziehen zum Andocken · Rechtsklick: Rand wählen"));
+  m_btnNoteChromeGrip->setCursor(Qt::SizeAllCursor);
+  m_btnNoteChromeGrip->setFlat(true);
+  m_btnNoteChromeGrip->setFocusPolicy(Qt::NoFocus);
+  m_btnNoteChromeGrip->setFixedSize(UiScale::dp(28), UiScale::dp(36));
+  m_btnNoteChromeGrip->installEventFilter(this);
+  m_noteChromeLayout->addWidget(m_btnNoteChromeGrip, 0, Qt::AlignCenter);
+
+  m_noteChromeLayout->addStretch(1);
 
   m_btnNoteUndo = new QPushButton(m_noteBottomChrome);
   m_btnNoteUndo->setObjectName(QStringLiteral("NoteBtnUndo"));
@@ -5240,7 +5288,7 @@ void MainWindow::setupUi() {
   m_btnNoteUndo->setCursor(Qt::PointingHandCursor);
   m_btnNoteUndo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNoteUndo, &QPushButton::clicked, this, &MainWindow::onUndo);
-  bottomLay->addWidget(m_btnNoteUndo);
+  m_noteChromeLayout->addWidget(m_btnNoteUndo, 0, Qt::AlignCenter);
 
   m_btnNoteRedo = new QPushButton(m_noteBottomChrome);
   m_btnNoteRedo->setObjectName(QStringLiteral("NoteBtnRedo"));
@@ -5248,9 +5296,12 @@ void MainWindow::setupUi() {
   m_btnNoteRedo->setCursor(Qt::PointingHandCursor);
   m_btnNoteRedo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNoteRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
-  bottomLay->addWidget(m_btnNoteRedo);
+  m_noteChromeLayout->addWidget(m_btnNoteRedo, 0, Qt::AlignCenter);
 
-  bottomLay->addSpacing(UiScale::dp(8));
+  m_noteChromeSep1 = new QFrame(m_noteBottomChrome);
+  m_noteChromeSep1->setObjectName(QStringLiteral("NoteChromeSep"));
+  m_noteChromeSep1->setFrameShape(QFrame::NoFrame);
+  m_noteChromeLayout->addWidget(m_noteChromeSep1, 0, Qt::AlignCenter);
 
   m_btnNotePagePrev = new QPushButton(m_noteBottomChrome);
   m_btnNotePagePrev->setObjectName(QStringLiteral("NoteBtnPagePrev"));
@@ -5267,13 +5318,13 @@ void MainWindow::setupUi() {
       }
     }
   });
-  bottomLay->addWidget(m_btnNotePagePrev);
+  m_noteChromeLayout->addWidget(m_btnNotePagePrev, 0, Qt::AlignCenter);
 
   m_lblNotePage = new QLabel(QStringLiteral("1 of 1"), m_noteBottomChrome);
   m_lblNotePage->setObjectName(QStringLiteral("NoteLblPage"));
   m_lblNotePage->setAlignment(Qt::AlignCenter);
   m_lblNotePage->setMinimumWidth(UiScale::dp(64));
-  bottomLay->addWidget(m_lblNotePage);
+  m_noteChromeLayout->addWidget(m_lblNotePage, 0, Qt::AlignCenter);
 
   m_btnNotePageNext = new QPushButton(m_noteBottomChrome);
   m_btnNotePageNext->setObjectName(QStringLiteral("NoteBtnPageNext"));
@@ -5290,9 +5341,12 @@ void MainWindow::setupUi() {
       }
     }
   });
-  bottomLay->addWidget(m_btnNotePageNext);
+  m_noteChromeLayout->addWidget(m_btnNotePageNext, 0, Qt::AlignCenter);
 
-  bottomLay->addSpacing(UiScale::dp(8));
+  m_noteChromeSep2 = new QFrame(m_noteBottomChrome);
+  m_noteChromeSep2->setObjectName(QStringLiteral("NoteChromeSep"));
+  m_noteChromeSep2->setFrameShape(QFrame::NoFrame);
+  m_noteChromeLayout->addWidget(m_noteChromeSep2, 0, Qt::AlignCenter);
 
   m_btnNoteZoomOut = new QPushButton(m_noteBottomChrome);
   m_btnNoteZoomOut->setObjectName(QStringLiteral("NoteBtnZoomOut"));
@@ -5308,7 +5362,7 @@ void MainWindow::setupUi() {
       updateNoteBottomChrome();
     }
   });
-  bottomLay->addWidget(m_btnNoteZoomOut);
+  m_noteChromeLayout->addWidget(m_btnNoteZoomOut, 0, Qt::AlignCenter);
 
   m_lblNoteZoom = new QLabel(QStringLiteral("100%"), m_noteBottomChrome);
   m_lblNoteZoom->setObjectName(QStringLiteral("NoteLblZoom"));
@@ -5316,7 +5370,7 @@ void MainWindow::setupUi() {
   m_lblNoteZoom->setMinimumWidth(UiScale::dp(48));
   m_lblNoteZoom->setToolTip(QStringLiteral("Doppelklick: an Inhalt anpassen (Ctrl+0)"));
   m_lblNoteZoom->installEventFilter(this);
-  bottomLay->addWidget(m_lblNoteZoom);
+  m_noteChromeLayout->addWidget(m_lblNoteZoom, 0, Qt::AlignCenter);
 
   m_btnNoteZoomIn = new QPushButton(m_noteBottomChrome);
   m_btnNoteZoomIn->setObjectName(QStringLiteral("NoteBtnZoomIn"));
@@ -5332,10 +5386,12 @@ void MainWindow::setupUi() {
       updateNoteBottomChrome();
     }
   });
-  bottomLay->addWidget(m_btnNoteZoomIn);
+  m_noteChromeLayout->addWidget(m_btnNoteZoomIn, 0, Qt::AlignCenter);
+
+  m_noteChromeLayout->addStretch(1);
 
   // Fit actions live in the note ⋯ menu + Ctrl+0/1 — keep buttons as hidden
-  // hooks for shortcuts/automation without bloating the notch.
+  // hooks for shortcuts/automation without bloating the bar.
   m_btnNoteFitWidth = new QPushButton(m_noteBottomChrome);
   m_btnNoteFitWidth->setObjectName(QStringLiteral("NoteBtnFitWidth"));
   m_btnNoteFitWidth->hide();
@@ -5361,10 +5417,15 @@ void MainWindow::setupUi() {
       updateNoteBottomChrome();
     }
   });
+
+  m_noteBottomChrome->installEventFilter(this);
+  applyNoteChromeLayoutOrientation();
+  refreshNoteChromeStyle();
   refreshNoteBottomChromeIcons();
 
   m_noteBottomChrome->hide();
-  // Floating overlay — not in the VBox (Drawboard bottom strip).
+  // Overlay on the note canvas — docks flush to an edge (not in the VBox).
+
 
 #ifndef Q_OS_ANDROID
   // Canvas host — Drawboard charcoal around the white page.
@@ -10585,8 +10646,10 @@ int MainWindow::noteHeaderHeight() const {
   return (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
 }
 
+int MainWindow::noteChromeThickness() const { return UiScale::dp(48); }
+
 int MainWindow::noteBottomChromeHeight() const {
-  // Floating notch: Favorites rail clears bar height + bottom gap.
+  // Bottom-edge clearance for Favorites rail / presets.
   // Phone UI uses AndroidPhoneToolbar instead — report that clearance.
   if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
     if (!phone->isVisible())
@@ -10596,10 +10659,200 @@ int MainWindow::noteBottomChromeHeight() const {
   }
   if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
     return 0;
-  // Height + bottom gap used in positionNoteChrome (must match).
-  // Gap must clear the drop-shadow blur (28) + offset (6) or the pill looks
-  // cut off at the window edge.
-  return m_noteBottomChrome->height() + UiScale::dp(48);
+  if (m_noteChromeEdge != NoteChromeEdge::Bottom)
+    return 0;
+  return m_noteBottomChrome->height();
+}
+
+int MainWindow::noteChromeClearanceTop() const {
+  if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
+    return 0;
+  if (m_noteChromeEdge != NoteChromeEdge::Top)
+    return 0;
+  return m_noteBottomChrome->height();
+}
+
+int MainWindow::noteChromeClearanceLeft() const {
+  if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
+    return 0;
+  if (m_noteChromeEdge != NoteChromeEdge::Left)
+    return 0;
+  return m_noteBottomChrome->width();
+}
+
+int MainWindow::noteChromeClearanceRight() const {
+  if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
+    return 0;
+  if (m_noteChromeEdge != NoteChromeEdge::Right)
+    return 0;
+  return m_noteBottomChrome->width();
+}
+
+QRect MainWindow::noteChromeContentRect() const {
+  if (!m_editorCenterWidget)
+    return {};
+  const int W = m_editorCenterWidget->width();
+  const int H = m_editorCenterWidget->height();
+  int left = 0;
+  int top = noteHeaderHeight();
+  int right = W;
+  int bottom = H;
+#ifndef Q_OS_ANDROID
+  if (m_noteLeftRail && m_noteLeftRail->isVisible())
+    left += m_noteLeftRail->preferredWidth();
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+      !m_pageThumbnailSidebar->isCollapsed())
+    left += m_pageThumbnailSidebar->width();
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    if (tb->isVisible() && tb->isDrawboardVerticalRail())
+      right -= tb->preferredRailWidth();
+  }
+#endif
+  return QRect(QPoint(left, top), QPoint(qMax(left, right - 1), qMax(top, bottom - 1)));
+}
+
+NoteChromeEdge MainWindow::nearestNoteChromeEdge(const QPoint &posInParent) const {
+  const QRect content = noteChromeContentRect();
+  if (!content.isValid())
+    return NoteChromeEdge::Bottom;
+  const int dTop = qAbs(posInParent.y() - content.top());
+  const int dBottom = qAbs(content.bottom() - posInParent.y());
+  const int dLeft = qAbs(posInParent.x() - content.left());
+  const int dRight = qAbs(content.right() - posInParent.x());
+  const int best = qMin(qMin(dTop, dBottom), qMin(dLeft, dRight));
+  if (best == dTop)
+    return NoteChromeEdge::Top;
+  if (best == dBottom)
+    return NoteChromeEdge::Bottom;
+  if (best == dLeft)
+    return NoteChromeEdge::Left;
+  return NoteChromeEdge::Right;
+}
+
+void MainWindow::persistNoteChromeEdge() const {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("ui/noteChromeEdge"), int(m_noteChromeEdge));
+}
+
+void MainWindow::setNoteChromeEdge(NoteChromeEdge edge) {
+  m_noteChromeEdge = edge;
+  persistNoteChromeEdge();
+  applyNoteChromeLayoutOrientation();
+  refreshNoteChromeStyle();
+  positionNoteChrome();
+}
+
+void MainWindow::applyNoteChromeLayoutOrientation() {
+  if (!m_noteChromeLayout || !m_noteBottomChrome)
+    return;
+  const bool horiz = noteChromeEdgeIsHorizontal(m_noteChromeEdge);
+  m_noteChromeLayout->setDirection(horiz ? QBoxLayout::LeftToRight
+                                         : QBoxLayout::TopToBottom);
+  if (horiz) {
+    m_noteChromeLayout->setContentsMargins(UiScale::dp(8), UiScale::dp(4),
+                                           UiScale::dp(8), UiScale::dp(4));
+  } else {
+    m_noteChromeLayout->setContentsMargins(UiScale::dp(4), UiScale::dp(8),
+                                           UiScale::dp(4), UiScale::dp(8));
+  }
+  if (m_btnNoteChromeGrip) {
+    m_btnNoteChromeGrip->setFixedSize(horiz ? UiScale::dp(28) : UiScale::dp(36),
+                                      horiz ? UiScale::dp(36) : UiScale::dp(28));
+  }
+  const auto sizeSep = [&](QFrame *sep) {
+    if (!sep)
+      return;
+    if (horiz)
+      sep->setFixedSize(UiScale::dp(1), UiScale::dp(22));
+    else
+      sep->setFixedSize(UiScale::dp(22), UiScale::dp(1));
+  };
+  sizeSep(m_noteChromeSep1);
+  sizeSep(m_noteChromeSep2);
+  if (m_lblNotePage) {
+    if (horiz) {
+      m_lblNotePage->setMinimumWidth(UiScale::dp(64));
+      m_lblNotePage->setMaximumWidth(QWIDGETSIZE_MAX);
+    } else {
+      m_lblNotePage->setMinimumWidth(0);
+      m_lblNotePage->setMaximumWidth(UiScale::dp(40));
+      m_lblNotePage->setWordWrap(true);
+    }
+  }
+  if (m_lblNoteZoom) {
+    if (horiz) {
+      m_lblNoteZoom->setMinimumWidth(UiScale::dp(48));
+      m_lblNoteZoom->setMaximumWidth(QWIDGETSIZE_MAX);
+    } else {
+      m_lblNoteZoom->setMinimumWidth(0);
+      m_lblNoteZoom->setMaximumWidth(UiScale::dp(40));
+    }
+  }
+}
+
+void MainWindow::refreshNoteChromeStyle() {
+  if (!m_noteBottomChrome)
+    return;
+  // Flush edge bar — square corners, Favorites-like fill, single inner border.
+  QString edgeBorder;
+  switch (m_noteChromeEdge) {
+  case NoteChromeEdge::Top:
+    edgeBorder = QStringLiteral("border: none; border-bottom: 1px solid %1;");
+    break;
+  case NoteChromeEdge::Bottom:
+    edgeBorder = QStringLiteral("border: none; border-top: 1px solid %1;");
+    break;
+  case NoteChromeEdge::Left:
+    edgeBorder = QStringLiteral("border: none; border-right: 1px solid %1;");
+    break;
+  case NoteChromeEdge::Right:
+    edgeBorder = QStringLiteral("border: none; border-left: 1px solid %1;");
+    break;
+  }
+  const QString borderCss =
+      edgeBorder.arg(NoteChrome::border().name(QColor::HexRgb));
+  m_noteBottomChrome->setGraphicsEffect(nullptr);
+  m_noteBottomChrome->setStyleSheet(QStringLiteral(
+      "QWidget#NoteBottomChrome {"
+      "  background: %1;"
+      "  %2"
+      "  border-radius: 0px;"
+      "}"
+      "QPushButton {"
+      "  background: transparent; color: %3;"
+      "  border: none; border-radius: 8px;"
+      "  font-size: 12px; font-weight: 600; min-width: 32px; min-height: 32px;"
+      "  padding: 0 4px;"
+      "}"
+      "QPushButton:hover { background: rgba(127,127,127,0.16); color: %4; }"
+      "QPushButton:disabled { color: %3; }"
+      "QFrame#NoteChromeSep { background: %5; border: none; }"
+      "QLabel { background: transparent; color: %3;"
+      "  font-size: 12px; font-weight: 600; }")
+                                        .arg(NoteChrome::toolbarFill().name(
+                                                 QColor::HexRgb),
+                                             borderCss,
+                                             NoteChrome::textSecondary().name(
+                                                 QColor::HexRgb),
+                                             NoteChrome::textPrimary().name(
+                                                 QColor::HexRgb),
+                                             NoteChrome::borderSoft().name(
+                                                 QColor::HexRgb)));
+}
+
+void MainWindow::showNoteChromeEdgeMenu(const QPoint &globalPos) {
+  QMenu menu(this);
+  auto addEdge = [&](const QString &label, NoteChromeEdge edge) {
+    QAction *a = menu.addAction(label);
+    a->setCheckable(true);
+    a->setChecked(m_noteChromeEdge == edge);
+    connect(a, &QAction::triggered, this, [this, edge]() { setNoteChromeEdge(edge); });
+  };
+  addEdge(QStringLiteral("Oben andocken"), NoteChromeEdge::Top);
+  addEdge(QStringLiteral("Unten andocken"), NoteChromeEdge::Bottom);
+  addEdge(QStringLiteral("Links andocken"), NoteChromeEdge::Left);
+  addEdge(QStringLiteral("Rechts andocken"), NoteChromeEdge::Right);
+  menu.exec(globalPos);
 }
 
 void MainWindow::positionDrawboardToolbar() {
@@ -10628,9 +10881,8 @@ void MainWindow::positionDrawboardToolbar() {
   const int bottomH = noteBottomChromeHeight();
   const int railW = tb->preferredRailWidth();
   const int topY = noteHeaderHeight();
-  // Leave a clear gap above the floating bottom notch so the rail footer
-  // (library / + / chevron) is never visually clipped.
-  const int railClearance = bottomH + UiScale::dp(8);
+  // Clear bottom-docked utilities bar so the rail footer stays usable.
+  const int railClearance = bottomH + (bottomH > 0 ? UiScale::dp(4) : 0);
   const int availH = qMax(UiScale::dp(200),
                           m_editorCenterWidget->height() - topY - railClearance);
   // Edge-flush: full available height, no side margin from the window edge.
@@ -10691,8 +10943,10 @@ void MainWindow::positionNoteChrome() {
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
       railW = tb->preferredRailWidth();
     const int bottomH = noteBottomChromeHeight();
-    const int x = qMax(leftX + margin, W - railW - propsW - margin);
-    const int y = noteHeaderHeight() + margin;
+    const int topClear = noteChromeClearanceTop();
+    const int x = qMax(leftX + margin + noteChromeClearanceLeft(),
+                       W - railW - propsW - margin - noteChromeClearanceRight());
+    const int y = noteHeaderHeight() + margin + topClear;
     const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
     // Clamp height; ToolPropertiesPanel scrolls internally so controls never
     // stack on top of each other when the card is shorter than its content.
@@ -10706,17 +10960,32 @@ void MainWindow::positionNoteChrome() {
   const int rightInset = 0;
 #endif
 
-  if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
-    // Floating centered notch — lift clear of the window edge so the pill
-    // radius/border is never clipped (looked "cut off" when gap was ~12dp).
-    const int stripH = m_noteBottomChrome->height();
-    const int gap = UiScale::dp(48);
-    const bool a4 = (currentNoteView() != nullptr);
-    const int pillW = UiScale::dp(a4 ? 360 : 260);
-    const int avail = qMax(0, W - leftX - rightInset);
-    const int x = leftX + qMax(0, (avail - pillW) / 2);
-    const int y = qMax(0, H - stripH - gap);
-    m_noteBottomChrome->setGeometry(x, y, pillW, stripH);
+  if (m_noteBottomChrome && m_noteBottomChrome->isVisible() &&
+      !m_noteChromeDragging) {
+    // Flush edge bar spanning the canvas content rect (between left tools
+    // and Favorites rail).
+    const QRect content = noteChromeContentRect();
+    const int thick = noteChromeThickness();
+    m_noteBottomChrome->setMinimumSize(0, 0);
+    m_noteBottomChrome->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    QRect geo;
+    switch (m_noteChromeEdge) {
+    case NoteChromeEdge::Top:
+      geo = QRect(content.left(), content.top(), content.width(), thick);
+      break;
+    case NoteChromeEdge::Bottom:
+      geo = QRect(content.left(), content.bottom() - thick + 1, content.width(),
+                  thick);
+      break;
+    case NoteChromeEdge::Left:
+      geo = QRect(content.left(), content.top(), thick, content.height());
+      break;
+    case NoteChromeEdge::Right:
+      geo = QRect(content.right() - thick + 1, content.top(), thick,
+                  content.height());
+      break;
+    }
+    m_noteBottomChrome->setGeometry(geo);
     m_noteBottomChrome->raise();
   }
 
@@ -10784,12 +11053,22 @@ void MainWindow::updateNoteBottomChrome() {
     const int pages = qMax(1, view->pageCount());
     const int cur = qBound(1, view->currentPageIndex() + 1, pages);
     const bool bm = view->isPageBookmarked(view->currentPageIndex());
-    if (m_lblNotePage)
-      m_lblNotePage->setText(
-          QStringLiteral("%1%2 of %3")
-              .arg(bm ? QStringLiteral("★ ") : QString())
-              .arg(cur)
-              .arg(pages));
+    if (m_lblNotePage) {
+      const bool horiz = noteChromeEdgeIsHorizontal(m_noteChromeEdge);
+      if (horiz) {
+        m_lblNotePage->setText(
+            QStringLiteral("%1%2 of %3")
+                .arg(bm ? QStringLiteral("★ ") : QString())
+                .arg(cur)
+                .arg(pages));
+      } else {
+        m_lblNotePage->setText(
+            QStringLiteral("%1%2/%3")
+                .arg(bm ? QStringLiteral("★") : QString())
+                .arg(cur)
+                .arg(pages));
+      }
+    }
     if (m_lblNoteZoom)
       m_lblNoteZoom->setText(
           QStringLiteral("%1%").arg(qRound(view->zoomFactor() * 100.0)));
@@ -10827,14 +11106,16 @@ void MainWindow::syncPenPresetBarGeometry() {
   int y = 0;
   int w = 0;
   if (tb->isDrawboardVerticalRail()) {
-    // Sit above the bottom chrome, left of the Favorites rail.
+    // Sit above the bottom-docked utilities bar, left of the Favorites rail.
     const int margin = UiScale::dp(16);
     const int bottomH = noteBottomChromeHeight();
+    const int rightClear = noteChromeClearanceRight();
     w = qMin(UiScale::dp(280),
              qMax(UiScale::dp(160), m_editorCenterWidget->width() -
-                                        tb->width() - margin * 3));
-    x = m_editorCenterWidget->width() - tb->width() - w - margin;
-    y = qMax(0, m_editorCenterWidget->height() - bottomH - h - margin);
+                                        tb->width() - rightClear - margin * 3));
+    x = m_editorCenterWidget->width() - tb->width() - rightClear - w - margin;
+    y = qMax(noteChromeClearanceTop() + margin,
+             m_editorCenterWidget->height() - bottomH - h - margin);
   } else {
     x = m_floatingTools->x();
     y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
@@ -10882,27 +11163,8 @@ void MainWindow::applyNoteChromeTheme() {
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(NoteChrome::accent());
   if (m_noteBottomChrome) {
-    m_noteBottomChrome->setFixedHeight(UiScale::dp(52));
-    m_noteBottomChrome->setStyleSheet(QStringLiteral(
-        "QWidget#NoteBottomChrome {"
-        "  background: %1; border: 1px solid %2; border-radius: 26px;"
-        "}"
-        "QPushButton {"
-        "  background: transparent; color: %3; border: none; border-radius: 8px;"
-        "  font-size: 13px; font-weight: 600; min-width: 36px; min-height: 36px;"
-        "  padding: 0 8px;"
-        "}"
-        "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
-        "QPushButton:disabled { color: %3; }"
-        "QLabel { background: transparent; color: %3; font-size: 13px; font-weight: 600; }")
-                                          .arg(NoteChrome::panelElevated().name(),
-                                               NoteChrome::notchBorder().name(),
-                                               NoteChrome::textSecondary().name(),
-                                               NoteChrome::textPrimary().name()));
-    if (auto *shadow = qobject_cast<QGraphicsDropShadowEffect *>(
-            m_noteBottomChrome->graphicsEffect())) {
-      shadow->setColor(QColor(0, 0, 0, NoteChrome::isDark() ? 140 : 70));
-    }
+    applyNoteChromeLayoutOrientation();
+    refreshNoteChromeStyle();
     refreshNoteBottomChromeIcons();
   }
   if (m_documentTabBar)
@@ -10935,6 +11197,7 @@ void MainWindow::refreshNoteBottomChromeIcons() {
   apply(m_btnNoteZoomIn, QStringLiteral("zoom_in"));
   apply(m_btnNoteFitWidth, QStringLiteral("fit_width"));
   apply(m_btnNoteFitPage, QStringLiteral("fit_page"));
+  apply(m_btnNoteChromeGrip, QStringLiteral("more_vert"));
 #endif
 }
 
