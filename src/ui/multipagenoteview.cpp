@@ -1259,7 +1259,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
 #ifdef Q_OS_ANDROID
   applyGraphicsViewCanvasBackground(this);
 #else
-  setBackgroundBrush(UIStyles::SceneBackground);
+  setBackgroundBrush(NoteChrome::canvasBg());
 #endif
 
   // Gesten auf dem Viewport registrieren. NOTE: a QOpenGLWidget viewport was
