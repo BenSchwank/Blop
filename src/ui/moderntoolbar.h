@@ -212,6 +212,14 @@ public:
     int preferredMarkupHeight() const;
     int preferredRailWidth() const;
 
+    /// Favorites rail dock edge (desktop): snap left or right.
+    enum class RailDockEdge { Left = 0, Right = 1 };
+    RailDockEdge railDockEdge() const { return m_railDockEdge; }
+    void setRailDockEdge(RailDockEdge edge, bool persist = true,
+                         bool notify = true);
+    bool isRailDockedLeft() const { return m_railDockEdge == RailDockEdge::Left; }
+    bool isDragging() const { return m_isDragging; }
+
     /// Customize which tools appear in the vertical Drawboard rail.
     void addToolToRail(ToolMode mode);
     void addCurrentToolAsRailSlot();
@@ -266,6 +274,8 @@ signals:
     void toolOptionsRequested();
     /// Edge chevron / rail chrome: toggle the right properties dock.
     void propertiesPanelToggleRequested();
+    /// Favorites rail snapped to another edge (MainWindow should re-layout).
+    void railDockEdgeChanged(RailDockEdge edge);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -273,6 +283,7 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void contextMenuEvent(QContextMenuEvent*) override;
     void wheelEvent(QWheelEvent*) override;
     void leaveEvent(QEvent*) override;
     void showEvent(QShowEvent*) override;
@@ -310,7 +321,11 @@ private:
     int m_dockedCenterAreaEndX{0};
 
     bool m_isDockedLeft{true};
+    RailDockEdge m_railDockEdge{RailDockEdge::Right};
     double m_scrollAngle{0.0};
+    void loadRailDockEdge();
+    void persistRailDockEdge() const;
+    void showRailDockEdgeMenu(const QPoint &globalPos);
 
     double m_scale{1.0};
     int m_topBound{0};
