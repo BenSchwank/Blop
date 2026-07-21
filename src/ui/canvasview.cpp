@@ -226,6 +226,8 @@ public:
                &SelectionMenu::cutRequested);
     addIconBtn(SelectionMenuIcons::copyIcon(), QStringLiteral("Kopieren"),
                &SelectionMenu::copyRequested);
+    addIconBtn(SelectionMenuIcons::duplicateIcon(), QStringLiteral("Duplizieren"),
+               &SelectionMenu::duplicateRequested);
     addIconBtn(SelectionMenuIcons::colorIcon(), QStringLiteral("Farbe"),
                &SelectionMenu::colorRequested);
     addIconBtn(SelectionMenuIcons::cropIcon(), QStringLiteral("Zuschneiden"),

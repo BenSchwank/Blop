@@ -85,6 +85,8 @@ void NoteLeftRail::addGroupSeparator() {
 QToolButton *NoteLeftRail::makeBtn(const QString &id, const QString &tip) {
   auto *btn = new QToolButton(this);
   btn->setObjectName(QStringLiteral("NoteLeftRailBtn"));
+  btn->setAccessibleName(QStringLiteral("note_rail_%1").arg(id));
+  btn->setProperty("railId", id);
   btn->setToolTip(tip);
   btn->setCursor(Qt::PointingHandCursor);
   btn->setAutoRaise(true);

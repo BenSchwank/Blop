@@ -7,6 +7,7 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsScene>
 #include <QString>
+#include <QTextOption>
 #include <QTransform>
 #include <QGraphicsItem>
 #include "ToolMode.h"
@@ -59,6 +60,17 @@ public:
         QColor tc = m_config.penColor;
         tc.setAlphaF(qBound(0.15, m_config.opacity, 1.0));
         newText->setDefaultTextColor(tc);
+
+        {
+          QTextOption opt = newText->document()->defaultTextOption();
+          Qt::Alignment align = Qt::AlignLeft;
+          if (m_config.textAlign == 1)
+            align = Qt::AlignHCenter;
+          else if (m_config.textAlign == 2)
+            align = Qt::AlignRight;
+          opt.setAlignment(align);
+          newText->document()->setDefaultTextOption(opt);
+        }
         
         newText->setTextInteractionFlags(Qt::TextEditorInteraction);
         newText->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsFocusable | QGraphicsItem::ItemIsMovable);

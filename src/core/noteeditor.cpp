@@ -293,12 +293,8 @@ void NoteEditor::setupShortcuts() {
         canvas_->deleteSelection();
     });
 
-    new QShortcut(QKeySequence(Qt::Key_P), this,
-                  [this]() { canvas_->setToolMode(ToolMode::Pen); });
-    new QShortcut(QKeySequence(Qt::Key_E), this,
-                  [this]() { canvas_->setToolMode(ToolMode::Eraser); });
-    new QShortcut(QKeySequence(Qt::Key_L), this,
-                  [this]() { canvas_->setToolMode(ToolMode::Lasso); });
+    // Tool shortcuts (P/E/H/M/V/T) live in MainWindow so Favorites-rail
+    // selection and ToolManager stay in sync — avoid a second parallel map.
 }
 
 void NoteEditor::setNote(Note *note) {

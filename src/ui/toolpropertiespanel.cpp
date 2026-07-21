@@ -157,6 +157,38 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   makeFontChip(QStringLiteral("Round"), QStringLiteral("Round"));
   m_root->addWidget(m_fontRow);
 
+  m_alignLbl = new QLabel(QStringLiteral("Ausrichtung"), m_body);
+  m_root->addWidget(m_alignLbl);
+  m_alignRow = new QWidget(m_body);
+  auto *alignLay = new QHBoxLayout(m_alignRow);
+  alignLay->setContentsMargins(0, 0, 0, 0);
+  alignLay->setSpacing(UiScale::dp(8));
+  auto makeAlignChip = [this, alignLay](const QString &label, int align) {
+    auto *btn = new QPushButton(label, m_alignRow);
+    btn->setObjectName(QStringLiteral("ToolPropsMode"));
+    btn->setCheckable(true);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setMinimumHeight(UiScale::dp(34));
+    btn->setProperty("textAlign", align);
+    connect(btn, &QPushButton::clicked, this, [this, align]() {
+      m_config.textAlign = align;
+      applyConfig();
+      if (m_alignRow) {
+        for (auto *ch : m_alignRow->findChildren<QPushButton *>()) {
+          if (ch)
+            ch->setChecked(ch->property("textAlign").toInt() ==
+                           m_config.textAlign);
+        }
+      }
+    });
+    alignLay->addWidget(btn, 1);
+    return btn;
+  };
+  makeAlignChip(QStringLiteral("Links"), 0);
+  makeAlignChip(QStringLiteral("Mitte"), 1);
+  makeAlignChip(QStringLiteral("Rechts"), 2);
+  m_root->addWidget(m_alignRow);
+
   m_fillLbl = new QLabel(QStringLiteral("Füllung"), m_body);
   m_root->addWidget(m_fillLbl);
   m_fillRow = new QWidget(m_body);
@@ -384,6 +416,18 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
       }
     }
   }
+  if (m_alignLbl)
+    m_alignLbl->setVisible(showFont);
+  if (m_alignRow) {
+    m_alignRow->setVisible(showFont);
+    if (showFont) {
+      for (auto *ch : m_alignRow->findChildren<QPushButton *>()) {
+        if (ch)
+          ch->setChecked(ch->property("textAlign").toInt() ==
+                         m_config.textAlign);
+      }
+    }
+  }
 
   const bool showStyle = (mode == ToolMode::Pen);
   if (m_styleLbl)
@@ -496,8 +540,8 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
       break;
     case ToolMode::Text:
       hint = QStringLiteral(
-          "Tippe auf die Seite, um Text zu setzen. Schrift, Größe und Farbe "
-          "gelten für neue Textfelder.");
+          "Tippe auf die Seite, um Text zu setzen. Schrift, Ausrichtung, Größe "
+          "und Farbe gelten für neue Textfelder.");
       break;
     case ToolMode::Ruler:
       hint = QStringLiteral("Lineal auf der Seite positionieren und zeichnen.");
