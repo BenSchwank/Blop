@@ -25,9 +25,16 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Custom QtActivity subclass that forwards Google OAuth deep links
- * (custom scheme {@code com.benschwank.blop://oauth2redirect} OR
- * {@code com.benschwank.blop:/oauth2redirect}) into {@link BlopOAuthBridge}.
+ * Custom QtActivity subclass that forwards Google OAuth deep links into
+ * {@link BlopOAuthBridge}.
+ *
+ * Accepted callback schemes:
+ * <ul>
+ *   <li>{@code com.googleusercontent.apps.<CLIENT_ID>:/oauth2redirect}
+ *       (Google's authorized reverse-client-id form)</li>
+ *   <li>{@code com.benschwank.blop:/oauth2redirect} (legacy package form)</li>
+ * </ul>
+ * Both path-form and host-form variants are accepted.
  *
  * Chrome Custom Tabs are preferred over a full external browser so the
  * custom-scheme redirect returns to this same task via {@link #onNewIntent}.
@@ -125,12 +132,14 @@ public class BlopActivity extends QtActivity {
             CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
             builder.setShowTitle(true);
             builder.setShareState(CustomTabsIntent.SHARE_STATE_OFF);
+            builder.setUrlBarHidingEnabled(true);
             CustomTabsIntent intent = builder.build();
             intent.intent.setPackage(packageName);
-            // NO_HISTORY: when Google redirects to our scheme, the tab closes
-            // and the deep link is delivered to this activity's onNewIntent.
+            // Keep the Custom Tab in our task. NO_HISTORY closes the tab when
+            // Google redirects to our scheme so onNewIntent receives the code.
             intent.intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
             intent.intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            intent.intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             intent.launchUrl(activity, uri);
             return true;
         } catch (Exception e) {
@@ -237,9 +246,9 @@ public class BlopActivity extends QtActivity {
         }
         Log.i(TAG, origin + " received URI: " + data.toString());
         final String scheme = data.getScheme();
-        if (scheme == null || !scheme.equalsIgnoreCase("com.benschwank.blop")) {
+        if (!isOAuthCallbackScheme(scheme)) {
             Log.w(TAG, origin + " scheme mismatch: " + scheme
-                    + " (expected com.benschwank.blop)");
+                    + " (expected googleusercontent.apps.* or com.benschwank.blop)");
             return;
         }
         final String hostStr = data.getHost() == null ? "(null)" : data.getHost();
@@ -249,6 +258,17 @@ public class BlopActivity extends QtActivity {
 
         sOAuthBrowserOpen = false;
         BlopOAuthBridge.deliverIntentUri(data);
+    }
+
+    /** True for Google reverse-client-id scheme or legacy package scheme. */
+    private static boolean isOAuthCallbackScheme(String scheme) {
+        if (scheme == null)
+            return false;
+        if (scheme.equalsIgnoreCase("com.benschwank.blop"))
+            return true;
+        // com.googleusercontent.apps.<client-id-prefix>
+        return scheme.regionMatches(true, 0, "com.googleusercontent.apps.", 0,
+                "com.googleusercontent.apps.".length());
     }
 
     /**

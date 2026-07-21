@@ -1691,9 +1691,10 @@ MainWindow::MainWindow(QWidget *parent)
             "Bitte tippe noch einmal auf „Über Google anmelden“.");
       else if (error.contains(QStringLiteral("oauth_redirect_missing")))
         friendly = QStringLiteral(
-            "Google hat dich nicht zurück in die App gebracht. "
-            "Bitte tippe erneut auf „Über Google anmelden“ "
-            "(am besten mit Chrome).");
+            "Google hat dich nicht zurück in die App gebracht "
+            "(oft bleibt der Browser bei google.com hängen). "
+            "Schließe den Google-Tab und tippe erneut auf "
+            "„Über Google anmelden“.");
       else if (error.contains(QStringLiteral("token_exchange")))
         friendly = QStringLiteral(
             "Google konnte den Login nicht bestätigen. Prüfe die "
@@ -11702,9 +11703,9 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
 #ifdef Q_OS_ANDROID
   // Google blocks OAuth inside embedded WebViews (disallowed_useragent). For
   // the Android PKCE flow we open the auth URL in a Chrome Custom Tab, which
-  // runs in the same task and reliably redirects back to the app via the
-  // com.benschwank.blop:/oauth2redirect deep link handled by
-  // BlopActivity -> BlopOAuthBridge -> GoogleAuthManager.
+  // runs in the same task and redirects back via
+  // com.googleusercontent.apps.<client>:/oauth2redirect
+  // (BlopActivity -> BlopOAuthBridge -> GoogleAuthManager).
   dismissAndroidOAuthOverlay();
   qInfo() << "showAuthOverlay: opening auth URL via Chrome Custom Tab";
   bool opened = false;

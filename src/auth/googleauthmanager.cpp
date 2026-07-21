@@ -27,14 +27,19 @@ namespace {
 #ifdef Q_OS_ANDROID
 // Android OAuth client (no client secret). Configured as "Android" client in
 // Google Cloud Console with package com.benschwank.blop + Play App Signing
-// SHA-1 (and Upload SHA-1). Custom scheme matches the AndroidManifest intent
-// filter for both slash forms.
+// SHA-1 (and Upload SHA-1).
+//
+// Google's authorized custom-scheme redirect for an Android/iOS client is
+// ALWAYS the reverse client-id form:
+//   com.googleusercontent.apps.<CLIENT_ID>:/oauth2redirect
+// A package-name scheme (com.benschwank.blop:/…) is NOT authorized for this
+// client type — Chrome then hangs on "Einen Moment bitte…" and drops the
+// user on google.com instead of returning to the app (see user screenshots).
 constexpr const char *kAndroidClientId =
     "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com";
-// Google's official OAuth-for-Android docs use the single-slash form:
-//   redirect_uri=com.example.app:/oauth2redirect
-// Manifest also accepts the host form so Chrome on some devices still lands.
-constexpr const char *kAndroidRedirectUri = "com.benschwank.blop:/oauth2redirect";
+constexpr const char *kAndroidRedirectUri =
+    "com.googleusercontent.apps.571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s:/"
+    "oauth2redirect";
 constexpr const char *kGoogleAuthEndpoint =
     "https://accounts.google.com/o/oauth2/v2/auth";
 constexpr const char *kGoogleTokenEndpoint =
