@@ -303,6 +303,9 @@ private:
   void rebuildPageSettingsTags();
   QString currentEditorNotePath() const;
   void setLibraryRootFromSource(const QModelIndex &sourceIndex);
+  /// Open a folder in the main library grid (and keep QFileSystemModel in sync).
+  void navigateLibraryToPath(const QString &path);
+  void updateLibraryHeader();
 
   void updateGrid();
   void updateSidebarState();
@@ -479,6 +482,7 @@ private:
   QWidget *m_sidebarContainer{nullptr};
   QListWidget *m_navSidebar{nullptr};
   QFileSystemModel *m_fileModel{nullptr};
+  QString m_pendingLibraryRootPath;
   QPushButton *m_closeSidebarBtn{nullptr};
 
   QPushButton *m_btnSidebarSettings{nullptr};
@@ -489,6 +493,8 @@ private:
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
+  QLabel *m_lblLibraryTitle{nullptr};
+  QLabel *m_lblLibrarySubtitle{nullptr};
   QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote{nullptr};
 

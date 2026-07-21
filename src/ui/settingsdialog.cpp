@@ -277,6 +277,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground);
     setObjectName(QStringLiteral("SettingsDialog"));
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("SettingsDialog")));
+    // Prefer a roomy panel on desktop; BlopModal SideSheet further sizes it
+    // to ~640dp / full window height so it is not stuck in a tiny card.
+    setMinimumSize(480, 520);
+    resize(720, 860);
 
     // Replace the Designer-generated tab with our overhauled layout. The
     // old QFormLayout dump is replaced by a Hero card + 4 section cards.

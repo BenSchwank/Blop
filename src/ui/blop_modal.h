@@ -54,7 +54,8 @@ public:
   /// For pure async usage prefer `present()` + finished/dismissed
   /// signals.
   static int execBlocking(QWidget *parent, QDialog *dlg,
-                          Mode mode = Mode::Auto);
+                          Mode mode = Mode::Auto,
+                          int preferredCardWidth = 0);
 
   void dismiss();
 
