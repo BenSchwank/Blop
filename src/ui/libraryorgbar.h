@@ -20,6 +20,7 @@ public:
 
   SmartView smartView() const { return m_view; }
   SortMode sortMode() const { return m_sort; }
+  void setSmartView(SmartView view);
 
   void setAccentColor(const QColor &color);
 

@@ -1159,7 +1159,20 @@ ModernItemDelegate::ModernItemDelegate(MainWindow *parent)
     : QStyledItemDelegate(parent), m_window(parent) {}
 QSize ModernItemDelegate::sizeHint(const QStyleOptionViewItem &option,
                                    const QModelIndex &index) const {
-  return QStyledItemDelegate::sizeHint(option, index);
+  Q_UNUSED(option);
+  Q_UNUSED(index);
+  if (m_window && m_window->m_fileListView) {
+    const QSize grid = m_window->m_fileListView->gridSize();
+    if (grid.width() > 32 && grid.height() > 32) {
+      const int spacing = m_window->m_fileListView->spacing();
+      return QSize(qMax(32, grid.width() - spacing),
+                   qMax(32, grid.height() - spacing));
+    }
+    const QSize icons = m_window->m_fileListView->iconSize();
+    if (icons.width() > 32 && icons.height() > 32)
+      return icons;
+  }
+  return QSize(UiScale::dp(140), UiScale::dp(140));
 }
 void ModernItemDelegate::paint(QPainter *painter,
                                const QStyleOptionViewItem &option,
@@ -1201,9 +1214,16 @@ void ModernItemDelegate::paint(QPainter *painter,
   QIcon icon;
   const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
   const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
-  const bool isFolder = index.data(Qt::UserRole + 1).toBool() ||
-                        (!isBnote && !isBlop &&
-                         !fileName.contains(QLatin1Char('.')));
+  bool isFolder = index.data(Qt::UserRole + 1).toBool();
+  if (!isFolder && m_window && m_window->m_fileModel) {
+    QModelIndex src = index;
+    if (m_window->m_libraryProxy)
+      src = m_window->m_libraryProxy->mapToSource(index);
+    if (src.isValid())
+      isFolder = m_window->m_fileModel->isDir(src);
+  }
+  if (!isFolder && !isBnote && !isBlop && !fileName.contains(QLatin1Char('.')))
+    isFolder = true;
 
   if (isBnote) {
     icon = m_window->createModernIcon(QStringLiteral("note_bnote"),
@@ -3769,82 +3789,80 @@ void MainWindow::updateGrid() {
   if (!m_fileListView)
     return;
 
+  // Real Android phones and BLOP_SIMULATE_ANDROID_PHONE=1 use the denser
+  // column-fit tile sizing so the main library stays usable on narrow widths.
+  const bool phoneGrid = UiScale::isAndroidPhoneUi(this);
 #ifdef Q_OS_ANDROID
-  // Match Windows desktop grid: same profile-driven tile size, square cells, spacing
-  int screenWidth = 0;
-  if (m_fileListView->viewport())
-    screenWidth = m_fileListView->viewport()->width();
-  if (screenWidth <= 0)
-    screenWidth = m_fileListView->width();
-  if (screenWidth <= 0)
-    screenWidth = QApplication::primaryScreen()->availableGeometry().width();
-
-  // Floor the iconSize to a touch-friendly value on Android. The desktop
-  // default of 100px renders embarrassingly small on phones - bump to dp(140)
-  // so each tile is comfortably tappable.
-  int s = m_currentProfile.iconSize;
-  if (s <= 20)
-    s = 100;
-  s = qMax(s, UiScale::dp(140));
-
-  int spacing = m_currentProfile.gridSpacing;
-  if (spacing <= 0)
-    spacing = 20;
-  spacing = qMax(spacing, UiScale::dp(16));
-
-  m_fileListView->setSpacing(spacing);
-
-  int avail = screenWidth;
-  int columns = (avail - spacing) / (s + spacing);
-  if (columns < 1)
-    columns = 1;
-  if (columns > 6)
-    columns = 6;
-
-  int totalSpacing = (columns + 1) * spacing;
-  int itemWidth = (avail - totalSpacing) / columns;
-  while (itemWidth < 64 && columns > 1) {
-    columns--;
-    totalSpacing = (columns + 1) * spacing;
-    itemWidth = (avail - totalSpacing) / columns;
-  }
-  // Hard minimum so a single-column fallback (small viewport, few items)
-  // still produces a visibly-sized tile instead of a tiny pill.
-  itemWidth = qMax(itemWidth, UiScale::dp(120));
-
-  // Force a perfectly square tile: itemHeight == itemWidth. Combined with
-  // the matching gridSize this prevents Qt from stretching items horizontally
-  // when only one column fits, which previously triggered the "wide list"
-  // delegate branch with shrunken icons.
-  const int itemHeight = itemWidth;
-
-  m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
-  m_fileListView->setIconSize(QSize(itemWidth, itemWidth));
-  m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
-  m_fileListView->setUniformItemSizes(true);
-
+  const bool usePhoneGrid = true;
+  Q_UNUSED(phoneGrid);
 #else
-  int s = m_currentProfile.iconSize;
-  if (s <= 20)
-    s = 132;
-  s = qMax(s, 120);
-  int spacing = m_currentProfile.gridSpacing;
-  if (spacing <= 0)
-    spacing = 18;
-  spacing = qMax(spacing, 14);
-  QSize itemS(s, s);
-  m_fileListView->setSpacing(spacing);
-  m_fileListView->setItemSize(itemS);
-  m_fileListView->setIconSize(itemS);
-  if (m_currentProfile.snapToGrid) {
-    int gridW = itemS.width() + spacing;
-    int gridH = itemS.height() + spacing;
-    m_fileListView->setGridSize(QSize(gridW, gridH));
-  } else {
-    m_fileListView->setGridSize(QSize(itemS.width() + spacing,
-                                      itemS.height() + spacing));
-  }
+  const bool usePhoneGrid = phoneGrid;
 #endif
+  if (usePhoneGrid) {
+    int screenWidth = 0;
+    if (m_fileListView->viewport())
+      screenWidth = m_fileListView->viewport()->width();
+    if (screenWidth <= 0)
+      screenWidth = m_fileListView->width();
+    if (screenWidth <= 0)
+      screenWidth = QApplication::primaryScreen()->availableGeometry().width();
+
+    int s = m_currentProfile.iconSize;
+    if (s <= 20)
+      s = 100;
+    s = qMax(s, UiScale::dp(140));
+
+    int spacing = m_currentProfile.gridSpacing;
+    if (spacing <= 0)
+      spacing = 20;
+    spacing = qMax(spacing, UiScale::dp(16));
+
+    m_fileListView->setSpacing(spacing);
+
+    int avail = screenWidth;
+    int columns = (avail - spacing) / (s + spacing);
+    if (columns < 1)
+      columns = 1;
+    if (columns > 6)
+      columns = 6;
+
+    int totalSpacing = (columns + 1) * spacing;
+    int itemWidth = (avail - totalSpacing) / columns;
+    while (itemWidth < 64 && columns > 1) {
+      columns--;
+      totalSpacing = (columns + 1) * spacing;
+      itemWidth = (avail - totalSpacing) / columns;
+    }
+    itemWidth = qMax(itemWidth, UiScale::dp(120));
+    const int itemHeight = itemWidth;
+
+    m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
+    m_fileListView->setIconSize(QSize(itemWidth, itemWidth));
+    m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
+    m_fileListView->setUniformItemSizes(true);
+  } else {
+    int s = m_currentProfile.iconSize;
+    if (s <= 20)
+      s = 132;
+    s = qMax(s, 120);
+    int spacing = m_currentProfile.gridSpacing;
+    if (spacing <= 0)
+      spacing = 18;
+    spacing = qMax(spacing, 14);
+    QSize itemS(s, s);
+    m_fileListView->setSpacing(spacing);
+    m_fileListView->setItemSize(itemS);
+    m_fileListView->setIconSize(itemS);
+    m_fileListView->setUniformItemSizes(true);
+    if (m_currentProfile.snapToGrid) {
+      int gridW = itemS.width() + spacing;
+      int gridH = itemS.height() + spacing;
+      m_fileListView->setGridSize(QSize(gridW, gridH));
+    } else {
+      m_fileListView->setGridSize(QSize(itemS.width() + spacing,
+                                        itemS.height() + spacing));
+    }
+  }
 }
 
 void MainWindow::applyProfile(const UiProfile &profile) {
@@ -4896,8 +4914,9 @@ void MainWindow::setupUi() {
 
   m_fileListView = new FreeGridView(this);
   m_fileListView->setModel(m_libraryProxy);
-  m_fileListView->setRootIndex(
-      m_libraryProxy->mapFromSource(m_fileModel->index(m_rootPath)));
+  // Prefer navigateLibraryToPath so fetchMore + directoryLoaded keep the grid
+  // populated (bare mapFromSource often yields an empty view at first paint).
+  navigateLibraryToPath(m_rootPath);
   m_fileListView->setSpacing(16);
   m_fileListView->setFrameShape(QFrame::NoFrame);
 #ifdef Q_OS_ANDROID
@@ -7279,6 +7298,9 @@ void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
     return;
   if (!sourceIndex.isValid())
     return;
+  // QFileSystemModel often reports rowCount==0 until the directory is fetched.
+  if (m_fileModel->canFetchMore(sourceIndex))
+    m_fileModel->fetchMore(sourceIndex);
   if (m_libraryProxy) {
     if (m_fileListView->model() != m_libraryProxy)
       m_fileListView->setModel(m_libraryProxy);
@@ -7288,9 +7310,11 @@ void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
       m_libraryProxy->invalidate();
       proxyRoot = m_libraryProxy->mapFromSource(sourceIndex);
     }
-    if (proxyRoot.isValid())
+    if (proxyRoot.isValid()) {
       m_fileListView->setRootIndex(proxyRoot);
-    else
+      if (m_libraryProxy->canFetchMore(proxyRoot))
+        m_libraryProxy->fetchMore(proxyRoot);
+    } else
       qWarning() << "setLibraryRootFromSource: invalid proxy root for"
                  << m_fileModel->filePath(sourceIndex);
   } else {
@@ -7310,6 +7334,11 @@ void MainWindow::navigateLibraryToPath(const QString &path) {
   const QFileInfo fi(path);
   if (!fi.isDir())
     return;
+  // Opening a folder should always reveal its contents — Favorites/Recent/
+  // Untagged filters would otherwise look like "navigation is broken".
+  if (m_libraryOrgBar &&
+      m_libraryOrgBar->smartView() != LibraryOrgBar::SmartView::All)
+    m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::All);
   const QString abs = fi.absoluteFilePath();
   m_pendingLibraryRootPath = abs;
   const QModelIndex fromSet = m_fileModel->setRootPath(abs);
@@ -7319,6 +7348,7 @@ void MainWindow::navigateLibraryToPath(const QString &path) {
   updateOverviewBackButton();
   updateLibraryHeader();
   updateSidebarBadges();
+  updateGrid();
 }
 
 void MainWindow::updateLibraryHeader() {

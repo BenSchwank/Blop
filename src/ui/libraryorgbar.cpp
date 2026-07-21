@@ -3,6 +3,7 @@
 #include "blop_theme.h"
 #include "uiscale.h"
 
+#include <QAbstractButton>
 #include <QButtonGroup>
 #include <QColor>
 #include <QHBoxLayout>
@@ -46,7 +47,8 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     auto *btn = new QPushButton(QString::fromUtf8(c.label), this);
     btn->setCheckable(true);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedHeight(UiScale::dp(28));
+    const bool phone = UiScale::isAndroidPhoneUi(parentWidget());
+    btn->setFixedHeight(UiScale::dp(phone ? 32 : 28));
     btn->setObjectName(QStringLiteral("libraryOrgChip"));
     m_viewGroup->addButton(btn, int(c.view));
     if (c.view == m_view)
@@ -83,6 +85,26 @@ void LibraryOrgBar::setAccentColor(const QColor &color) {
     return;
   m_accent = color;
   rebuildStyles();
+}
+
+void LibraryOrgBar::setSmartView(SmartView view) {
+  if (view < SmartView::All || view > SmartView::Untagged)
+    view = SmartView::All;
+  if (m_view == view) {
+    if (m_viewGroup) {
+      if (QAbstractButton *b = m_viewGroup->button(int(view)))
+        b->setChecked(true);
+    }
+    return;
+  }
+  m_view = view;
+  if (m_viewGroup) {
+    if (QAbstractButton *b = m_viewGroup->button(int(view)))
+      b->setChecked(true);
+  }
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("ui/librarySmartView"), int(m_view));
+  emit smartViewChanged(m_view);
 }
 
 void LibraryOrgBar::onViewClicked(int id) {
