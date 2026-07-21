@@ -288,8 +288,9 @@ void NoteEditor::setupShortcuts() {
     });
 
     new QShortcut(QKeySequence(Qt::Key_Delete), this, [this]() {
-        if (!note_)
+        if (!note_ || !canvas_)
             return;
+        canvas_->deleteSelection();
     });
 
     new QShortcut(QKeySequence(Qt::Key_P), this,

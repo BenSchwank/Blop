@@ -34,7 +34,20 @@ class CanvasView : public QGraphicsView
     Q_OBJECT
 
 public:
-    enum class ToolType { Pen, Eraser, Lasso, Select, Highlighter, Text, Ruler, Image, Shape };
+    enum class ToolType {
+        Pen,
+        Pencil,
+        Eraser,
+        Lasso,
+        Select,
+        Highlighter,
+        Text,
+        Ruler,
+        Image,
+        Shape,
+        StickyNote,
+        Hand
+    };
 
     // Neuer Modus: Transform
     enum class InteractionMode { None, Crop, Transform };
@@ -60,6 +73,10 @@ public:
     void setPenColor(const QColor &color);
     void setPenWidth(int width);
     void toggleRuler(bool active);
+
+    /// Fit infinite/A4 content into the viewport (parity with MultiPageNoteView).
+    void fitToWidth();
+    void fitPage();
 
     void undo();
     void redo();

@@ -336,6 +336,7 @@ private:
   void applyNoteChromeTheme();
   void showNoteBookmarksMenu();
   void showNoteHistoryMenu();
+  void showNoteExportMenu(QWidget *anchor = nullptr);
   MultiPageNoteView *currentNoteView() const;
 
   // --- Web Integration ---

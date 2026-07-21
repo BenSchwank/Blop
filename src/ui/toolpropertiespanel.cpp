@@ -123,6 +123,40 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_colorRow = new QWidget(m_body);
   addColorRow(m_root);
 
+  m_fontLbl = new QLabel(QStringLiteral("Schrift"), m_body);
+  m_root->addWidget(m_fontLbl);
+  m_fontRow = new QWidget(m_body);
+  auto *fontLay = new QHBoxLayout(m_fontRow);
+  fontLay->setContentsMargins(0, 0, 0, 0);
+  fontLay->setSpacing(UiScale::dp(8));
+  auto makeFontChip = [this, fontLay](const QString &label,
+                                      const QString &familyKey) {
+    auto *btn = new QPushButton(label, m_fontRow);
+    btn->setObjectName(QStringLiteral("ToolPropsMode"));
+    btn->setCheckable(true);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setMinimumHeight(UiScale::dp(34));
+    btn->setProperty("fontFamilyKey", familyKey);
+    connect(btn, &QPushButton::clicked, this, [this, familyKey]() {
+      m_config.fontFamily = familyKey;
+      applyConfig();
+      if (m_fontRow) {
+        for (auto *ch : m_fontRow->findChildren<QPushButton *>()) {
+          if (ch)
+            ch->setChecked(ch->property("fontFamilyKey").toString() ==
+                           m_config.fontFamily);
+        }
+      }
+    });
+    fontLay->addWidget(btn, 1);
+    return btn;
+  };
+  makeFontChip(QStringLiteral("System"), QString());
+  makeFontChip(QStringLiteral("Serif"), QStringLiteral("Serif"));
+  makeFontChip(QStringLiteral("Mono"), QStringLiteral("Mono"));
+  makeFontChip(QStringLiteral("Round"), QStringLiteral("Round"));
+  m_root->addWidget(m_fontRow);
+
   m_fillLbl = new QLabel(QStringLiteral("Füllung"), m_body);
   m_root->addWidget(m_fillLbl);
   m_fillRow = new QWidget(m_body);
@@ -331,6 +365,25 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_colorLbl->setVisible(colorful);
   if (m_colorRow)
     m_colorRow->setVisible(colorful);
+  if (m_colorLbl && colorful) {
+    m_colorLbl->setText(mode == ToolMode::StickyNote
+                            ? QStringLiteral("Hintergrund")
+                            : QStringLiteral("Farbe"));
+  }
+
+  const bool showFont = (mode == ToolMode::Text);
+  if (m_fontLbl)
+    m_fontLbl->setVisible(showFont);
+  if (m_fontRow) {
+    m_fontRow->setVisible(showFont);
+    if (showFont) {
+      for (auto *ch : m_fontRow->findChildren<QPushButton *>()) {
+        if (ch)
+          ch->setChecked(ch->property("fontFamilyKey").toString() ==
+                         m_config.fontFamily);
+      }
+    }
+  }
 
   const bool showStyle = (mode == ToolMode::Pen);
   if (m_styleLbl)
@@ -438,12 +491,12 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
       break;
     case ToolMode::StickyNote:
       hint = QStringLiteral(
-          "Tippe auf die Seite für eine Haftnotiz. Farbe und Schriftgröße "
-          "steuern das Aussehen.");
+          "Tippe auf die Seite für eine Haftnotiz. Hintergrundfarbe und "
+          "Schriftgröße steuern das Aussehen.");
       break;
     case ToolMode::Text:
       hint = QStringLiteral(
-          "Tippe auf die Seite, um Text zu setzen. Schriftgröße und Farbe "
+          "Tippe auf die Seite, um Text zu setzen. Schrift, Größe und Farbe "
           "gelten für neue Textfelder.");
       break;
     case ToolMode::Ruler:
@@ -661,10 +714,20 @@ void ToolPropertiesPanel::addColorRow(QVBoxLayout *lay) {
   m_customColorBtn->setCursor(Qt::PointingHandCursor);
   m_customColorBtn->setToolTip(QStringLiteral("Eigene Farbe…"));
   connect(m_customColorBtn, &QPushButton::clicked, this, [this]() {
-    QColor c = m_config.penColor;
-    if (!showColorPickerOverlay(window(), &c, QStringLiteral("Stiftfarbe")))
+    QColor c = (m_mode == ToolMode::StickyNote && m_config.stickyBgColor.isValid())
+                   ? m_config.stickyBgColor
+                   : m_config.penColor;
+    if (!showColorPickerOverlay(window(), &c,
+                                m_mode == ToolMode::StickyNote
+                                    ? QStringLiteral("Hintergrund")
+                                    : QStringLiteral("Stiftfarbe")))
       return;
-    m_config.penColor = c;
+    if (m_mode == ToolMode::StickyNote) {
+      m_config.stickyBgColor = c;
+      m_config.penColor = c;
+    } else {
+      m_config.penColor = c;
+    }
     applyConfig();
   });
   grid->addWidget(m_customColorBtn, 2, 0, Qt::AlignLeft);
@@ -705,11 +768,15 @@ void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
 }
 
 void ToolPropertiesPanel::refreshSwatchSelection() {
+  const QColor activeColor = (m_mode == ToolMode::StickyNote &&
+                              m_config.stickyBgColor.isValid())
+                                 ? m_config.stickyBgColor
+                                 : m_config.penColor;
   for (QPushButton *btn : m_swatches) {
     if (!btn)
       continue;
     const QColor c = btn->property("swatchColor").value<QColor>();
-    const bool selected = c.isValid() && c == m_config.penColor;
+    const bool selected = c.isValid() && c == activeColor;
     const QString border =
         selected ? m_accent.name()
                  : ((c == Qt::white) ? QStringLiteral("#888")
@@ -796,6 +863,9 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
   connect(btn, &QPushButton::clicked, this, [this, c, fill]() {
     if (fill) {
       m_config.fillColor = c;
+    } else if (m_mode == ToolMode::StickyNote) {
+      m_config.stickyBgColor = c;
+      m_config.penColor = c;
     } else {
       m_config.penColor = c;
     }

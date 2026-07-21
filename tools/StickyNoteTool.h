@@ -26,9 +26,10 @@ public:
 
     auto *card = new QGraphicsRectItem(0, 0, w, h);
     card->setPos(pos);
-    QColor fill = m_config.penColor.isValid() ? m_config.penColor
-                                              : QColor(255, 236, 120);
-    if (fill.lightness() < 160)
+    QColor fill = m_config.stickyBgColor.isValid() ? m_config.stickyBgColor
+                  : (m_config.penColor.isValid() ? m_config.penColor
+                                                 : QColor(255, 236, 120));
+    if (fill.lightness() < 100)
       fill = QColor(255, 236, 120);
     fill.setAlphaF(qBound(0.35, m_config.opacity, 1.0));
     card->setBrush(fill);
@@ -46,6 +47,8 @@ public:
     const int pt =
         m_config.penWidth > 0 ? qBound(11, m_config.penWidth, 28) : 14;
     font.setPointSize(pt);
+    if (!m_config.fontFamily.isEmpty())
+      font.setFamily(m_config.fontFamily);
     text->setFont(font);
     text->setDefaultTextColor(QColor(40, 36, 20));
     text->setPlainText(QString());

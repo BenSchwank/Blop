@@ -25,7 +25,7 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   makeBtn(QStringLiteral("pages"), QStringLiteral("Seitenleiste"));
   makeBtn(QStringLiteral("allpages"), QStringLiteral("Alle Seiten"));
   makeBtn(QStringLiteral("bookmarks"), QStringLiteral("Lesezeichen"));
-  makeBtn(QStringLiteral("history"), QStringLiteral("Verlauf"));
+  makeBtn(QStringLiteral("history"), QStringLiteral("Seitenstatistik"));
   makeBtn(QStringLiteral("search"), QStringLiteral("Suche"));
   makeBtn(QStringLiteral("more"), QStringLiteral("Mehr"));
   addGroupSeparator();

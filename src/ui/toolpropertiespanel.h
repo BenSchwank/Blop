@@ -78,12 +78,14 @@ private:
   QLabel *m_colorLbl{nullptr};
   QLabel *m_modeLbl{nullptr};
   QLabel *m_fillLbl{nullptr};
+  QLabel *m_fontLbl{nullptr};
   QLabel *m_smartLbl{nullptr};
   QLabel *m_hintLbl{nullptr};
   QSlider *m_widthSlider{nullptr};
   QSlider *m_opacitySlider{nullptr};
   QWidget *m_colorRow{nullptr};
   QWidget *m_fillRow{nullptr};
+  QWidget *m_fontRow{nullptr};
   QWidget *m_modeRow{nullptr};
   QWidget *m_smartRow{nullptr};
   QCheckBox *m_chkPressure{nullptr};

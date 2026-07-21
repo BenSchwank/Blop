@@ -19,6 +19,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileDialog>
+#include <QGraphicsTextItem>
 #include <QGuiApplication>
 #include <QLineF>
 #include <QStandardPaths>
@@ -614,10 +615,11 @@ bool CanvasView::saveToFile() {
   if (!file.open(QIODevice::WriteOnly))
     return false;
   QDataStream out(&file);
-  
-  out << (quint32)0xB10B0003; // Protocol Format V3 (Stroke Pressure Support)
+
+  // V4: strokes (V3 layout) + sticky notes
+  out << (quint32)0xB10B0004;
   out << m_isInfinite;
-  
+
   QList<QGraphicsItem *> items = m_scene->items(Qt::AscendingOrder);
   int count = 0;
   for (auto *item : std::as_const(items)) {
@@ -626,17 +628,17 @@ bool CanvasView::saveToFile() {
         count++;
     }
   }
-  
+
   out << count;
-  
+
   for (auto *item : std::as_const(items)) {
     if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
         item != m_cropResizer && item != m_transformOverlay) {
-            
+
       StrokeItem *strokeItem = static_cast<StrokeItem *>(item);
       out << strokeItem->pos() << strokeItem->pen().color()
           << (int)strokeItem->pen().width() << strokeItem->path();
-          
+
       // V3 Serialization: Pressure Points Buffer
       const QVector<StrokePoint>& pts = strokeItem->points();
       out << (qint32)pts.size();
@@ -644,6 +646,30 @@ bool CanvasView::saveToFile() {
           out << p.pos << p.pressure;
       }
     }
+  }
+
+  // Sticky notes (data(0) == "sticky_note")
+  QList<QGraphicsRectItem *> stickies;
+  for (auto *item : std::as_const(items)) {
+    if (item->data(0).toString() != QLatin1String("sticky_note"))
+      continue;
+    if (auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item))
+      stickies.append(card);
+  }
+  out << (qint32)stickies.size();
+  for (QGraphicsRectItem *card : stickies) {
+    QString text;
+    int fontPt = 14;
+    for (QGraphicsItem *ch : card->childItems()) {
+      if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(ch)) {
+        text = ti->toPlainText();
+        fontPt = ti->font().pointSize() > 0 ? ti->font().pointSize() : 14;
+        break;
+      }
+    }
+    const QRectF r = card->rect();
+    out << card->pos() << r.width() << r.height() << card->brush().color()
+        << fontPt << text;
   }
   return true;
 }
@@ -657,22 +683,22 @@ bool CanvasView::loadFromFile() {
   QDataStream in(&file);
   quint32 magic;
   in >> magic;
-  
+
   if (magic == 0xB10B0001) {
     m_isInfinite = true;
-  } else if (magic == 0xB10B0002 || magic == 0xB10B0003) {
+  } else if (magic == 0xB10B0002 || magic == 0xB10B0003 || magic == 0xB10B0004) {
     in >> m_isInfinite;
   } else {
     return false; // Unknown Corrupt Format
   }
-  
+
   setPageFormat(m_isInfinite);
   m_scene->clear();
   m_undoStack->clear();
   m_graphPlusBypassItem = nullptr;
   m_graphPlotBypassItem = nullptr;
   m_graphTabletPendingItem = nullptr;
-  
+
   int count;
   in >> count;
   bool wasBlocked = m_scene->blockSignals(true);
@@ -683,7 +709,7 @@ bool CanvasView::loadFromFile() {
     QPainterPath path;
     in >> pos >> color >> width >> path;
     QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    
+
     QVector<StrokePoint> pts;
     if (magic >= 0xB10B0003) {
         qint32 ptCount;
@@ -694,7 +720,7 @@ bool CanvasView::loadFromFile() {
             pts.append({ppos, ppress});
         }
     }
-    
+
     StrokeItem *item = new StrokeItem(path, pen, pts, StrokeItem::Normal);
     m_scene->addItem(item);
     item->setPos(pos);
@@ -703,6 +729,41 @@ bool CanvasView::loadFromFile() {
     else
       item->setZValue(1.0);
   }
+
+  // V4 sticky notes
+  if (magic >= 0xB10B0004) {
+    qint32 stickyCount = 0;
+    in >> stickyCount;
+    for (qint32 i = 0; i < stickyCount; ++i) {
+      QPointF pos;
+      qreal w = 168, h = 148;
+      QColor fill(255, 236, 120);
+      int fontPt = 14;
+      QString text;
+      in >> pos >> w >> h >> fill >> fontPt >> text;
+      auto *card = new QGraphicsRectItem(0, 0, w, h);
+      card->setPos(pos);
+      card->setBrush(fill);
+      card->setPen(QPen(QColor(210, 175, 55), 1.2));
+      card->setFlags(QGraphicsItem::ItemIsSelectable |
+                     QGraphicsItem::ItemIsMovable |
+                     QGraphicsItem::ItemSendsGeometryChanges);
+      card->setZValue(6);
+      card->setData(0, QStringLiteral("sticky_note"));
+      auto *ti = new QGraphicsTextItem(card);
+      ti->setPos(10, 10);
+      ti->setTextWidth(w - 20);
+      QFont font = ti->font();
+      font.setPointSize(qBound(8, fontPt, 72));
+      ti->setFont(font);
+      ti->setDefaultTextColor(QColor(40, 36, 20));
+      ti->setPlainText(text);
+      ti->setTextInteractionFlags(Qt::TextEditorInteraction);
+      ti->setFlag(QGraphicsItem::ItemIsFocusable, true);
+      m_scene->addItem(card);
+    }
+  }
+
   m_scene->blockSignals(wasBlocked);
   if (m_isInfinite)
     updateSceneRect();
@@ -777,18 +838,50 @@ void CanvasView::setTool(ToolType tool) {
   } else if (tool == ToolType::Text) {
     setCursor(Qt::IBeamCursor);
     setDragMode(QGraphicsView::NoDrag);
+  } else if (tool == ToolType::Hand) {
+    setCursor(Qt::OpenHandCursor);
+    setDragMode(QGraphicsView::NoDrag);
+  } else if (tool == ToolType::StickyNote) {
+    setCursor(Qt::PointingHandCursor);
+    setDragMode(QGraphicsView::NoDrag);
   } else {
     clearSelection();
     setDragMode(QGraphicsView::NoDrag);
-    if (tool == ToolType::Pen)
+    if (tool == ToolType::Pen || tool == ToolType::Pencil)
       setCursor(Qt::CrossCursor);
     else if (tool == ToolType::Highlighter)
       setCursor(Qt::CrossCursor);
     else if (tool == ToolType::Eraser)
       setCursor(Qt::ForbiddenCursor);
-    else if (tool == ToolType::Lasso)
+    else if (tool == ToolType::Lasso || tool == ToolType::Shape ||
+             tool == ToolType::Image)
       setCursor(Qt::CrossCursor);
   }
+}
+
+void CanvasView::fitToWidth() {
+  if (!m_scene)
+    return;
+  QRectF bounds = m_isInfinite ? m_scene->itemsBoundingRect() : m_a4Rect;
+  if (bounds.isEmpty())
+    bounds = QRectF(0, 0, 800, 600);
+  bounds.adjust(-40, -40, 40, 40);
+  const qreal viewW = qMax(1.0, static_cast<qreal>(viewport()->width()));
+  const qreal scaleX = viewW / qMax(1.0, bounds.width());
+  const qreal cur = transform().m11();
+  if (cur > 1e-6)
+    scale(scaleX / cur, scaleX / cur);
+  centerOn(bounds.center());
+}
+
+void CanvasView::fitPage() {
+  if (!m_scene)
+    return;
+  QRectF bounds = m_isInfinite ? m_scene->itemsBoundingRect() : m_a4Rect;
+  if (bounds.isEmpty())
+    bounds = QRectF(0, 0, 800, 1131);
+  bounds.adjust(-50, -50, 50, 50);
+  fitInView(bounds, Qt::KeepAspectRatio);
 }
 
 void CanvasView::setPenColor(const QColor &color) { m_penColor = color; }

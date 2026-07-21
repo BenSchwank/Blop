@@ -84,7 +84,11 @@ struct ToolConfig {
     bool holdEnableTriangle = true;
     int holdStillDelayMs = 360; ///< 200–900 ms für Halte-Erkennung
 
-    // 10. Formen-Werkzeug (ShapeTool)
+    // 10. Text / Sticky
+    QString fontFamily; ///< Empty = system default; e.g. "Serif", "Mono"
+    QColor stickyBgColor{QColor(255, 236, 120)}; ///< Sticky note card fill
+
+    // 11. Formen-Werkzeug (ShapeTool)
     ShapeToolKind shapeToolKind = ShapeToolKind::Rectangle;
     /// Sinus im Formen-Werkzeug: y = cy − (h/2)·(a·sin(b·2π·t + c) + d), t∈[0,1] links→rechts
     double shapeMathA = 0.45;  ///< Amplitudenfaktor (bezogen auf halbe Höhe)
