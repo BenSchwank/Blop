@@ -598,8 +598,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         rFull->hide();
         rFull->setEnabled(false);
         auto *hint = new QLabel(
-            QStringLiteral("Radial-Toolbar und FAB sind auf Desktop "
-                           "deaktiviert — die Favorites-Leiste rechts ist fest."),
+            QStringLiteral("Radial-Toolbar und FAB bleiben auf Desktop "
+                           "deaktiviert. Stift-Presets erscheinen unten rechts "
+                           "bei Stift/Bleistift/Textmarker."),
             cardLook);
         hint->setWordWrap(true);
         hint->setStyleSheet(BlopTheme::themed(QStringLiteral(

@@ -87,6 +87,8 @@ struct ToolConfig {
     // 10. Text / Sticky
     QString fontFamily; ///< Empty = system default; e.g. "Serif", "Mono"
     QColor stickyBgColor{QColor(255, 236, 120)}; ///< Sticky note card fill
+    /// 0=left, 1=center, 2=right — applied to new TextTool items.
+    int textAlign{0};
 
     // 11. Formen-Werkzeug (ShapeTool)
     ShapeToolKind shapeToolKind = ShapeToolKind::Rectangle;
