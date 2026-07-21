@@ -32,14 +32,10 @@ struct RailMetrics {
 };
 
 RailMetrics railMetrics(QWidget *ref, bool twoCol) {
-#ifdef Q_OS_ANDROID
-  if (!UiScale::isAndroidTablet(ref)) {
+  if (UiScale::isAndroidPhoneUi(ref)) {
     return {UiScale::dp(68), UiScale::dp(52), UiScale::dp(72), UiScale::dp(90),
             UiScale::dp(6)};
   }
-#else
-  Q_UNUSED(ref);
-#endif
   if (twoCol) {
     return {UiScale::dp(196), UiScale::dp(78), UiScale::dp(104),
             UiScale::dp(124), UiScale::dp(8)};
