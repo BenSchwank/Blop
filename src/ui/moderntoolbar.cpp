@@ -5687,6 +5687,20 @@ void ModernToolbar::updateLayout(bool animate) {
   // Hide markup-only chrome unless the docked markup layout is active.
   const bool markupActive = (m_markupBarMode != MarkupOff && m_isDockedMode &&
                              m_orientation == Horizontal && m_style == Normal);
+  if (m_style == Normal && m_orientation == Vertical &&
+      m_markupBarMode == MarkupOff) {
+    // Drawboard Favorites rail: chrome undo/redo live in the bottom notch.
+    if (btnUndo)
+      btnUndo->hide();
+    if (btnRedo)
+      btnRedo->hide();
+    if (btnPalette)
+      btnPalette->hide();
+    if (btnBrushSize)
+      btnBrushSize->hide();
+    if (btnDockToggle)
+      btnDockToggle->hide();
+  }
   if (!markupActive) {
     for (auto *tab : m_categoryTabs)
       if (tab)

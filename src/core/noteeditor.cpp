@@ -189,6 +189,20 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
             safe->onOpenNoteOptionsRequested();
     });
 
+    menu->addSeparator();
+    QAction *actFitWidth =
+        menu->addAction(QStringLiteral("An Breite anpassen"));
+    QObject::connect(actFitWidth, &QAction::triggered, this, [safe]() {
+        if (safe && safe->canvas_)
+            safe->canvas_->fitToWidth();
+    });
+    QAction *actFitPage =
+        menu->addAction(QStringLiteral("Ganze Seite / Inhalt"));
+    QObject::connect(actFitPage, &QAction::triggered, this, [safe]() {
+        if (safe && safe->canvas_)
+            safe->canvas_->fitPage();
+    });
+
 #ifndef Q_OS_ANDROID
     // QFileDialog and QMessageBox are top-level QDialog subclasses; on Android
     // they crash the single-window surface (same crash family as QMenu::exec).

@@ -32,10 +32,6 @@ public:
 signals:
   void pagesToggled(bool expanded);
   void searchClicked();
-  void moreClicked();
-  void selectClicked();
-  void exportClicked();
-  void settingsClicked();
   void bookmarksClicked();
   void historyClicked();
   void allPagesClicked();

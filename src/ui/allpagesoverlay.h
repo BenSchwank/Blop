@@ -3,9 +3,11 @@
 // Drawboard-style "All Pages" grid overlay — browse, jump, multi-select
 // duplicate/delete across the whole note.
 
+#include <QPointer>
 #include <QWidget>
 #include <QSet>
 
+class BlopModal;
 class MultiPageNoteView;
 class QListWidget;
 class QListWidgetItem;
@@ -45,6 +47,7 @@ private:
   QPushButton *m_btnDup{nullptr};
   QPushButton *m_btnDel{nullptr};
   QPushButton *m_btnClose{nullptr};
+  QPointer<BlopModal> m_modal;
   QColor m_accent{QColor(91, 157, 255)};
   int m_epoch{0};
 };

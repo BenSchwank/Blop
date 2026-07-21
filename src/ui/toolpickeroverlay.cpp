@@ -1,5 +1,7 @@
 #include "toolpickeroverlay.h"
 
+#include "blop_theme.h"
+#include "blopstyle.h"
 #include "moderntoolbar.h"
 #include "notechrome.h"
 #include "tools/ToolManager.h"
@@ -89,34 +91,31 @@ ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
       m_onSelect(std::move(onSelect)), m_inToolbar(alreadyInToolbar) {
   setAttribute(Qt::WA_DeleteOnClose, true);
   setAttribute(Qt::WA_StyledBackground, true);
-  setStyleSheet(QStringLiteral("background: rgba(0, 0, 0, 0.55);"));
+  setStyleSheet(QStringLiteral("background: %1;")
+                    .arg(BlopTheme::scrimColor().name(QColor::HexArgb)));
 
   auto *card = new QFrame(this);
   card->setObjectName(QStringLiteral("ToolPickerCard"));
+  // Same surface language as ColorPicker / A4 / BlopModal cards.
   card->setStyleSheet(
-      QStringLiteral("QFrame#ToolPickerCard {"
-                     "  background: %1;"
-                     "  border: 1px solid %2;"
-                     "  border-radius: 16px;"
-                     "}"
-                     "QLabel { background: transparent; color: %3; }"
+      BlopStyle::surfaceStyle(QStringLiteral("ToolPickerCard")) +
+      QStringLiteral("QLabel { background: transparent; color: %1; }"
                      "QLineEdit {"
-                     "  background: %4; color: %3;"
-                     "  border: 1px solid %2; border-radius: 10px;"
+                     "  background: %2; color: %1;"
+                     "  border: 1px solid %3; border-radius: 10px;"
                      "  padding: 0 12px; min-height: 34px;"
                      "}"
                      "QPushButton#ToolPickerTab {"
-                     "  background: transparent; color: %5;"
+                     "  background: transparent; color: %4;"
                      "  border: none; border-bottom: 2px solid transparent;"
                      "  padding: 8px 12px; font-weight: 600; font-size: 13px;"
                      "}"
                      "QPushButton#ToolPickerTab:checked {"
-                     "  color: %3; border-bottom: 2px solid %6;"
+                     "  color: %1; border-bottom: 2px solid %5;"
                      "}")
-          .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
-               NoteChrome::border().name(QColor::HexRgb),
-               NoteChrome::textPrimary().name(QColor::HexRgb),
+          .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
                NoteChrome::panelBg().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb),
                NoteChrome::textSecondary().name(QColor::HexRgb),
                m_accent.name(QColor::HexRgb)));
 

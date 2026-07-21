@@ -113,11 +113,12 @@ OverlayHost::OverlayHost(QWidget *anchor) : QWidget(anchor), m_anchor(anchor) {
   setAttribute(Qt::WA_TranslucentBackground, true);
   setFocusPolicy(Qt::StrongFocus);
   // v3.18.2: scrim painted manually so enter fade can animate alpha without
-  // stylesheet churn (same pattern as BlopInWindowMenu / BlopModal).
+  // stylesheet churn. Prefer BlopTheme::scrimColor so OverlayHost matches
+  // BlopModal / Settings / All Pages.
 #ifdef Q_OS_ANDROID
   m_scrim = BlopStyle::backdrop(/*forAndroid=*/true);
 #else
-  m_scrim = BlopStyle::backdrop(/*forAndroid=*/false);
+  m_scrim = BlopTheme::scrimColor();
 #endif
   setGeometry(anchor->rect());
   anchor->installEventFilter(this);

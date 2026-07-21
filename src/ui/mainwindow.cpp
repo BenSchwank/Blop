@@ -5058,21 +5058,20 @@ void MainWindow::setupUi() {
   m_noteBottomChrome = new QWidget(m_editorCenterWidget);
   m_noteBottomChrome->setObjectName(QStringLiteral("NoteBottomChrome"));
   m_noteBottomChrome->setAttribute(Qt::WA_StyledBackground, true);
-  m_noteBottomChrome->setFixedHeight(UiScale::dp(52));
+  m_noteBottomChrome->setFixedHeight(UiScale::dp(48));
   m_noteBottomChrome->setStyleSheet(QStringLiteral(
       "QWidget#NoteBottomChrome {"
       "  background: %1;"
-      "  border: none;"
-      "  border-top: 1px solid %2;"
-      "  border-radius: 0;"
+      "  border: 1px solid %2;"
+      "  border-radius: 24px;"
       "}"
       "QPushButton {"
       "  background: transparent; color: %3;"
-      "  border: none; border-radius: 6px;"
-      "  font-size: 13px; font-weight: 600; min-width: 40px; min-height: 40px;"
-      "  padding: 0 10px;"
+      "  border: none; border-radius: 8px;"
+      "  font-size: 13px; font-weight: 600; min-width: 36px; min-height: 36px;"
+      "  padding: 0 8px;"
       "}"
-      "QPushButton:hover { background: rgba(255,255,255,0.08); color: %4; }"
+      "QPushButton:hover { background: rgba(255,255,255,0.10); color: %4; }"
       "QLabel { background: transparent; color: %3;"
       "  font-size: 13px; font-weight: 600; }")
                                         .arg(NoteChrome::toolbarFill().name(
@@ -5084,15 +5083,15 @@ void MainWindow::setupUi() {
                                              NoteChrome::textPrimary().name(
                                                  QColor::HexRgb)));
   auto *bottomLay = new QHBoxLayout(m_noteBottomChrome);
-  bottomLay->setContentsMargins(UiScale::dp(14), UiScale::dp(6),
-                                UiScale::dp(14), UiScale::dp(6));
-  bottomLay->setSpacing(UiScale::dp(6));
+  bottomLay->setContentsMargins(UiScale::dp(10), UiScale::dp(4),
+                                UiScale::dp(10), UiScale::dp(4));
+  bottomLay->setSpacing(UiScale::dp(4));
 
   m_btnNoteUndo = new QPushButton(m_noteBottomChrome);
   m_btnNoteUndo->setObjectName(QStringLiteral("NoteBtnUndo"));
   m_btnNoteUndo->setToolTip(QStringLiteral("Rückgängig"));
   m_btnNoteUndo->setCursor(Qt::PointingHandCursor);
-  m_btnNoteUndo->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_btnNoteUndo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNoteUndo, &QPushButton::clicked, this, &MainWindow::onUndo);
   bottomLay->addWidget(m_btnNoteUndo);
 
@@ -5100,15 +5099,17 @@ void MainWindow::setupUi() {
   m_btnNoteRedo->setObjectName(QStringLiteral("NoteBtnRedo"));
   m_btnNoteRedo->setToolTip(QStringLiteral("Wiederholen"));
   m_btnNoteRedo->setCursor(Qt::PointingHandCursor);
-  m_btnNoteRedo->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_btnNoteRedo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNoteRedo, &QPushButton::clicked, this, &MainWindow::onRedo);
   bottomLay->addWidget(m_btnNoteRedo);
 
-  bottomLay->addStretch(1);
+  bottomLay->addSpacing(UiScale::dp(8));
 
   m_btnNotePagePrev = new QPushButton(m_noteBottomChrome);
+  m_btnNotePagePrev->setObjectName(QStringLiteral("NoteBtnPagePrev"));
   m_btnNotePagePrev->setToolTip(QStringLiteral("Vorherige Seite"));
   m_btnNotePagePrev->setCursor(Qt::PointingHandCursor);
+  m_btnNotePagePrev->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNotePagePrev, &QPushButton::clicked, this, [this]() {
     if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
       if (auto *view = editor->view()) {
@@ -5122,13 +5123,16 @@ void MainWindow::setupUi() {
   bottomLay->addWidget(m_btnNotePagePrev);
 
   m_lblNotePage = new QLabel(QStringLiteral("1 of 1"), m_noteBottomChrome);
+  m_lblNotePage->setObjectName(QStringLiteral("NoteLblPage"));
   m_lblNotePage->setAlignment(Qt::AlignCenter);
-  m_lblNotePage->setMinimumWidth(UiScale::dp(72));
+  m_lblNotePage->setMinimumWidth(UiScale::dp(64));
   bottomLay->addWidget(m_lblNotePage);
 
   m_btnNotePageNext = new QPushButton(m_noteBottomChrome);
+  m_btnNotePageNext->setObjectName(QStringLiteral("NoteBtnPageNext"));
   m_btnNotePageNext->setToolTip(QStringLiteral("Nächste Seite"));
   m_btnNotePageNext->setCursor(Qt::PointingHandCursor);
+  m_btnNotePageNext->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNotePageNext, &QPushButton::clicked, this, [this]() {
     if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
       if (auto *view = editor->view()) {
@@ -5141,13 +5145,13 @@ void MainWindow::setupUi() {
   });
   bottomLay->addWidget(m_btnNotePageNext);
 
-  bottomLay->addStretch(1);
+  bottomLay->addSpacing(UiScale::dp(8));
 
   m_btnNoteZoomOut = new QPushButton(m_noteBottomChrome);
   m_btnNoteZoomOut->setObjectName(QStringLiteral("NoteBtnZoomOut"));
   m_btnNoteZoomOut->setToolTip(QStringLiteral("Verkleinern"));
   m_btnNoteZoomOut->setCursor(Qt::PointingHandCursor);
-  m_btnNoteZoomOut->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_btnNoteZoomOut->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNoteZoomOut, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->zoomBy(1.0 / 1.1);
@@ -5162,8 +5166,8 @@ void MainWindow::setupUi() {
   m_lblNoteZoom = new QLabel(QStringLiteral("100%"), m_noteBottomChrome);
   m_lblNoteZoom->setObjectName(QStringLiteral("NoteLblZoom"));
   m_lblNoteZoom->setAlignment(Qt::AlignCenter);
-  m_lblNoteZoom->setMinimumWidth(UiScale::dp(56));
-  m_lblNoteZoom->setToolTip(QStringLiteral("Doppelklick: an Inhalt anpassen"));
+  m_lblNoteZoom->setMinimumWidth(UiScale::dp(48));
+  m_lblNoteZoom->setToolTip(QStringLiteral("Doppelklick: an Inhalt anpassen (Ctrl+0)"));
   m_lblNoteZoom->installEventFilter(this);
   bottomLay->addWidget(m_lblNoteZoom);
 
@@ -5171,7 +5175,7 @@ void MainWindow::setupUi() {
   m_btnNoteZoomIn->setObjectName(QStringLiteral("NoteBtnZoomIn"));
   m_btnNoteZoomIn->setToolTip(QStringLiteral("Vergrößern"));
   m_btnNoteZoomIn->setCursor(Qt::PointingHandCursor);
-  m_btnNoteZoomIn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_btnNoteZoomIn->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   connect(m_btnNoteZoomIn, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->zoomBy(1.1);
@@ -5183,11 +5187,11 @@ void MainWindow::setupUi() {
   });
   bottomLay->addWidget(m_btnNoteZoomIn);
 
+  // Fit actions live in the note ⋯ menu + Ctrl+0/1 — keep buttons as hidden
+  // hooks for shortcuts/automation without bloating the notch.
   m_btnNoteFitWidth = new QPushButton(m_noteBottomChrome);
   m_btnNoteFitWidth->setObjectName(QStringLiteral("NoteBtnFitWidth"));
-  m_btnNoteFitWidth->setToolTip(QStringLiteral("An Breite anpassen (Ctrl+1)"));
-  m_btnNoteFitWidth->setCursor(Qt::PointingHandCursor);
-  m_btnNoteFitWidth->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_btnNoteFitWidth->hide();
   connect(m_btnNoteFitWidth, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->fitToWidth();
@@ -5197,13 +5201,10 @@ void MainWindow::setupUi() {
       updateNoteBottomChrome();
     }
   });
-  bottomLay->addWidget(m_btnNoteFitWidth);
 
   m_btnNoteFitPage = new QPushButton(m_noteBottomChrome);
   m_btnNoteFitPage->setObjectName(QStringLiteral("NoteBtnFitPage"));
-  m_btnNoteFitPage->setToolTip(QStringLiteral("Ganze Seite / Inhalt (Ctrl+0)"));
-  m_btnNoteFitPage->setCursor(Qt::PointingHandCursor);
-  m_btnNoteFitPage->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  m_btnNoteFitPage->hide();
   connect(m_btnNoteFitPage, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->fitPage();
@@ -5213,7 +5214,6 @@ void MainWindow::setupUi() {
       updateNoteBottomChrome();
     }
   });
-  bottomLay->addWidget(m_btnNoteFitPage);
   refreshNoteBottomChromeIcons();
 
   m_noteBottomChrome->hide();
@@ -5270,10 +5270,6 @@ void MainWindow::setupUi() {
       m_titleSearchBar->setFocus(Qt::OtherFocusReason);
     }
   });
-  connect(m_noteLeftRail, &NoteLeftRail::moreClicked, this,
-          &MainWindow::onEditorNoteOverflowMenu);
-  connect(m_noteLeftRail, &NoteLeftRail::selectClicked, this,
-          &MainWindow::onToolLasso);
   connect(m_noteLeftRail, &NoteLeftRail::propertiesClicked, this, [this]() {
     m_toolPropertiesVisible = !m_toolPropertiesVisible;
     if (m_toolPropertiesPanel)
@@ -5287,11 +5283,6 @@ void MainWindow::setupUi() {
     NoteChrome::toggleMode();
     applyNoteChromeTheme();
   });
-  connect(m_noteLeftRail, &NoteLeftRail::exportClicked, this, [this]() {
-    showNoteExportMenu(m_noteLeftRail);
-  });
-  connect(m_noteLeftRail, &NoteLeftRail::settingsClicked, this,
-          &MainWindow::onOpenSettings);
   m_noteLeftRail->hide();
 
   m_toolPropertiesPanel = new ToolPropertiesPanel(m_editorCenterWidget);
@@ -7804,8 +7795,8 @@ void MainWindow::setupRightSidebar() {
   m_pageSettingsOverlay->setObjectName(QStringLiteral("PageSettingsOverlay"));
   m_pageSettingsOverlay->setAttribute(Qt::WA_StyledBackground, true);
   m_pageSettingsOverlay->setStyleSheet(
-      QStringLiteral("QWidget#PageSettingsOverlay { background-color: rgba(8, 6, 18, "
-                     "210); }"));
+      QStringLiteral("QWidget#PageSettingsOverlay { background-color: %1; }")
+          .arg(BlopTheme::scrimColor().name(QColor::HexArgb)));
   m_pageSettingsOverlay->hide();
   m_pageSettingsOverlay->installEventFilter(this);
 
@@ -8646,9 +8637,9 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
-    // Title-bar page button toggles the left Pages panel.
+    // Pages toggle lives on the left rail — hide redundant title-bar pill.
     if (m_btnTitleBarPageManager)
-      m_btnTitleBarPageManager->setVisible(inNotesMode && isEditor && hasA4Pages);
+      m_btnTitleBarPageManager->setVisible(false);
   }
 #endif
   
@@ -8924,6 +8915,21 @@ void MainWindow::onEditorNoteOverflowMenu() {
   QList<BlopInWindowMenu::Item> items;
   items.append({QStringLiteral("Optionen & Tags…"), QIcon(),
                 [this]() { setPageSettingsOverlayVisible(true); }});
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("An Breite anpassen"), QIcon(),
+                [this, cv]() {
+                  if (cv) {
+                    cv->fitToWidth();
+                    updateNoteBottomChrome();
+                  }
+                }});
+  items.append({QStringLiteral("Ganze Seite / Inhalt"), QIcon(),
+                [this, cv]() {
+                  if (cv) {
+                    cv->fitPage();
+                    updateNoteBottomChrome();
+                  }
+                }});
 #ifdef Q_OS_ANDROID
   items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("Als PDF exportieren"), QIcon(),
@@ -10354,10 +10360,10 @@ int MainWindow::noteHeaderHeight() const {
 }
 
 int MainWindow::noteBottomChromeHeight() const {
-  // Edge-docked strip: Favorites rail clears exactly the bar height.
+  // Floating notch: Favorites rail clears bar height + bottom gap.
   if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
     return 0;
-  return m_noteBottomChrome->height();
+  return m_noteBottomChrome->height() + UiScale::dp(14);
 }
 
 void MainWindow::positionDrawboardToolbar() {
@@ -10461,12 +10467,17 @@ void MainWindow::positionNoteChrome() {
 #endif
 
   if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
-    // Edge-docked Drawboard utility bar across the canvas bottom.
+    // Floating centered notch — compact pill above the canvas bottom edge.
     const int stripH = m_noteBottomChrome->height();
-    const int availW = qMax(0, W - leftX - rightInset);
-    const int x = leftX;
-    const int y = H - stripH;
-    m_noteBottomChrome->setGeometry(x, y, availW, stripH);
+    const int gap = UiScale::dp(12);
+    // Content groups: undo/redo + pages + zoom ≈ 320–380dp depending on pages.
+    const bool a4 = (currentNoteView() != nullptr);
+    const int pillW =
+        UiScale::dp(a4 ? 360 : 260);
+    const int avail = qMax(0, W - leftX - rightInset);
+    const int x = leftX + qMax(0, (avail - pillW) / 2);
+    const int y = H - stripH - gap;
+    m_noteBottomChrome->setGeometry(x, y, pillW, stripH);
     m_noteBottomChrome->raise();
   }
 
@@ -10627,15 +10638,15 @@ void MainWindow::applyNoteChromeTheme() {
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(NoteChrome::accent());
   if (m_noteBottomChrome) {
-    m_noteBottomChrome->setFixedHeight(UiScale::dp(52));
+    m_noteBottomChrome->setFixedHeight(UiScale::dp(48));
     m_noteBottomChrome->setStyleSheet(QStringLiteral(
         "QWidget#NoteBottomChrome {"
-        "  background: %1; border: none; border-top: 1px solid %2; border-radius: 0;"
+        "  background: %1; border: 1px solid %2; border-radius: 24px;"
         "}"
         "QPushButton {"
-        "  background: transparent; color: %3; border: none; border-radius: 6px;"
-        "  font-size: 13px; font-weight: 600; min-width: 40px; min-height: 40px;"
-        "  padding: 0 10px;"
+        "  background: transparent; color: %3; border: none; border-radius: 8px;"
+        "  font-size: 13px; font-weight: 600; min-width: 36px; min-height: 36px;"
+        "  padding: 0 8px;"
         "}"
         "QPushButton:hover { background: rgba(127,127,127,0.18); color: %4; }"
         "QPushButton:disabled { color: %3; }"
@@ -10697,13 +10708,9 @@ void MainWindow::refreshNoteLeftRailIcons() {
   setRailIcon(QStringLiteral("bookmarks"), QStringLiteral("bookmark"));
   setRailIcon(QStringLiteral("history"), QStringLiteral("history"));
   setRailIcon(QStringLiteral("search"), QStringLiteral("search"));
-  setRailIcon(QStringLiteral("more"), QStringLiteral("more_vert"));
-  setRailIcon(QStringLiteral("select"), QStringLiteral("select"));
   setRailIcon(QStringLiteral("props"), QStringLiteral("palette"),
               m_toolPropertiesVisible);
   setRailIcon(QStringLiteral("theme"), QStringLiteral("palette"));
-  setRailIcon(QStringLiteral("export"), QStringLiteral("export"));
-  setRailIcon(QStringLiteral("settings"), QStringLiteral("settings"));
 #endif
 }
 

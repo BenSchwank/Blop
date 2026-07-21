@@ -27,14 +27,11 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   makeBtn(QStringLiteral("bookmarks"), QStringLiteral("Lesezeichen"));
   makeBtn(QStringLiteral("history"), QStringLiteral("Seitenstatistik"));
   makeBtn(QStringLiteral("search"), QStringLiteral("Suche"));
-  makeBtn(QStringLiteral("more"), QStringLiteral("Mehr"));
   addGroupSeparator();
-  makeBtn(QStringLiteral("select"), QStringLiteral("Auswahl"));
+  // Selection lives on the Favorites rail (Lasso) — no duplicate here.
   makeBtn(QStringLiteral("props"), QStringLiteral("Eigenschaften"));
   addGroupSeparator();
   makeBtn(QStringLiteral("theme"), QStringLiteral("Editor Hell/Dunkel"));
-  makeBtn(QStringLiteral("export"), QStringLiteral("Exportieren"));
-  makeBtn(QStringLiteral("settings"), QStringLiteral("Einstellungen"));
   m_lay->addStretch(1);
 
   if (auto *pages = m_btns.value(QStringLiteral("pages"))) {
@@ -53,18 +50,10 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::historyClicked);
   if (auto *b = m_btns.value(QStringLiteral("search")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::searchClicked);
-  if (auto *b = m_btns.value(QStringLiteral("more")))
-    connect(b, &QToolButton::clicked, this, &NoteLeftRail::moreClicked);
-  if (auto *b = m_btns.value(QStringLiteral("select")))
-    connect(b, &QToolButton::clicked, this, &NoteLeftRail::selectClicked);
   if (auto *b = m_btns.value(QStringLiteral("props")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::propertiesClicked);
   if (auto *b = m_btns.value(QStringLiteral("theme")))
     connect(b, &QToolButton::clicked, this, &NoteLeftRail::themeToggleClicked);
-  if (auto *b = m_btns.value(QStringLiteral("export")))
-    connect(b, &QToolButton::clicked, this, &NoteLeftRail::exportClicked);
-  if (auto *b = m_btns.value(QStringLiteral("settings")))
-    connect(b, &QToolButton::clicked, this, &NoteLeftRail::settingsClicked);
 
   refreshStyles();
 }

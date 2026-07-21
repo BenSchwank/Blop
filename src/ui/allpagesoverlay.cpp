@@ -1,6 +1,8 @@
 #include "allpagesoverlay.h"
 
 #include "blop_dialogs.h"
+#include "blop_modal.h"
+#include "blop_theme.h"
 #include "multipagenoteview.h"
 #include "notechrome.h"
 #include "uiscale.h"
@@ -103,12 +105,45 @@ void AllPagesOverlay::setAccentColor(const QColor &c) {
 
 void AllPagesOverlay::present() {
   rebuild();
+  refreshChrome();
+  QWidget *host = window();
+  if (host && m_card) {
+    if (m_modal) {
+      m_modal->dismiss();
+      m_modal.clear();
+    }
+    if (m_card->parentWidget() != this)
+      m_card->setParent(this);
+    m_modal = BlopModal::present(host, m_card, BlopModal::Mode::Card,
+                                 QStringLiteral("Alle Seiten"));
+    if (m_modal) {
+      m_modal->setPreferredCardWidth(
+          qBound(UiScale::dp(520), host->width() - UiScale::dp(56),
+                 UiScale::dp(760)));
+      connect(m_modal, &BlopModal::dismissed, this, [this]() {
+        if (m_card && m_card->parentWidget() != this)
+          m_card->setParent(this);
+        m_modal.clear();
+        hide();
+      });
+      hide();
+      return;
+    }
+  }
   show();
   raise();
   setFocus(Qt::OtherFocusReason);
 }
 
-void AllPagesOverlay::dismiss() { hide(); }
+void AllPagesOverlay::dismiss() {
+  if (m_modal) {
+    m_modal->dismiss();
+    return;
+  }
+  hide();
+  if (m_card && m_card->parentWidget() != this)
+    m_card->setParent(this);
+}
 
 void AllPagesOverlay::rebuild() {
   ++m_epoch;
@@ -182,29 +217,29 @@ void AllPagesOverlay::applyBatchDelete() {
 void AllPagesOverlay::refreshChrome() {
   setStyleSheet(QStringLiteral(
       "QWidget#AllPagesCard {"
-      "  background: %1; border: 1px solid %2; border-radius: 12px;"
+      "  background: transparent; border: none; border-radius: 0;"
       "}"
-      "QLabel { color: %3; }"
-      "QListWidget { background: transparent; border: none; outline: 0; color: %3; }"
+      "QLabel { color: %1; background: transparent; }"
+      "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
       "QListWidget::item {"
-      "  background: %4; border: 1px solid %2; border-radius: 8px; padding: 4px;"
+      "  background: %2; border: 1px solid %3; border-radius: 10px; padding: 4px;"
       "}"
-      "QListWidget::item:selected { border: 2px solid %5; }"
+      "QListWidget::item:selected { border: 2px solid %4; }"
       "QPushButton {"
-      "  background: %4; color: %3; border: 1px solid %2; border-radius: 6px;"
+      "  background: %2; color: %1; border: 1px solid %3; border-radius: 10px;"
       "  padding: 0 12px; font-weight: 600;"
       "}"
-      "QPushButton:hover { border-color: %5; }")
-                    .arg(NoteChrome::panelElevated().name(),
-                         NoteChrome::border().name(),
-                         NoteChrome::textPrimary().name(),
-                         NoteChrome::panelBg().name(), m_accent.name()));
+      "QPushButton:hover { border-color: %4; }")
+                    .arg(NoteChrome::textPrimary().name(),
+                         NoteChrome::panelBg().name(),
+                         NoteChrome::border().name(), m_accent.name()));
 }
 
 void AllPagesOverlay::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
+  // Fallback path only (when BlopModal is unavailable).
   QPainter p(this);
-  p.fillRect(rect(), QColor(0, 0, 0, 160));
+  p.fillRect(rect(), BlopTheme::scrimColor());
 }
 
 void AllPagesOverlay::keyPressEvent(QKeyEvent *event) {
