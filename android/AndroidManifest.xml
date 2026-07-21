@@ -78,20 +78,29 @@
             </intent-filter>
 
             <!-- Google OAuth PKCE deep-link callback.
-                 Accept BOTH URI shapes Google / Chrome may echo:
-                   com.benschwank.blop:/oauth2redirect   (path form, host null)
-                   com.benschwank.blop://oauth2redirect  (host form)
-                 Some devices/browsers normalize to one or the other; listing
-                 both <data> entries makes the filter fire either way. -->
+                 Google authorizes the reverse-client-id scheme for Android
+                 OAuth clients:
+                   com.googleusercontent.apps.<CLIENT_ID>:/oauth2redirect
+                   com.googleusercontent.apps.<CLIENT_ID>://oauth2redirect
+                 Also keep the legacy package scheme so older builds / cached
+                 auth URLs still return into the app. -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- Single-slash: scheme + path, host is null -->
+                <!-- Google reverse-client-id (path form, host null) -->
+                <data
+                    android:scheme="com.googleusercontent.apps.571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s"
+                    android:path="/oauth2redirect" />
+                <!-- Google reverse-client-id (host form) -->
+                <data
+                    android:scheme="com.googleusercontent.apps.571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s"
+                    android:host="oauth2redirect" />
+                <!-- Legacy package scheme (path form) -->
                 <data
                     android:scheme="com.benschwank.blop"
                     android:path="/oauth2redirect" />
-                <!-- Double-slash: scheme + host, path empty -->
+                <!-- Legacy package scheme (host form) -->
                 <data
                     android:scheme="com.benschwank.blop"
                     android:host="oauth2redirect" />
