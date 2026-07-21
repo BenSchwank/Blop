@@ -5929,11 +5929,13 @@ void ModernToolbar::updateLayout(bool animate) {
         }
         const int footerGap = UiScale::dp(4);
         const int footerBtnS = UiScale::dp(40);
+        // Extra bottom pad so the last chevron isn't flush-cut against the
+        // canvas / notch edge.
         const int footerH =
             footerBtns.size() * footerBtnS +
-            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(14);
+            qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(22);
         const int contentTop = dragSize + UiScale::dp(8);
-        const int contentBottom = h - footerH - UiScale::dp(8);
+        const int contentBottom = h - footerH - UiScale::dp(10);
         const int contentH = qMax(btnS, contentBottom - contentTop);
 
         // Content height of all slots (+ soft dividers).

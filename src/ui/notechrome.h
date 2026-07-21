@@ -66,10 +66,14 @@ inline QColor textSecondary() {
 inline QColor accent() { return QColor(91, 157, 255); }
 inline QColor accentSoft() { return QColor(91, 157, 255, 40); }
 inline QColor toolbarFill() {
-  return isDark() ? QColor(36, 36, 36) : QColor(250, 250, 250);
+  return isDark() ? QColor(36, 36, 36) : QColor(255, 255, 255);
 }
 inline QColor toolbarFillEnd() {
-  return isDark() ? QColor(28, 28, 28) : QColor(240, 240, 240);
+  return isDark() ? QColor(28, 28, 28) : QColor(248, 248, 248);
+}
+/// Floating bottom notch: stronger edge so it never blends into the canvas.
+inline QColor notchBorder() {
+  return isDark() ? QColor(70, 70, 70) : QColor(160, 160, 160);
 }
 
 } // namespace NoteChrome

@@ -159,8 +159,6 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
 }
 
 void PageThumbnailSidebar::setCollapsed(bool collapsed) {
-  if (m_floatingMode)
-    collapsed = false;
   if (m_collapsed == collapsed)
     return;
   m_collapsed = collapsed;
@@ -169,8 +167,6 @@ void PageThumbnailSidebar::setCollapsed(bool collapsed) {
 }
 
 void PageThumbnailSidebar::toggleCollapsed() {
-  if (m_floatingMode)
-    return;
   setCollapsed(!m_collapsed);
 }
 
@@ -214,7 +210,9 @@ void PageThumbnailSidebar::applyCollapsedState() {
   if (m_railBody)
     m_railBody->setVisible(!m_collapsed);
   if (m_collapsed) {
-    setFixedWidth(UiScale::dp(28));
+    // Fully fold away — no 28dp stub that looked "half cut off".
+    setFixedWidth(0);
+    hide();
     if (m_btnToggle) {
       m_btnToggle->setIcon(
           railGlyph(QStringLiteral("chevron_right"), NoteChrome::textSecondary(),
@@ -225,6 +223,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
     if (m_expandedWidth <= 0)
       m_expandedWidth = railMetrics(this, m_twoColumn).width;
     setFixedWidth(m_expandedWidth);
+    show();
     if (m_btnToggle) {
       m_btnToggle->setIcon(
           railGlyph(QStringLiteral("chevron_left"), NoteChrome::textSecondary(),
@@ -309,10 +308,12 @@ void PageThumbnailSidebar::setFloatingMode(bool on) {
   m_floatingMode = on;
   setAttribute(Qt::WA_TranslucentBackground, false);
   if (on) {
-    setCollapsed(false);
+    // Drawboard: fold/expand is owned by NoteLeftRail "Seitenleiste".
+    // Keep the in-panel chevron hidden; do NOT force-expand here (that
+    // fought the left-rail toggle and left a thin stub strip).
     if (m_btnToggle)
       m_btnToggle->hide();
-    if (m_railBody)
+    if (m_railBody && !m_collapsed)
       m_railBody->show();
   } else if (m_btnToggle) {
     m_btnToggle->show();
