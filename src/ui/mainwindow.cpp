@@ -3239,6 +3239,11 @@ void MainWindow::onWinMaximize() {
     setWindowState(windowState() & ~Qt::WindowMaximized);
   else
     setWindowState(windowState() | Qt::WindowMaximized);
+  // Cursor-style: swap □ / ❐ glyph on the single chrome bar.
+  if (m_btnWinMax) {
+    m_btnWinMax->setText(isMaximized() ? QStringLiteral("\u2750")  // ❐ restore
+                                       : QStringLiteral("\u25A1")); // □ maximize
+  }
 }
 void MainWindow::mousePressEvent(QMouseEvent *event) {
   QMainWindow::mousePressEvent(event);
