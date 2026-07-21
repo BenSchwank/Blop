@@ -20,6 +20,8 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QRandomGenerator>
+#include <QSettings>
+#include <QTimer>
 #include <QtCore/qnativeinterface.h>
 #include <QJniEnvironment>
 #include <QJniObject>
@@ -30,24 +32,60 @@ namespace {
 // Android OAuth client (no client secret). Configured as "Android" client in
 // Google Cloud Console with package com.benschwank.blop + Play App Signing
 // SHA-1 (and Upload SHA-1). Custom scheme matches the AndroidManifest intent
-// filter (com.benschwank.blop://oauth2redirect).
+// filter for both slash forms.
 constexpr const char *kAndroidClientId =
     "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com";
-// v3.18.9: back to SINGLE slash. Google's official OAuth-for-Android
-// documentation
-// (https://developers.google.com/identity/protocols/oauth2/native-app)
-// documents the canonical format as
+// Google's official OAuth-for-Android docs use the single-slash form:
 //   redirect_uri=com.example.app:/oauth2redirect
-// (one slash). v3.18.8 used two slashes which Google may reject for
-// Android client types with redirect_uri_mismatch. AndroidManifest.xml
-// as of v3.18.9 declares BOTH <data> variants (host="oauth2redirect" AND
-// path="/oauth2redirect") in the same intent-filter, so the deep-link
-// intent fires regardless of which slash form Google echoes back.
+// Manifest also accepts the host form so Chrome on some devices still lands.
 constexpr const char *kAndroidRedirectUri = "com.benschwank.blop:/oauth2redirect";
 constexpr const char *kGoogleAuthEndpoint =
     "https://accounts.google.com/o/oauth2/v2/auth";
 constexpr const char *kGoogleTokenEndpoint =
     "https://oauth2.googleapis.com/token";
+
+constexpr const char *kPkceOrg = "Blop";
+constexpr const char *kPkceApp = "BlopApp";
+constexpr const char *kKeyPkceVerifier = "oauth/pkce_verifier";
+constexpr const char *kKeyPkceState = "oauth/pkce_state";
+constexpr const char *kKeyPkceStartedMs = "oauth/pkce_started_ms";
+
+void persistPkce(const QString &verifier, const QString &state) {
+  QSettings s(QString::fromLatin1(kPkceOrg), QString::fromLatin1(kPkceApp));
+  s.setValue(QString::fromLatin1(kKeyPkceVerifier), verifier);
+  s.setValue(QString::fromLatin1(kKeyPkceState), state);
+  s.setValue(QString::fromLatin1(kKeyPkceStartedMs),
+             QDateTime::currentMSecsSinceEpoch());
+  s.sync();
+}
+
+void clearPersistedPkce() {
+  QSettings s(QString::fromLatin1(kPkceOrg), QString::fromLatin1(kPkceApp));
+  s.remove(QString::fromLatin1(kKeyPkceVerifier));
+  s.remove(QString::fromLatin1(kKeyPkceState));
+  s.remove(QString::fromLatin1(kKeyPkceStartedMs));
+  s.sync();
+}
+
+bool restorePersistedPkce(QString *verifier, QString *state) {
+  if (!verifier || !state)
+    return false;
+  QSettings s(QString::fromLatin1(kPkceOrg), QString::fromLatin1(kPkceApp));
+  const QString v = s.value(QString::fromLatin1(kKeyPkceVerifier)).toString();
+  const QString st = s.value(QString::fromLatin1(kKeyPkceState)).toString();
+  const qint64 started =
+      s.value(QString::fromLatin1(kKeyPkceStartedMs), 0).toLongLong();
+  // Drop stale sessions older than 15 minutes.
+  if (v.isEmpty() || st.isEmpty() || started <= 0)
+    return false;
+  if (QDateTime::currentMSecsSinceEpoch() - started > 15 * 60 * 1000) {
+    clearPersistedPkce();
+    return false;
+  }
+  *verifier = v;
+  *state = st;
+  return true;
+}
 
 // Bridge from BlopOAuthBridge.notifyAuthCallback (Java) into the Qt singleton.
 // Registered via JNI in startPkceLogin() so the symbol is resolved before the
@@ -103,13 +141,17 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   }
 
   // Drain any auth URI that arrived before the singleton was fully constructed.
+  // Defer to the next event-loop tick so MainWindow can finish connecting to
+  // authenticationFailed / idTokenReceived first (otherwise a cold-start
+  // callback during instance() construction would emit into the void).
   QJniObject pending = QJniObject::callStaticObjectMethod(
       "com/benschwank/blop/BlopOAuthBridge", "consumePendingUri",
       "()Ljava/lang/String;");
   if (pending.isValid()) {
     const QString s = pending.toString();
-    if (!s.isEmpty())
-      handleDeepLinkCallback(s);
+    if (!s.isEmpty()) {
+      QTimer::singleShot(0, this, [this, s]() { handleDeepLinkCallback(s); });
+    }
   }
 #else
   // Desktop: keep loopback flow.
@@ -171,6 +213,9 @@ void GoogleAuthManager::cancelPendingLogin() {
   qInfo() << "GoogleAuthManager: cancelling pending PKCE login on caller request";
   m_loginInProgress = false;
   m_loginInProgressSinceMs = 0;
+  clearPersistedPkce();
+  m_pkceVerifier.clear();
+  m_pkceState.clear();
 }
 #endif
 
@@ -222,6 +267,10 @@ void GoogleAuthManager::startPkceLogin() {
       m_pkceVerifier.toUtf8(), QCryptographicHash::Sha256);
   const QString codeChallenge = base64UrlEncode(challenge);
   m_pkceState = generateRandomString(32);
+  // Survive process death while the Custom Tab is open (common on low-RAM
+  // phones). Without this, onNewIntent returns with empty in-memory state
+  // → oauth_state_mismatch.
+  persistPkce(m_pkceVerifier, m_pkceState);
 
   QUrl authUrl(QString::fromLatin1(kGoogleAuthEndpoint));
   QUrlQuery q;
@@ -235,7 +284,8 @@ void GoogleAuthManager::startPkceLogin() {
   q.addQueryItem("prompt", "select_account");
   authUrl.setQuery(q);
 
-  qInfo() << "GoogleAuthManager: launching PKCE auth via Custom Tab";
+  qInfo() << "GoogleAuthManager: launching PKCE auth via Custom Tab"
+          << "redirect=" << m_redirectUri;
   emit requireBrowser(authUrl);
 }
 
@@ -249,7 +299,7 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
     return;
   }
 
-  qInfo() << "GoogleAuthManager: deep-link callback received";
+  qInfo() << "GoogleAuthManager: deep-link callback received uri=" << uri;
   m_loginInProgress = false;
   
 #ifdef Q_OS_ANDROID
@@ -258,29 +308,51 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   MainWindow::resetOAuthTimer();
 #endif
   if (uri.isEmpty()) {
+    clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("empty_callback_uri"));
     return;
   }
 
-  const QUrl parsed(uri);
-  const QUrlQuery q(parsed);
-  const QString error = q.queryItemValue("error");
+  // Accept both path-form and host-form redirects; pull query robustly.
+  QUrl parsed(uri, QUrl::TolerantMode);
+  QUrlQuery q(parsed);
+  if (q.isEmpty()) {
+    const int qi = uri.indexOf(QLatin1Char('?'));
+    if (qi >= 0)
+      q = QUrlQuery(uri.mid(qi + 1));
+  }
+
+  const QString error = q.queryItemValue(QStringLiteral("error"));
   if (!error.isEmpty()) {
     qWarning() << "OAuth provider returned error:" << error;
+    clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("oauth_error:") + error);
     return;
   }
 
-  const QString state = q.queryItemValue("state");
+  // Restore PKCE if the process was killed while the Custom Tab was open.
+  if (m_pkceState.isEmpty() || m_pkceVerifier.isEmpty()) {
+    QString v, st;
+    if (restorePersistedPkce(&v, &st)) {
+      qInfo() << "GoogleAuthManager: restored PKCE state after process restart";
+      m_pkceVerifier = v;
+      m_pkceState = st;
+    }
+  }
+
+  const QString state = q.queryItemValue(QStringLiteral("state"));
   if (state.isEmpty() || state != m_pkceState) {
-    qWarning() << "OAuth state mismatch";
+    qWarning() << "OAuth state mismatch (mem empty=" << m_pkceState.isEmpty()
+               << "callbackStateEmpty=" << state.isEmpty() << ")";
+    clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("oauth_state_mismatch"));
     return;
   }
 
-  const QString code = q.queryItemValue("code");
+  const QString code = q.queryItemValue(QStringLiteral("code"));
   if (code.isEmpty()) {
     qWarning() << "OAuth callback missing code";
+    clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("oauth_missing_code"));
     return;
   }
@@ -312,6 +384,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     if (netErr != QNetworkReply::NoError || status >= 400) {
       qWarning() << "Google token exchange failed status=" << status
                  << "body=" << raw;
+      clearPersistedPkce();
       emit authenticationFailed(QStringLiteral("token_exchange_failed"));
       return;
     }
@@ -319,6 +392,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     const QJsonDocument doc = QJsonDocument::fromJson(raw);
     if (!doc.isObject()) {
       qWarning() << "Google token response not JSON object:" << raw;
+      clearPersistedPkce();
       emit authenticationFailed(QStringLiteral("token_exchange_invalid_json"));
       return;
     }
@@ -326,10 +400,12 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     const QString idToken = obj.value("id_token").toString();
     if (idToken.isEmpty()) {
       qWarning() << "Google token response missing id_token";
+      clearPersistedPkce();
       emit authenticationFailed(QStringLiteral("token_exchange_no_id_token"));
       return;
     }
 
+    clearPersistedPkce();
     parseUserInfoFromIdToken(idToken);
     m_authenticated = true;
     emit idTokenReceived(idToken);

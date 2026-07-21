@@ -7,7 +7,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Log;
-import android.widget.Toast;
 
 import androidx.annotation.Keep;
 import androidx.browser.customtabs.CustomTabsIntent;
@@ -127,26 +126,11 @@ public class BlopActivity extends QtActivity {
         final String hostStr = data.getHost() == null ? "(null)" : data.getHost();
         final String pathStr = data.getPath() == null ? "(null)" : data.getPath();
         Log.i(TAG, origin + " forwarding OAuth deep link host=" + hostStr
-                + " path=" + pathStr);
+                + " path=" + pathStr + " query=" + data.getQuery());
 
-        // v3.18.9: brief on-screen confirmation so the user immediately sees
-        // whether the OAuth deep-link reached the app. If the user never
-        // sees this toast after returning from Chrome Custom Tab, the issue
-        // is on the intent-filter / browser-redirect side (manifest match or
-        // Cloud Console redirect_uri_mismatch). If the user DOES see the
-        // toast but login still fails, the issue is in the C++
-        // token-exchange path (handleDeepLinkCallback / exchangeCodeForToken).
-        // Either way the next test produces a single clear datapoint without
-        // requiring adb logcat.
-        final String toastMsg = "OAuth callback (" + origin + "): host="
-                + hostStr + " path=" + pathStr;
-        runOnUiThread(() -> {
-            try {
-                Toast.makeText(BlopActivity.this, toastMsg, Toast.LENGTH_LONG).show();
-            } catch (Throwable t) {
-                Log.w(TAG, "diagnostic toast failed", t);
-            }
-        });
+        // Do NOT show a diagnostic toast here — host=(null) is the *expected*
+        // shape for com.benschwank.blop:/oauth2redirect and looked like a
+        // failure to users. Errors are surfaced by C++ via BlopDialogs.
 
         BlopOAuthBridge.deliverIntentUri(data);
     }

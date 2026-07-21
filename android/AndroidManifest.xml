@@ -70,25 +70,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Google OAuth PKCE deep-link callback. The custom scheme matches
-                 the redirect URI configured for the Android OAuth client and
-                 used by GoogleAuthManager::startPkceLogin().
-                 v3.18.9: BOTH slash variants are accepted to be future-proof
-                 against Google switching the canonical format. Google's
-                 official docs document the single-slash form
-                 (com.example.app:/oauth2redirect), v3.18.8 sent double-slash
-                 (com.example.app://oauth2redirect). Listing both <data>
-                 elements means the intent filter fires regardless of which
-                 the OAuth server echoes back. BlopActivity.forwardOAuthIntent
-                 filters only on scheme, so it consumes both URIs identically. -->
+            <!-- Google OAuth PKCE deep-link callback.
+                 Accept BOTH URI shapes Google / Chrome may echo:
+                   com.benschwank.blop:/oauth2redirect   (path form, host null)
+                   com.benschwank.blop://oauth2redirect  (host form)
+                 Some devices/browsers normalize to one or the other; listing
+                 both <data> entries makes the filter fire either way. -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- v3.18.40: Match com.benschwank.blop:/oauth2redirect (single slash) -->
+                <!-- Single-slash: scheme + path, host is null -->
                 <data
                     android:scheme="com.benschwank.blop"
                     android:path="/oauth2redirect" />
+                <!-- Double-slash: scheme + host, path empty -->
+                <data
+                    android:scheme="com.benschwank.blop"
+                    android:host="oauth2redirect" />
             </intent-filter>
 
           <meta-data

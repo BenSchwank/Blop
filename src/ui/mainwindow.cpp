@@ -1669,8 +1669,23 @@ MainWindow::MainWindow(QWidget *parent)
   // Warn user if OAuth fails locally or via server
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::authenticationFailed, this, [this, failOAuthFlow](const QString& error) {
       failOAuthFlow(error);
-      BlopDialogs::notify(this, QStringLiteral("Google Login Fehler"),
-          QStringLiteral("Der Login über Google ist fehlgeschlagen:\n%1").arg(error));
+      QString friendly = QStringLiteral(
+          "Google-Anmeldung ist fehlgeschlagen. Bitte erneut versuchen.");
+      if (error.contains(QStringLiteral("state_mismatch")))
+        friendly = QStringLiteral(
+            "Die Anmeldung wurde unterbrochen (App neu gestartet). "
+            "Bitte tippe noch einmal auf „Über Google registrieren“.");
+      else if (error.contains(QStringLiteral("token_exchange")))
+        friendly = QStringLiteral(
+            "Google konnte den Login nicht bestätigen. Prüfe die "
+            "Internetverbindung und versuche es erneut.");
+      else if (error.contains(QStringLiteral("oauth_error")))
+        friendly = QStringLiteral(
+            "Google hat die Anmeldung abgebrochen. Bitte erneut versuchen.");
+      else if (error.contains(QStringLiteral("backend_verify")))
+        friendly = QStringLiteral(
+            "Server-Bestätigung fehlgeschlagen. Bitte später erneut versuchen.");
+      BlopDialogs::notify(this, QStringLiteral("Google Login"), friendly);
   });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
