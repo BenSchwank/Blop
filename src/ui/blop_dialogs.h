@@ -1,9 +1,14 @@
 #pragma once
 
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
+#include "blop_modal.h"
+
 class QWidget;
+class QLabel;
+class QProgressBar;
 
 /// Shared Android-safe dialog helpers. Never spawn a top-level QMessageBox /
 /// QInputDialog / bare QDialog::exec — those trip Qt 6.10 EGL deadlocks on
@@ -29,5 +34,21 @@ int promptInt(QWidget *parent, const QString &title, const QString &label,
               int value, int min, int max, bool *ok = nullptr);
 
 void notify(QWidget *parent, const QString &title, const QString &message);
+
+/// Non-blocking progress card (BlopModal) for long PDF import/export jobs.
+struct ProgressSession {
+  QPointer<BlopModal> modal;
+  QPointer<QLabel> label;
+  QPointer<QProgressBar> bar;
+
+  void setMessage(const QString &text);
+  void setRange(int minimum, int maximum);
+  void setValue(int value);
+  void close();
+  bool isOpen() const { return modal != nullptr; }
+};
+
+ProgressSession presentProgress(QWidget *parent, const QString &title,
+                                const QString &message = QString());
 
 } // namespace BlopDialogs

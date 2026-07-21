@@ -49,7 +49,9 @@
 #include <QScrollBar>
 #include <QClipboard>
 #include <QCursor>
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QEventLoop>
 #include <QGuiApplication>
 #include <QLineF>
 #ifdef BLOP_HAS_PDF
@@ -3387,17 +3389,59 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
 }
 
 namespace {
-// v3.17.6: pure stroke-render helper, safe to invoke from any thread.
-// Operates only on QImage / QPainter and value-type Stroke fields, so it
-// can be dispatched to QtConcurrent::run without touching scene state.
-QImage renderThumbnailImage(int pageW, int pageH, const QSize &size,
-                            const QVector<Stroke> &strokes) {
+// Full page raster for thumbnails + PDF export. Includes paper, PDF
+// background images, ruled patterns, strokes and sticky notes so imported
+// PDFs no longer export as blank white pages.
+QImage renderFullPageImage(const NotePage &page, int pageW, int pageH) {
   QImage img(pageW, pageH, QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::white);
+  const QColor paper =
+      page.paperColor.isValid() ? page.paperColor : QColor(Qt::white);
+  img.fill(paper);
   QPainter p(&img);
   p.setRenderHint(QPainter::Antialiasing);
+  p.setRenderHint(QPainter::SmoothPixmapTransform);
 
-  for (const auto &s : strokes) {
+  if (!page.backgroundImage.isNull()) {
+    p.drawImage(QRectF(0, 0, pageW, pageH), page.backgroundImage);
+  } else {
+    const int L = paper.lightness();
+    const QColor lineCol =
+        L < 130 ? QColor(255, 255, 255, 50) : QColor(190, 190, 210, 110);
+    const auto type = static_cast<PageBackgroundType>(page.backgroundType);
+    switch (type) {
+    case PageBackgroundType::Blank:
+      break;
+    case PageBackgroundType::Lined:
+    case PageBackgroundType::Legal: {
+      p.setPen(QPen(lineCol, 1));
+      for (int y = 40; y < pageH; y += 40)
+        p.drawLine(0, y, pageW, y);
+      if (type == PageBackgroundType::Legal) {
+        p.setPen(QPen(L < 130 ? QColor(255, 120, 120) : QColor(220, 80, 80), 2));
+        p.drawLine(72, 0, 72, pageH);
+      }
+      break;
+    }
+    case PageBackgroundType::Grid: {
+      p.setPen(QPen(lineCol, 1));
+      for (int x = 40; x < pageW; x += 40)
+        p.drawLine(x, 0, x, pageH);
+      for (int y = 40; y < pageH; y += 40)
+        p.drawLine(0, y, pageW, y);
+      break;
+    }
+    case PageBackgroundType::Dotted: {
+      p.setPen(Qt::NoPen);
+      p.setBrush(lineCol);
+      for (int y = 40; y < pageH; y += 40)
+        for (int x = 40; x < pageW; x += 40)
+          p.drawEllipse(QPointF(x, y), 1.4, 1.4);
+      break;
+    }
+    }
+  }
+
+  for (const auto &s : page.strokes) {
     QColor c = s.color;
     if (s.isHighlighter)
       c.setAlpha(80);
@@ -3405,14 +3449,44 @@ QImage renderThumbnailImage(int pageW, int pageH, const QSize &size,
       c.setAlpha(255);
     QPen pen;
     if (s.isEraser)
-      pen = QPen(Qt::white, s.width);
+      pen = QPen(paper, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     else
       pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
     p.drawPath(s.path);
   }
+
+  for (const auto &sn : page.stickies) {
+    const QRectF r(sn.pos, QSizeF(sn.width, sn.height));
+    p.setPen(QPen(QColor(0, 0, 0, 40), 1));
+    p.setBrush(sn.color.isValid() ? sn.color : QColor(255, 236, 120));
+    p.drawRoundedRect(r, 6, 6);
+    p.setPen(QColor(40, 40, 40));
+    QFont f = p.font();
+    f.setPointSizeF(qMax(8.0, sn.fontPointSize > 0 ? sn.fontPointSize : 14.0));
+    p.setFont(f);
+    p.drawText(r.adjusted(8, 8, -8, -8), Qt::TextWordWrap | Qt::AlignTop,
+               sn.text);
+  }
+
+  for (const auto &g : page.graphs) {
+    p.setPen(QPen(QColor(90, 90, 110), 1.2));
+    p.setBrush(QColor(255, 255, 255, 210));
+    p.drawRect(g.rect);
+    p.setPen(QColor(120, 120, 140));
+    p.drawText(g.rect.adjusted(6, 4, -6, -4), Qt::AlignLeft | Qt::AlignTop,
+               QStringLiteral("Graph"));
+  }
+
   p.end();
-  return img.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  return img;
+}
+
+QImage renderThumbnailImage(const NotePage &page, int pageW, int pageH,
+                            const QSize &size) {
+  return renderFullPageImage(page, pageW, pageH)
+      .scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 } // namespace
 
@@ -3427,8 +3501,8 @@ QPixmap MultiPageNoteView::generateThumbnail(int pageIndex, const QSize &size) {
   QPixmap cached;
   if (QPixmapCache::find(key, &cached))
     return cached;
-  QImage scaled = renderThumbnailImage(a4wPx(), a4hPx(), size,
-                                       note_->pages[pageIndex].strokes);
+  QImage scaled = renderThumbnailImage(note_->pages[pageIndex], a4wPx(),
+                                       a4hPx(), size);
   QPixmap pm = QPixmap::fromImage(scaled);
   QPixmapCache::insert(key, pm);
   return pm;
@@ -3467,13 +3541,12 @@ void MultiPageNoteView::generateThumbnailAsync(
   }
   const int pageW = a4wPx();
   const int pageH = a4hPx();
-  // Deep-copy strokes into the worker. QPainterPath / QColor are
-  // implicitly-shared value types; the worker mutates none of them.
-  QVector<Stroke> strokes = note_->pages[pageIndex].strokes;
+  // Deep-copy the page into the worker (QImage is implicitly shared).
+  const NotePage pageCopy = note_->pages[pageIndex];
   QPointer<MultiPageNoteView> guard(this);
   auto *watcher = new QFutureWatcher<QImage>(this);
   connect(watcher, &QFutureWatcher<QImage>::finished, this,
-          [watcher, guard, callback, key, size]() {
+          [watcher, guard, callback, key]() {
             QImage img = watcher->result();
             watcher->deleteLater();
             if (!guard) {
@@ -3485,8 +3558,8 @@ void MultiPageNoteView::generateThumbnailAsync(
             callback(pm);
           });
   watcher->setFuture(QtConcurrent::run(
-      [pageW, pageH, size, strokes]() {
-        return renderThumbnailImage(pageW, pageH, size, strokes);
+      [pageW, pageH, size, pageCopy]() {
+        return renderThumbnailImage(pageCopy, pageW, pageH, size);
       }));
 }
 
@@ -3519,53 +3592,61 @@ bool MultiPageNoteView::exportNoteToPng(const QString &basePath) {
 }
 
 bool MultiPageNoteView::exportPageToPdf(int pageIndex, const QString &path) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return false;
   QPdfWriter pdf(path);
   pdf.setPageSize(QPageSize(QPageSize::A4));
+  pdf.setResolution(150);
+  pdf.setCreator(QStringLiteral("Blop Notes"));
   QPainter p(&pdf);
-  p.fillRect(QRectF(0, 0, a4wPx(), a4hPx()), Qt::white);
-  if (note_ && pageIndex >= 0 && pageIndex < note_->pages.size()) {
-    for (const auto &s : note_->pages[pageIndex].strokes) {
-      QColor c = s.color;
-      if (s.isHighlighter)
-        c.setAlpha(80);
-      QPen pen;
-      if (s.isEraser)
-        pen = QPen(Qt::white, s.width);
-      else
-        pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-      p.setPen(pen);
-      p.drawPath(s.path);
-    }
-  }
+  if (!p.isActive())
+    return false;
+  const QRectF target = pdf.pageLayout().paintRectPixels(pdf.resolution());
+  const QImage pageImg =
+      renderFullPageImage(note_->pages[pageIndex], a4wPx(), a4hPx());
+  p.fillRect(target, Qt::white);
+  p.drawImage(target, pageImg);
   p.end();
   return true;
 }
 
 bool MultiPageNoteView::exportNoteToPdf(const QString &path) {
-  if (!note_ || note_->pages.isEmpty())
+  if (!note_ || note_->pages.isEmpty() || path.isEmpty())
     return false;
+
+  auto progress = BlopDialogs::presentProgress(
+      window(), QStringLiteral("PDF exportieren"),
+      QStringLiteral("Seiten werden vorbereitet…"));
+  progress.setRange(0, note_->pages.size());
+
   QPdfWriter pdf(path);
   pdf.setPageSize(QPageSize(QPageSize::A4));
+  pdf.setResolution(150);
+  pdf.setCreator(QStringLiteral("Blop Notes"));
   QPainter p(&pdf);
-  const QRectF pageRect(0, 0, a4wPx(), a4hPx());
+  if (!p.isActive()) {
+    progress.close();
+    return false;
+  }
+
+  const QRectF target = pdf.pageLayout().paintRectPixels(pdf.resolution());
+  const int pageW = a4wPx();
+  const int pageH = a4hPx();
   for (int i = 0; i < note_->pages.size(); ++i) {
+    progress.setValue(i);
+    progress.setMessage(
+        QStringLiteral("Seite %1 von %2…").arg(i + 1).arg(note_->pages.size()));
     if (i > 0)
       pdf.newPage();
-    p.fillRect(pageRect, Qt::white);
-    for (const auto &s : note_->pages[i].strokes) {
-      QColor c = s.color;
-      if (s.isHighlighter)
-        c.setAlpha(80);
-      QPen pen;
-      if (s.isEraser)
-        pen = QPen(Qt::white, s.width);
-      else
-        pen = QPen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-      p.setPen(pen);
-      p.drawPath(s.path);
-    }
+    const QImage pageImg =
+        renderFullPageImage(note_->pages[i], pageW, pageH);
+    p.fillRect(target, Qt::white);
+    p.drawImage(target, pageImg);
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
   }
   p.end();
+  progress.setValue(note_->pages.size());
+  progress.close();
   return true;
 }
 
@@ -3773,34 +3854,77 @@ void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
 
 // ─── PDF Import ─────────────────────────────────────────────────────────────
 bool MultiPageNoteView::importPdfPages(const QString &pdfPath) {
-  if (!note_) return false;
+  if (!note_ || pdfPath.isEmpty())
+    return false;
 
 #ifdef BLOP_HAS_PDF
-  QPdfDocument doc;
-  auto status = doc.load(pdfPath);
-  if (status != QPdfDocument::Error::None) return false;
+  auto progress = BlopDialogs::presentProgress(
+      window(), QStringLiteral("PDF importieren"),
+      QStringLiteral("PDF wird geladen…"));
 
-  int pageCount = doc.pageCount();
-  if (pageCount == 0) return false;
+  const int pageW = a4wPx();
+  const int pageH = a4hPx();
 
-  for (int i = 0; i < pageCount; ++i) {
-    int pageIdx = note_->pages.size();
-    note_->ensurePage(pageIdx);
-    note_->pages[pageIdx].title = QString("PDF S.%1").arg(i + 1);
-
-    // Render at A4 pixel resolution (793 x 1122)
-    QImage img = doc.render(i, QSize(a4wPx(), a4hPx()));
-    if (!img.isNull())
-      note_->pages[pageIdx].backgroundImage = img;
+  // Render off the UI thread — one QPdfDocument owned by the worker.
+  QEventLoop loop;
+  QVector<QImage> images;
+  bool loadOk = false;
+  auto *watcher = new QFutureWatcher<QVector<QImage>>(this);
+  QObject::connect(watcher, &QFutureWatcher<QVector<QImage>>::finished, &loop,
+                   &QEventLoop::quit);
+  watcher->setFuture(QtConcurrent::run([pdfPath, pageW, pageH]() {
+    QVector<QImage> out;
+    QPdfDocument doc;
+    if (doc.load(pdfPath) != QPdfDocument::Error::None)
+      return out;
+    const int count = doc.pageCount();
+    out.reserve(count);
+    for (int i = 0; i < count; ++i) {
+      // Screen-DPI A4 raster; keeps import responsive while remaining sharp.
+      QImage img = doc.render(i, QSize(pageW, pageH));
+      if (!img.isNull() && img.format() != QImage::Format_RGB32)
+        img = img.convertToFormat(QImage::Format_RGB32);
+      out.append(img);
+    }
+    return out;
+  }));
+  loop.exec();
+  images = watcher->result();
+  watcher->deleteLater();
+  loadOk = !images.isEmpty();
+  if (!loadOk) {
+    progress.close();
+    return false;
   }
+
+  progress.setRange(0, images.size());
+  for (int i = 0; i < images.size(); ++i) {
+    progress.setValue(i);
+    progress.setMessage(
+        QStringLiteral("Seite %1 von %2 einfügen…")
+            .arg(i + 1)
+            .arg(images.size()));
+    const int pageIdx = note_->pages.size();
+    note_->ensurePage(pageIdx);
+    note_->pages[pageIdx].title = QStringLiteral("PDF S.%1").arg(i + 1);
+    note_->pages[pageIdx].backgroundType =
+        static_cast<int>(PageBackgroundType::Blank);
+    note_->pages[pageIdx].paperColor = Qt::white;
+    if (!images[i].isNull())
+      note_->pages[pageIdx].backgroundImage = images[i];
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+  }
+  progress.setValue(images.size());
+  progress.close();
+
   setNote(note_);
-  if (onSaveRequested) onSaveRequested(note_);
+  if (onSaveRequested)
+    onSaveRequested(note_);
   return true;
 #else
   Q_UNUSED(pdfPath);
   return false;
 #endif
-
 }
 
 void MultiPageNoteView::onSelectionChanged() {

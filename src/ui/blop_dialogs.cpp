@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
@@ -263,6 +264,74 @@ void notify(QWidget *parent, const QString &title, const QString &message) {
   lay->addLayout(btnRow);
   QObject::connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
   BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg);
+}
+
+void ProgressSession::setMessage(const QString &text) {
+  if (label)
+    label->setText(text);
+}
+
+void ProgressSession::setRange(int minimum, int maximum) {
+  if (bar)
+    bar->setRange(minimum, maximum);
+}
+
+void ProgressSession::setValue(int value) {
+  if (bar)
+    bar->setValue(value);
+}
+
+void ProgressSession::close() {
+  if (modal)
+    modal->dismiss();
+  modal.clear();
+  label.clear();
+  bar.clear();
+}
+
+ProgressSession presentProgress(QWidget *parent, const QString &title,
+                                const QString &message) {
+  ProgressSession session;
+  auto *form = new QWidget;
+  form->setMinimumWidth(320);
+  auto *lay = new QVBoxLayout(form);
+  lay->setContentsMargins(8, 4, 8, 8);
+  lay->setSpacing(12);
+  auto *lbl = new QLabel(message.isEmpty() ? QObject::tr("Bitte warten…")
+                                           : message,
+                         form);
+  lbl->setWordWrap(true);
+  lbl->setStyleSheet(BlopTheme::themed(
+      QStringLiteral("color: %1; background: transparent; font-size: 13px;")
+          .arg(BlopTheme::textPrimary().name())));
+  auto *bar = new QProgressBar(form);
+  bar->setRange(0, 0); // indeterminate until caller sets a range
+  bar->setTextVisible(true);
+  bar->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "QProgressBar {"
+      "  background: %1; border: 1px solid %2; border-radius: 8px;"
+      "  min-height: 14px; text-align: center; color: %3;"
+      "}"
+      "QProgressBar::chunk {"
+      "  background: %4; border-radius: 7px;"
+      "}")
+                                           .arg(BlopTheme::surfaceMuted().name(),
+                                                BlopTheme::borderDefault().name(),
+                                                BlopTheme::textSecondary().name(),
+                                                BlopTheme::accentPrimary().name())));
+  lay->addWidget(lbl);
+  lay->addWidget(bar);
+
+  BlopModal *modal =
+      BlopModal::present(parent ? parent->window() : parent, form,
+                         BlopModal::Mode::Card, title);
+  if (modal)
+    modal->setPreferredCardWidth(420);
+
+  session.modal = modal;
+  session.label = lbl;
+  session.bar = bar;
+  return session;
 }
 
 } // namespace BlopDialogs

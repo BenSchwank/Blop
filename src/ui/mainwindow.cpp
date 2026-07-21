@@ -59,7 +59,11 @@
 #include <QMessageBox>
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QAbstractButton>
+#include <QAbstractSlider>
 #include <QComboBox>
+#include <QTabBar>
+#include <QWindow>
 #include <QDataStream>
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -1420,7 +1424,9 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_renameOverlay(nullptr) {
   // All pointer members are nullptr-initialized via in-class initializers in mainwindow.h
 
-  setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+  setWindowFlags(Qt::FramelessWindowHint | Qt::Window |
+                 Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
+                 Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint);
 
 #ifdef Q_OS_ANDROID
   QFont f = this->font();
@@ -1739,6 +1745,13 @@ void MainWindow::syncStudyChromeTheme() {
 #endif
 
 void MainWindow::applyThemeRefresh() {
+  // Keep note-editor chrome in sync with Settings Design mode so Hell/Dunkel
+  // works app-wide (library + note page).
+#ifndef Q_OS_ANDROID
+  NoteChrome::setMode(BlopTheme::instance().mode() == BlopTheme::Mode::Light
+                          ? NoteChrome::Mode::Light
+                          : NoteChrome::Mode::Dark);
+#endif
   if (m_centralContainer) {
     m_centralContainer->setStyleSheet(
         QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
@@ -1832,6 +1845,17 @@ void MainWindow::applyThemeRefresh() {
   // v3.18.5: re-skin every control inside the Page-Settings sheet so
   // theme toggles take effect on already-constructed widgets.
   refreshPageSettingsTheme();
+
+#ifndef Q_OS_ANDROID
+  {
+    const bool inNote =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    if (inNote)
+      applyNoteChromeTheme();
+    else
+      refreshNoteTitleChrome(false);
+  }
+#endif
 
   // Nudge the file-list viewport so AndroidTileDelegate re-paints with
   // the new card color.
@@ -2900,11 +2924,67 @@ void MainWindow::setupTitleBar() {
   connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
   connect(m_btnWinMax, &QPushButton::clicked, this, &MainWindow::onWinMaximize);
   connect(m_btnWinClose, &QPushButton::clicked, this, &MainWindow::onWinClose);
+
+  // Drag / double-click maximize: empty title areas (incl. stretch spacer).
+  m_titleBarWidget->installEventFilter(this);
+  if (m_topNavControls)
+    m_topNavControls->installEventFilter(this);
 }
 
 
 // Window Dragging Implementation
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
+#ifndef Q_OS_ANDROID
+  // Cross-platform title-bar drag / double-click maximize (also covers
+  // Linux and acts as a fallback when Win32 HTTEST is unavailable).
+  auto startTitleDragIfEmpty = [this](QWidget *origin, const QPoint &localPos) -> bool {
+    if (!m_titleBarWidget || !windowHandle())
+      return false;
+    QWidget *hit = origin->childAt(localPos);
+    // Walk interactive check — same rules as WM_NCHITTEST.
+    auto interactive = [](QWidget *w, QWidget *titleBar) {
+      for (QWidget *cur = w; cur && cur != titleBar;
+           cur = cur->parentWidget()) {
+        if (qobject_cast<QAbstractButton *>(cur) ||
+            qobject_cast<QLineEdit *>(cur) ||
+            qobject_cast<QComboBox *>(cur) ||
+            qobject_cast<QAbstractSlider *>(cur) ||
+            qobject_cast<QTabBar *>(cur))
+          return true;
+        if (cur->metaObject() &&
+            QByteArray(cur->metaObject()->className())
+                    .indexOf("DocumentTabBar") >= 0)
+          return true;
+        if (cur->property("blopTitleInteractive").toBool())
+          return true;
+      }
+      return false;
+    };
+    if (interactive(hit, m_titleBarWidget))
+      return false;
+    return windowHandle()->startSystemMove();
+  };
+
+  if (m_titleBarWidget &&
+      (obj == m_titleBarWidget || obj == m_topNavControls)) {
+    if (event->type() == QEvent::MouseButtonDblClick) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton) {
+        onWinMaximize();
+        return true;
+      }
+    }
+    if (event->type() == QEvent::MouseButtonPress) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton) {
+        if (auto *w = qobject_cast<QWidget *>(obj)) {
+          if (startTitleDragIfEmpty(w, me->pos()))
+            return true;
+        }
+      }
+    }
+  }
+#endif
 #ifdef Q_OS_ANDROID
   if (obj == m_androidSidebarScrim && event->type() == QEvent::MouseButtonPress) {
     animateSidebar(false);
@@ -3149,13 +3229,15 @@ void MainWindow::closeNoteTab(int index) {
 }
 
 
-void MainWindow::onWinMinimize() { showMinimized(); }
+void MainWindow::onWinMinimize() {
+  setWindowState((windowState() & ~Qt::WindowMaximized) | Qt::WindowMinimized);
+}
 void MainWindow::onWinClose() { close(); }
 void MainWindow::onWinMaximize() {
-  if (isMaximized())
-    showNormal();
+  if (isMaximized() || (windowState() & Qt::WindowMaximized))
+    setWindowState(windowState() & ~Qt::WindowMaximized);
   else
-    showMaximized();
+    setWindowState(windowState() | Qt::WindowMaximized);
 }
 void MainWindow::mousePressEvent(QMouseEvent *event) {
   QMainWindow::mousePressEvent(event);
@@ -3168,49 +3250,66 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 #ifdef Q_OS_WIN
+namespace {
+bool titleBarRegionIsInteractive(QWidget *hit, QWidget *titleBar) {
+  for (QWidget *cur = hit; cur && cur != titleBar;
+       cur = cur->parentWidget()) {
+    if (qobject_cast<QAbstractButton *>(cur) ||
+        qobject_cast<QLineEdit *>(cur) || qobject_cast<QComboBox *>(cur) ||
+        qobject_cast<QAbstractSlider *>(cur) ||
+        qobject_cast<QTabBar *>(cur))
+      return true;
+    if (cur->metaObject() &&
+        QByteArray(cur->metaObject()->className())
+                .indexOf("DocumentTabBar") >= 0)
+      return true;
+    if (cur->property("blopTitleInteractive").toBool())
+      return true;
+  }
+  return false;
+}
+} // namespace
+
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
   MSG *msg = static_cast<MSG *>(message);
   if (msg->message == WM_NCHITTEST) {
-    if (isMaximized()) return false;
-    
     long x = GET_X_LPARAM(msg->lParam);
     long y = GET_Y_LPARAM(msg->lParam);
     QPoint pos = mapFromGlobal(QPoint(x, y));
-    
-    int borderSize = 6;
-    bool left = pos.x() < borderSize;
-    bool right = pos.x() > width() - borderSize;
-    bool top = pos.y() < borderSize;
-    bool bottom = pos.y() > height() - borderSize;
-    
-    if (top && left) { *result = HTTOPLEFT; return true; }
-    if (top && right) { *result = HTTOPRIGHT; return true; }
-    if (bottom && left) { *result = HTBOTTOMLEFT; return true; }
-    if (bottom && right) { *result = HTBOTTOMRIGHT; return true; }
-    if (left) { *result = HTLEFT; return true; }
-    if (right) { *result = HTRIGHT; return true; }
-    if (top) { *result = HTTOP; return true; }
-    if (bottom) { *result = HTBOTTOM; return true; }
 
-    // Titelbereich: Differenziere zwischen Drag-Bereich und interaktiven Widgets
+    // Edge resize only when not maximized.
+    if (!isMaximized()) {
+      int borderSize = 6;
+      bool left = pos.x() < borderSize;
+      bool right = pos.x() > width() - borderSize;
+      bool top = pos.y() < borderSize;
+      bool bottom = pos.y() > height() - borderSize;
+
+      if (top && left) { *result = HTTOPLEFT; return true; }
+      if (top && right) { *result = HTTOPRIGHT; return true; }
+      if (bottom && left) { *result = HTBOTTOMLEFT; return true; }
+      if (bottom && right) { *result = HTBOTTOMRIGHT; return true; }
+      if (left) { *result = HTLEFT; return true; }
+      if (right) { *result = HTRIGHT; return true; }
+      if (top) { *result = HTTOP; return true; }
+      if (bottom) { *result = HTBOTTOM; return true; }
+    }
+
+    // Title bar: only real controls are HTCLIENT — empty stretch areas
+    // (m_topNavControls) must stay HTCAPTION so the window can be dragged.
     if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
-      int titleBarBottom = m_titleBarWidget->geometry().bottom();
-      if (pos.y() <= titleBarBottom) {
-        // Prüfe ob ein interaktives Kind-Widget unter der Maus liegt
+      const QRect titleRect = m_titleBarWidget->geometry();
+      if (titleRect.contains(pos)) {
         QWidget *child = m_titleBarWidget->childAt(
             m_titleBarWidget->mapFromGlobal(QPoint(x, y)));
-        if (child && child != m_titleBarWidget) {
-          // Button, ComboBox, etc. → Qt bekommt den Klick
+        if (titleBarRegionIsInteractive(child, m_titleBarWidget))
           *result = HTCLIENT;
-        } else {
-          // Leerer Titelbereich → Fenster drag
+        else
           *result = HTCAPTION;
-        }
         return true;
       }
     }
 
-    // Restlicher Client-Bereich → Klicks normal durchlassen
     *result = HTCLIENT;
     return true;
   }
@@ -5281,6 +5380,9 @@ void MainWindow::setupUi() {
   });
   connect(m_noteLeftRail, &NoteLeftRail::themeToggleClicked, this, [this]() {
     NoteChrome::toggleMode();
+    // Mirror into app theme so Settings Design and editor stay aligned.
+    BlopTheme::instance().setMode(NoteChrome::isDark() ? BlopTheme::Mode::Dark
+                                                       : BlopTheme::Mode::Light);
     applyNoteChromeTheme();
   });
   m_noteLeftRail->hide();
@@ -10106,6 +10208,17 @@ void MainWindow::finishRename() {
 
 void MainWindow::showEvent(QShowEvent *event) {
   QMainWindow::showEvent(event);
+#ifdef Q_OS_WIN
+  // Frameless windows need explicit minimize/maximize box styles or
+  // showMinimized / maximize can no-op on Windows.
+  if (HWND hwnd = reinterpret_cast<HWND>(winId())) {
+    LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+    style |= WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_CAPTION;
+    SetWindowLongPtr(hwnd, GWL_STYLE, style);
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+  }
+#endif
 #ifdef Q_OS_ANDROID
   applyAndroidImmersiveUi();
   syncAndroidHeaderGeometry(this);
@@ -10746,10 +10859,11 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                        .arg(hoverGray));
     } else {
       btnEditorMenu->setIcon(
-          createModernIcon(QStringLiteral("menu"), QColor(QStringLiteral("#B8B4E0"))));
+          createModernIcon(QStringLiteral("menu"), BlopTheme::textSecondary()));
       btnEditorMenu->setStyleSheet(QStringLiteral(
           "QToolButton { background: transparent; border: none; border-radius: 10px; }"
-          "QToolButton:hover { background: rgba(255,255,255,0.07); }"));
+          "QToolButton:hover { background: %1; }")
+                                       .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
     }
   }
 
@@ -10761,8 +10875,9 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                   "letter-spacing: 0.4px; background: transparent; border: none;")
                   .arg(NoteChrome::textPrimary().name(QColor::HexRgb))
             : QStringLiteral(
-                  "color: #F0EEFF; font-size: 17px; font-weight: 800;"
-                  "letter-spacing: 0.4px; background: transparent; border: none;"));
+                  "color: %1; font-size: 17px; font-weight: 800;"
+                  "letter-spacing: 0.4px; background: transparent; border: none;")
+                  .arg(BlopTheme::textPrimary().name(QColor::HexRgb)));
   }
 
   if (m_titleBarSep) {
@@ -10770,7 +10885,8 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
         noteChrome
             ? QStringLiteral("background: %1; border: none;")
                   .arg(NoteChrome::borderSoft().name(QColor::HexRgb))
-            : QStringLiteral("background: rgba(255,255,255,0.10); border: none;"));
+            : QStringLiteral("background: %1; border: none;")
+                  .arg(BlopTheme::borderSubtle().name(QColor::HexArgb)));
   }
 
   if (m_btnMode) {
@@ -10790,18 +10906,24 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     } else {
       m_btnMode->setStyleSheet(QStringLiteral(
           "QPushButton {"
-          "  background: rgba(255,255,255,0.05);"
-          "  border: 1px solid rgba(120,130,160,0.16);"
+          "  background: %1;"
+          "  border: 1px solid %2;"
           "  border-radius: 11px;"
-          "  color: rgba(220,216,255,0.92);"
+          "  color: %3;"
           "  font-size: 12px; font-weight: 650;"
           "  padding: 0 14px;"
           "}"
           "QPushButton:hover {"
-          "  background: rgba(124,92,252,0.16);"
-          "  border-color: rgba(124,92,252,0.40);"
-          "  color: #FFFFFF;"
-          "}"));
+          "  background: %4;"
+          "  border-color: %5;"
+          "  color: %6;"
+          "}")
+                                   .arg(BlopTheme::surfaceMuted().name(QColor::HexRgb),
+                                        BlopTheme::borderDefault().name(QColor::HexRgb),
+                                        BlopTheme::textSecondary().name(QColor::HexRgb),
+                                        BlopTheme::surfaceElevated().name(QColor::HexRgb),
+                                        BlopTheme::accentPrimary().name(QColor::HexRgb),
+                                        BlopTheme::textPrimary().name(QColor::HexRgb)));
     }
   }
 
@@ -10953,17 +11075,23 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                     "QPushButton:hover { %2 color: %3; }")
                     .arg(fg, hoverGray, fgHover));
     } else {
+      const QString fg = BlopTheme::textSecondary().name(QColor::HexRgb);
+      const QString fgHover = BlopTheme::textPrimary().name(QColor::HexRgb);
+      const QString hover =
+          QStringLiteral("background: %1;")
+              .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb));
       btn->setStyleSheet(
           isClose
               ? QStringLiteral(
                     "QPushButton { background: transparent; border: none;"
-                    "  color: rgba(255,255,255,0.50); font-size: 14px; font-weight: 400; }"
+                    "  color: %1; font-size: 14px; font-weight: 400; }"
                     "QPushButton:hover { background: #E81123; color: white; }")
+                    .arg(fg)
               : QStringLiteral(
                     "QPushButton { background: transparent; border: none;"
-                    "  color: rgba(255,255,255,0.50); font-size: 14px; font-weight: 400; }"
-                    "QPushButton:hover {"
-                    "  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.90); }"));
+                    "  color: %1; font-size: 14px; font-weight: 400; }"
+                    "QPushButton:hover { %2 color: %3; }")
+                    .arg(fg, hover, fgHover));
     }
   };
   styleWinBtn(m_btnWinMin, false);

@@ -16,14 +16,22 @@
 #include "tools/GraphCanvasItem.h"
 #include "graphaxissettingsdialog.h"
 #include "uiscale.h"
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileDialog>
+#include <QFutureWatcher>
 #include <QGraphicsTextItem>
 #include <QGuiApplication>
 #include <QLineF>
+#include <QPdfWriter>
 #include <QStandardPaths>
 #include <QUndoCommand>
+#include <QtConcurrent/QtConcurrentRun>
+#ifdef BLOP_HAS_PDF
+#include <QPdfDocument>
+#endif
 
 namespace {
 GraphCanvasItem *graphCanvasHittingPlus(QGraphicsScene *scene, const QPointF &scenePos) {
@@ -774,31 +782,67 @@ bool CanvasView::loadFromFile() {
 
 bool CanvasView::importPdfIntoCanvas(const QString &pdfPath) {
 #ifdef BLOP_HAS_PDF
-  if (pdfPath.isEmpty())
+  if (pdfPath.isEmpty() || !m_scene)
     return false;
-  QPdfDocument doc;
-  auto status = doc.load(pdfPath);
-  if (status != QPdfDocument::Error::None)
+
+  auto progress = BlopDialogs::presentProgress(
+      window(), QStringLiteral("PDF importieren"),
+      QStringLiteral("PDF wird geladen…"));
+
+  const int targetW = static_cast<int>(pageWidthPx());
+  const int targetH = static_cast<int>(pageHeightPx());
+
+  QEventLoop loop;
+  QVector<QImage> images;
+  auto *watcher = new QFutureWatcher<QVector<QImage>>(this);
+  QObject::connect(watcher, &QFutureWatcher<QVector<QImage>>::finished, &loop,
+                   &QEventLoop::quit);
+  watcher->setFuture(QtConcurrent::run([pdfPath, targetW, targetH]() {
+    QVector<QImage> out;
+    QPdfDocument doc;
+    if (doc.load(pdfPath) != QPdfDocument::Error::None)
+      return out;
+    const int count = doc.pageCount();
+    out.reserve(count);
+    for (int i = 0; i < count; ++i) {
+      QImage img = doc.render(i, QSize(targetW, targetH));
+      if (!img.isNull() && img.format() != QImage::Format_RGB32)
+        img = img.convertToFormat(QImage::Format_RGB32);
+      out.append(img);
+    }
+    return out;
+  }));
+  loop.exec();
+  images = watcher->result();
+  watcher->deleteLater();
+  if (images.isEmpty()) {
+    progress.close();
     return false;
-  const int count = doc.pageCount();
-  if (count <= 0)
-    return false;
+  }
 
   QRectF bounds = m_scene->itemsBoundingRect();
   qreal y = bounds.isNull() ? 0.0 : (bounds.bottom() + 30.0);
   bool importedAny = false;
-  for (int i = 0; i < count; ++i) {
-    QImage img = doc.render(i, QSize(static_cast<int>(pageWidthPx()),
-                                     static_cast<int>(pageHeightPx())));
-    if (img.isNull())
+  progress.setRange(0, images.size());
+  for (int i = 0; i < images.size(); ++i) {
+    progress.setValue(i);
+    progress.setMessage(QStringLiteral("Seite %1 von %2…")
+                            .arg(i + 1)
+                            .arg(images.size()));
+    if (images[i].isNull())
       continue;
-    auto *pix = m_scene->addPixmap(QPixmap::fromImage(img));
+    auto *pix = m_scene->addPixmap(QPixmap::fromImage(images[i]));
     pix->setPos(0.0, y);
     pix->setZValue(0.2);
-    pix->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
-    y += img.height() + 20.0;
+    pix->setFlags(QGraphicsItem::ItemIsSelectable |
+                  QGraphicsItem::ItemIsMovable);
+    y += images[i].height() + 20.0;
     importedAny = true;
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
   }
+  progress.setValue(images.size());
+  progress.close();
+
   if (importedAny) {
     if (m_isInfinite)
       updateSceneRect();
@@ -1756,38 +1800,46 @@ void CanvasView::applyEraser(const QPointF &pos) {
 }
 
 bool CanvasView::exportToPDF(const QString &path) {
-    if (path.isEmpty()) return false;
-    
+    if (path.isEmpty() || !m_scene)
+      return false;
+
+    auto progress = BlopDialogs::presentProgress(
+        window(), QStringLiteral("PDF exportieren"),
+        QStringLiteral("Szene wird gerendert…"));
+
     QPdfWriter pdfWriter(path);
     pdfWriter.setPageSize(QPageSize(QPageSize::A4));
-    pdfWriter.setResolution(300);
-    pdfWriter.setCreator("Blop Notes");
-    
+    pdfWriter.setResolution(150);
+    pdfWriter.setCreator(QStringLiteral("Blop Notes"));
+
     QPainter painter(&pdfWriter);
+    if (!painter.isActive()) {
+      progress.close();
+      return false;
+    }
     painter.setRenderHint(QPainter::Antialiasing);
-    
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+
     QRectF bounds;
     if (m_isInfinite) {
         bounds = m_scene->itemsBoundingRect();
-        if (bounds.isEmpty()) bounds = QRectF(0, 0, 800, 1130);
-        else bounds.adjust(-50, -50, 50, 50);
+        if (bounds.isEmpty())
+          bounds = QRectF(0, 0, 800, 1130);
+        else
+          bounds.adjust(-50, -50, 50, 50);
     } else {
         bounds = m_scene->sceneRect();
     }
-    
-    // Calculate aspect ratio matching
-    QRect targetRect = pdfWriter.pageLayout().paintRectPixels(pdfWriter.resolution());
-    double scale = qMin(targetRect.width() / bounds.width(), targetRect.height() / bounds.height());
-    
-    painter.translate(targetRect.center());
-    painter.scale(scale, scale);
-    painter.translate(-bounds.center());
-    
-    // Draw back    ground grid
-    drawBackground(&painter, bounds);
-    // Draw scene items
-    m_scene->render(&painter, bounds, bounds);
-    
+
+    // Map scene source rect into the PDF paint area — do NOT also apply a
+    // manual scale/translate (that double-transform produced blank pages).
+    const QRectF target =
+        pdfWriter.pageLayout().paintRectPixels(pdfWriter.resolution());
+    painter.fillRect(target, m_pageColor.isValid() ? m_pageColor : Qt::white);
+    m_scene->render(&painter, target, bounds);
+
+    painter.end();
+    progress.close();
     return true;
 }
 

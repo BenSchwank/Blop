@@ -394,8 +394,10 @@ struct SurfaceHex {
 // Backgrounds (page-level)
 const SurfaceHex kBackgroundHex[] = {
     {"#0B0B1A", BlopTheme::surfaceBackground},
+    {"#0B0912", BlopTheme::surfaceBackground}, // title bar / sidebar chrome
     {"#0D0B14", BlopTheme::surfaceBackground},
     {"#0D0D12", BlopTheme::surfaceBackground},
+    {"#0C0D17", BlopTheme::surfaceBackground},
     {"#0F111A", BlopTheme::surfaceBase}, // sidebar/header chrome
 };
 
