@@ -4880,7 +4880,8 @@ void MainWindow::setupUi() {
       });
     };
     bindToolShortcut(QKeySequence(Qt::Key_P), ToolMode::Pen);
-    bindToolShortcut(QKeySequence(Qt::Key_H), ToolMode::Highlighter);
+    bindToolShortcut(QKeySequence(Qt::Key_H), ToolMode::Hand);
+    bindToolShortcut(QKeySequence(Qt::Key_M), ToolMode::Highlighter);
     bindToolShortcut(QKeySequence(Qt::Key_E), ToolMode::Eraser);
     bindToolShortcut(QKeySequence(Qt::Key_V), ToolMode::Lasso);
     bindToolShortcut(QKeySequence(Qt::Key_T), ToolMode::Text);
@@ -5146,16 +5147,22 @@ void MainWindow::setupUi() {
     if (auto *view = currentNoteView()) {
       view->fitToWidth();
       updateNoteBottomChrome();
+    } else if (CanvasView *cv = getCurrentCanvas()) {
+      cv->fitToWidth();
+      updateNoteBottomChrome();
     }
   });
   bottomLay->addWidget(m_btnNoteFitWidth);
 
   m_btnNoteFitPage = new QPushButton(m_noteBottomChrome);
-  m_btnNoteFitPage->setToolTip(QStringLiteral("Ganze Seite"));
+  m_btnNoteFitPage->setToolTip(QStringLiteral("Ganze Seite / Inhalt"));
   m_btnNoteFitPage->setCursor(Qt::PointingHandCursor);
   connect(m_btnNoteFitPage, &QPushButton::clicked, this, [this]() {
     if (auto *view = currentNoteView()) {
       view->fitPage();
+      updateNoteBottomChrome();
+    } else if (CanvasView *cv = getCurrentCanvas()) {
+      cv->fitPage();
       updateNoteBottomChrome();
     }
   });
@@ -5195,6 +5202,7 @@ void MainWindow::setupUi() {
         m_pageThumbnailSidebar->rebuild();
       }
     }
+    refreshNoteLeftRailIcons();
     positionNoteChrome();
   });
   connect(m_noteLeftRail, &NoteLeftRail::allPagesClicked, this, [this]() {
@@ -5225,6 +5233,7 @@ void MainWindow::setupUi() {
       m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
     if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
       tb->setPropertiesPanelOpen(m_toolPropertiesVisible);
+    refreshNoteLeftRailIcons();
     positionNoteChrome();
   });
   connect(m_noteLeftRail, &NoteLeftRail::themeToggleClicked, this, [this]() {
@@ -5232,7 +5241,7 @@ void MainWindow::setupUi() {
     applyNoteChromeTheme();
   });
   connect(m_noteLeftRail, &NoteLeftRail::exportClicked, this, [this]() {
-    onEditorNoteOverflowMenu();
+    showNoteExportMenu(m_noteLeftRail);
   });
   connect(m_noteLeftRail, &NoteLeftRail::settingsClicked, this,
           &MainWindow::onOpenSettings);
@@ -5341,20 +5350,6 @@ void MainWindow::setupUi() {
   // Shared handlers: the same code runs whether the active toolbar is
   // ModernToolbar (desktop / Android tablet) or AndroidPhoneToolbar (phone).
   const auto onToolModeChanged = [this](ToolMode m) {
-    const auto syncNoteView = [this](ToolMode mode) {
-      if (!m_editorTabs)
-        return;
-      if (auto *activeEditor =
-              qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
-        if (auto *view = activeEditor->findChild<MultiPageNoteView *>())
-          view->setToolMode(mode);
-      }
-    };
-    const auto syncProps = [this](ToolMode mode) {
-      if (m_toolPropertiesPanel && m_toolPropertiesVisible)
-        m_toolPropertiesPanel->syncForMode(mode);
-    };
-
     CanvasView::ToolType type = CanvasView::ToolType::Pen;
     switch (m) {
       case ToolMode::Eraser: type = CanvasView::ToolType::Eraser; break;
@@ -5364,36 +5359,9 @@ void MainWindow::setupUi() {
       case ToolMode::Image: type = CanvasView::ToolType::Image; break;
       case ToolMode::Shape: type = CanvasView::ToolType::Shape; break;
       case ToolMode::Text: type = CanvasView::ToolType::Text; break;
-      case ToolMode::Pencil:
-        // CanvasView has no Pencil ToolType — select ToolManager directly.
-        if (m_toolManager)
-          m_toolManager->selectTool(ToolMode::Pencil);
-        syncNoteView(ToolMode::Pencil);
-        if (CanvasView *cv = getCurrentCanvas()) {
-          cv->toggleRuler(false);
-          cv->setCursor(Qt::CrossCursor);
-        }
-        syncProps(ToolMode::Pencil);
-        return;
-      case ToolMode::StickyNote:
-        // StickyNoteTool is registered — do not remap to Pen.
-        if (m_toolManager)
-          m_toolManager->selectTool(ToolMode::StickyNote);
-        syncNoteView(ToolMode::StickyNote);
-        syncProps(ToolMode::StickyNote);
-        return;
-      case ToolMode::Hand:
-        // Pan is owned by MultiPageNoteView — still select HandTool so
-        // ToolManager::activeToolMode() stays consistent with the rail.
-        if (m_toolManager)
-          m_toolManager->selectTool(ToolMode::Hand);
-        syncNoteView(ToolMode::Hand);
-        if (CanvasView *cv = getCurrentCanvas()) {
-          cv->toggleRuler(false);
-          cv->setCursor(Qt::OpenHandCursor);
-        }
-        syncProps(ToolMode::Hand);
-        return;
+      case ToolMode::Pencil: type = CanvasView::ToolType::Pencil; break;
+      case ToolMode::StickyNote: type = CanvasView::ToolType::StickyNote; break;
+      case ToolMode::Hand: type = CanvasView::ToolType::Hand; break;
       default: type = CanvasView::ToolType::Pen; break;
     }
     setActiveTool(type);
@@ -8614,8 +8582,7 @@ void MainWindow::updateSidebarState() {
     }
   }
   if (isEditor) {
-    if (m_isSidebarOpen)
-      animateSidebar(false);
+    // Keep library sidebar state as the user left it (hamburger toggles).
     positionNoteChrome();
   }
   // Title-bar search competes with document tabs while editing; overview has its own.
@@ -8971,10 +8938,49 @@ void MainWindow::onEditorNoteOverflowMenu() {
                 }});
   BlopInWindowMenu::show(this, globalPos, items);
 #else
-  // Desktop infinite notes keep the floating ⋯; title-bar ⋯ is A4-only.
-  Q_UNUSED(items);
-  Q_UNUSED(globalPos);
-  Q_UNUSED(cv);
+  // Desktop infinite: same export/options actions as the floating ⋯.
+  items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("Als PDF exportieren"), QIcon(),
+                [this, cv]() {
+                  if (!cv)
+                    return;
+                  const QString path = QFileDialog::getSaveFileName(
+                      this, QStringLiteral("Als PDF exportieren"),
+                      QStandardPaths::writableLocation(
+                          QStandardPaths::DocumentsLocation) +
+                          QStringLiteral("/Blop.pdf"),
+                      QStringLiteral("PDF Dokument (*.pdf)"));
+                  if (path.isEmpty())
+                    return;
+                  const bool ok = cv->exportToPDF(path);
+                  BlopDialogs::notify(
+                      this,
+                      ok ? QStringLiteral("Exportiert")
+                         : QStringLiteral("Fehler"),
+                      ok ? QStringLiteral("PDF gespeichert:\n%1").arg(path)
+                         : QStringLiteral("PDF-Export fehlgeschlagen."));
+                }});
+  items.append({QStringLiteral("Als Bild exportieren"), QIcon(),
+                [this, cv]() {
+                  if (!cv)
+                    return;
+                  const QString path = QFileDialog::getSaveFileName(
+                      this, QStringLiteral("Als Bild exportieren"),
+                      QStandardPaths::writableLocation(
+                          QStandardPaths::PicturesLocation) +
+                          QStringLiteral("/Blop.png"),
+                      QStringLiteral("PNG Bild (*.png)"));
+                  if (path.isEmpty())
+                    return;
+                  const bool ok = cv->exportToImage(path);
+                  BlopDialogs::notify(
+                      this,
+                      ok ? QStringLiteral("Exportiert")
+                         : QStringLiteral("Fehler"),
+                      ok ? QStringLiteral("Bild gespeichert:\n%1").arg(path)
+                         : QStringLiteral("Bild-Export fehlgeschlagen."));
+                }});
+  BlopInWindowMenu::show(this, globalPos, items);
 #endif
 }
 
@@ -10254,6 +10260,15 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
   case CanvasView::ToolType::Text:
     tm = ToolMode::Text;
     break;
+  case CanvasView::ToolType::Pencil:
+    tm = ToolMode::Pencil;
+    break;
+  case CanvasView::ToolType::StickyNote:
+    tm = ToolMode::StickyNote;
+    break;
+  case CanvasView::ToolType::Hand:
+    tm = ToolMode::Hand;
+    break;
   case CanvasView::ToolType::Pen:
   default:
     tm = ToolMode::Pen;
@@ -10596,28 +10611,26 @@ void MainWindow::refreshNoteLeftRailIcons() {
   if (!m_noteLeftRail)
     return;
   const QColor ic = NoteChrome::textSecondary();
-  m_noteLeftRail->setIcon(QStringLiteral("pages"),
-                          createModernIcon(QStringLiteral("pages"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("allpages"),
-                          createModernIcon(QStringLiteral("pages"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("bookmarks"),
-                          createModernIcon(QStringLiteral("bookmark"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("history"),
-                          createModernIcon(QStringLiteral("history"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("search"),
-                          createModernIcon(QStringLiteral("search"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("more"),
-                          createModernIcon(QStringLiteral("more_vert"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("select"),
-                          createModernIcon(QStringLiteral("select"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("props"),
-                          createModernIcon(QStringLiteral("palette"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("theme"),
-                          createModernIcon(QStringLiteral("palette"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("export"),
-                          createModernIcon(QStringLiteral("export"), ic));
-  m_noteLeftRail->setIcon(QStringLiteral("settings"),
-                          createModernIcon(QStringLiteral("settings"), ic));
+  QColor icDim = ic;
+  icDim.setAlphaF(NoteChrome::isDark() ? 0.72 : 0.55);
+  const QColor icActive = NoteChrome::textPrimary();
+  auto setRailIcon = [&](const QString &id, const QString &glyph,
+                         bool active = false) {
+    m_noteLeftRail->setIcon(id, createModernIcon(glyph, active ? icActive : icDim));
+  };
+  setRailIcon(QStringLiteral("pages"), QStringLiteral("pages"),
+              m_noteLeftRail->pagesExpanded());
+  setRailIcon(QStringLiteral("allpages"), QStringLiteral("pages"));
+  setRailIcon(QStringLiteral("bookmarks"), QStringLiteral("bookmark"));
+  setRailIcon(QStringLiteral("history"), QStringLiteral("history"));
+  setRailIcon(QStringLiteral("search"), QStringLiteral("search"));
+  setRailIcon(QStringLiteral("more"), QStringLiteral("more_vert"));
+  setRailIcon(QStringLiteral("select"), QStringLiteral("select"));
+  setRailIcon(QStringLiteral("props"), QStringLiteral("palette"),
+              m_toolPropertiesVisible);
+  setRailIcon(QStringLiteral("theme"), QStringLiteral("palette"));
+  setRailIcon(QStringLiteral("export"), QStringLiteral("export"));
+  setRailIcon(QStringLiteral("settings"), QStringLiteral("settings"));
 #endif
 }
 
@@ -10930,17 +10943,33 @@ void MainWindow::showNoteHistoryMenu() {
   if (!view)
     return;
   QList<BlopInWindowMenu::Item> items;
-  items.push_back({QStringLiteral("Undo-Schritte: %1").arg(view->undoDepth()),
-                   QIcon(), []() {}, false, false});
-  items.push_back({QStringLiteral("Redo-Schritte: %1").arg(view->redoDepth()),
-                   QIcon(), []() {}, false, false});
+  items.push_back(
+      {QStringLiteral("Rückgängig verfügbar: %1").arg(view->undoDepth()),
+       QIcon(),
+       [this]() {
+         if (auto *v = currentNoteView())
+           v->undo();
+         updateNoteBottomChrome();
+       },
+       false, false});
+  items.push_back(
+      {QStringLiteral("Wiederholen verfügbar: %1").arg(view->redoDepth()),
+       QIcon(),
+       [this]() {
+         if (auto *v = currentNoteView())
+           v->redo();
+         updateNoteBottomChrome();
+       },
+       false, false});
   BlopInWindowMenu::Item sep;
   sep.separator = true;
   items.push_back(sep);
   for (int i = 0; i < view->pageCount(); ++i) {
     const int strokes = view->strokeCountOnPage(i);
     items.push_back(
-        {QStringLiteral("Seite %1 · %2 Striche").arg(i + 1).arg(strokes),
+        {QStringLiteral("Zur Seite %1 · %2 Striche")
+             .arg(i + 1)
+             .arg(strokes),
          QIcon(),
          [this, i]() {
            if (auto *v = currentNoteView()) {
@@ -10954,6 +10983,71 @@ void MainWindow::showNoteHistoryMenu() {
     anchor = m_noteLeftRail->mapToGlobal(
         QPoint(m_noteLeftRail->width(), UiScale::dp(120)));
   BlopInWindowMenu::show(this, anchor, items);
+}
+
+void MainWindow::showNoteExportMenu(QWidget *anchor) {
+  QPoint globalPos;
+  if (anchor) {
+    globalPos =
+        anchor->mapToGlobal(QPoint(anchor->width(), UiScale::dp(40)));
+  } else {
+    globalPos = QCursor::pos();
+  }
+
+  if (auto *editor = m_editorTabs
+                         ? qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())
+                         : nullptr) {
+    editor->showOverflowMenuFromAnchor(anchor ? anchor
+                                              : m_btnEditorNoteOverflow);
+    return;
+  }
+
+  CanvasView *cv = getCurrentCanvas();
+  if (!cv)
+    return;
+
+  QList<BlopInWindowMenu::Item> items;
+  items.append({QStringLiteral("Als PDF exportieren"), QIcon(),
+                [this, cv]() {
+                  if (!cv)
+                    return;
+                  const QString path = QFileDialog::getSaveFileName(
+                      this, QStringLiteral("Als PDF exportieren"),
+                      QStandardPaths::writableLocation(
+                          QStandardPaths::DocumentsLocation) +
+                          QStringLiteral("/Blop.pdf"),
+                      QStringLiteral("PDF Dokument (*.pdf)"));
+                  if (path.isEmpty())
+                    return;
+                  const bool ok = cv->exportToPDF(path);
+                  BlopDialogs::notify(
+                      this,
+                      ok ? QStringLiteral("Exportiert")
+                         : QStringLiteral("Fehler"),
+                      ok ? QStringLiteral("PDF gespeichert:\n%1").arg(path)
+                         : QStringLiteral("PDF-Export fehlgeschlagen."));
+                }});
+  items.append({QStringLiteral("Als Bild exportieren"), QIcon(),
+                [this, cv]() {
+                  if (!cv)
+                    return;
+                  const QString path = QFileDialog::getSaveFileName(
+                      this, QStringLiteral("Als Bild exportieren"),
+                      QStandardPaths::writableLocation(
+                          QStandardPaths::PicturesLocation) +
+                          QStringLiteral("/Blop.png"),
+                      QStringLiteral("PNG Bild (*.png)"));
+                  if (path.isEmpty())
+                    return;
+                  const bool ok = cv->exportToImage(path);
+                  BlopDialogs::notify(
+                      this,
+                      ok ? QStringLiteral("Exportiert")
+                         : QStringLiteral("Fehler"),
+                      ok ? QStringLiteral("Bild gespeichert:\n%1").arg(path)
+                         : QStringLiteral("Bild-Export fehlgeschlagen."));
+                }});
+  BlopInWindowMenu::show(this, globalPos, items);
 }
 
 void MainWindow::switchToSelectTool() { onToolSelect(); }

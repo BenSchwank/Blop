@@ -1108,6 +1108,9 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
       tip = NoteChrome::textSecondary();
       if (m_hover || m_pressing)
         tip = NoteChrome::textPrimary();
+    } else if (!m_active && !m_railFooterStyle && !m_glyphColor.isValid()) {
+      tip = NoteChrome::textPrimary();
+      tip.setAlphaF(NoteChrome::isDark() ? 0.55 : 0.48);
     }
     // Reserve space for the flyout chevron so the glyph never overlaps it.
     const int chevronReserve =
@@ -2682,6 +2685,25 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
         p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sy : m_separatorYPositions)
           p.drawLine(UiScale::dp(8), sy, w - UiScale::dp(8), sy);
+        // Scroll fades when Favorites slots overflow the rail viewport.
+        if (m_railMaxScroll > 0) {
+          const int zone = UiScale::dp(28);
+          const int a = NoteChrome::isDark() ? 150 : 70;
+          if (m_railScrollPx > 0) {
+            QLinearGradient topFade(0, m_railContentTop, 0,
+                                    m_railContentTop + zone);
+            topFade.setColorAt(0, QColor(0, 0, 0, a));
+            topFade.setColorAt(1, Qt::transparent);
+            p.fillRect(0, m_railContentTop, w, zone, topFade);
+          }
+          if (m_railScrollPx < m_railMaxScroll) {
+            QLinearGradient botFade(0, m_railContentBottom - zone, 0,
+                                    m_railContentBottom);
+            botFade.setColorAt(0, Qt::transparent);
+            botFade.setColorAt(1, QColor(0, 0, 0, a));
+            p.fillRect(0, m_railContentBottom - zone, w, zone, botFade);
+          }
+        }
         // Drag-reorder drop indicator.
         if (m_railDragFrom >= 0 && m_railDragGhostY >= 0) {
           p.setPen(QPen(NoteChrome::accent(), 2, Qt::SolidLine, Qt::RoundCap));
@@ -4639,7 +4661,7 @@ bool ModernToolbar::isDrawboardVerticalRail() const {
 #endif
 }
 
-int ModernToolbar::preferredRailWidth() const { return UiScale::dp(64); }
+int ModernToolbar::preferredRailWidth() const { return UiScale::dp(60); }
 
 void ModernToolbar::loadRailTools() {
   m_railSlots.clear();
@@ -5869,8 +5891,8 @@ void ModernToolbar::updateLayout(bool animate) {
         if (m_slotButtons.isEmpty())
           rebuildSlotButtons();
         railOrder = currentRailButtons();
-        btnS = UiScale::dp(52);
-        gap = UiScale::dp(8);
+        btnS = UiScale::dp(48);
+        gap = UiScale::dp(6);
       } else {
         for (auto *b : m_buttons) {
           if (!chromeRow.contains(b) && b != btnMoreProps &&
@@ -5891,8 +5913,8 @@ void ModernToolbar::updateLayout(bool animate) {
           else
             slotBtns.append(b);
         }
-        const int footerGap = UiScale::dp(6);
-        const int footerBtnS = UiScale::dp(44);
+        const int footerGap = UiScale::dp(4);
+        const int footerBtnS = UiScale::dp(40);
         const int footerH =
             footerBtns.size() * footerBtnS +
             qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(14);
@@ -5913,6 +5935,9 @@ void ModernToolbar::updateLayout(bool animate) {
         }
         const int maxScroll = qMax(0, contentNeeded - contentH);
         m_railScrollPx = qBound(0, m_railScrollPx, maxScroll);
+        m_railContentTop = contentTop;
+        m_railContentBottom = contentBottom;
+        m_railMaxScroll = maxScroll;
 
         int y = contentTop - m_railScrollPx;
         int lastSlotBottom = contentTop;

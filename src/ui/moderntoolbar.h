@@ -402,6 +402,9 @@ private:
     int m_activeRailSlot{-1};
     QList<ToolbarBtn *> m_slotButtons;
     int m_railScrollPx{0};
+    int m_railContentTop{0};
+    int m_railContentBottom{0};
+    int m_railMaxScroll{0};
     int m_railDragFrom{-1};
     int m_railDragGhostY{-1};
     bool m_propertiesPanelOpen{false};

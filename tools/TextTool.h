@@ -46,6 +46,15 @@ public:
         
         QFont font = newText->font();
         font.setPointSize(m_config.penWidth > 0 ? qBound(8, static_cast<int>(m_config.penWidth), 72) : 16);
+        if (!m_config.fontFamily.isEmpty()) {
+          if (m_config.fontFamily == QLatin1String("Serif"))
+            font.setStyleHint(QFont::Serif);
+          else if (m_config.fontFamily == QLatin1String("Mono"))
+            font.setStyleHint(QFont::Monospace);
+          else if (m_config.fontFamily == QLatin1String("Round"))
+            font.setStyleHint(QFont::SansSerif);
+          font.setFamily(m_config.fontFamily);
+        }
         newText->setFont(font);
         QColor tc = m_config.penColor;
         tc.setAlphaF(qBound(0.15, m_config.opacity, 1.0));

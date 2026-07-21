@@ -35,6 +35,7 @@ ToolManager::ToolManager(QObject* parent) : QObject(parent) {
 
     ToolConfig stickyCfg;
     stickyCfg.penColor = QColor(255, 236, 120);
+    stickyCfg.stickyBgColor = QColor(255, 236, 120);
     stickyCfg.penWidth = 14;
     stickyCfg.opacity = 0.95;
     m_configs[ToolMode::StickyNote] = stickyCfg;
