@@ -1424,9 +1424,10 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_renameOverlay(nullptr) {
   // All pointer members are nullptr-initialized via in-class initializers in mainwindow.h
 
-  setWindowFlags(Qt::FramelessWindowHint | Qt::Window |
-                 Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
-                 Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint);
+  // Single custom chrome bar (Cursor-style). No native Windows title bar —
+  // window controls live in setupTitleBar(); drag/min/max via HTTEST + Win32
+  // styles applied in showEvent (without WS_CAPTION).
+  setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
 
 #ifdef Q_OS_ANDROID
   QFont f = this->font();
@@ -10209,11 +10210,13 @@ void MainWindow::finishRename() {
 void MainWindow::showEvent(QShowEvent *event) {
   QMainWindow::showEvent(event);
 #ifdef Q_OS_WIN
-  // Frameless windows need explicit minimize/maximize box styles or
-  // showMinimized / maximize can no-op on Windows.
+  // Keep one Blop chrome bar only: never re-enable WS_CAPTION (that draws the
+  // native "Blop" title strip above our custom bar). Still request min/max /
+  // thick frame so taskbar minimize and edge-resize work while frameless.
   if (HWND hwnd = reinterpret_cast<HWND>(winId())) {
     LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-    style |= WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_CAPTION;
+    style &= ~WS_CAPTION;
+    style |= WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
     SetWindowLongPtr(hwnd, GWL_STYLE, style);
     SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
