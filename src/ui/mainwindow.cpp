@@ -269,32 +269,30 @@ protected:
 
     const auto *fsm = qobject_cast<const QFileSystemModel *>(src);
     const QString name = idx.data(Qt::DisplayRole).toString();
-    if (!m_search.isEmpty() && !name.contains(m_search, Qt::CaseInsensitive))
-      return false;
-
     const QString path =
         fsm ? fsm->filePath(idx) : idx.data(Qt::UserRole).toString();
     const bool isDir = fsm && fsm->isDir(idx);
 
-    // Smart views apply to notes; folders stay so navigation still works
-    // except for Favorites/Recent which should show matching folders too
-    // only when explicitly favorited.
+    // Folders must always pass so proxy roots stay mappable (Alle / nested
+    // folders open in the main grid even with Favorites/Recent/search on).
+    if (isDir)
+      return true;
+
+    if (!m_search.isEmpty() && !name.contains(m_search, Qt::CaseInsensitive))
+      return false;
+
     switch (m_smartView) {
     case SmartView::Favorites:
       if (!LibraryOrgStore::isFavorite(path))
         return false;
       break;
     case SmartView::Recent: {
-      if (isDir)
-        return false;
       const QStringList recent = LibraryOrgStore::recentPaths(24);
       if (!recent.contains(path))
         return false;
       break;
     }
     case SmartView::Untagged:
-      if (isDir)
-        return true;
       if (!LibraryTagStore::tagsForPath(path).isEmpty())
         return false;
       break;
@@ -306,10 +304,7 @@ protected:
     if (m_tags.isEmpty())
       return true;
 
-    // Folders stay visible so navigation still works while filtering.
-    if (isDir)
-      return true;
-
+    // Folders already returned above; notes must match required tags.
     const QStringList noteTags = LibraryTagStore::tagsForPath(path);
     for (const QString &need : m_tags) {
       bool hit = false;
@@ -4609,6 +4604,22 @@ void MainWindow::setupUi() {
           &MainWindow::updateSidebarBadges);
   connect(m_fileModel, &QFileSystemModel::rowsRemoved, this,
           &MainWindow::updateSidebarBadges);
+  connect(m_fileModel, &QFileSystemModel::directoryLoaded, this,
+          [this](const QString &path) {
+            if (m_pendingLibraryRootPath.isEmpty())
+              return;
+            const QString pending =
+                QFileInfo(m_pendingLibraryRootPath).canonicalFilePath();
+            const QString loaded = QFileInfo(path).canonicalFilePath();
+            if (pending.isEmpty() || loaded.isEmpty() || pending != loaded)
+              return;
+            const QModelIndex idx = m_fileModel->index(m_pendingLibraryRootPath);
+            if (idx.isValid())
+              setLibraryRootFromSource(idx);
+            m_pendingLibraryRootPath.clear();
+            updateOverviewBackButton();
+            updateSidebarBadges();
+          });
 
   setupSidebar();
   qDebug() << "setupUi() nach setupSidebar";
@@ -4676,12 +4687,12 @@ void MainWindow::setupUi() {
   titleRow->setContentsMargins(0, 0, 0, 0);
   titleRow->setSpacing(UiScale::dp(8));
 
-  QLabel *lblWelcome = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
-  lblWelcome->setObjectName(QStringLiteral("overviewLibraryTitle"));
-  lblWelcome->setStyleSheet(BlopTheme::themed(
+  m_lblLibraryTitle = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
+  m_lblLibraryTitle->setObjectName(QStringLiteral("overviewLibraryTitle"));
+  m_lblLibraryTitle->setStyleSheet(BlopTheme::themed(
       QStringLiteral("color: #F4F5FB; font-size: 20px; font-weight: 700;"
                      " letter-spacing: -0.3px; background: transparent;")));
-  titleRow->addWidget(lblWelcome, 1);
+  titleRow->addWidget(m_lblLibraryTitle, 1);
 
   QPushButton *btnNewNote = new QPushButton(QStringLiteral("+ Notiz"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
@@ -4753,20 +4764,20 @@ void MainWindow::setupUi() {
                                    UiScale::dp(4), UiScale::dp(12));
   headerLayout->setSpacing(UiScale::dp(10));
 
-  QLabel *lblWelcome = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
-  lblWelcome->setObjectName(QStringLiteral("overviewLibraryTitle"));
-  lblWelcome->setStyleSheet(BlopTheme::themed(QStringLiteral(
+  m_lblLibraryTitle = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
+  m_lblLibraryTitle->setObjectName(QStringLiteral("overviewLibraryTitle"));
+  m_lblLibraryTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "color: #F4F5FB; font-size: 26px; font-weight: 800;"
       " letter-spacing: -0.5px; background: transparent;")));
-  headerLayout->addWidget(lblWelcome);
+  headerLayout->addWidget(m_lblLibraryTitle);
 
-  QLabel *lblSubtitle = new QLabel(
+  m_lblLibrarySubtitle = new QLabel(
       QStringLiteral("Bibliothek · Ordner · Cloud"), m_overviewContainer);
-  lblSubtitle->setObjectName(QStringLiteral("overviewLibrarySubtitle"));
-  lblSubtitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
+  m_lblLibrarySubtitle->setObjectName(QStringLiteral("overviewLibrarySubtitle"));
+  m_lblLibrarySubtitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "color: rgba(180,188,215,0.55); font-size: 12px; font-weight: 500;"
       " background: transparent;")));
-  headerLayout->addWidget(lblSubtitle);
+  headerLayout->addWidget(m_lblLibrarySubtitle);
 
   m_overviewSearchBar = new QLineEdit(m_overviewContainer);
   m_overviewSearchBar->setObjectName("overviewSearchBar");
@@ -4910,8 +4921,7 @@ void MainWindow::setupUi() {
 #else
   QScroller::grabGesture(m_fileListView, QScroller::LeftMouseButtonGesture);
 #endif
-  // Dateien: ein Tap / ein Klick öffnet (Maus & Touch). Ordner: weiter Doppelklick,
-  // damit versehentliches „Reingehen“ seltener ist. Kurze Entprellung verhindert
+  // Dateien und Ordner: ein Tap / ein Klick öffnet. Kurze Entprellung verhindert
   // doppeltes Öffnen bei schnellem Doppelklick auf dieselbe Notiz.
   auto mapToSource = [this](const QModelIndex &proxyIndex) -> QModelIndex {
     if (!m_libraryProxy || !proxyIndex.isValid())
@@ -4933,8 +4943,10 @@ void MainWindow::setupUi() {
             const QModelIndex src = mapToSource(index);
             if (!m_fileModel || !src.isValid())
               return;
-            if (m_fileModel->isDir(src))
+            if (m_fileModel->isDir(src)) {
+              navigateLibraryToPath(m_fileModel->filePath(src));
               return;
+            }
             static QElapsedTimer debounce;
             static QModelIndex lastIdx;
             if (lastIdx == src && debounce.isValid() &&
@@ -7264,12 +7276,85 @@ void MainWindow::updateAndroidSidebarScrimGeometry() {
 void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
   if (!m_fileListView || !m_fileModel)
     return;
+  if (!sourceIndex.isValid())
+    return;
   if (m_libraryProxy) {
     if (m_fileListView->model() != m_libraryProxy)
       m_fileListView->setModel(m_libraryProxy);
-    m_fileListView->setRootIndex(m_libraryProxy->mapFromSource(sourceIndex));
+    QModelIndex proxyRoot = m_libraryProxy->mapFromSource(sourceIndex);
+    if (!proxyRoot.isValid()) {
+      // Proxy may lag one filter refresh behind; retry once.
+      m_libraryProxy->invalidate();
+      proxyRoot = m_libraryProxy->mapFromSource(sourceIndex);
+    }
+    if (proxyRoot.isValid())
+      m_fileListView->setRootIndex(proxyRoot);
+    else
+      qWarning() << "setLibraryRootFromSource: invalid proxy root for"
+                 << m_fileModel->filePath(sourceIndex);
   } else {
     m_fileListView->setRootIndex(sourceIndex);
+  }
+  if (m_fileListView) {
+    m_fileListView->show();
+    m_fileListView->viewport()->update();
+  }
+  if (m_lblEmptyState)
+    m_lblEmptyState->hide();
+}
+
+void MainWindow::navigateLibraryToPath(const QString &path) {
+  if (!m_fileModel || !m_fileListView || path.isEmpty())
+    return;
+  const QFileInfo fi(path);
+  if (!fi.isDir())
+    return;
+  const QString abs = fi.absoluteFilePath();
+  m_pendingLibraryRootPath = abs;
+  const QModelIndex fromSet = m_fileModel->setRootPath(abs);
+  const QModelIndex idx =
+      fromSet.isValid() ? fromSet : m_fileModel->index(abs);
+  setLibraryRootFromSource(idx);
+  updateOverviewBackButton();
+  updateLibraryHeader();
+  updateSidebarBadges();
+}
+
+void MainWindow::updateLibraryHeader() {
+  if (!m_fileModel)
+    return;
+  QString folderPath = m_fileModel->rootPath();
+  if (m_fileListView && m_libraryProxy) {
+    const QModelIndex proxyRoot = m_fileListView->rootIndex();
+    if (proxyRoot.isValid()) {
+      const QModelIndex src = m_libraryProxy->mapToSource(proxyRoot);
+      if (src.isValid())
+        folderPath = m_fileModel->filePath(src);
+    }
+  }
+  const QFileInfo fi(folderPath);
+  const bool atRoot =
+      QFileInfo(folderPath).canonicalFilePath() ==
+          QFileInfo(m_rootPath).canonicalFilePath() ||
+      folderPath == m_rootPath;
+  if (m_lblLibraryTitle) {
+    m_lblLibraryTitle->setText(atRoot ? QStringLiteral("Notizen")
+                                      : fi.fileName());
+  }
+  if (m_lblLibrarySubtitle) {
+    QDir dir(folderPath);
+    const int count =
+        dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
+    if (atRoot) {
+      m_lblLibrarySubtitle->setText(
+          QStringLiteral("Bibliothek · %1 Einträge").arg(count));
+    } else {
+      const QString rel = QDir(m_rootPath).relativeFilePath(folderPath);
+      m_lblLibrarySubtitle->setText(
+          QStringLiteral("%1 · %2 Einträge")
+              .arg(rel.isEmpty() ? folderPath : rel)
+              .arg(count));
+    }
   }
 }
 
@@ -7292,6 +7377,7 @@ void MainWindow::applyLibraryFilters() {
         static_cast<LibraryFilterProxy::SortMode>(m_libraryOrgBar->sortMode()));
   }
   updateSidebarBadges();
+  updateLibraryHeader();
 }
 
 QString MainWindow::currentEditorNotePath() const {
@@ -7498,11 +7584,16 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   bool isExpandable = item->data(Qt::UserRole + 6).toBool();
 
   if (!path.isEmpty() && QFileInfo(path).isDir()) {
-    m_fileModel->setRootPath(path);
-    setLibraryRootFromSource(m_fileModel->index(path));
-    updateOverviewBackButton();
-    if (isExpandable)
-      toggleFolderContent(item);
+    const bool alreadyHere =
+        QFileInfo(m_fileModel->rootPath()).canonicalFilePath() ==
+        QFileInfo(path).canonicalFilePath();
+    navigateLibraryToPath(path);
+    // Expand when collapsed. Second click on the already-open folder collapses.
+    if (isExpandable) {
+      const bool expanded = item->data(Qt::UserRole + 3).toBool();
+      if (!expanded || alreadyHere)
+        toggleFolderContent(item);
+    }
 
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
@@ -7517,8 +7608,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
 
   QString name = item->text();
   if (name == QStringLiteral("Gerät")) {
-    m_fileModel->setRootPath(QDir::rootPath());
-    setLibraryRootFromSource(m_fileModel->index(QDir::rootPath()));
+    navigateLibraryToPath(QDir::rootPath());
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
@@ -7566,8 +7656,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     navItem->setToolTip(e.path);
     navItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     m_navSidebar->insertItem(insertAt, navItem);
-    m_fileModel->setRootPath(folder);
-    setLibraryRootFromSource(m_fileModel->index(folder));
+    navigateLibraryToPath(folder);
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
@@ -7592,8 +7681,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
       item->setData(Qt::UserRole + 10, path);
       item->setToolTip(path);
     }
-    m_fileModel->setRootPath(path);
-    setLibraryRootFromSource(m_fileModel->index(path));
+    navigateLibraryToPath(path);
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
@@ -7998,30 +8086,49 @@ bool MainWindow::copyRecursive(const QString &src, const QString &dst) {
 }
 
 void MainWindow::onNavigateUp() {
+  if (!m_fileListView || !m_fileModel)
+    return;
   QModelIndex current = m_fileListView->rootIndex();
-  if (current.isValid()) {
-    QModelIndex parent = current.parent();
-    m_fileListView->setRootIndex(parent);
-    if (m_libraryProxy && m_fileModel) {
-      const QModelIndex src = m_libraryProxy->mapToSource(parent.isValid()
-                                                              ? parent
-                                                              : current);
-      if (src.isValid())
-        m_fileModel->setRootPath(m_fileModel->filePath(src));
+  if (!current.isValid())
+    return;
+  QModelIndex parent = current.parent();
+  QString parentPath = m_rootPath;
+  if (m_libraryProxy) {
+    const QModelIndex src = m_libraryProxy->mapToSource(
+        parent.isValid() ? parent : current);
+    if (src.isValid()) {
+      if (parent.isValid())
+        parentPath = m_fileModel->filePath(src);
+      else
+        parentPath = QFileInfo(m_fileModel->filePath(src)).absolutePath();
     }
-    updateOverviewBackButton();
   }
+  // Never climb above the Blop library root via the overview back button.
+  const QString rootCanon = QFileInfo(m_rootPath).canonicalFilePath();
+  const QString parentCanon = QFileInfo(parentPath).canonicalFilePath();
+  if (parentCanon.isEmpty() ||
+      (!rootCanon.isEmpty() && !parentCanon.startsWith(rootCanon)))
+    parentPath = m_rootPath;
+  navigateLibraryToPath(parentPath);
 }
 
 void MainWindow::updateOverviewBackButton() {
   if (!btnBackOverview || !m_fileListView || !m_fileModel)
     return;
-  QModelIndex current = m_fileListView->rootIndex();
-  QModelIndex root = m_fileModel->index(m_rootPath);
-  if (m_libraryProxy)
-    root = m_libraryProxy->mapFromSource(root);
-  bool canGoUp = (current != root && current.isValid());
+  QString folderPath = m_fileModel->rootPath();
+  if (m_libraryProxy) {
+    const QModelIndex proxyRoot = m_fileListView->rootIndex();
+    if (proxyRoot.isValid()) {
+      const QModelIndex src = m_libraryProxy->mapToSource(proxyRoot);
+      if (src.isValid())
+        folderPath = m_fileModel->filePath(src);
+    }
+  }
+  const QString cur = QFileInfo(folderPath).canonicalFilePath();
+  const QString root = QFileInfo(m_rootPath).canonicalFilePath();
+  const bool canGoUp = !cur.isEmpty() && !root.isEmpty() && cur != root;
   btnBackOverview->setVisible(canGoUp);
+  updateLibraryHeader();
 }
 
 void MainWindow::setupRightSidebar() {
@@ -9406,9 +9513,7 @@ void MainWindow::openNotePath(const QString &absolutePath) {
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
   BlopDiag::recordUiAction(QStringLiteral("open_note"));
   if (m_fileModel->isDir(index)) {
-    m_fileModel->setRootPath(m_fileModel->filePath(index));
-    setLibraryRootFromSource(index);
-    updateOverviewBackButton();
+    navigateLibraryToPath(m_fileModel->filePath(index));
   } else {
     QString path = m_fileModel->filePath(index);
     LibraryOrgStore::touchRecent(path);
@@ -10543,11 +10648,15 @@ void MainWindow::onOpenSettings() {
 #endif
   });
 
-  // v3.18.5: route through BlopModal to avoid the Qt 6.10 Android EGL
-  // deadlock that any top-level QWindow (raw QDialog::exec) triggers.
-  // execBlocking embeds the dialog into our in-window modal and supplies
-  // its own backdrop, so the legacy rgba scrim is no longer needed.
+  // Desktop/Windows: full-height side sheet so Settings is not stuck in a
+  // tiny centered card. Preferred width ~640dp scales with the window.
+  // Android phones keep the default BottomSheet via Mode::Auto.
+#ifndef Q_OS_ANDROID
+  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::SideSheet,
+                                    UiScale::dp(640));
+#else
   int res = BlopModal::execBlocking(this, &dlg);
+#endif
   if (res == SettingsDialog::EditProfileCode) {
     QString id = dlg.profileIdToEdit();
     UiProfile p = m_profileManager->profileById(id);
