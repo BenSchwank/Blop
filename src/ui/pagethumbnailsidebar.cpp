@@ -132,7 +132,11 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
       railGlyph(QStringLiteral("add"), NoteChrome::textSecondary(),
                 UiScale::dp(16)));
   m_btnAddPage->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
-  m_btnAddPage->setText(QStringLiteral(" Seite"));
+  // Narrow Android phone rail: icon-only — " Seite" truncates to "Sei…".
+  if (UiScale::isAndroidPhoneUi(this))
+    m_btnAddPage->setText(QString());
+  else
+    m_btnAddPage->setText(QStringLiteral(" Seite"));
   connect(m_btnAddPage, &QPushButton::clicked, this,
           &PageThumbnailSidebar::addPageRequested);
   footer->addWidget(m_btnAddPage, 1);
@@ -149,6 +153,8 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   connect(m_btnColumns, &QPushButton::clicked, this,
           &PageThumbnailSidebar::toggleTwoColumnMode);
   footer->addWidget(m_btnColumns);
+  if (UiScale::isAndroidPhoneUi(this))
+    m_btnColumns->hide();
   lay->addLayout(footer);
 
   root->addWidget(m_railBody, 1);

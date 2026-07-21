@@ -3003,17 +3003,10 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       phone->setGeometry((avail - w) / 2, y, w, h);
       phone->raise();
       syncPenPresetBarGeometry();
-      // Keep the floating bottom strip clear of the phone toolbar.
-      if (m_noteBottomChrome && m_noteBottomChrome->isVisible()) {
-        const int stripH = m_noteBottomChrome->height();
-        const int stripMargin = UiScale::dp(10);
-        const int stripW =
-            qMax(UiScale::dp(260), m_editorCenterWidget->width() - 2 * stripMargin);
-        m_noteBottomChrome->setGeometry(
-            (m_editorCenterWidget->width() - stripW) / 2,
-            qMax(0, y - stripH - UiScale::dp(6)), stripW, stripH);
-        m_noteBottomChrome->raise();
-      }
+      // Phone: single bottom chrome = AndroidPhoneToolbar only.
+      // Hide the desktop page/zoom notch so it cannot stack/overlap.
+      if (m_noteBottomChrome)
+        m_noteBottomChrome->hide();
     } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
       const int headerH = noteHeaderHeight();
       tb->setTopBound(headerH);
@@ -4906,11 +4899,8 @@ void MainWindow::setupUi() {
   // ── Floating Toolbar ─────────────────────────────────────────────────────
   ModernToolbar *topToolbar = nullptr;
   AndroidPhoneToolbar *phoneToolbar = nullptr;
-#ifdef Q_OS_ANDROID
-  const bool usePhoneToolbar = !UiScale::isAndroidTablet(this);
-#else
-  const bool usePhoneToolbar = false;
-#endif
+  // Real Android phones + desktop BLOP_SIMULATE_ANDROID_PHONE=1.
+  const bool usePhoneToolbar = UiScale::isAndroidPhoneUi(this);
   if (usePhoneToolbar) {
     phoneToolbar = new AndroidPhoneToolbar(m_editorCenterWidget);
     phoneToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -8654,8 +8644,13 @@ void MainWindow::updateSidebarState() {
   const bool prevIsEditor = m_lastIsEditor;
   const bool shouldMorphTopButtons =
       isEditor && !prevIsEditor && !m_isSidebarOpen;
-  if (m_noteBottomChrome)
-    m_noteBottomChrome->setVisible(isEditor);
+  if (m_noteBottomChrome) {
+    // Phone UI: page/zoom live in thumbnails + pinch; undo lives in the
+    // phone toolbar. Never show the desktop notch here.
+    const bool phoneUi =
+        qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
+    m_noteBottomChrome->setVisible(isEditor && !phoneUi);
+  }
   if (isEditor)
     updateNoteBottomChrome();
   if (m_floatingTools) {
@@ -8816,7 +8811,7 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidAddWebBookmark)
       m_btnAndroidAddWebBookmark->hide();
     if (m_pageThumbnailSidebar)
-      m_pageThumbnailSidebar->setVisible(true);
+      m_pageThumbnailSidebar->setVisible(currentNoteView() != nullptr);
     syncAndroidHeaderGeometry(this);
 
     if (shouldMorphTopButtons) {
@@ -10482,6 +10477,13 @@ int MainWindow::noteHeaderHeight() const {
 
 int MainWindow::noteBottomChromeHeight() const {
   // Floating notch: Favorites rail clears bar height + bottom gap.
+  // Phone UI uses AndroidPhoneToolbar instead — report that clearance.
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    if (!phone->isVisible())
+      return 0;
+    return phone->preferredHeightPx() + UiScale::dp(16) +
+           UiScale::safeBottomPx(const_cast<MainWindow *>(this));
+  }
   if (!(m_noteBottomChrome && m_noteBottomChrome->isVisible()))
     return 0;
   return m_noteBottomChrome->height() + UiScale::dp(14);
@@ -10631,6 +10633,11 @@ void MainWindow::positionNoteChrome() {
 void MainWindow::updateNoteBottomChrome() {
   if (!m_noteBottomChrome)
     return;
+  // Android phone / simulate: single bottom bar is AndroidPhoneToolbar.
+  if (qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    m_noteBottomChrome->hide();
+    return;
+  }
   MultiPageNoteView *view = nullptr;
   CanvasView *canvas = nullptr;
   if (m_editorTabs) {
@@ -11461,7 +11468,12 @@ void MainWindow::onTabChanged(int index) {
 
   if (m_noteHeader) {
 #ifdef Q_OS_ANDROID
-    if (index >= 0 && editor && editor->view()) {
+    // Phone: document tabs already show the note title; page index lives in
+    // the thumbnail strip. Drop the duplicate header band that stacked with
+    // the phone toolbar clutter.
+    if (UiScale::isAndroidPhoneUi(this)) {
+      m_noteHeader->hide();
+    } else if (index >= 0 && editor && editor->view()) {
       m_noteHeader->show();
       m_lblNoteHeaderTitle->setText(noteTitle);
       const int pageCount = editor->view()->pageCount();

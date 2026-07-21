@@ -31,7 +31,12 @@ QIcon makeTabIcon(const QString &name, const QColor &color, int size) {
   return QIcon(pm);
 }
 
-int tabMaxWidthPx() { return UiScale::dp(168); }
+int tabMaxWidthPx() {
+  // Narrow phones: leave room for home/menu/overflow in the Android header.
+  if (UiScale::isAndroidPhoneUi())
+    return UiScale::dp(120);
+  return UiScale::dp(168);
+}
 } // namespace
 
 // -----------------------------------------------------------------------------

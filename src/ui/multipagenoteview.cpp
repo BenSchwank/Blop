@@ -1192,21 +1192,43 @@ static qreal kSheetGapBelowPage() { return UiScale::dp(40); }
 /// Zusätzlicher Scrollbereich unter dem Inhalt (~eine A4-Höhe)
 static qreal kExtraScrollBelowPages() { return static_cast<qreal>(a4hPx()); }
 /// Szene: Leiste unter letzter Seite — schmaler als A4, zur Seite zentriert
-static int kPagesBarStripHeight() { return UiScale::dp(380); }
+static int kPagesBarStripHeight() {
+  // Phone: compact strip so it does not fight the phone toolbar.
+  if (UiScale::isAndroidPhoneUi())
+    return UiScale::dp(140);
+  return UiScale::dp(380);
+}
 /// Anteil der A4-Breite (Rest links/rechts frei = optisch zentriert zur Seite)
 static constexpr qreal kPagesBarStripWidthRatio = 0.86;
 /// Platz unter der Leiste zum bequemen Scrollen
-static qreal kSceneReserveBelowPagesBar() { return UiScale::dp(200); }
+static qreal kSceneReserveBelowPagesBar() {
+  if (UiScale::isAndroidPhoneUi())
+    return UiScale::dp(120);
+  return UiScale::dp(200);
+}
 /// Abstand Panel → untere Viewport-Kante (sonst wirkt es mit Taskbar/Fensterrand „verschmolzen“)
 static int kBottomSheetViewportBottomInset() {
-  return UiScale::dp(18) + UiScale::androidBottomInsetPx();
+  int inset = UiScale::dp(18) + UiScale::androidBottomInsetPx();
+  // Clear the floating AndroidPhoneToolbar (44dp) + margin so Neue-Seite
+  // does not sit under / overlap the tool chrome.
+  if (UiScale::isAndroidPhoneUi())
+    inset += UiScale::dp(44) + UiScale::dp(16);
+  return inset;
 }
 /// Leichter seitlicher Luftabstand zum Viewport-Rand (schwebende Karte)
 static int kBottomSheetViewportSideInset() { return UiScale::dp(10); }
 /// Zielhöhe des Panels (wirkt beim Scrollen stabil, nicht „zusammengedrückt“)
-static int kBottomSheetPreferredHeight() { return UiScale::dp(300); }
+static int kBottomSheetPreferredHeight() {
+  if (UiScale::isAndroidPhoneUi())
+    return UiScale::dp(132);
+  return UiScale::dp(300);
+}
 /// Unter dieser Höhe zwischen letzter Seite und unterem Rand lieber ausblenden
-static int kBottomSheetMinVisibleHeight() { return UiScale::dp(208); }
+static int kBottomSheetMinVisibleHeight() {
+  if (UiScale::isAndroidPhoneUi())
+    return UiScale::dp(96);
+  return UiScale::dp(208);
+}
 
 #ifdef Q_OS_ANDROID
 static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {

@@ -35,6 +35,11 @@ int androidContentWidthPx(QWidget *reference = nullptr);
 // values can otherwise leak through unscaled).
 bool isAndroidTablet(QWidget *reference = nullptr);
 
+/// Phone editor chrome (AndroidPhoneToolbar, no desktop bottom notch).
+/// On device: true for non-tablet Android. On desktop: set
+/// BLOP_SIMULATE_ANDROID_PHONE=1 to exercise the same layout paths.
+bool isAndroidPhoneUi(QWidget *reference = nullptr);
+
 } // namespace UiScale
 
 #endif // UISCALE_H

@@ -7,6 +7,7 @@
 #include <QWidget>
 #include <QtGlobal>
 #include <QtMath>
+#include <QByteArray>
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
@@ -260,6 +261,16 @@ bool isAndroidTablet(QWidget *reference) {
 #else
   Q_UNUSED(reference);
   return false;
+#endif
+}
+
+bool isAndroidPhoneUi(QWidget *reference) {
+#if defined(Q_OS_ANDROID)
+  return !isAndroidTablet(reference);
+#else
+  Q_UNUSED(reference);
+  // Desktop simulation for layout QA (Cursor-agent / local).
+  return qEnvironmentVariableIntValue("BLOP_SIMULATE_ANDROID_PHONE") == 1;
 #endif
 }
 
