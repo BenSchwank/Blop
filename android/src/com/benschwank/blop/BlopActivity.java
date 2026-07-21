@@ -2,6 +2,8 @@ package com.benschwank.blop;
 
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -9,6 +11,7 @@ import android.provider.OpenableColumns;
 import android.util.Log;
 
 import androidx.annotation.Keep;
+import androidx.browser.customtabs.CustomTabsClient;
 import androidx.browser.customtabs.CustomTabsIntent;
 
 import org.qtproject.qt.android.bindings.QtActivity;
@@ -18,24 +21,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Custom QtActivity subclass that forwards Google OAuth deep links
  * (custom scheme {@code com.benschwank.blop://oauth2redirect} OR
- * {@code com.benschwank.blop:/oauth2redirect}; v3.18.9 accepts both via
- * paired manifest <data> elements) into {@link BlopOAuthBridge}, which
- * in turn calls back into the C++ {@code GoogleAuthManager} via JNI.
+ * {@code com.benschwank.blop:/oauth2redirect}) into {@link BlopOAuthBridge}.
  *
- * Also hosts SAF document open/create (ACTION_OPEN_DOCUMENT /
- * ACTION_CREATE_DOCUMENT) for Android-safe file pick without QFileDialog.
- *
- * Cold-launch deep links arrive in {@link #onCreate(Bundle)} via the
- * launching {@link Intent}; warm/relaunch deep links are delivered through
- * {@link #onNewIntent(Intent)}. Both paths are handled identically.
- *
- * v3.18.34: keeps a static activity reference so the C++ side can launch a
- * Chrome Custom Tab for the OAuth URL. Custom Tabs run in the same task and
- * reliably redirect back to the app via the registered custom scheme.
+ * Chrome Custom Tabs are preferred over a full external browser so the
+ * custom-scheme redirect returns to this same task via {@link #onNewIntent}.
+ * When the user comes back without a redirect (Back / task switch),
+ * {@link #onResume} notifies native code to unlock the hung login UI.
  */
 @Keep
 public class BlopActivity extends QtActivity {
@@ -45,6 +42,21 @@ public class BlopActivity extends QtActivity {
     private static volatile BlopActivity sInstance;
     private static volatile Uri sLastCreateUri;
     private static volatile String sCreateCachePath;
+    /** True after openCustomTab until a deep-link callback or native cancel. */
+    private static volatile boolean sOAuthBrowserOpen = false;
+    /** True once we actually left the activity for the OAuth browser. */
+    private static volatile boolean sOAuthSawPause = false;
+
+    private static final List<String> PREFERRED_CUSTOM_TABS = Arrays.asList(
+            "com.android.chrome",
+            "com.chrome.beta",
+            "com.chrome.dev",
+            "com.chrome.canary",
+            "com.google.android.apps.chrome",
+            "com.sec.android.app.sbrowser",
+            "com.microsoft.emmx",
+            "org.mozilla.firefox",
+            "com.brave.browser");
 
     /**
      * Opens the given OAuth URL in a Chrome Custom Tab. Called from C++ via JNI.
@@ -63,18 +75,104 @@ public class BlopActivity extends QtActivity {
             Log.w(TAG, "openCustomTab: url is null or empty");
             return;
         }
+        final Uri uri = Uri.parse(url);
+        activity.runOnUiThread(() -> {
+            sOAuthBrowserOpen = true;
+            sOAuthSawPause = false;
+            BlopOAuthBridge.markExternalAuthStarted();
+            if (launchPreferredCustomTab(activity, uri)) {
+                Log.i(TAG, "openCustomTab: Custom Tab launched");
+                return;
+            }
+            Log.w(TAG, "openCustomTab: no Custom Tabs provider — ACTION_VIEW fallback");
+            try {
+                Intent fallback = new Intent(Intent.ACTION_VIEW, uri);
+                fallback.addCategory(Intent.CATEGORY_BROWSABLE);
+                // Stay in our task when possible so the deep link can return here.
+                fallback.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                activity.startActivity(fallback);
+                Log.i(TAG, "openCustomTab: fallback ACTION_VIEW launched");
+            } catch (Exception e2) {
+                Log.e(TAG, "openCustomTab: ACTION_VIEW also failed", e2);
+                sOAuthBrowserOpen = false;
+                BlopOAuthBridge.notifyExternalAuthAbandoned(
+                        "browser_open_failed");
+            }
+        });
+    }
+
+    private static boolean launchPreferredCustomTab(BlopActivity activity,
+                                                    Uri uri) {
         try {
-            Log.i(TAG, "openCustomTab: launching Chrome Custom Tab");
+            String packageName = CustomTabsClient.getPackageName(
+                    activity, PREFERRED_CUSTOM_TABS, false /* prefer default if in list */);
+            if (packageName == null || packageName.isEmpty()) {
+                packageName = CustomTabsClient.getPackageName(
+                        activity, null, false);
+            }
+            if (packageName == null || packageName.isEmpty()) {
+                packageName = resolveDefaultHttpsHandler(activity);
+                if (packageName != null
+                        && !supportsCustomTabs(activity, packageName)) {
+                    packageName = null;
+                }
+            }
+            if (packageName == null || packageName.isEmpty()) {
+                Log.w(TAG, "launchPreferredCustomTab: no package");
+                return false;
+            }
+            Log.i(TAG, "launchPreferredCustomTab: package=" + packageName);
             CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
+            builder.setShowTitle(true);
+            builder.setShareState(CustomTabsIntent.SHARE_STATE_OFF);
             CustomTabsIntent intent = builder.build();
-            intent.launchUrl(activity, Uri.parse(url));
-            Log.i(TAG, "openCustomTab: Chrome Custom Tab launched successfully");
+            intent.intent.setPackage(packageName);
+            // NO_HISTORY: when Google redirects to our scheme, the tab closes
+            // and the deep link is delivered to this activity's onNewIntent.
+            intent.intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+            intent.intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            intent.launchUrl(activity, uri);
+            return true;
         } catch (Exception e) {
-            Log.w(TAG, "openCustomTab failed, falling back to ACTION_VIEW", e);
-            Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            activity.startActivity(fallback);
-            Log.i(TAG, "openCustomTab: fallback ACTION_VIEW launched");
+            Log.w(TAG, "launchPreferredCustomTab failed", e);
+            return false;
         }
+    }
+
+    private static String resolveDefaultHttpsHandler(BlopActivity activity) {
+        try {
+            Intent view = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://accounts.google.com/"));
+            view.addCategory(Intent.CATEGORY_BROWSABLE);
+            ResolveInfo info = activity.getPackageManager().resolveActivity(
+                    view, PackageManager.MATCH_DEFAULT_ONLY);
+            if (info != null && info.activityInfo != null) {
+                return info.activityInfo.packageName;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "resolveDefaultHttpsHandler failed", e);
+        }
+        return null;
+    }
+
+    private static boolean supportsCustomTabs(BlopActivity activity,
+                                              String packageName) {
+        try {
+            Intent service = new Intent(
+                    "androidx.browser.customtabs.action.CustomTabsService");
+            service.setPackage(packageName);
+            List<ResolveInfo> list =
+                    activity.getPackageManager().queryIntentServices(service, 0);
+            return list != null && !list.isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Keep
+    public static void clearOAuthBrowserFlag() {
+        sOAuthBrowserOpen = false;
+        sOAuthSawPause = false;
     }
 
     @Override
@@ -85,6 +183,26 @@ public class BlopActivity extends QtActivity {
         Log.i(TAG, "Intent: " + getIntent());
         Log.i(TAG, "Intent data: " + getIntent().getData());
         forwardOAuthIntent(getIntent(), "onCreate");
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (sOAuthBrowserOpen) {
+            sOAuthSawPause = true;
+            Log.i(TAG, "onPause: OAuth browser session active");
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Only after we actually handed off to the Custom Tab/browser. Avoids
+        // a same-tick resume racing the launch and cancelling PKCE early.
+        if (sOAuthBrowserOpen && sOAuthSawPause) {
+            Log.i(TAG, "onResume: returned from OAuth browser — notify native");
+            BlopOAuthBridge.notifyActivityResumedAfterAuth();
+        }
     }
 
     @Override
@@ -120,7 +238,8 @@ public class BlopActivity extends QtActivity {
         Log.i(TAG, origin + " received URI: " + data.toString());
         final String scheme = data.getScheme();
         if (scheme == null || !scheme.equalsIgnoreCase("com.benschwank.blop")) {
-            Log.w(TAG, origin + " scheme mismatch: " + scheme + " (expected com.benschwank.blop)");
+            Log.w(TAG, origin + " scheme mismatch: " + scheme
+                    + " (expected com.benschwank.blop)");
             return;
         }
         final String hostStr = data.getHost() == null ? "(null)" : data.getHost();
@@ -128,10 +247,7 @@ public class BlopActivity extends QtActivity {
         Log.i(TAG, origin + " forwarding OAuth deep link host=" + hostStr
                 + " path=" + pathStr + " query=" + data.getQuery());
 
-        // Do NOT show a diagnostic toast here — host=(null) is the *expected*
-        // shape for com.benschwank.blop:/oauth2redirect and looked like a
-        // failure to users. Errors are surfaced by C++ via BlopDialogs.
-
+        sOAuthBrowserOpen = false;
         BlopOAuthBridge.deliverIntentUri(data);
     }
 

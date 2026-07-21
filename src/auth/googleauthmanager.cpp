@@ -1,9 +1,5 @@
 #include "googleauthmanager.h"
 
-#ifdef Q_OS_ANDROID
-#include "../ui/mainwindow.h"
-#endif
-
 #include <QDebug>
 #include <QDesktopServices>
 #include <QJsonDocument>
@@ -87,9 +83,8 @@ bool restorePersistedPkce(QString *verifier, QString *state) {
   return true;
 }
 
-// Bridge from BlopOAuthBridge.notifyAuthCallback (Java) into the Qt singleton.
-// Registered via JNI in startPkceLogin() so the symbol is resolved before the
-// custom tab redirects back to the app.
+// Bridge from BlopOAuthBridge (Java) into the Qt singleton.
+// Registered via JNI so symbols resolve before the custom tab redirects.
 extern "C" JNIEXPORT void JNICALL
 Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthCallback(
     JNIEnv *env, jclass /*clazz*/, jstring uri) {
@@ -101,6 +96,26 @@ Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthCallback(
   const QString s = QString::fromUtf8(raw ? raw : "");
   env->ReleaseStringUTFChars(uri, raw);
   GoogleAuthManager::instance().handleDeepLinkCallback(s);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthResume(
+    JNIEnv * /*env*/, jclass /*clazz*/) {
+  GoogleAuthManager::instance().handleExternalAuthResume();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthAbandoned(
+    JNIEnv *env, jclass /*clazz*/, jstring reason) {
+  QString s = QStringLiteral("browser_open_failed");
+  if (reason) {
+    const char *raw = env->GetStringUTFChars(reason, nullptr);
+    s = QString::fromUtf8(raw ? raw : "");
+    env->ReleaseStringUTFChars(reason, raw);
+    if (s.isEmpty())
+      s = QStringLiteral("browser_open_failed");
+  }
+  GoogleAuthManager::instance().handleExternalAuthAbandoned(s);
 }
 #endif // Q_OS_ANDROID
 } // namespace
@@ -123,7 +138,7 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
   m_redirectUri = QString::fromLatin1(kAndroidRedirectUri);
 
   // Register the native callback so Java BlopOAuthBridge can call into us once
-  // the deep link arrives.
+  // the deep link arrives (and when the activity resumes without one).
   static bool s_jniRegistered = false;
   if (!s_jniRegistered) {
     QJniEnvironment env;
@@ -131,7 +146,13 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
             "com/benschwank/blop/BlopOAuthBridge",
             {{"nativeNotifyAuthCallback", "(Ljava/lang/String;)V",
               reinterpret_cast<void *>(
-                  &Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthCallback)}})) {
+                  &Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthCallback)},
+             {"nativeNotifyAuthResume", "()V",
+              reinterpret_cast<void *>(
+                  &Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthResume)},
+             {"nativeNotifyAuthAbandoned", "(Ljava/lang/String;)V",
+              reinterpret_cast<void *>(
+                  &Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthAbandoned)}})) {
       s_jniRegistered = true;
       qInfo() << "GoogleAuthManager: registered BlopOAuthBridge JNI methods";
     } else {
@@ -208,14 +229,17 @@ void GoogleAuthManager::login() {
 
 #ifdef Q_OS_ANDROID
 void GoogleAuthManager::cancelPendingLogin() {
-  if (!m_loginInProgress)
+  if (!m_loginInProgress && m_pkceVerifier.isEmpty() && m_pkceState.isEmpty())
     return;
   qInfo() << "GoogleAuthManager: cancelling pending PKCE login on caller request";
+  ++m_authResumeGeneration; // invalidate any pending resume-grace timer
   m_loginInProgress = false;
   m_loginInProgressSinceMs = 0;
   clearPersistedPkce();
   m_pkceVerifier.clear();
   m_pkceState.clear();
+  QJniObject::callStaticMethod<void>(
+      "com/benschwank/blop/BlopOAuthBridge", "clearExternalAuthPending", "()V");
 }
 #endif
 
@@ -242,16 +266,13 @@ QString GoogleAuthManager::base64UrlEncode(const QByteArray &data) {
 void GoogleAuthManager::startPkceLogin() {
   const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
   if (m_loginInProgress) {
-    // v3.18.6: if the previous login started more than 60s ago and we
-    // never received a callback, the browser most likely failed to
-    // open (or the user cancelled before the redirect). Treat the
-    // lock as stale and start fresh so the user isn't stuck having to
-    // restart the app.
+    // Allow long Google sessions (account picker / 2FA). Only treat as stale
+    // after 10 minutes so a mid-flow retry does not wipe PKCE state.
     const qint64 ageMs = nowMs - m_loginInProgressSinceMs;
-    if (ageMs > 60'000) {
+    if (ageMs > 10 * 60 * 1000) {
       qInfo() << "GoogleAuthManager: stale PKCE login lock (" << ageMs
               << "ms old) — clearing and restarting";
-      m_loginInProgress = false;
+      cancelPendingLogin();
     } else {
       qInfo() << "GoogleAuthManager: PKCE login already in progress (started "
               << ageMs << "ms ago)";
@@ -260,6 +281,7 @@ void GoogleAuthManager::startPkceLogin() {
   }
   m_loginInProgress = true;
   m_loginInProgressSinceMs = nowMs;
+  ++m_authResumeGeneration;
 
   // PKCE: generate a high-entropy code_verifier and S256-hashed challenge.
   m_pkceVerifier = generateRandomString(64);
@@ -289,6 +311,46 @@ void GoogleAuthManager::startPkceLogin() {
   emit requireBrowser(authUrl);
 }
 
+void GoogleAuthManager::handleExternalAuthResume() {
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(this, [this]() { handleExternalAuthResume(); },
+                              Qt::QueuedConnection);
+    return;
+  }
+  if (!m_loginInProgress) {
+    qInfo() << "GoogleAuthManager: auth resume ignored (no login in progress)";
+    return;
+  }
+  // Deep link often arrives in the same resume wave as onResume. Wait briefly
+  // so a successful redirect is not falsely treated as cancel.
+  const int gen = ++m_authResumeGeneration;
+  qInfo() << "GoogleAuthManager: activity resumed during PKCE — grace 2500ms"
+          << "gen=" << gen;
+  QTimer::singleShot(2500, this, [this, gen]() {
+    if (gen != m_authResumeGeneration)
+      return;
+    if (!m_loginInProgress)
+      return;
+    qWarning() << "GoogleAuthManager: no OAuth redirect after resume — abandoning";
+    cancelPendingLogin();
+    emit authenticationFailed(QStringLiteral("oauth_redirect_missing"));
+  });
+}
+
+void GoogleAuthManager::handleExternalAuthAbandoned(const QString &reason) {
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(
+        this, [this, reason]() { handleExternalAuthAbandoned(reason); },
+        Qt::QueuedConnection);
+    return;
+  }
+  qWarning() << "GoogleAuthManager: external auth abandoned:" << reason;
+  cancelPendingLogin();
+  emit authenticationFailed(reason.isEmpty()
+                                ? QStringLiteral("browser_open_failed")
+                                : reason);
+}
+
 void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   // This method may be called from the Android main thread (via JNI). All Qt
   // object work (QNetworkAccessManager, signals) must run on the Qt thread.
@@ -300,13 +362,12 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   }
 
   qInfo() << "GoogleAuthManager: deep-link callback received uri=" << uri;
+  ++m_authResumeGeneration; // cancel any pending "redirect missing" timer
   m_loginInProgress = false;
-  
-#ifdef Q_OS_ANDROID
-  // Reset OAuth timer in MainWindow to prevent timeout
-  qInfo() << "GoogleAuthManager: calling MainWindow::resetOAuthTimer";
-  MainWindow::resetOAuthTimer();
-#endif
+  QJniObject::callStaticMethod<void>(
+      "com/benschwank/blop/BlopOAuthBridge", "clearExternalAuthPending", "()V");
+
+  qInfo() << "GoogleAuthManager: deep-link accepted, exchanging code";
   if (uri.isEmpty()) {
     clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("empty_callback_uri"));

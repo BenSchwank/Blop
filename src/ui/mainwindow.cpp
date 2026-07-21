@@ -1529,7 +1529,21 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
     m_googleLoginInFlight = false;
     m_googleLoginInFlightSinceMs = 0;
-    m_authNavigationLocked = false;
+    // Guests must stay gated on the login/Study surface; only clear the
+    // temporary Google-login lock, don't unlock Notes for anonymous users.
+    const QString user =
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username"))
+            .toString()
+            .trimmed();
+    m_authNavigationLocked = user.isEmpty();
+#ifdef Q_OS_ANDROID
+    if (m_androidHeader) {
+      m_androidHeader->setVisible(!m_authNavigationLocked);
+      if (!m_authNavigationLocked)
+        m_androidHeader->raise();
+    }
+#endif
     emit oauthFailed(reason);
   };
 
@@ -1674,7 +1688,12 @@ MainWindow::MainWindow(QWidget *parent)
       if (error.contains(QStringLiteral("state_mismatch")))
         friendly = QStringLiteral(
             "Die Anmeldung wurde unterbrochen (App neu gestartet). "
-            "Bitte tippe noch einmal auf „Über Google registrieren“.");
+            "Bitte tippe noch einmal auf „Über Google anmelden“.");
+      else if (error.contains(QStringLiteral("oauth_redirect_missing")))
+        friendly = QStringLiteral(
+            "Google hat dich nicht zurück in die App gebracht. "
+            "Bitte tippe erneut auf „Über Google anmelden“ "
+            "(am besten mit Chrome).");
       else if (error.contains(QStringLiteral("token_exchange")))
         friendly = QStringLiteral(
             "Google konnte den Login nicht bestätigen. Prüfe die "
@@ -1685,6 +1704,10 @@ MainWindow::MainWindow(QWidget *parent)
       else if (error.contains(QStringLiteral("backend_verify")))
         friendly = QStringLiteral(
             "Server-Bestätigung fehlgeschlagen. Bitte später erneut versuchen.");
+      else if (error.contains(QStringLiteral("browser_open")))
+        friendly = QStringLiteral(
+            "Es konnte kein Browser geöffnet werden. Installiere Chrome "
+            "oder einen anderen Browser und versuche es erneut.");
       BlopDialogs::notify(this, QStringLiteral("Google Login"), friendly);
   });
 
@@ -6376,12 +6399,21 @@ void MainWindow::onModeChanged(int index) {
 void MainWindow::requestGoogleLogin() {
     if (m_googleLoginInFlight) {
       const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+      // Only auto-recover after a very long hang (browser never returned).
       if (m_googleLoginInFlightSinceMs > 0 &&
-          (nowMs - m_googleLoginInFlightSinceMs) > 15000) {
+          (nowMs - m_googleLoginInFlightSinceMs) > 10 * 60 * 1000) {
         qWarning() << "Google login in-flight guard was stale, unlocking retry";
         m_googleLoginInFlight = false;
         m_googleLoginInFlightSinceMs = 0;
-        m_authNavigationLocked = false;
+#ifdef Q_OS_ANDROID
+        GoogleAuthManager::instance().cancelPendingLogin();
+#endif
+        const QString user =
+            QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                .value(QStringLiteral("username"))
+                .toString()
+                .trimmed();
+        m_authNavigationLocked = user.isEmpty();
       } else {
         qInfo() << "Google login already in flight, ignoring duplicate request";
         return;
@@ -6395,29 +6427,20 @@ void MainWindow::requestGoogleLogin() {
       if (!QSslSocket::supportsSsl()) {
         qCritical() << "Google login start skipped: TLS unavailable";
         emit oauthFailed(QStringLiteral("tls_unavailable"));
-        m_authNavigationLocked = false;
+        const QString user =
+            QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+                .value(QStringLiteral("username"))
+                .toString()
+                .trimmed();
+        m_authNavigationLocked = user.isEmpty();
         return;
       }
 #endif
       m_googleLoginInFlight = true;
       m_googleLoginInFlightSinceMs = QDateTime::currentMSecsSinceEpoch();
-      m_authNavigationLocked = true;
+      // Keep Study/login gate for guests; do not flip chrome mid-OAuth.
+      // Unlock-on-resume / authenticationFailed handles abandoned flows.
       GoogleAuthManager::instance().login();
-
-      // Failsafe: if no browser handoff/response arrives, release lock to avoid dead button.
-      QTimer::singleShot(12000, this, [this]() {
-        if (!m_googleLoginInFlight)
-          return;
-        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-        if (m_googleLoginInFlightSinceMs > 0 &&
-            (nowMs - m_googleLoginInFlightSinceMs) >= 11500) {
-          qWarning() << "Google login timeout before browser handoff; unlocking.";
-          m_googleLoginInFlight = false;
-          m_googleLoginInFlightSinceMs = 0;
-          m_authNavigationLocked = false;
-          emit oauthFailed(QStringLiteral("google_login_start_timeout"));
-        }
-      });
     });
 }
 
@@ -11660,13 +11683,13 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
 
 #ifdef Q_OS_ANDROID
 void MainWindow::resetOAuthTimer() {
-    // Find the main window instance and reset the OAuth timer
+    // Kept for ABI/call-site compatibility. Deep-link success no longer clears
+    // in-flight here — MainWindow waits for idToken / authenticationFailed so
+    // a mid-exchange unlock cannot leave the UI inconsistent.
     for (QWidget *widget : QApplication::topLevelWidgets()) {
         MainWindow *mainWin = qobject_cast<MainWindow*>(widget);
         if (mainWin) {
-            qInfo() << "MainWindow: resetOAuthTimer called, resetting OAuth timer";
-            mainWin->m_googleLoginInFlight = false;
-            mainWin->m_googleLoginInFlightSinceMs = 0;
+            qInfo() << "MainWindow: resetOAuthTimer (no-op while verifying)";
             return;
         }
     }
