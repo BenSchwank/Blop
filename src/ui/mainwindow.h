@@ -31,11 +31,14 @@
 
 #include "canvasview.h"
 #include "freegridview.h"
+#include "notechromeedge.h"
 #include "notemanager.h"
 #include "tools/ToolManager.h" // WICHTIG: Include für ToolManager
 #include "uiprofilemanager.h"
 
 // Forward Declarations
+class QBoxLayout;
+class QFrame;
 class QVariantAnimation;
 class DocumentTabBar;
 class LibraryTagsPanel;
@@ -329,7 +332,19 @@ private:
   CanvasView *getCurrentCanvas();
   void setActiveTool(CanvasView::ToolType tool);
   int noteHeaderHeight() const;
+  /// Bottom-edge clearance for Favorites rail / presets (0 if chrome is elsewhere).
   int noteBottomChromeHeight() const;
+  int noteChromeClearanceTop() const;
+  int noteChromeClearanceLeft() const;
+  int noteChromeClearanceRight() const;
+  int noteChromeThickness() const;
+  QRect noteChromeContentRect() const;
+  NoteChromeEdge nearestNoteChromeEdge(const QPoint &posInParent) const;
+  void setNoteChromeEdge(NoteChromeEdge edge);
+  void applyNoteChromeLayoutOrientation();
+  void refreshNoteChromeStyle();
+  void persistNoteChromeEdge() const;
+  void showNoteChromeEdgeMenu(const QPoint &globalPos);
   /// Keep PenPresetBar pinned under the floating/docked toolbar as one cluster.
   void syncPenPresetBarGeometry();
   void updateNoteBottomChrome();
@@ -513,8 +528,15 @@ private:
   QLabel *m_lblNoteHeaderTitle{nullptr};
   QLabel *m_lblNoteHeaderMeta{nullptr};
 
-  /// Drawboard-style bottom chrome: undo/redo · page · zoom.
+  /// Drawboard utilities bar: undo/redo · page · zoom (edge-dockable).
   QWidget *m_noteBottomChrome{nullptr};
+  QBoxLayout *m_noteChromeLayout{nullptr};
+  QPushButton *m_btnNoteChromeGrip{nullptr};
+  QFrame *m_noteChromeSep1{nullptr};
+  QFrame *m_noteChromeSep2{nullptr};
+  NoteChromeEdge m_noteChromeEdge{NoteChromeEdge::Bottom};
+  bool m_noteChromeDragging{false};
+  QPoint m_noteChromeDragHotspot;
   QPushButton *m_btnNoteUndo{nullptr};
   QPushButton *m_btnNoteRedo{nullptr};
   QPushButton *m_btnNotePagePrev{nullptr};
