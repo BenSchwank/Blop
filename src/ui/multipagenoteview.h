@@ -106,6 +106,8 @@ public:
     int strokeCountOnPage(int pageIndex) const;
     int undoDepth() const;
     int redoDepth() const;
+    /// Undo stack entry texts (oldest → newest), for the History menu.
+    QStringList undoHistoryTexts() const;
 
     std::function<void(Note*)> onSaveRequested;
 
@@ -267,7 +269,12 @@ private:
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
     void syncGraphItemsToNote();
     void syncStickyNotesToNote();
+    void syncShapesTextsImagesToNote();
+    void rebuildStrokesFromScene();
+    /// Persist after tool contentModified (text/image/sticky/eraser/shape).
+    void onToolContentModified();
     void bindStickyNoteSignals(QGraphicsRectItem *card);
+    void bindStandaloneTextSignals(QGraphicsTextItem *text);
     QGraphicsRectItem *createStickyNoteItem(const StickyNoteObject &data,
                                             int pageIndex);
     /// v3.18.0: einmalige Signal-Verdrahtung eines GraphCanvasItem (Tap,
@@ -309,6 +316,8 @@ private:
     bool m_graphQuickPopupWanted{false};
     bool m_syncingGraphs{false};
     bool m_syncingStickies{false};
+    bool m_syncingObjects{false};
+    bool m_syncingStrokes{false};
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};
@@ -342,4 +351,6 @@ private:
 
     /// Currently active inline formula input zone (created by "+" tap).
     QPointer<GraphFormulaZone> m_activeFormulaZone;
+
+    QMetaObject::Connection m_toolContentConn;
 };

@@ -45,6 +45,7 @@ public:
                 item->setFlags(QGraphicsItem::ItemIsSelectable |
                                QGraphicsItem::ItemIsMovable);
                 item->setZValue(5);
+                item->setData(0, QStringLiteral("image"));
                 if (self) {
                   const qreal op = self->config().imageOpacity > 0.01
                                        ? self->config().imageOpacity
@@ -52,8 +53,10 @@ public:
                   item->setOpacity(qBound(0.1, op, 1.0));
                 }
                 safeScene->addItem(item);
-                if (self)
+                if (self) {
+                    self->m_lastCompletedItem = item;
                     emit self->contentModified();
+                }
             });
         return true;
 #else
@@ -68,11 +71,13 @@ public:
                 item->setPos(event->scenePos());
                 item->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
                 item->setZValue(5);
+                item->setData(0, QStringLiteral("image"));
                 const qreal op = m_config.imageOpacity > 0.01
                                      ? m_config.imageOpacity
                                      : m_config.opacity;
                 item->setOpacity(qBound(0.1, op, 1.0));
                 scene->addItem(item);
+                m_lastCompletedItem = item;
 
                 emit contentModified();
             }

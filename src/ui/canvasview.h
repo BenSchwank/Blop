@@ -150,6 +150,7 @@ private:
     QString m_filePath;
 
     QUndoStack *m_undoStack;
+    QMetaObject::Connection m_toolContentConn;
     // v3.17.5: 50 ms debouncer for updateSceneRect(). itemsBoundingRect()
     // is O(N) over every scene item; previously every stroke + tool
     // tick re-ran it. The timer folds bursts (e.g. mid-stroke

@@ -196,6 +196,10 @@ public:
           pathItem->setBrush(Qt::NoBrush);
         }
         pathItem->setZValue(5);
+        pathItem->setData(0, QStringLiteral("shape"));
+        pathItem->setData(1, int(m_config.shapeToolKind));
+        pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
+        pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
 
         m_currentShape = pathItem;
         scene->addItem(m_currentShape);
@@ -267,6 +271,8 @@ public:
                     graphItem->setZValue(4.0);
                     scene->addItem(graphItem);
                     m_lastCompletedItem = graphItem;
+                } else {
+                    m_lastCompletedItem = m_currentShape;
                 }
                 emit contentModified();
             }

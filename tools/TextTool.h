@@ -74,11 +74,14 @@ public:
         
         newText->setTextInteractionFlags(Qt::TextEditorInteraction);
         newText->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsFocusable | QGraphicsItem::ItemIsMovable);
+        newText->setData(0, QStringLiteral("text"));
+        newText->setZValue(5);
         
         scene->addItem(newText);
         newText->setFocus();
         
         m_activeTextItem = newText;
+        m_lastCompletedItem = newText;
         emit contentModified();
         
         return true; // We consumed the event to place the text box

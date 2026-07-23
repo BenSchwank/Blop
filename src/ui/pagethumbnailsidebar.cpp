@@ -272,6 +272,10 @@ void PageThumbnailSidebar::refreshListStyle() {
   }
 
   if (m_list) {
+    // Light mode: dark translucent hover — white-on-white is invisible.
+    const QString hoverBg =
+        NoteChrome::isDark() ? QStringLiteral("rgba(255,255,255,0.06)")
+                             : QStringLiteral("rgba(0,0,0,0.06)");
     m_list->setStyleSheet(
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
@@ -282,12 +286,12 @@ void PageThumbnailSidebar::refreshListStyle() {
             "QListWidget::item:selected {"
             "  border: 1px solid %4; background: rgba(%5,%6,%7,0.16);"
             "}"
-            "QListWidget::item:hover { background: rgba(255,255,255,0.06); }")
+            "QListWidget::item:hover { background: %8; }")
             .arg(NoteChrome::textSecondary().name(),
                  NoteChrome::borderSoft().name(),
                  NoteChrome::panelElevated().name(), accent.name(),
                  QString::number(accent.red()), QString::number(accent.green()),
-                 QString::number(accent.blue())));
+                 QString::number(accent.blue()), hoverBg));
   }
 }
 
