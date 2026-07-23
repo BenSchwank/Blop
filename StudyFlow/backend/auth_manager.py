@@ -4,21 +4,103 @@ import hmac
 import json
 import os
 import secrets
+import time
 from datetime import datetime
 import uuid
 
 import requests
 
 SESSION_DB_FILE = "user_data/sessions.json"
+# Prefix for HMAC-signed session tokens. These survive Render redeploys/cold starts
+# (unlike sessions.json on the ephemeral container filesystem).
+SIGNED_SESSION_PREFIX = "bs1."
+# 7 days — file-based sessions used to be 24h sliding, but ephemeral disk made that
+# unreliable in production; a longer fixed TTL is better UX for signed tokens.
+SIGNED_SESSION_TTL_SEC = 7 * 24 * 3600
 
 class AuthManager:
     _sessions_cache = None
     _sessions_mtime = 0
+    # Best-effort logout denylist for signed tokens (process-local; cleared on restart).
+    _revoked_jtis = set()
 
     @staticmethod
     def _get_db():
         from data_manager import DataManager
         return DataManager._init_supabase()
+
+    @staticmethod
+    def _b64url_encode(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    @staticmethod
+    def _b64url_decode(text: str) -> bytes:
+        pad = "=" * (-len(text) % 4)
+        return base64.urlsafe_b64decode((text + pad).encode("ascii"))
+
+    @staticmethod
+    def _session_secret() -> bytes:
+        """Derive HMAC key from env. Prefer SESSION_SECRET; fall back to Supabase key."""
+        explicit = (os.environ.get("SESSION_SECRET") or "").strip()
+        if explicit:
+            return explicit.encode("utf-8")
+        for key in ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY", "BLOP_ADMIN_PASSWORD"):
+            val = (os.environ.get(key) or "").strip()
+            if val:
+                # Bind purpose so a leaked admin password is not a raw session key.
+                return hashlib.sha256(f"blop-session-v1:{val}".encode("utf-8")).digest()
+        # Local-dev fallback — unstable across restarts; set SESSION_SECRET in prod.
+        return hashlib.sha256(b"blop-session-dev-insecure").digest()
+
+    @staticmethod
+    def _make_signed_session(username: str) -> str:
+        now = int(time.time())
+        payload = {
+            "u": username,
+            "iat": now,
+            "exp": now + SIGNED_SESSION_TTL_SEC,
+            "jti": str(uuid.uuid4()),
+        }
+        body = AuthManager._b64url_encode(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        )
+        sig = AuthManager._b64url_encode(
+            hmac.new(AuthManager._session_secret(), body.encode("ascii"), hashlib.sha256).digest()
+        )
+        return f"{SIGNED_SESSION_PREFIX}{body}.{sig}"
+
+    @staticmethod
+    def _parse_signed_session(session_id: str):
+        """Return username if token is valid, else None."""
+        if not session_id or not session_id.startswith(SIGNED_SESSION_PREFIX):
+            return None
+        rest = session_id[len(SIGNED_SESSION_PREFIX) :]
+        parts = rest.split(".")
+        if len(parts) != 2:
+            return None
+        body, sig = parts
+        expected = AuthManager._b64url_encode(
+            hmac.new(AuthManager._session_secret(), body.encode("ascii"), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(sig, expected):
+            return None
+        try:
+            payload = json.loads(AuthManager._b64url_decode(body).decode("utf-8"))
+        except Exception:
+            return None
+        jti = payload.get("jti")
+        if jti and jti in AuthManager._revoked_jtis:
+            return None
+        try:
+            exp = int(payload.get("exp", 0))
+        except (TypeError, ValueError):
+            return None
+        if exp < int(time.time()):
+            return None
+        username = payload.get("u")
+        if not isinstance(username, str) or not username.strip():
+            return None
+        return username.strip()
 
     @staticmethod
     def _load_sessions():
@@ -46,19 +128,19 @@ class AuthManager:
 
     @staticmethod
     def create_session(username):
-        session_id = str(uuid.uuid4())
-        sessions = AuthManager._load_sessions()
-        
-        sessions[session_id] = {
-            "username": username,
-            "created_at": datetime.now().isoformat(),
-            "last_active": datetime.now().isoformat()
-        }
-        AuthManager._save_sessions(sessions)
-        return session_id
+        # Prefer signed tokens so Render restarts do not wipe active logins.
+        return AuthManager._make_signed_session(username)
 
     @staticmethod
     def validate_session(session_id):
+        if not session_id:
+            return None
+
+        signed_user = AuthManager._parse_signed_session(session_id)
+        if signed_user:
+            return signed_user
+
+        # Legacy UUID sessions in local sessions.json (dev / pre-migration).
         sessions = AuthManager._load_sessions()
         if session_id not in sessions:
             return None
@@ -81,6 +163,19 @@ class AuthManager:
 
     @staticmethod
     def logout_session(session_id):
+        if session_id and session_id.startswith(SIGNED_SESSION_PREFIX):
+            rest = session_id[len(SIGNED_SESSION_PREFIX) :]
+            parts = rest.split(".")
+            if len(parts) == 2:
+                try:
+                    payload = json.loads(AuthManager._b64url_decode(parts[0]).decode("utf-8"))
+                    jti = payload.get("jti")
+                    if jti:
+                        AuthManager._revoked_jtis.add(jti)
+                except Exception:
+                    pass
+            return
+
         sessions = AuthManager._load_sessions()
         if session_id in sessions:
             del sessions[session_id]

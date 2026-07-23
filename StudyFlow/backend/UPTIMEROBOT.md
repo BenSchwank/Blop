@@ -28,3 +28,11 @@ Im Render-Dashboard: Service **blop-study-backend** → oben die **URL** (z. B
 ## Hinweis zu 502
 
 502 kann auch bei **langen KI-/ffmpeg-Jobs** oder **Proxy-Timeouts** auftreten — UptimeRobot verhindert nur das **Einschlafen**, nicht alle 502-Ursachen. Siehe auch [`LERNVIDEO_OPS.md`](LERNVIDEO_OPS.md).
+
+## Hinweis zu 401 auf blop-study.com
+
+**401** bedeutet nicht „Render-URL falsch“. Das Frontend proxied `/api/*` nach Render; wenn Health `200` liefert, ist die URL in Ordnung.
+
+Häufiger Fall: der Browser hat noch `username`/`session_id` in `localStorage`, aber die Session ist auf dem Backend ungültig.
+
+Früher lagen Sessions in `user_data/sessions.json` auf dem **ephemeren** Render-Dateisystem — nach Redeploy/Cold-Start waren alle Logins weg, während das Dashboard noch „eingeloggt“ wirkte. Sessions sind jetzt **HMAC-signierte Tokens** (überleben Restarts). Bestehende alte UUID-Sessions werden dadurch ungültig → einmal neu einloggen.

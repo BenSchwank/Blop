@@ -146,8 +146,18 @@ export default function Dashboard() {
         const data = await res.json();
         setFolders(data);
         setError("");
+      } else if (res.status === 401 || res.status === 403) {
+        // Stale localStorage after Render restart / expired session — re-login.
+        try {
+          localStorage.removeItem("username");
+          localStorage.removeItem("session_id");
+        } catch { /* ignore */ }
+        const params = new URLSearchParams(window.location.search);
+        const loginTarget = params.get("native") === "1" ? "/login?native=1" : "/login";
+        window.location.replace(loginTarget);
+        return;
       } else {
-        setError("Server antwortet nicht (Fehler " + res.status + ")");
+        setError("Ordner konnten nicht geladen werden (Fehler " + res.status + ")");
       }
     } catch (err) {
       console.error("Failed to fetch folders:", err);
@@ -379,7 +389,9 @@ export default function Dashboard() {
           ) : error ? (
             <div className="bg-[#151525] border border-red-500/30 rounded-2xl p-10 text-center">
               <div className="text-red-400 font-semibold mb-2">{error}</div>
-              <p className="text-gray-500 text-sm mb-4">Prüfe die Render-URL in den Vercel Settings.</p>
+              <p className="text-gray-500 text-sm mb-4">
+                Backend kurz offline oder überlastet? Danach erneut versuchen.
+              </p>
               <button onClick={fetchFolders} className="text-sm bg-red-500/10 text-red-400 px-4 py-2 rounded-lg hover:bg-red-500/20 transition-colors">
                 Erneut versuchen
               </button>
