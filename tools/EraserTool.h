@@ -75,13 +75,6 @@ private:
         QSet<QGraphicsItem*> toDeleteSet;
 
         for (QGraphicsItem* item : items) {
-            // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
-            QGraphicsPathItem* pathItem = dynamic_cast<QGraphicsPathItem*>(item);
-            if (!pathItem) continue;
-
-            // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht
-            if (m_currentItem && pathItem == m_currentItem) continue;
-
             // Bereits zum Löschen vorgemerkt – überspringen
             if (toDeleteSet.contains(item)) continue;
 
@@ -89,6 +82,26 @@ private:
             // scene->items): only continue if the eraser ellipse
             // actually intersects the item's shape.
             if (!item->shape().intersects(item->mapFromScene(eraserShape))) continue;
+
+            // Object eraser also removes tagged text / images / stickies.
+            if (m_config.eraserMode == EraserMode::Object) {
+                const QString tag = item->data(0).toString();
+                if (tag == QLatin1String("text") ||
+                    tag == QLatin1String("image") ||
+                    tag == QLatin1String("sticky_note") ||
+                    tag == QLatin1String("shape")) {
+                    toDelete.append(item);
+                    toDeleteSet.insert(item);
+                    continue;
+                }
+            }
+
+            // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
+            QGraphicsPathItem* pathItem = dynamic_cast<QGraphicsPathItem*>(item);
+            if (!pathItem) continue;
+
+            // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht
+            if (m_currentItem && pathItem == m_currentItem) continue;
 
             // FEATURE: "Nur Textmarker löschen"
             // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
@@ -151,5 +164,7 @@ private:
             scene->removeItem(item);
             delete item;
         }
+        if (!toDelete.isEmpty())
+            emit contentModified();
     }
 };

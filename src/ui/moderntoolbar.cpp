@@ -4099,6 +4099,13 @@ void ModernToolbar::reorderButtons() {
 void ModernToolbar::setToolMode(ToolMode mode) {
   bool changed = (mode_ != mode);
   mode_ = mode;
+  // If the active Favorites slot no longer matches the live tool (e.g. picker
+  // selected a different mode), drop the sticky slot highlight so the matching
+  // rail chip lights up instead of a stale one.
+  if (m_activeRailSlot >= 0 && m_activeRailSlot < m_railSlots.size() &&
+      m_railSlots[m_activeRailSlot].mode != mode) {
+    m_activeRailSlot = -1;
+  }
   for (auto *b : m_buttons)
     b->setActive(false);
   for (int i = 0; i < m_slotButtons.size(); ++i) {

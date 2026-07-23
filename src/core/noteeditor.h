@@ -24,6 +24,8 @@ public:
     std::function<void()> onOpenNoteOptionsRequested;
     /// Full page manager (reorder / batch) — everyday nav stays on the page rail
     std::function<void()> onOpenPageManagerRequested;
+    /// Cloud share for the open note (wired by MainWindow when a path exists)
+    std::function<void()> onShareRequested;
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

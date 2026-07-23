@@ -25,11 +25,11 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   makeBtn(QStringLiteral("pages"), QStringLiteral("Seitenleiste"));
   makeBtn(QStringLiteral("allpages"), QStringLiteral("Alle Seiten"));
   makeBtn(QStringLiteral("bookmarks"), QStringLiteral("Lesezeichen"));
-  makeBtn(QStringLiteral("history"), QStringLiteral("Seitenstatistik"));
-  makeBtn(QStringLiteral("search"), QStringLiteral("Suche"));
+  makeBtn(QStringLiteral("history"), QStringLiteral("Verlauf"));
+  makeBtn(QStringLiteral("search"), QStringLiteral("In Notiz suchen"));
   addGroupSeparator();
   // Selection lives on the Favorites rail (Lasso) — no duplicate here.
-  makeBtn(QStringLiteral("props"), QStringLiteral("Eigenschaften"));
+  makeBtn(QStringLiteral("props"), QStringLiteral("Notiz-Einstellungen"));
   addGroupSeparator();
   makeBtn(QStringLiteral("theme"), QStringLiteral("Editor Hell/Dunkel"));
   m_lay->addStretch(1);
@@ -114,36 +114,36 @@ void NoteLeftRail::refreshStyles() {
           QStringLiteral("background: %1; border: none;")
               .arg(NoteChrome::borderSoft().name(QColor::HexRgb)));
   }
+  // Light mode: dark translucent hover (white-on-light is invisible).
+  const QString hoverBg =
+      NoteChrome::isDark() ? QStringLiteral("rgba(255,255,255,0.10)")
+                           : QStringLiteral("rgba(0,0,0,0.08)");
+  const QString checkedBg =
+      NoteChrome::isDark() ? QStringLiteral("rgba(0,0,0,0.55)")
+                           : QStringLiteral("rgba(0,0,0,0.12)");
   setStyleSheet(QStringLiteral(
       "QToolButton#NoteLeftRailBtn {"
       "  background: transparent; border: none; border-radius: 6px; padding: 0;"
       "}"
       "QToolButton#NoteLeftRailBtn:hover {"
-      "  background: rgba(255,255,255,%1);"
+      "  background: %1;"
       "}"
       "QToolButton#NoteLeftRailBtn:checked {"
-      "  background: rgba(0,0,0,%2);"
+      "  background: %2;"
       "}")
-                    .arg(NoteChrome::isDark() ? QStringLiteral("0.10")
-                                              : QStringLiteral("0.14"),
-                         NoteChrome::isDark() ? QStringLiteral("0.55")
-                                              : QStringLiteral("0.12")));
+                    .arg(hoverBg, checkedBg));
   // Accent edge for the active pages button — painted via stylesheet border.
   if (QToolButton *pages = m_btns.value(QStringLiteral("pages"))) {
     if (pages->isChecked()) {
       pages->setStyleSheet(QStringLiteral(
           "QToolButton#NoteLeftRailBtn {"
-          "  background: rgba(0,0,0,%1); border: none; border-radius: 6px;"
+          "  background: %1; border: none; border-radius: 6px;"
           "  border-left: 3px solid %2; padding: 0;"
           "}"
           "QToolButton#NoteLeftRailBtn:hover {"
-          "  background: rgba(255,255,255,%3);"
+          "  background: %3;"
           "}")
-                               .arg(NoteChrome::isDark() ? QStringLiteral("0.55")
-                                                         : QStringLiteral("0.12"),
-                                    a.name(QColor::HexRgb),
-                                    NoteChrome::isDark() ? QStringLiteral("0.10")
-                                                         : QStringLiteral("0.14")));
+                               .arg(checkedBg, a.name(QColor::HexRgb), hoverBg));
     } else {
       pages->setStyleSheet(QString());
     }

@@ -267,6 +267,8 @@ private slots:
   void setPageSettingsOverlayVisible(bool show);
   void syncPageSettingsPanelFromEditor();
   void onTogglePageManager();
+  /// Cloud share helpers for an open note file (overflow "Teilen…").
+  void shareOpenNoteAtPath(const QString &localPath);
   void onEditorNoteOverflowMenu();
 
   void setPageColor(bool dark);
@@ -333,6 +335,7 @@ private:
   void toggleFolderContent(QListWidgetItem *parentItem);
 
   CanvasView *getCurrentCanvas();
+  void insertMarkupIntoInfiniteCanvas(const QString &itemId);
   void setActiveTool(CanvasView::ToolType tool);
   int noteHeaderHeight() const;
   /// Bottom-edge clearance for Favorites rail / presets (0 if chrome is elsewhere).

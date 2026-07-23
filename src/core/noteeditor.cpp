@@ -134,6 +134,16 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                               });
                       },
                       false, false});
+        if (onShareRequested) {
+            items.append({QString(), QIcon(), {}, false, true});
+            items.append({QStringLiteral("Teilen…"),
+                          SelectionMenuIcons::shareIcon(),
+                          [safeNote]() {
+                              if (safeNote && safeNote->onShareRequested)
+                                  safeNote->onShareRequested();
+                          },
+                          false, false});
+        }
 
         QPoint pos;
         if (anchor && anchor->isVisible())
@@ -276,6 +286,16 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                     "PDF konnte nicht importiert werden.\n"
                     "Bitte stelle sicher, dass Qt mit PDF-Unterstützung kompiliert ist."));
     });
+
+    if (onShareRequested) {
+        menu->addSeparator();
+        QAction *actShare = menu->addAction(QStringLiteral("Teilen…"));
+        actShare->setIcon(SelectionMenuIcons::shareIcon());
+        QObject::connect(actShare, &QAction::triggered, this, [safe]() {
+            if (safe && safe->onShareRequested)
+                safe->onShareRequested();
+        });
+    }
 #endif // !Q_OS_ANDROID
 
     QPoint pos;

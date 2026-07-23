@@ -9,7 +9,29 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QSaveFile>
+#include <QDataStream>
+#include <QIODevice>
+#include <QPainterPath>
 
+
+
+namespace {
+QString pathToB64(const QPainterPath &path) {
+  QByteArray ba;
+  QDataStream ds(&ba, QIODevice::WriteOnly);
+  ds << path;
+  return QString::fromLatin1(ba.toBase64());
+}
+QPainterPath pathFromB64(const QString &b64) {
+  QPainterPath path;
+  const QByteArray raw = QByteArray::fromBase64(b64.toLatin1());
+  if (raw.isEmpty())
+    return path;
+  QDataStream ds(raw);
+  ds >> path;
+  return path;
+}
+} // namespace
 
 NoteManager::NoteManager(QObject *parent) : QObject(parent) {}
 
@@ -67,8 +89,9 @@ QJsonDocument NoteManager::toJson(const Note &note) {
     for (const auto &s : p.strokes) {
       QJsonObject so;
       so["w"] = s.width;
-      so["c"] = s.color.name();
+      so["c"] = s.color.name(QColor::HexArgb);
       so["e"] = s.isEraser;
+      so["hl"] = s.isHighlighter;
       QJsonArray pts;
       const bool hasPressure = s.pressures.size() == s.points.size();
       for (int i = 0; i < s.points.size(); ++i) {
@@ -136,6 +159,43 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       stickiesArr.append(so);
     }
     pageObj["stickies"] = stickiesArr;
+    QJsonArray shapesArr;
+    for (const auto &sh : p.shapes) {
+      QJsonObject so;
+      so["x"] = sh.pos.x();
+      so["y"] = sh.pos.y();
+      so["w"] = sh.penWidth;
+      so["c"] = sh.penColor.name(QColor::HexArgb);
+      so["f"] = sh.fillColor.name(QColor::HexArgb);
+      so["k"] = sh.kind;
+      so["path"] = pathToB64(sh.path);
+      shapesArr.append(so);
+    }
+    pageObj["shapes"] = shapesArr;
+    QJsonArray textsArr;
+    for (const auto &tx : p.texts) {
+      QJsonObject to;
+      to["x"] = tx.pos.x();
+      to["y"] = tx.pos.y();
+      to["t"] = tx.text;
+      to["ff"] = tx.fontFamily;
+      to["fs"] = tx.fontPointSize;
+      to["c"] = tx.color.name(QColor::HexArgb);
+      to["a"] = tx.align;
+      textsArr.append(to);
+    }
+    pageObj["texts"] = textsArr;
+    QJsonArray imagesArr;
+    for (const auto &im : p.images) {
+      QJsonObject io;
+      io["x"] = im.pos.x();
+      io["y"] = im.pos.y();
+      io["op"] = im.opacity;
+      io["sc"] = im.scale;
+      io["png"] = QString::fromLatin1(im.png.toBase64());
+      imagesArr.append(io);
+    }
+    pageObj["images"] = imagesArr;
     pageObj["bg"] = p.backgroundType;
     if (!p.title.isEmpty())
       pageObj["title"] = p.title;
@@ -196,6 +256,7 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       s.width = so.value("w").toDouble(2.0);
       s.color = QColor(so.value("c").toString("#000000"));
       s.isEraser = so.value("e").toBool(false);
+      s.isHighlighter = so.value("hl").toBool(false);
       auto pts = so.value("pts").toArray();
       bool anyPressure = false;
       for (const auto &pv : pts) {
@@ -296,6 +357,49 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       }
       sn.fontPointSize = so.value("fs").toInt(14);
       out.pages[i].stickies.push_back(std::move(sn));
+    }
+    const auto shapesArr = pageObj.value("shapes").toArray();
+    for (const auto &sv : shapesArr) {
+      const auto so = sv.toObject();
+      ShapeObject sh;
+      sh.pos = QPointF(so.value("x").toDouble(0.0), so.value("y").toDouble(0.0));
+      sh.penWidth = so.value("w").toDouble(2.0);
+      {
+        QColor c(so.value("c").toString());
+        if (c.isValid()) sh.penColor = c;
+      }
+      {
+        QColor c(so.value("f").toString());
+        if (c.isValid()) sh.fillColor = c;
+      }
+      sh.kind = so.value("k").toInt(0);
+      sh.path = pathFromB64(so.value("path").toString());
+      out.pages[i].shapes.push_back(std::move(sh));
+    }
+    const auto textsArr = pageObj.value("texts").toArray();
+    for (const auto &tv : textsArr) {
+      const auto to = tv.toObject();
+      TextObject tx;
+      tx.pos = QPointF(to.value("x").toDouble(0.0), to.value("y").toDouble(0.0));
+      tx.text = to.value("t").toString();
+      tx.fontFamily = to.value("ff").toString();
+      tx.fontPointSize = to.value("fs").toInt(16);
+      {
+        QColor c(to.value("c").toString());
+        if (c.isValid()) tx.color = c;
+      }
+      tx.align = to.value("a").toInt(0);
+      out.pages[i].texts.push_back(std::move(tx));
+    }
+    const auto imagesArr = pageObj.value("images").toArray();
+    for (const auto &iv : imagesArr) {
+      const auto io = iv.toObject();
+      ImageObject im;
+      im.pos = QPointF(io.value("x").toDouble(0.0), io.value("y").toDouble(0.0));
+      im.opacity = io.value("op").toDouble(1.0);
+      im.scale = io.value("sc").toDouble(1.0);
+      im.png = QByteArray::fromBase64(io.value("png").toString().toLatin1());
+      out.pages[i].images.push_back(std::move(im));
     }
   }
   return true;
