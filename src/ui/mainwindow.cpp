@@ -5913,6 +5913,12 @@ void MainWindow::setupUi() {
               if (m_toolPropertiesPanel && m_toolPropertiesVisible)
                 m_toolPropertiesPanel->syncForMode(tool->mode());
             });
+    connect(&ToolManager::instance(), &ToolManager::configChanged, this,
+            [this](const ToolConfig &) {
+              syncPenPresetBarGeometry();
+              if (m_toolPropertiesPanel && m_toolPropertiesVisible)
+                m_toolPropertiesPanel->syncFromToolManager();
+            });
 
     connect(topToolbar, &ModernToolbar::rulerToggled, [this](bool active) {
         if (CanvasView *cv = getCurrentCanvas()) {
