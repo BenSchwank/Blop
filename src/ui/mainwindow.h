@@ -477,7 +477,6 @@ private:
   RadialToolbarFab *m_radialFab{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};
   QPushButton *m_btnTitleSettings{nullptr};
-  QPushButton *m_btnTitleShare{nullptr};
   QWidget *m_editorTitleControls{nullptr};
   QPushButton *m_btnWinMin{nullptr};
   QPushButton *m_btnWinMax{nullptr};

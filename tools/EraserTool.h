@@ -83,17 +83,17 @@ private:
             // actually intersects the item's shape.
             if (!item->shape().intersects(item->mapFromScene(eraserShape))) continue;
 
-            // Object eraser also removes tagged text / images / stickies.
-            if (m_config.eraserMode == EraserMode::Object) {
-                const QString tag = item->data(0).toString();
-                if (tag == QLatin1String("text") ||
-                    tag == QLatin1String("image") ||
-                    tag == QLatin1String("sticky_note") ||
-                    tag == QLatin1String("shape")) {
+            const QString tag = item->data(0).toString();
+            // Tagged objects: object-eraser deletes them; pixel eraser ignores them
+            // (cutting a shape/text into an outline would corrupt persistence).
+            if (tag == QLatin1String("text") || tag == QLatin1String("image") ||
+                tag == QLatin1String("sticky_note") ||
+                tag == QLatin1String("shape")) {
+                if (m_config.eraserMode == EraserMode::Object) {
                     toDelete.append(item);
                     toDeleteSet.insert(item);
-                    continue;
                 }
+                continue;
             }
 
             // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
@@ -139,6 +139,9 @@ private:
                     // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
                     pathItem->setBrush(pathItem->pen().brush());
                     pathItem->setPen(Qt::NoPen);
+                    // Drop stale pressure polyline so rebuild prefers the outline path.
+                    if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+                        strokeItem->setPoints({});
                 }
                 else {
                     // Das Item ist bereits eine Fläche (wurde schonmal radiert)
@@ -149,9 +152,8 @@ private:
 
                 // Wenn nichts mehr übrig ist -> Item zum Löschen vormerken
                 if (pathItem->path().isEmpty()) {
-                    // Pressure-Punkte erst leeren wenn wir es wirklich löschen
-                    StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
-                    if (strokeItem) strokeItem->setPoints({});
+                    if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+                        strokeItem->setPoints({});
                     toDelete.append(item);
                     toDeleteSet.insert(item);
                 }

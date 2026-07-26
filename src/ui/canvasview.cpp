@@ -734,8 +734,11 @@ bool CanvasView::saveToFile() {
   }
   out << (qint32)shapes.size();
   for (QGraphicsPathItem *p : shapes) {
-    out << p->pos() << p->pen().color() << p->pen().widthF()
-        << p->brush().color() << p->data(1).toInt() << p->path();
+    const QColor fill = (p->brush().style() == Qt::NoBrush)
+                            ? QColor(0, 0, 0, 0)
+                            : p->brush().color();
+    out << p->pos() << p->pen().color() << p->pen().widthF() << fill
+        << p->data(1).toInt() << p->path();
   }
   out << (qint32)texts.size();
   for (QGraphicsTextItem *t : texts) {
@@ -1092,6 +1095,48 @@ void CanvasView::redo() {
 }
 bool CanvasView::canUndo() const { return m_undoStack->canUndo(); }
 bool CanvasView::canRedo() const { return m_undoStack->canRedo(); }
+
+void CanvasView::insertMarkupStrokes(const QVector<Stroke> &strokes,
+                                     const QPointF &sceneCenter) {
+  if (!m_scene || strokes.isEmpty())
+    return;
+
+  QRectF stampBounds;
+  QVector<QPainterPath> paths;
+  paths.reserve(strokes.size());
+  for (const auto &s : strokes) {
+    QPainterPath p = s.path;
+    if (p.isEmpty() && !s.points.isEmpty()) {
+      p.moveTo(s.points.first());
+      for (int i = 1; i < s.points.size(); ++i)
+        p.lineTo(s.points.at(i));
+    }
+    paths.append(p);
+    stampBounds |= p.boundingRect();
+  }
+  if (stampBounds.isEmpty())
+    return;
+
+  const QPointF offset = sceneCenter - stampBounds.center();
+  const bool useMacro = m_undoStack && strokes.size() > 1;
+  if (useMacro)
+    m_undoStack->beginMacro(tr("Markup einfügen"));
+  for (int i = 0; i < strokes.size(); ++i) {
+    QPainterPath path = paths.at(i);
+    path.translate(offset);
+    const Stroke &s = strokes.at(i);
+    QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    auto *si = new StrokeItem(
+        path, pen, {},
+        s.isHighlighter ? StrokeItem::Highlighter : StrokeItem::Normal);
+    m_scene->addItem(si);
+    if (m_undoStack)
+      m_undoStack->push(new AddItemCommand(m_scene, si));
+  }
+  if (useMacro)
+    m_undoStack->endMacro();
+  emit contentModified();
+}
 
 void CanvasView::deleteSelection() {
   const QList<QGraphicsItem *> selected = m_scene->selectedItems();

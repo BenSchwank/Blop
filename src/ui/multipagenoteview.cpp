@@ -3252,11 +3252,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     if (tool->handleMouseRelease(&scEvent, &scene_)) {
       GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
       commitPendingStrokeItemsToNote(tool);
-      if (tool->mode() == ToolMode::Eraser)
-        rebuildStrokesFromScene();
-      syncGraphItemsToNote();
-      syncStickyNotesToNote();
-      syncShapesTextsImagesToNote();
+      // Shape/text/image/sticky/eraser already persist via contentModified.
       if (newGraph) {
         // v3.17.2: see comment in GraphQuickActionPopup connect site --
         // BlopModal::execBlocking avoids top-level QWindow on Android.
@@ -3268,7 +3264,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
         GraphAxisSettingsDialog dlg(newGraph, window());
         dlg.exec();
 #endif
-        syncGraphItemsToNote();
+        syncGraphItemsToNote(true);
       }
       tool->clearLastCompletedItem();
       e->accept();
@@ -3300,10 +3296,8 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       }
     }
     QGraphicsView::mouseReleaseEvent(e);
-    if (e->button() == Qt::LeftButton && objectInPlay) {
-      syncStickyNotesToNote();
-      syncShapesTextsImagesToNote();
-    }
+    if (e->button() == Qt::LeftButton && objectInPlay)
+      persistSceneToNote(false);
   }
 }
 
@@ -3404,11 +3398,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
       if (e->type() == QEvent::TabletRelease) {
         GraphCanvasItem *newGraph = qgraphicsitem_cast<GraphCanvasItem *>(tool->lastCompletedItem());
         commitPendingStrokeItemsToNote(tool);
-        if (tool->mode() == ToolMode::Eraser)
-          rebuildStrokesFromScene();
-        syncGraphItemsToNote();
-        syncStickyNotesToNote();
-        syncShapesTextsImagesToNote();
+        // Shape/text/image/sticky/eraser already persist via contentModified.
         if (newGraph) {
 #ifdef Q_OS_ANDROID
           auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
@@ -3418,7 +3408,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
           GraphAxisSettingsDialog dlg(newGraph, window());
           dlg.exec();
 #endif
-          syncGraphItemsToNote();
+          syncGraphItemsToNote(true);
         }
         tool->clearLastCompletedItem();
       }
@@ -4131,11 +4121,7 @@ void MultiPageNoteView::deleteSelection() {
         delete item;
     }
     if (m_selectionMenu) m_selectionMenu->hide();
-    rebuildStrokesFromScene();
-    syncGraphItemsToNote();
-    syncStickyNotesToNote();
-    syncShapesTextsImagesToNote();
-    if (onSaveRequested) onSaveRequested(note_);
+    persistSceneToNote(true);
 }
 
 void MultiPageNoteView::copySelection() {
@@ -5009,7 +4995,47 @@ void MultiPageNoteView::bindGraphItemSignals(GraphCanvasItem *gi) {
   gi->setData(9001, true);
 }
 
-void MultiPageNoteView::syncGraphItemsToNote() {
+static QPainterPath mapPainterPathToItem(QGraphicsItem *fromItem,
+                                         const QPainterPath &localPath,
+                                         QGraphicsItem *toItem) {
+  const QPainterPath scenePath = fromItem->mapToScene(localPath);
+  if (!toItem)
+    return scenePath;
+  QPainterPath out;
+  for (int i = 0; i < scenePath.elementCount(); ++i) {
+    const auto e = scenePath.elementAt(i);
+    const QPointF p = toItem->mapFromScene(QPointF(e.x, e.y));
+    if (e.type == QPainterPath::MoveToElement)
+      out.moveTo(p);
+    else if (e.type == QPainterPath::LineToElement)
+      out.lineTo(p);
+    else if (e.type == QPainterPath::CurveToElement)
+      out.lineTo(p);
+  }
+  return out;
+}
+
+/// Reparent a freehand shape onto its page and normalize path to page-local
+/// coordinates relative to the item's top-left pos (matches hydrate).
+static void reparentShapeToPage(QGraphicsPathItem *pathItem, PageItem *page) {
+  if (!pathItem || !page || pathItem->parentItem() == page)
+    return;
+  QPainterPath pagePath =
+      mapPainterPathToItem(pathItem, pathItem->path(), page);
+  const QRectF br = pagePath.boundingRect();
+  pagePath.translate(-br.topLeft());
+  pathItem->setParentItem(page);
+  pathItem->setPos(br.topLeft());
+  pathItem->setPath(pagePath);
+}
+
+static QColor brushColorForPersist(const QBrush &brush) {
+  if (brush.style() == Qt::NoBrush)
+    return QColor(0, 0, 0, 0);
+  return brush.color();
+}
+
+void MultiPageNoteView::syncGraphItemsToNote(bool requestSave) {
   if (!note_) return;
   if (m_syncingGraphs) return;
   m_syncingGraphs = true;
@@ -5034,7 +5060,7 @@ void MultiPageNoteView::syncGraphItemsToNote() {
     note_->pages[pIdx].graphs.push_back(std::move(d));
   }
   updateGraphChromeIfVisible();
-  if (onSaveRequested) onSaveRequested(note_);
+  if (requestSave && onSaveRequested) onSaveRequested(note_);
   m_syncingGraphs = false;
 }
 
@@ -5099,10 +5125,20 @@ void MultiPageNoteView::bindStandaloneTextSignals(QGraphicsTextItem *text) {
   });
 }
 
+void MultiPageNoteView::persistSceneToNote(bool rebuildStrokes) {
+  if (!note_)
+    return;
+  if (rebuildStrokes)
+    rebuildStrokesFromScene(false);
+  syncGraphItemsToNote(false);
+  syncStickyNotesToNote(false);
+  syncShapesTextsImagesToNote(false);
+  if (onSaveRequested)
+    onSaveRequested(note_);
+}
+
 void MultiPageNoteView::onToolContentModified() {
   AbstractTool *tool = ToolManager::instance().activeTool();
-  if (tool && tool->mode() == ToolMode::Eraser)
-    rebuildStrokesFromScene();
   if (tool) {
     if (auto *textItem =
             qgraphicsitem_cast<QGraphicsTextItem *>(tool->lastCompletedItem())) {
@@ -5113,12 +5149,10 @@ void MultiPageNoteView::onToolContentModified() {
         bindStickyNoteSignals(card);
     }
   }
-  syncGraphItemsToNote();
-  syncStickyNotesToNote();
-  syncShapesTextsImagesToNote();
+  persistSceneToNote(tool && tool->mode() == ToolMode::Eraser);
 }
 
-void MultiPageNoteView::syncStickyNotesToNote() {
+void MultiPageNoteView::syncStickyNotesToNote(bool requestSave) {
   if (!note_)
     return;
   if (m_syncingStickies)
@@ -5163,12 +5197,12 @@ void MultiPageNoteView::syncStickyNotesToNote() {
     bindStickyNoteSignals(card);
   }
 
-  if (onSaveRequested)
+  if (requestSave && onSaveRequested)
     onSaveRequested(note_);
   m_syncingStickies = false;
 }
 
-void MultiPageNoteView::rebuildStrokesFromScene() {
+void MultiPageNoteView::rebuildStrokesFromScene(bool requestSave) {
   if (!note_ || m_syncingStrokes)
     return;
   m_syncingStrokes = true;
@@ -5198,8 +5232,13 @@ void MultiPageNoteView::rebuildStrokesFromScene() {
     s.pageIndex = pIdx;
 
     const QPointF origin = pageRect(pIdx).topLeft();
+    // Pixel-erased strokes are converted to filled outlines (NoPen). Prefer the
+    // live path in that case — StrokeItem::points() still hold the pre-erase
+    // polyline and would resurrect the original stroke.
+    const bool pathOnly =
+        si->pen().style() == Qt::NoPen || si->points().isEmpty();
     const QVector<StrokePoint> pts = si->points();
-    if (!pts.isEmpty()) {
+    if (!pathOnly && !pts.isEmpty()) {
       s.points.reserve(pts.size());
       s.pressures.reserve(pts.size());
       for (const StrokePoint &sp : pts) {
@@ -5235,16 +5274,21 @@ void MultiPageNoteView::rebuildStrokesFromScene() {
         const auto e = mapped.elementAt(i);
         s.points.append(QPointF(e.x, e.y));
       }
+      // Persist the filled outline color when the pen was cleared by the eraser.
+      if (si->pen().style() == Qt::NoPen && si->brush().style() != Qt::NoBrush) {
+        s.color = si->brush().color();
+        s.width = 1.0;
+      }
     }
     note_->pages[pIdx].strokes.push_back(std::move(s));
   }
 
-  if (onSaveRequested)
+  if (requestSave && onSaveRequested)
     onSaveRequested(note_);
   m_syncingStrokes = false;
 }
 
-void MultiPageNoteView::syncShapesTextsImagesToNote() {
+void MultiPageNoteView::syncShapesTextsImagesToNote(bool requestSave) {
   if (!note_ || m_syncingObjects)
     return;
   m_syncingObjects = true;
@@ -5270,17 +5314,13 @@ void MultiPageNoteView::syncShapesTextsImagesToNote() {
       auto *pathItem = qgraphicsitem_cast<QGraphicsPathItem *>(item);
       if (!pathItem)
         continue;
-      if (pathItem->parentItem() != page) {
-        const QPointF sceneTopLeft = pathItem->sceneBoundingRect().topLeft();
-        pathItem->setParentItem(page);
-        pathItem->setPos(page->mapFromScene(sceneTopLeft));
-      }
+      reparentShapeToPage(pathItem, page);
       ShapeObject sh;
       sh.pos = pathItem->pos();
       sh.path = pathItem->path();
       sh.penWidth = pathItem->pen().widthF();
       sh.penColor = pathItem->pen().color();
-      sh.fillColor = pathItem->brush().color();
+      sh.fillColor = brushColorForPersist(pathItem->brush());
       sh.kind = pathItem->data(1).toInt();
       note_->pages[pIdx].shapes.push_back(std::move(sh));
     } else if (tag == QLatin1String("text")) {
@@ -5332,7 +5372,7 @@ void MultiPageNoteView::syncShapesTextsImagesToNote() {
     }
   }
 
-  if (onSaveRequested)
+  if (requestSave && onSaveRequested)
     onSaveRequested(note_);
   m_syncingObjects = false;
 }

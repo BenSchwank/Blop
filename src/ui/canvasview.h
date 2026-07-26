@@ -16,6 +16,9 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QPinchGesture>
+#include <QVector>
+
+#include "Note.h"
 
 // Definition of background styles
 enum class PageStyle { Blank, Lined, Squared, Dotted };
@@ -107,6 +110,10 @@ public:
     bool saveToFile();
     bool loadFromFile();
     bool importPdfIntoCanvas(const QString &pdfPath);
+
+    /// Stamp markup library strokes at `sceneCenter` (undoable + autosave).
+    void insertMarkupStrokes(const QVector<Stroke> &strokes,
+                             const QPointF &sceneCenter);
 
     // Export
     bool exportToPDF(const QString &path);

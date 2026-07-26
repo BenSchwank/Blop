@@ -24,7 +24,6 @@
 #include "settingsdialog.h"
 #include "editoroverlays.h"
 #include "markuplibrarystore.h"
-#include "tools/StrokeItem.h"
 
 // --- WICHTIGE ZUSÄTZLICHE INCLUDES ---
 #include "Note.h"
@@ -699,6 +698,14 @@ QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
   if (chosen.isEmpty())
     return QString();
   return labelToId.value(chosen);
+}
+
+/// Study API historically returned either "link" or "url" for share links.
+static QString shareLinkFromJsonObject(const QJsonObject &obj) {
+  QString link = obj.value(QStringLiteral("link")).toString().trimmed();
+  if (link.isEmpty())
+    link = obj.value(QStringLiteral("url")).toString().trimmed();
+  return link;
 }
 
 QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
@@ -3486,7 +3493,7 @@ CanvasView *MainWindow::getCurrentCanvas() {
 
 void MainWindow::insertMarkupIntoInfiniteCanvas(const QString &itemId) {
   CanvasView *cv = getCurrentCanvas();
-  if (!cv || !cv->scene() || itemId.isEmpty())
+  if (!cv || itemId.isEmpty())
     return;
 
   MarkupLibraryItem found;
@@ -3501,38 +3508,8 @@ void MainWindow::insertMarkupIntoInfiniteCanvas(const QString &itemId) {
   if (!ok || found.strokes.isEmpty())
     return;
 
-  QRectF stampBounds;
-  for (const auto &s : found.strokes) {
-    QPainterPath p = s.path;
-    if (p.isEmpty() && !s.points.isEmpty()) {
-      p.moveTo(s.points.first());
-      for (int i = 1; i < s.points.size(); ++i)
-        p.lineTo(s.points.at(i));
-    }
-    stampBounds |= p.boundingRect();
-  }
-  if (stampBounds.isEmpty())
-    return;
-
   const QPointF center = cv->mapToScene(cv->viewport()->rect().center());
-  const QPointF offset = center - stampBounds.center();
-
-  for (const auto &s : found.strokes) {
-    QPainterPath path = s.path;
-    if (path.isEmpty() && !s.points.isEmpty()) {
-      path.moveTo(s.points.first());
-      for (int i = 1; i < s.points.size(); ++i)
-        path.lineTo(s.points.at(i));
-    }
-    path.translate(offset);
-    QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    auto *si = new StrokeItem(
-        path, pen, {},
-        s.isHighlighter ? StrokeItem::Highlighter : StrokeItem::Normal);
-    cv->scene()->addItem(si);
-  }
-  cv->saveToFile();
-  emit cv->contentModified();
+  cv->insertMarkupStrokes(found.strokes, center);
 }
 
 void MainWindow::applyTheme() {
@@ -10134,7 +10111,7 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   return;
               }
               const QJsonDocument doc = QJsonDocument::fromJson(raw);
-              const QString link = doc.object().value("url").toString();
+              const QString link = shareLinkFromJsonObject(doc.object());
               if (!link.isEmpty())
                   QGuiApplication::clipboard()->setText(link);
               BlopDialogs::notify(this, QStringLiteral("Link erstellt"),
@@ -10436,7 +10413,7 @@ void MainWindow::shareOpenNoteAtPath(const QString &localPath) {
            return;
          }
          const QJsonObject obj = QJsonDocument::fromJson(raw).object();
-         const QString link = obj.value(QStringLiteral("link")).toString();
+         const QString link = shareLinkFromJsonObject(obj);
          if (!link.isEmpty())
            QGuiApplication::clipboard()->setText(link);
          BlopDialogs::notify(
@@ -10615,7 +10592,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
       return;
     }
     const QJsonDocument doc = QJsonDocument::fromJson(raw);
-    const QString link = doc.object().value(QStringLiteral("url")).toString();
+    const QString link = shareLinkFromJsonObject(doc.object());
     if (!link.isEmpty())
       QGuiApplication::clipboard()->setText(link);
     BlopDialogs::notify(this, QStringLiteral("Link erstellt"),
@@ -12424,12 +12401,10 @@ void MainWindow::showNoteBookmarksMenu() {
              &ok);
          if (!ok)
            return;
-         if (cur >= 0 && cur < v->note()->pages.size()) {
-           v->note()->pages[cur].title = title.trimmed();
-           if (m_pageThumbnailSidebar)
-             m_pageThumbnailSidebar->rebuild();
-           updateNoteBottomChrome();
-         }
+         v->renamePage(cur, title.trimmed());
+         if (m_pageThumbnailSidebar)
+           m_pageThumbnailSidebar->rebuild();
+         updateNoteBottomChrome();
        }});
   QPoint anchor(UiScale::dp(60), UiScale::dp(80));
   if (m_noteLeftRail)

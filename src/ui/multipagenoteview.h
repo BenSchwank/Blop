@@ -221,11 +221,6 @@ private:
 
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
-    QVector<NotePage> m_strokeSnapshot;
-    bool m_hasStrokeSnapshot{false};
-    QVector<QVector<NotePage>> m_undoHistory;
-    QVector<QVector<NotePage>> m_redoHistory;
-    static constexpr int MaxUndoSteps = 40;
 
     QUndoStack *m_undoStack{nullptr};
 
@@ -263,14 +258,16 @@ private:
     /// was consumed (always true once a pinch has begun).
     bool handleAndroidPinch(QTouchEvent *te);
 #endif
-    void pushUndoSnapshot(const QVector<NotePage>& beforeState);
-
     /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
-    void syncGraphItemsToNote();
-    void syncStickyNotesToNote();
-    void syncShapesTextsImagesToNote();
-    void rebuildStrokesFromScene();
+    /// Scene → note sync helpers. When `requestSave` is false, only the model
+    /// is updated so callers can batch several syncs into one disk write.
+    void syncGraphItemsToNote(bool requestSave = true);
+    void syncStickyNotesToNote(bool requestSave = true);
+    void syncShapesTextsImagesToNote(bool requestSave = true);
+    void rebuildStrokesFromScene(bool requestSave = true);
+    /// One-shot persist: optional stroke rebuild + graphs/stickies/objects, single save.
+    void persistSceneToNote(bool rebuildStrokes);
     /// Persist after tool contentModified (text/image/sticky/eraser/shape).
     void onToolContentModified();
     void bindStickyNoteSignals(QGraphicsRectItem *card);
