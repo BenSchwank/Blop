@@ -86,3 +86,38 @@ add_test(NAME infinite_persistence_roundtrip
          COMMAND blop_test_infinite_persistence_roundtrip)
 
 message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_infinite_persistence_roundtrip registered")
+
+# --- Pen + eraser headless event sequence (Phase 1 / Phase 3) --------------
+add_executable(blop_test_eraser_tool_sequence
+    "${CMAKE_SOURCE_DIR}/tests/eraser_tool_sequence.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/EraserTool.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/EraserTool.h"
+    "${CMAKE_SOURCE_DIR}/tools/WritingTools.h"
+    "${CMAKE_SOURCE_DIR}/tools/AbstractStrokeTool.h"
+    "${CMAKE_SOURCE_DIR}/tools/AbstractTool.h"
+    "${CMAKE_SOURCE_DIR}/tools/StrokeItem.h"
+)
+
+target_include_directories(blop_test_eraser_tool_sequence PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools"
+    "${CMAKE_SOURCE_DIR}/src/core"
+    "${CMAKE_SOURCE_DIR}/src/ui"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+target_link_libraries(blop_test_eraser_tool_sequence PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+)
+
+set_target_properties(blop_test_eraser_tool_sequence PROPERTIES
+    WIN32_EXECUTABLE OFF
+    AUTOMOC ON
+    AUTOUIC OFF
+    AUTORCC OFF
+)
+
+add_test(NAME eraser_tool_sequence COMMAND blop_test_eraser_tool_sequence)
+
+message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_eraser_tool_sequence registered")

@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 3: ctest in CI + Crash-Consent + Install-Härte)
+Zuletzt aktualisiert: 2026-07-27 (Phase 1: Eraser-Semantik + Tool-Sequenz-ctest)
 
 ---
 
@@ -85,9 +85,11 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 - [x] QUndoCommands: Image insert/move/scale/delete — insert + move + delete (A4); scale via transform follows
 - [x] QUndoCommands: Graph function edits — A4 `GraphDataCommand` (add/remove/toggle/tangent/axes)
 - [x] Scene→Note-Sync an Commands koppeln (`persistSceneToNote` / Infinite autosave) — delete/move/erase/create A4
-- [ ] Object-Inspector vs. Tool-Props trennen
-- [ ] Pixel-Eraser-Semantik dokumentieren + testen
-- [ ] Event-Sequenz-Tests pro Tool (headless wo möglich)
+- [x] Object-Inspector vs. Tool-Props trennen
+  - Tool-Props = nächster Strich/Geste; Auswahl-HUD = Selektion; Eraser „Nur Marker löschen“
+- [x] Pixel-Eraser-Semantik dokumentieren + testen — `docs/eraser-semantics.md` + `eraser_tool_sequence`
+- [x] Event-Sequenz-Tests pro Tool (headless wo möglich) — erster Block: Pen + Eraser ctest
+  - Weitere Tools folgen analog
 
 **Dateien:** `src/ui/multipagenoteview.*`, `src/ui/canvasview.*`, `tools/*`,
 `src/ui/toolpropertiespanel.*`, `tools/ToolManager.*`
@@ -127,7 +129,7 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
   - Installer-Version aus Git: weitgehend in CI/`installer.nsi` (Signing + Clean-VM brauchen Secrets/VM)
 - [ ] Android: Play Signing / OAuth-SHA, Privacy/Data Safety, AAB-Smoke
 - [x] CI: ctest für Persistenz (+ Tool-Sequenzen folgen)
-  - Windows CI: `ctest -R persistence_roundtrip|infinite_persistence_roundtrip`
+  - Windows CI: `ctest -R persistence_roundtrip|infinite_persistence_roundtrip|eraser_tool_sequence`
 - [x] Crash-Consent-UI + Privacy Policy
   - First-run Prompt + Settings → Erweitert; Sentry erst nach Consent; `docs/privacy-policy.md`
 - [x] Study als optionaler Dienst: Blop offline/ohne Backend stabil
@@ -183,3 +185,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Desktop/Phone NoteChrome — Phone-Pill + Overflow-Parität |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Install-Skript: NetworkAuth-Paket + apt clock-skew Retry; Phase 3 ctest+Consent |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 3: Study optional/offline — kein SSO-Logout; Notes ohne Study |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1: eraser-semantics.md + eraser_tool_sequence ctest; KeepInk in Props |

@@ -288,7 +288,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_chkInkToShape =
       new QCheckBox(QStringLiteral("Tinte → Form (halten)"), m_smartRow);
   m_chkSmartLine = new QCheckBox(QStringLiteral("Smart Line"), m_smartRow);
-  for (QCheckBox *c : {m_chkPressure, m_chkInkToShape, m_chkSmartLine}) {
+  m_chkKeepInk =
+      new QCheckBox(QStringLiteral("Nur Marker löschen"), m_smartRow);
+  for (QCheckBox *c :
+       {m_chkPressure, m_chkInkToShape, m_chkSmartLine, m_chkKeepInk}) {
     c->setCursor(Qt::PointingHandCursor);
     c->setMinimumHeight(UiScale::dp(30));
     smartLay->addWidget(c);
@@ -307,6 +310,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   connect(m_chkSmartLine, &QCheckBox::toggled, this, [this](bool on) {
     m_config.smartLine = on;
+    applyConfig();
+  });
+  connect(m_chkKeepInk, &QCheckBox::toggled, this, [this](bool on) {
+    m_config.eraserKeepInk = on;
     applyConfig();
   });
   m_root->addWidget(m_smartRow);
@@ -460,10 +467,11 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_chkPressure->setVisible(mode == ToolMode::Pen || mode == ToolMode::Pencil);
   if (m_chkInkToShape)
     m_chkInkToShape->setVisible(mode == ToolMode::Pen ||
-                                mode == ToolMode::Pencil ||
-                                mode == ToolMode::Eraser);
+                                mode == ToolMode::Pencil);
   if (m_chkSmartLine)
     m_chkSmartLine->setVisible(mode == ToolMode::Highlighter);
+  if (m_chkKeepInk)
+    m_chkKeepInk->setVisible(mode == ToolMode::Eraser);
 
   auto hideExtraModes = [this]() {
     for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG, m_modeH})
@@ -549,8 +557,9 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
       break;
     case ToolMode::Eraser:
       hint = QStringLiteral(
-          "Pixel radiert Tinte; Objekt entfernt ganze Striche. Einstellungen "
-          "gelten für den nächsten Radier-Strich.");
+          "Pixel schneidet Tinten-Outline; Objekt entfernt ganze Striche. "
+          "„Nur Marker löschen“ schont Stift-Tinte (z≥10). Gilt für den "
+          "nächsten Radier-Strich.");
       break;
     case ToolMode::Lasso:
       hint = QStringLiteral(
@@ -738,6 +747,7 @@ void ToolPropertiesPanel::refreshSmartInk() {
   blockSet(m_chkInkToShape,
            m_config.holdEnableCircle || m_config.holdEnableTriangle);
   blockSet(m_chkSmartLine, m_config.smartLine);
+  blockSet(m_chkKeepInk, m_config.eraserKeepInk);
 }
 
 QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
