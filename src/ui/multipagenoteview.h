@@ -129,6 +129,9 @@ public:
                            const QString &kind);
     void clearSearchHighlight();
 
+    /// Page index under a scene point (-1 if none).
+    int pageAt(const QPointF &scenePos) const;
+
     std::function<void(Note*)> onSaveRequested;
 
     // PDF Import: renders each PDF page as a note page background image
@@ -250,7 +253,6 @@ private:
     QGraphicsPathItem *createStrokeGraphicsItem(const Stroke &s);
     void pushStrokeUndoCommand(int pageIdx, Stroke stroke);
     // void ensureOverscrollPage(); // Entfernt/Ersetzt durch Pull-Logik
-    int pageAt(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
 
     void addNewPage();

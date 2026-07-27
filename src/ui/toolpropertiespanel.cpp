@@ -686,22 +686,27 @@ void ToolPropertiesPanel::applyPenInkStyle(PenInkStyle style) {
 
 void ToolPropertiesPanel::refreshStyleTiles() {
   const PenInkStyle cur = detectPenInkStyle();
-  auto styleBtn = [this](QPushButton *btn, bool selected) {
+  const QString idleBg = NoteChrome::isDark()
+                             ? QStringLiteral("rgba(255,255,255,0.04)")
+                             : QStringLiteral("rgba(0,0,0,0.05)");
+  const QString hoverBg = NoteChrome::isDark()
+                              ? QStringLiteral("rgba(255,255,255,0.08)")
+                              : QStringLiteral("rgba(0,0,0,0.09)");
+  auto styleBtn = [this, idleBg, hoverBg](QPushButton *btn, bool selected) {
     if (!btn)
       return;
     const QString border =
         selected ? m_accent.name() : NoteChrome::border().name();
     const QString bg =
-        selected ? QStringLiteral("rgba(91,157,255,0.18)")
-                 : QStringLiteral("rgba(255,255,255,0.04)");
+        selected ? QStringLiteral("rgba(91,157,255,0.18)") : idleBg;
     btn->setStyleSheet(
         QStringLiteral("QPushButton#ToolPropsStyle {"
                        "  background: %1; border: 1px solid %2; border-radius: 10px;"
                        "  text-align: center; padding: 10px 8px;"
                        "  color: %3; font-size: 12px; font-weight: 700;"
                        "}"
-                       "QPushButton#ToolPropsStyle:hover { background: rgba(255,255,255,0.08); }")
-            .arg(bg, border, NoteChrome::textPrimary().name()));
+                       "QPushButton#ToolPropsStyle:hover { background: %4; }")
+            .arg(bg, border, NoteChrome::textPrimary().name(), hoverBg));
     btn->setChecked(selected);
   };
   styleBtn(m_styleEinfach, cur == PenInkStyle::Einfach);
@@ -921,6 +926,12 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
 
 void ToolPropertiesPanel::rebuild() {
   const int radius = UiScale::dp(16);
+  const QString idleBg = NoteChrome::isDark()
+                             ? QStringLiteral("rgba(255,255,255,0.04)")
+                             : QStringLiteral("rgba(0,0,0,0.05)");
+  const QString hoverBg = NoteChrome::isDark()
+                              ? QStringLiteral("rgba(255,255,255,0.08)")
+                              : QStringLiteral("rgba(0,0,0,0.09)");
   const QString qss = QStringLiteral(
       "QWidget#ToolPropertiesPanel {"
       "  background: %1;"
@@ -934,15 +945,15 @@ void ToolPropertiesPanel::rebuild() {
       "QLabel { color: %3; background: transparent; font-size: 13px; font-weight: 600; }"
       "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 10px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px;"
-      "  border: 1px solid %2; background: rgba(255,255,255,0.04); }"
+      "  border: 1px solid %2; background: %7; }"
       "QCheckBox::indicator:checked { background: %4; border-color: %4; }"
       "QPushButton#ToolPropsMode {"
-      "  color: %3; background: rgba(255,255,255,0.04);"
+      "  color: %3; background: %7;"
       "  border: 1px solid %2; border-radius: 10px; font-size: 12px; font-weight: 650;"
       "  padding: 8px 10px; }"
       "QPushButton#ToolPropsMode:checked {"
       "  background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
-      "QPushButton#ToolPropsMode:hover { background: rgba(255,255,255,0.08); }"
+      "QPushButton#ToolPropsMode:hover { background: %8; }"
       "QPushButton#ToolPropsClose {"
       "  color: %5; background: transparent; border: none; font-size: 18px; }"
       "QSlider::groove:horizontal { height: 6px; background: %2; border-radius: 3px; }"
@@ -957,7 +968,8 @@ void ToolPropertiesPanel::rebuild() {
                                NoteChrome::textSecondary().name(),
                                NoteChrome::accent().name(),
                                NoteChrome::textPrimary().name())
-                          .arg(radius);
+                          .arg(radius)
+                          .arg(idleBg, hoverBg);
   setStyleSheet(qss);
   refreshSwatchSelection();
   refreshFillSwatchSelection();

@@ -239,11 +239,22 @@ GraphCanvasItem *graphCanvasHittingChrome(QGraphicsScene *scene, const QPointF &
 }
 } // namespace
 
+static QString historyLabelWithPage(MultiPageNoteView *view, QGraphicsItem *item,
+                                    const QString &base) {
+  if (!view || !item)
+    return base;
+  const int p = view->pageAt(item->sceneBoundingRect().center());
+  if (p < 0)
+    return base;
+  return QObject::tr("%1 · Seite %2").arg(base).arg(p + 1);
+}
+
 class StrokeAddUndoCommand : public QUndoCommand {
 public:
   StrokeAddUndoCommand(MultiPageNoteView *view, int pageIdx, Stroke stroke)
-      : QUndoCommand(QObject::tr("Strich")), m_view(view), m_page(pageIdx),
-        m_stroke(std::move(stroke)), m_item(nullptr), m_index(-1) {}
+      : QUndoCommand(QObject::tr("Strich · Seite %1").arg(pageIdx + 1)),
+        m_view(view), m_page(pageIdx), m_stroke(std::move(stroke)),
+        m_item(nullptr), m_index(-1) {}
   ~StrokeAddUndoCommand() override { delete m_item; }
 
   void undo() override {
@@ -293,7 +304,7 @@ public:
     FormulaZoneStrokeCommand(QPointer<GraphFormulaZone> zone,
                              const QPainterPath &path,
                              const QColor &color, qreal width)
-        : QUndoCommand(), m_zone(zone), m_path(path),
+        : QUndoCommand(QObject::tr("Formelzone")), m_zone(zone), m_path(path),
           m_color(color), m_width(width) {}
 
     void undo() override {
@@ -333,6 +344,8 @@ public:
       e.pos = item->pos();
       m_entries.append(e);
     }
+    if (!m_entries.isEmpty())
+      setText(historyLabelWithPage(view, m_entries.first().item, text));
   }
   ~SceneItemsRemoveCommand() override {
     if (!m_ownsItems)
@@ -404,6 +417,7 @@ public:
     if (m_item) {
       m_parent = m_item->parentItem();
       m_pos = m_item->pos();
+      setText(historyLabelWithPage(view, m_item, text));
     }
   }
   ~SceneItemAddCommand() override {
@@ -453,7 +467,11 @@ public:
       : QUndoCommand(stickyChild ? QObject::tr("Notiztext")
                                  : QObject::tr("Text ändern")),
         m_view(view), m_item(item), m_before(std::move(before)),
-        m_after(std::move(after)), m_stickyChild(stickyChild) {}
+        m_after(std::move(after)), m_stickyChild(stickyChild) {
+    setText(historyLabelWithPage(
+        view, item,
+        stickyChild ? QObject::tr("Notiztext") : QObject::tr("Text ändern")));
+  }
   void undo() override { apply(m_before); }
   void redo() override {
     if (m_firstRedo) {
@@ -494,7 +512,9 @@ public:
   GraphDataCommand(MultiPageNoteView *view, GraphCanvasItem *gi,
                    GraphObject before, GraphObject after, const QString &text)
       : QUndoCommand(text), m_view(view), m_gi(gi),
-        m_before(std::move(before)), m_after(std::move(after)) {}
+        m_before(std::move(before)), m_after(std::move(after)) {
+    setText(historyLabelWithPage(view, gi, text));
+  }
   void undo() override { apply(m_before); }
   void redo() override {
     if (m_firstRedo) {
@@ -537,7 +557,11 @@ public:
   };
   SceneItemsMoveCommand(MultiPageNoteView *view, QList<Entry> entries)
       : QUndoCommand(QObject::tr("Verschieben")), m_view(view),
-        m_entries(std::move(entries)) {}
+        m_entries(std::move(entries)) {
+    if (!m_entries.isEmpty())
+      setText(historyLabelWithPage(view, m_entries.first().item,
+                                   QObject::tr("Verschieben")));
+  }
   void undo() override {
     for (const Entry &e : m_entries) {
       if (e.item)
@@ -608,6 +632,12 @@ public:
       }
       m_pathEdits.append(edit);
     }
+    QGraphicsItem *anchor = nullptr;
+    if (!m_removeMeta.isEmpty())
+      anchor = m_removeMeta.first().item;
+    else if (!m_pathEdits.isEmpty())
+      anchor = m_pathEdits.first().item;
+    setText(historyLabelWithPage(view, anchor, QObject::tr("Radieren")));
   }
   ~SceneEraseCommand() override {
     if (!m_ownsRemoved)

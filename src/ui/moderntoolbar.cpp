@@ -757,11 +757,14 @@ protected:
     path.lineTo(r.left() + br, r.bottom());
     path.quadTo(r.left(), r.bottom(), r.left(), r.bottom() - br);
     path.closeSubpath();
-    // v3.16.1: match BlopStyle::surfaceBg / surfaceBorder so MorphTray looks
-    // identical to all other overlays.
-    QColor fill(28, 30, 46, qRound(240 * m_alpha));
+    // v3.16.1: NoteChrome tokens so MorphTray follows editor light/dark
+    // instead of a fixed dark indigo island.
+    QColor fill = NoteChrome::panelElevated();
+    fill.setAlpha(qRound(240 * m_alpha));
     p.fillPath(path, fill);
-    QColor borderC(124, 92, 252, qRound(56 * m_alpha));
+    QColor borderC = NoteChrome::isDark() ? NoteChrome::accent()
+                                          : NoteChrome::border();
+    borderC.setAlpha(qRound((NoteChrome::isDark() ? 90 : 160) * m_alpha));
     QPen border(borderC, 1.0);
     p.setPen(border);
     p.drawPath(path);
@@ -1381,22 +1384,34 @@ public:
     // content does not need its own card. This avoids the double-card
     // look that the Android stylesheet previously produced.
     setAttribute(Qt::WA_TranslucentBackground);
-    setStyleSheet(BlopTheme::themed(
-        "QLabel { color: #DDD; font-weight: bold; font-size: 11px; background: "
-        "transparent; }"
-        "QSlider::groove:horizontal { height: 4px; background: #444; "
-        "border-radius: 2px; }"
-        "QSlider::sub-page:horizontal { background: #6c5ce7; border-radius: "
-        "2px; }"
-        "QSlider::handle:horizontal { background: #FFFFFF; width: 14px; "
-        "height: 14px; margin: -5px 0; border-radius: 7px; }"
-        "QCheckBox { color: #DDD; background: transparent; }"
-        "QPushButton { background-color: #444; color: #BBB; border: none; "
-        "border-radius: 4px; padding: 5px; }"
-        "QPushButton:checked { background-color: #6c5ce7; color: white; }"
-        "QPushButton:hover { background-color: #555; }"
-        "QPushButton#DangerBtn { background-color: #A00; color: white; }"
-        "QPushButton#DangerBtn:hover { background-color: #C00; }"));
+    const QString text = NoteChrome::textPrimary().name();
+    const QString muted = NoteChrome::textSecondary().name();
+    const QString groove = NoteChrome::border().name();
+    const QString accent = NoteChrome::accent().name();
+    const QString btnBg = NoteChrome::isDark()
+                              ? QStringLiteral("rgba(255,255,255,0.08)")
+                              : QStringLiteral("rgba(0,0,0,0.06)");
+    const QString btnHover = NoteChrome::isDark()
+                                 ? QStringLiteral("rgba(255,255,255,0.14)")
+                                 : QStringLiteral("rgba(0,0,0,0.10)");
+    setStyleSheet(
+        QStringLiteral(
+            "QLabel { color: %1; font-weight: bold; font-size: 11px; "
+            "background: transparent; }"
+            "QSlider::groove:horizontal { height: 4px; background: %2; "
+            "border-radius: 2px; }"
+            "QSlider::sub-page:horizontal { background: %3; border-radius: "
+            "2px; }"
+            "QSlider::handle:horizontal { background: %1; width: 14px; "
+            "height: 14px; margin: -5px 0; border-radius: 7px; }"
+            "QCheckBox { color: %1; background: transparent; }"
+            "QPushButton { background-color: %4; color: %5; border: none; "
+            "border-radius: 4px; padding: 5px; }"
+            "QPushButton:checked { background-color: %3; color: white; }"
+            "QPushButton:hover { background-color: %6; }"
+            "QPushButton#DangerBtn { background-color: #A00; color: white; }"
+            "QPushButton#DangerBtn:hover { background-color: #C00; }")
+            .arg(text, groove, accent, btnBg, muted, btnHover));
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(15, 15, 15, 15);
     layout->setSpacing(12);
@@ -2481,7 +2496,16 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     QPushButton *btn = new QPushButton(this);
     btn->setCursor(Qt::PointingHandCursor);
     btn->setFixedSize(30, 30);
-    btn->setStyleSheet("background-color: rgba(30, 28, 52, 200); border-radius: 15px; border: 1px solid rgba(255,255,255,50); color: white; font-weight: bold;");
+    {
+      const QColor bg = NoteChrome::panelElevated();
+      const QColor border = NoteChrome::border();
+      const QColor fg = NoteChrome::textPrimary();
+      btn->setStyleSheet(
+          QStringLiteral(
+              "background-color: %1; border-radius: 15px; border: 1px solid %2; "
+              "color: %3; font-weight: bold;")
+              .arg(bg.name(QColor::HexArgb), border.name(), fg.name()));
+    }
     btn->setText(QString::number(s));
     btn->hide();
     m_radialSettingsBtns.append(btn);

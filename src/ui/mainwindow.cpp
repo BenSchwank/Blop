@@ -3302,31 +3302,42 @@ void MainWindow::onShowNewTabPopup() {
 
   overlay->setMinimumSize(UiScale::dp(320), UiScale::dp(380));
   overlay->resize(UiScale::dp(450), UiScale::dp(550));
-  overlay->setStyleSheet(
-      "QDialog {"
-      "  background-color: #1A1A24;" // Blop Theme Dark
-      "  border: 1px solid rgba(255, 255, 255, 0.1);"
-      "  border-radius: 20px;" // Deutliche Rundung für Centered Popups sieht premium aus
-      "}"
-      "QListWidget {"
-      "  background: transparent;"
-      "  border: none;"
-      "  outline: none;"
-      "  color: #E0E0E0;"
-      "}"
-      "QListWidget::item {"
-      "  padding: 12px 20px;"
-      "  border-radius: 8px;"
-      "  font-size: 14px;"
-      "  margin: 4px 16px;"
-      "}"
-      "QListWidget::item:hover {"
-      "  background-color: rgba(255, 255, 255, 0.06);"
-      "}"
-      "QListWidget::item:selected {"
-      "  background-color: #5E5CE6;"
-      "  color: white;"
-      "}");
+  {
+    const QColor bg = BlopTheme::surfaceElevated();
+    const QColor fg = BlopTheme::textPrimary();
+    const QColor border = BlopTheme::borderDefault();
+    const QColor accentCol = BlopTheme::accentPrimary();
+    const QString hoverCss = BlopTheme::instance().isDark()
+                                 ? QStringLiteral("rgba(255,255,255,0.06)")
+                                 : QStringLiteral("rgba(0,0,0,0.06)");
+    overlay->setStyleSheet(QStringLiteral(
+        "QDialog {"
+        "  background-color: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 20px;"
+        "}"
+        "QListWidget {"
+        "  background: transparent;"
+        "  border: none;"
+        "  outline: none;"
+        "  color: %3;"
+        "}"
+        "QListWidget::item {"
+        "  padding: 12px 20px;"
+        "  border-radius: 8px;"
+        "  font-size: 14px;"
+        "  margin: 4px 16px;"
+        "}"
+        "QListWidget::item:hover {"
+        "  background-color: %4;"
+        "}"
+        "QListWidget::item:selected {"
+        "  background-color: %5;"
+        "  color: white;"
+        "}")
+                               .arg(bg.name(), border.name(), fg.name(), hoverCss,
+                                    accentCol.name()));
+  }
 
   QVBoxLayout *overlayLayout = new QVBoxLayout(overlay);
   overlayLayout->setContentsMargins(0, 20, 0, 20);
