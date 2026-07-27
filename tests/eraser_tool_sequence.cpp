@@ -76,7 +76,6 @@ void testPenCreatesStroke() {
 void testPixelEraseCutsStroke() {
   QGraphicsScene scene;
   StrokeItem *stroke = makeInkStroke(&scene, {0, 50}, {200, 50});
-  const qreal areaBefore = stroke->path().boundingRect().width();
 
   EraserTool eraser;
   ToolConfig cfg;
@@ -99,9 +98,7 @@ void testPixelEraseCutsStroke() {
   expect(stroke->pen().style() == Qt::NoPen,
          "pixel: first cut converts stroke to NoPen outline");
   expect(stroke->points().isEmpty(), "pixel: points cleared after cut");
-  // Outline after stroker+subtract can be wider than the centerline bounds;
-  // require a real geometry change via pathBefore or a non-identical path.
-  Q_UNUSED(areaBefore);
+  // Outline after stroker+subtract can be wider than the centerline bounds.
   expect(!stroke->path().isEmpty() || !scene.items().contains(stroke),
          "pixel: cut left outline or removed empty stroke");
 }
