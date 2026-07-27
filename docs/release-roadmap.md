@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 2: History-Kontext + Light-Mode-Inseln)
+Zuletzt aktualisiert: 2026-07-27 (Phase 2: Settings-IA App / Editor / Tool / Selektion)
 
 ---
 
@@ -100,7 +100,10 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 
 - [x] In-Notiz-Suche: Ergebnisliste + Highlight auf der Seite
 - [x] History: Kontext (Seite/Objekt), klare Disabled-States — Undo-Texte mit „· Seite N“; Disabled-Labels
-- [ ] Settings-IA: App / Editor / Tool / Selektion
+- [x] Settings-IA: App / Editor / Tool / Selektion
+  - **App:** SettingsDialog (Tab „App“; Cloud-Sync-Tab entfernt; Karte „Werkzeuge“)
+  - **Editor:** Note-Sheet „Editor“ mit Tabs Seite / Notiz; App-Toolbar/Profile nur Hinweis
+  - **Tool vs Selektion:** Props-Titel „Lasso“; Hinweise „nächster Strich“ vs Auswahl-HUD
 - [x] Theme: `BlopTheme` vs. `NoteChrome` bereinigen; Light-Mode ohne dunkle Inseln — MorphTray/Props/NewTab/Radial
 - [ ] Share/Account: Status, Offline, Retry; kein File-ID im Happy Path
 - [ ] Desktop- und Phone-Chrome konsistent (ohne Feature-Verlust)
@@ -164,3 +167,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1.3: A4 Graph-Edit-Undo (Funktionen, Achsen, Graph löschen) |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: In-Notiz-Suche mit Trefferliste + Puls-Highlight auf der Seite |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: History „· Seite N“; Light-Mode MorphTray/Props/NewTab/Radial |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Settings-IA — App/Editor/Tool/Selektion Ownership + Copy |

@@ -29,7 +29,7 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   makeBtn(QStringLiteral("search"), QStringLiteral("In Notiz suchen"));
   addGroupSeparator();
   // Selection lives on the Favorites rail (Lasso) — no duplicate here.
-  makeBtn(QStringLiteral("props"), QStringLiteral("Notiz-Einstellungen"));
+  makeBtn(QStringLiteral("props"), QStringLiteral("Editor…"));
   addGroupSeparator();
   makeBtn(QStringLiteral("theme"), QStringLiteral("Editor Hell/Dunkel"));
   m_lay->addStretch(1);

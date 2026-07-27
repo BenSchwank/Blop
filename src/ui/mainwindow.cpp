@@ -2934,7 +2934,7 @@ void MainWindow::setupTitleBar() {
   navLayout->addWidget(m_titleSearchBar);
   navLayout->addSpacing(8);
 
-  // Tags & Seiten-Optionen nur noch über Notiz-Menü (⋯) → „Optionen & Tags…“
+  // Editor-Sheet (Seite / Notiz) über Titelleisten-Zahnrad, Left-Rail oder ⋯ → „Editor…“.
   // Höhe = ROW_HEIGHT_ITEM (wie Sidebar-Nav-Zeilen „Alle / Blop Notizen / …“).
   const int kTitleBarNavH = ROW_HEIGHT_ITEM;
 
@@ -2961,7 +2961,7 @@ void MainWindow::setupTitleBar() {
   navLayout->addWidget(m_btnEditorNoteOverflow);
   navLayout->addSpacing(4);
 
-  // Gear opens note page settings (Optionen & Tags) — also reachable via left rail.
+  // Gear opens the Editor sheet (page + note meta) — also reachable via left rail.
   m_btnTitleSettings = new QPushButton(m_topNavControls);
   m_btnTitleSettings->setIcon(
       createModernIcon(QStringLiteral("settings"), QColor(QStringLiteral("#C8CDDC"))));
@@ -2969,7 +2969,7 @@ void MainWindow::setupTitleBar() {
   m_btnTitleSettings->setFixedSize(kTitleBarNavH, kTitleBarNavH);
   m_btnTitleSettings->setIconSize(
       QSize(kTitleBarNavH - 10, kTitleBarNavH - 10));
-  m_btnTitleSettings->setToolTip(QStringLiteral("Notiz-Einstellungen"));
+  m_btnTitleSettings->setToolTip(QStringLiteral("Editor…"));
   m_btnTitleSettings->setCursor(Qt::PointingHandCursor);
   m_btnTitleSettings->setFlat(true);
   // Soft chip so the control reads as a control, not a faint icon.
@@ -5677,8 +5677,7 @@ void MainWindow::setupUi() {
   connect(m_noteLeftRail, &NoteLeftRail::searchClicked, this,
           &MainWindow::showNoteInNoteSearch);
   connect(m_noteLeftRail, &NoteLeftRail::propertiesClicked, this, [this]() {
-    // Tool properties live on the Favorites chevron — left-rail props opens
-    // note settings (Optionen & Tags).
+    // Editor sheet (Seite / Tags) — App-wide options live in Bibliothek → Einstellungen.
     setPageSettingsOverlayVisible(true);
   });
   connect(m_noteLeftRail, &NoteLeftRail::themeToggleClicked, this, [this]() {
@@ -8385,7 +8384,7 @@ void MainWindow::setupRightSidebar() {
   headerWidget->setFixedHeight(44);
   QHBoxLayout *header = new QHBoxLayout(headerWidget);
   header->setContentsMargins(16, 0, 8, 0);
-  QLabel *sidebarTitle = new QLabel(QStringLiteral("Seite & Notiz"), headerWidget);
+  QLabel *sidebarTitle = new QLabel(QStringLiteral("Editor"), headerWidget);
   sidebarTitle->setStyleSheet(
       "color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;"
       "background: transparent; border: none;");
@@ -8411,14 +8410,14 @@ void MainWindow::setupRightSidebar() {
   mainLayout->addWidget(m_lblActiveNote);
 
   // =========================================================================
-  // TAB WIDGET (Optionen vs Tags)
+  // TAB WIDGET (Seite vs Notiz)
   // =========================================================================
   QTabWidget *settingsTabs = new QTabWidget(m_pageSettingsCard);
   m_pageSettingsTabs = settingsTabs;
   mainLayout->addWidget(settingsTabs, 1);
 
   // -------------------------------------------------------------------------
-  // TAB 1: OPTIONEN (Formatierung, Input, Profile)
+  // TAB 1: SEITE (Layout, Input — App-Toolbar bleibt in Bibliothek → App)
   // -------------------------------------------------------------------------
   QWidget *tabOptions = new QWidget();
   m_pageSettingsTabOptions = tabOptions;
@@ -8656,15 +8655,16 @@ void MainWindow::setupRightSidebar() {
   optLayout->addWidget(m_btnInputPen);
   optLayout->addWidget(m_btnInputTouch);
 
-  // Toolbar-Style + Scale only apply to ModernToolbar (Radial/Normal switch
-  // and continuous scaling). On Android phones we ship AndroidPhoneToolbar,
-  // which is a fixed bottom-pill with no style or scale knobs - so we still
-  // create the controls (preserving layout indices) but disable them.
+  // Toolbar style / scale / UI profile are App settings (Bibliothek →
+  // Einstellungen). Keep widgets for profile sync but hide them here so the
+  // Editor sheet stays about the open note.
   const bool phoneToolbarActive =
       qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
   QLabel *lblToolbarStyle = new QLabel("Toolbar Style:", optContent);
+  lblToolbarStyle->setObjectName(QStringLiteral("pageSettingsAppOnlyLabel"));
   optLayout->addWidget(lblToolbarStyle);
   m_comboToolbarStyle = new QComboBox();
+  m_comboToolbarStyle->setObjectName(QStringLiteral("pageSettingsAppOnlyComboStyle"));
   m_comboToolbarStyle->addItems({"Vertical", "Radial (Full)", "Radial (Half)"});
   m_comboToolbarStyle->setStyleSheet(
       "QComboBox { background: #333; color: white; border: 1px solid #444; "
@@ -8705,7 +8705,6 @@ void MainWindow::setupRightSidebar() {
         "Toolbar-Style ist auf Android Phones fest (Bottom-Pille).");
   }
 #ifndef Q_OS_ANDROID
-  // Desktop Drawboard locks the vertical Favorites rail — Radial/FAB are secondary.
   lblToolbarStyle->setEnabled(false);
   m_comboToolbarStyle->setEnabled(false);
   m_comboToolbarStyle->setCurrentIndex(0);
@@ -8714,8 +8713,11 @@ void MainWindow::setupRightSidebar() {
 #endif
   optLayout->addWidget(m_comboToolbarStyle);
 
-  optLayout->addWidget(new QLabel("UI Profile:", optContent));
+  auto *lblUiProfile = new QLabel("UI Profile:", optContent);
+  lblUiProfile->setObjectName(QStringLiteral("pageSettingsAppOnlyLabelProfile"));
+  optLayout->addWidget(lblUiProfile);
   m_comboProfiles = new QComboBox();
+  m_comboProfiles->setObjectName(QStringLiteral("pageSettingsAppOnlyComboProfile"));
   m_comboProfiles->setStyleSheet(m_comboToolbarStyle->styleSheet());
   m_comboProfiles->setCursor(Qt::PointingHandCursor);
   for (const auto &p : m_profileManager->profiles()) {
@@ -8741,8 +8743,10 @@ void MainWindow::setupRightSidebar() {
   optLayout->addWidget(m_comboProfiles);
 
   QLabel *lblToolbarSize = new QLabel("Toolbar Size:", optContent);
+  lblToolbarSize->setObjectName(QStringLiteral("pageSettingsAppOnlyLabelSize"));
   optLayout->addWidget(lblToolbarSize);
   m_sliderToolbarScale = new QSlider(Qt::Horizontal);
+  m_sliderToolbarScale->setObjectName(QStringLiteral("pageSettingsAppOnlySliderScale"));
   m_sliderToolbarScale->setRange(50, 150);
   m_sliderToolbarScale->setValue(100);
   m_sliderToolbarScale->setStyleSheet(
@@ -8764,12 +8768,32 @@ void MainWindow::setupRightSidebar() {
   }
   optLayout->addWidget(m_sliderToolbarScale);
 
+  // Hide App-owned controls from the Editor sheet.
+  for (QWidget *w : {static_cast<QWidget *>(lblToolbarStyle),
+                     static_cast<QWidget *>(m_comboToolbarStyle),
+                     static_cast<QWidget *>(lblUiProfile),
+                     static_cast<QWidget *>(m_comboProfiles),
+                     static_cast<QWidget *>(lblToolbarSize),
+                     static_cast<QWidget *>(m_sliderToolbarScale)}) {
+    if (w)
+      w->hide();
+  }
+  auto *appHint = new QLabel(
+      QStringLiteral(
+          "Werkzeugleiste & UI-Profile: Bibliothek → Einstellungen (App)."),
+      optContent);
+  appHint->setWordWrap(true);
+  appHint->setStyleSheet(
+      QStringLiteral("color: %1; background: transparent; font-size: 12px;")
+          .arg(NoteChrome::textSecondary().name()));
+  optLayout->addWidget(appHint);
+
   optLayout->addStretch();
   optScroll->setWidget(optContent);
   optLayoutMain->addWidget(optScroll);
   QScroller::grabGesture(optScroll->viewport(), QScroller::LeftMouseButtonGesture);
 
-  settingsTabs->addTab(tabOptions, "Optionen");
+  settingsTabs->addTab(tabOptions, QStringLiteral("Seite"));
 
 
   // -------------------------------------------------------------------------
@@ -8861,7 +8885,7 @@ void MainWindow::setupRightSidebar() {
   m_lblMetaModified = makeMetaRow("Geändert:", "—");
 
   tagsLayoutMain->addStretch();
-  settingsTabs->addTab(tabTags, "Tags");
+  settingsTabs->addTab(tabTags, QStringLiteral("Notiz"));
 
   midRow->addWidget(m_pageSettingsCard, 0, Qt::AlignHCenter | Qt::AlignVCenter);
   midRow->addStretch(1);
@@ -9580,13 +9604,14 @@ void MainWindow::syncPageSettingsPanelFromEditor() {
   }
   ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (tb) {
-    if (tb->currentStyle() == ModernToolbar::Normal) {
-      m_comboToolbarStyle->setCurrentIndex(0);
-    } else {
-      if (tb->radialType() == ModernToolbar::FullCircle)
+    if (m_comboToolbarStyle) {
+      if (tb->currentStyle() == ModernToolbar::Normal) {
+        m_comboToolbarStyle->setCurrentIndex(0);
+      } else if (tb->radialType() == ModernToolbar::FullCircle) {
         m_comboToolbarStyle->setCurrentIndex(1);
-      else
+      } else {
         m_comboToolbarStyle->setCurrentIndex(2);
+      }
     }
     if (m_sliderToolbarScale)
       m_sliderToolbarScale->setValue(tb->scale() * 100);
@@ -9619,7 +9644,7 @@ void MainWindow::onEditorNoteOverflowMenu() {
   const QPoint globalPos =
       anchor->mapToGlobal(QPoint(anchor->width() / 2, anchor->height()));
   QList<BlopInWindowMenu::Item> items;
-  items.append({QStringLiteral("Optionen & Tags…"), QIcon(),
+  items.append({QStringLiteral("Editor…"), QIcon(),
                 [this]() { setPageSettingsOverlayVisible(true); }});
   items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("An Breite anpassen"), QIcon(),
@@ -9949,8 +9974,8 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                                        NoteChrome::isDark()
                                            ? QStringLiteral("white")
                                            : QStringLiteral("#111111")));
-          auto *actLayout = menu->addAction("Seitenlayout...");
-          auto *actOptions = menu->addAction("Optionen & Tags...");
+          auto *actLayout = menu->addAction(QStringLiteral("Seitenlayout…"));
+          auto *actOptions = menu->addAction(QStringLiteral("Editor…"));
           menu->addSeparator();
           auto *actPdf = menu->addAction("\U00002714  Als PDF exportieren");
           auto *actImg = menu->addAction("\U0001F5BC  Als Bild exportieren");

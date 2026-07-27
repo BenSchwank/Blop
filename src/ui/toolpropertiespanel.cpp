@@ -531,39 +531,51 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     case ToolMode::Image:
       hint = QStringLiteral(
           "Tippe auf die Seite, um ein Bild einzufügen. Deckkraft gilt für "
-          "neue Einfügungen.");
+          "die nächste Einfügung — bestehende Bilder ändern sich im "
+          "Auswahl-HUD.");
       break;
     case ToolMode::StickyNote:
       hint = QStringLiteral(
-          "Tippe auf die Seite für eine Haftnotiz. Hintergrundfarbe und "
-          "Schriftgröße steuern das Aussehen.");
+          "Tippe auf die Seite für eine Haftnotiz. Farbe und Schriftgröße "
+          "gelten für die nächste Notiz.");
       break;
     case ToolMode::Text:
       hint = QStringLiteral(
           "Tippe auf die Seite, um Text zu setzen. Schrift, Ausrichtung, Größe "
-          "und Farbe gelten für neue Textfelder.");
+          "und Farbe gelten für das nächste Textfeld.");
       break;
     case ToolMode::Ruler:
       hint = QStringLiteral("Lineal auf der Seite positionieren und zeichnen.");
       break;
     case ToolMode::Eraser:
       hint = QStringLiteral(
-          "Pixel radiert Tinte; Objekt entfernt ganze Striche.");
+          "Pixel radiert Tinte; Objekt entfernt ganze Striche. Einstellungen "
+          "gelten für den nächsten Radier-Strich.");
       break;
     case ToolMode::Lasso:
       hint = QStringLiteral(
-          "Auswahl markieren, dann verschieben, duplizieren oder "
-          "zur Bibliothek hinzufügen.");
+          "Lasso markieren → Auswahl-HUD für Verschieben, Duplizieren oder "
+          "Bibliothek. Diese Props steuern nur den Auswahlmodus.");
       break;
     case ToolMode::Shape:
       hint = QStringLiteral(
-          "Rechteck/Kreis/Ellipse/Linie/Pfeil aufziehen. Achsen, Sinus und "
-          "Graph nutzen die Bounds. Füllfarbe optional.");
+          "Form aufziehen. Einstellungen gelten für die nächste Form. "
+          "Bestehende Formen ändern sich über die Auswahl.");
       break;
     case ToolMode::Pen:
       hint = QStringLiteral(
-          "Einfach = gleichmäßig. Pro = Druck + Glättung. Kalligrafie = "
-          "dynamische Strichstärke.");
+          "Gilt für den nächsten Strich. Einfach = gleichmäßig. Pro = Druck + "
+          "Glättung. Kalligrafie = dynamische Strichstärke.");
+      break;
+    case ToolMode::Pencil:
+      hint = QStringLiteral(
+          "Gilt für den nächsten Strich. Druck und Deckkraft steuern die "
+          "nächste Bleistiftspur.");
+      break;
+    case ToolMode::Highlighter:
+      hint = QStringLiteral(
+          "Gilt für den nächsten Strich. Tip und Deckkraft steuern die "
+          "nächste Markierung.");
       break;
     default:
       break;
@@ -617,7 +629,7 @@ void ToolPropertiesPanel::syncForMode(ToolMode mode) {
     title = QStringLiteral("Radierer");
     break;
   case ToolMode::Lasso:
-    title = QStringLiteral("Auswahl");
+    title = QStringLiteral("Lasso");
     break;
   case ToolMode::Shape:
     title = QStringLiteral("Formen");

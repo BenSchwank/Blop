@@ -24,6 +24,8 @@
 #include <QScrollArea>
 #include <QScroller>
 #include <QShowEvent>
+#include <QTabBar>
+#include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
@@ -33,11 +35,14 @@
 // Old layout was a single QFormLayout-like dump of fields inside the tab
 // designed in Qt Designer. New layout uses a Hero section (current profile
 // + "Profil bearbeiten") on top, a search bar, and four collapsible
-// BlopSheet-skinned cards (Konto / Erscheinungsbild / Verhalten / Erweitert).
-// Wide-mode (>=720px) lays the four cards in a 2-col grid; narrow-mode
+// BlopSheet-skinned cards (Konto / Darstellung / Werkzeuge / Verhalten / Erweitert).
+// Wide-mode (>=720px) lays the cards in a 2-col grid; narrow-mode
 // stacks them. Animations are limited to the section expand/collapse so
 // the dialog itself stays responsive and there are no Windows-style
 // off-screen-pixmap costs (same lesson learnt during Phase A for MorphTray).
+//
+// IA: this dialog is App settings. Per-note Editor sheet lives in the note
+// chrome; Tool vs Selektion wording lives on ToolPropertiesPanel.
 
 namespace {
 
@@ -281,8 +286,23 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setMinimumSize(480, 560);
     resize(720, 860);
 
+    // App settings live on the first tab. Hide the orphan Cloud Sync tab —
+    // account/logout already lives under Konto on the App surface.
+    ui->tabWidget->setTabText(0, QStringLiteral("App"));
+    if (ui->tabWidget->count() > 1) {
+        // Prefer removing by known object name so Designer reorder stays safe.
+        for (int i = ui->tabWidget->count() - 1; i >= 0; --i) {
+            QWidget *w = ui->tabWidget->widget(i);
+            if (w && w->objectName() == QLatin1String("tabCloud"))
+                ui->tabWidget->removeTab(i);
+        }
+    }
+    // Single remaining tab: hide the tab bar chrome.
+    if (ui->tabWidget->count() <= 1)
+        ui->tabWidget->tabBar()->hide();
+
     // Replace the Designer-generated tab with our overhauled layout. The
-    // old QFormLayout dump is replaced by a Hero card + 4 section cards.
+    // old QFormLayout dump is replaced by a Hero card + section cards.
     QWidget *tabDesign = ui->tabWidget->widget(0);
     if (tabDesign) {
         qDeleteAll(tabDesign->children());
@@ -563,14 +583,14 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     contentLay->addWidget(cardTheme);
 
-    // ----- Card: Erscheinungsbild ---------------------------------------
+    // ----- Card: Werkzeuge ----------------------------------------------
     // v3.17.1/B4: the standalone "Akzentfarbe" row is removed -- the
     // Darstellung card above now owns the accent picker (persistent +
     // BlopTheme-backed). Toolbar mode stays here.
     // Desktop Drawboard: Favorites rail is locked; Radial stays Android-only.
     auto *cardLook = new BlopSettingsCard(
-        QStringLiteral("Erscheinungsbild"),
-        QStringLiteral("Werkzeugleiste"),
+        QStringLiteral("Werkzeuge"),
+        QStringLiteral("Werkzeugleiste & Favorites"),
         contentWidget);
     {
         auto *lblTb = new QLabel(QStringLiteral("Werkzeugleiste"), cardLook);

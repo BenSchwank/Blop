@@ -65,7 +65,7 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
                               safeNote->onOpenPageManagerRequested();
                       },
                       false, false});
-        items.append({QStringLiteral("Optionen & Tags…"),
+        items.append({QStringLiteral("Editor…"),
                       SelectionMenuIcons::gearIcon(),
                       [safeNote]() {
                           if (safeNote && safeNote->onOpenNoteOptionsRequested)
@@ -192,7 +192,7 @@ void NoteEditor::showOverflowMenuFromAnchor(QWidget *anchor) {
     });
 
     QAction *actNoteOptions =
-        menu->addAction(QStringLiteral("Optionen & Tags…"));
+        menu->addAction(QStringLiteral("Editor…"));
     actNoteOptions->setIcon(SelectionMenuIcons::gearIcon());
     QObject::connect(actNoteOptions, &QAction::triggered, this, [safe]() {
         if (safe && safe->onOpenNoteOptionsRequested)
