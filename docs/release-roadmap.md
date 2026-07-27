@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 0 fertig + Phase 1.1 A4 Undo)
+Zuletzt aktualisiert: 2026-07-27 (Phase 1.2 A4 object create/text undo)
 
 ---
 
@@ -80,11 +80,11 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 
 - [x] QUndoCommands: Eraser (pixel/object) — A4 via `SceneEraseCommand` / `EraserTool::eraseSessionFinished`
 - [x] QUndoCommands: Object move / transform — A4 selection move via `SceneItemsMoveCommand` (transform session follows)
-- [ ] QUndoCommands: Shape create/edit/delete
-- [ ] QUndoCommands: Text / Sticky content changes
-- [ ] QUndoCommands: Image insert/move/scale/delete
+- [x] QUndoCommands: Shape create/edit/delete — create + selection delete (A4); edit via move
+- [x] QUndoCommands: Text / Sticky content changes — create + focus-session content undo (A4)
+- [x] QUndoCommands: Image insert/move/scale/delete — insert + move + delete (A4); scale via transform follows
 - [ ] QUndoCommands: Graph function edits
-- [x] Scene→Note-Sync an Commands koppeln (`persistSceneToNote` / Infinite autosave) — delete/move/erase A4
+- [x] Scene→Note-Sync an Commands koppeln (`persistSceneToNote` / Infinite autosave) — delete/move/erase/create A4
 - [ ] Object-Inspector vs. Tool-Props trennen
 - [ ] Pixel-Eraser-Semantik dokumentieren + testen
 - [ ] Event-Sequenz-Tests pro Tool (headless wo möglich)
@@ -160,3 +160,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Roadmap angelegt; Phase 0.1 A4-Roundtrip-Test + Versions-Sync (Settings/NSIS/CI) |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 0.3: A4=Graph-Release-Editor; CoordinateGraph auf Infinite blockiert |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 0: Infinite V5 Store+Test; Share POSTs async; Phase 1.1 A4 Undo Delete/Move/Erase |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1.2: A4 Undo Shape/Text/Sticky/Image create + text content |

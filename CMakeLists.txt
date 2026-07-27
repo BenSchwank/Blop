@@ -238,6 +238,8 @@ qt_add_executable(Blop
     tools/WritingTools.h
     tools/EraserTool.h
     tools/EraserTool.cpp
+    tools/TextTool.h
+    tools/TextTool.cpp
     tools/LassoTool.h
     tools/ShapeTool.h
     tools/GraphCanvasItem.h

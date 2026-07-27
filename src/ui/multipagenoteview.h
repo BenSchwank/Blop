@@ -4,6 +4,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
+#include <QGraphicsTextItem>
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QTabletEvent>
@@ -35,6 +36,8 @@ class StrokeAddUndoCommand;
 class SceneItemsRemoveCommand;
 class SceneItemsMoveCommand;
 class SceneEraseCommand;
+class SceneItemAddCommand;
+class TextContentCommand;
 class AbstractTool;
 class GraphFormulaZone;
 
@@ -44,6 +47,8 @@ class MultiPageNoteView : public QGraphicsView {
     friend class SceneItemsRemoveCommand;
     friend class SceneItemsMoveCommand;
     friend class SceneEraseCommand;
+    friend class SceneItemAddCommand;
+    friend class TextContentCommand;
 public:
     explicit MultiPageNoteView(QWidget* parent=nullptr);
 
@@ -358,10 +363,16 @@ private:
 
     QMetaObject::Connection m_toolContentConn;
     QMetaObject::Connection m_toolEraseConn;
+    QMetaObject::Connection m_toolTextDiscardConn;
 
     /// Positions of selected items at press — used for move undo.
     QHash<QGraphicsItem *, QPointF> m_moveGestureStarts;
+    /// Plaintext baseline when a text item gained focus (content undo).
+    QHash<QGraphicsTextItem *, QString> m_textEditBaselines;
     void captureMoveGestureStarts();
     void commitMoveGestureIfNeeded();
     void bindActiveToolSignals(AbstractTool *tool);
+    void beginTextEditTracking(QGraphicsItem *focusItem);
+    void commitTextEditTracking(QGraphicsItem *focusItem);
+    void handleEmptyTextRemoved(QGraphicsTextItem *item);
 };

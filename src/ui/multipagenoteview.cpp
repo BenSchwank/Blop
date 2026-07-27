@@ -22,6 +22,7 @@
 #include "tools/ToolManager.h"
 #include "tools/StrokeItem.h"
 #include "tools/EraserTool.h"
+#include "tools/TextTool.h"
 #include "tools/GraphCanvasItem.h"
 #include "graphaxissettingsdialog.h"
 #include "graphlegenddock.h"
@@ -374,6 +375,14 @@ public:
     m_view->persistSceneToNote(true);
   }
 
+  bool ownsItem(QGraphicsItem *item) const {
+    for (const Entry &e : m_entries) {
+      if (e.item == item)
+        return true;
+    }
+    return false;
+  }
+
 private:
   struct Entry {
     QGraphicsItem *item{nullptr};
@@ -384,6 +393,99 @@ private:
   QList<Entry> m_entries;
   bool m_firstRedo{true};
   bool m_ownsItems{false};
+};
+
+/// Add scene object (shape/text/sticky/image/graph) with undo.
+class SceneItemAddCommand : public QUndoCommand {
+public:
+  SceneItemAddCommand(MultiPageNoteView *view, QGraphicsItem *item,
+                      const QString &text = QObject::tr("Objekt hinzufügen"))
+      : QUndoCommand(text), m_view(view), m_item(item) {
+    if (m_item) {
+      m_parent = m_item->parentItem();
+      m_pos = m_item->pos();
+    }
+  }
+  ~SceneItemAddCommand() override {
+    if (m_ownsItem)
+      delete m_item;
+  }
+  void undo() override {
+    if (!m_view || !m_item)
+      return;
+    m_view->scene_.removeItem(m_item);
+    m_ownsItem = true;
+    m_view->persistSceneToNote(true);
+  }
+  void redo() override {
+    if (m_firstRedo) {
+      m_firstRedo = false;
+      if (m_view)
+        m_view->persistSceneToNote(false);
+      return;
+    }
+    if (!m_view || !m_item)
+      return;
+    if (m_parent)
+      m_item->setParentItem(m_parent);
+    else
+      m_view->scene_.addItem(m_item);
+    m_item->setPos(m_pos);
+    m_ownsItem = false;
+    m_view->persistSceneToNote(true);
+  }
+  QGraphicsItem *item() const { return m_item; }
+
+private:
+  MultiPageNoteView *m_view{nullptr};
+  QGraphicsItem *m_item{nullptr};
+  QGraphicsItem *m_parent{nullptr};
+  QPointF m_pos;
+  bool m_firstRedo{true};
+  bool m_ownsItem{false};
+};
+
+/// Text / sticky text content change within one focus session.
+class TextContentCommand : public QUndoCommand {
+public:
+  TextContentCommand(MultiPageNoteView *view, QGraphicsTextItem *item,
+                     QString before, QString after, bool stickyChild)
+      : QUndoCommand(stickyChild ? QObject::tr("Notiztext")
+                                 : QObject::tr("Text ändern")),
+        m_view(view), m_item(item), m_before(std::move(before)),
+        m_after(std::move(after)), m_stickyChild(stickyChild) {}
+  void undo() override { apply(m_before); }
+  void redo() override {
+    if (m_firstRedo) {
+      m_firstRedo = false;
+      if (m_view)
+        m_view->persistSceneToNote(false);
+      return;
+    }
+    apply(m_after);
+  }
+
+private:
+  void apply(const QString &text) {
+    if (!m_view || !m_item)
+      return;
+    if (m_stickyChild)
+      m_view->m_syncingStickies = true;
+    else
+      m_view->m_syncingObjects = true;
+    m_item->setPlainText(text);
+    if (m_stickyChild)
+      m_view->m_syncingStickies = false;
+    else
+      m_view->m_syncingObjects = false;
+    m_view->persistSceneToNote(false);
+  }
+  MultiPageNoteView *m_view{nullptr};
+  QGraphicsTextItem *m_item{nullptr};
+  QString m_before;
+  QString m_after;
+  bool m_stickyChild{false};
+  bool m_firstRedo{true};
 };
 
 /// Move selected items; first redo is a no-op (positions already applied).
@@ -1559,6 +1661,13 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
           &MultiPageNoteView::addSelectionToMarkupLibrary);
   // v3.18.0: Crop war als Button + Signal vorhanden, aber nie verbunden.
   connect(m_selectionMenu, &NoteSelectionMenu::cropRequested, this, &MultiPageNoteView::startCropSession);
+
+  connect(&scene_, &QGraphicsScene::focusItemChanged, this,
+          [this](QGraphicsItem *newFocus, QGraphicsItem *oldFocus,
+                 Qt::FocusReason) {
+            commitTextEditTracking(oldFocus);
+            beginTextEditTracking(newFocus);
+          });
 
   // Rechteck-Crop-Session (Freihand-Modus gibt es hier nicht, daher nur ✔/✕).
   m_cropMenu = new CropMenu(this, /*showModeButtons=*/false);
@@ -5393,8 +5502,11 @@ void MultiPageNoteView::bindActiveToolSignals(AbstractTool *tool) {
     disconnect(m_toolContentConn);
   if (m_toolEraseConn)
     disconnect(m_toolEraseConn);
+  if (m_toolTextDiscardConn)
+    disconnect(m_toolTextDiscardConn);
   m_toolContentConn = {};
   m_toolEraseConn = {};
+  m_toolTextDiscardConn = {};
   if (!tool)
     return;
   m_toolContentConn =
@@ -5412,6 +5524,64 @@ void MultiPageNoteView::bindActiveToolSignals(AbstractTool *tool) {
           m_undoStack->push(new SceneEraseCommand(this, removed, pathBefore));
         });
   }
+  if (auto *textTool = qobject_cast<TextTool *>(tool)) {
+    m_toolTextDiscardConn = connect(
+        textTool, &TextTool::emptyTextRemoved, this,
+        &MultiPageNoteView::handleEmptyTextRemoved);
+  }
+}
+
+void MultiPageNoteView::beginTextEditTracking(QGraphicsItem *focusItem) {
+  auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(focusItem);
+  if (!text)
+    return;
+  const bool standalone =
+      text->data(0).toString() == QLatin1String("text");
+  const bool stickyChild =
+      text->parentItem() &&
+      text->parentItem()->data(0).toString() == QLatin1String("sticky_note");
+  if (!standalone && !stickyChild)
+    return;
+  m_textEditBaselines.insert(text, text->toPlainText());
+}
+
+void MultiPageNoteView::commitTextEditTracking(QGraphicsItem *focusItem) {
+  auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(focusItem);
+  if (!text || !m_textEditBaselines.contains(text))
+    return;
+  const QString before = m_textEditBaselines.take(text);
+  const QString after = text->toPlainText();
+  if (before == after || !m_undoStack)
+    return;
+  const bool stickyChild =
+      text->parentItem() &&
+      text->parentItem()->data(0).toString() == QLatin1String("sticky_note");
+  m_undoStack->push(
+      new TextContentCommand(this, text, before, after, stickyChild));
+}
+
+void MultiPageNoteView::handleEmptyTextRemoved(QGraphicsTextItem *item) {
+  if (!item)
+    return;
+  m_textEditBaselines.remove(item);
+  if (!m_undoStack) {
+    delete item;
+    persistSceneToNote(false);
+    return;
+  }
+  // Create then discard empty: undo the Add so the command owns/deletes the item.
+  if (m_undoStack->canUndo()) {
+    const QUndoCommand *cmd = m_undoStack->command(m_undoStack->index() - 1);
+    if (auto *add = dynamic_cast<const SceneItemAddCommand *>(cmd)) {
+      if (add->item() == item) {
+        m_undoStack->undo();
+        return;
+      }
+    }
+  }
+  // Item is already off-scene; Remove takes ownership for undo.
+  m_undoStack->push(new SceneItemsRemoveCommand(
+      this, {item}, QObject::tr("Text verwerfen")));
 }
 
 void MultiPageNoteView::captureMoveGestureStarts() {
@@ -5449,17 +5619,45 @@ void MultiPageNoteView::commitMoveGestureIfNeeded() {
 
 void MultiPageNoteView::onToolContentModified() {
   AbstractTool *tool = ToolManager::instance().activeTool();
+  QGraphicsItem *created = tool ? tool->lastCompletedItem() : nullptr;
   if (tool) {
-    if (auto *textItem =
-            qgraphicsitem_cast<QGraphicsTextItem *>(tool->lastCompletedItem())) {
+    if (auto *textItem = qgraphicsitem_cast<QGraphicsTextItem *>(created)) {
       bindStandaloneTextSignals(textItem);
-    } else if (auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(
-                   tool->lastCompletedItem())) {
+    } else if (auto *card =
+                   qgraphicsitem_cast<QGraphicsRectItem *>(created)) {
       if (card->data(0).toString() == QLatin1String("sticky_note"))
         bindStickyNoteSignals(card);
     }
   }
-  persistSceneToNote(tool && tool->mode() == ToolMode::Eraser);
+
+  const ToolMode mode = tool ? tool->mode() : ToolMode::Hand;
+  const bool rebuildStrokes = (mode == ToolMode::Eraser);
+  persistSceneToNote(rebuildStrokes);
+
+  const bool createUndo =
+      created && m_undoStack &&
+      (mode == ToolMode::Text || mode == ToolMode::Image ||
+       mode == ToolMode::StickyNote || mode == ToolMode::Shape);
+  if (createUndo) {
+    QString label = QObject::tr("Objekt hinzufügen");
+    if (mode == ToolMode::Text)
+      label = QObject::tr("Text");
+    else if (mode == ToolMode::Image)
+      label = QObject::tr("Bild");
+    else if (mode == ToolMode::StickyNote)
+      label = QObject::tr("Notiz");
+    else if (mode == ToolMode::Shape) {
+      if (qgraphicsitem_cast<GraphCanvasItem *>(created))
+        label = QObject::tr("Graph");
+      else
+        label = QObject::tr("Form");
+    }
+    // Capture parent/pos after persist (may have reparented onto a page).
+    m_undoStack->push(new SceneItemAddCommand(this, created, label));
+    // Shape/Graph still need lastCompletedItem for the mouseRelease axis dialog.
+    if (mode != ToolMode::Shape)
+      tool->clearLastCompletedItem();
+  }
 }
 
 void MultiPageNoteView::syncStickyNotesToNote(bool requestSave) {
