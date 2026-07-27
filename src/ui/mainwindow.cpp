@@ -5663,73 +5663,8 @@ void MainWindow::setupUi() {
           &MainWindow::showNoteBookmarksMenu);
   connect(m_noteLeftRail, &NoteLeftRail::historyClicked, this,
           &MainWindow::showNoteHistoryMenu);
-  connect(m_noteLeftRail, &NoteLeftRail::searchClicked, this, [this]() {
-    auto *view = currentNoteView();
-    if (!view || !view->note())
-      return;
-    const QString q = BlopDialogs::promptText(
-                          this, QStringLiteral("In Notiz suchen"),
-                          QStringLiteral("Titel, Sticky oder Text:"), QString())
-                          .trimmed();
-    if (q.isEmpty())
-      return;
-    Note *n = view->note();
-    struct Hit {
-      int page;
-      QString label;
-    };
-    QVector<Hit> hits;
-    for (int i = 0; i < n->pages.size(); ++i) {
-      const NotePage &pg = n->pages[i];
-      const QString pageTitle =
-          pg.title.isEmpty() ? QStringLiteral("Seite %1").arg(i + 1) : pg.title;
-      if (pg.title.contains(q, Qt::CaseInsensitive))
-        hits.push_back({i, QStringLiteral("%1 · Seitentitel").arg(pageTitle)});
-      for (const StickyNoteObject &st : pg.stickies) {
-        if (st.text.contains(q, Qt::CaseInsensitive)) {
-          QString snippet = st.text.simplified().left(40);
-          hits.push_back(
-              {i, QStringLiteral("%1 · Sticky: %2").arg(pageTitle, snippet)});
-        }
-      }
-      for (const TextObject &tx : pg.texts) {
-        if (tx.text.contains(q, Qt::CaseInsensitive)) {
-          QString snippet = tx.text.simplified().left(40);
-          hits.push_back(
-              {i, QStringLiteral("%1 · Text: %2").arg(pageTitle, snippet)});
-        }
-      }
-    }
-    if (n->title.contains(q, Qt::CaseInsensitive) && hits.isEmpty()) {
-      // Note title match with no page hits — jump to first page.
-      hits.push_back({0, QStringLiteral("Notiz-Titel: %1").arg(n->title)});
-    }
-    if (hits.isEmpty()) {
-      BlopDialogs::notify(this, QStringLiteral("Nicht gefunden"),
-                          QStringLiteral("Keine Treffer für „%1“.").arg(q));
-      return;
-    }
-    if (hits.size() == 1) {
-      view->scrollToPage(hits.first().page, true);
-      updateNoteBottomChrome();
-      return;
-    }
-    QList<BlopInWindowMenu::Item> items;
-    for (const Hit &h : hits) {
-      items.push_back(
-          {h.label, QIcon(), [this, page = h.page]() {
-             if (auto *v = currentNoteView()) {
-               v->scrollToPage(page, true);
-               updateNoteBottomChrome();
-             }
-           }});
-    }
-    QPoint anchor(UiScale::dp(60), UiScale::dp(100));
-    if (m_noteLeftRail)
-      anchor = m_noteLeftRail->mapToGlobal(
-          QPoint(m_noteLeftRail->width(), UiScale::dp(100)));
-    BlopInWindowMenu::show(this, anchor, items);
-  });
+  connect(m_noteLeftRail, &NoteLeftRail::searchClicked, this,
+          &MainWindow::showNoteInNoteSearch);
   connect(m_noteLeftRail, &NoteLeftRail::propertiesClicked, this, [this]() {
     // Tool properties live on the Favorites chevron — left-rail props opens
     // note settings (Optionen & Tags).
@@ -12447,25 +12382,117 @@ void MainWindow::showNoteBookmarksMenu() {
   BlopInWindowMenu::show(this, anchor, items);
 }
 
+void MainWindow::showNoteInNoteSearch() {
+  auto *view = currentNoteView();
+  if (!view || !view->note())
+    return;
+  const QString q =
+      BlopDialogs::promptText(this, QStringLiteral("In Notiz suchen"),
+                              QStringLiteral("Titel, Sticky oder Text:"),
+                              QString())
+          .trimmed();
+  if (q.isEmpty())
+    return;
+  Note *n = view->note();
+  struct Hit {
+    int page;
+    QString kind;
+    QString label;
+  };
+  QVector<Hit> hits;
+  for (int i = 0; i < n->pages.size(); ++i) {
+    const NotePage &pg = n->pages[i];
+    const QString pageTitle =
+        pg.title.isEmpty() ? QStringLiteral("Seite %1").arg(i + 1) : pg.title;
+    if (pg.title.contains(q, Qt::CaseInsensitive))
+      hits.push_back(
+          {i, QStringLiteral("title"),
+           QStringLiteral("%1 · Seitentitel").arg(pageTitle)});
+    for (const StickyNoteObject &st : pg.stickies) {
+      if (st.text.contains(q, Qt::CaseInsensitive)) {
+        const QString snippet = st.text.simplified().left(40);
+        hits.push_back(
+            {i, QStringLiteral("sticky"),
+             QStringLiteral("%1 · Sticky: %2").arg(pageTitle, snippet)});
+      }
+    }
+    for (const TextObject &tx : pg.texts) {
+      if (tx.text.contains(q, Qt::CaseInsensitive)) {
+        const QString snippet = tx.text.simplified().left(40);
+        hits.push_back(
+            {i, QStringLiteral("text"),
+             QStringLiteral("%1 · Text: %2").arg(pageTitle, snippet)});
+      }
+    }
+  }
+  if (n->title.contains(q, Qt::CaseInsensitive)) {
+    hits.push_front(
+        {0, QStringLiteral("note"),
+         QStringLiteral("Notiz-Titel: %1").arg(n->title)});
+  }
+  if (hits.isEmpty()) {
+    BlopDialogs::notify(this, QStringLiteral("Nicht gefunden"),
+                        QStringLiteral("Keine Treffer für „%1“.").arg(q));
+    return;
+  }
+
+  auto jumpTo = [this, q](int page, const QString &kind) {
+    if (auto *v = currentNoteView()) {
+      v->revealSearchMatch(page, q, kind);
+      updateNoteBottomChrome();
+    }
+  };
+
+  if (hits.size() == 1) {
+    jumpTo(hits.first().page, hits.first().kind);
+    return;
+  }
+
+  QList<BlopInWindowMenu::Item> items;
+  items.push_back(
+      {QStringLiteral("%1 Treffer für „%2“").arg(hits.size()).arg(q), QIcon(),
+       []() {}});
+  BlopInWindowMenu::Item sep;
+  sep.separator = true;
+  items.push_back(sep);
+  for (const Hit &h : hits) {
+    items.push_back({h.label, QIcon(),
+                     [jumpTo, page = h.page, kind = h.kind]() {
+                       jumpTo(page, kind);
+                     }});
+  }
+  QPoint anchor(UiScale::dp(60), UiScale::dp(100));
+  if (m_noteLeftRail)
+    anchor = m_noteLeftRail->mapToGlobal(
+        QPoint(m_noteLeftRail->width(), UiScale::dp(100)));
+  BlopInWindowMenu::show(this, anchor, items);
+}
+
 void MainWindow::showNoteHistoryMenu() {
   auto *view = currentNoteView();
   if (!view)
     return;
   QList<BlopInWindowMenu::Item> items;
+  const bool canUndo = view->canUndo();
+  const bool canRedo = view->canRedo();
   items.push_back(
-      {QStringLiteral("Rückgängig (%1)").arg(view->undoDepth()),
+      {canUndo ? QStringLiteral("Rückgängig (%1)").arg(view->undoDepth())
+               : QStringLiteral("Rückgängig (nicht möglich)"),
        QIcon(),
        [this]() {
          if (auto *v = currentNoteView())
-           v->undo();
+           if (v->canUndo())
+             v->undo();
          updateNoteBottomChrome();
        }});
   items.push_back(
-      {QStringLiteral("Wiederholen (%1)").arg(view->redoDepth()),
+      {canRedo ? QStringLiteral("Wiederholen (%1)").arg(view->redoDepth())
+               : QStringLiteral("Wiederholen (nicht möglich)"),
        QIcon(),
        [this]() {
          if (auto *v = currentNoteView())
-           v->redo();
+           if (v->canRedo())
+             v->redo();
          updateNoteBottomChrome();
        }});
   BlopInWindowMenu::Item sep;

@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 1.3 Graph-Edit-Undo)
+Zuletzt aktualisiert: 2026-07-27 (Phase 2: In-Notiz-Suche + Highlight)
 
 ---
 
@@ -98,8 +98,8 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 
 **Ziel:** Sieht und fühlt sich nach fertigem Produkt an.
 
-- [ ] In-Notiz-Suche: Ergebnisliste + Highlight auf der Seite
-- [ ] History: Kontext (Seite/Objekt), klare Disabled-States
+- [x] In-Notiz-Suche: Ergebnisliste + Highlight auf der Seite
+- [ ] History: Kontext (Seite/Objekt), klare Disabled-States — Disabled-Labels für Undo/Redo; Kontext folgt
 - [ ] Settings-IA: App / Editor / Tool / Selektion
 - [ ] Theme: `BlopTheme` vs. `NoteChrome` bereinigen; Light-Mode ohne dunkle Inseln
 - [ ] Share/Account: Status, Offline, Retry; kein File-ID im Happy Path
@@ -162,3 +162,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 0: Infinite V5 Store+Test; Share POSTs async; Phase 1.1 A4 Undo Delete/Move/Erase |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1.2: A4 Undo Shape/Text/Sticky/Image create + text content |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1.3: A4 Graph-Edit-Undo (Funktionen, Achsen, Graph löschen) |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: In-Notiz-Suche mit Trefferliste + Puls-Highlight auf der Seite |

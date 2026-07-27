@@ -2327,8 +2327,10 @@ void MultiPageNoteView::hydrateVisibleRange() {
 
 void MultiPageNoteView::setNote(Note *note) {
   note_ = note;
-  cancelCrop(); // v3.18.0: offene Crop-Session beenden, bevor scene_.clear()
-                // den Resizer löschen würde (dangling pointer).
+  // v3.18.0: offene Crop-Session beenden, bevor scene_.clear() den Resizer
+  // löschen würde (dangling pointer).
+  cancelCrop();
+  clearSearchHighlight();
   if (m_undoStack)
     m_undoStack->clear();
   scene_.clear();
@@ -4270,6 +4272,108 @@ QStringList MultiPageNoteView::undoHistoryTexts() const {
     out.append(t);
   }
   return out;
+}
+
+void MultiPageNoteView::clearSearchHighlight() {
+  if (m_searchHighlightTimer)
+    m_searchHighlightTimer->stop();
+  if (m_searchHighlight) {
+    scene_.removeItem(m_searchHighlight);
+    delete m_searchHighlight;
+    m_searchHighlight = nullptr;
+  }
+}
+
+void MultiPageNoteView::showSearchHighlightRect(const QRectF &sceneRect) {
+  if (sceneRect.isEmpty())
+    return;
+  clearSearchHighlight();
+  const QColor accent = NoteChrome::accent();
+  QColor fill = accent;
+  fill.setAlpha(70);
+  m_searchHighlight = scene_.addRect(
+      sceneRect.adjusted(-8, -8, 8, 8), QPen(accent, 2.8), QBrush(fill));
+  m_searchHighlight->setZValue(1200);
+  m_searchHighlight->setFlag(QGraphicsItem::ItemIsSelectable, false);
+  m_searchHighlight->setFlag(QGraphicsItem::ItemIsMovable, false);
+  m_searchHighlight->setOpacity(0.45);
+
+  // Brief pulse so the hit reads as intentional motion, not a static stamp.
+  QTimer::singleShot(90, this, [this]() {
+    if (m_searchHighlight)
+      m_searchHighlight->setOpacity(1.0);
+  });
+  QTimer::singleShot(260, this, [this]() {
+    if (m_searchHighlight)
+      m_searchHighlight->setOpacity(0.7);
+  });
+  QTimer::singleShot(420, this, [this]() {
+    if (m_searchHighlight)
+      m_searchHighlight->setOpacity(1.0);
+  });
+
+  if (!m_searchHighlightTimer) {
+    m_searchHighlightTimer = new QTimer(this);
+    m_searchHighlightTimer->setSingleShot(true);
+    connect(m_searchHighlightTimer, &QTimer::timeout, this,
+            &MultiPageNoteView::clearSearchHighlight);
+  }
+  m_searchHighlightTimer->start(2800);
+}
+
+void MultiPageNoteView::revealSearchMatch(int pageIndex, const QString &needle,
+                                          const QString &kind) {
+  if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
+    return;
+  scrollToPage(pageIndex, true);
+#ifdef Q_OS_ANDROID
+  hydratePageContent(pageIndex);
+#else
+  // Desktop hydrates more eagerly; still ensure the page has content.
+  hydratePageContent(pageIndex);
+#endif
+
+  QRectF target;
+  const QRectF page = pageRect(pageIndex);
+  if (kind == QLatin1String("title") || kind == QLatin1String("note")) {
+    target = QRectF(page.left() + 28, page.top() + 24, page.width() - 56, 56);
+  } else {
+    for (QGraphicsItem *it : scene_.items(page, Qt::IntersectsItemBoundingRect)) {
+      if (!it)
+        continue;
+      const QString tag = it->data(0).toString();
+      if (kind == QLatin1String("sticky") &&
+          tag == QLatin1String("sticky_note")) {
+        QString text;
+        for (QGraphicsItem *ch : it->childItems()) {
+          if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(ch)) {
+            text = ti->toPlainText();
+            break;
+          }
+        }
+        if (text.contains(needle, Qt::CaseInsensitive)) {
+          target = it->sceneBoundingRect();
+          break;
+        }
+      } else if (kind == QLatin1String("text") &&
+                 tag == QLatin1String("text")) {
+        auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(it);
+        if (ti && ti->toPlainText().contains(needle, Qt::CaseInsensitive)) {
+          target = ti->sceneBoundingRect();
+          break;
+        }
+      }
+    }
+  }
+  if (target.isEmpty()) {
+    // Fallback: soft banner at the top of the page.
+    target = QRectF(page.left() + 40, page.top() + 40, page.width() - 80, 72);
+  }
+
+  // Delay highlight slightly so scroll animation can settle.
+  QTimer::singleShot(200, this, [this, target]() {
+    showSearchHighlightRect(target);
+  });
 }
 
 void MultiPageNoteView::scrollToPage(int pageIndex, bool animate) {

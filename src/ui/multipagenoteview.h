@@ -123,6 +123,12 @@ public:
     /// Undo stack entry texts (oldest → newest), for the History menu.
     QStringList undoHistoryTexts() const;
 
+    /// Scroll to page and pulse-highlight a match (sticky/text/title).
+    /// `kind`: "sticky" | "text" | "title" | "note"
+    void revealSearchMatch(int pageIndex, const QString &needle,
+                           const QString &kind);
+    void clearSearchHighlight();
+
     std::function<void(Note*)> onSaveRequested;
 
     // PDF Import: renders each PDF page as a note page background image
@@ -383,4 +389,9 @@ private:
     void beginTextEditTracking(QGraphicsItem *focusItem);
     void commitTextEditTracking(QGraphicsItem *focusItem);
     void handleEmptyTextRemoved(QGraphicsTextItem *item);
+
+    /// Temporary search-hit overlay (scene coords); cleared on timer / scene clear.
+    QGraphicsRectItem *m_searchHighlight{nullptr};
+    QTimer *m_searchHighlightTimer{nullptr};
+    void showSearchHighlightRect(const QRectF &sceneRect);
 };
