@@ -448,6 +448,7 @@ private:
 
   // --- Sidebar user section labels (updated on webview login) ---
   QLabel *m_lblSidebarUser{nullptr};
+  QLabel *m_lblSidebarAccountStatus{nullptr};
   QLabel *m_lblSidebarAvatar{nullptr};
   // ----------------------------
 

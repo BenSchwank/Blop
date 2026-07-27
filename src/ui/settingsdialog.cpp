@@ -23,6 +23,7 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QScroller>
+#include <QSettings>
 #include <QShowEvent>
 #include <QTabBar>
 #include <QTabWidget>
@@ -404,6 +405,25 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Profil verwalten, abmelden"),
         contentWidget);
     {
+        QSettings settings(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        const QString uname =
+            settings.value(QStringLiteral("username")).toString().trimmed();
+        const QString sid =
+            settings.value(QStringLiteral("session_id")).toString().trimmed();
+        QString accountLine;
+        if (uname.isEmpty())
+          accountLine = QStringLiteral("Status: Gast — nicht angemeldet");
+        else if (sid.isEmpty())
+          accountLine = QStringLiteral("Status: %1 — Sitzung fehlt").arg(uname);
+        else
+          accountLine = QStringLiteral("Status: %1 — angemeldet").arg(uname);
+        auto *lblAccount = new QLabel(accountLine, cardKonto);
+        lblAccount->setWordWrap(true);
+        lblAccount->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.88); font-size: 12px; "
+            "background: transparent; padding: 2px 0 8px 0;")));
+        cardKonto->addBodyWidget(lblAccount);
+
         auto *btnEdit = new QPushButton(
             QStringLiteral("Aktuelles Profil bearbeiten"), cardKonto);
         btnEdit->setCursor(Qt::PointingHandCursor);

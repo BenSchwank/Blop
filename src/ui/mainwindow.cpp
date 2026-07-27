@@ -646,6 +646,9 @@ QByteArray getSync(QNetworkAccessManager *nam, const QUrl &url,
   return raw;
 }
 
+static QString shareErrorMessage(QNetworkReply::NetworkError err, int status,
+                                 const QByteArray &raw);
+
 QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
                             const QString &username) {
   int status = 0;
@@ -664,9 +667,7 @@ QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
   const QByteArray raw = getSync(nam, foldersUrl, &status, &err);
   if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
     BlopDialogs::notify(parent, QStringLiteral("Ordner laden fehlgeschlagen"),
-                        QStringLiteral("Serverantwort (%1):\n%2")
-                            .arg(status)
-                            .arg(QString::fromUtf8(raw)));
+                        shareErrorMessage(err, status, raw));
     return QString();
   }
   const QJsonDocument doc = QJsonDocument::fromJson(raw);
@@ -683,7 +684,15 @@ QString chooseCloudFolderId(QWidget *parent, QNetworkAccessManager *nam,
     if (id.isEmpty())
       continue;
     const QString name = o.value("name").toString().trimmed();
-    const QString label = name.isEmpty() ? id : QString("%1 (%2)").arg(name, id);
+    QString label = name.isEmpty() ? QStringLiteral("Ordner") : name;
+    if (labelToId.contains(label)) {
+      int n = 2;
+      QString candidate;
+      do {
+        candidate = QStringLiteral("%1 (%2)").arg(label).arg(n++);
+      } while (labelToId.contains(candidate));
+      label = candidate;
+    }
     labels << label;
     labelToId.insert(label, id);
   }
@@ -708,9 +717,65 @@ static QString shareLinkFromJsonObject(const QJsonObject &obj) {
   return link;
 }
 
+/// User-facing share errors — never dump raw HTTP bodies or file IDs.
+static QString shareErrorMessage(QNetworkReply::NetworkError err, int status,
+                                 const QByteArray & /*raw*/) {
+  if (err == QNetworkReply::TimeoutError ||
+      err == QNetworkReply::ConnectionRefusedError ||
+      err == QNetworkReply::HostNotFoundError ||
+      err == QNetworkReply::TemporaryNetworkFailureError ||
+      err == QNetworkReply::NetworkSessionFailedError ||
+      err == QNetworkReply::ProxyConnectionRefusedError ||
+      (err != QNetworkReply::NoError && status == 0)) {
+    return QStringLiteral(
+        "Keine Verbindung zu Blop Study. Prüfe dein Netz und versuche es erneut.");
+  }
+  if (status == 401 || status == 403) {
+    return QStringLiteral(
+        "Sitzung abgelaufen oder keine Berechtigung. Bitte erneut in Blop Study "
+        "anmelden.");
+  }
+  if (status >= 500) {
+    return QStringLiteral(
+        "Blop Study ist gerade nicht erreichbar. Bitte später erneut versuchen.");
+  }
+  if (status >= 400) {
+    return QStringLiteral(
+        "Die Anfrage wurde abgelehnt. Bitte Angaben prüfen und erneut versuchen.");
+  }
+  return QStringLiteral("Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.");
+}
+
+/// Empty → dialog already shown. Requires username + session_id.
+static QString requireShareUsername(QWidget *parent) {
+  QSettings settings(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  const QString username =
+      settings.value(QStringLiteral("username")).toString().trimmed();
+  if (username.isEmpty()) {
+    BlopDialogs::notify(
+        parent, QStringLiteral("Nicht angemeldet"),
+        QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+    return {};
+  }
+  const QString sid =
+      settings.value(QStringLiteral("session_id")).toString().trimmed();
+  if (sid.isEmpty()) {
+    BlopDialogs::notify(
+        parent, QStringLiteral("Sitzung fehlt"),
+        QStringLiteral(
+            "Bitte erneut in Blop Study anmelden, dann kannst du teilen."));
+    return {};
+  }
+  return username;
+}
+
 using ShareJsonDone =
     std::function<void(int status, QNetworkReply::NetworkError err,
                        const QByteArray &raw)>;
+
+QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
+                           const QString &username,
+                           const QString &localFilePathOrName);
 
 /// Non-blocking JSON POST for share flows (Phase 0 — no QEventLoop).
 void postJsonAsync(QNetworkAccessManager *nam, const QUrl &url,
@@ -745,6 +810,56 @@ void postJsonAsync(QNetworkAccessManager *nam, const QUrl &url,
                      if (done)
                        done(status, err, raw);
                    });
+}
+
+/// Resolve cloud file for share UI. No file-ID prompts and no ID toasts.
+static QString resolveShareFileIdForUi(QWidget *parent,
+                                       QNetworkAccessManager *nam,
+                                       const QString &username,
+                                       const QString &localPath) {
+  BlopDialogs::ProgressSession progress = BlopDialogs::presentProgress(
+      parent, QStringLiteral("Teilen…"),
+      QStringLiteral("Suche Notiz in Blop Study…"));
+  const QString fileId =
+      resolveCloudFileId(parent, nam, username, localPath);
+  progress.close();
+  if (fileId.isEmpty()) {
+    BlopDialogs::notify(
+        parent, QStringLiteral("Notiz nicht gefunden"),
+        QStringLiteral(
+            "Diese Notiz liegt noch nicht in Blop Study, oder Study ist "
+            "nicht erreichbar.\n"
+            "Synchronisiere die Notiz in Study und versuche es erneut."));
+  }
+  return fileId;
+}
+
+/// POST with friendly error + optional retry. onSuccess receives raw body.
+static void postShareWithRetry(QNetworkAccessManager *nam, const QUrl &url,
+                               const QJsonObject &payload, QObject *context,
+                               QWidget *parent, const QString &failTitle,
+                               std::function<void(const QByteArray &raw)> onSuccess) {
+  auto attempt = std::make_shared<std::function<void()>>();
+  *attempt = [=]() {
+    postJsonAsync(nam, url, payload, context,
+                  [=](int status, QNetworkReply::NetworkError err,
+                      const QByteArray &raw) {
+                    if (err != QNetworkReply::NoError || status < 200 ||
+                        status >= 300) {
+                      const QString msg = shareErrorMessage(err, status, raw);
+                      if (BlopDialogs::confirm(
+                              parent, failTitle, msg,
+                              QStringLiteral("Erneut versuchen"),
+                              QStringLiteral("Abbrechen"))) {
+                        (*attempt)();
+                      }
+                      return;
+                    }
+                    if (onSuccess)
+                      onSuccess(raw);
+                  });
+  };
+  (*attempt)();
 }
 
 QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
@@ -6940,6 +7055,19 @@ void MainWindow::updateSidebarUser(const QString &username) {
   // Update username text
   if (m_lblSidebarUser)
     m_lblSidebarUser->setText(username.isEmpty() ? "Gast" : username);
+  if (m_lblSidebarAccountStatus) {
+    const QString sid =
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("session_id"))
+            .toString()
+            .trimmed();
+    if (username.isEmpty())
+      m_lblSidebarAccountStatus->setText(QStringLiteral("Nicht angemeldet"));
+    else if (sid.isEmpty())
+      m_lblSidebarAccountStatus->setText(QStringLiteral("Sitzung fehlt"));
+    else
+      m_lblSidebarAccountStatus->setText(QStringLiteral("Angemeldet"));
+  }
 
   // Persist for next app launch
   QSettings("Blop", "BlopApp").setValue("username", username);
@@ -7409,6 +7537,24 @@ void MainWindow::setupSidebar() {
 #endif
   m_lblSidebarUser->setWordWrap(false);
   userCol->addWidget(m_lblSidebarUser);
+
+  const QString sid =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("session_id"))
+          .toString()
+          .trimmed();
+  QString statusText = QStringLiteral("Nicht angemeldet");
+  if (!username.isEmpty() && username != QStringLiteral("Gast")) {
+    statusText = sid.isEmpty() ? QStringLiteral("Sitzung fehlt")
+                               : QStringLiteral("Angemeldet");
+  }
+  m_lblSidebarAccountStatus = new QLabel(statusText, bottomBar);
+  m_lblSidebarAccountStatus->setObjectName(
+      QStringLiteral("SidebarAccountStatus"));
+  m_lblSidebarAccountStatus->setStyleSheet(BlopTheme::themed(
+      "font-size: 10px; font-weight: 500; color: rgba(200,208,235,0.72); "
+      "background: transparent;"));
+  userCol->addWidget(m_lblSidebarAccountStatus);
 
   m_btnSidebarSettings = new QPushButton(QStringLiteral("  Einstellungen"), bottomBar);
   m_btnSidebarSettings->setObjectName(QStringLiteral("SidebarSettingsBtn"));
@@ -10019,25 +10165,14 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                                               QStringLiteral("PDF konnte nicht importiert werden."));
               }
           } else if (chosen == actShareUser) {
-              const QString username =
-                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
-              if (username.isEmpty()) {
-                  BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
-                                      QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+              const QString username = requireShareUsername(this);
+              if (username.isEmpty())
                   return;
-              }
               const QString localPath = capPath;
-              QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-              if (fileId.isEmpty()) {
-                  fileId = BlopDialogs::promptText(
-                      this, QStringLiteral("Cloud-Datei-ID"),
-                      QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
-                      fi.baseName()).trimmed();
-                  if (fileId.isEmpty()) return;
-              } else {
-                  BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
-                                      QStringLiteral("Automatisch erkannt: %1").arg(fileId));
-              }
+              const QString fileId =
+                  resolveShareFileIdForUi(this, m_netManager, username, localPath);
+              if (fileId.isEmpty())
+                  return;
               const QString target = BlopDialogs::promptText(
                   this, QStringLiteral("Zielnutzer"),
                   QStringLiteral("Username des Empfängers:"), QString()).trimmed();
@@ -10052,46 +10187,25 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   {"target_username", target},
                   {"message", message},
               };
-              postJsonAsync(
+              postShareWithRetry(
                   m_netManager, QUrl(kBlopStudyUrl + "/api/shares/username"),
-                  payload, this,
-                  [this](int status, QNetworkReply::NetworkError err,
-                         const QByteArray &raw) {
-                    if (err != QNetworkReply::NoError || status < 200 ||
-                        status >= 300) {
-                      BlopDialogs::notify(
-                          this, QStringLiteral("Teilen fehlgeschlagen"),
-                          QStringLiteral("Serverantwort (%1):\n%2")
-                              .arg(status)
-                              .arg(QString::fromUtf8(raw)));
-                    } else {
-                      BlopDialogs::notify(
-                          this, QStringLiteral("Request gesendet"),
-                          QStringLiteral(
-                              "Die Freigabeanfrage wurde an den Zielnutzer "
-                              "gesendet."));
-                    }
+                  payload, this, this, QStringLiteral("Teilen fehlgeschlagen"),
+                  [this](const QByteArray &) {
+                    BlopDialogs::notify(
+                        this, QStringLiteral("Freigabe gesendet"),
+                        QStringLiteral(
+                            "Die Freigabeanfrage wurde an den Zielnutzer "
+                            "gesendet."));
                   });
           } else if (chosen == actCreateLink) {
-              const QString username =
-                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
-              if (username.isEmpty()) {
-                  BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
-                                      QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+              const QString username = requireShareUsername(this);
+              if (username.isEmpty())
                   return;
-              }
               const QString localPath = capPath;
-              QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-              if (fileId.isEmpty()) {
-                  fileId = BlopDialogs::promptText(
-                      this, QStringLiteral("Cloud-Datei-ID"),
-                      QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
-                      fi.baseName()).trimmed();
-                  if (fileId.isEmpty()) return;
-              } else {
-                  BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
-                                      QStringLiteral("Automatisch erkannt: %1").arg(fileId));
-              }
+              const QString fileId =
+                  resolveShareFileIdForUi(this, m_netManager, username, localPath);
+              if (fileId.isEmpty())
+                  return;
               bool ok = false;
               const int expiresDays = BlopDialogs::promptInt(
                   this, QStringLiteral("Gültigkeit"),
@@ -10108,20 +10222,10 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   {"expires_in_days", expiresDays},
                   {"max_uses", maxUses},
               };
-              postJsonAsync(
+              postShareWithRetry(
                   m_netManager, QUrl(kBlopStudyUrl + "/api/shares/link"),
-                  payload, this,
-                  [this](int status, QNetworkReply::NetworkError err,
-                         const QByteArray &raw) {
-                    if (err != QNetworkReply::NoError || status < 200 ||
-                        status >= 300) {
-                      BlopDialogs::notify(
-                          this, QStringLiteral("Link fehlgeschlagen"),
-                          QStringLiteral("Serverantwort (%1):\n%2")
-                              .arg(status)
-                              .arg(QString::fromUtf8(raw)));
-                      return;
-                    }
+                  payload, this, this, QStringLiteral("Link fehlgeschlagen"),
+                  [this](const QByteArray &raw) {
                     const QJsonDocument doc = QJsonDocument::fromJson(raw);
                     const QString link = shareLinkFromJsonObject(doc.object());
                     if (!link.isEmpty())
@@ -10135,13 +10239,9 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                                   .arg(link));
                   });
           } else if (chosen == actImportLink) {
-              const QString username =
-                  QSettings("Blop", "BlopApp").value("username").toString().trimmed();
-              if (username.isEmpty()) {
-                  BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
-                                      QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+              const QString username = requireShareUsername(this);
+              if (username.isEmpty())
                   return;
-              }
               QString linkOrToken = BlopDialogs::promptText(
                   this, QStringLiteral("Share-Link"),
                   QStringLiteral("Share-Link oder Token einfügen:"), QString()).trimmed();
@@ -10160,27 +10260,17 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   {"username", username},
                   {"folder_id", targetFolderId},
               };
-              postJsonAsync(
+              postShareWithRetry(
                   m_netManager,
                   QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken +
                        "/import"),
-                  payload, this,
-                  [this](int status, QNetworkReply::NetworkError err,
-                         const QByteArray &raw) {
-                    if (err != QNetworkReply::NoError || status < 200 ||
-                        status >= 300) {
-                      BlopDialogs::notify(
-                          this, QStringLiteral("Import fehlgeschlagen"),
-                          QStringLiteral("Serverantwort (%1):\n%2")
-                              .arg(status)
-                              .arg(QString::fromUtf8(raw)));
-                    } else {
-                      BlopDialogs::notify(
-                          this, QStringLiteral("Import erfolgreich"),
-                          QStringLiteral(
-                              "Die geteilte Datei wurde in dein Konto "
-                              "importiert."));
-                    }
+                  payload, this, this, QStringLiteral("Import fehlgeschlagen"),
+                  [this](const QByteArray &) {
+                    BlopDialogs::notify(
+                        this, QStringLiteral("Import erfolgreich"),
+                        QStringLiteral(
+                            "Die geteilte Datei wurde in dein Konto "
+                            "importiert."));
                   });
           }
       });
@@ -10306,29 +10396,13 @@ void MainWindow::shareOpenNoteAtPath(const QString &localPath) {
   QList<BlopInWindowMenu::Item> items;
   items.append(
       {QStringLiteral("Mit Username teilen…"), QIcon(), [this, localPath]() {
-         const QString username =
-             QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-                 .value(QStringLiteral("username"))
-                 .toString()
-                 .trimmed();
-         if (username.isEmpty()) {
-           BlopDialogs::notify(
-               this, QStringLiteral("Nicht angemeldet"),
-               QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+         const QString username = requireShareUsername(this);
+         if (username.isEmpty())
            return;
-         }
-         QString fileId =
-             resolveCloudFileId(this, m_netManager, username, localPath);
-         if (fileId.isEmpty()) {
-           fileId =
-               BlopDialogs::promptText(
-                   this, QStringLiteral("Cloud-Datei-ID"),
-                   QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
-                   QFileInfo(localPath).baseName())
-                   .trimmed();
-           if (fileId.isEmpty())
-             return;
-         }
+         const QString fileId =
+             resolveShareFileIdForUi(this, m_netManager, username, localPath);
+         if (fileId.isEmpty())
+           return;
          const QString target =
              BlopDialogs::promptText(this, QStringLiteral("Zielnutzer"),
                                      QStringLiteral("Username des Empfängers:"),
@@ -10345,52 +10419,26 @@ void MainWindow::shareOpenNoteAtPath(const QString &localPath) {
              {QStringLiteral("target_username"), target},
              {QStringLiteral("message"), message},
          };
-         postJsonAsync(
+         postShareWithRetry(
              m_netManager, QUrl(kBlopStudyUrl + "/api/shares/username"),
-             payload, this,
-             [this](int status, QNetworkReply::NetworkError err,
-                    const QByteArray &raw) {
-               if (err != QNetworkReply::NoError || status < 200 ||
-                   status >= 300) {
-                 BlopDialogs::notify(
-                     this, QStringLiteral("Teilen fehlgeschlagen"),
-                     QStringLiteral("Serverantwort (%1):\n%2")
-                         .arg(status)
-                         .arg(QString::fromUtf8(raw)));
-               } else {
-                 BlopDialogs::notify(
-                     this, QStringLiteral("Request gesendet"),
-                     QStringLiteral(
-                         "Die Freigabeanfrage wurde an den Zielnutzer "
-                         "gesendet."));
-               }
+             payload, this, this, QStringLiteral("Teilen fehlgeschlagen"),
+             [this](const QByteArray &) {
+               BlopDialogs::notify(
+                   this, QStringLiteral("Freigabe gesendet"),
+                   QStringLiteral(
+                       "Die Freigabeanfrage wurde an den Zielnutzer "
+                       "gesendet."));
              });
        }});
   items.append(
       {QStringLiteral("Share-Link erstellen…"), QIcon(), [this, localPath]() {
-         const QString username =
-             QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-                 .value(QStringLiteral("username"))
-                 .toString()
-                 .trimmed();
-         if (username.isEmpty()) {
-           BlopDialogs::notify(
-               this, QStringLiteral("Nicht angemeldet"),
-               QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+         const QString username = requireShareUsername(this);
+         if (username.isEmpty())
            return;
-         }
-         QString fileId =
-             resolveCloudFileId(this, m_netManager, username, localPath);
-         if (fileId.isEmpty()) {
-           fileId =
-               BlopDialogs::promptText(
-                   this, QStringLiteral("Cloud-Datei-ID"),
-                   QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
-                   QFileInfo(localPath).baseName())
-                   .trimmed();
-           if (fileId.isEmpty())
-             return;
-         }
+         const QString fileId =
+             resolveShareFileIdForUi(this, m_netManager, username, localPath);
+         if (fileId.isEmpty())
+           return;
          bool ok = false;
          const int expiresDays = BlopDialogs::promptInt(
              this, QStringLiteral("Gültigkeit"),
@@ -10408,20 +10456,10 @@ void MainWindow::shareOpenNoteAtPath(const QString &localPath) {
              {QStringLiteral("expires_in_days"), expiresDays},
              {QStringLiteral("max_uses"), maxUses},
          };
-         postJsonAsync(
+         postShareWithRetry(
              m_netManager, QUrl(kBlopStudyUrl + "/api/shares/link"), payload,
-             this,
-             [this](int status, QNetworkReply::NetworkError err,
-                    const QByteArray &raw) {
-               if (err != QNetworkReply::NoError || status < 200 ||
-                   status >= 300) {
-                 BlopDialogs::notify(
-                     this, QStringLiteral("Link fehlgeschlagen"),
-                     QStringLiteral("Serverantwort (%1):\n%2")
-                         .arg(status)
-                         .arg(QString::fromUtf8(raw)));
-                 return;
-               }
+             this, this, QStringLiteral("Link fehlgeschlagen"),
+             [this](const QByteArray &raw) {
                const QJsonObject obj = QJsonDocument::fromJson(raw).object();
                const QString link = shareLinkFromJsonObject(obj);
                if (!link.isEmpty())
@@ -10494,26 +10532,14 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   // Android BlopInWindowMenu so the logic lives in exactly one place.
   auto doShareUser = [this, persistent]() {
     if (!persistent.isValid()) return;
-    const QString username =
-        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-            .value(QStringLiteral("username")).toString().trimmed();
-    if (username.isEmpty()) {
-      BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
-                          QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+    const QString username = requireShareUsername(this);
+    if (username.isEmpty())
       return;
-    }
     const QString localPath = m_fileModel->filePath(QModelIndex(persistent));
-    QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-    if (fileId.isEmpty()) {
-      fileId = BlopDialogs::promptText(
-                   this, QStringLiteral("Cloud-Datei-ID"),
-                   QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
-                   QFileInfo(localPath).baseName()).trimmed();
-      if (fileId.isEmpty()) return;
-    } else {
-      BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
-                          QStringLiteral("Automatisch erkannt: %1").arg(fileId));
-    }
+    const QString fileId =
+        resolveShareFileIdForUi(this, m_netManager, username, localPath);
+    if (fileId.isEmpty())
+      return;
     const QString target = BlopDialogs::promptText(
         this, QStringLiteral("Zielnutzer"),
         QStringLiteral("Username des Empfängers:"), QString()).trimmed();
@@ -10527,47 +10553,27 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
         {QStringLiteral("target_username"), target},
         {QStringLiteral("message"), message},
     };
-    postJsonAsync(
+    postShareWithRetry(
         m_netManager, QUrl(kBlopStudyUrl + "/api/shares/username"), payload,
-        this,
-        [this](int status, QNetworkReply::NetworkError err,
-               const QByteArray &raw) {
-          if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
-            BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
-                                QStringLiteral("Serverantwort (%1):\n%2")
-                                    .arg(status)
-                                    .arg(QString::fromUtf8(raw)));
-          } else {
-            BlopDialogs::notify(
-                this, QStringLiteral("Request gesendet"),
-                QStringLiteral(
-                    "Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
-          }
+        this, this, QStringLiteral("Teilen fehlgeschlagen"),
+        [this](const QByteArray &) {
+          BlopDialogs::notify(
+              this, QStringLiteral("Freigabe gesendet"),
+              QStringLiteral(
+                  "Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
         });
   };
 
   auto doCreateLink = [this, persistent]() {
     if (!persistent.isValid()) return;
-    const QString username =
-        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-            .value(QStringLiteral("username")).toString().trimmed();
-    if (username.isEmpty()) {
-      BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
-                          QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+    const QString username = requireShareUsername(this);
+    if (username.isEmpty())
       return;
-    }
     const QString localPath = m_fileModel->filePath(QModelIndex(persistent));
-    QString fileId = resolveCloudFileId(this, m_netManager, username, localPath);
-    if (fileId.isEmpty()) {
-      fileId = BlopDialogs::promptText(
-                   this, QStringLiteral("Cloud-Datei-ID"),
-                   QStringLiteral("Datei-ID im Blop-Study-Cloudspeicher:"),
-                   QFileInfo(localPath).baseName()).trimmed();
-      if (fileId.isEmpty()) return;
-    } else {
-      BlopDialogs::notify(this, QStringLiteral("Cloud-Datei erkannt"),
-                          QStringLiteral("Automatisch erkannt: %1").arg(fileId));
-    }
+    const QString fileId =
+        resolveShareFileIdForUi(this, m_netManager, username, localPath);
+    if (fileId.isEmpty())
+      return;
     bool ok = false;
     const int expiresDays = BlopDialogs::promptInt(
         this, QStringLiteral("Gültigkeit"),
@@ -10583,17 +10589,10 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
         {QStringLiteral("expires_in_days"), expiresDays},
         {QStringLiteral("max_uses"), maxUses},
     };
-    postJsonAsync(
+    postShareWithRetry(
         m_netManager, QUrl(kBlopStudyUrl + "/api/shares/link"), payload, this,
-        [this](int status, QNetworkReply::NetworkError err,
-               const QByteArray &raw) {
-          if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
-            BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
-                                QStringLiteral("Serverantwort (%1):\n%2")
-                                    .arg(status)
-                                    .arg(QString::fromUtf8(raw)));
-            return;
-          }
+        this, QStringLiteral("Link fehlgeschlagen"),
+        [this](const QByteArray &raw) {
           const QJsonDocument doc = QJsonDocument::fromJson(raw);
           const QString link = shareLinkFromJsonObject(doc.object());
           if (!link.isEmpty())
@@ -10609,14 +10608,9 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   };
 
   auto doImportLink = [this]() {
-    const QString username =
-        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-            .value(QStringLiteral("username")).toString().trimmed();
-    if (username.isEmpty()) {
-      BlopDialogs::notify(this, QStringLiteral("Nicht angemeldet"),
-                          QStringLiteral("Bitte zuerst in Blop Study anmelden."));
+    const QString username = requireShareUsername(this);
+    if (username.isEmpty())
       return;
-    }
     QString linkOrToken = BlopDialogs::promptText(
         this, QStringLiteral("Share-Link"),
         QStringLiteral("Share-Link oder Token einfügen:"), QString()).trimmed();
@@ -10636,23 +10630,15 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
         {QStringLiteral("username"), username},
         {QStringLiteral("folder_id"), targetFolderId},
     };
-    postJsonAsync(
+    postShareWithRetry(
         m_netManager,
         QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import"),
-        payload, this,
-        [this](int status, QNetworkReply::NetworkError err,
-               const QByteArray &raw) {
-          if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
-            BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
-                                QStringLiteral("Serverantwort (%1):\n%2")
-                                    .arg(status)
-                                    .arg(QString::fromUtf8(raw)));
-          } else {
-            BlopDialogs::notify(
-                this, QStringLiteral("Import erfolgreich"),
-                QStringLiteral(
-                    "Die geteilte Datei wurde in dein Konto importiert."));
-          }
+        payload, this, this, QStringLiteral("Import fehlgeschlagen"),
+        [this](const QByteArray &) {
+          BlopDialogs::notify(
+              this, QStringLiteral("Import erfolgreich"),
+              QStringLiteral(
+                  "Die geteilte Datei wurde in dein Konto importiert."));
         });
   };
 

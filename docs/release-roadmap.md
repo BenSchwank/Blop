@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 2: Settings-IA App / Editor / Tool / Selektion)
+Zuletzt aktualisiert: 2026-07-27 (Phase 2: Share/Account Status + Retry, keine File-IDs)
 
 ---
 
@@ -105,7 +105,10 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
   - **Editor:** Note-Sheet „Editor“ mit Tabs Seite / Notiz; App-Toolbar/Profile nur Hinweis
   - **Tool vs Selektion:** Props-Titel „Lasso“; Hinweise „nächster Strich“ vs Auswahl-HUD
 - [x] Theme: `BlopTheme` vs. `NoteChrome` bereinigen; Light-Mode ohne dunkle Inseln — MorphTray/Props/NewTab/Radial
-- [ ] Share/Account: Status, Offline, Retry; kein File-ID im Happy Path
+- [x] Share/Account: Status, Offline, Retry; kein File-ID im Happy Path
+  - Keine Cloud-Datei-ID-Prompts/Toasts; Ordnerliste ohne IDs
+  - Friendly Offline/401/5xx-Texte + „Erneut versuchen“; Resolve mit Progress
+  - Sidebar-Konto-Status + Settings Konto-Zeile
 - [ ] Desktop- und Phone-Chrome konsistent (ohne Feature-Verlust)
 
 **Dateien:** `src/ui/mainwindow.*`, `src/ui/settingsdialog.*`, `src/ui/notechrome.h`,
@@ -168,3 +171,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: In-Notiz-Suche mit Trefferliste + Puls-Highlight auf der Seite |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: History „· Seite N“; Light-Mode MorphTray/Props/NewTab/Radial |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Settings-IA — App/Editor/Tool/Selektion Ownership + Copy |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Share/Account — kein File-ID im Happy Path; Retry/Offline; Status |
