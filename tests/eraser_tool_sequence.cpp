@@ -71,6 +71,57 @@ void testPenCreatesStroke() {
   expect(item != nullptr, "pen: lastCompletedItem is StrokeItem");
   expect(item && !item->path().isEmpty(), "pen: path non-empty");
   expect(scene.items().contains(item), "pen: stroke is on scene");
+  expect(item && qFuzzyCompare(item->zValue(), 10.0), "pen: z≈10");
+}
+
+void testPencilCreatesStroke() {
+  QGraphicsScene scene;
+  PencilTool pencil;
+  ToolConfig cfg;
+  cfg.penWidth = 5;
+  cfg.penColor = QColor(40, 40, 40);
+  cfg.opacity = 1.0;
+  cfg.hardness = 40;
+  cfg.texture = QStringLiteral("Fein");
+  pencil.setConfig(cfg);
+
+  sendMouse(&pencil, &scene, QEvent::GraphicsSceneMousePress, {5, 5});
+  sendMouse(&pencil, &scene, QEvent::GraphicsSceneMouseMove, {35, 25});
+  sendMouse(&pencil, &scene, QEvent::GraphicsSceneMouseRelease, {55, 15});
+
+  auto *item = dynamic_cast<StrokeItem *>(pencil.lastCompletedItem());
+  expect(item != nullptr, "pencil: lastCompletedItem is StrokeItem");
+  expect(item && !item->path().isEmpty(), "pencil: path non-empty");
+  expect(scene.items().contains(item), "pencil: stroke is on scene");
+  expect(item && qFuzzyCompare(item->zValue(), 15.0), "pencil: z≈15");
+  expect(item && item->pen().brush().style() != Qt::NoBrush,
+         "pencil: textured brush");
+}
+
+void testHighlighterCreatesStroke() {
+  QGraphicsScene scene;
+  HighlighterTool marker;
+  ToolConfig cfg;
+  cfg.penWidth = 6;
+  cfg.penColor = QColor(255, 230, 0);
+  cfg.opacity = 1.0;
+  cfg.drawBehind = true;
+  cfg.tipType = HighlighterTip::Round;
+  marker.setConfig(cfg);
+
+  sendMouse(&marker, &scene, QEvent::GraphicsSceneMousePress, {20, 40});
+  sendMouse(&marker, &scene, QEvent::GraphicsSceneMouseMove, {80, 40});
+  sendMouse(&marker, &scene, QEvent::GraphicsSceneMouseRelease, {80, 40});
+
+  auto *item = dynamic_cast<StrokeItem *>(marker.lastCompletedItem());
+  expect(item != nullptr, "highlighter: lastCompletedItem is StrokeItem");
+  expect(item && !item->path().isEmpty(), "highlighter: path non-empty");
+  expect(scene.items().contains(item), "highlighter: stroke is on scene");
+  expect(item && item->strokeStyle() == StrokeItem::Highlighter,
+         "highlighter: drawBehind → Highlighter style");
+  expect(item && qFuzzyCompare(item->zValue(), -10.0),
+         "highlighter: drawBehind z≈-10");
+  expect(item && item->pen().width() >= 10, "highlighter: wide tip");
 }
 
 void testPixelEraseCutsStroke() {
@@ -189,13 +240,15 @@ int main(int argc, char **argv) {
   QApplication app(argc, argv);
 
   testPenCreatesStroke();
+  testPencilCreatesStroke();
+  testHighlighterCreatesStroke();
   testPixelEraseCutsStroke();
   testObjectEraseRemovesStroke();
   testTaggedTextPixelVsObject();
   testKeepInkSkipsPenZ();
 
   if (g_failures != 0) {
-    std::fprintf(stderr, "%d eraser/pen sequence check(s) failed\n",
+    std::fprintf(stderr, "%d writing/eraser sequence check(s) failed\n",
                  g_failures);
     return 1;
   }

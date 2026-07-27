@@ -113,7 +113,7 @@ jobs:
         shell: pwsh
         run: |
           # Single-config NMake: no -C needed. Discovers tests registered in benchmarks/.
-          ctest --output-on-failure -R "persistence_roundtrip|infinite_persistence_roundtrip|eraser_tool_sequence"
+          ctest --output-on-failure -R "persistence_roundtrip|infinite_persistence_roundtrip|eraser_tool_sequence|shape_path_sequence"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run micro-benchmark (signal for regressions; optional thresholds via env)

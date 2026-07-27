@@ -121,3 +121,31 @@ set_target_properties(blop_test_eraser_tool_sequence PROPERTIES
 add_test(NAME eraser_tool_sequence COMMAND blop_test_eraser_tool_sequence)
 
 message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_eraser_tool_sequence registered")
+
+# --- Shape drag-bounds → path (header-only geometry) ------------------------
+add_executable(blop_test_shape_path_sequence
+    "${CMAKE_SOURCE_DIR}/tests/shape_path_sequence.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/ShapePath.h"
+)
+
+target_include_directories(blop_test_shape_path_sequence PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools"
+    "${CMAKE_SOURCE_DIR}/src/core"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+target_link_libraries(blop_test_shape_path_sequence PRIVATE
+    Qt6::Core
+    Qt6::Gui
+)
+
+set_target_properties(blop_test_shape_path_sequence PROPERTIES
+    WIN32_EXECUTABLE OFF
+    AUTOMOC OFF
+    AUTOUIC OFF
+    AUTORCC OFF
+)
+
+add_test(NAME shape_path_sequence COMMAND blop_test_shape_path_sequence)
+
+message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_shape_path_sequence registered")
