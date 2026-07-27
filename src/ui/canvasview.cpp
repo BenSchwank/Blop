@@ -8,6 +8,7 @@
 #include "UIStyles.h"
 #include "mainwindow.h"
 #include "overlayscrollindicator.h"
+#include "infinitecanvasstore.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
@@ -649,285 +650,32 @@ void CanvasView::addNewPage() {
 }
 
 bool CanvasView::saveToFile() {
-  if (m_filePath.isEmpty())
+  if (m_filePath.isEmpty() || !m_scene)
     return false;
-  QFile file(m_filePath);
-  if (!file.open(QIODevice::WriteOnly))
-    return false;
-  QDataStream out(&file);
-
-  // V5: strokes + sticky notes + shapes + texts + images
-  out << (quint32)0xB10B0005;
-  out << m_isInfinite;
-
-  QList<QGraphicsItem *> items = m_scene->items(Qt::AscendingOrder);
-  int count = 0;
-  for (auto *item : std::as_const(items)) {
-    if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
-        item != m_cropResizer && item != m_transformOverlay) {
-        count++;
-    }
-  }
-
-  out << count;
-
-  for (auto *item : std::as_const(items)) {
-    if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
-        item != m_cropResizer && item != m_transformOverlay) {
-
-      StrokeItem *strokeItem = static_cast<StrokeItem *>(item);
-      out << strokeItem->pos() << strokeItem->pen().color()
-          << (int)strokeItem->pen().width() << strokeItem->path();
-
-      // V3 Serialization: Pressure Points Buffer
-      const QVector<StrokePoint>& pts = strokeItem->points();
-      out << (qint32)pts.size();
-      for(const auto& p : pts) {
-          out << p.pos << p.pressure;
-      }
-    }
-  }
-
-  // Sticky notes (data(0) == "sticky_note")
-  QList<QGraphicsRectItem *> stickies;
-  for (auto *item : std::as_const(items)) {
-    if (item->data(0).toString() != QLatin1String("sticky_note"))
-      continue;
-    if (auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item))
-      stickies.append(card);
-  }
-  out << (qint32)stickies.size();
-  for (QGraphicsRectItem *card : stickies) {
-    QString text;
-    int fontPt = 14;
-    for (QGraphicsItem *ch : card->childItems()) {
-      if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(ch)) {
-        text = ti->toPlainText();
-        fontPt = ti->font().pointSize() > 0 ? ti->font().pointSize() : 14;
-        break;
-      }
-    }
-    const QRectF r = card->rect();
-    out << card->pos() << r.width() << r.height() << card->brush().color()
-        << fontPt << text;
-  }
-
-  // V5 objects
-  QList<QGraphicsPathItem *> shapes;
-  QList<QGraphicsTextItem *> texts;
-  QList<QGraphicsPixmapItem *> images;
-  for (auto *item : std::as_const(items)) {
-    const QString tag = item->data(0).toString();
-    if (tag == QLatin1String("shape")) {
-      if (auto *p = qgraphicsitem_cast<QGraphicsPathItem *>(item))
-        shapes.append(p);
-    } else if (tag == QLatin1String("text")) {
-      if (auto *t = qgraphicsitem_cast<QGraphicsTextItem *>(item)) {
-        if (!(t->parentItem() &&
-              t->parentItem()->data(0).toString() ==
-                  QLatin1String("sticky_note")))
-          texts.append(t);
-      }
-    } else if (tag == QLatin1String("image")) {
-      if (auto *im = qgraphicsitem_cast<QGraphicsPixmapItem *>(item))
-        images.append(im);
-    }
-  }
-  out << (qint32)shapes.size();
-  for (QGraphicsPathItem *p : shapes) {
-    const QColor fill = (p->brush().style() == Qt::NoBrush)
-                            ? QColor(0, 0, 0, 0)
-                            : p->brush().color();
-    out << p->pos() << p->pen().color() << p->pen().widthF() << fill
-        << p->data(1).toInt() << p->path();
-  }
-  out << (qint32)texts.size();
-  for (QGraphicsTextItem *t : texts) {
-    out << t->pos() << t->toPlainText() << t->font().family()
-        << t->font().pointSize() << t->defaultTextColor()
-        << int(t->document()->defaultTextOption().alignment());
-  }
-  out << (qint32)images.size();
-  for (QGraphicsPixmapItem *im : images) {
-    QByteArray png;
-    QBuffer buf(&png);
-    buf.open(QIODevice::WriteOnly);
-    im->pixmap().toImage().save(&buf, "PNG");
-    out << im->pos() << im->opacity() << im->scale() << png;
-  }
-  return true;
+  QSet<QGraphicsItem *> exclude;
+  if (m_lassoItem)
+    exclude.insert(m_lassoItem);
+  if (m_cropResizer)
+    exclude.insert(m_cropResizer);
+  if (m_transformOverlay)
+    exclude.insert(m_transformOverlay);
+  return InfiniteCanvasStore::saveToFile(m_filePath, m_scene, m_isInfinite,
+                                         exclude);
 }
 
 bool CanvasView::loadFromFile() {
-  if (m_filePath.isEmpty())
+  if (m_filePath.isEmpty() || !m_scene)
     return false;
-  QFile file(m_filePath);
-  if (!file.open(QIODevice::ReadOnly))
+  bool infinite = m_isInfinite;
+  if (!InfiniteCanvasStore::loadFromFile(m_filePath, m_scene, &infinite))
     return false;
-  QDataStream in(&file);
-  quint32 magic;
-  in >> magic;
-
-  if (magic == 0xB10B0001) {
-    m_isInfinite = true;
-  } else if (magic == 0xB10B0002 || magic == 0xB10B0003 || magic == 0xB10B0004 ||
-             magic == 0xB10B0005) {
-    in >> m_isInfinite;
-  } else {
-    return false; // Unknown Corrupt Format
-  }
-
+  m_isInfinite = infinite;
   setPageFormat(m_isInfinite);
-  m_scene->clear();
-  m_undoStack->clear();
+  if (m_undoStack)
+    m_undoStack->clear();
   m_graphPlusBypassItem = nullptr;
   m_graphPlotBypassItem = nullptr;
   m_graphTabletPendingItem = nullptr;
-
-  int count;
-  in >> count;
-  bool wasBlocked = m_scene->blockSignals(true);
-  for (int i = 0; i < count; ++i) {
-    QPointF pos;
-    QColor color;
-    int width;
-    QPainterPath path;
-    in >> pos >> color >> width >> path;
-    QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-
-    QVector<StrokePoint> pts;
-    if (magic >= 0xB10B0003) {
-        qint32 ptCount;
-        in >> ptCount;
-        for(int j = 0; j < ptCount; ++j) {
-            QPointF ppos; qreal ppress;
-            in >> ppos >> ppress;
-            pts.append({ppos, ppress});
-        }
-    }
-
-    StrokeItem *item = new StrokeItem(path, pen, pts, StrokeItem::Normal);
-    m_scene->addItem(item);
-    item->setPos(pos);
-    if (color.alpha() < 255)
-      item->setZValue(0.1);
-    else
-      item->setZValue(1.0);
-  }
-
-  // V4 sticky notes
-  if (magic >= 0xB10B0004) {
-    qint32 stickyCount = 0;
-    in >> stickyCount;
-    for (qint32 i = 0; i < stickyCount; ++i) {
-      QPointF pos;
-      qreal w = 168, h = 148;
-      QColor fill(255, 236, 120);
-      int fontPt = 14;
-      QString text;
-      in >> pos >> w >> h >> fill >> fontPt >> text;
-      auto *card = new QGraphicsRectItem(0, 0, w, h);
-      card->setPos(pos);
-      card->setBrush(fill);
-      card->setPen(QPen(QColor(210, 175, 55), 1.2));
-      card->setFlags(QGraphicsItem::ItemIsSelectable |
-                     QGraphicsItem::ItemIsMovable |
-                     QGraphicsItem::ItemSendsGeometryChanges);
-      card->setZValue(6);
-      card->setData(0, QStringLiteral("sticky_note"));
-      auto *ti = new QGraphicsTextItem(card);
-      ti->setPos(10, 10);
-      ti->setTextWidth(w - 20);
-      QFont font = ti->font();
-      font.setPointSize(qBound(8, fontPt, 72));
-      ti->setFont(font);
-      ti->setDefaultTextColor(QColor(40, 36, 20));
-      ti->setPlainText(text);
-      ti->setTextInteractionFlags(Qt::TextEditorInteraction);
-      ti->setFlag(QGraphicsItem::ItemIsFocusable, true);
-      m_scene->addItem(card);
-    }
-  }
-
-  // V5 shapes / texts / images
-  if (magic >= 0xB10B0005) {
-    qint32 shapeCount = 0;
-    in >> shapeCount;
-    for (qint32 i = 0; i < shapeCount; ++i) {
-      QPointF pos;
-      QColor penC, fillC;
-      qreal penW = 2.0;
-      int kind = 0;
-      QPainterPath path;
-      in >> pos >> penC >> penW >> fillC >> kind >> path;
-      auto *pathItem = new QGraphicsPathItem(path);
-      pathItem->setPos(pos);
-      pathItem->setPen(QPen(penC, penW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      if (fillC.isValid() && fillC.alpha() > 0)
-        pathItem->setBrush(fillC);
-      else
-        pathItem->setBrush(Qt::NoBrush);
-      pathItem->setZValue(5);
-      pathItem->setData(0, QStringLiteral("shape"));
-      pathItem->setData(1, kind);
-      pathItem->setFlags(QGraphicsItem::ItemIsSelectable |
-                         QGraphicsItem::ItemIsMovable);
-      m_scene->addItem(pathItem);
-    }
-    qint32 textCount = 0;
-    in >> textCount;
-    for (qint32 i = 0; i < textCount; ++i) {
-      QPointF pos;
-      QString text, family;
-      int fontPt = 16;
-      QColor color;
-      int align = 0;
-      in >> pos >> text >> family >> fontPt >> color >> align;
-      auto *ti = new QGraphicsTextItem();
-      ti->setPos(pos);
-      ti->setPlainText(text);
-      QFont font = ti->font();
-      if (!family.isEmpty())
-        font.setFamily(family);
-      font.setPointSize(qBound(8, fontPt, 72));
-      ti->setFont(font);
-      ti->setDefaultTextColor(color);
-      QTextOption opt = ti->document()->defaultTextOption();
-      opt.setAlignment(Qt::Alignment(align));
-      ti->document()->setDefaultTextOption(opt);
-      ti->setTextInteractionFlags(Qt::TextEditorInteraction);
-      ti->setFlags(QGraphicsItem::ItemIsSelectable |
-                   QGraphicsItem::ItemIsFocusable |
-                   QGraphicsItem::ItemIsMovable);
-      ti->setData(0, QStringLiteral("text"));
-      ti->setZValue(5);
-      m_scene->addItem(ti);
-    }
-    qint32 imageCount = 0;
-    in >> imageCount;
-    for (qint32 i = 0; i < imageCount; ++i) {
-      QPointF pos;
-      qreal opacity = 1.0, scale = 1.0;
-      QByteArray png;
-      in >> pos >> opacity >> scale >> png;
-      QPixmap pm;
-      pm.loadFromData(png, "PNG");
-      if (pm.isNull())
-        continue;
-      auto *im = new QGraphicsPixmapItem(pm);
-      im->setPos(pos);
-      im->setOpacity(qBound(0.1, opacity, 1.0));
-      if (scale > 0.01)
-        im->setScale(scale);
-      im->setFlags(QGraphicsItem::ItemIsSelectable |
-                   QGraphicsItem::ItemIsMovable);
-      im->setData(0, QStringLiteral("image"));
-      im->setZValue(5);
-      m_scene->addItem(im);
-    }
-  }
-
-  m_scene->blockSignals(wasBlocked);
   if (m_isInfinite)
     updateSceneRect();
   return true;

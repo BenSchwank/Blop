@@ -11,6 +11,7 @@
 #include <QShowEvent>
 #include <QGestureEvent>
 #include <QUndoStack>
+#include <QHash>
 #include <functional>
 #include "Note.h"
 #include "ToolMode.h"
@@ -31,12 +32,18 @@ class GraphQuickActionPopup;
 class GraphFormulaEntryBar;
 class GraphTangentXPopup;
 class StrokeAddUndoCommand;
+class SceneItemsRemoveCommand;
+class SceneItemsMoveCommand;
+class SceneEraseCommand;
 class AbstractTool;
 class GraphFormulaZone;
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
     friend class StrokeAddUndoCommand;
+    friend class SceneItemsRemoveCommand;
+    friend class SceneItemsMoveCommand;
+    friend class SceneEraseCommand;
 public:
     explicit MultiPageNoteView(QWidget* parent=nullptr);
 
@@ -350,4 +357,11 @@ private:
     QPointer<GraphFormulaZone> m_activeFormulaZone;
 
     QMetaObject::Connection m_toolContentConn;
+    QMetaObject::Connection m_toolEraseConn;
+
+    /// Positions of selected items at press — used for move undo.
+    QHash<QGraphicsItem *, QPointF> m_moveGestureStarts;
+    void captureMoveGestureStarts();
+    void commitMoveGestureIfNeeded();
+    void bindActiveToolSignals(AbstractTool *tool);
 };

@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Start Phase 0)
+Zuletzt aktualisiert: 2026-07-27 (Phase 0 fertig + Phase 1.1 A4 Undo)
 
 ---
 
@@ -52,13 +52,13 @@ automatisierte Regressionstests, Versions-Einheit, Share/Privacy-Produktreife.
 
 - [x] Roadmap als `docs/release-roadmap.md` ablegen
 - [x] Persistenz-Roundtrip-Harness (A4 JSON: strokes, pressure, graphs, stickies, shapes, texts, images, page meta)
-- [ ] Infinite Binary Roundtrip (V5/V6) analog
+- [x] Infinite Binary Roundtrip (V5) analog (`InfiniteCanvasStore` + `blop_test_infinite_persistence_roundtrip`)
 - [x] Eine Versionsquelle: Runtime (`BLOP_VERSION_STR`), Settings-UI, NSIS (CI-Override)
 - [x] Editor-Entscheidung dokumentieren: A4 = Release-Editor; Infinite Parität oder klar eingeschränkt
 - [x] Graphen in Infinite (V6) **oder** Graph-Erstellung dort deaktivieren
   - **Entscheidung 2026-07-27:** A4 ist Release-Editor für Graphen. Infinite blockiert
     `ShapeToolKind::CoordinateGraph` mit Hinweis (bis V6-Persistenz).
-- [ ] Share-Flows async (kein blockierendes `QEventLoop`)
+- [x] Share-Flows async (kein blockierendes `QEventLoop` auf `/api/shares/*` POSTs)
 
 **Dateien:** `src/core/notemanager.*`, `src/core/Note.h`, `src/ui/canvasview.*`,
 `CMakeLists.txt`, `installer.nsi`, `src/ui/settingsdialog.cpp`, `src/ui/mainwindow.cpp`
@@ -78,13 +78,13 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 
 ### Work items
 
-- [ ] QUndoCommands: Eraser (pixel/object)
-- [ ] QUndoCommands: Object move / transform
+- [x] QUndoCommands: Eraser (pixel/object) — A4 via `SceneEraseCommand` / `EraserTool::eraseSessionFinished`
+- [x] QUndoCommands: Object move / transform — A4 selection move via `SceneItemsMoveCommand` (transform session follows)
 - [ ] QUndoCommands: Shape create/edit/delete
 - [ ] QUndoCommands: Text / Sticky content changes
 - [ ] QUndoCommands: Image insert/move/scale/delete
 - [ ] QUndoCommands: Graph function edits
-- [ ] Scene→Note-Sync an Commands koppeln (`persistSceneToNote` / Infinite autosave)
+- [x] Scene→Note-Sync an Commands koppeln (`persistSceneToNote` / Infinite autosave) — delete/move/erase A4
 - [ ] Object-Inspector vs. Tool-Props trennen
 - [ ] Pixel-Eraser-Semantik dokumentieren + testen
 - [ ] Event-Sequenz-Tests pro Tool (headless wo möglich)
@@ -159,3 +159,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 |-------|-----------------|----------|
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Roadmap angelegt; Phase 0.1 A4-Roundtrip-Test + Versions-Sync (Settings/NSIS/CI) |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 0.3: A4=Graph-Release-Editor; CoordinateGraph auf Infinite blockiert |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 0: Infinite V5 Store+Test; Share POSTs async; Phase 1.1 A4 Undo Delete/Move/Erase |

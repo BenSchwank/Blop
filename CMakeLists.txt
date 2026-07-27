@@ -186,6 +186,7 @@ qt_add_executable(Blop
 
     # Core (note model, page management, profiles, helper headers)
     src/core/notemanager.cpp
+    src/core/infinitecanvasstore.cpp
     src/core/notemanager.h
     src/core/noteeditor.cpp
     src/core/noteeditor.h
@@ -236,6 +237,7 @@ qt_add_executable(Blop
     tools/AbstractStrokeTool.h
     tools/WritingTools.h
     tools/EraserTool.h
+    tools/EraserTool.cpp
     tools/LassoTool.h
     tools/ShapeTool.h
     tools/GraphCanvasItem.h

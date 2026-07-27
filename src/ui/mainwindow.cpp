@@ -708,6 +708,45 @@ static QString shareLinkFromJsonObject(const QJsonObject &obj) {
   return link;
 }
 
+using ShareJsonDone =
+    std::function<void(int status, QNetworkReply::NetworkError err,
+                       const QByteArray &raw)>;
+
+/// Non-blocking JSON POST for share flows (Phase 0 — no QEventLoop).
+void postJsonAsync(QNetworkAccessManager *nam, const QUrl &url,
+                   const QJsonObject &payload, QObject *context,
+                   ShareJsonDone done) {
+  if (!nam) {
+    if (done)
+      done(0, QNetworkReply::UnknownNetworkError, {});
+    return;
+  }
+  QNetworkRequest req(url);
+  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+  const QString sid =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("session_id"))
+          .toString()
+          .trimmed();
+  if (!sid.isEmpty())
+    req.setRawHeader("X-Session-Id", sid.toUtf8());
+  QNetworkReply *reply =
+      nam->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+  QObject *guard = context ? context : nam;
+  QObject::connect(reply, &QNetworkReply::finished, guard,
+                   [reply, done]() {
+                     const int status =
+                         reply
+                             ->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                             .toInt();
+                     const QNetworkReply::NetworkError err = reply->error();
+                     const QByteArray raw = reply->readAll();
+                     reply->deleteLater();
+                     if (done)
+                       done(status, err, raw);
+                   });
+}
+
 QString resolveCloudFileId(QWidget *parent, QNetworkAccessManager *nam,
                            const QString &username,
                            const QString &localFilePathOrName) {
@@ -10036,29 +10075,32 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   this, QStringLiteral("Nachricht (optional)"),
                   QStringLiteral("Begleitnachricht:"), QString());
 
-              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/username"));
-              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
               QJsonObject payload{
                   {"username", username},
                   {"file_id", fileId},
                   {"target_username", target},
                   {"message", message},
               };
-              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-              QEventLoop loop;
-              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-              loop.exec();
-              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-              const QByteArray raw = reply->readAll();
-              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-                  BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
-                                      QStringLiteral("Serverantwort (%1):\n%2")
-                                          .arg(status).arg(QString::fromUtf8(raw)));
-              } else {
-                  BlopDialogs::notify(this, QStringLiteral("Request gesendet"),
-                                      QStringLiteral("Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
-              }
-              reply->deleteLater();
+              postJsonAsync(
+                  m_netManager, QUrl(kBlopStudyUrl + "/api/shares/username"),
+                  payload, this,
+                  [this](int status, QNetworkReply::NetworkError err,
+                         const QByteArray &raw) {
+                    if (err != QNetworkReply::NoError || status < 200 ||
+                        status >= 300) {
+                      BlopDialogs::notify(
+                          this, QStringLiteral("Teilen fehlgeschlagen"),
+                          QStringLiteral("Serverantwort (%1):\n%2")
+                              .arg(status)
+                              .arg(QString::fromUtf8(raw)));
+                    } else {
+                      BlopDialogs::notify(
+                          this, QStringLiteral("Request gesendet"),
+                          QStringLiteral(
+                              "Die Freigabeanfrage wurde an den Zielnutzer "
+                              "gesendet."));
+                    }
+                  });
           } else if (chosen == actCreateLink) {
               const QString username =
                   QSettings("Blop", "BlopApp").value("username").toString().trimmed();
@@ -10089,36 +10131,38 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
                   QStringLiteral("Maximale Nutzungen:"), 1, 1, 100, &ok);
               if (!ok) return;
 
-              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link"));
-              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
               QJsonObject payload{
                   {"username", username},
                   {"file_id", fileId},
                   {"expires_in_days", expiresDays},
                   {"max_uses", maxUses},
               };
-              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-              QEventLoop loop;
-              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-              loop.exec();
-              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-              const QByteArray raw = reply->readAll();
-              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-                  BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
-                                      QStringLiteral("Serverantwort (%1):\n%2")
-                                          .arg(status).arg(QString::fromUtf8(raw)));
-                  reply->deleteLater();
-                  return;
-              }
-              const QJsonDocument doc = QJsonDocument::fromJson(raw);
-              const QString link = shareLinkFromJsonObject(doc.object());
-              if (!link.isEmpty())
-                  QGuiApplication::clipboard()->setText(link);
-              BlopDialogs::notify(this, QStringLiteral("Link erstellt"),
-                                  link.isEmpty()
-                                      ? QStringLiteral("Share-Link wurde erstellt.")
-                                      : QStringLiteral("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
-              reply->deleteLater();
+              postJsonAsync(
+                  m_netManager, QUrl(kBlopStudyUrl + "/api/shares/link"),
+                  payload, this,
+                  [this](int status, QNetworkReply::NetworkError err,
+                         const QByteArray &raw) {
+                    if (err != QNetworkReply::NoError || status < 200 ||
+                        status >= 300) {
+                      BlopDialogs::notify(
+                          this, QStringLiteral("Link fehlgeschlagen"),
+                          QStringLiteral("Serverantwort (%1):\n%2")
+                              .arg(status)
+                              .arg(QString::fromUtf8(raw)));
+                      return;
+                    }
+                    const QJsonDocument doc = QJsonDocument::fromJson(raw);
+                    const QString link = shareLinkFromJsonObject(doc.object());
+                    if (!link.isEmpty())
+                      QGuiApplication::clipboard()->setText(link);
+                    BlopDialogs::notify(
+                        this, QStringLiteral("Link erstellt"),
+                        link.isEmpty()
+                            ? QStringLiteral("Share-Link wurde erstellt.")
+                            : QStringLiteral(
+                                  "Share-Link wurde erstellt und kopiert:\n%1")
+                                  .arg(link));
+                  });
           } else if (chosen == actImportLink) {
               const QString username =
                   QSettings("Blop", "BlopApp").value("username").toString().trimmed();
@@ -10141,27 +10185,32 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               if (targetFolderId.isEmpty()) return;
 
               const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
-              QNetworkRequest req(QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import"));
-              req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
               QJsonObject payload{
                   {"username", username},
                   {"folder_id", targetFolderId},
               };
-              QNetworkReply *reply = m_netManager->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-              QEventLoop loop;
-              connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-              loop.exec();
-              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-              const QByteArray raw = reply->readAll();
-              if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-                  BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
-                                      QStringLiteral("Serverantwort (%1):\n%2")
-                                          .arg(status).arg(QString::fromUtf8(raw)));
-              } else {
-                  BlopDialogs::notify(this, QStringLiteral("Import erfolgreich"),
-                                      QStringLiteral("Die geteilte Datei wurde in dein Konto importiert."));
-              }
-              reply->deleteLater();
+              postJsonAsync(
+                  m_netManager,
+                  QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken +
+                       "/import"),
+                  payload, this,
+                  [this](int status, QNetworkReply::NetworkError err,
+                         const QByteArray &raw) {
+                    if (err != QNetworkReply::NoError || status < 200 ||
+                        status >= 300) {
+                      BlopDialogs::notify(
+                          this, QStringLiteral("Import fehlgeschlagen"),
+                          QStringLiteral("Serverantwort (%1):\n%2")
+                              .arg(status)
+                              .arg(QString::fromUtf8(raw)));
+                    } else {
+                      BlopDialogs::notify(
+                          this, QStringLiteral("Import erfolgreich"),
+                          QStringLiteral(
+                              "Die geteilte Datei wurde in dein Konto "
+                              "importiert."));
+                    }
+                  });
           }
       });
 #endif // !Q_OS_ANDROID
@@ -10319,36 +10368,32 @@ void MainWindow::shareOpenNoteAtPath(const QString &localPath) {
          const QString message = BlopDialogs::promptText(
              this, QStringLiteral("Nachricht (optional)"),
              QStringLiteral("Begleitnachricht:"), QString());
-         QUrl url(kBlopStudyUrl + "/api/shares/username");
-         QNetworkRequest req(url);
-         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
          QJsonObject payload{
              {QStringLiteral("username"), username},
              {QStringLiteral("file_id"), fileId},
              {QStringLiteral("target_username"), target},
              {QStringLiteral("message"), message},
          };
-         QNetworkReply *reply = m_netManager->post(
-             req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-         QEventLoop loop;
-         connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-         loop.exec();
-         const int status =
-             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-         const QByteArray raw = reply->readAll();
-         if (reply->error() != QNetworkReply::NoError || status < 200 ||
-             status >= 300) {
-           BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
-                               QStringLiteral("Serverantwort (%1):\n%2")
-                                   .arg(status)
-                                   .arg(QString::fromUtf8(raw)));
-         } else {
-           BlopDialogs::notify(
-               this, QStringLiteral("Request gesendet"),
-               QStringLiteral(
-                   "Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
-         }
-         reply->deleteLater();
+         postJsonAsync(
+             m_netManager, QUrl(kBlopStudyUrl + "/api/shares/username"),
+             payload, this,
+             [this](int status, QNetworkReply::NetworkError err,
+                    const QByteArray &raw) {
+               if (err != QNetworkReply::NoError || status < 200 ||
+                   status >= 300) {
+                 BlopDialogs::notify(
+                     this, QStringLiteral("Teilen fehlgeschlagen"),
+                     QStringLiteral("Serverantwort (%1):\n%2")
+                         .arg(status)
+                         .arg(QString::fromUtf8(raw)));
+               } else {
+                 BlopDialogs::notify(
+                     this, QStringLiteral("Request gesendet"),
+                     QStringLiteral(
+                         "Die Freigabeanfrage wurde an den Zielnutzer "
+                         "gesendet."));
+               }
+             });
        }});
   items.append(
       {QStringLiteral("Share-Link erstellen…"), QIcon(), [this, localPath]() {
@@ -10386,43 +10431,38 @@ void MainWindow::shareOpenNoteAtPath(const QString &localPath) {
              QStringLiteral("Maximale Nutzungen:"), 1, 1, 100, &ok);
          if (!ok)
            return;
-         QUrl url(kBlopStudyUrl + "/api/shares/link");
-         QNetworkRequest req(url);
-         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
          QJsonObject payload{
              {QStringLiteral("username"), username},
              {QStringLiteral("file_id"), fileId},
              {QStringLiteral("expires_in_days"), expiresDays},
              {QStringLiteral("max_uses"), maxUses},
          };
-         QNetworkReply *reply = m_netManager->post(
-             req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-         QEventLoop loop;
-         connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-         loop.exec();
-         const int status =
-             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-         const QByteArray raw = reply->readAll();
-         if (reply->error() != QNetworkReply::NoError || status < 200 ||
-             status >= 300) {
-           BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
-                               QStringLiteral("Serverantwort (%1):\n%2")
-                                   .arg(status)
-                                   .arg(QString::fromUtf8(raw)));
-           reply->deleteLater();
-           return;
-         }
-         const QJsonObject obj = QJsonDocument::fromJson(raw).object();
-         const QString link = shareLinkFromJsonObject(obj);
-         if (!link.isEmpty())
-           QGuiApplication::clipboard()->setText(link);
-         BlopDialogs::notify(
-             this, QStringLiteral("Link erstellt"),
-             link.isEmpty()
-                 ? QStringLiteral("Share-Link wurde erstellt.")
-                 : QStringLiteral("Share-Link wurde erstellt und kopiert:\n%1")
-                       .arg(link));
-         reply->deleteLater();
+         postJsonAsync(
+             m_netManager, QUrl(kBlopStudyUrl + "/api/shares/link"), payload,
+             this,
+             [this](int status, QNetworkReply::NetworkError err,
+                    const QByteArray &raw) {
+               if (err != QNetworkReply::NoError || status < 200 ||
+                   status >= 300) {
+                 BlopDialogs::notify(
+                     this, QStringLiteral("Link fehlgeschlagen"),
+                     QStringLiteral("Serverantwort (%1):\n%2")
+                         .arg(status)
+                         .arg(QString::fromUtf8(raw)));
+                 return;
+               }
+               const QJsonObject obj = QJsonDocument::fromJson(raw).object();
+               const QString link = shareLinkFromJsonObject(obj);
+               if (!link.isEmpty())
+                 QGuiApplication::clipboard()->setText(link);
+               BlopDialogs::notify(
+                   this, QStringLiteral("Link erstellt"),
+                   link.isEmpty()
+                       ? QStringLiteral("Share-Link wurde erstellt.")
+                       : QStringLiteral(
+                             "Share-Link wurde erstellt und kopiert:\n%1")
+                             .arg(link));
+             });
        }});
   QWidget *anchor = m_btnEditorNoteOverflow ? m_btnEditorNoteOverflow
                                             : static_cast<QWidget *>(this);
@@ -10510,31 +10550,29 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     const QString message = BlopDialogs::promptText(
         this, QStringLiteral("Nachricht (optional)"),
         QStringLiteral("Begleitnachricht:"), QString());
-    QUrl url(kBlopStudyUrl + "/api/shares/username");
-    QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QJsonObject payload{
         {QStringLiteral("username"), username},
         {QStringLiteral("file_id"), fileId},
         {QStringLiteral("target_username"), target},
         {QStringLiteral("message"), message},
     };
-    QNetworkReply *reply = m_netManager->post(
-        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    QEventLoop loop;
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
-    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-      BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
-                          QStringLiteral("Serverantwort (%1):\n%2")
-                              .arg(status).arg(QString::fromUtf8(raw)));
-    } else {
-      BlopDialogs::notify(this, QStringLiteral("Request gesendet"),
-                          QStringLiteral("Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
-    }
-    reply->deleteLater();
+    postJsonAsync(
+        m_netManager, QUrl(kBlopStudyUrl + "/api/shares/username"), payload,
+        this,
+        [this](int status, QNetworkReply::NetworkError err,
+               const QByteArray &raw) {
+          if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
+            BlopDialogs::notify(this, QStringLiteral("Teilen fehlgeschlagen"),
+                                QStringLiteral("Serverantwort (%1):\n%2")
+                                    .arg(status)
+                                    .arg(QString::fromUtf8(raw)));
+          } else {
+            BlopDialogs::notify(
+                this, QStringLiteral("Request gesendet"),
+                QStringLiteral(
+                    "Die Freigabeanfrage wurde an den Zielnutzer gesendet."));
+          }
+        });
   };
 
   auto doCreateLink = [this, persistent]() {
@@ -10568,38 +10606,35 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
         this, QStringLiteral("Nutzungslimit"),
         QStringLiteral("Maximale Nutzungen:"), 1, 1, 100, &ok);
     if (!ok) return;
-    QUrl url(kBlopStudyUrl + "/api/shares/link");
-    QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QJsonObject payload{
         {QStringLiteral("username"), username},
         {QStringLiteral("file_id"), fileId},
         {QStringLiteral("expires_in_days"), expiresDays},
         {QStringLiteral("max_uses"), maxUses},
     };
-    QNetworkReply *reply = m_netManager->post(
-        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    QEventLoop loop;
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
-    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-      BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
-                          QStringLiteral("Serverantwort (%1):\n%2")
-                              .arg(status).arg(QString::fromUtf8(raw)));
-      reply->deleteLater();
-      return;
-    }
-    const QJsonDocument doc = QJsonDocument::fromJson(raw);
-    const QString link = shareLinkFromJsonObject(doc.object());
-    if (!link.isEmpty())
-      QGuiApplication::clipboard()->setText(link);
-    BlopDialogs::notify(this, QStringLiteral("Link erstellt"),
-                        link.isEmpty()
-                            ? QStringLiteral("Share-Link wurde erstellt.")
-                            : QStringLiteral("Share-Link wurde erstellt und kopiert:\n%1").arg(link));
-    reply->deleteLater();
+    postJsonAsync(
+        m_netManager, QUrl(kBlopStudyUrl + "/api/shares/link"), payload, this,
+        [this](int status, QNetworkReply::NetworkError err,
+               const QByteArray &raw) {
+          if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
+            BlopDialogs::notify(this, QStringLiteral("Link fehlgeschlagen"),
+                                QStringLiteral("Serverantwort (%1):\n%2")
+                                    .arg(status)
+                                    .arg(QString::fromUtf8(raw)));
+            return;
+          }
+          const QJsonDocument doc = QJsonDocument::fromJson(raw);
+          const QString link = shareLinkFromJsonObject(doc.object());
+          if (!link.isEmpty())
+            QGuiApplication::clipboard()->setText(link);
+          BlopDialogs::notify(
+              this, QStringLiteral("Link erstellt"),
+              link.isEmpty()
+                  ? QStringLiteral("Share-Link wurde erstellt.")
+                  : QStringLiteral(
+                        "Share-Link wurde erstellt und kopiert:\n%1")
+                        .arg(link));
+        });
   };
 
   auto doImportLink = [this]() {
@@ -10626,29 +10661,28 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     const QString targetFolderId = chooseCloudFolderId(this, m_netManager, username);
     if (targetFolderId.isEmpty()) return;
     const QString encodedToken = QString::fromUtf8(QUrl::toPercentEncoding(linkOrToken));
-    QUrl url(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import");
-    QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QJsonObject payload{
         {QStringLiteral("username"), username},
         {QStringLiteral("folder_id"), targetFolderId},
     };
-    QNetworkReply *reply = m_netManager->post(
-        req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    QEventLoop loop;
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
-    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-      BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
-                          QStringLiteral("Serverantwort (%1):\n%2")
-                              .arg(status).arg(QString::fromUtf8(raw)));
-    } else {
-      BlopDialogs::notify(this, QStringLiteral("Import erfolgreich"),
-                          QStringLiteral("Die geteilte Datei wurde in dein Konto importiert."));
-    }
-    reply->deleteLater();
+    postJsonAsync(
+        m_netManager,
+        QUrl(kBlopStudyUrl + "/api/shares/link/" + encodedToken + "/import"),
+        payload, this,
+        [this](int status, QNetworkReply::NetworkError err,
+               const QByteArray &raw) {
+          if (err != QNetworkReply::NoError || status < 200 || status >= 300) {
+            BlopDialogs::notify(this, QStringLiteral("Import fehlgeschlagen"),
+                                QStringLiteral("Serverantwort (%1):\n%2")
+                                    .arg(status)
+                                    .arg(QString::fromUtf8(raw)));
+          } else {
+            BlopDialogs::notify(
+                this, QStringLiteral("Import erfolgreich"),
+                QStringLiteral(
+                    "Die geteilte Datei wurde in dein Konto importiert."));
+          }
+        });
   };
 
   const auto populateMenu = [this, persistent, doShareUser, doCreateLink, doImportLink](QMenu *menu) {
