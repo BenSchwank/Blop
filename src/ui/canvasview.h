@@ -195,6 +195,8 @@ private:
     void finishLasso();
     void updateSelectionMenuPosition();
     void updateCropMenuPosition();
+    /// Phase 0: refuse CoordinateGraph on infinite until V6 graph persistence.
+    bool blockUnsupportedInfiniteGraphTool();
     void clearSelection();
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);

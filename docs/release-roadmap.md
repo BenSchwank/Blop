@@ -54,8 +54,10 @@ automatisierte Regressionstests, Versions-Einheit, Share/Privacy-Produktreife.
 - [x] Persistenz-Roundtrip-Harness (A4 JSON: strokes, pressure, graphs, stickies, shapes, texts, images, page meta)
 - [ ] Infinite Binary Roundtrip (V5/V6) analog
 - [x] Eine Versionsquelle: Runtime (`BLOP_VERSION_STR`), Settings-UI, NSIS (CI-Override)
-- [ ] Editor-Entscheidung dokumentieren: A4 = Release-Editor; Infinite Parität oder klar eingeschränkt
-- [ ] Graphen in Infinite (V6) **oder** Graph-Erstellung dort deaktivieren
+- [x] Editor-Entscheidung dokumentieren: A4 = Release-Editor; Infinite Parität oder klar eingeschränkt
+- [x] Graphen in Infinite (V6) **oder** Graph-Erstellung dort deaktivieren
+  - **Entscheidung 2026-07-27:** A4 ist Release-Editor für Graphen. Infinite blockiert
+    `ShapeToolKind::CoordinateGraph` mit Hinweis (bis V6-Persistenz).
 - [ ] Share-Flows async (kein blockierendes `QEventLoop`)
 
 **Dateien:** `src/core/notemanager.*`, `src/core/Note.h`, `src/ui/canvasview.*`,
@@ -156,3 +158,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | Datum | Commit / Branch | Erledigt |
 |-------|-----------------|----------|
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Roadmap angelegt; Phase 0.1 A4-Roundtrip-Test + Versions-Sync (Settings/NSIS/CI) |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 0.3: A4=Graph-Release-Editor; CoordinateGraph auf Infinite blockiert |

@@ -14,6 +14,7 @@
 #include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
 #include "tools/GraphCanvasItem.h"
+#include "ToolSettings.h"
 #include "graphaxissettingsdialog.h"
 #include "uiscale.h"
 #include <QCoreApplication>
@@ -1085,6 +1086,24 @@ void CanvasView::fitPage() {
 void CanvasView::setPenColor(const QColor &color) { m_penColor = color; }
 void CanvasView::setPenWidth(int width) { m_penWidth = width; }
 
+bool CanvasView::blockUnsupportedInfiniteGraphTool() {
+  // Phase 0 release contract: A4 MultiPageNoteView is the primary editor for
+  // graphs. Infinite V5 does not persist GraphCanvasItem yet — refuse create.
+  if (!m_isInfinite || !m_toolManager)
+    return false;
+  if (m_toolManager->activeToolMode() != ToolMode::Shape)
+    return false;
+  if (m_toolManager->config().shapeToolKind != ShapeToolKind::CoordinateGraph)
+    return false;
+  BlopDialogs::notify(
+      window(), QStringLiteral("Graph nur in A4-Notizen"),
+      QStringLiteral(
+          "Koordinaten-Graphen werden in unendlichen Notizen noch nicht "
+          "gespeichert. Bitte eine A4-Notiz verwenden (oder warte auf "
+          "Infinite-V6-Parität)."));
+  return true;
+}
+
 void CanvasView::undo() {
   m_undoStack->undo();
   emit contentModified();
@@ -1576,6 +1595,11 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
     }
 
     if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
+        if (event->type() == QEvent::TabletPress &&
+            blockUnsupportedInfiniteGraphTool()) {
+          event->accept();
+          return;
+        }
         m_toolManager->activeTool()->setStrokeSceneForTablet(m_scene);
 
         if (m_toolManager->activeTool()->handleTabletEvent(event, scenePos)) {
@@ -1617,6 +1641,11 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     m_isPanning = true;
     m_lastPanPos = event->pos();
     setCursor(Qt::ClosedHandCursor);
+    event->accept();
+    return;
+  }
+
+  if (event->button() == Qt::LeftButton && blockUnsupportedInfiniteGraphTool()) {
     event->accept();
     return;
   }
