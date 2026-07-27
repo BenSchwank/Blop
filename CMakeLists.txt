@@ -483,6 +483,7 @@ endif()
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---
 option(BLOP_BUILD_AUTOMATION "Register headless tooling targets (e.g. blop_benchmark_math); does not change Blop behavior" OFF)
 if(BLOP_BUILD_AUTOMATION AND NOT ANDROID)
+    enable_testing()
     add_subdirectory(benchmarks)
 elseif(BLOP_BUILD_AUTOMATION AND ANDROID)
     message(STATUS "BLOP_BUILD_AUTOMATION=ON: skipping benchmarks subdirectory on Android toolchain (desktop CI only)")

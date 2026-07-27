@@ -106,7 +106,14 @@ jobs:
 
       - name: Build micro-benchmark (additive; not bundled in installer)
         working-directory: build
-        run: cmake --build . --target blop_benchmark_math
+        run: cmake --build . --target blop_benchmark_math blop_test_persistence_roundtrip
+
+      - name: Run persistence round-trip test (Phase 0)
+        working-directory: build
+        shell: pwsh
+        run: |
+          & .\benchmarks\blop_test_persistence_roundtrip.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run micro-benchmark (signal for regressions; optional thresholds via env)
         working-directory: build
@@ -269,7 +276,13 @@ jobs:
             exit 1
           }
           Write-Host "Using NSIS at: $nsisPath"
-          & $nsisPath installer.nsi
+          $desc = (git describe --tags --always).Trim()
+          $ver = $desc -replace '^v',''
+          if ($ver -match '^(\d+\.\d+\.\d+)') { $ver = $Matches[1] }
+          elseif ($ver -match '^(\d+\.\d+)') { $ver = $Matches[1] + '.0' }
+          else { $ver = '0.0.0' }
+          Write-Host "NSIS BLOP_PRODUCT_VERSION=$ver (from $desc)"
+          & $nsisPath "/DBLOP_PRODUCT_VERSION=$ver" installer.nsi
 
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')
