@@ -1,5 +1,6 @@
 #pragma once
 #include "AbstractTool.h"
+#include "ImagePlacement.h"
 #include "blop_dialogs.h"
 #include <QGraphicsPixmapItem>
 #include <QFileDialog>
@@ -18,6 +19,20 @@ public:
     ToolMode mode() const override { return ToolMode::Image; }
     QString name() const override { return "Bild"; }
     QString iconName() const override { return "image"; }
+
+    /// Place an already-loaded pixmap (tests / non-dialog callers).
+    QGraphicsPixmapItem *placePixmap(QGraphicsScene *scene, const QPixmap &pixmap,
+                                     const QPointF &pos) {
+        if (!scene)
+            return nullptr;
+        auto *item = blopCreateImageItem(pixmap, pos, m_config);
+        if (!item)
+            return nullptr;
+        scene->addItem(item);
+        m_lastCompletedItem = item;
+        emit contentModified();
+        return item;
+    }
 
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene) return false;
@@ -38,25 +53,8 @@ public:
                         QStringLiteral("Bild konnte nicht geladen werden."));
                     return;
                 }
-                if (pixmap.width() > 800)
-                    pixmap = pixmap.scaledToWidth(800, Qt::SmoothTransformation);
-                auto *item = new QGraphicsPixmapItem(pixmap);
-                item->setPos(pos);
-                item->setFlags(QGraphicsItem::ItemIsSelectable |
-                               QGraphicsItem::ItemIsMovable);
-                item->setZValue(5);
-                item->setData(0, QStringLiteral("image"));
-                if (self) {
-                  const qreal op = self->config().imageOpacity > 0.01
-                                       ? self->config().imageOpacity
-                                       : self->config().opacity;
-                  item->setOpacity(qBound(0.1, op, 1.0));
-                }
-                safeScene->addItem(item);
-                if (self) {
-                    self->m_lastCompletedItem = item;
-                    emit self->contentModified();
-                }
+                if (self)
+                    self->placePixmap(safeScene, pixmap, pos);
             });
         return true;
 #else
@@ -64,23 +62,8 @@ public:
 
         if (!fileName.isEmpty()) {
             QPixmap pixmap(fileName);
-            if (!pixmap.isNull()) {
-                if (pixmap.width() > 800) pixmap = pixmap.scaledToWidth(800, Qt::SmoothTransformation);
-
-                auto* item = new QGraphicsPixmapItem(pixmap);
-                item->setPos(event->scenePos());
-                item->setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
-                item->setZValue(5);
-                item->setData(0, QStringLiteral("image"));
-                const qreal op = m_config.imageOpacity > 0.01
-                                     ? m_config.imageOpacity
-                                     : m_config.opacity;
-                item->setOpacity(qBound(0.1, op, 1.0));
-                scene->addItem(item);
-                m_lastCompletedItem = item;
-
-                emit contentModified();
-            }
+            if (!pixmap.isNull())
+                placePixmap(scene, pixmap, event->scenePos());
         }
         return true;
 #endif

@@ -149,3 +149,69 @@ set_target_properties(blop_test_shape_path_sequence PROPERTIES
 add_test(NAME shape_path_sequence COMMAND blop_test_shape_path_sequence)
 
 message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_shape_path_sequence registered")
+
+# --- Lasso selection + TransformOverlay center-move ------------------------
+add_executable(blop_test_lasso_tool_sequence
+    "${CMAKE_SOURCE_DIR}/tests/lasso_tool_sequence.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/LassoTool.h"
+    "${CMAKE_SOURCE_DIR}/tools/AbstractTool.h"
+    "${CMAKE_SOURCE_DIR}/src/core/TransformOverlay.h"
+)
+
+target_include_directories(blop_test_lasso_tool_sequence PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools"
+    "${CMAKE_SOURCE_DIR}/src/core"
+    "${CMAKE_SOURCE_DIR}/src/ui"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+target_link_libraries(blop_test_lasso_tool_sequence PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+)
+
+set_target_properties(blop_test_lasso_tool_sequence PROPERTIES
+    WIN32_EXECUTABLE OFF
+    AUTOMOC ON
+    AUTOUIC OFF
+    AUTORCC OFF
+)
+
+add_test(NAME lasso_tool_sequence COMMAND blop_test_lasso_tool_sequence)
+
+message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_lasso_tool_sequence registered")
+
+# --- Text / Sticky / Image create (no file dialog) -------------------------
+add_executable(blop_test_create_tool_sequence
+    "${CMAKE_SOURCE_DIR}/tests/create_tool_sequence.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/TextTool.h"
+    "${CMAKE_SOURCE_DIR}/tools/TextTool.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/StickyNoteTool.h"
+    "${CMAKE_SOURCE_DIR}/tools/ImagePlacement.h"
+    "${CMAKE_SOURCE_DIR}/tools/AbstractTool.h"
+)
+
+target_include_directories(blop_test_create_tool_sequence PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools"
+    "${CMAKE_SOURCE_DIR}/src/core"
+    "${CMAKE_SOURCE_DIR}/src/ui"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+target_link_libraries(blop_test_create_tool_sequence PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+)
+
+set_target_properties(blop_test_create_tool_sequence PROPERTIES
+    WIN32_EXECUTABLE OFF
+    AUTOMOC ON
+    AUTOUIC OFF
+    AUTORCC OFF
+)
+
+add_test(NAME create_tool_sequence COMMAND blop_test_create_tool_sequence)
+
+message(STATUS "BLOP_BUILD_AUTOMATION: target blop_test_create_tool_sequence registered")

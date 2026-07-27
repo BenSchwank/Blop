@@ -5,6 +5,7 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsScene>
 #include <QFont>
+#include <QPen>
 
 /// Sticky note: yellow card with editable text (persisted via NotePage::stickies).
 class StickyNoteTool : public AbstractTool {
