@@ -488,6 +488,45 @@ private:
   bool m_firstRedo{true};
 };
 
+/// Snapshot restore for GraphCanvasItem function/axis edits.
+class GraphDataCommand : public QUndoCommand {
+public:
+  GraphDataCommand(MultiPageNoteView *view, GraphCanvasItem *gi,
+                   GraphObject before, GraphObject after, const QString &text)
+      : QUndoCommand(text), m_view(view), m_gi(gi),
+        m_before(std::move(before)), m_after(std::move(after)) {}
+  void undo() override { apply(m_before); }
+  void redo() override {
+    if (m_firstRedo) {
+      m_firstRedo = false;
+      if (m_view)
+        m_view->syncGraphItemsToNote();
+      return;
+    }
+    apply(m_after);
+  }
+
+private:
+  void apply(const GraphObject &d) {
+    if (!m_view || !m_gi)
+      return;
+    m_gi->fromData(d);
+    if (m_view->m_selectedGraphItem == m_gi.data()) {
+      m_view->bindGraphChrome(m_gi);
+      m_view->syncGraphPlusLayout(m_gi);
+      m_view->syncGraphLegendLayout();
+    } else {
+      m_view->syncGraphPlusLayout(m_gi);
+    }
+    m_view->syncGraphItemsToNote();
+  }
+  MultiPageNoteView *m_view{nullptr};
+  QPointer<GraphCanvasItem> m_gi;
+  GraphObject m_before;
+  GraphObject m_after;
+  bool m_firstRedo{true};
+};
+
 /// Move selected items; first redo is a no-op (positions already applied).
 class SceneItemsMoveCommand : public QUndoCommand {
 public:
@@ -1696,7 +1735,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_tangentXPopup = new GraphTangentXPopup(this, [this](GraphCanvasItem *gi, double x, bool st) {
     if (!gi)
       return;
-    auto d = gi->data();
+    const GraphObject before = gi->toData();
+    auto d = before;
     if (d.functions.isEmpty())
       return;
     const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
@@ -1706,7 +1746,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     if (m_selectedGraphItem == gi)
       bindGraphChrome(gi);
     syncGraphPlusLayout(gi);
-    syncGraphItemsToNote();
+    commitGraphUndoable(gi, before, tr("Tangente"));
   });
   connect(m_graphLegendDock, &GraphLegendDock::entryBarRequested, this, [this]() {
     if (!m_selectedGraphItem)
@@ -1770,7 +1810,11 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
       m_graphEntryBar->setStatus(QStringLiteral("Ungueltig: %1").arg(parsed.error), true);
       return;
     }
-    auto d = m_selectedGraphItem->data();
+    GraphCanvasItem *gi = m_selectedGraphItem;
+    const GraphObject before = m_graphSessionHasBaseline
+                                   ? m_graphSessionBaseline
+                                   : gi->toData();
+    auto d = gi->data();
     const QColor fixedColor = QColor(94, 92, 230);
     if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
       d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
@@ -1784,14 +1828,15 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
       d.functions.push_back(fn);
       d.selectedFunction = d.functions.size() - 1;
     }
-    m_selectedGraphItem->fromData(d);
+    gi->fromData(d);
     closeGraphEntryBar();
-    syncGraphPlusLayout(m_selectedGraphItem);
+    m_graphSessionHasBaseline = false;
+    syncGraphPlusLayout(gi);
     if (m_graphPanelExplicitOpen) {
-      bindGraphChrome(m_selectedGraphItem);
+      bindGraphChrome(gi);
       syncGraphLegendLayout();
     }
-    syncGraphItemsToNote();
+    commitGraphUndoable(gi, before, tr("Funktion"));
   });
   connect(m_graphEntryBar, &GraphFormulaEntryBar::cancelRequested, this, [this]() {
     abandonGraphEntrySession();
@@ -1803,7 +1848,8 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   });
   connect(m_graphLegendDock, &GraphLegendDock::removeRequested, this, [this](int requestedIdx) {
     if (!m_selectedGraphItem) return;
-    auto d = m_selectedGraphItem->data();
+    const GraphObject before = m_selectedGraphItem->toData();
+    auto d = before;
     if (d.functions.isEmpty()) return;
     const int idx = qBound(0, requestedIdx >= 0 ? requestedIdx : d.selectedFunction, d.functions.size() - 1);
     d.functions.removeAt(idx);
@@ -1816,11 +1862,12 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     bindGraphChrome(m_selectedGraphItem);
     syncGraphPlusLayout(m_selectedGraphItem);
     syncGraphLegendLayout();
-    syncGraphItemsToNote();
+    commitGraphUndoable(m_selectedGraphItem, before, tr("Funktion entfernen"));
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::toggleRequested, this, [this](const QString& what) {
     if (!m_selectedGraphItem) return;
-    auto d = m_selectedGraphItem->data();
+    const GraphObject before = m_selectedGraphItem->toData();
+    auto d = before;
     if (d.functions.isEmpty()) return;
     const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
     if (idx < 0 || idx >= d.functions.size()) return;
@@ -1855,11 +1902,19 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     bindGraphChrome(m_selectedGraphItem);
     syncGraphPlusLayout(m_selectedGraphItem);
     syncGraphLegendLayout();
-    syncGraphItemsToNote();
+    QString label = tr("Graph-Option");
+    if (what == "derivative_create")
+      label = tr("Ableitung");
+    else if (what == "roots")
+      label = tr("Nullstellen");
+    else if (what == "extrema")
+      label = tr("Extrema");
+    commitGraphUndoable(m_selectedGraphItem, before, label);
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentXRequested, this, [this](double x0) {
     if (!m_selectedGraphItem) return;
-    auto d = m_selectedGraphItem->data();
+    const GraphObject before = m_selectedGraphItem->toData();
+    auto d = before;
     if (d.functions.isEmpty()) return;
     const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
     if (idx < 0 || idx >= d.functions.size()) return;
@@ -1868,12 +1923,13 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     m_selectedGraphItem->fromData(d);
     syncGraphPlusLayout(m_selectedGraphItem);
     bindGraphChrome(m_selectedGraphItem);
-    syncGraphItemsToNote();
+    commitGraphUndoable(m_selectedGraphItem, before, tr("Tangente"));
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentAtFirstRootRequested, this, [this]() {
     if (!m_selectedGraphItem)
       return;
-    auto d = m_selectedGraphItem->data();
+    const GraphObject before = m_selectedGraphItem->toData();
+    auto d = before;
     if (d.functions.isEmpty())
       return;
     const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
@@ -1894,7 +1950,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     m_selectedGraphItem->fromData(d);
     bindGraphChrome(m_selectedGraphItem);
     syncGraphPlusLayout(m_selectedGraphItem);
-    syncGraphItemsToNote();
+    commitGraphUndoable(m_selectedGraphItem, before, tr("Tangente"));
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::tangentManualRequested, this, [this]() {
     if (!m_selectedGraphItem || !m_tangentXPopup)
@@ -1923,21 +1979,29 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     m_graphPanelTargetGraph = nullptr;
     m_selectedGraphItem = nullptr;
     m_livePreviewIndex = -1;
+    m_graphSessionHasBaseline = false;
     hideGraphLegendQuick();
     bindGraphChrome(nullptr);
     {
       QSignalBlocker blocker(&scene_);
       scene_.clearSelection();
-      delete gi;
+      scene_.removeItem(gi);
     }
-    syncGraphItemsToNote();
+    if (m_undoStack)
+      m_undoStack->push(new SceneItemsRemoveCommand(
+          this, {gi}, tr("Graph löschen")));
+    else {
+      delete gi;
+      syncGraphItemsToNote();
+    }
   };
   connect(m_graphLegendDock, &GraphLegendDock::removeGraphWidgetRequested, this, removeWholeGraph);
   connect(m_graphQuickPopup, &GraphQuickActionPopup::removeGraphRequested, this, removeWholeGraph);
   connect(m_graphQuickPopup, &GraphQuickActionPopup::removeSelectedFunctionRequested, this, [this]() {
     if (!m_selectedGraphItem)
       return;
-    auto d = m_selectedGraphItem->data();
+    const GraphObject before = m_selectedGraphItem->toData();
+    auto d = before;
     if (d.functions.isEmpty())
       return;
     const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
@@ -1951,15 +2015,12 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     bindGraphChrome(m_selectedGraphItem);
     syncGraphPlusLayout(m_selectedGraphItem);
     syncGraphLegendLayout();
-    syncGraphItemsToNote();
+    commitGraphUndoable(m_selectedGraphItem, before, tr("Funktion entfernen"));
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::axisSettingsRequested, this, [this]() {
     if (!m_selectedGraphItem)
       return;
-    // v3.17.2: on Android, wrap the dialog in a BlopModal so it never
-    // becomes a top-level QWindow (the v3.16.x EGL deadlock path). On
-    // Desktop we keep the historic QDialog::exec() since the platform
-    // has no such issue and exec() is the simpler control-flow.
+    const GraphObject before = m_selectedGraphItem->toData();
 #ifdef Q_OS_ANDROID
     auto *dlg = new GraphAxisSettingsDialog(m_selectedGraphItem, window());
     BlopModal::execBlocking(window(), dlg);
@@ -1970,7 +2031,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
 #endif
     bindGraphChrome(m_selectedGraphItem);
     syncGraphLegendLayout();
-    syncGraphItemsToNote();
+    commitGraphUndoable(m_selectedGraphItem, before, tr("Achsen"));
   });
 
   // v3.17.5: coalesce scroll-driven layout work into one frame-aligned
@@ -3592,6 +3653,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
       if (newGraph) {
         // v3.17.2: see comment in GraphQuickActionPopup connect site --
         // BlopModal::execBlocking avoids top-level QWindow on Android.
+        const GraphObject beforeAxes = newGraph->toData();
 #ifdef Q_OS_ANDROID
         auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
         BlopModal::execBlocking(window(), dlg);
@@ -3600,7 +3662,7 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
         GraphAxisSettingsDialog dlg(newGraph, window());
         dlg.exec();
 #endif
-        syncGraphItemsToNote(true);
+        commitGraphUndoable(newGraph, beforeAxes, tr("Achsen"));
       }
       tool->clearLastCompletedItem();
       e->accept();
@@ -3739,6 +3801,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
         commitPendingStrokeItemsToNote(tool);
         // Shape/text/image/sticky/eraser already persist via contentModified.
         if (newGraph) {
+          const GraphObject beforeAxes = newGraph->toData();
 #ifdef Q_OS_ANDROID
           auto *dlg = new GraphAxisSettingsDialog(newGraph, window());
           BlopModal::execBlocking(window(), dlg);
@@ -3747,7 +3810,7 @@ void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
           GraphAxisSettingsDialog dlg(newGraph, window());
           dlg.exec();
 #endif
-          syncGraphItemsToNote(true);
+          commitGraphUndoable(newGraph, beforeAxes, tr("Achsen"));
         }
         tool->clearLastCompletedItem();
       }
@@ -4990,6 +5053,7 @@ void MultiPageNoteView::abandonGraphEntrySession() {
     }
     syncGraphPlusLayout(gi);
   }
+  m_graphSessionHasBaseline = false;
   closeGraphEntryBar();
 }
 
@@ -5008,6 +5072,8 @@ void MultiPageNoteView::openGraphEntryBarForGraph(GraphCanvasItem *gi, bool from
   m_selectedGraphItem = gi;
   m_graphEntryBarOpen = true;
   m_graphEntryTargetGraph = gi;
+  m_graphSessionBaseline = gi->toData();
+  m_graphSessionHasBaseline = true;
   m_graphEntryBar->prepareOpen();
   syncGraphPlusLayout(gi);
   presentGraphEntryBarAnimated();
@@ -5393,6 +5459,19 @@ static QColor brushColorForPersist(const QBrush &brush) {
   if (brush.style() == Qt::NoBrush)
     return QColor(0, 0, 0, 0);
   return brush.color();
+}
+
+void MultiPageNoteView::commitGraphUndoable(GraphCanvasItem *gi,
+                                            const GraphObject &before,
+                                            const QString &label) {
+  if (!gi)
+    return;
+  const GraphObject after = gi->toData();
+  if (m_undoStack)
+    m_undoStack->push(
+        new GraphDataCommand(this, gi, before, after, label));
+  else
+    syncGraphItemsToNote();
 }
 
 void MultiPageNoteView::syncGraphItemsToNote(bool requestSave) {
@@ -5909,6 +5988,8 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
   // Create the zone as a child of the graph (follows graph movement)
   auto *zone = new GraphFormulaZone(slotIdx, gi);
   m_activeFormulaZone = zone;
+  m_graphSessionBaseline = gi->toData();
+  m_graphSessionHasBaseline = true;
 
   // Update the "+" position so it moves below the zone
   gi->setCommittedFunctionCountForPlusLayout(slotIdx + 1);
@@ -5946,6 +6027,9 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
     if (!parsed.ok) return;
 
+    const GraphObject before = m_graphSessionHasBaseline
+                                   ? m_graphSessionBaseline
+                                   : gi->toData();
     auto fns = gi->data().functions;
     const QColor finalColor = QColor(94, 92, 230);
 
@@ -5969,13 +6053,14 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
       m_activeFormulaZone->deleteLater();
       m_activeFormulaZone = nullptr;
     }
+    m_graphSessionHasBaseline = false;
 
     syncGraphPlusLayout(gi);
     if (m_graphPanelExplicitOpen) {
       bindGraphChrome(gi);
       syncGraphLegendLayout();
     }
-    syncGraphItemsToNote();
+    commitGraphUndoable(gi, before, tr("Funktion"));
   });
 
   // Zone cleared: remove preview curve

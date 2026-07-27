@@ -38,6 +38,7 @@ class SceneItemsMoveCommand;
 class SceneEraseCommand;
 class SceneItemAddCommand;
 class TextContentCommand;
+class GraphDataCommand;
 class AbstractTool;
 class GraphFormulaZone;
 
@@ -49,6 +50,7 @@ class MultiPageNoteView : public QGraphicsView {
     friend class SceneEraseCommand;
     friend class SceneItemAddCommand;
     friend class TextContentCommand;
+    friend class GraphDataCommand;
 public:
     explicit MultiPageNoteView(QWidget* parent=nullptr);
 
@@ -308,6 +310,9 @@ private:
 
     void syncGraphPlusLayout(GraphCanvasItem* gi);
     void bindGraphChrome(GraphCanvasItem* gi);
+    /// Push undo for graph data already applied on `gi` (before → current).
+    void commitGraphUndoable(GraphCanvasItem *gi, const GraphObject &before,
+                             const QString &label);
     /// After scene_.clear(): drop dangling graph pointers, hide overlays (no graph item access).
     void resetGraphChromeAfterSceneClear();
     /// After model sync: refresh bound data and layout only if chrome is already visible.
@@ -330,6 +335,9 @@ private:
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};
+    /// GraphObject snapshot when entry bar / formula zone opens (for commit undo).
+    GraphObject m_graphSessionBaseline;
+    bool m_graphSessionHasBaseline{false};
     /// While set, graph "+" interaction bypasses tools and touch pan (see CanvasView equivalent).
     GraphCanvasItem* m_graphPlusBypassItem{nullptr};
     GraphCanvasItem* m_graphPlotBypassItem{nullptr};
