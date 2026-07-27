@@ -759,7 +759,9 @@ Rectangle {
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "Lade Anmeldung..."
+                text: startupLoadingOverlay.retryArmed
+                      ? "Study nicht erreichbar"
+                      : "Lade Anmeldung..."
                 color: "#E0DBFF"
                 font.pixelSize: Math.round(15 * uiScale)
             }
@@ -770,7 +772,7 @@ Rectangle {
                 width: Math.min(parent.width, Math.round(300 * uiScale))
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                text: "Dauert ungewohnt lange. Pruefe deine Internetverbindung oder tippe auf Erneut versuchen."
+                text: "Blop Study ist gerade nicht erreichbar. Notizen funktionieren weiter offline. Pruefe dein Netz oder tippe auf Erneut versuchen."
                 color: "#9C97B8"
                 font.pixelSize: Math.round(12 * uiScale)
             }

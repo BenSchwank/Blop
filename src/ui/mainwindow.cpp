@@ -399,13 +399,12 @@ QString blopWebMenuStyleSheet() {
       .arg(surface, border, sepBg, textCol, accentSel, onAccent);
 }
 
-#ifdef Q_OS_ANDROID
 // Lightweight in-window toast. Replaces QMessageBox on Android, where any
 // QDialog::exec() crashes the single-window surface (Qt 6.10 inproc). The
 // toast is a plain QLabel child of window() (no top-level flags), auto-hides
 // after `durationMs`, and never blocks the event loop.
-void showAndroidToast(QWidget *anchor, const QString &text,
-                      int durationMs = 2200) {
+void showBlopToast(QWidget *anchor, const QString &text,
+                   int durationMs = 2200) {
   QWidget *win = anchor ? anchor->window() : nullptr;
   if (!win)
     return;
@@ -416,7 +415,7 @@ void showAndroidToast(QWidget *anchor, const QString &text,
   toast->setWordWrap(true);
   toast->setStyleSheet(QStringLiteral(
       "QLabel { background: rgba(20,20,30,0.92); color: #E8E4FF;"
-      " border: 1px solid rgba(124,92,252,0.45); border-radius: 10px;"
+      " border: 1px solid rgba(91,157,255,0.45); border-radius: 10px;"
       " padding: 10px 18px; font-size: 14px; }"));
   const int maxW = qMin(win->width() - UiScale::dp(40), UiScale::dp(360));
   toast->setMaximumWidth(maxW);
@@ -426,6 +425,12 @@ void showAndroidToast(QWidget *anchor, const QString &text,
   toast->show();
   toast->raise();
   QTimer::singleShot(durationMs, toast, &QWidget::close);
+}
+
+#ifdef Q_OS_ANDROID
+void showAndroidToast(QWidget *anchor, const QString &text,
+                      int durationMs = 2200) {
+  showBlopToast(anchor, text, durationMs);
 }
 #endif // Q_OS_ANDROID
 
@@ -6338,11 +6343,22 @@ void MainWindow::setupWebBrowser() {
   // to recover from the black-screen-on-first-launch issue.
   auto *retryCount = new int(0);
   connect(view, &QWebEngineView::loadFinished, m_studyContainer,
-          [view, retryCount](bool ok) {
-            if (!ok && *retryCount < 2) {
+          [this, view, retryCount](bool ok) {
+            if (ok) {
+              *retryCount = 0;
+              return;
+            }
+            if (*retryCount < 2) {
               ++(*retryCount);
               QTimer::singleShot(1500, view, [view]() { view->reload(); });
+              return;
             }
+            // Study is optional — Notes stay usable; tell the user once.
+            showBlopToast(
+                this,
+                QStringLiteral(
+                    "Blop Study ist gerade nicht erreichbar. Notizen "
+                    "funktionieren weiter offline."));
           });
 
   // Force one reload 4 s after startup to fix the post-install blank page
@@ -6457,14 +6473,10 @@ void MainWindow::setupWebBrowser() {
                     .toString();
             if (resStr != currentUser)
               updateSidebarUser(resStr);
-          } else {
-            QString currentUser =
-                QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-                    .value(QStringLiteral("username"))
-                    .toString();
-            if (!currentUser.isEmpty())
-              updateSidebarUser("");
           }
+          // Empty WebView storage must NOT clear a local session — Study can
+          // be offline/blank while Notes remain signed in. Logout is explicit
+          // via Settings → Abmelden.
         });
   });
 
@@ -7150,45 +7162,45 @@ void MainWindow::updateSidebarUser(const QString &username) {
       onToggleSidebar();
     }
   } else {
-    m_authNavigationLocked = true;
-    // Logged out: Switch back to Study/Login web view
-    if (m_topNavControls) m_topNavControls->hide();
+    // Guest / logged out: Notes stay usable offline. Study login is optional.
+    // Only mid-OAuth flows should lock navigation (handled separately).
+    m_authNavigationLocked = false;
+    if (m_topNavControls)
+      m_topNavControls->show();
 
     if (m_modeSelector) {
 #ifdef Q_OS_ANDROID
       QSignalBlocker b(m_modeSelector);
 #endif
-      m_modeSelector->setCurrentIndex(1); // Force back to web login
 #ifndef Q_OS_ANDROID
-      m_modeSelector->hide(); // Desktop: hide selector on auth screen
+      m_modeSelector->show();
 #endif
     }
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
-      m_androidHeader->setVisible(false);
-      m_androidHeader->setFixedHeight(0);
+      m_androidHeader->setVisible(true);
+      if (m_androidHeader->height() <= 0)
+        m_androidHeader->setFixedHeight(UiScale::dp(52));
     }
     syncAndroidHeaderGeometry(this);
-    onModeChanged(1);
-    // Keep login screen clean: hide Notes/Study pills until session is confirmed.
+    // Keep Notes + Study pills available so a down Study host never traps the user.
     if (m_btnAndroidNotes) {
-      m_btnAndroidNotes->setVisible(false);
-      m_btnAndroidNotes->setEnabled(false);
+      m_btnAndroidNotes->setVisible(true);
+      m_btnAndroidNotes->setEnabled(true);
     }
     if (m_btnAndroidStudy) {
-      m_btnAndroidStudy->setVisible(false);
-      m_btnAndroidStudy->setEnabled(false);
+      m_btnAndroidStudy->setVisible(true);
+      m_btnAndroidStudy->setEnabled(true);
     }
-    // Web/bookmark actions stay hidden until we have a confirmed web session.
     if (m_btnAndroidAddWebBookmark) {
-      m_btnAndroidAddWebBookmark->setVisible(false);
-      m_btnAndroidAddWebBookmark->setEnabled(false);
+      m_btnAndroidAddWebBookmark->setVisible(true);
+      m_btnAndroidAddWebBookmark->setEnabled(true);
     }
 #endif
     if (btnStripMenu)
-      btnStripMenu->hide(); // Hide the sidebar hamburger when logged out to fully trap user in login
+      btnStripMenu->show();
     if (btnEditorMenu)
-      btnEditorMenu->hide(); // Hide the Android Header menu when logged out
+      btnEditorMenu->hide();
 
     if (m_isSidebarOpen)
       onToggleSidebar();

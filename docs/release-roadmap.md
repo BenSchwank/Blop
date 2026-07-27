@@ -130,7 +130,9 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
   - Windows CI: `ctest -R persistence_roundtrip|infinite_persistence_roundtrip`
 - [x] Crash-Consent-UI + Privacy Policy
   - First-run Prompt + Settings → Erweitert; Sentry erst nach Consent; `docs/privacy-policy.md`
-- [ ] Study als optionaler Dienst: Blop offline/ohne Backend stabil
+- [x] Study als optionaler Dienst: Blop offline/ohne Backend stabil
+  - SSO leert Session nicht bei leerem WebView; Gäste behalten Notes-Zugang
+  - Study-Load-Fail Toast / Overlay „nicht erreichbar“; Notes weiter nutzbar
 
 **Dateien:** `.github/workflows/*`, `installer.nsi`, `android/*`,
 `src/observability/*`, `StudyFlow/backend/*`
@@ -180,3 +182,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Share/Account — kein File-ID im Happy Path; Retry/Offline; Status |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Desktop/Phone NoteChrome — Phone-Pill + Overflow-Parität |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Install-Skript: NetworkAuth-Paket + apt clock-skew Retry; Phase 3 ctest+Consent |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 3: Study optional/offline — kein SSO-Logout; Notes ohne Study |
