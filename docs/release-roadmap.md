@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 2: Desktop/Phone NoteChrome-Konsistenz)
+Zuletzt aktualisiert: 2026-07-27 (Phase 3: ctest in CI + Crash-Consent + Install-Härte)
 
 ---
 
@@ -124,9 +124,12 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 **Ziel:** Installierbar, signiert, policy-konform.
 
 - [ ] Windows: Code-Signing, Installer-Version aus Git, Clean-VM-Smoke
+  - Installer-Version aus Git: weitgehend in CI/`installer.nsi` (Signing + Clean-VM brauchen Secrets/VM)
 - [ ] Android: Play Signing / OAuth-SHA, Privacy/Data Safety, AAB-Smoke
-- [ ] CI: ctest für Persistenz + Tool-Sequenzen (Build allein reicht nicht)
-- [ ] Crash-Consent-UI + Privacy Policy
+- [x] CI: ctest für Persistenz (+ Tool-Sequenzen folgen)
+  - Windows CI: `ctest -R persistence_roundtrip|infinite_persistence_roundtrip`
+- [x] Crash-Consent-UI + Privacy Policy
+  - First-run Prompt + Settings → Erweitert; Sentry erst nach Consent; `docs/privacy-policy.md`
 - [ ] Study als optionaler Dienst: Blop offline/ohne Backend stabil
 
 **Dateien:** `.github/workflows/*`, `installer.nsi`, `android/*`,
@@ -176,3 +179,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Settings-IA — App/Editor/Tool/Selektion Ownership + Copy |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Share/Account — kein File-ID im Happy Path; Retry/Offline; Status |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Desktop/Phone NoteChrome — Phone-Pill + Overflow-Parität |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Install-Skript: NetworkAuth-Paket + apt clock-skew Retry; Phase 3 ctest+Consent |

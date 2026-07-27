@@ -35,6 +35,7 @@
 #include "pagemanager.h"
 #include "blopstyle.h"
 #include "blop_dialogs.h"
+#include "blop_crash_backend.h"
 #include "uiscale.h"
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
@@ -1910,6 +1911,22 @@ MainWindow::MainWindow(QWidget *parent)
     if (!report.isEmpty()) {
       showCrashReportOverlay(this, report);
     }
+  });
+
+  // Phase 3: first-run crash-upload consent (Android-safe BlopDialogs::confirm).
+  // Uploads stay off until the user opts in; Settings → Erweitert can change later.
+  QTimer::singleShot(1200, this, [this]() {
+    if (blopCrashUploadConsentAsked())
+      return;
+    const bool ok = BlopDialogs::confirm(
+        this, QStringLiteral("Absturzberichte"),
+        QStringLiteral(
+            "Darf Blop anonyme Absturzberichte senden, damit wir Stabilität "
+            "verbessern können?\n\n"
+            "Es werden keine Notizinhalte übertragen. Du kannst das jederzeit "
+            "unter Einstellungen → Erweitert ändern."),
+        QStringLiteral("Erlauben"), QStringLiteral("Nicht jetzt"));
+    blopSetCrashUploadConsent(ok);
   });
 
   // v3.17.0: re-skin theme-aware surfaces whenever the user toggles

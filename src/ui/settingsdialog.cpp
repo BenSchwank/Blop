@@ -1,4 +1,5 @@
 #include "settingsdialog.h"
+#include "blop_crash_backend.h"
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
@@ -7,6 +8,7 @@
 #include "ui_SettingsDialog.h"
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QEasingCurve>
 #include <QFrame>
 #include <QGroupBox>
@@ -709,7 +711,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Erweitert ----------------------------------------------
     auto *cardAdv = new BlopSettingsCard(
         QStringLiteral("Erweitert"),
-        QStringLiteral("Version, Informationen"),
+        QStringLiteral("Version, Datenschutz"),
         contentWidget);
     {
 #ifndef BLOP_VERSION_STR
@@ -722,6 +724,36 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));
         cardAdv->addBodyWidget(info);
+
+        auto *lblPrivacy = new QLabel(QStringLiteral("Datenschutz"), cardAdv);
+        lblPrivacy->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent; padding-top: 8px;")));
+        cardAdv->addBodyWidget(lblPrivacy);
+
+        auto *chkCrash = new QCheckBox(
+            QStringLiteral("Anonyme Absturzberichte senden (optional)"),
+            cardAdv);
+        chkCrash->setChecked(blopCrashUploadConsentGranted());
+        chkCrash->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "QCheckBox { color: #ECEEFD; background: transparent; "
+            "spacing: 8px; font-size: 13px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }")));
+        connect(chkCrash, &QCheckBox::toggled, this, [](bool on) {
+            blopSetCrashUploadConsent(on);
+        });
+        cardAdv->addBodyWidget(chkCrash);
+
+        auto *hint = new QLabel(
+            QStringLiteral(
+                "Hilft beim Beheben von Abstürzen. Enthält keine Notizinhalte. "
+                "Details: docs/privacy-policy.md"),
+            cardAdv);
+        hint->setWordWrap(true);
+        hint->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.78); font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;")));
+        cardAdv->addBodyWidget(hint);
     }
     contentLay->addWidget(cardAdv);
     cardAdv->setExpanded(false);

@@ -6,9 +6,41 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QSettings>
 #include <QStandardPaths>
 
 #include <cstdlib>
+
+namespace {
+
+constexpr auto kConsentOrg = "Blop";
+constexpr auto kConsentApp = "BlopApp";
+constexpr auto kConsentKey = "privacy/crash_upload_consent";
+
+} // namespace
+
+bool blopCrashUploadConsentAsked()
+{
+  QSettings s(QString::fromLatin1(kConsentOrg), QString::fromLatin1(kConsentApp));
+  return s.contains(QString::fromLatin1(kConsentKey));
+}
+
+bool blopCrashUploadConsentGranted()
+{
+  QSettings s(QString::fromLatin1(kConsentOrg), QString::fromLatin1(kConsentApp));
+  return s.value(QString::fromLatin1(kConsentKey), false).toBool();
+}
+
+void blopSetCrashUploadConsent(bool granted)
+{
+  QSettings s(QString::fromLatin1(kConsentOrg), QString::fromLatin1(kConsentApp));
+  s.setValue(QString::fromLatin1(kConsentKey), granted);
+  s.sync();
+  if (granted)
+    blopInitCrashReporting();
+  else
+    blopShutdownCrashReporting();
+}
 
 #if defined(BLOP_SENTRY_ENABLED) && BLOP_SENTRY_ENABLED
 #  include <sentry.h>
@@ -26,10 +58,25 @@ void blopShutdownCrashReporting()
   }
   sentry_close();
   g_sentryOpen = false;
+  qInfo() << "[BlopObs] Sentry: shut down (consent withdrawn or quit)";
 }
 
 void blopInitCrashReporting()
 {
+  if (g_sentryOpen)
+    return;
+
+  // Runtime privacy gate (Phase 3). Build-time BLOP_OBS_CONSENT_* is only a
+  // CI/default hint — never upload without an explicit user choice.
+  if (!blopCrashUploadConsentGranted()) {
+    if (!blopCrashUploadConsentAsked()) {
+      qInfo() << "[BlopObs] Sentry: waiting for crash-upload consent (first run)";
+    } else {
+      qInfo() << "[BlopObs] Sentry: crash upload declined — uploads disabled";
+    }
+    return;
+  }
+
   // Precedence (documented in docs/ADR-observability.md): non-empty SENTRY_DSN env wins,
   // otherwise BLOP_SENTRY_COMPILE_DSN from CMake (-DBLOP_SENTRY_DSN=...).
   const QByteArray envDsn = qgetenv("SENTRY_DSN");
@@ -41,7 +88,7 @@ void blopInitCrashReporting()
   }
 
   if (!dsn || dsn[0] == '\0') {
-    qInfo() << "[BlopObs] Sentry: linked (BLOP_ENABLE_SENTRY=ON) but no DSN — set SENTRY_DSN or "
+    qInfo() << "[BlopObs] Sentry: consent granted but no DSN — set SENTRY_DSN or "
                "configure -DBLOP_SENTRY_DSN=... to enable uploads.";
     return;
   }
@@ -90,6 +137,12 @@ void blopInitCrashReporting()
 
 void blopShutdownCrashReporting() {}
 
-void blopInitCrashReporting() {}
+void blopInitCrashReporting()
+{
+  if (!blopCrashUploadConsentGranted()) {
+    qInfo() << "[BlopObs] Crash backend not linked (BLOP_ENABLE_SENTRY=OFF); "
+               "consent still recorded for future builds.";
+  }
+}
 
 #endif

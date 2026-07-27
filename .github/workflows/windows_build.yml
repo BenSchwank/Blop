@@ -108,13 +108,12 @@ jobs:
         working-directory: build
         run: cmake --build . --target blop_benchmark_math blop_test_persistence_roundtrip blop_test_infinite_persistence_roundtrip
 
-      - name: Run persistence round-trip test (Phase 0)
+      - name: Run persistence round-trip tests via ctest (Phase 0 / Phase 3)
         working-directory: build
         shell: pwsh
         run: |
-          & .\benchmarks\blop_test_persistence_roundtrip.exe
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\benchmarks\blop_test_infinite_persistence_roundtrip.exe
+          # Single-config NMake: no -C needed. Discovers tests registered in benchmarks/.
+          ctest --output-on-failure -R "persistence_roundtrip|infinite_persistence_roundtrip"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run micro-benchmark (signal for regressions; optional thresholds via env)
