@@ -6,7 +6,7 @@
 // Auf Desktop und Android-Tablets bleibt ModernToolbar.
 //
 // Sichtbare Werkzeuge: Pen, Eraser, Lasso, |, Undo, Redo, |, Color, Brush, |, Overflow
-// Overflow-QMenu: Pencil, Highlighter, Ruler, Shape, Sticky, Text, Image, Hand, Save, Back
+// Overflow: weitere Tools, In-Notiz-Suche, Verlauf, Editor…, Teilen…, Einklappen, Übersicht
 
 #include <QColor>
 #include <QPointer>
@@ -30,6 +30,11 @@ public:
 
   void setAccentColor(const QColor &color);
 
+  /// Mirror desktop notch undo/redo enablement + tooltips.
+  void setUndoRedoEnabled(bool canUndo, bool canRedo,
+                          const QString &undoTip = QString(),
+                          const QString &redoTip = QString());
+
   // Blop Rail: collapse the pill into a small teardrop grip at the bottom
   // right edge; tapping the grip expands it again.
   bool isCollapsed() const { return m_collapsed; }
@@ -45,6 +50,10 @@ signals:
   void redoRequested();
   void penConfigChanged(QColor c, int w);
   void backToOverviewRequested();
+  void searchInNoteRequested();
+  void historyRequested();
+  void editorSettingsRequested();
+  void shareRequested();
 
 protected:
   void paintEvent(QPaintEvent *) override;
@@ -67,7 +76,7 @@ private:
 
   ToolMode m_mode{ToolMode::Pen};
   ToolConfig m_config;
-  QColor m_accentColor{QColor("#7C5CFC")};
+  QColor m_accentColor;
 
   void setupButtons();
   void selectTool(ToolMode mode);

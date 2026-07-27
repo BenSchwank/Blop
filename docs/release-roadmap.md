@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Phase 2: Share/Account Status + Retry, keine File-IDs)
+Zuletzt aktualisiert: 2026-07-27 (Phase 2: Desktop/Phone NoteChrome-Konsistenz)
 
 ---
 
@@ -109,7 +109,10 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
   - Keine Cloud-Datei-ID-Prompts/Toasts; Ordnerliste ohne IDs
   - Friendly Offline/401/5xx-Texte + „Erneut versuchen“; Resolve mit Progress
   - Sidebar-Konto-Status + Settings Konto-Zeile
-- [ ] Desktop- und Phone-Chrome konsistent (ohne Feature-Verlust)
+- [x] Desktop- und Phone-Chrome konsistent (ohne Feature-Verlust)
+  - Phone-Pill/Overflow/Brush → NoteChrome (charcoal + `#5B9DFF`) bei offener Notiz
+  - Overflow: Suche, Verlauf, Editor…, Teilen… (wie Desktop-Rail)
+  - Undo/Redo Enabled+Tooltips auf Phone-Pill; Seitenlabel „von“; Left-Rail bei Phone-UI ausgeblendet
 
 **Dateien:** `src/ui/mainwindow.*`, `src/ui/settingsdialog.*`, `src/ui/notechrome.h`,
 `src/ui/blop_theme.*`, `src/ui/moderntoolbar.*`, `src/ui/androidphonetoolbar.*`
@@ -172,3 +175,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: History „· Seite N“; Light-Mode MorphTray/Props/NewTab/Radial |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Settings-IA — App/Editor/Tool/Selektion Ownership + Copy |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Share/Account — kein File-ID im Happy Path; Retry/Offline; Status |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 2: Desktop/Phone NoteChrome — Phone-Pill + Overflow-Parität |

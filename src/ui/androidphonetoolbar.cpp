@@ -7,6 +7,7 @@
 #include "moderntoolbar.h"
 #include "blopstyle.h"
 #include "editoroverlays.h"
+#include "notechrome.h"
 #include "tools/ToolUIBridge.h"
 #include "uiscale.h"
 
@@ -19,6 +20,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QLinearGradient>
 #include <QAbstractAnimation>
 #include <QPointer>
 #include <QPropertyAnimation>
@@ -31,17 +33,22 @@
 
 namespace {
 
-// Local copy of the Blop menu QSS so this class doesn't reach into mainwindow.cpp.
-// Kept in sync with blopWebMenuStyleSheet() in src/ui/mainwindow.cpp ~171.
+// Note-open chrome: charcoal + blue accent (same tokens as desktop MorphTray).
 QString phoneMenuStyleSheet() {
-  // v3.17.1: route through themed() so Light mode sees a white-on-light
-  // menu surface instead of #14121F-on-light-bg (which would look like a
-  // misplaced dark popover).
-  return BlopTheme::themed(QString::fromUtf8(
-      R"(QMenu { background-color: #14121F; border: 1px solid rgba(124, 92, 252, 0.42); border-radius: 12px; padding: 6px; }
-QMenu::separator { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 12px; }
-QMenu::item { color: #E8E4FF; padding: 12px 22px; border-radius: 8px; font-size: 14px; font-weight: 500; }
-QMenu::item:selected { background-color: rgba(124, 92, 252, 0.38); color: #FFFFFF; })"));
+  return QStringLiteral(
+             "QMenu { background-color: %1; border: 1px solid %2; "
+             "border-radius: 12px; padding: 6px; }"
+             "QMenu::separator { height: 1px; background: %3; margin: 6px 12px; }"
+             "QMenu::item { color: %4; padding: 12px 22px; border-radius: 8px; "
+             "font-size: 14px; font-weight: 500; }"
+             "QMenu::item:selected { background-color: %5; color: %6; }")
+      .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+           NoteChrome::border().name(QColor::HexRgb),
+           NoteChrome::borderSoft().name(QColor::HexRgb),
+           NoteChrome::textPrimary().name(QColor::HexRgb),
+           NoteChrome::accentSoft().name(QColor::HexArgb),
+           NoteChrome::isDark() ? QStringLiteral("#FFFFFF")
+                                : QStringLiteral("#111111"));
 }
 
 // Transparent full-window child that catches outside-taps for the brush sheet.
@@ -180,7 +187,7 @@ protected:
     path.arcTo(QRectF(r.left(), r.top(), 2 * big, 2 * big), 180, -90);
     path.closeSubpath();
 
-    p.fillPath(path, BlopStyle::surfaceBg());
+    p.fillPath(path, NoteChrome::toolbarFill());
     QColor border = m_accent;
     border.setAlphaF(0.55);
     p.setPen(QPen(border, 1.5));
@@ -205,11 +212,12 @@ protected:
 
 private:
   QString m_glyph{QStringLiteral("pen")};
-  QColor m_accent{QColor("#7C5CFC")};
+  QColor m_accent{NoteChrome::accent()};
   double m_appear{0.0};
 };
 
-AndroidPhoneToolbar::AndroidPhoneToolbar(QWidget *parent) : QWidget(parent) {
+AndroidPhoneToolbar::AndroidPhoneToolbar(QWidget *parent)
+    : QWidget(parent), m_accentColor(NoteChrome::accent()) {
   setAttribute(Qt::WA_StyledBackground, false);
   setAttribute(Qt::WA_TranslucentBackground, true);
   setFocusPolicy(Qt::NoFocus);
@@ -438,6 +446,25 @@ void AndroidPhoneToolbar::setAccentColor(const QColor &color) {
   update();
 }
 
+void AndroidPhoneToolbar::setUndoRedoEnabled(bool canUndo, bool canRedo,
+                                             const QString &undoTip,
+                                             const QString &redoTip) {
+  if (btnUndo) {
+    btnUndo->setEnabled(canUndo);
+    btnUndo->setToolTip(undoTip.isEmpty()
+                            ? (canUndo ? QStringLiteral("Rückgängig")
+                                       : QStringLiteral("Rückgängig (nicht möglich)"))
+                            : undoTip);
+  }
+  if (btnRedo) {
+    btnRedo->setEnabled(canRedo);
+    btnRedo->setToolTip(redoTip.isEmpty()
+                            ? (canRedo ? QStringLiteral("Wiederholen")
+                                       : QStringLiteral("Wiederholen (nicht möglich)"))
+                            : redoTip);
+  }
+}
+
 int AndroidPhoneToolbar::preferredHeightPx() const {
   return UiScale::dp(44);
 }
@@ -476,6 +503,19 @@ void AndroidPhoneToolbar::showOverflowMenu() {
   addToolEntry(QStringLiteral("Bild"), ToolMode::Image);
   addToolEntry(QStringLiteral("Hand"), ToolMode::Hand);
   items.append({QString(), QIcon(), {}, false, true});
+  items.append({QStringLiteral("In Notiz suchen"), QIcon(), [safe]() {
+                  if (safe) emit safe->searchInNoteRequested();
+                }, false, false});
+  items.append({QStringLiteral("Verlauf"), QIcon(), [safe]() {
+                  if (safe) emit safe->historyRequested();
+                }, false, false});
+  items.append({QStringLiteral("Editor…"), QIcon(), [safe]() {
+                  if (safe) emit safe->editorSettingsRequested();
+                }, false, false});
+  items.append({QStringLiteral("Teilen…"), QIcon(), [safe]() {
+                  if (safe) emit safe->shareRequested();
+                }, false, false});
+  items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("Toolbar einklappen"), QIcon(), [safe]() {
                   if (safe) safe->setCollapsed(true);
                 }, false, false});
@@ -509,6 +549,27 @@ void AndroidPhoneToolbar::showOverflowMenu() {
   addToolEntry(QStringLiteral("Text"), ToolMode::Text);
   addToolEntry(QStringLiteral("Bild"), ToolMode::Image);
   addToolEntry(QStringLiteral("Hand"), ToolMode::Hand);
+  menu->addSeparator();
+  QObject::connect(menu->addAction(QStringLiteral("In Notiz suchen")),
+                   &QAction::triggered, this, [safe]() {
+                     if (safe)
+                       emit safe->searchInNoteRequested();
+                   });
+  QObject::connect(menu->addAction(QStringLiteral("Verlauf")),
+                   &QAction::triggered, this, [safe]() {
+                     if (safe)
+                       emit safe->historyRequested();
+                   });
+  QObject::connect(menu->addAction(QStringLiteral("Editor…")),
+                   &QAction::triggered, this, [safe]() {
+                     if (safe)
+                       emit safe->editorSettingsRequested();
+                   });
+  QObject::connect(menu->addAction(QStringLiteral("Teilen…")),
+                   &QAction::triggered, this, [safe]() {
+                     if (safe)
+                       emit safe->shareRequested();
+                   });
   menu->addSeparator();
   QAction *collapse = menu->addAction(QStringLiteral("Toolbar einklappen"));
   QObject::connect(collapse, &QAction::triggered, this, [safe]() {
@@ -561,12 +622,14 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   sheet->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
   sheet->setAttribute(Qt::WA_DeleteOnClose);
   sheet->setAttribute(Qt::WA_StyledBackground, true);
-  sheet->setStyleSheet(BlopTheme::themed(
+  sheet->setStyleSheet(
       QStringLiteral(
-          "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
-          "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
-          "QLabel { color: #E8E4FF; %1 }")
-          .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge))));
+          "QFrame#BlopPhoneBrushSheet { background-color: %1; "
+          "border: 1px solid %2; border-radius: 14px; }"
+          "QLabel { color: %3; font-size: 13px; font-weight: 600; }")
+          .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb),
+               NoteChrome::textPrimary().name(QColor::HexRgb)));
   backdrop->sheet = sheet;
 
   auto *layout = new QVBoxLayout(sheet);
@@ -584,13 +647,18 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   auto *slider = new QSlider(Qt::Horizontal, sheet);
   slider->setRange(1, 30);
   slider->setValue(m_config.penWidth);
-  slider->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
-      "background: #121212; margin: 2px 0; border-radius: 3px; }"
-      "QSlider::handle:horizontal { background: #7C5CFC; border: 1px solid "
-      "#7C5CFC; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
-      "QSlider::sub-page:horizontal { background: rgba(124,92,252,0.6); "
-      "border-radius: 3px; }")));
+  const QString accentHex = m_accentColor.name(QColor::HexRgb);
+  slider->setStyleSheet(
+      QStringLiteral(
+          "QSlider::groove:horizontal { border: 1px solid %1; height: 6px; "
+          "background: %2; margin: 2px 0; border-radius: 3px; }"
+          "QSlider::handle:horizontal { background: %3; border: 1px solid "
+          "%3; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
+          "QSlider::sub-page:horizontal { background: %4; "
+          "border-radius: 3px; }")
+          .arg(NoteChrome::border().name(QColor::HexRgb),
+               NoteChrome::toolbarFillEnd().name(QColor::HexRgb), accentHex,
+               NoteChrome::accentSoft().name(QColor::HexArgb)));
 
   auto *row = new QHBoxLayout;
   row->addWidget(slider);
@@ -646,17 +714,20 @@ void AndroidPhoneToolbar::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing, true);
 
-  // Bottom pill surface (matches BlopStyle::surfaceBg / surfaceBorder).
+  // NoteChrome charcoal pill (matches desktop Favorites / notch while editing).
   const QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
   const int radius = UiScale::dp(BlopStyle::surfaceRadiusDp() - 4);
   QPainterPath path;
   path.addRoundedRect(r, radius, radius);
-  p.fillPath(path, BlopStyle::surfaceBg());
-  p.setPen(QPen(BlopStyle::surfaceBorder(), 1.0));
+  QLinearGradient fill(r.topLeft(), r.bottomLeft());
+  fill.setColorAt(0.0, NoteChrome::toolbarFill());
+  fill.setColorAt(1.0, NoteChrome::toolbarFillEnd());
+  p.fillPath(path, fill);
+  p.setPen(QPen(NoteChrome::notchBorder(), 1.0));
   p.drawPath(path);
 
   // Vertical separators between groups.
-  p.setPen(QPen(QColor(255, 255, 255, 40), 1.0));
+  p.setPen(QPen(NoteChrome::borderSoft(), 1.0));
   const int sepTop = UiScale::dp(8);
   const int sepBot = height() - UiScale::dp(8);
   for (int x : m_separatorX) {

@@ -2378,9 +2378,9 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnRailChevron = new ToolbarBtn("chevron_rail", this);
   btnRailChevron->setToolTip(tr("Eigenschaften ein-/ausblenden"));
   btnMoreProps = new ToolbarBtn("more", this);
-  btnMoreProps->setToolTip(tr("More options"));
+  btnMoreProps->setToolTip(tr("Weitere Optionen"));
   btnLayoutToggle = new ToolbarBtn("layout_rows", this);
-  btnLayoutToggle->setToolTip(tr("Switch markup toolbar layout"));
+  btnLayoutToggle->setToolTip(tr("Markup-Leisten-Layout wechseln"));
   btnLasso->setShowChevron(true);
   btnLasso->setToolTip(tr("Auswahl"));
   btnShape->setShowChevron(true);

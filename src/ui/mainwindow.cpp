@@ -1969,11 +1969,9 @@ void MainWindow::syncStudyChromeTheme() {
 void MainWindow::applyThemeRefresh() {
   // Keep note-editor chrome in sync with Settings Design mode so Hell/Dunkel
   // works app-wide (library + note page).
-#ifndef Q_OS_ANDROID
   NoteChrome::setMode(BlopTheme::instance().mode() == BlopTheme::Mode::Light
                           ? NoteChrome::Mode::Light
                           : NoteChrome::Mode::Dark);
-#endif
   if (m_centralContainer) {
     m_centralContainer->setStyleSheet(
         QStringLiteral("QWidget#CentralContainer { background-color: %1; }")
@@ -2019,16 +2017,18 @@ void MainWindow::applyThemeRefresh() {
     tb->setAccentColor(m_currentAccentColor);
 #endif
   }
-  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
-    phone->setAccentColor(m_currentAccentColor);
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    const bool editorOpen =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    phone->setAccentColor(editorOpen ? NoteChrome::accent()
+                                     : m_currentAccentColor);
+  }
   if (m_penPresetBar)
     m_penPresetBar->setAccentColor(m_currentAccentColor);
   if (m_documentTabBar) {
-#ifndef Q_OS_ANDROID
     if (m_documentTabBar->noteChromeMode()) {
       m_documentTabBar->setAccentColor(NoteChrome::accent());
     } else
-#endif
       m_documentTabBar->setAccentColor(m_currentAccentColor);
   }
     if (m_pageThumbnailSidebar)
@@ -2077,6 +2077,9 @@ void MainWindow::applyThemeRefresh() {
     else
       refreshNoteTitleChrome(false);
   }
+#else
+  if (m_documentTabBar && m_documentTabBar->noteChromeMode())
+    applyNoteChromeTheme();
 #endif
 
   // Nudge the file-list viewport so AndroidTileDelegate re-paints with
@@ -3712,14 +3715,16 @@ void MainWindow::applyTheme() {
     tb->setAccentColor(m_currentAccentColor);
 #endif
   }
-  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools))
-    phone->setAccentColor(m_currentAccentColor);
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    const bool editorOpen =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    phone->setAccentColor(editorOpen ? NoteChrome::accent()
+                                     : m_currentAccentColor);
+  }
   if (m_documentTabBar) {
-#ifndef Q_OS_ANDROID
     if (m_documentTabBar->noteChromeMode())
       m_documentTabBar->setAccentColor(NoteChrome::accent());
     else
-#endif
       m_documentTabBar->setAccentColor(m_currentAccentColor);
   }
     if (m_pageThumbnailSidebar)
@@ -5513,25 +5518,29 @@ void MainWindow::setupUi() {
   m_noteHeader->setFixedHeight(UiScale::dp(44));
   m_noteHeader->setStyleSheet(QStringLiteral(
       "QWidget#NoteHeader {"
-      "  background: rgba(12, 10, 20, 0.92);"
-      "  border-bottom: 1px solid rgba(120, 130, 160, 0.14);"
-      "}"));
+      "  background: %1;"
+      "  border-bottom: 1px solid %2;"
+      "}")
+                                  .arg(NoteChrome::toolbarFill().name(QColor::HexRgb),
+                                       NoteChrome::borderSoft().name(QColor::HexRgb)));
   QHBoxLayout *noteHeaderLayout = new QHBoxLayout(m_noteHeader);
   noteHeaderLayout->setContentsMargins(UiScale::dp(18), 0, UiScale::dp(12), 0);
   noteHeaderLayout->setSpacing(UiScale::dp(10));
 
   m_lblNoteHeaderTitle = new QLabel(m_noteHeader);
   m_lblNoteHeaderTitle->setStyleSheet(QStringLiteral(
-      "color: rgba(244,245,251,0.96); font-size: 14px; font-weight: 700;"
-      " letter-spacing: -0.2px; background: transparent;"));
+      "color: %1; font-size: 14px; font-weight: 700;"
+      " letter-spacing: -0.2px; background: transparent;")
+                                          .arg(NoteChrome::textPrimary().name(
+                                              QColor::HexRgb)));
   noteHeaderLayout->addWidget(m_lblNoteHeaderTitle);
   noteHeaderLayout->addStretch(1);
 
   m_lblNoteHeaderMeta = new QLabel(m_noteHeader);
   m_lblNoteHeaderMeta->setStyleSheet(QStringLiteral(
-      "color: rgba(200,196,255,0.70); font-size: 11px; font-weight: 600;"
-      " background: rgba(124,92,252,0.12); border: 1px solid rgba(124,92,252,0.28);"
-      " border-radius: 10px; padding: 4px 10px;"));
+      "color: %1; font-size: 11px; font-weight: 500; background: transparent;")
+                                         .arg(NoteChrome::textSecondary().name(
+                                             QColor::HexRgb)));
   noteHeaderLayout->addWidget(m_lblNoteHeaderMeta);
 
   ModernButton *btnPageLayout = new ModernButton(m_noteHeader);
@@ -6039,6 +6048,17 @@ void MainWindow::setupUi() {
             &MainWindow::onBackToOverview);
     connect(phoneToolbar, &AndroidPhoneToolbar::penConfigChanged, this,
             onPenConfigChanged);
+    connect(phoneToolbar, &AndroidPhoneToolbar::searchInNoteRequested, this,
+            &MainWindow::showNoteInNoteSearch);
+    connect(phoneToolbar, &AndroidPhoneToolbar::historyRequested, this,
+            &MainWindow::showNoteHistoryMenu);
+    connect(phoneToolbar, &AndroidPhoneToolbar::editorSettingsRequested, this,
+            [this]() { setPageSettingsOverlayVisible(true); });
+    connect(phoneToolbar, &AndroidPhoneToolbar::shareRequested, this, [this]() {
+      const QString path = currentEditorNotePath();
+      if (!path.isEmpty())
+        shareOpenNoteAtPath(path);
+    });
   }
   setupRightSidebar();
   qDebug() << "setupUi() nach setupRightSidebar";
@@ -9404,9 +9424,12 @@ void MainWindow::updateSidebarState() {
     m_btnAddWebBookmark->setVisible((inNotesMode && !isEditor) || !inNotesMode);
   if (m_documentTabBar)
     m_documentTabBar->setVisible(inNotesMode);
-  if (m_noteLeftRail)
+  if (m_noteLeftRail) {
+    const bool phoneUi =
+        qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
     m_noteLeftRail->setVisible(inNotesMode && isEditor &&
-                               m_noteLeftRailPrefVisible);
+                               m_noteLeftRailPrefVisible && !phoneUi);
+  }
   if (m_noteLeftRail && m_noteLeftRail->isVisible())
     m_noteLeftRail->setPageFeaturesVisible(currentNoteView() != nullptr);
   // When the icon strip is hidden, still allow the pages panel if it was open.
@@ -11746,13 +11769,7 @@ void MainWindow::positionNoteChrome() {
 }
 
 void MainWindow::updateNoteBottomChrome() {
-  if (!m_noteBottomChrome)
-    return;
-  // Android phone / simulate: single bottom bar is AndroidPhoneToolbar.
-  if (qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
-    m_noteBottomChrome->hide();
-    return;
-  }
+  auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools);
   MultiPageNoteView *view = nullptr;
   CanvasView *canvas = nullptr;
   if (m_editorTabs) {
@@ -11764,6 +11781,37 @@ void MainWindow::updateNoteBottomChrome() {
     else if (w)
       canvas = w->findChild<CanvasView *>();
   }
+
+  // Undo/redo enablement from the active view stack (desktop notch + phone pill).
+  bool canU = false;
+  bool canR = false;
+  if (view) {
+    canU = view->canUndo();
+    canR = view->canRedo();
+  } else if (canvas) {
+    canU = canvas->canUndo();
+    canR = canvas->canRedo();
+  }
+
+  if (phone) {
+    // Android phone / simulate: single bottom bar is AndroidPhoneToolbar.
+    if (m_noteBottomChrome)
+      m_noteBottomChrome->hide();
+    QString undoTip = canU ? QStringLiteral("Rückgängig")
+                           : QStringLiteral("Rückgängig (nicht möglich)");
+    QString redoTip = canR ? QStringLiteral("Wiederholen")
+                           : QStringLiteral("Wiederholen (nicht möglich)");
+    if (view) {
+      const QStringList hist = view->undoHistoryTexts();
+      if (canU && !hist.isEmpty())
+        undoTip = hist.first();
+    }
+    phone->setUndoRedoEnabled(canU, canR, undoTip, redoTip);
+    return;
+  }
+
+  if (!m_noteBottomChrome)
+    return;
   if (!view && !canvas) {
     m_noteBottomChrome->hide();
     return;
@@ -11783,16 +11831,6 @@ void MainWindow::updateNoteBottomChrome() {
   if (m_noteChromeSep2)
     m_noteChromeSep2->setVisible(a4);
 
-  // Undo/redo enablement from the active view stack.
-  bool canU = false;
-  bool canR = false;
-  if (view) {
-    canU = view->canUndo();
-    canR = view->canRedo();
-  } else if (canvas) {
-    canU = canvas->canUndo();
-    canR = canvas->canRedo();
-  }
   if (m_btnNoteUndo)
     m_btnNoteUndo->setEnabled(canU);
   if (m_btnNoteRedo)
@@ -11806,7 +11844,7 @@ void MainWindow::updateNoteBottomChrome() {
       const bool horiz = noteChromeEdgeIsHorizontal(m_noteChromeEdge);
       if (horiz) {
         m_lblNotePage->setText(
-            QStringLiteral("%1%2 of %3")
+            QStringLiteral("%1%2 von %3")
                 .arg(bm ? QStringLiteral("★ ") : QString())
                 .arg(cur)
                 .arg(pages));
@@ -11895,12 +11933,12 @@ MultiPageNoteView *MainWindow::currentNoteView() const {
 }
 
 void MainWindow::applyNoteChromeTheme() {
-#ifndef Q_OS_ANDROID
   if (m_editorCenterWidget) {
     m_editorCenterWidget->setStyleSheet(
         QStringLiteral("QWidget { background: %1; }")
             .arg(NoteChrome::canvasBg().name(QColor::HexRgb)));
   }
+#ifndef Q_OS_ANDROID
   if (m_noteLeftRail) {
     m_noteLeftRail->setAccentColor(NoteChrome::accent());
     refreshNoteLeftRailIcons();
@@ -11925,9 +11963,12 @@ void MainWindow::applyNoteChromeTheme() {
     refreshNoteChromeStyle();
     refreshNoteBottomChromeIcons();
   }
+#endif
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(true);
+#ifndef Q_OS_ANDROID
   refreshNoteTitleChrome(true);
+#endif
   if (m_noteHeader) {
     m_noteHeader->setStyleSheet(QStringLiteral(
         "QWidget#NoteHeader {"
@@ -11954,7 +11995,12 @@ void MainWindow::applyNoteChromeTheme() {
     tb->setAccentColor(NoteChrome::accent());
     tb->update();
   }
+  if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    phone->setAccentColor(NoteChrome::accent());
+    phone->update();
+  }
   refreshOpenEditorSceneBackgrounds();
+#ifndef Q_OS_ANDROID
   positionNoteChrome();
 #endif
 }
