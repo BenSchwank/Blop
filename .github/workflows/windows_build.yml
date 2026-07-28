@@ -106,7 +106,7 @@ jobs:
 
       - name: Build micro-benchmark (additive; not bundled in installer)
         working-directory: build
-        run: cmake --build . --target blop_benchmark_math blop_test_persistence_roundtrip blop_test_infinite_persistence_roundtrip blop_test_eraser_tool_sequence
+        run: cmake --build . --target blop_benchmark_math blop_test_persistence_roundtrip blop_test_infinite_persistence_roundtrip blop_test_eraser_tool_sequence blop_test_shape_path_sequence blop_test_lasso_tool_sequence blop_test_create_tool_sequence
 
       - name: Run persistence round-trip tests via ctest (Phase 0 / Phase 3)
         working-directory: build
@@ -216,6 +216,32 @@ jobs:
 
           if (!(Test-Path "deployment\opengl32sw.dll")) { Write-Warning "opengl32sw.dll missing; software GL fallback unavailable on some GPUs." }
 
+      - name: Sign Blop.exe (Authenticode, optional)
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_CERT_TIMESTAMP_URL: ${{ secrets.WINDOWS_CERT_TIMESTAMP_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)) {
+            Write-Host "WINDOWS_CERT_PFX_BASE64 not set — skipping Authenticode for Blop.exe"
+            exit 0
+          }
+          $ErrorActionPreference = "Stop"
+          $pfx = Join-Path $env:RUNNER_TEMP "blop-code-sign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $ts = $env:WINDOWS_CERT_TIMESTAMP_URL
+          if ([string]::IsNullOrWhiteSpace($ts)) { $ts = "http://timestamp.digicert.com" }
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw "signtool.exe not found under Windows Kits" }
+          Write-Host "Using $signtool"
+          & $signtool sign /fd SHA256 /tr $ts /td SHA256 /f $pfx /p $env:WINDOWS_CERT_PASSWORD "deployment\Blop.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $signtool verify /pa "deployment\Blop.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+
       - name: Zip Release
         uses: TheDoctor0/zip-release@0.7.1
         with:
@@ -284,6 +310,32 @@ jobs:
           else { $ver = '0.0.0' }
           Write-Host "NSIS BLOP_PRODUCT_VERSION=$ver (from $desc)"
           & $nsisPath "/DBLOP_PRODUCT_VERSION=$ver" installer.nsi
+
+      - name: Sign installer (Authenticode, optional)
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_CERT_TIMESTAMP_URL: ${{ secrets.WINDOWS_CERT_TIMESTAMP_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)) {
+            Write-Host "WINDOWS_CERT_PFX_BASE64 not set — skipping Authenticode for installer"
+            exit 0
+          }
+          $ErrorActionPreference = "Stop"
+          if (!(Test-Path "Blop_Windows_Installer.exe")) { throw "Blop_Windows_Installer.exe missing" }
+          $pfx = Join-Path $env:RUNNER_TEMP "blop-code-sign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $ts = $env:WINDOWS_CERT_TIMESTAMP_URL
+          if ([string]::IsNullOrWhiteSpace($ts)) { $ts = "http://timestamp.digicert.com" }
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw "signtool.exe not found under Windows Kits" }
+          & $signtool sign /fd SHA256 /tr $ts /td SHA256 /f $pfx /p $env:WINDOWS_CERT_PASSWORD "Blop_Windows_Installer.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $signtool verify /pa "Blop_Windows_Installer.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item $pfx -Force -ErrorAction SilentlyContinue
 
       - name: Upload Versioned Release
         if: startsWith(github.ref, 'refs/tags/v')

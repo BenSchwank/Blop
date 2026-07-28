@@ -547,25 +547,73 @@ private:
   bool m_firstRedo{true};
 };
 
-/// Move selected items; first redo is a no-op (positions already applied).
+/// Move / transform selected items; first redo is a no-op (already applied).
 class SceneItemsMoveCommand : public QUndoCommand {
 public:
   struct Entry {
     QGraphicsItem *item{nullptr};
-    QPointF from;
-    QPointF to;
+    QPointF fromPos;
+    QPointF toPos;
+    QTransform fromTransform;
+    QTransform toTransform;
+    qreal fromRotation{0.0};
+    qreal toRotation{0.0};
+    qreal fromScale{1.0};
+    qreal toScale{1.0};
+    QPointF fromOrigin;
+    QPointF toOrigin;
   };
-  SceneItemsMoveCommand(MultiPageNoteView *view, QList<Entry> entries)
-      : QUndoCommand(QObject::tr("Verschieben")), m_view(view),
-        m_entries(std::move(entries)) {
+  SceneItemsMoveCommand(MultiPageNoteView *view, QList<Entry> entries,
+                        const QString &label = QObject::tr("Verschieben"))
+      : QUndoCommand(label), m_view(view), m_entries(std::move(entries)) {
     if (!m_entries.isEmpty())
-      setText(historyLabelWithPage(view, m_entries.first().item,
-                                   QObject::tr("Verschieben")));
+      setText(historyLabelWithPage(view, m_entries.first().item, label));
+  }
+  static Entry snapTo(QGraphicsItem *item, const Entry &fromTemplate) {
+    Entry e = fromTemplate;
+    e.item = item;
+    e.toPos = item->pos();
+    e.toTransform = item->transform();
+    e.toRotation = item->rotation();
+    e.toScale = item->scale();
+    e.toOrigin = item->transformOriginPoint();
+    return e;
+  }
+  static Entry capture(QGraphicsItem *item) {
+    Entry e;
+    e.item = item;
+    e.fromPos = item->pos();
+    e.fromTransform = item->transform();
+    e.fromRotation = item->rotation();
+    e.fromScale = item->scale();
+    e.fromOrigin = item->transformOriginPoint();
+    e.toPos = e.fromPos;
+    e.toTransform = e.fromTransform;
+    e.toRotation = e.fromRotation;
+    e.toScale = e.fromScale;
+    e.toOrigin = e.fromOrigin;
+    return e;
+  }
+  static bool changed(const Entry &e) {
+    return e.fromPos != e.toPos || e.fromTransform != e.toTransform ||
+           !qFuzzyCompare(e.fromRotation, e.toRotation) ||
+           !qFuzzyCompare(e.fromScale, e.toScale) || e.fromOrigin != e.toOrigin;
+  }
+  static void apply(QGraphicsItem *item, const QPointF &pos,
+                    const QTransform &tx, qreal rot, qreal scale,
+                    const QPointF &origin) {
+    if (!item)
+      return;
+    item->setTransformOriginPoint(origin);
+    item->setTransform(tx);
+    item->setRotation(rot);
+    item->setScale(scale);
+    item->setPos(pos);
   }
   void undo() override {
     for (const Entry &e : m_entries) {
-      if (e.item)
-        e.item->setPos(e.from);
+      apply(e.item, e.fromPos, e.fromTransform, e.fromRotation, e.fromScale,
+            e.fromOrigin);
     }
     if (m_view)
       m_view->persistSceneToNote(false);
@@ -578,8 +626,8 @@ public:
       return;
     }
     for (const Entry &e : m_entries) {
-      if (e.item)
-        e.item->setPos(e.to);
+      apply(e.item, e.toPos, e.toTransform, e.toRotation, e.toScale,
+            e.toOrigin);
     }
     if (m_view)
       m_view->persistSceneToNote(false);
@@ -4950,16 +4998,34 @@ void MultiPageNoteView::startTransformSession() {
     singleItem->moveBy(oldCenter.x() - newCenter.x(), oldCenter.y() - newCenter.y());
     m_transformOverlay = new TransformOverlay(singleItem);
     connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &MultiPageNoteView::onSelectionChanged);
-    connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
-    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this, &MultiPageNoteView::onSelectionChanged);
+    connect(m_transformOverlay, &TransformOverlay::interactionStarted, this,
+            [this]() {
+              if (m_selectionMenu)
+                m_selectionMenu->hide();
+              captureTransformGestureStarts();
+            });
+    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this,
+            [this]() {
+              commitTransformGestureIfNeeded();
+              onSelectionChanged();
+            });
   } else {
     m_transformGroup = scene_.createItemGroup(items);
     QRectF grpRect = m_transformGroup->boundingRect();
     m_transformGroup->setTransformOriginPoint(grpRect.center());
     m_transformOverlay = new TransformOverlay(m_transformGroup);
     connect(m_transformOverlay, &TransformOverlay::transformChanged, this, &MultiPageNoteView::onSelectionChanged);
-    connect(m_transformOverlay, &TransformOverlay::interactionStarted, m_selectionMenu, &QWidget::hide);
-    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this, &MultiPageNoteView::onSelectionChanged);
+    connect(m_transformOverlay, &TransformOverlay::interactionStarted, this,
+            [this]() {
+              if (m_selectionMenu)
+                m_selectionMenu->hide();
+              captureTransformGestureStarts();
+            });
+    connect(m_transformOverlay, &TransformOverlay::interactionEnded, this,
+            [this]() {
+              commitTransformGestureIfNeeded();
+              onSelectionChanged();
+            });
   }
   m_transformOverlay->setZValue(99999);
   scene_.addItem(m_transformOverlay);
@@ -4968,6 +5034,7 @@ void MultiPageNoteView::startTransformSession() {
 }
 
 void MultiPageNoteView::applyTransform() {
+  m_transformGestureStarts.clear();
   if (m_transformOverlay) {
     scene_.removeItem(m_transformOverlay);
     delete m_transformOverlay;
@@ -5818,16 +5885,77 @@ void MultiPageNoteView::commitMoveGestureIfNeeded() {
     const QPointF to = item->pos();
     if (to == it.value())
       continue;
-    SceneItemsMoveCommand::Entry e;
-    e.item = item;
-    e.from = it.value();
-    e.to = to;
+    SceneItemsMoveCommand::Entry e = SceneItemsMoveCommand::capture(item);
+    e.fromPos = it.value();
+    e.toPos = to;
+    // Move gesture only changes pos; keep other fields equal so undo is pos-only.
+    e.fromTransform = item->transform();
+    e.toTransform = e.fromTransform;
+    e.fromRotation = item->rotation();
+    e.toRotation = e.fromRotation;
+    e.fromScale = item->scale();
+    e.toScale = e.fromScale;
+    e.fromOrigin = item->transformOriginPoint();
+    e.toOrigin = e.fromOrigin;
     entries.append(e);
   }
   m_moveGestureStarts.clear();
   if (entries.isEmpty() || !m_undoStack)
     return;
   m_undoStack->push(new SceneItemsMoveCommand(this, std::move(entries)));
+}
+
+void MultiPageNoteView::captureTransformGestureStarts() {
+  m_transformGestureStarts.clear();
+  if (!m_transformOverlay)
+    return;
+  QGraphicsItem *target = m_transformOverlay->target();
+  if (!target)
+    return;
+  // Multi-select uses a temporary group; skip undo for that target (dangling
+  // after applyTransform). Single-item sessions get full geometry undo.
+  if (m_transformGroup && target == m_transformGroup)
+    return;
+  TransformGeoSnap snap;
+  snap.pos = target->pos();
+  snap.transform = target->transform();
+  snap.rotation = target->rotation();
+  snap.scale = target->scale();
+  snap.origin = target->transformOriginPoint();
+  m_transformGestureStarts.insert(target, snap);
+}
+
+void MultiPageNoteView::commitTransformGestureIfNeeded() {
+  if (m_transformGestureStarts.isEmpty() || !m_undoStack)
+    return;
+  QList<SceneItemsMoveCommand::Entry> entries;
+  for (auto it = m_transformGestureStarts.constBegin();
+       it != m_transformGestureStarts.constEnd(); ++it) {
+    QGraphicsItem *item = it.key();
+    if (!item)
+      continue;
+    SceneItemsMoveCommand::Entry e;
+    e.item = item;
+    e.fromPos = it.value().pos;
+    e.fromTransform = it.value().transform;
+    e.fromRotation = it.value().rotation;
+    e.fromScale = it.value().scale;
+    e.fromOrigin = it.value().origin;
+    e.toPos = item->pos();
+    e.toTransform = item->transform();
+    e.toRotation = item->rotation();
+    e.toScale = item->scale();
+    e.toOrigin = item->transformOriginPoint();
+    if (!SceneItemsMoveCommand::changed(e))
+      continue;
+    entries.append(e);
+  }
+  m_transformGestureStarts.clear();
+  if (entries.isEmpty())
+    return;
+  const QString label = QObject::tr("Transformieren");
+  m_undoStack->push(
+      new SceneItemsMoveCommand(this, std::move(entries), label));
 }
 
 void MultiPageNoteView::onToolContentModified() {

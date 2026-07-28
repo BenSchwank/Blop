@@ -188,6 +188,36 @@ void testTransformOverlayCenterMove() {
          "transform: dy≈25");
 }
 
+void testTransformOverlayResizeChangesTransform() {
+  QGraphicsScene scene;
+  QGraphicsView view(&scene);
+  view.resize(500, 400);
+  view.show();
+
+  auto *target = makeSelectable(&scene, QRectF(0, 0, 100, 80));
+  target->setPos(120, 100);
+  const QTransform before = target->transform();
+  const QRectF beforeBr = target->sceneBoundingRect();
+
+  auto *overlay = new TransformOverlay(target);
+  overlay->setZValue(99999);
+  scene.addItem(overlay);
+
+  const QPointF br = target->sceneBoundingRect().bottomRight();
+  expect(overlay->handleAt(br) == TransformOverlay::BottomRight,
+         "resize: bottom-right handle");
+
+  sendItemMouse(overlay, &scene, QEvent::GraphicsSceneMousePress, br);
+  sendItemMouse(overlay, &scene, QEvent::GraphicsSceneMouseMove,
+                br + QPointF(50, 40));
+  sendItemMouse(overlay, &scene, QEvent::GraphicsSceneMouseRelease,
+                br + QPointF(50, 40));
+
+  expect(target->transform() != before ||
+             target->sceneBoundingRect().width() > beforeBr.width() + 5,
+         "resize: geometry changed");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -199,6 +229,7 @@ int main(int argc, char **argv) {
   testPressOnSelectedReturnsFalse();
   testRulerTypeExcluded();
   testTransformOverlayCenterMove();
+  testTransformOverlayResizeChangesTransform();
 
   if (g_failures != 0) {
     std::fprintf(stderr, "%d lasso/transform check(s) failed\n", g_failures);

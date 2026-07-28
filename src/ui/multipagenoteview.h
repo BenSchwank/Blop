@@ -383,10 +383,21 @@ private:
 
     /// Positions of selected items at press — used for move undo.
     QHash<QGraphicsItem *, QPointF> m_moveGestureStarts;
+    struct TransformGeoSnap {
+      QPointF pos;
+      QTransform transform;
+      qreal rotation{0.0};
+      qreal scale{1.0};
+      QPointF origin;
+    };
+    /// Full geometry at TransformOverlay interaction start (single-item).
+    QHash<QGraphicsItem *, TransformGeoSnap> m_transformGestureStarts;
     /// Plaintext baseline when a text item gained focus (content undo).
     QHash<QGraphicsTextItem *, QString> m_textEditBaselines;
     void captureMoveGestureStarts();
     void commitMoveGestureIfNeeded();
+    void captureTransformGestureStarts();
+    void commitTransformGestureIfNeeded();
     void bindActiveToolSignals(AbstractTool *tool);
     void beginTextEditTracking(QGraphicsItem *focusItem);
     void commitTextEditTracking(QGraphicsItem *focusItem);

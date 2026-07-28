@@ -73,6 +73,20 @@ See `docs/privacy-policy.md`.
 4. Confirm deep-link schemes in the manifest still match the OAuth client
    (reverse client id + `com.benschwank.blop` `/oauth2redirect`).
 
+Print upload-key fingerprints locally (after decoding the CI PFX/JKS):
+
+```bash
+# From a decoded keystore file (do not commit the keystore):
+keytool -list -v -keystore blop-upload.jks -alias "$ANDROID_KEY_ALIAS"
+# Look for SHA1 / SHA256 under the certificate fingerprint section.
+```
+
+Or use the helper (expects env vars, never prints the private key):
+
+```bash
+bash scripts/android-oauth-sha.sh /path/to/upload.jks "$ANDROID_KEY_ALIAS"
+```
+
 ## AAB smoke (manual)
 
 1. CI tag build produces signed `blop.aab` when keystore secrets are set.

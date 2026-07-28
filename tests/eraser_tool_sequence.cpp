@@ -8,6 +8,8 @@
 #include <QApplication>
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
+#include <QPointingDevice>
+#include <QTabletEvent>
 
 #include <cstdio>
 
@@ -234,6 +236,60 @@ void testKeepInkSkipsPenZ() {
          "keepInk: stroke pen unchanged");
 }
 
+void testPressureResponseCurve() {
+  PenTool pen;
+  ToolConfig cfg;
+  cfg.pressureSensitivity = true;
+  pen.setConfig(cfg);
+
+  expect(qFuzzyCompare(pen.blopPressureResponse(1.0), 1.0),
+         "pressure: full → 1.0");
+  const qreal mid = pen.blopPressureResponse(0.5);
+  expect(mid > 0.30 && mid < 1.0, "pressure: mid soft-knee");
+  const qreal low = pen.blopPressureResponse(0.05);
+  expect(low >= 0.30, "pressure: never below soft floor");
+
+  cfg.pressureSensitivity = false;
+  pen.setConfig(cfg);
+  expect(qFuzzyCompare(pen.blopPressureResponse(0.2), 1.0),
+         "pressure: disabled → 1.0");
+}
+
+void sendTablet(AbstractStrokeTool *tool, QEvent::Type type,
+                const QPointF &scenePos, qreal pressure) {
+  const QPointingDevice *dev = QPointingDevice::primaryPointingDevice();
+  const Qt::MouseButton button =
+      type == QEvent::TabletRelease ? Qt::NoButton : Qt::LeftButton;
+  const Qt::MouseButtons buttons =
+      type == QEvent::TabletRelease ? Qt::MouseButtons{} : Qt::LeftButton;
+  QTabletEvent ev(type, dev, scenePos, scenePos, pressure, 0.f, 0.f, 0.f, 0.0,
+                  0.f, Qt::NoModifier, button, buttons);
+  tool->handleTabletEvent(&ev, scenePos);
+}
+
+void testTabletPenCreatesStroke() {
+  QGraphicsScene scene;
+  PenTool pen;
+  ToolConfig cfg;
+  cfg.penWidth = 4;
+  cfg.penColor = QColor(5, 5, 5);
+  cfg.opacity = 1.0;
+  cfg.pressureSensitivity = true;
+  pen.setConfig(cfg);
+  pen.setStrokeSceneForTablet(&scene);
+
+  sendTablet(&pen, QEvent::TabletPress, {15, 15}, 0.4);
+  sendTablet(&pen, QEvent::TabletMove, {45, 35}, 0.7);
+  sendTablet(&pen, QEvent::TabletMove, {75, 25}, 0.9);
+  sendTablet(&pen, QEvent::TabletRelease, {75, 25}, 0.0);
+
+  auto *item = dynamic_cast<StrokeItem *>(pen.lastCompletedItem());
+  expect(item != nullptr, "tablet: lastCompletedItem");
+  expect(item && !item->path().isEmpty(), "tablet: path non-empty");
+  expect(scene.items().contains(item), "tablet: on scene");
+  expect(item && item->points().size() >= 2, "tablet: pressure points");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -246,6 +302,8 @@ int main(int argc, char **argv) {
   testObjectEraseRemovesStroke();
   testTaggedTextPixelVsObject();
   testKeepInkSkipsPenZ();
+  testPressureResponseCurve();
+  testTabletPenCreatesStroke();
 
   if (g_failures != 0) {
     std::fprintf(stderr, "%d writing/eraser sequence check(s) failed\n",

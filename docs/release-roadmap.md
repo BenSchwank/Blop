@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Tool-Sequenzen Pencil/Highlighter/Shape + Store-Checklisten)
+Zuletzt aktualisiert: 2026-07-27 (Lasso/Transform + Text/Sticky/Image ctests)
 
 ---
 
@@ -18,8 +18,8 @@ Share-UX ohne File-ID, Study offline-tolerant, Persistenz- + Tool-Sequenz-ctests
 
 Für Public Store-Release fehlen vor allem: Windows Authenticode + Clean-VM-Smoke,
 Android Play-Signing-Secrets / OAuth-SHA-Verifikation + Data-Safety-Eintrag in der
-Console (Checklisten liegen unter `docs/`), plus restliche Tool-Event-Sequenzen
-(Lasso/Text/Sticky/Image Touch) und optionale Infinite-Graph-V6.
+Console (Checklisten liegen unter `docs/`), optional Tablet/Touch-Matrix und
+Infinite-Graph-V6.
 
 ---
 
@@ -28,11 +28,12 @@ Console (Checklisten liegen unter `docs/`), plus restliche Tool-Event-Sequenzen
 1. Windows: Code-Signing + Clean-VM-Smoke (Secrets/VM; Checkliste: `docs/windows-release-checklist.md`)
 2. Android: Play Signing Secrets + OAuth SHA-1 in Cloud Console + Data Safety Form
    (Entwurf: `docs/android-play-data-safety.md`; CI signiert bereits wenn Secrets gesetzt)
-3. Restliche headless Tool-Sequenzen (Lasso/Transform, Text/Sticky/Image) + Touch/Tablet-Matrix
+3. Optional: Tablet/Touch-Event-Matrix für Writing/Eraser; Transform-Resize-Undo (nur pos-Move heute)
 4. Infinite Graph-Persistenz (V6) — bewusst eingeschränkt; A4 = Release-Editor für Graphen
 
 Erledigt / nicht mehr blockierend: A4-Undo-Kernpfade, Persistenz-ctests, Versionsquelle,
-Share async + Friendly Errors, Crash-Consent, Study optional offline.
+Share async + Friendly Errors, Crash-Consent, Study optional offline,
+headless Lasso/Transform-Move + Text/Sticky/Image-Create.
 
 ---
 
@@ -42,10 +43,10 @@ Share async + Friendly Errors, Crash-Consent, Study optional offline.
 |------|------------|----------|---------|------------|
 | Pen / Pencil / Highlighter | stark | ok | ok | Touch/Tablet-Sequenz-Tests |
 | Eraser | ok (Undo+Semantik) | ok | ok | Tablet-Druck-Pfad testen |
-| Lasso / Transform | ok | ok | ok | Headless Move/Resize-Sequenz |
+| Lasso / Transform | ok + ctest | ok | ok | Resize-Undo (nur Move-pos); Touch |
 | Shape | ok | ok | ok | Interaktiver Create-Pfad (Path-Geometrie ctest vorhanden) |
 | Graph | stark | **eingeschränkt** | ok (A4) | Infinite V6 oder weiter blockiert |
-| Text / Sticky / Image | ok | ok | ok | Headless Edit-Sequenzen |
+| Text / Sticky / Image | ok + create-ctest | ok | ok | Content-Edit-Undo headless; Image via Placement-Helper |
 | Ruler / Hand | ok | ok | ok | Touch/Pen-Matrix |
 | Markup / Favorites | ok | ok | anders | Parität Desktop↔Phone feinjustieren |
 
@@ -93,10 +94,12 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 - [x] Object-Inspector vs. Tool-Props trennen
   - Tool-Props = nächster Strich/Geste; Auswahl-HUD = Selektion; Eraser „Nur Marker löschen“
 - [x] Pixel-Eraser-Semantik dokumentieren + testen — `docs/eraser-semantics.md` + `eraser_tool_sequence`
-- [x] Event-Sequenz-Tests Writing + Eraser + Shape-Path
+- [x] Event-Sequenz-Tests Writing + Eraser + Shape-Path + Lasso + Create
   - Pen / Pencil / Highlighter / Eraser: `blop_test_eraser_tool_sequence`
   - Shape-Geometrie: `blop_test_shape_path_sequence` (`tools/ShapePath.h`)
-  - Offen: Lasso/Transform, Text/Sticky/Image, Tablet/Touch
+  - Lasso + Transform-Center-Move: `blop_test_lasso_tool_sequence`
+  - Text / Sticky / Image-Placement: `blop_test_create_tool_sequence`
+  - Offen: Tablet/Touch-Matrix; Transform-Resize-Undo
 
 **Dateien:** `src/ui/multipagenoteview.*`, `src/ui/canvasview.*`, `tools/*`,
 `src/ui/toolpropertiespanel.*`, `tools/ToolManager.*`
@@ -139,7 +142,7 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
   - CI signiert APK/AAB wenn Keystore-Secrets gesetzt
   - Console-Form + SHA-Verifikation: `docs/android-play-data-safety.md`
 - [x] CI: ctest Persistenz + Tool-Sequenzen
-  - Windows CI: `ctest -R persistence_roundtrip|infinite_persistence_roundtrip|eraser_tool_sequence|shape_path_sequence`
+  - Windows CI: `ctest -R persistence_roundtrip|infinite_persistence_roundtrip|eraser_tool_sequence|shape_path_sequence|lasso_tool_sequence|create_tool_sequence`
 - [x] Crash-Consent-UI + Privacy Policy
   - First-run Prompt + Settings → Erweitert; Sentry erst nach Consent; `docs/privacy-policy.md`
 - [x] Study als optionaler Dienst: Blop offline/ohne Backend stabil
@@ -174,7 +177,7 @@ Eine Version ist releasbar, wenn:
 6. Phase 1.3 — Graph-Edit-Undo
 7. Phase 2 — Suche, Settings-IA, Theme, Share-UX
 8. Phase 3 — Signing, Consent, Store-Checklisten
-9. Rest: Lasso/Text headless Sequenz → Store Secrets → Tag
+9. Rest: optional Tablet/Touch → Store Secrets → Tag
 
 ---
 
@@ -198,3 +201,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 3: Study optional/offline — kein SSO-Logout; Notes ohne Study |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1: eraser-semantics.md + eraser_tool_sequence ctest; KeepInk in Props |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1/3: Pencil+Highlighter Sequenz; ShapePath extract + ctest; Play/Windows Checklisten; Blocker-Refresh |
+| 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1: lasso+transform-move ctest; Text/Sticky/Image create ctest; ImagePlacement helper |

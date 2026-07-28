@@ -1,8 +1,8 @@
 # Windows release checklist
 
 Steps for a public desktop build. Installer versioning is already wired from
-`git describe` in CI/`installer.nsi`. Code signing and Clean-VM smoke need
-machine secrets / a clean VM — not inventable in Cloud Agents.
+`git describe` in CI/`installer.nsi`. Clean-VM smoke still needs a human VM;
+Authenticode is wired in CI when secrets are present.
 
 ## Before tagging
 
@@ -13,23 +13,22 @@ machine secrets / a clean VM — not inventable in Cloud Agents.
 
 ## Code signing (Authenticode)
 
-Requires org secrets (store outside git):
+CI steps in `.github/workflows/windows_build.yml` sign `deployment/Blop.exe`
+(before zip) and `Blop_Windows_Installer.exe` (after NSIS) when secrets exist.
+Without secrets the steps skip and still produce unsigned artifacts.
 
-| Secret / asset | Use |
-|----------------|-----|
-| Code-signing certificate (`.pfx` or cloud HSM) | Sign `Blop.exe` and the NSIS installer |
-| Certificate password / HSM creds | CI or release machine only |
-| Timestamp URL | e.g. DigiCert/Sectigo timestamp server |
+| GitHub Actions secret | Use |
+|-----------------------|-----|
+| `WINDOWS_CERT_PFX_BASE64` | Base64-encoded `.pfx` (PKCS#12) |
+| `WINDOWS_CERT_PASSWORD` | PFX password |
+| `WINDOWS_CERT_TIMESTAMP_URL` | Optional; default `http://timestamp.digicert.com` |
 
-Suggested local/CI flow after `makensis`:
+Local equivalent:
 
 ```bat
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f blop.pfx /p %CERT_PASSWORD% Blop-Setup.exe
-signtool verify /pa Blop-Setup.exe
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f blop.pfx /p %CERT_PASSWORD% Blop_Windows_Installer.exe
+signtool verify /pa Blop_Windows_Installer.exe
 ```
-
-Gate the sign step on secret presence (same pattern as Android keystore).
-Unsigned CI artifacts may still be produced for internal smoke.
 
 ## Clean-VM smoke
 
@@ -49,7 +48,7 @@ Record failures against the roadmap Phase 3 Windows item.
 
 ## What Cloud Agents cannot do
 
-- Hold or apply production signing certificates
+- Hold or apply production signing certificates (secrets live in GitHub)
 - Run a true Clean VM from this Ubuntu desktop environment
 
 Use this checklist when human/release CI has the secrets.
