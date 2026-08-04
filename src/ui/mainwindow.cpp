@@ -6357,8 +6357,8 @@ void MainWindow::setupWebBrowser() {
             showBlopToast(
                 this,
                 QStringLiteral(
-                    "Blop Study ist gerade nicht erreichbar. Notizen "
-                    "funktionieren weiter offline."));
+                    "Anmeldung konnte nicht geladen werden. Prüfe dein Netz. "
+                    "Notizen funktionieren weiter offline."));
           });
 
   // Force one reload 4 s after startup to fix the post-install blank page

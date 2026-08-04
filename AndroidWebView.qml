@@ -25,6 +25,9 @@ Rectangle {
     property string studyUrl: "https://blop-study.com"
     property string studyUrlFallback: "https://blop-study.com"
     property bool firstLoadDone: false
+    // Hard load failure (offline / DNS / host down). Keeps Notes usable; shows retry UI.
+    property bool studyLoadFailed: false
+    property string studyLoadFailedReason: ""
     property string pendingInjectJs: ""
     // When false, embedded page is a user bookmark — disable Study SSO polling / Google bridge.
     property bool ssoPollingEnabled: true
@@ -127,6 +130,44 @@ Rectangle {
         return urlText.indexOf("https://") === 0 || urlText.indexOf("http://") === 0
     }
 
+    function isNetworkOrHostUnreachableError(errorText) {
+        var e = String(errorText || "").toUpperCase()
+        if (e.length === 0)
+            return false
+        return e.indexOf("ERR_INTERNET_DISCONNECTED") !== -1
+            || e.indexOf("ERR_NAME_NOT_RESOLVED") !== -1
+            || e.indexOf("ERR_CONNECTION_TIMED_OUT") !== -1
+            || e.indexOf("ERR_CONNECTION_REFUSED") !== -1
+            || e.indexOf("ERR_NETWORK_CHANGED") !== -1
+            || e.indexOf("ERR_ADDRESS_UNREACHABLE") !== -1
+            || e.indexOf("ERR_PROXY_CONNECTION_FAILED") !== -1
+            || e.indexOf("ERR_TIMED_OUT") !== -1
+            || e.indexOf("ERR_CONNECTION_RESET") !== -1
+            || e.indexOf("ERR_CONNECTION_CLOSED") !== -1
+            || e.indexOf("ERR_CONNECTION_ABORTED") !== -1
+            || e.indexOf("ERR_HOST_LOOKUP") !== -1
+            || e.indexOf("NETWORK") !== -1
+            || e.indexOf("OFFLINE") !== -1
+    }
+
+    function markStudyLoadFailed(reason, errorText) {
+        console.warn("BlopStudy: markStudyLoadFailed",
+                     "reason=", reason, "error=", errorText,
+                     "already=", studyLoadFailed)
+        studyLoadFailed = true
+        studyLoadFailedReason = String(reason || "loadFailed")
+        // Drop SurfaceView so the QML error overlay is visible (Android
+        // WebView otherwise paints above all QML siblings).
+        releaseSurface("loadFailed:" + studyLoadFailedReason)
+    }
+
+    function clearStudyLoadFailed() {
+        if (!studyLoadFailed && studyLoadFailedReason === "")
+            return
+        studyLoadFailed = false
+        studyLoadFailedReason = ""
+    }
+
     function releaseSurface(reason) {
         console.log("BlopStudy: releaseSurface", "reason=", reason)
         surfaceBootTimer.stop()
@@ -187,6 +228,7 @@ Rectangle {
                          "loaderStatus=", studyWebLoader.status)
             return
         }
+        clearStudyLoadFailed()
         freshLoadSerial += 1
         var target = buildFreshStudyEntryUrl(addCacheBypass)
         cacheMissRecoveryArmed = false
@@ -602,6 +644,7 @@ Rectangle {
                 if (loadRequest.status === WebView.LoadSucceededStatus &&
                         isRealStudyUrl(urlText)) {
                     console.log("BlopStudy: navigation SUCCEEDED ->", urlText)
+                    studyRoot.clearStudyLoadFailed()
                     // v3.18.9/12: SINGLE authoritative firstLoadDone flip.
                     // v3.18.12: isRealStudyUrl rejects empty strings (v3.18.9
                     // treated "" as success via indexOf("about:blank") !== 0).
@@ -625,11 +668,35 @@ Rectangle {
                     return
                 }
 
+                // Offline / DNS / host unreachable: show German retry UI immediately
+                // instead of a blank WebView (SurfaceView hides QML overlays).
+                if (isFailed && studyRoot.ssoPollingEnabled
+                        && (isRealStudyUrl(urlText)
+                            || studyRoot.isNetworkOrHostUnreachableError(errorText))) {
+                    if (studyRoot.isNetworkOrHostUnreachableError(errorText)
+                            || errorText.length === 0
+                            || errorText.indexOf("ERR_") !== -1) {
+                        studyRoot.markStudyLoadFailed(
+                                    studyRoot.isNetworkOrHostUnreachableError(errorText)
+                                    ? "offlineOrNetwork" : "loadFailed",
+                                    errorText)
+                        return
+                    }
+                }
+
                 // Android WebView can land on chrome error pages without a classic
                 // LoadFailedStatus callback. Recover from that URL explicitly.
-                if (urlText.toLowerCase().indexOf("chrome-error://chromewebdata") === 0 && studyRoot.cacheMissRecoveryArmed) {
-                    studyRoot.recoverFromCacheMiss("chromeErrorPage")
-                    return
+                if (urlText.toLowerCase().indexOf("chrome-error://chromewebdata") === 0) {
+                    if (studyRoot.cacheMissRecoveryArmed
+                            && studyRoot.cacheMissRecoveryCount < studyRoot.cacheMissRecoveryLimit) {
+                        studyRoot.recoverFromCacheMiss("chromeErrorPage")
+                        return
+                    }
+                    // Exhausted recovery / hard fail (often offline): surface error UI.
+                    if (studyRoot.ssoPollingEnabled) {
+                        studyRoot.markStudyLoadFailed("chromeErrorPage", errorText)
+                        return
+                    }
                 }
 
                 if (studyRoot.ssoPollingEnabled && loadRequest.url.toString().indexOf("blop://google-login") === 0) {
@@ -725,7 +792,8 @@ Rectangle {
         id: startupLoadingOverlayLoader
         anchors.fill: parent
         z: 5
-        active: !firstLoadDone && ssoPollingEnabled && tabActive
+        // Keep overlay for failed loads even after a partial firstLoadDone edge case.
+        active: (!firstLoadDone || studyLoadFailed) && ssoPollingEnabled && tabActive
         sourceComponent: startupLoadingOverlayComponent
     }
 
@@ -738,9 +806,10 @@ Rectangle {
         z: 5
 
         property bool retryArmed: false
+        readonly property bool showFailureUi: studyLoadFailed || retryArmed
 
         Timer {
-            running: parent.visible
+            running: parent.visible && !studyLoadFailed
             interval: 6000
             repeat: false
             onTriggered: startupLoadingOverlay.retryArmed = true
@@ -749,36 +818,46 @@ Rectangle {
         Column {
             anchors.centerIn: parent
             spacing: Math.round(16 * uiScale)
+            width: Math.min(parent.width - Math.round(48 * uiScale), Math.round(320 * uiScale))
 
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
-                running: startupLoadingOverlay.visible
+                running: startupLoadingOverlay.visible && !startupLoadingOverlay.showFailureUi
+                visible: running
                 width: Math.round(56 * uiScale)
                 height: width
             }
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: startupLoadingOverlay.retryArmed
-                      ? "Study nicht erreichbar"
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: startupLoadingOverlay.showFailureUi
+                      ? (studyLoadFailedReason === "offlineOrNetwork"
+                         ? "Keine Internetverbindung"
+                         : "Anmeldung nicht erreichbar")
                       : "Lade Anmeldung..."
                 color: "#E0DBFF"
-                font.pixelSize: Math.round(15 * uiScale)
+                font.pixelSize: Math.round(16 * uiScale)
+                font.bold: startupLoadingOverlay.showFailureUi
             }
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: startupLoadingOverlay.retryArmed
-                width: Math.min(parent.width, Math.round(300 * uiScale))
+                visible: startupLoadingOverlay.showFailureUi
+                width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                text: "Blop Study ist gerade nicht erreichbar. Notizen funktionieren weiter offline. Pruefe dein Netz oder tippe auf Erneut versuchen."
+                text: studyLoadFailedReason === "offlineOrNetwork"
+                      ? "Die Anmelde-Seite konnte nicht geladen werden — vermutlich bist du offline. Prüfe dein Netz. Deine Notizen funktionieren weiter ohne Anmeldung."
+                      : "Blop Study ist gerade nicht erreichbar. Notizen funktionieren weiter offline. Prüfe dein Netz oder tippe auf Erneut versuchen."
                 color: "#9C97B8"
-                font.pixelSize: Math.round(12 * uiScale)
+                font.pixelSize: Math.round(13 * uiScale)
             }
 
             Rectangle {
-                visible: startupLoadingOverlay.retryArmed
+                visible: startupLoadingOverlay.showFailureUi
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: Math.round(180 * uiScale)
                 height: Math.round(42 * uiScale)
@@ -798,8 +877,11 @@ Rectangle {
                 MouseArea {
                     anchors.fill: parent
                     onClicked: {
-                        console.log("BlopStudy: user-triggered manual retry")
+                        console.log("BlopStudy: user-triggered manual retry",
+                                    "studyLoadFailed=", studyLoadFailed)
                         startupLoadingOverlay.retryArmed = false
+                        clearStudyLoadFailed()
+                        firstLoadDone = false
                         // Re-arm recreate budget so this manual tap is
                         // never refused by webViewRecreateLimit.
                         webViewRecreateCount = 0
@@ -923,11 +1005,14 @@ Rectangle {
     Timer {
         id: surfaceUpWatchdog
         interval: 4000
-        running: tabActive && !firstLoadDone && !webviewRecreatePending && ssoPollingEnabled
+        // Stop once we already show the offline/unreachable UI — otherwise
+        // recreate loops fight the failure overlay.
+        running: tabActive && !firstLoadDone && !studyLoadFailed
+                 && !webviewRecreatePending && ssoPollingEnabled
         repeat: false
         onTriggered: {
-            if (firstLoadDone) {
-                console.log("BlopStudy: surface watchdog skipped — already loaded")
+            if (firstLoadDone || studyLoadFailed) {
+                console.log("BlopStudy: surface watchdog skipped — loaded or failed UI")
                 return
             }
             if (webviewRecreatePending) {
