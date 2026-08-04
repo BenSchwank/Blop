@@ -6,7 +6,7 @@ Jedes Tool muss einwandfrei funktionieren (erstellen → undo → redo → speic
 > Keine Kalender-Schätzungen. Aufwand = technische Scope / Risiko.
 > Status pflegen: `[ ]` offen · `[~]` in Arbeit · `[x]` erledigt
 
-Zuletzt aktualisiert: 2026-07-27 (Lasso/Transform + Text/Sticky/Image ctests)
+Zuletzt aktualisiert: 2026-08-04 (Azure Artifact Signing CI; Identity-Validierung manuell)
 
 ---
 
@@ -16,18 +16,17 @@ Vorhanden: Tool-Framework, A4-JSON-Persistenz, Infinite-V5, Desktop-NoteChrome,
 Android-Phone-Toolbar, Windows/Android-CI, Crash-Consent + Privacy-Doc,
 Share-UX ohne File-ID, Study offline-tolerant, Persistenz- + Tool-Sequenz-ctests.
 
-Für Public Store-Release fehlen vor allem: Windows Authenticode + Clean-VM-Smoke,
-Android Play-Signing-Secrets / OAuth-SHA-Verifikation + Data-Safety-Eintrag in der
-Console (Checklisten liegen unter `docs/`), optional Tablet/Touch-Matrix und
-Infinite-Graph-V6.
+Für Public Store-Release fehlen vor allem: Azure Org-Identity Completed + Certificate
+Profile + `AZURE_*` GitHub Secrets, Clean-VM-Smoke, Android Geräte-Smoke am Ende.
+Optional: Multi-Select-Transform-Undo; Infinite-Graph-V6.
 
 ---
 
 ## Kritische Blocker (aktuell)
 
-1. Windows: Code-Signing + Clean-VM-Smoke (Secrets/VM; Checkliste: `docs/windows-release-checklist.md`)
-2. Android: Play Signing Secrets + OAuth SHA-1 in Cloud Console + Data Safety Form
-   (Entwurf: `docs/android-play-data-safety.md`; CI signiert bereits wenn Secrets gesetzt)
+1. Windows: Azure Identity Completed → Certificate Profile → `AZURE_*` Secrets
+   (CI bereits verdrahtet; Checkliste: `docs/windows-release-checklist.md`) + Clean-VM
+2. Android: Geräte-Smoke (Icon/Login/Persistenz) am Ende; Data Safety/Listing weitgehend ok
 3. Optional: Tablet/Touch-Event-Matrix für Writing/Eraser; Transform-Resize-Undo (nur pos-Move heute)
 4. Infinite Graph-Persistenz (V6) — bewusst eingeschränkt; A4 = Release-Editor für Graphen
 
@@ -135,9 +134,11 @@ Pro Tool (Pen → Pencil → Highlighter → Eraser → Lasso → Shape → Grap
 
 **Ziel:** Installierbar, signiert, policy-konform.
 
-- [ ] Windows: Code-Signing, Installer-Version aus Git, Clean-VM-Smoke
+- [~] Windows: Code-Signing, Installer-Version aus Git, Clean-VM-Smoke
   - Installer-Version aus Git: erledigt (CI/`installer.nsi`)
-  - Signing + Clean-VM: Checkliste `docs/windows-release-checklist.md` (braucht Secrets/VM)
+  - Azure Artifact Signing CI verdrahtet (`blop-signing` / `azure/artifact-signing-action`)
+  - Manuell: Org-Identity Completed → Profile → GitHub `AZURE_*` Secrets
+  - Clean-VM: `docs/windows-release-checklist.md`
 - [ ] Android: Play Signing / OAuth-SHA, Privacy/Data Safety, AAB-Smoke
   - CI signiert APK/AAB wenn Keystore-Secrets gesetzt
   - Console-Form + SHA-Verifikation: `docs/android-play-data-safety.md`
@@ -202,3 +203,4 @@ Bei jedem abgeschlossenen Block: Checkbox hier setzen und kurzer Eintrag:
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1: eraser-semantics.md + eraser_tool_sequence ctest; KeepInk in Props |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1/3: Pencil+Highlighter Sequenz; ShapePath extract + ctest; Play/Windows Checklisten; Blocker-Refresh |
 | 2026-07-27 | `cursor/notepad-trust-polish-869e` | Phase 1: lasso+transform-move ctest; Text/Sticky/Image create ctest; ImagePlacement helper |
+| 2026-08-04 | `cursor/notepad-trust-polish-869e` | Windows CI: Azure Artifact Signing verdrahtet; Checkliste auf blop-signing umgestellt |

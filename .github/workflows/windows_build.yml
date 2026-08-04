@@ -11,6 +11,10 @@ jobs:
   build:
     name: Build & Deploy
     runs-on: windows-latest
+    # Artifact Signing (OIDC-capable); harmless when Azure secrets are absent.
+    permissions:
+      contents: read
+      id-token: write
     env:
       # Sentry secrets exposed at job-level so steps can use env.* in `if:` conditions
       # (secrets.* is not allowed in conditionals; this is the documented workaround).
@@ -18,6 +22,14 @@ jobs:
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       SENTRY_URL: ${{ secrets.SENTRY_URL }}
+      # Azure Artifact Signing (preferred). Empty → skip; PFX fallback may still run.
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+      AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
 
     steps:
       - name: Checkout code
@@ -216,7 +228,38 @@ jobs:
 
           if (!(Test-Path "deployment\opengl32sw.dll")) { Write-Warning "opengl32sw.dll missing; software GL fallback unavailable on some GPUs." }
 
-      - name: Sign Blop.exe (Authenticode, optional)
+      - name: Azure login (Artifact Signing)
+        if: env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Sign Blop.exe (Azure Artifact Signing)
+        if: >-
+          env.AZURE_CLIENT_ID != '' &&
+          env.AZURE_TRUSTED_SIGNING_ACCOUNT != '' &&
+          env.AZURE_TRUSTED_SIGNING_PROFILE != '' &&
+          env.AZURE_TRUSTED_SIGNING_ENDPOINT != ''
+        uses: azure/artifact-signing-action@v1
+        with:
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\deployment
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Sign Blop.exe (PFX Authenticode fallback)
+        if: >-
+          env.AZURE_CLIENT_ID == '' ||
+          env.AZURE_TRUSTED_SIGNING_ACCOUNT == '' ||
+          env.AZURE_TRUSTED_SIGNING_PROFILE == '' ||
+          env.AZURE_TRUSTED_SIGNING_ENDPOINT == ''
         shell: pwsh
         env:
           WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
@@ -224,7 +267,7 @@ jobs:
           WINDOWS_CERT_TIMESTAMP_URL: ${{ secrets.WINDOWS_CERT_TIMESTAMP_URL }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)) {
-            Write-Host "WINDOWS_CERT_PFX_BASE64 not set — skipping Authenticode for Blop.exe"
+            Write-Host "No Azure Artifact Signing and no WINDOWS_CERT_PFX_BASE64 — skipping exe sign"
             exit 0
           }
           $ErrorActionPreference = "Stop"
@@ -311,7 +354,50 @@ jobs:
           Write-Host "NSIS BLOP_PRODUCT_VERSION=$ver (from $desc)"
           & $nsisPath "/DBLOP_PRODUCT_VERSION=$ver" installer.nsi
 
-      - name: Sign installer (Authenticode, optional)
+      - name: Stage installer for Azure signing
+        if: >-
+          env.AZURE_CLIENT_ID != '' &&
+          env.AZURE_TRUSTED_SIGNING_ACCOUNT != '' &&
+          env.AZURE_TRUSTED_SIGNING_PROFILE != '' &&
+          env.AZURE_TRUSTED_SIGNING_ENDPOINT != ''
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force sign-installer | Out-Null
+          Copy-Item Blop_Windows_Installer.exe sign-installer\Blop_Windows_Installer.exe -Force
+
+      - name: Sign installer (Azure Artifact Signing)
+        if: >-
+          env.AZURE_CLIENT_ID != '' &&
+          env.AZURE_TRUSTED_SIGNING_ACCOUNT != '' &&
+          env.AZURE_TRUSTED_SIGNING_PROFILE != '' &&
+          env.AZURE_TRUSTED_SIGNING_ENDPOINT != ''
+        uses: azure/artifact-signing-action@v1
+        with:
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\sign-installer
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Copy signed installer back
+        if: >-
+          env.AZURE_CLIENT_ID != '' &&
+          env.AZURE_TRUSTED_SIGNING_ACCOUNT != '' &&
+          env.AZURE_TRUSTED_SIGNING_PROFILE != '' &&
+          env.AZURE_TRUSTED_SIGNING_ENDPOINT != ''
+        shell: pwsh
+        run: |
+          Copy-Item sign-installer\Blop_Windows_Installer.exe Blop_Windows_Installer.exe -Force
+
+      - name: Sign installer (PFX Authenticode fallback)
+        if: >-
+          env.AZURE_CLIENT_ID == '' ||
+          env.AZURE_TRUSTED_SIGNING_ACCOUNT == '' ||
+          env.AZURE_TRUSTED_SIGNING_PROFILE == '' ||
+          env.AZURE_TRUSTED_SIGNING_ENDPOINT == ''
         shell: pwsh
         env:
           WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
@@ -319,7 +405,7 @@ jobs:
           WINDOWS_CERT_TIMESTAMP_URL: ${{ secrets.WINDOWS_CERT_TIMESTAMP_URL }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)) {
-            Write-Host "WINDOWS_CERT_PFX_BASE64 not set — skipping Authenticode for installer"
+            Write-Host "No Azure Artifact Signing and no WINDOWS_CERT_PFX_BASE64 — skipping installer sign"
             exit 0
           }
           $ErrorActionPreference = "Stop"

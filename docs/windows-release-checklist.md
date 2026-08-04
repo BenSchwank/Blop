@@ -1,54 +1,75 @@
 # Windows release checklist
 
-Steps for a public desktop build. Installer versioning is already wired from
-`git describe` in CI/`installer.nsi`. Clean-VM smoke still needs a human VM;
-Authenticode is wired in CI when secrets are present.
+Steps for a public desktop build. Installer versioning is wired from
+`git describe` in CI/`installer.nsi`. Preferred signing path is **Azure Artifact
+Signing** (account `blop-signing`). PFX remains a fallback.
 
 ## Before tagging
 
 - [ ] `git describe --tags` matches the intended `v3.22.N` (or current series)
-- [ ] Roadmap DoD items for this cut are green (tools undo/persist, chrome, consent)
+- [ ] Roadmap DoD items for this cut are green
 - [ ] Windows CI green on the release commit
-  (`ctest` persistence + tool sequences in `windows_build.yml`)
+- [ ] Azure identity validation **Completed** (Organisation / Public Trust)
+- [ ] Certificate profile exists (Public Trust / Code Signing)
 
-## Code signing (Authenticode)
+## Path A — Azure Artifact Signing (preferred)
 
-CI steps in `.github/workflows/windows_build.yml` sign `deployment/Blop.exe`
-(before zip) and `Blop_Windows_Installer.exe` (after NSIS) when secrets exist.
-Without secrets the steps skip and still produce unsigned artifacts.
+### A1. Azure resources (manual)
 
-| GitHub Actions secret | Use |
-|-----------------------|-----|
-| `WINDOWS_CERT_PFX_BASE64` | Base64-encoded `.pfx` (PKCS#12) |
+1. Azure Portal → Artifact Signing account `blop-signing` (RG `blop-signing`, North Europe, Basic)
+2. Role on your user: **Artifact Signing Identity Verifier**
+3. **Identitätsüberprüfungen** → Organisation → Public → wait until **Completed**
+4. **Zertifikatprofile** → create e.g. `blop-public` (Public Trust, Code Signing, linked identity)
+5. Create an Entra **App registration** for GitHub Actions (or use existing SP)
+6. On the signing account IAM: assign that app
+   **Artifact Signing Certificate Profile Signer**
+
+### A2. GitHub Actions secrets
+
+| Secret | Example / notes |
+|--------|------------------|
+| `AZURE_CLIENT_ID` | App registration application (client) ID |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscription ID |
+| `AZURE_CLIENT_SECRET` | App client secret (or later switch to OIDC) |
+| `AZURE_TRUSTED_SIGNING_ACCOUNT` | `blop-signing` |
+| `AZURE_TRUSTED_SIGNING_PROFILE` | e.g. `blop-public` |
+| `AZURE_TRUSTED_SIGNING_ENDPOINT` | North Europe: `https://neu.codesigning.azure.net/` |
+
+CI signs `deployment/Blop.exe` then `Blop_Windows_Installer.exe` when these are set
+(`.github/workflows/windows_build.yml`). Without them the Azure steps are skipped.
+
+### A3. Verify a CI run
+
+1. Trigger Windows workflow (`workflow_dispatch` or push to master/tag)
+2. Confirm steps **Sign Blop.exe (Azure Artifact Signing)** and installer sign are green
+3. Download artifact → Properties → Digital Signatures should show a Microsoft/Azure CA chain
+
+## Path B — PFX fallback (optional)
+
+Only if not using Azure. Secrets:
+
+| Secret | Use |
+|--------|-----|
+| `WINDOWS_CERT_PFX_BASE64` | Base64 `.pfx` |
 | `WINDOWS_CERT_PASSWORD` | PFX password |
-| `WINDOWS_CERT_TIMESTAMP_URL` | Optional; default `http://timestamp.digicert.com` |
+| `WINDOWS_CERT_TIMESTAMP_URL` | Optional timestamp URL |
 
-Local equivalent:
-
-```bat
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f blop.pfx /p %CERT_PASSWORD% Blop_Windows_Installer.exe
-signtool verify /pa Blop_Windows_Installer.exe
-```
+Used only when Azure Artifact Signing secrets are incomplete.
 
 ## Clean-VM smoke
 
 On a VM **without** prior Blop installs or Qt:
 
 1. Copy the signed installer from the release artifact.
-2. Install for current user (and once as admin if you ship that mode).
-3. Launch from Start Menu shortcut — version string in Settings matches tag.
-4. Create a note → Pen / Pencil / Highlighter / Eraser / Shape → Undo/Redo →
-   close app → reopen note (round-trip).
-5. Toggle Light theme; open note chrome (no dark islands).
-6. Decline crash upload on first run; confirm app runs; enable in Settings →
-   Erweitert and confirm consent persists across restart.
-7. Uninstall; confirm Start Menu entry and install dir removed.
-
-Record failures against the roadmap Phase 3 Windows item.
+2. Install → launch → version matches tag.
+3. Create a note → Pen / Eraser / Shape → Undo/Redo → reopen note.
+4. Light theme + crash-consent toggle.
+5. Uninstall cleanly.
 
 ## What Cloud Agents cannot do
 
-- Hold or apply production signing certificates (secrets live in GitHub)
-- Run a true Clean VM from this Ubuntu desktop environment
+- Complete AU10TIX / Microsoft org identity validation for you
+- Hold production Azure client secrets (you paste them into GitHub Secrets)
 
-Use this checklist when human/release CI has the secrets.
+When identity shows **Completed**, continue with certificate profile + secrets above.
