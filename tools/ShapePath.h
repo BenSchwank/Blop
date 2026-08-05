@@ -17,6 +17,12 @@ inline QPainterPath blopBuildShapePath(const QRectF &dragRect, const ToolConfig 
   if (rn.width() < 1.0 && rn.height() < 1.0)
     return {};
 
+  // Directed tools must use the raw drag corners (QRectF(start,end)), not the
+  // normalized TL→BR — otherwise up/left drags flip arrow/line direction and
+  // feel like they "snap" to a fixed diagonal.
+  const QPointF dragA = dragRect.topLeft();
+  const QPointF dragB = dragRect.bottomRight();
+
   switch (cfg.shapeToolKind) {
   case ShapeToolKind::Rectangle: {
     QPainterPath p;
@@ -24,27 +30,30 @@ inline QPainterPath blopBuildShapePath(const QRectF &dragRect, const ToolConfig 
     return p;
   }
   case ShapeToolKind::Circle: {
+    // True circle inscribed in the drag bounds (never a square outline).
     const QPointF c = rn.center();
     const qreal rad = qMin(rn.width(), rn.height()) * 0.5;
+    if (rad < 0.5)
+      return {};
     QPainterPath p;
     p.addEllipse(QRectF(c.x() - rad, c.y() - rad, 2.0 * rad, 2.0 * rad));
     return p;
   }
   case ShapeToolKind::Ellipse: {
     QPainterPath p;
-    p.addEllipse(rn.normalized());
+    p.addEllipse(rn);
     return p;
   }
   case ShapeToolKind::Line: {
     QPainterPath p;
-    p.moveTo(rn.topLeft());
-    p.lineTo(rn.bottomRight());
+    p.moveTo(dragA);
+    p.lineTo(dragB);
     return p;
   }
   case ShapeToolKind::Arrow: {
     QPainterPath p;
-    const QPointF a = rn.topLeft();
-    const QPointF b = rn.bottomRight();
+    const QPointF a = dragA;
+    const QPointF b = dragB;
     p.moveTo(a);
     p.lineTo(b);
     QLineF stem(a, b);

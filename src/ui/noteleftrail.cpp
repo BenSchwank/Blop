@@ -121,17 +121,23 @@ void NoteLeftRail::refreshStyles() {
   const QString checkedBg =
       NoteChrome::isDark() ? QStringLiteral("rgba(0,0,0,0.55)")
                            : QStringLiteral("rgba(0,0,0,0.12)");
+  // Explicit rail plate color so parent QSS (editor canvas fill) cannot leave
+  // a charcoal strip behind in light mode.
   setStyleSheet(QStringLiteral(
+      "QWidget#NoteLeftRail {"
+      "  background: %1; border: none;"
+      "}"
       "QToolButton#NoteLeftRailBtn {"
       "  background: transparent; border: none; border-radius: 6px; padding: 0;"
       "}"
       "QToolButton#NoteLeftRailBtn:hover {"
-      "  background: %1;"
+      "  background: %2;"
       "}"
       "QToolButton#NoteLeftRailBtn:checked {"
-      "  background: %2;"
+      "  background: %3;"
       "}")
-                    .arg(hoverBg, checkedBg));
+                    .arg(NoteChrome::toolbarFill().name(QColor::HexRgb), hoverBg,
+                         checkedBg));
   // Accent edge for the active pages button — painted via stylesheet border.
   if (QToolButton *pages = m_btns.value(QStringLiteral("pages"))) {
     if (pages->isChecked()) {

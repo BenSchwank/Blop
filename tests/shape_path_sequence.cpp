@@ -62,6 +62,21 @@ void testLineAndArrow() {
   const QPainterPath arrow = blopBuildShapePath(r, cfg);
   expect(arrow.elementCount() > line.elementCount(),
          "arrow: stem + head elements");
+
+  // Up/left drag must keep direction (not normalize to SE).
+  const QRectF upLeft(QPointF(80, 60), QPointF(20, 10));
+  const QPainterPath arrowUp = blopBuildShapePath(upLeft, cfg);
+  expect(!arrowUp.isEmpty(), "arrow up-left: non-empty");
+  expect(arrowUp.elementCount() >= 2, "arrow up-left: has stem");
+  if (arrowUp.elementCount() >= 2) {
+    const QPainterPath::Element e0 = arrowUp.elementAt(0);
+    const QPainterPath::Element e1 = arrowUp.elementAt(1);
+    auto near = [](qreal a, qreal b) { return qAbs(a - b) < 0.01; };
+    expect(near(e0.x, 80.0) && near(e0.y, 60.0),
+           "arrow up-left: starts at drag origin");
+    expect(near(e1.x, 20.0) && near(e1.y, 10.0),
+           "arrow up-left: ends at drag tip");
+  }
 }
 
 void testAxesTicks() {

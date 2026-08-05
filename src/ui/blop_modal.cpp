@@ -13,8 +13,12 @@
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLinearGradient>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QPropertyAnimation>
+#include <QRadialGradient>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QShowEvent>
@@ -43,7 +47,7 @@ BlopModal *BlopModal::present(QWidget *parent, QWidget *content, Mode mode,
 }
 
 int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
-                            int preferredCardWidth) {
+                            int preferredCardWidth, bool glassBackdrop) {
   if (!parent || !dlg)
     return QDialog::Rejected;
 
@@ -61,6 +65,8 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
     return QDialog::Rejected;
   if (preferredCardWidth > 0)
     modal->setPreferredCardWidth(preferredCardWidth);
+  if (glassBackdrop)
+    modal->setGlassBackdrop(true);
 
   int result = QDialog::Rejected;
   QEventLoop loop;
@@ -183,8 +189,81 @@ void BlopModal::setPreferredCardWidth(int px) {
   layoutContent();
 }
 
+void BlopModal::setGlassBackdrop(bool on) {
+  if (m_glassBackdrop == on)
+    return;
+  m_glassBackdrop = on;
+  setAttribute(Qt::WA_OpaquePaintEvent, false);
+  applyTheme();
+  update();
+}
+
+void BlopModal::paintEvent(QPaintEvent *event) {
+  if (!m_glassBackdrop) {
+    QWidget::paintEvent(event);
+    return;
+  }
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing, true);
+  const QRect r = rect();
+  const bool light = BlopTheme::instance().isLight();
+
+  // Soft tinted scrim (replaces flat stylesheet fill for glass mode).
+  QColor base = light ? QColor(245, 248, 255, 150) : QColor(8, 10, 18, 165);
+  p.fillRect(r, base);
+
+  QLinearGradient wash(r.topLeft(), r.bottomRight());
+  if (light) {
+    wash.setColorAt(0.0, QColor(255, 255, 255, 70));
+    wash.setColorAt(0.45, QColor(180, 210, 255, 40));
+    wash.setColorAt(1.0, QColor(230, 240, 255, 55));
+  } else {
+    wash.setColorAt(0.0, QColor(40, 70, 120, 55));
+    wash.setColorAt(0.5, QColor(20, 24, 40, 30));
+    wash.setColorAt(1.0, QColor(70, 110, 180, 45));
+  }
+  p.fillRect(r, wash);
+
+  // Subtle specular shimmer blobs (faded glass).
+  auto blob = [&](const QPointF &c, qreal radius, const QColor &c0) {
+    QRadialGradient g(c, radius);
+    QColor a = c0;
+    a.setAlpha(light ? 55 : 40);
+    QColor b = c0;
+    b.setAlpha(0);
+    g.setColorAt(0.0, a);
+    g.setColorAt(1.0, b);
+    p.setPen(Qt::NoPen);
+    p.setBrush(g);
+    p.drawEllipse(c, radius, radius);
+  };
+  blob(QPointF(r.width() * 0.18, r.height() * 0.22), qMin(r.width(), r.height()) * 0.42,
+       light ? QColor(255, 255, 255) : QColor(140, 190, 255));
+  blob(QPointF(r.width() * 0.78, r.height() * 0.68), qMin(r.width(), r.height()) * 0.38,
+       light ? QColor(200, 220, 255) : QColor(90, 140, 220));
+
+  // Sparse sparkle points.
+  p.setPen(Qt::NoPen);
+  const int seed = r.width() ^ (r.height() << 8);
+  for (int i = 0; i < 28; ++i) {
+    const int x = qAbs((seed * (i + 3) * 1103515245 + 12345) >> 8) % qMax(1, r.width());
+    const int y = qAbs((seed * (i + 7) * 214013 + 2531011) >> 8) % qMax(1, r.height());
+    const int a = light ? 35 + (i % 5) * 8 : 28 + (i % 5) * 6;
+    p.setBrush(QColor(255, 255, 255, a));
+    const qreal s = 1.2 + (i % 3) * 0.7;
+    p.drawEllipse(QPointF(x, y), s, s);
+  }
+}
+
 void BlopModal::applyTheme() {
-  setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
+  if (m_glassBackdrop) {
+    // Painted in paintEvent — keep stylesheet transparent so QSS doesn't
+    // flatten the shimmer.
+    setStyleSheet(QStringLiteral(
+        "QWidget#BlopModalBackdrop { background: transparent; }"));
+  } else {
+    setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
+  }
 
   if (m_content) {
     m_content->setStyleSheet(
@@ -274,7 +353,11 @@ void BlopModal::layoutContent() {
     // (one glyph per line) and overlays look "extrem lang gestreckt".
     const int preferred =
         m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(420);
-    const int cardW = qBound(UiScale::dp(320), preferred, W - 2 * pad);
+    // Desktop Settings / tablet: allow near-full width (not phone-narrow).
+    const int maxCardW = preferred >= UiScale::dp(640)
+                             ? W - 2 * pad
+                             : qMin(W - 2 * pad, UiScale::dp(760));
+    const int cardW = qBound(UiScale::dp(320), preferred, maxCardW);
     int contentH = UiScale::dp(140);
     if (m_content) {
       m_content->setMaximumWidth(cardW);
@@ -291,13 +374,21 @@ void BlopModal::layoutContent() {
         measured = qMax(measured, m_content->heightForWidth(cardW));
       contentH = qMax(UiScale::dp(120), measured + UiScale::dp(8));
     }
-    // Large dialogs (Settings) may request near-full height; keep a margin.
-    const qreal heightFrac = preferred >= UiScale::dp(560) ? 0.92 : 0.72;
+    // Large dialogs (Settings) fill most of the window (tablet / desktop).
+    const bool roomy = preferred >= UiScale::dp(640) || m_glassBackdrop;
+    const qreal heightFrac = roomy ? 0.94 : (preferred >= UiScale::dp(560) ? 0.92 : 0.72);
     const int maxH = qMin(int(H * heightFrac), H - 2 * pad);
-    const int cardH = qBound(UiScale::dp(120), contentH, maxH);
+    int cardH = qBound(UiScale::dp(120), contentH, maxH);
+    if (roomy)
+      cardH = qMax(cardH, qMin(maxH, qMax(contentH, int(H * 0.88))));
     const int x = (W - cardW) / 2;
     const int y = (H - cardH) / 2;
     m_card->setGeometry(x, y, cardW, cardH);
+    if (m_content && roomy) {
+      m_content->setMinimumHeight(0);
+      m_content->setMaximumHeight(QWIDGETSIZE_MAX);
+      m_content->resize(cardW, cardH);
+    }
   }
 }
 

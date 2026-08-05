@@ -92,12 +92,18 @@ public:
             }
             const bool heldLongEnough = m_pressTimer.elapsed() >= 360;
             const bool draggedEnough = QLineF(m_startPos, event->scenePos()).length() >= 8.0;
-            if (heldLongEnough && draggedEnough && m_config.shapeToolKind == ShapeToolKind::Rectangle)
+            // Square lock for rectangles; circle already inscribes — lock aspect
+            // so the drag rubber-band matches the final circle diameter.
+            if (heldLongEnough && draggedEnough &&
+                (m_config.shapeToolKind == ShapeToolKind::Rectangle ||
+                 m_config.shapeToolKind == ShapeToolKind::Circle))
                 m_longPressLock = true;
         }
 
         QPointF endPos = event->scenePos();
-        if (m_longPressLock) {
+        if (m_longPressLock || m_config.shapeToolKind == ShapeToolKind::Circle) {
+            // Circle: always equal aspect from the drag start (avoids a
+            // "chopped square" rubber-band that users mistake for the shape).
             const QPointF delta = endPos - m_startPos;
             const qreal side = qMax(qAbs(delta.x()), qAbs(delta.y()));
             const qreal sx = (delta.x() >= 0) ? 1.0 : -1.0;

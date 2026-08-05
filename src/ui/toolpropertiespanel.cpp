@@ -42,7 +42,9 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   auto *header = new QHBoxLayout;
   header->setSpacing(UiScale::dp(8));
   m_title = new QLabel(QStringLiteral("Eigenschaften"), this);
-  m_title->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+  m_title->setObjectName(QStringLiteral("ToolPropsTitle"));
+  m_title->setStyleSheet(QStringLiteral(
+      "QLabel#ToolPropsTitle { font-size: 15px; font-weight: 700; }"));
   header->addWidget(m_title, 1);
   auto *closeBtn = new QPushButton(QStringLiteral("×"), this);
   closeBtn->setObjectName(QStringLiteral("ToolPropsClose"));
@@ -949,11 +951,15 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
 void ToolPropertiesPanel::rebuild() {
   const int radius = UiScale::dp(16);
   const QString idleBg = NoteChrome::isDark()
-                             ? QStringLiteral("rgba(255,255,255,0.04)")
+                             ? QStringLiteral("rgba(255,255,255,0.07)")
                              : QStringLiteral("rgba(0,0,0,0.05)");
   const QString hoverBg = NoteChrome::isDark()
-                              ? QStringLiteral("rgba(255,255,255,0.08)")
+                              ? QStringLiteral("rgba(255,255,255,0.12)")
                               : QStringLiteral("rgba(0,0,0,0.09)");
+  // Slightly lifted surface so the panel doesn't read as a black slab on
+  // the charcoal canvas.
+  const QColor surface = NoteChrome::isDark() ? QColor(52, 52, 54)
+                                              : NoteChrome::panelElevated();
   const QString qss = QStringLiteral(
       "QWidget#ToolPropertiesPanel {"
       "  background: %1;"
@@ -965,6 +971,7 @@ void ToolPropertiesPanel::rebuild() {
       "  background: transparent;"
       "}"
       "QLabel { color: %3; background: transparent; font-size: 13px; font-weight: 600; }"
+      "QLabel#ToolPropsTitle { color: %5; font-size: 15px; font-weight: 700; }"
       "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 10px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px;"
       "  border: 1px solid %2; background: %7; }"
@@ -974,18 +981,18 @@ void ToolPropertiesPanel::rebuild() {
       "  border: 1px solid %2; border-radius: 10px; font-size: 12px; font-weight: 650;"
       "  padding: 8px 10px; }"
       "QPushButton#ToolPropsMode:checked {"
-      "  background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
+      "  background: rgba(91,157,255,0.22); border-color: %4; color: %5; }"
       "QPushButton#ToolPropsMode:hover { background: %8; }"
       "QPushButton#ToolPropsClose {"
       "  color: %5; background: transparent; border: none; font-size: 18px; }"
       "QSlider::groove:horizontal { height: 6px; background: %2; border-radius: 3px; }"
       "QSlider::sub-page:horizontal { background: %4; border-radius: 3px; }"
       "QSlider::handle:horizontal { background: %5; width: 16px; height: 16px; "
-      "margin: -5px 0; border-radius: 8px; }"
+      "margin: -5px 0; border-radius: 8px; border: 1px solid %2; }"
       "QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }"
       "QScrollBar::handle:vertical { background: %2; border-radius: 4px; min-height: 24px; }"
       "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }")
-                          .arg(NoteChrome::panelElevated().name(),
+                          .arg(surface.name(),
                                NoteChrome::border().name(),
                                NoteChrome::textSecondary().name(),
                                NoteChrome::accent().name(),
@@ -1005,11 +1012,18 @@ void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
   const qreal radius = UiScale::dp(16);
   p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 55));
+  const QColor shadow = NoteChrome::isDark() ? QColor(0, 0, 0, 40)
+                                             : QColor(0, 0, 0, 28);
+  p.setBrush(shadow);
   p.drawRoundedRect(r.translated(0, 2), radius, radius);
   QLinearGradient grad(r.topLeft(), r.bottomLeft());
-  grad.setColorAt(0, NoteChrome::panelElevated());
-  grad.setColorAt(1, NoteChrome::panelBg());
+  if (NoteChrome::isDark()) {
+    grad.setColorAt(0, QColor(58, 58, 60));
+    grad.setColorAt(1, QColor(46, 46, 48));
+  } else {
+    grad.setColorAt(0, NoteChrome::panelElevated());
+    grad.setColorAt(1, NoteChrome::panelBg());
+  }
   p.setBrush(grad);
   p.setPen(QPen(NoteChrome::borderSoft(), 1));
   p.drawRoundedRect(r, radius, radius);

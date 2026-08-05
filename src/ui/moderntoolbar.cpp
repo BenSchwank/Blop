@@ -297,17 +297,24 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     return;
   }
   if (name == QLatin1String("ruler") || name == QLatin1String("measure")) {
-    // Drawboard measure: dimension line with end ticks (red when tipped).
-    const QColor mcol = hasTip ? tip : QColor(235, 70, 70);
-    QPen mp(mcol, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    p->setPen(mp);
-    p->drawLine(14, 40, 50, 22);
-    p->drawLine(14, 40, 14, 48);
-    p->drawLine(50, 22, 50, 30);
-    p->drawLine(14, 40, 20, 34);
-    p->drawLine(14, 40, 20, 46);
-    p->drawLine(50, 22, 44, 16);
-    p->drawLine(50, 22, 44, 28);
+    // Physical ruler plate (distinct from Shape→Arrow dimension glyphs).
+    const QColor body = hasTip ? tip : primary;
+    p->setPen(QPen(body, 2.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->setBrush(Qt::NoBrush);
+    QTransform t;
+    t.translate(32, 32);
+    t.rotate(-28);
+    t.translate(-32, -32);
+    p->save();
+    p->setTransform(t, true);
+    p->drawRoundedRect(QRectF(10, 24, 44, 16), 3, 3);
+    p->setPen(QPen(body, 2.0, Qt::SolidLine, Qt::RoundCap));
+    for (int i = 0; i < 7; ++i) {
+      const qreal x = 14 + i * 6.0;
+      const qreal h = (i % 2 == 0) ? 9.0 : 6.0;
+      p->drawLine(QPointF(x, 24), QPointF(x, 24 + h));
+    }
+    p->restore();
     return;
   }
   if (name == QLatin1String("rect") || name == QLatin1String("shape")) {
@@ -1083,12 +1090,14 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     // Footer affordances stay quieter (no accent edge, softer glyphs).
     if (m_pressing && !m_railDragging) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 28 : 40));
+      p.setBrush(NoteChrome::isDark() ? QColor(255, 255, 255, 28)
+                                      : QColor(0, 0, 0, 32));
       p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(4),
                         UiScale::dp(4));
     } else if (m_active && !m_railFooterStyle) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 170 : 36));
+      p.setBrush(NoteChrome::isDark() ? QColor(0, 0, 0, 170)
+                                      : QColor(0, 0, 0, 28));
       p.drawRoundedRect(rect().adjusted(0, 1, 0, -1), UiScale::dp(4),
                         UiScale::dp(4));
       p.setBrush(m_accentColor.isValid() ? m_accentColor : NoteChrome::accent());
@@ -1097,10 +1106,13 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
                         UiScale::dp(1), UiScale::dp(1));
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
-      const int a = m_railFooterStyle
-                        ? (NoteChrome::isDark() ? 12 : 20)
-                        : (NoteChrome::isDark() ? 16 : 28);
-      p.setBrush(QColor(255, 255, 255, a));
+      if (NoteChrome::isDark()) {
+        const int a = m_railFooterStyle ? 12 : 16;
+        p.setBrush(QColor(255, 255, 255, a));
+      } else {
+        const int a = m_railFooterStyle ? 18 : 26;
+        p.setBrush(QColor(0, 0, 0, a));
+      }
       p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), UiScale::dp(4),
                         UiScale::dp(4));
     }
@@ -1113,7 +1125,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
         tip = NoteChrome::textPrimary();
     } else if (!m_active && !m_railFooterStyle && !m_glyphColor.isValid()) {
       tip = NoteChrome::textPrimary();
-      tip.setAlphaF(NoteChrome::isDark() ? 0.55 : 0.48);
+      tip.setAlphaF(NoteChrome::isDark() ? 0.62 : 0.92);
     }
     // Reserve space for the flyout chevron so the glyph never overlaps it.
     const int chevronReserve =
@@ -3301,10 +3313,11 @@ void ModernToolbar::showToolPicker() {
     already.insert(s.mode);
   ToolPickerOverlay::present(
       host, m_accentColor, already, [this](ToolMode mode) {
-        // Hand is unique; other tools may appear multiple times as presets.
-        if (mode == ToolMode::Hand && railContains(ToolMode::Hand)) {
+        // Hand + Ruler are unique; pens may appear multiple times as presets.
+        if ((mode == ToolMode::Hand || mode == ToolMode::Ruler) &&
+            railContains(mode)) {
           for (int i = 0; i < m_railSlots.size(); ++i) {
-            if (m_railSlots[i].mode == ToolMode::Hand) {
+            if (m_railSlots[i].mode == mode) {
               applyRailSlot(i);
               return;
             }
@@ -4738,15 +4751,19 @@ void ModernToolbar::applyDrawboardVerticalRail() {
     btnDockToggle->hide();
   }
   m_style = Normal;
+  // Vertical orientation must be set before slot rebuild so per-slot buttons
+  // are created and singleton tool glyphs (e.g. btnRuler) stay hidden.
+  if (m_orientation != Vertical)
+    setOrientation(Vertical, false);
   if (m_railSlots.isEmpty())
     loadRailTools();
   else
     rebuildSlotButtons();
+  if (btnRuler)
+    btnRuler->hide();
   syncDrawboardToolIcons();
   syncToolBadges();
-  if (m_orientation != Vertical)
-    setOrientation(Vertical, false);
-  else {
+  {
     const int w = preferredRailWidth();
     const int h = qMax(calculateMinLength(), UiScale::dp(200));
     setMinimumSize(0, 0);
@@ -4914,9 +4931,29 @@ void ModernToolbar::loadRailTools() {
       if (sl.mode == ToolMode::Hand)
         hasHand = true;
     }
+    bool dirty = false;
+    // Dedupe measure/ruler — older saves could stack two identical slots.
+    {
+      bool seenRuler = false;
+      QList<RailSlot> deduped;
+      deduped.reserve(m_railSlots.size());
+      for (const RailSlot &sl : m_railSlots) {
+        if (sl.mode == ToolMode::Ruler) {
+          if (seenRuler)
+            continue;
+          seenRuler = true;
+        }
+        deduped.append(sl);
+      }
+      if (deduped.size() != m_railSlots.size()) {
+        m_railSlots = deduped;
+        dirty = true;
+      }
+    }
     if (!hasHand) {
       RailSlot hand = RailSlot::fromTool(ToolMode::Hand, defaultCfg(ToolMode::Hand));
       m_railSlots.prepend(hand);
+      dirty = true;
     }
     if (!hasPencil) {
       int penIdx = -1;
@@ -4931,8 +4968,9 @@ void ModernToolbar::loadRailTools() {
         m_railSlots.insert(penIdx + 1, pencil);
       else
         m_railSlots.append(pencil);
+      dirty = true;
     }
-    if (!hasHand || !hasPencil)
+    if (dirty)
       saveRailTools();
   }
   m_activeRailSlot = -1;
@@ -5001,7 +5039,7 @@ QString ModernToolbar::iconForSlot(const RailSlot &s) const {
   case ToolMode::Shape: {
     const auto kind = static_cast<ShapeToolKind>(s.shapeKind);
     if (kind == ShapeToolKind::Circle)
-      return QStringLiteral("ellipse");
+      return QStringLiteral("circle");
     if (kind == ShapeToolKind::Ellipse)
       return QStringLiteral("ellipse");
     if (kind == ShapeToolKind::Line)
@@ -5242,6 +5280,8 @@ void ModernToolbar::addToolToRail(ToolMode mode) {
   if (!getButtonForMode(mode) && mode != ToolMode::Hand)
     return;
   if (mode == ToolMode::Hand && railContains(ToolMode::Hand))
+    return;
+  if (mode == ToolMode::Ruler && railContains(ToolMode::Ruler))
     return;
   RailSlot slot = RailSlot::fromTool(mode, ToolManager::instance().configFor(mode));
   if (mode == ToolMode::Hand) {

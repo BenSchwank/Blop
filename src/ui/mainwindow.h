@@ -529,6 +529,11 @@ private:
   // the inline setter above compiles on Windows too.
   bool m_androidPillClickPending{false};
 
+  /// After deleting a library note, ignore stray clicks that would reopen
+  /// the removed path (row shift / mouse-up on neighboring tile).
+  qint64 m_suppressLibraryOpenUntilMs{0};
+  QString m_lastDeletedLibraryPath;
+
   // v119 perf: dedupe QEvent::Move bursts on the floating toolbar
   // (eventFilter); only re-evaluate the dock condition when y crosses
   // an 8-px threshold instead of on every pixel of a drag.

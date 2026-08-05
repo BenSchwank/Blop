@@ -5,6 +5,7 @@
 #include "blop_theme.h"
 #include "blopripple.h"
 #include "blopstyle.h"
+#include "uiscale.h"
 #include "ui_SettingsDialog.h"
 
 #include <QButtonGroup>
@@ -27,6 +28,7 @@
 #include <QScroller>
 #include <QSettings>
 #include <QShowEvent>
+#include <QSizePolicy>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QToolButton>
@@ -285,9 +287,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground);
     setObjectName(QStringLiteral("SettingsDialog"));
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("SettingsDialog")));
-    // Prefer a roomy panel when embedded in BlopModal::Card (~560 wide).
-    setMinimumSize(480, 560);
-    resize(720, 860);
+    // Roomy desktop/tablet panel — BlopModal owns final geometry; keep a
+    // sensible minimum so the card never collapses to phone-narrow.
+    setMinimumSize(UiScale::dp(560), UiScale::dp(520));
+    resize(UiScale::dp(920), UiScale::dp(860));
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // App settings live on the first tab. Hide the orphan Cloud Sync tab —
     // account/logout already lives under Konto on the App surface.

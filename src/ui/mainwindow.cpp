@@ -5262,6 +5262,8 @@ void MainWindow::setupUi() {
               return;
             }
 #endif
+            if (QDateTime::currentMSecsSinceEpoch() < m_suppressLibraryOpenUntilMs)
+              return;
             const QModelIndex src = mapToSource(index);
             if (!m_fileModel || !src.isValid())
               return;
@@ -5269,12 +5271,18 @@ void MainWindow::setupUi() {
               navigateLibraryToPath(m_fileModel->filePath(src));
               return;
             }
+            const QString path = m_fileModel->filePath(src);
+            if (path.isEmpty() || !QFile::exists(path))
+              return;
+            if (!m_lastDeletedLibraryPath.isEmpty() &&
+                path.compare(m_lastDeletedLibraryPath, Qt::CaseInsensitive) == 0)
+              return;
             static QElapsedTimer debounce;
-            static QModelIndex lastIdx;
-            if (lastIdx == src && debounce.isValid() &&
+            static QString lastPath;
+            if (lastPath == path && debounce.isValid() &&
                 debounce.elapsed() < 450)
               return;
-            lastIdx = src;
+            lastPath = path;
             debounce.restart();
             onFileDoubleClicked(src);
           });
@@ -5612,16 +5620,9 @@ void MainWindow::setupUi() {
                                          UiScale::dp(8), UiScale::dp(4));
   m_noteChromeLayout->setSpacing(UiScale::dp(4));
 
-  m_btnNoteChromeGrip = new QPushButton(m_noteBottomChrome);
-  m_btnNoteChromeGrip->setObjectName(QStringLiteral("NoteChromeGrip"));
-  m_btnNoteChromeGrip->setToolTip(
-      QStringLiteral("Ziehen zum Andocken · Rechtsklick: Rand wählen"));
-  m_btnNoteChromeGrip->setCursor(Qt::SizeAllCursor);
-  m_btnNoteChromeGrip->setFlat(true);
-  m_btnNoteChromeGrip->setFocusPolicy(Qt::NoFocus);
-  m_btnNoteChromeGrip->setFixedSize(UiScale::dp(28), UiScale::dp(36));
-  m_btnNoteChromeGrip->installEventFilter(this);
-  m_noteChromeLayout->addWidget(m_btnNoteChromeGrip, 0, Qt::AlignCenter);
+  // Drag-to-dock uses empty chrome chrome / right-click menu — the six-dot
+  // grip control was redundant and cluttered the notch.
+  m_btnNoteChromeGrip = nullptr;
 
   m_noteChromeLayout->addStretch(1);
 
@@ -10063,10 +10064,21 @@ void MainWindow::openNotePath(const QString &absolutePath) {
 
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
   BlopDiag::recordUiAction(QStringLiteral("open_note"));
+  if (!m_fileModel || !index.isValid())
+    return;
+  if (QDateTime::currentMSecsSinceEpoch() < m_suppressLibraryOpenUntilMs)
+    return;
   if (m_fileModel->isDir(index)) {
     navigateLibraryToPath(m_fileModel->filePath(index));
   } else {
     QString path = m_fileModel->filePath(index);
+    if (path.isEmpty() || !QFile::exists(path)) {
+      qWarning() << "onFileDoubleClicked: missing file" << path;
+      return;
+    }
+    if (!m_lastDeletedLibraryPath.isEmpty() &&
+        path.compare(m_lastDeletedLibraryPath, Qt::CaseInsensitive) == 0)
+      return;
     LibraryOrgStore::touchRecent(path);
     QString fileName = index.data().toString();
     bool isBinary = false;
@@ -10803,14 +10815,25 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
     menu->addAction(QStringLiteral("Share-Link erstellen\u2026"), doCreateLink);
     menu->addAction(QStringLiteral("Datei aus Link importieren\u2026"), doImportLink);
     menu->addAction(QStringLiteral("Löschen"), [this, persistent]() {
-      if (!persistent.isValid()) return;
+      if (!persistent.isValid() || !m_fileModel) return;
+      const QString path = m_fileModel->filePath(QModelIndex(persistent));
       if (!BlopDialogs::confirm(
               this, QStringLiteral("Notiz löschen"),
               QStringLiteral("Diese Notiz wirklich löschen? Das kann nicht "
                              "rückgängig gemacht werden."),
               QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
         return;
-      m_fileModel->remove(QModelIndex(persistent));
+      m_lastDeletedLibraryPath = path;
+      m_suppressLibraryOpenUntilMs =
+          QDateTime::currentMSecsSinceEpoch() + 900;
+      if (m_fileListView)
+        m_fileListView->clearSelection();
+      LibraryOrgStore::setFavorite(path, false);
+      if (persistent.isValid())
+        m_fileModel->remove(QModelIndex(persistent));
+      else if (!path.isEmpty())
+        QFile::remove(path);
+      applyLibraryFilters();
     });
   };
 
@@ -10904,7 +10927,9 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
   items.append({QString(), QIcon(), {}, false, true});
   items.append({QStringLiteral("Löschen"), QIcon(),
                 [this, persistent]() {
-                  if (!persistent.isValid()) return;
+                  if (!persistent.isValid() || !m_fileModel) return;
+                  const QString path =
+                      m_fileModel->filePath(QModelIndex(persistent));
                   if (!BlopDialogs::confirm(
                           this, QStringLiteral("Notiz löschen"),
                           QStringLiteral(
@@ -10913,7 +10938,17 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                           QStringLiteral("Löschen"),
                           QStringLiteral("Abbrechen")))
                     return;
-                  m_fileModel->remove(QModelIndex(persistent));
+                  m_lastDeletedLibraryPath = path;
+                  m_suppressLibraryOpenUntilMs =
+                      QDateTime::currentMSecsSinceEpoch() + 900;
+                  if (m_fileListView)
+                    m_fileListView->clearSelection();
+                  LibraryOrgStore::setFavorite(path, false);
+                  if (persistent.isValid())
+                    m_fileModel->remove(QModelIndex(persistent));
+                  else if (!path.isEmpty())
+                    QFile::remove(path);
+                  applyLibraryFilters();
                 }, true, false});
   BlopInWindowMenu::show(this, globalPos, items);
 #else
@@ -11205,12 +11240,13 @@ void MainWindow::onOpenSettings() {
 #endif
   });
 
-  // Desktop/Windows: centered card so Settings is clearly visible (not a
-  // narrow side sheet that can read as "missing"). Preferred width ~560.
+  // Desktop/Windows: wide tablet-style Settings with glass shimmer backdrop.
   // Android phones keep the default BottomSheet via Mode::Auto.
 #ifndef Q_OS_ANDROID
+  const int settingsW =
+      qBound(UiScale::dp(720), int(width() * 0.78), UiScale::dp(1100));
   int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card,
-                                    UiScale::dp(560));
+                                    settingsW, /*glassBackdrop=*/true);
 #else
   int res = BlopModal::execBlocking(this, &dlg);
 #endif
@@ -11962,9 +11998,16 @@ MultiPageNoteView *MainWindow::currentNoteView() const {
 }
 
 void MainWindow::applyNoteChromeTheme() {
+  // Keep editor chrome aligned with app Design mode so Hell/Dunkel flips
+  // left rail + Favorites icons together (no charcoal strip in white mode).
+  NoteChrome::setMode(BlopTheme::instance().mode() == BlopTheme::Mode::Light
+                          ? NoteChrome::Mode::Light
+                          : NoteChrome::Mode::Dark);
   if (m_editorCenterWidget) {
+    // Scope to the host only — a bare `QWidget {}` rule paints charcoal onto
+    // child rails/toolbars and fights NoteChrome light plates.
     m_editorCenterWidget->setStyleSheet(
-        QStringLiteral("QWidget { background: %1; }")
+        QStringLiteral("QWidget#EditorCenter { background: %1; }")
             .arg(NoteChrome::canvasBg().name(QColor::HexRgb)));
   }
 #ifndef Q_OS_ANDROID
@@ -11980,6 +12023,10 @@ void MainWindow::applyNoteChromeTheme() {
   if (m_toolPropertiesPanel) {
     m_toolPropertiesPanel->setAccentColor(NoteChrome::accent());
     m_toolPropertiesPanel->syncFromToolManager();
+  }
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    tb->setAccentColor(NoteChrome::accent());
+    tb->update();
   }
   if (auto *view = currentNoteView())
     view->applyNoteChrome();
@@ -12053,7 +12100,6 @@ void MainWindow::refreshNoteBottomChromeIcons() {
   apply(m_btnNoteZoomIn, QStringLiteral("zoom_in"));
   apply(m_btnNoteFitWidth, QStringLiteral("fit_width"));
   apply(m_btnNoteFitPage, QStringLiteral("fit_page"));
-  apply(m_btnNoteChromeGrip, QStringLiteral("drag_handle"));
 #endif
 }
 
@@ -12061,9 +12107,11 @@ void MainWindow::refreshNoteLeftRailIcons() {
 #ifndef Q_OS_ANDROID
   if (!m_noteLeftRail)
     return;
-  const QColor ic = NoteChrome::textSecondary();
+  // Light mode: solid dark glyphs on light rail (not washed-out gray).
+  const QColor ic = NoteChrome::isDark() ? NoteChrome::textSecondary()
+                                         : NoteChrome::textPrimary();
   QColor icDim = ic;
-  icDim.setAlphaF(NoteChrome::isDark() ? 0.72 : 0.55);
+  icDim.setAlphaF(NoteChrome::isDark() ? 0.72 : 0.88);
   const QColor icActive = NoteChrome::textPrimary();
   auto setRailIcon = [&](const QString &id, const QString &glyph,
                          bool active = false) {
