@@ -5832,7 +5832,8 @@ void MainWindow::setupUi() {
     // Mirror into app theme so Settings Design and editor stay aligned.
     BlopTheme::instance().setMode(NoteChrome::isDark() ? BlopTheme::Mode::Dark
                                                        : BlopTheme::Mode::Light);
-    applyNoteChromeTheme();
+    // Full refresh: library chrome + Favorites rail icons + left strip.
+    applyThemeRefresh();
   });
   m_noteLeftRail->hide();
 
