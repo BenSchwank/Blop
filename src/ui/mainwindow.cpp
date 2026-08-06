@@ -1920,8 +1920,13 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Phase 3: first-run crash-upload consent (Android-safe BlopDialogs::confirm).
   // Uploads stay off until the user opts in; Settings → Erweitert can change later.
+  // Delay past first paint; on Android the dialog uses a centered Card (not an
+  // animated BottomSheet) so a failed slide cannot leave a stuck black scrim.
   QTimer::singleShot(1200, this, [this]() {
     if (blopCrashUploadConsentAsked())
+      return;
+    // If another modal/scrim is already up, skip — never stack glass panes.
+    if (findChild<BlopModal *>(QString(), Qt::FindDirectChildrenOnly))
       return;
     const bool ok = BlopDialogs::confirm(
         this, QStringLiteral("Absturzberichte"),
@@ -9277,10 +9282,12 @@ void MainWindow::animateSidebar(bool show) {
     m_sidebarContainer->raise();
     m_sidebarContainer->show();
 #ifdef Q_OS_ANDROID
+    // Never show the scrim at drawer width 0 — a stalled animation would
+    // leave a permanent black glass pane over Notes with no way to tap it
+    // closed (tap handler lives on the scrim, but the drawer never appears).
     if (m_androidSidebarScrim) {
       updateAndroidSidebarScrimGeometry();
-      m_androidSidebarScrim->show();
-      m_androidSidebarScrim->raise();
+      m_androidSidebarScrim->hide();
     }
 #endif
   } else {
@@ -9374,7 +9381,15 @@ void MainWindow::animateSidebar(bool show) {
 #ifdef Q_OS_ANDROID
       if (m_androidSidebarScrim) {
         updateAndroidSidebarScrimGeometry();
-        m_androidSidebarScrim->raise();
+        const int finalW = m_sidebarContainer ? m_sidebarContainer->width() : 0;
+        if (finalW > UiScale::dp(8)) {
+          m_androidSidebarScrim->show();
+          m_androidSidebarScrim->raise();
+        } else {
+          // Animation produced no usable drawer — drop the glass pane.
+          m_androidSidebarScrim->hide();
+          m_isSidebarOpen = false;
+        }
       }
       if (m_sidebarContainer)
         m_sidebarContainer->raise();

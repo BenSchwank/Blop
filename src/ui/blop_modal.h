@@ -7,6 +7,7 @@ class QPropertyAnimation;
 class QFrame;
 class QDialog;
 class QPaintEvent;
+class QEvent;
 
 /// Reusable, theme-aware in-window modal sheet for Blop. Renders a backdrop
 /// scrim over the parent window and a content card / bottom sheet that
@@ -72,6 +73,7 @@ signals:
   void dismissed();
 
 protected:
+  bool event(QEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
@@ -89,6 +91,7 @@ private:
   void startDismissAnim();
   void applyTheme();
   void onParentResized();
+  void dismissFromOutsideTap(const QPoint &pos);
   Mode resolveMode(Mode requested) const;
 
   QWidget *m_content{nullptr};

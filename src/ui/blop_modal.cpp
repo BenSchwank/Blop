@@ -22,6 +22,8 @@
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QShowEvent>
+#include <QTimer>
+#include <QTouchEvent>
 #include <QVBoxLayout>
 
 namespace {
@@ -105,6 +107,9 @@ BlopModal::BlopModal(QWidget *parent, QWidget *content, Mode mode,
   setObjectName(QStringLiteral("BlopModalBackdrop"));
   setAttribute(Qt::WA_DeleteOnClose);
   setAttribute(Qt::WA_StyledBackground, true);
+  // Android synthesizes mouse from touch inconsistently for full-window
+  // overlays — accept touch so outside-tap dismiss still works.
+  setAttribute(Qt::WA_AcceptTouchEvents, true);
   setFocusPolicy(Qt::StrongFocus);
   if (!accessibleTitle.isEmpty())
     setAccessibleName(accessibleTitle);
@@ -398,6 +403,30 @@ void BlopModal::resizeEvent(QResizeEvent *event) {
 }
 
 void BlopModal::startOpenAnim() {
+#ifdef Q_OS_ANDROID
+  // Child-widget windowOpacity + off-screen geometry slides are unreliable on
+  // Android (OpenGL / SurfaceView). A failed BottomSheet slide left only the
+  // black scrim visible and blocked the UI — the "glass pane" bug. Always
+  // land on the final on-screen layout immediately.
+  setWindowOpacity(1.0);
+  layoutContent();
+  if (m_card) {
+    m_card->show();
+    m_card->raise();
+  }
+  // One-frame failsafe: if a later resize left the sheet below the fold,
+  // snap it back before the user can only see the scrim.
+  QTimer::singleShot(0, this, [this]() {
+    if (m_dismissing || !m_card)
+      return;
+    layoutContent();
+    const QRect g = m_card->geometry();
+    if (g.top() >= height() - UiScale::dp(24) || g.height() < UiScale::dp(48))
+      layoutContent();
+    m_card->raise();
+  });
+  return;
+#else
   setWindowOpacity(0.0);
   m_backdropAnim = new QPropertyAnimation(this, "windowOpacity", this);
   m_backdropAnim->setDuration(kBackdropFadeMs);
@@ -426,6 +455,7 @@ void BlopModal::startOpenAnim() {
                                                     : BlopMotion::kEaseStandard);
     m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
   }
+#endif
 }
 
 void BlopModal::dismiss() {
@@ -437,6 +467,13 @@ void BlopModal::dismiss() {
 }
 
 void BlopModal::startDismissAnim() {
+#ifdef Q_OS_ANDROID
+  // Do not wait for windowOpacity animations — they may never finish on a
+  // child QWidget, leaving a permanent black glass scrim over the app.
+  emit dismissed();
+  close();
+  return;
+#else
   auto *fadeOut = new QPropertyAnimation(this, "windowOpacity", this);
   fadeOut->setDuration(kBackdropFadeOutMs);
   fadeOut->setStartValue(windowOpacity());
@@ -462,11 +499,18 @@ void BlopModal::startDismissAnim() {
     cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
   }
 
-  connect(fadeOut, &QPropertyAnimation::finished, this, [this]() {
-    emit dismissed();
-    close();
-  });
+  QPointer<BlopModal> self(this);
+  auto finish = [self]() {
+    if (!self || self->isHidden())
+      return;
+    emit self->dismissed();
+    self->close();
+  };
+  connect(fadeOut, &QPropertyAnimation::finished, this, finish);
+  // Hard failsafe if the opacity property never animates.
+  QTimer::singleShot(kBackdropFadeOutMs + 120, this, finish);
   fadeOut->start(QAbstractAnimation::DeleteWhenStopped);
+#endif
 }
 
 bool BlopModal::eventFilter(QObject *watched, QEvent *event) {
@@ -476,6 +520,28 @@ bool BlopModal::eventFilter(QObject *watched, QEvent *event) {
     layoutContent();
   }
   return QWidget::eventFilter(watched, event);
+}
+
+void BlopModal::dismissFromOutsideTap(const QPoint &pos) {
+  if (!m_card || m_dismissing)
+    return;
+  if (!m_card->geometry().contains(pos))
+    dismiss();
+}
+
+bool BlopModal::event(QEvent *event) {
+  if (event->type() == QEvent::TouchBegin) {
+    auto *te = static_cast<QTouchEvent *>(event);
+    if (!te->points().isEmpty()) {
+      const QPoint pos = te->points().first().position().toPoint();
+      if (m_card && !m_card->geometry().contains(pos)) {
+        dismissFromOutsideTap(pos);
+        event->accept();
+        return true;
+      }
+    }
+  }
+  return QWidget::event(event);
 }
 
 void BlopModal::keyPressEvent(QKeyEvent *event) {
@@ -494,7 +560,7 @@ void BlopModal::mousePressEvent(QMouseEvent *event) {
   const QPoint p = event->pos();
   // Click outside the card area dismisses.
   if (!m_card->geometry().contains(p)) {
-    dismiss();
+    dismissFromOutsideTap(p);
     event->accept();
     return;
   }
