@@ -85,20 +85,27 @@ Rectangle {
         if (tabActive) {
             tabLeaveUnloadTimer.stop()
             webviewRecreatePending = false
+            oauthPending = false
+            oauthPendingSinceMs = 0
+            if (bookmarkSheetOpen)
+                closeBookmarkSheet()
             requestSurfaceActivation("tabActive")
             if (studyWebLoader.active && visible)
                 ensureStudyLoaded()
         } else {
-            // v3.18.6: only schedule the unload once we've actually had
-            // at least one successful load. Without this guard, the
-            // C++ initialisation order (default tab = Notes => tabActive
-            // gets toggled to false before Study has ever been visible)
-            // would unload the Loader in 1 s and leave the user staring
-            // at a whitescreen on the first Study tap.
-            if (firstLoadDone)
+            oauthPending = false
+            oauthPendingSinceMs = 0
+            if (bookmarkSheetOpen)
+                closeBookmarkSheet()
+            // Unfinished / failed Study surfaces must be dropped immediately.
+            // Waiting 8s (or skipping unload when firstLoadDone is false) lets
+            // Android keep compositing a black glass pane over the Notes tab.
+            if (!firstLoadDone || studyLoadFailed) {
+                tabLeaveUnloadTimer.stop()
+                suspendForNotesTab()
+            } else {
                 tabLeaveUnloadTimer.restart()
-            else
-                console.log("BlopStudy: skip tabLeaveUnloadTimer — not loaded yet")
+            }
         }
     }
 
@@ -172,6 +179,26 @@ Rectangle {
         console.log("BlopStudy: releaseSurface", "reason=", reason)
         surfaceBootTimer.stop()
         surfacePhaseActive = false
+    }
+
+    // Called from C++ when leaving Study → Notes. Drops SurfaceView / OAuth
+    // glass immediately so Notes is not covered by a black compositing layer.
+    function suspendForNotesTab() {
+        console.log("BlopStudy: suspendForNotesTab",
+                    "firstLoadDone=", firstLoadDone,
+                    "failed=", studyLoadFailed,
+                    "loaderActive=", studyWebLoader.active)
+        tabLeaveUnloadTimer.stop()
+        oauthPending = false
+        oauthPendingSinceMs = 0
+        if (bookmarkSheetOpen)
+            closeBookmarkSheet()
+        webviewRecreatePending = false
+        firstLoadDone = false
+        // Do NOT assign studyWebLoader.active imperatively — that would break
+        // the `active: tabActive && surfacePhaseActive` binding. Clearing
+        // surfacePhaseActive (with tabActive already false) unloads the Loader.
+        releaseSurface("suspendForNotesTab")
     }
 
     function requestSurfaceActivation(reason) {
@@ -718,7 +745,9 @@ Rectangle {
 
     Timer {
         id: surfaceBootTimer
-        interval: 800
+        // Slightly longer delay reduces EGL deadlock races when Study is
+        // opened immediately after Notes first paint / crash-report modal.
+        interval: 1100
         property string reason: ""
         running: false
         repeat: false
@@ -886,6 +915,37 @@ Rectangle {
                         // never refused by webViewRecreateLimit.
                         webViewRecreateCount = 0
                         scheduleStudyWebViewRecreate("userRetry")
+                    }
+                }
+            }
+
+            Rectangle {
+                visible: startupLoadingOverlay.showFailureUi
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.round(180 * uiScale)
+                height: Math.round(42 * uiScale)
+                radius: height / 2
+                color: "#2A2A44"
+                border.color: "#5E5CE6"
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Zu Notizen"
+                    color: "#C8C4E0"
+                    font.pixelSize: Math.round(13 * uiScale)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        console.log("BlopStudy: escape to Notes from load failure UI")
+                        oauthPending = false
+                        suspendForNotesTab()
+                        if (typeof blopAppBridge !== "undefined"
+                                && blopAppBridge.switchToNotesFromWebQmlBar)
+                            blopAppBridge.switchToNotesFromWebQmlBar()
                     }
                 }
             }
@@ -1146,7 +1206,39 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: oauthPending = false
+                        onClicked: {
+                            oauthPending = false
+                            oauthPendingSinceMs = 0
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(parent.width, Math.round(200 * uiScale))
+                    height: Math.round(44 * uiScale)
+                    radius: height / 2
+                    color: "transparent"
+                    border.color: "#555570"
+                    border.width: 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Zu Notizen"
+                        color: "#AAAACC"
+                        font.pixelSize: Math.round(14 * uiScale)
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            oauthPending = false
+                            oauthPendingSinceMs = 0
+                            suspendForNotesTab()
+                            if (typeof blopAppBridge !== "undefined"
+                                    && blopAppBridge.switchToNotesFromWebQmlBar)
+                                blopAppBridge.switchToNotesFromWebQmlBar()
+                        }
                     }
                 }
             }
