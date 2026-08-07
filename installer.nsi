@@ -5,11 +5,15 @@ OutFile "Blop_Windows_Installer.exe"
 InstallDir "$PROGRAMFILES64\Blop"
 RequestExecutionLevel admin
 
-; Version Information for Windows
-VIProductVersion "3.11.9.0"
+; Version: pass /DBLOP_PRODUCT_VERSION=x.y.z from CI (git describe).
+; Fallback keeps local makensis working without defines.
+!ifndef BLOP_PRODUCT_VERSION
+  !define BLOP_PRODUCT_VERSION "0.0.0"
+!endif
+VIProductVersion "${BLOP_PRODUCT_VERSION}.0"
 VIAddVersionKey "ProductName" "Blop"
-VIAddVersionKey "FileVersion" "3.11.9"
-VIAddVersionKey "ProductVersion" "3.11.9"
+VIAddVersionKey "FileVersion" "${BLOP_PRODUCT_VERSION}"
+VIAddVersionKey "ProductVersion" "${BLOP_PRODUCT_VERSION}"
 VIAddVersionKey "FileDescription" "Blop Installer"
 
 !insertmacro MUI_PAGE_WELCOME
@@ -65,7 +69,7 @@ Section "Install"
   
   ; Registry Eintrag für Deinstallation (optional, aber gut für Systemsteuerung)
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayName" "Blop"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayVersion" "3.11.9"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayVersion" "${BLOP_PRODUCT_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
 SectionEnd

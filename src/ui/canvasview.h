@@ -16,6 +16,9 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QPinchGesture>
+#include <QVector>
+
+#include "Note.h"
 
 // Definition of background styles
 enum class PageStyle { Blank, Lined, Squared, Dotted };
@@ -108,6 +111,10 @@ public:
     bool loadFromFile();
     bool importPdfIntoCanvas(const QString &pdfPath);
 
+    /// Stamp markup library strokes at `sceneCenter` (undoable + autosave).
+    void insertMarkupStrokes(const QVector<Stroke> &strokes,
+                             const QPointF &sceneCenter);
+
     // Export
     bool exportToPDF(const QString &path);
     bool exportToImage(const QString &path);
@@ -150,6 +157,7 @@ private:
     QString m_filePath;
 
     QUndoStack *m_undoStack;
+    QMetaObject::Connection m_toolContentConn;
     // v3.17.5: 50 ms debouncer for updateSceneRect(). itemsBoundingRect()
     // is O(N) over every scene item; previously every stroke + tool
     // tick re-ran it. The timer folds bursts (e.g. mid-stroke
@@ -187,6 +195,8 @@ private:
     void finishLasso();
     void updateSelectionMenuPosition();
     void updateCropMenuPosition();
+    /// Phase 0: refuse CoordinateGraph on infinite until V6 graph persistence.
+    bool blockUnsupportedInfiniteGraphTool();
     void clearSelection();
     void gestureEvent(QGestureEvent *event);
     void pinchTriggered(QPinchGesture *gesture);

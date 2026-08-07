@@ -15,7 +15,7 @@
 class RulerItem : public QGraphicsObject {
     Q_OBJECT
 public:
-    enum { Type = UserType + 100 };
+    enum { Type = UserType + 100 }; // keep in sync with kBlopRulerItemType (LassoTool)
     int type() const override { return Type; }
 
     RulerItem(QGraphicsItem* parent = nullptr) : QGraphicsObject(parent) {

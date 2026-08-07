@@ -97,8 +97,8 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
 }
 
 void DocumentTab::setNoteChromeMode(bool on) {
-  if (m_noteChromeMode == on)
-    return;
+  // Always refresh — light/dark chrome colors may have changed even when
+  // the boolean mode flag is unchanged (applyNoteChromeTheme).
   m_noteChromeMode = on;
   refreshChromeStyle();
   update();
@@ -125,15 +125,19 @@ void DocumentTab::refreshChromeStyle() {
     const QString hoverFg =
         m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
                          : QStringLiteral("white");
+    const QString hoverBg =
+        (m_noteChromeMode && !NoteChrome::isDark())
+            ? QStringLiteral("rgba(0,0,0,0.08)")
+            : QStringLiteral("rgba(255,255,255,0.10)");
     closeBtn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background-color: transparent; border: none;"
                        "  color: %1; font-size: 11px; border-radius: 9px;"
                        "}"
                        "QPushButton:hover {"
-                       "  background-color: rgba(255,255,255,0.10); color: %2;"
+                       "  background-color: %3; color: %2;"
                        "}")
-            .arg(idle, hoverFg));
+            .arg(idle, hoverFg, hoverBg));
   }
 }
 
@@ -423,8 +427,8 @@ void DocumentTabBar::setHomeVisible(bool visible) {
 }
 
 void DocumentTabBar::setNoteChromeMode(bool on) {
-  if (m_noteChromeMode == on)
-    return;
+  // Always refresh tab chrome so light/dark NoteChrome swaps apply even when
+  // noteChromeMode was already true.
   m_noteChromeMode = on;
   if (on)
     setAccentColor(NoteChrome::accent());

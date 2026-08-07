@@ -4,6 +4,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
+#include <QGraphicsTextItem>
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QTabletEvent>
@@ -11,6 +12,7 @@
 #include <QShowEvent>
 #include <QGestureEvent>
 #include <QUndoStack>
+#include <QHash>
 #include <functional>
 #include "Note.h"
 #include "ToolMode.h"
@@ -31,12 +33,24 @@ class GraphQuickActionPopup;
 class GraphFormulaEntryBar;
 class GraphTangentXPopup;
 class StrokeAddUndoCommand;
+class SceneItemsRemoveCommand;
+class SceneItemsMoveCommand;
+class SceneEraseCommand;
+class SceneItemAddCommand;
+class TextContentCommand;
+class GraphDataCommand;
 class AbstractTool;
 class GraphFormulaZone;
 
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
     friend class StrokeAddUndoCommand;
+    friend class SceneItemsRemoveCommand;
+    friend class SceneItemsMoveCommand;
+    friend class SceneEraseCommand;
+    friend class SceneItemAddCommand;
+    friend class TextContentCommand;
+    friend class GraphDataCommand;
 public:
     explicit MultiPageNoteView(QWidget* parent=nullptr);
 
@@ -106,6 +120,17 @@ public:
     int strokeCountOnPage(int pageIndex) const;
     int undoDepth() const;
     int redoDepth() const;
+    /// Undo stack entry texts (oldest → newest), for the History menu.
+    QStringList undoHistoryTexts() const;
+
+    /// Scroll to page and pulse-highlight a match (sticky/text/title).
+    /// `kind`: "sticky" | "text" | "title" | "note"
+    void revealSearchMatch(int pageIndex, const QString &needle,
+                           const QString &kind);
+    void clearSearchHighlight();
+
+    /// Page index under a scene point (-1 if none).
+    int pageAt(const QPointF &scenePos) const;
 
     std::function<void(Note*)> onSaveRequested;
 
@@ -219,11 +244,6 @@ private:
 
     Stroke currentStroke_;
     QGraphicsPathItem* currentPathItem_{nullptr};
-    QVector<NotePage> m_strokeSnapshot;
-    bool m_hasStrokeSnapshot{false};
-    QVector<QVector<NotePage>> m_undoHistory;
-    QVector<QVector<NotePage>> m_redoHistory;
-    static constexpr int MaxUndoSteps = 40;
 
     QUndoStack *m_undoStack{nullptr};
 
@@ -233,7 +253,6 @@ private:
     QGraphicsPathItem *createStrokeGraphicsItem(const Stroke &s);
     void pushStrokeUndoCommand(int pageIdx, Stroke stroke);
     // void ensureOverscrollPage(); // Entfernt/Ersetzt durch Pull-Logik
-    int pageAt(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
 
     void addNewPage();
@@ -261,13 +280,20 @@ private:
     /// was consumed (always true once a pinch has begun).
     bool handleAndroidPinch(QTouchEvent *te);
 #endif
-    void pushUndoSnapshot(const QVector<NotePage>& beforeState);
-
     /// After a stroke tool finishes (mouse or tablet), move StrokeItems from the scene into the note model.
     void commitPendingStrokeItemsToNote(AbstractTool* tool);
-    void syncGraphItemsToNote();
-    void syncStickyNotesToNote();
+    /// Scene → note sync helpers. When `requestSave` is false, only the model
+    /// is updated so callers can batch several syncs into one disk write.
+    void syncGraphItemsToNote(bool requestSave = true);
+    void syncStickyNotesToNote(bool requestSave = true);
+    void syncShapesTextsImagesToNote(bool requestSave = true);
+    void rebuildStrokesFromScene(bool requestSave = true);
+    /// One-shot persist: optional stroke rebuild + graphs/stickies/objects, single save.
+    void persistSceneToNote(bool rebuildStrokes);
+    /// Persist after tool contentModified (text/image/sticky/eraser/shape).
+    void onToolContentModified();
     void bindStickyNoteSignals(QGraphicsRectItem *card);
+    void bindStandaloneTextSignals(QGraphicsTextItem *text);
     QGraphicsRectItem *createStickyNoteItem(const StickyNoteObject &data,
                                             int pageIndex);
     /// v3.18.0: einmalige Signal-Verdrahtung eines GraphCanvasItem (Tap,
@@ -292,6 +318,9 @@ private:
 
     void syncGraphPlusLayout(GraphCanvasItem* gi);
     void bindGraphChrome(GraphCanvasItem* gi);
+    /// Push undo for graph data already applied on `gi` (before → current).
+    void commitGraphUndoable(GraphCanvasItem *gi, const GraphObject &before,
+                             const QString &label);
     /// After scene_.clear(): drop dangling graph pointers, hide overlays (no graph item access).
     void resetGraphChromeAfterSceneClear();
     /// After model sync: refresh bound data and layout only if chrome is already visible.
@@ -309,9 +338,14 @@ private:
     bool m_graphQuickPopupWanted{false};
     bool m_syncingGraphs{false};
     bool m_syncingStickies{false};
+    bool m_syncingObjects{false};
+    bool m_syncingStrokes{false};
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};
+    /// GraphObject snapshot when entry bar / formula zone opens (for commit undo).
+    GraphObject m_graphSessionBaseline;
+    bool m_graphSessionHasBaseline{false};
     /// While set, graph "+" interaction bypasses tools and touch pan (see CanvasView equivalent).
     GraphCanvasItem* m_graphPlusBypassItem{nullptr};
     GraphCanvasItem* m_graphPlotBypassItem{nullptr};
@@ -342,4 +376,35 @@ private:
 
     /// Currently active inline formula input zone (created by "+" tap).
     QPointer<GraphFormulaZone> m_activeFormulaZone;
+
+    QMetaObject::Connection m_toolContentConn;
+    QMetaObject::Connection m_toolEraseConn;
+    QMetaObject::Connection m_toolTextDiscardConn;
+
+    /// Positions of selected items at press — used for move undo.
+    QHash<QGraphicsItem *, QPointF> m_moveGestureStarts;
+    struct TransformGeoSnap {
+      QPointF pos;
+      QTransform transform;
+      qreal rotation{0.0};
+      qreal scale{1.0};
+      QPointF origin;
+    };
+    /// Full geometry at TransformOverlay interaction start (single-item).
+    QHash<QGraphicsItem *, TransformGeoSnap> m_transformGestureStarts;
+    /// Plaintext baseline when a text item gained focus (content undo).
+    QHash<QGraphicsTextItem *, QString> m_textEditBaselines;
+    void captureMoveGestureStarts();
+    void commitMoveGestureIfNeeded();
+    void captureTransformGestureStarts();
+    void commitTransformGestureIfNeeded();
+    void bindActiveToolSignals(AbstractTool *tool);
+    void beginTextEditTracking(QGraphicsItem *focusItem);
+    void commitTextEditTracking(QGraphicsItem *focusItem);
+    void handleEmptyTextRemoved(QGraphicsTextItem *item);
+
+    /// Temporary search-hit overlay (scene coords); cleared on timer / scene clear.
+    QGraphicsRectItem *m_searchHighlight{nullptr};
+    QTimer *m_searchHighlightTimer{nullptr};
+    void showSearchHighlightRect(const QRectF &sceneRect);
 };

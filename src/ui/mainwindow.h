@@ -267,6 +267,8 @@ private slots:
   void setPageSettingsOverlayVisible(bool show);
   void syncPageSettingsPanelFromEditor();
   void onTogglePageManager();
+  /// Cloud share helpers for an open note file (overflow "Teilen…").
+  void shareOpenNoteAtPath(const QString &localPath);
   void onEditorNoteOverflowMenu();
 
   void setPageColor(bool dark);
@@ -333,6 +335,7 @@ private:
   void toggleFolderContent(QListWidgetItem *parentItem);
 
   CanvasView *getCurrentCanvas();
+  void insertMarkupIntoInfiniteCanvas(const QString &itemId);
   void setActiveTool(CanvasView::ToolType tool);
   int noteHeaderHeight() const;
   /// Bottom-edge clearance for Favorites rail / presets (0 if chrome is elsewhere).
@@ -361,6 +364,7 @@ private:
   void applyNoteChromeTheme();
   void showNoteBookmarksMenu();
   void showNoteHistoryMenu();
+  void showNoteInNoteSearch();
   void showNoteExportMenu(QWidget *anchor = nullptr);
   MultiPageNoteView *currentNoteView() const;
 
@@ -444,6 +448,7 @@ private:
 
   // --- Sidebar user section labels (updated on webview login) ---
   QLabel *m_lblSidebarUser{nullptr};
+  QLabel *m_lblSidebarAccountStatus{nullptr};
   QLabel *m_lblSidebarAvatar{nullptr};
   // ----------------------------
 
@@ -474,7 +479,6 @@ private:
   RadialToolbarFab *m_radialFab{nullptr};
   QLineEdit *m_titleSearchBar{nullptr};
   QPushButton *m_btnTitleSettings{nullptr};
-  QPushButton *m_btnTitleShare{nullptr};
   QWidget *m_editorTitleControls{nullptr};
   QPushButton *m_btnWinMin{nullptr};
   QPushButton *m_btnWinMax{nullptr};
@@ -524,6 +528,11 @@ private:
   // also auto-opening the underlying note. Defined unconditionally so
   // the inline setter above compiles on Windows too.
   bool m_androidPillClickPending{false};
+
+  /// After deleting a library note, ignore stray clicks that would reopen
+  /// the removed path (row shift / mouse-up on neighboring tile).
+  qint64 m_suppressLibraryOpenUntilMs{0};
+  QString m_lastDeletedLibraryPath;
 
   // v119 perf: dedupe QEvent::Move bursts on the floating toolbar
   // (eventFilter); only re-evaluate the dock condition when y crosses

@@ -186,6 +186,7 @@ qt_add_executable(Blop
 
     # Core (note model, page management, profiles, helper headers)
     src/core/notemanager.cpp
+    src/core/infinitecanvasstore.cpp
     src/core/notemanager.h
     src/core/noteeditor.cpp
     src/core/noteeditor.h
@@ -236,6 +237,9 @@ qt_add_executable(Blop
     tools/AbstractStrokeTool.h
     tools/WritingTools.h
     tools/EraserTool.h
+    tools/EraserTool.cpp
+    tools/TextTool.h
+    tools/TextTool.cpp
     tools/LassoTool.h
     tools/ShapeTool.h
     tools/GraphCanvasItem.h
@@ -483,6 +487,7 @@ endif()
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---
 option(BLOP_BUILD_AUTOMATION "Register headless tooling targets (e.g. blop_benchmark_math); does not change Blop behavior" OFF)
 if(BLOP_BUILD_AUTOMATION AND NOT ANDROID)
+    enable_testing()
     add_subdirectory(benchmarks)
 elseif(BLOP_BUILD_AUTOMATION AND ANDROID)
     message(STATUS "BLOP_BUILD_AUTOMATION=ON: skipping benchmarks subdirectory on Android toolchain (desktop CI only)")

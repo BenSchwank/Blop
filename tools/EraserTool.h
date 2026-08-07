@@ -2,12 +2,27 @@
 #include "AbstractStrokeTool.h"
 #include "StrokeItem.h"
 #include "UIStyles.h"
-#include <QGraphicsScene>
+#include <QBrush>
 #include <QGraphicsItem>
+#include <QGraphicsPathItem>
+#include <QGraphicsScene>
+#include <QHash>
+#include <QList>
 #include <QPainterPath>
 #include <QPainterPathStroker>
-#include <QPointer>
+#include <QPen>
 #include <QSet>
+#include <QVector>
+
+/// Snapshot of a path item before an erase gesture touched it.
+struct ErasePathSnapshot {
+    QPainterPath path;
+    QPen pen;
+    QBrush brush;
+    QVector<StrokePoint> points;
+    QPointF pos;
+    QGraphicsItem *parent{nullptr};
+};
 
 class EraserTool : public AbstractStrokeTool {
     Q_OBJECT
@@ -17,96 +32,125 @@ public:
     QString name() const override { return "Radierer"; }
     QString iconName() const override { return "eraser"; }
 
-    // --- MAUS-PRESS ---
     bool handleMousePress(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
         if (!scene) return false;
+        m_sceneRef = scene;
         eraseAt(event->scenePos(), scene);
         return true;
     }
 
-    // --- MAUS-MOVE ---
     bool handleMouseMove(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
-        eraseAt(event->scenePos(), scene);
+        if (scene)
+            m_sceneRef = scene;
+        eraseAt(event->scenePos(), scene ? scene : m_sceneRef);
         return true;
     }
 
-    // --- MAUS-RELEASE ---
-    bool handleMouseRelease(QGraphicsSceneMouseEvent*, QGraphicsScene*) override {
+    bool handleMouseRelease(QGraphicsSceneMouseEvent*, QGraphicsScene* scene) override {
+        finishSession(scene ? scene : m_sceneRef);
         return true;
     }
 
-    // --- TABLET ---
     bool handleTabletEvent(QTabletEvent* event, const QPointF& scenePos) override {
         if (m_sceneRef) {
-            eraseAt(scenePos, m_sceneRef);
+            if (event->type() == QEvent::TabletPress ||
+                event->type() == QEvent::TabletMove)
+                eraseAt(scenePos, m_sceneRef);
+            else if (event->type() == QEvent::TabletRelease)
+                finishSession(m_sceneRef);
         }
+        // Do not create an eraser stroke overlay via AbstractStrokeTool —
+        // object/pixel erase is handled entirely in eraseAt().
+        if (event->type() == QEvent::TabletPress ||
+            event->type() == QEvent::TabletMove ||
+            event->type() == QEvent::TabletRelease)
+            return true;
         return AbstractStrokeTool::handleTabletEvent(event, scenePos);
     }
 
+signals:
+    /// Fired once per erase gesture. `removed` items are off-scene; the
+    /// receiver owns them via an undo command. `pathBefore` holds pre-erase
+    /// geometry for items that were cut but not fully deleted.
+    void eraseSessionFinished(const QList<QGraphicsItem *> &removed,
+                              const QHash<QGraphicsPathItem *, ErasePathSnapshot> &pathBefore);
+
 protected:
-    QPen createPen() const override { return QPen(Qt::white, m_config.penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin); }
-    StrokeItem::StrokeStyle strokeStyle() const override { return StrokeItem::Eraser; }
+    QPen createPen() const override {
+        return QPen(Qt::white, m_config.penWidth, Qt::SolidLine, Qt::RoundCap,
+                    Qt::RoundJoin);
+    }
+    StrokeItem::StrokeStyle strokeStyle() const override {
+        return StrokeItem::Eraser;
+    }
 
 private:
+    void rememberPath(QGraphicsPathItem *pathItem) {
+        if (!pathItem || m_pathBefore.contains(pathItem))
+            return;
+        ErasePathSnapshot snap;
+        snap.path = pathItem->path();
+        snap.pen = pathItem->pen();
+        snap.brush = pathItem->brush();
+        snap.pos = pathItem->pos();
+        snap.parent = pathItem->parentItem();
+        if (auto *si = dynamic_cast<StrokeItem *>(pathItem))
+            snap.points = si->points();
+        m_pathBefore.insert(pathItem, snap);
+    }
+
     void eraseAt(QPointF pos, QGraphicsScene* scene) {
         if (!scene) return;
 
-        // Radius
-        double r = (m_config.eraserMode == EraserMode::Pixel) ? (m_config.penWidth / 2.0) : 5.0;
+        double r = (m_config.eraserMode == EraserMode::Pixel)
+                       ? (m_config.penWidth / 2.0)
+                       : 5.0;
 
-        // Bereich um die Maus
-        QRectF rect(pos.x() - r, pos.y() - r, 2*r, 2*r);
+        QRectF rect(pos.x() - r, pos.y() - r, 2 * r, 2 * r);
+        QList<QGraphicsItem *> items =
+            scene->items(rect, Qt::IntersectsItemBoundingRect);
 
-        // v119 perf: bbox prefilter first (cheap O(log N) tree query),
-        // then the precise IntersectsItemShape test only on the
-        // candidates. On dense scenes the difference adds up - the
-        // shape test allocates a QPainterPath per item.
-        QList<QGraphicsItem*> items = scene->items(rect, Qt::IntersectsItemBoundingRect);
-
-        // Radierer-Form (Kreis)
         QPainterPath eraserShape;
         eraserShape.addEllipse(pos, r, r);
 
-        // Items die komplett gelöscht werden sollen – NACH der Schleife löschen,
-        // nie während der Iteration (verhindert use-after-free / Absturz).
-        // QSet for O(1) "already queued" lookup; the original QList::contains
-        // was O(N) and dominated for large erase sweeps.
-        QList<QGraphicsItem*> toDelete;
-        QSet<QGraphicsItem*> toDeleteSet;
+        QList<QGraphicsItem *> toDelete;
+        QSet<QGraphicsItem *> toDeleteSet;
+        bool pathChanged = false;
 
-        for (QGraphicsItem* item : items) {
-            // Wir bearbeiten nur GraphicsPathItems (unsere Striche)
-            QGraphicsPathItem* pathItem = dynamic_cast<QGraphicsPathItem*>(item);
-            if (!pathItem) continue;
+        for (QGraphicsItem *item : items) {
+            if (toDeleteSet.contains(item))
+                continue;
+            if (!item->shape().intersects(item->mapFromScene(eraserShape)))
+                continue;
 
-            // Verhindere, dass der Radierer seinen eigenen visuellen Pfad löscht
-            if (m_currentItem && pathItem == m_currentItem) continue;
-
-            // Bereits zum Löschen vorgemerkt – überspringen
-            if (toDeleteSet.contains(item)) continue;
-
-            // Precise hit test (replaces the IntersectsItemShape on
-            // scene->items): only continue if the eraser ellipse
-            // actually intersects the item's shape.
-            if (!item->shape().intersects(item->mapFromScene(eraserShape))) continue;
-
-            // FEATURE: "Nur Textmarker löschen"
-            // Marker liegen auf Z <= 5 (DrawBehind=-10, Normal=5). Tinte >= 10.
-            if (m_config.eraserKeepInk && pathItem->zValue() >= 10) continue;
-
-            // --- MODUS 1: OBJEKT RADIERER (Ganzes Item weg) ---
-            if (m_config.eraserMode == EraserMode::Object) {
-                toDelete.append(item);
-                toDeleteSet.insert(item);
+            const QString tag = item->data(0).toString();
+            if (tag == QLatin1String("text") || tag == QLatin1String("image") ||
+                tag == QLatin1String("sticky_note") ||
+                tag == QLatin1String("shape")) {
+                if (m_config.eraserMode == EraserMode::Object) {
+                    toDelete.append(item);
+                    toDeleteSet.insert(item);
+                }
+                continue;
             }
 
-            // --- MODUS 2: PIXEL RADIERER (Schneiden) ---
-            else {
+            QGraphicsPathItem *pathItem =
+                dynamic_cast<QGraphicsPathItem *>(item);
+            if (!pathItem)
+                continue;
+            if (m_currentItem && pathItem == m_currentItem)
+                continue;
+            if (m_config.eraserKeepInk && pathItem->zValue() >= 10)
+                continue;
+
+            if (m_config.eraserMode == EraserMode::Object) {
+                rememberPath(pathItem);
+                toDelete.append(item);
+                toDeleteSet.insert(item);
+            } else {
+                rememberPath(pathItem);
                 QPainterPath currentPath = pathItem->path();
 
-                // FIX: "Linie wird zur Form"-Problem beheben
-                // Wenn das Item noch ein Strich ist (hat einen Pen), müssen wir es
-                // zuerst in eine Fläche (Outline) umwandeln.
                 if (pathItem->pen().style() != Qt::NoPen) {
                     QPainterPathStroker stroker;
                     stroker.setWidth(pathItem->pen().widthF());
@@ -114,42 +158,54 @@ private:
                     stroker.setJoinStyle(pathItem->pen().joinStyle());
                     stroker.setMiterLimit(pathItem->pen().miterLimit());
 
-                    // Erstelle die Umriss-Form des Striches
                     QPainterPath outline = stroker.createStroke(currentPath);
-
-                    // Jetzt subtrahieren wir den Radierer von der Fläche
                     QPainterPath newPath = outline.subtracted(eraserShape);
 
-                    // Das Item ist jetzt eine Fläche, kein Strich mehr!
                     pathItem->setPath(newPath);
-
-                    // WICHTIG: Stift entfernen, dafür Pinsel setzen (mit der Farbe des alten Stifts)
                     pathItem->setBrush(pathItem->pen().brush());
                     pathItem->setPen(Qt::NoPen);
-                }
-                else {
-                    // Das Item ist bereits eine Fläche (wurde schonmal radiert)
-                    // Einfach weiter subtrahieren
+                    if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+                        strokeItem->setPoints({});
+                } else {
                     QPainterPath newPath = currentPath.subtracted(eraserShape);
                     pathItem->setPath(newPath);
                 }
+                pathChanged = true;
 
-                // Wenn nichts mehr übrig ist -> Item zum Löschen vormerken
                 if (pathItem->path().isEmpty()) {
-                    // Pressure-Punkte erst leeren wenn wir es wirklich löschen
-                    StrokeItem* strokeItem = dynamic_cast<StrokeItem*>(pathItem);
-                    if (strokeItem) strokeItem->setPoints({});
+                    if (auto *strokeItem = dynamic_cast<StrokeItem *>(pathItem))
+                        strokeItem->setPoints({});
                     toDelete.append(item);
                     toDeleteSet.insert(item);
                 }
             }
         }
 
-        // Erst NACH der Schleife löschen – verhindert Absturz durch Zugriff auf
-        // bereits gelöschte Pointer während der Iteration.
-        for (QGraphicsItem* item : toDelete) {
+        for (QGraphicsItem *item : toDelete) {
+            if (auto *pathItem = dynamic_cast<QGraphicsPathItem *>(item))
+                rememberPath(pathItem);
             scene->removeItem(item);
-            delete item;
+            if (!m_sessionRemoved.contains(item))
+                m_sessionRemoved.append(item);
         }
+        if (!toDelete.isEmpty() || pathChanged)
+            emit contentModified();
     }
+
+    void finishSession(QGraphicsScene *scene) {
+        Q_UNUSED(scene);
+        if (m_sessionRemoved.isEmpty() && m_pathBefore.isEmpty())
+            return;
+
+    // Drop pathBefore entries that only exist for bookkeeping of removed
+    // items — keep them so undo can restore original stroke geometry.
+    const QList<QGraphicsItem *> removed = m_sessionRemoved;
+    const QHash<QGraphicsPathItem *, ErasePathSnapshot> pathBefore = m_pathBefore;
+    m_sessionRemoved.clear();
+    m_pathBefore.clear();
+    emit eraseSessionFinished(removed, pathBefore);
+  }
+
+    QList<QGraphicsItem *> m_sessionRemoved;
+    QHash<QGraphicsPathItem *, ErasePathSnapshot> m_pathBefore;
 };

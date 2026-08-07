@@ -8,12 +8,14 @@
 #include "UIStyles.h"
 #include "mainwindow.h"
 #include "overlayscrollindicator.h"
+#include "infinitecanvasstore.h"
 #include "tools/AbstractTool.h"
 #include "tools/AbstractStrokeTool.h"
 #include "tools/RulerTool.h" // Wichtig: RulerTool Header
 #include "tools/StrokeItem.h"
 #include "tools/ToolManager.h"
 #include "tools/GraphCanvasItem.h"
+#include "ToolSettings.h"
 #include "graphaxissettingsdialog.h"
 #include "uiscale.h"
 #include <QCoreApplication>
@@ -28,6 +30,10 @@
 #include <QPdfWriter>
 #include <QStandardPaths>
 #include <QUndoCommand>
+#include <QBuffer>
+#include <QPixmap>
+#include <QTextOption>
+#include <QTextDocument>
 #include <QtConcurrent/QtConcurrentRun>
 #ifdef BLOP_HAS_PDF
 #include <QPdfDocument>
@@ -75,7 +81,8 @@ GraphCanvasItem *graphCanvasHittingChrome(QGraphicsScene *scene, const QPointF &
 class AddItemCommand : public QUndoCommand {
 public:
     AddItemCommand(QGraphicsScene *scene, QGraphicsItem *item)
-        : m_scene(scene), m_item(item) {}
+        : QUndoCommand(QObject::tr("Objekt hinzufügen")), m_scene(scene),
+          m_item(item) {}
 
     ~AddItemCommand() override {
         // If the item is not on the scene, we own it and must delete it
@@ -103,7 +110,7 @@ private:
 class RemoveItemCommand : public QUndoCommand {
 public:
     RemoveItemCommand(QGraphicsScene *scene, QGraphicsItem *item)
-        : m_scene(scene), m_item(item) {}
+        : QUndoCommand(QObject::tr("Löschen")), m_scene(scene), m_item(item) {}
 
     ~RemoveItemCommand() override {
         if (m_item && !m_scene->items().contains(m_item))
@@ -364,17 +371,41 @@ CanvasView::~CanvasView() {}
 
 void CanvasView::setToolManager(ToolManager *manager) {
   m_toolManager = manager;
-  if (m_toolManager) {
-    connect(m_toolManager, &ToolManager::toolChanged, this,
-            [this](AbstractTool *tool) {
-              // FIX: Hier prüfen wir, ob das Lineal aktiviert wurde, und zeigen
-              // es an.
-              if (tool && tool->mode() == ToolMode::Ruler) {
-                RulerTool::ensureRulerExists(m_scene, m_toolManager->config());
-              }
-              viewport()->update();
-            });
-  }
+  if (!m_toolManager)
+    return;
+
+  auto bindToolContent = [this](AbstractTool *tool) {
+    if (m_toolContentConn)
+      disconnect(m_toolContentConn);
+    if (!tool)
+      return;
+    m_toolContentConn =
+        connect(tool, &AbstractTool::contentModified, this, [this, tool]() {
+          // Press-created tools never reach handleMouseRelease with
+          // lastCompletedItem; push undo here. Release-created tools
+          // (pen/shape/graph) keep lastCompletedItem for the release path.
+          const ToolMode m = tool->mode();
+          if (m == ToolMode::Text || m == ToolMode::Image ||
+              m == ToolMode::StickyNote) {
+            if (auto *item = tool->lastCompletedItem()) {
+              if (m_undoStack)
+                m_undoStack->push(new AddItemCommand(m_scene, item));
+              tool->clearLastCompletedItem();
+            }
+          }
+          emit contentModified();
+        });
+  };
+
+  connect(m_toolManager, &ToolManager::toolChanged, this,
+          [this, bindToolContent](AbstractTool *tool) {
+            bindToolContent(tool);
+            if (tool && tool->mode() == ToolMode::Ruler) {
+              RulerTool::ensureRulerExists(m_scene, m_toolManager->config());
+            }
+            viewport()->update();
+          });
+  bindToolContent(m_toolManager->activeTool());
 }
 
 void CanvasView::setPageFormat(bool isInfinite) {
@@ -619,162 +650,32 @@ void CanvasView::addNewPage() {
 }
 
 bool CanvasView::saveToFile() {
-  if (m_filePath.isEmpty())
+  if (m_filePath.isEmpty() || !m_scene)
     return false;
-  QFile file(m_filePath);
-  if (!file.open(QIODevice::WriteOnly))
-    return false;
-  QDataStream out(&file);
-
-  // V4: strokes (V3 layout) + sticky notes
-  out << (quint32)0xB10B0004;
-  out << m_isInfinite;
-
-  QList<QGraphicsItem *> items = m_scene->items(Qt::AscendingOrder);
-  int count = 0;
-  for (auto *item : std::as_const(items)) {
-    if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
-        item != m_cropResizer && item != m_transformOverlay) {
-        count++;
-    }
-  }
-
-  out << count;
-
-  for (auto *item : std::as_const(items)) {
-    if (item->type() == QGraphicsItem::UserType + 1 && item != m_lassoItem &&
-        item != m_cropResizer && item != m_transformOverlay) {
-
-      StrokeItem *strokeItem = static_cast<StrokeItem *>(item);
-      out << strokeItem->pos() << strokeItem->pen().color()
-          << (int)strokeItem->pen().width() << strokeItem->path();
-
-      // V3 Serialization: Pressure Points Buffer
-      const QVector<StrokePoint>& pts = strokeItem->points();
-      out << (qint32)pts.size();
-      for(const auto& p : pts) {
-          out << p.pos << p.pressure;
-      }
-    }
-  }
-
-  // Sticky notes (data(0) == "sticky_note")
-  QList<QGraphicsRectItem *> stickies;
-  for (auto *item : std::as_const(items)) {
-    if (item->data(0).toString() != QLatin1String("sticky_note"))
-      continue;
-    if (auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item))
-      stickies.append(card);
-  }
-  out << (qint32)stickies.size();
-  for (QGraphicsRectItem *card : stickies) {
-    QString text;
-    int fontPt = 14;
-    for (QGraphicsItem *ch : card->childItems()) {
-      if (auto *ti = qgraphicsitem_cast<QGraphicsTextItem *>(ch)) {
-        text = ti->toPlainText();
-        fontPt = ti->font().pointSize() > 0 ? ti->font().pointSize() : 14;
-        break;
-      }
-    }
-    const QRectF r = card->rect();
-    out << card->pos() << r.width() << r.height() << card->brush().color()
-        << fontPt << text;
-  }
-  return true;
+  QSet<QGraphicsItem *> exclude;
+  if (m_lassoItem)
+    exclude.insert(m_lassoItem);
+  if (m_cropResizer)
+    exclude.insert(m_cropResizer);
+  if (m_transformOverlay)
+    exclude.insert(m_transformOverlay);
+  return InfiniteCanvasStore::saveToFile(m_filePath, m_scene, m_isInfinite,
+                                         exclude);
 }
 
 bool CanvasView::loadFromFile() {
-  if (m_filePath.isEmpty())
+  if (m_filePath.isEmpty() || !m_scene)
     return false;
-  QFile file(m_filePath);
-  if (!file.open(QIODevice::ReadOnly))
+  bool infinite = m_isInfinite;
+  if (!InfiniteCanvasStore::loadFromFile(m_filePath, m_scene, &infinite))
     return false;
-  QDataStream in(&file);
-  quint32 magic;
-  in >> magic;
-
-  if (magic == 0xB10B0001) {
-    m_isInfinite = true;
-  } else if (magic == 0xB10B0002 || magic == 0xB10B0003 || magic == 0xB10B0004) {
-    in >> m_isInfinite;
-  } else {
-    return false; // Unknown Corrupt Format
-  }
-
+  m_isInfinite = infinite;
   setPageFormat(m_isInfinite);
-  m_scene->clear();
-  m_undoStack->clear();
+  if (m_undoStack)
+    m_undoStack->clear();
   m_graphPlusBypassItem = nullptr;
   m_graphPlotBypassItem = nullptr;
   m_graphTabletPendingItem = nullptr;
-
-  int count;
-  in >> count;
-  bool wasBlocked = m_scene->blockSignals(true);
-  for (int i = 0; i < count; ++i) {
-    QPointF pos;
-    QColor color;
-    int width;
-    QPainterPath path;
-    in >> pos >> color >> width >> path;
-    QPen pen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-
-    QVector<StrokePoint> pts;
-    if (magic >= 0xB10B0003) {
-        qint32 ptCount;
-        in >> ptCount;
-        for(int j = 0; j < ptCount; ++j) {
-            QPointF ppos; qreal ppress;
-            in >> ppos >> ppress;
-            pts.append({ppos, ppress});
-        }
-    }
-
-    StrokeItem *item = new StrokeItem(path, pen, pts, StrokeItem::Normal);
-    m_scene->addItem(item);
-    item->setPos(pos);
-    if (color.alpha() < 255)
-      item->setZValue(0.1);
-    else
-      item->setZValue(1.0);
-  }
-
-  // V4 sticky notes
-  if (magic >= 0xB10B0004) {
-    qint32 stickyCount = 0;
-    in >> stickyCount;
-    for (qint32 i = 0; i < stickyCount; ++i) {
-      QPointF pos;
-      qreal w = 168, h = 148;
-      QColor fill(255, 236, 120);
-      int fontPt = 14;
-      QString text;
-      in >> pos >> w >> h >> fill >> fontPt >> text;
-      auto *card = new QGraphicsRectItem(0, 0, w, h);
-      card->setPos(pos);
-      card->setBrush(fill);
-      card->setPen(QPen(QColor(210, 175, 55), 1.2));
-      card->setFlags(QGraphicsItem::ItemIsSelectable |
-                     QGraphicsItem::ItemIsMovable |
-                     QGraphicsItem::ItemSendsGeometryChanges);
-      card->setZValue(6);
-      card->setData(0, QStringLiteral("sticky_note"));
-      auto *ti = new QGraphicsTextItem(card);
-      ti->setPos(10, 10);
-      ti->setTextWidth(w - 20);
-      QFont font = ti->font();
-      font.setPointSize(qBound(8, fontPt, 72));
-      ti->setFont(font);
-      ti->setDefaultTextColor(QColor(40, 36, 20));
-      ti->setPlainText(text);
-      ti->setTextInteractionFlags(Qt::TextEditorInteraction);
-      ti->setFlag(QGraphicsItem::ItemIsFocusable, true);
-      m_scene->addItem(card);
-    }
-  }
-
-  m_scene->blockSignals(wasBlocked);
   if (m_isInfinite)
     updateSceneRect();
   return true;
@@ -933,6 +834,24 @@ void CanvasView::fitPage() {
 void CanvasView::setPenColor(const QColor &color) { m_penColor = color; }
 void CanvasView::setPenWidth(int width) { m_penWidth = width; }
 
+bool CanvasView::blockUnsupportedInfiniteGraphTool() {
+  // Phase 0 release contract: A4 MultiPageNoteView is the primary editor for
+  // graphs. Infinite V5 does not persist GraphCanvasItem yet — refuse create.
+  if (!m_isInfinite || !m_toolManager)
+    return false;
+  if (m_toolManager->activeToolMode() != ToolMode::Shape)
+    return false;
+  if (m_toolManager->config().shapeToolKind != ShapeToolKind::CoordinateGraph)
+    return false;
+  BlopDialogs::notify(
+      window(), QStringLiteral("Graph nur in A4-Notizen"),
+      QStringLiteral(
+          "Koordinaten-Graphen werden in unendlichen Notizen noch nicht "
+          "gespeichert. Bitte eine A4-Notiz verwenden (oder warte auf "
+          "Infinite-V6-Parität)."));
+  return true;
+}
+
 void CanvasView::undo() {
   m_undoStack->undo();
   emit contentModified();
@@ -944,12 +863,63 @@ void CanvasView::redo() {
 bool CanvasView::canUndo() const { return m_undoStack->canUndo(); }
 bool CanvasView::canRedo() const { return m_undoStack->canRedo(); }
 
+void CanvasView::insertMarkupStrokes(const QVector<Stroke> &strokes,
+                                     const QPointF &sceneCenter) {
+  if (!m_scene || strokes.isEmpty())
+    return;
+
+  QRectF stampBounds;
+  QVector<QPainterPath> paths;
+  paths.reserve(strokes.size());
+  for (const auto &s : strokes) {
+    QPainterPath p = s.path;
+    if (p.isEmpty() && !s.points.isEmpty()) {
+      p.moveTo(s.points.first());
+      for (int i = 1; i < s.points.size(); ++i)
+        p.lineTo(s.points.at(i));
+    }
+    paths.append(p);
+    stampBounds |= p.boundingRect();
+  }
+  if (stampBounds.isEmpty())
+    return;
+
+  const QPointF offset = sceneCenter - stampBounds.center();
+  const bool useMacro = m_undoStack && strokes.size() > 1;
+  if (useMacro)
+    m_undoStack->beginMacro(tr("Markup einfügen"));
+  for (int i = 0; i < strokes.size(); ++i) {
+    QPainterPath path = paths.at(i);
+    path.translate(offset);
+    const Stroke &s = strokes.at(i);
+    QPen pen(s.color, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    auto *si = new StrokeItem(
+        path, pen, {},
+        s.isHighlighter ? StrokeItem::Highlighter : StrokeItem::Normal);
+    m_scene->addItem(si);
+    if (m_undoStack)
+      m_undoStack->push(new AddItemCommand(m_scene, si));
+  }
+  if (useMacro)
+    m_undoStack->endMacro();
+  emit contentModified();
+}
+
 void CanvasView::deleteSelection() {
   const QList<QGraphicsItem *> selected = m_scene->selectedItems();
   if (selected.isEmpty())
     return;
-  for (auto *item : std::as_const(selected))
+  if (m_undoStack && selected.size() > 1)
+    m_undoStack->beginMacro(tr("Auswahl löschen"));
+  for (auto *item : std::as_const(selected)) {
     m_scene->removeItem(item);
+    if (m_undoStack)
+      m_undoStack->push(new RemoveItemCommand(m_scene, item));
+    else
+      delete item;
+  }
+  if (m_undoStack && selected.size() > 1)
+    m_undoStack->endMacro();
   m_selectionMenu->hide();
   emit contentModified();
 }
@@ -1373,6 +1343,11 @@ void CanvasView::tabletEvent(QTabletEvent *event) {
     }
 
     if (m_toolManager && m_toolManager->activeTool() && m_interactionMode == InteractionMode::None) {
+        if (event->type() == QEvent::TabletPress &&
+            blockUnsupportedInfiniteGraphTool()) {
+          event->accept();
+          return;
+        }
         m_toolManager->activeTool()->setStrokeSceneForTablet(m_scene);
 
         if (m_toolManager->activeTool()->handleTabletEvent(event, scenePos)) {
@@ -1414,6 +1389,11 @@ void CanvasView::mousePressEvent(QMouseEvent *event) {
     m_isPanning = true;
     m_lastPanPos = event->pos();
     setCursor(Qt::ClosedHandCursor);
+    event->accept();
+    return;
+  }
+
+  if (event->button() == Qt::LeftButton && blockUnsupportedInfiniteGraphTool()) {
     event->accept();
     return;
   }

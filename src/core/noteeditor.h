@@ -20,10 +20,12 @@ public:
     void showOverflowMenuFromAnchor(QWidget *anchor);
 
     std::function<void(Note *)> onSaveRequested;
-    /// Rechte Notiz-Leiste (Tags, Optionen) — nicht die globalen App-Einstellungen
+    /// Editor-Sheet (Seite / Notiz) — nicht die globalen App-Einstellungen
     std::function<void()> onOpenNoteOptionsRequested;
     /// Full page manager (reorder / batch) — everyday nav stays on the page rail
     std::function<void()> onOpenPageManagerRequested;
+    /// Cloud share for the open note (wired by MainWindow when a path exists)
+    std::function<void()> onShareRequested;
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

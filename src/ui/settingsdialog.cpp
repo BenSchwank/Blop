@@ -1,12 +1,15 @@
 #include "settingsdialog.h"
+#include "blop_crash_backend.h"
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
 #include "blopripple.h"
 #include "blopstyle.h"
+#include "uiscale.h"
 #include "ui_SettingsDialog.h"
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QEasingCurve>
 #include <QFrame>
 #include <QGroupBox>
@@ -23,7 +26,11 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QScroller>
+#include <QSettings>
 #include <QShowEvent>
+#include <QSizePolicy>
+#include <QTabBar>
+#include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
@@ -33,11 +40,14 @@
 // Old layout was a single QFormLayout-like dump of fields inside the tab
 // designed in Qt Designer. New layout uses a Hero section (current profile
 // + "Profil bearbeiten") on top, a search bar, and four collapsible
-// BlopSheet-skinned cards (Konto / Erscheinungsbild / Verhalten / Erweitert).
-// Wide-mode (>=720px) lays the four cards in a 2-col grid; narrow-mode
+// BlopSheet-skinned cards (Konto / Darstellung / Werkzeuge / Verhalten / Erweitert).
+// Wide-mode (>=720px) lays the cards in a 2-col grid; narrow-mode
 // stacks them. Animations are limited to the section expand/collapse so
 // the dialog itself stays responsive and there are no Windows-style
 // off-screen-pixmap costs (same lesson learnt during Phase A for MorphTray).
+//
+// IA: this dialog is App settings. Per-note Editor sheet lives in the note
+// chrome; Tool vs Selektion wording lives on ToolPropertiesPanel.
 
 namespace {
 
@@ -277,13 +287,29 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground);
     setObjectName(QStringLiteral("SettingsDialog"));
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("SettingsDialog")));
-    // Prefer a roomy panel on desktop; BlopModal SideSheet further sizes it
-    // to ~640dp / full window height so it is not stuck in a tiny card.
-    setMinimumSize(480, 520);
-    resize(720, 860);
+    // Roomy desktop/tablet panel — BlopModal owns final geometry; keep a
+    // sensible minimum so the card never collapses to phone-narrow.
+    setMinimumSize(UiScale::dp(560), UiScale::dp(520));
+    resize(UiScale::dp(920), UiScale::dp(860));
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    // App settings live on the first tab. Hide the orphan Cloud Sync tab —
+    // account/logout already lives under Konto on the App surface.
+    ui->tabWidget->setTabText(0, QStringLiteral("App"));
+    if (ui->tabWidget->count() > 1) {
+        // Prefer removing by known object name so Designer reorder stays safe.
+        for (int i = ui->tabWidget->count() - 1; i >= 0; --i) {
+            QWidget *w = ui->tabWidget->widget(i);
+            if (w && w->objectName() == QLatin1String("tabCloud"))
+                ui->tabWidget->removeTab(i);
+        }
+    }
+    // Single remaining tab: hide the tab bar chrome.
+    if (ui->tabWidget->count() <= 1)
+        ui->tabWidget->tabBar()->hide();
 
     // Replace the Designer-generated tab with our overhauled layout. The
-    // old QFormLayout dump is replaced by a Hero card + 4 section cards.
+    // old QFormLayout dump is replaced by a Hero card + section cards.
     QWidget *tabDesign = ui->tabWidget->widget(0);
     if (tabDesign) {
         qDeleteAll(tabDesign->children());
@@ -385,6 +411,25 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Profil verwalten, abmelden"),
         contentWidget);
     {
+        QSettings settings(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        const QString uname =
+            settings.value(QStringLiteral("username")).toString().trimmed();
+        const QString sid =
+            settings.value(QStringLiteral("session_id")).toString().trimmed();
+        QString accountLine;
+        if (uname.isEmpty())
+          accountLine = QStringLiteral("Status: Gast — nicht angemeldet");
+        else if (sid.isEmpty())
+          accountLine = QStringLiteral("Status: %1 — Sitzung fehlt").arg(uname);
+        else
+          accountLine = QStringLiteral("Status: %1 — angemeldet").arg(uname);
+        auto *lblAccount = new QLabel(accountLine, cardKonto);
+        lblAccount->setWordWrap(true);
+        lblAccount->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.88); font-size: 12px; "
+            "background: transparent; padding: 2px 0 8px 0;")));
+        cardKonto->addBodyWidget(lblAccount);
+
         auto *btnEdit = new QPushButton(
             QStringLiteral("Aktuelles Profil bearbeiten"), cardKonto);
         btnEdit->setCursor(Qt::PointingHandCursor);
@@ -564,14 +609,14 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     contentLay->addWidget(cardTheme);
 
-    // ----- Card: Erscheinungsbild ---------------------------------------
+    // ----- Card: Werkzeuge ----------------------------------------------
     // v3.17.1/B4: the standalone "Akzentfarbe" row is removed -- the
     // Darstellung card above now owns the accent picker (persistent +
     // BlopTheme-backed). Toolbar mode stays here.
     // Desktop Drawboard: Favorites rail is locked; Radial stays Android-only.
     auto *cardLook = new BlopSettingsCard(
-        QStringLiteral("Erscheinungsbild"),
-        QStringLiteral("Werkzeugleiste"),
+        QStringLiteral("Werkzeuge"),
+        QStringLiteral("Werkzeugleiste & Favorites"),
         contentWidget);
     {
         auto *lblTb = new QLabel(QStringLiteral("Werkzeugleiste"), cardLook);
@@ -670,14 +715,49 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Erweitert ----------------------------------------------
     auto *cardAdv = new BlopSettingsCard(
         QStringLiteral("Erweitert"),
-        QStringLiteral("Version, Informationen"),
+        QStringLiteral("Version, Datenschutz"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.18.12"), cardAdv);
+#ifndef BLOP_VERSION_STR
+#define BLOP_VERSION_STR "dev"
+#endif
+        auto *info = new QLabel(
+            QStringLiteral("Blop %1").arg(QStringLiteral(BLOP_VERSION_STR)),
+            cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));
         cardAdv->addBodyWidget(info);
+
+        auto *lblPrivacy = new QLabel(QStringLiteral("Datenschutz"), cardAdv);
+        lblPrivacy->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent; padding-top: 8px;")));
+        cardAdv->addBodyWidget(lblPrivacy);
+
+        auto *chkCrash = new QCheckBox(
+            QStringLiteral("Anonyme Absturzberichte senden (optional)"),
+            cardAdv);
+        chkCrash->setChecked(blopCrashUploadConsentGranted());
+        chkCrash->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "QCheckBox { color: #ECEEFD; background: transparent; "
+            "spacing: 8px; font-size: 13px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }")));
+        connect(chkCrash, &QCheckBox::toggled, this, [](bool on) {
+            blopSetCrashUploadConsent(on);
+        });
+        cardAdv->addBodyWidget(chkCrash);
+
+        auto *hint = new QLabel(
+            QStringLiteral(
+                "Hilft beim Beheben von Abstürzen. Enthält keine Notizinhalte. "
+                "Details: docs/privacy-policy.md"),
+            cardAdv);
+        hint->setWordWrap(true);
+        hint->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.78); font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;")));
+        cardAdv->addBodyWidget(hint);
     }
     contentLay->addWidget(cardAdv);
     cardAdv->setExpanded(false);

@@ -201,6 +201,16 @@ inline void drawImport(QPainter &p, const QColor &c) {
   p.drawLine(3, -9, 0, -6);
 }
 
+inline void drawShare(QPainter &p, const QColor &c) {
+  p.setPen(QPen(c, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  p.drawEllipse(4, -8, 6, 6);
+  p.drawEllipse(4, 4, 6, 6);
+  p.drawEllipse(-8, -2, 6, 6);
+  p.drawLine(-3, -1, 4, -5);
+  p.drawLine(-3, 1, 4, 5);
+}
+
 inline QIcon pageLayoutIcon(const QColor &fg = QColor(210, 214, 232)) {
   return makeIcon(drawPageLayout, fg);
 }
@@ -212,6 +222,9 @@ inline QIcon pdfDocIcon(const QColor &fg = QColor(210, 214, 232)) {
 }
 inline QIcon importIcon(const QColor &fg = QColor(210, 214, 232)) {
   return makeIcon(drawImport, fg);
+}
+inline QIcon shareIcon(const QColor &fg = QColor(210, 214, 232)) {
+  return makeIcon(drawShare, fg);
 }
 
 } // namespace SelectionMenuIcons

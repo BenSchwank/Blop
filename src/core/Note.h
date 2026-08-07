@@ -61,11 +61,40 @@ struct StickyNoteObject {
     int fontPointSize{14};
 };
 
+/// Freehand / geometric shape path (not CoordinateGraph — that stays in graphs).
+struct ShapeObject {
+    QPointF pos{0, 0}; // page-local
+    QPainterPath path;
+    qreal penWidth{2.0};
+    QColor penColor{Qt::black};
+    QColor fillColor{Qt::transparent};
+    int kind{0}; // ShapeToolKind
+};
+
+struct TextObject {
+    QPointF pos{0, 0};
+    QString text;
+    QString fontFamily;
+    int fontPointSize{16};
+    QColor color{Qt::black};
+    int align{0}; // 0 left, 1 center, 2 right
+};
+
+struct ImageObject {
+    QPointF pos{0, 0};
+    QByteArray png;
+    qreal opacity{1.0};
+    qreal scale{1.0};
+};
+
 struct NotePage {
     QString title;        // Seitenname
     QVector<Stroke> strokes;
     QVector<GraphObject> graphs;
     QVector<StickyNoteObject> stickies;
+    QVector<ShapeObject> shapes;
+    QVector<TextObject> texts;
+    QVector<ImageObject> images;
     QImage backgroundImage; // PDF-Import: Hintergrundbild (leer = nicht gesetzt)
     /// PageBackgroundType als int (0 Blank … 4 Legal); Standard = Grid (2)
     int backgroundType{2};

@@ -93,6 +93,7 @@ private:
   QCheckBox *m_chkPressure{nullptr};
   QCheckBox *m_chkInkToShape{nullptr};
   QCheckBox *m_chkSmartLine{nullptr};
+  QCheckBox *m_chkKeepInk{nullptr};
   QPushButton *m_modeA{nullptr};
   QPushButton *m_modeB{nullptr};
   QPushButton *m_modeC{nullptr};

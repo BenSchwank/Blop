@@ -6,6 +6,8 @@
 class QPropertyAnimation;
 class QFrame;
 class QDialog;
+class QPaintEvent;
+class QEvent;
 
 /// Reusable, theme-aware in-window modal sheet for Blop. Renders a backdrop
 /// scrim over the parent window and a content card / bottom sheet that
@@ -55,21 +57,27 @@ public:
   /// signals.
   static int execBlocking(QWidget *parent, QDialog *dlg,
                           Mode mode = Mode::Auto,
-                          int preferredCardWidth = 0);
+                          int preferredCardWidth = 0,
+                          bool glassBackdrop = false);
 
   void dismiss();
 
   /// Override the default card width on desktop. Ignored in BottomSheet mode.
   void setPreferredCardWidth(int px);
 
+  /// Soft glass / shimmer scrim behind large desktop dialogs (Settings).
+  void setGlassBackdrop(bool on);
+
 signals:
   void aboutToDismiss();
   void dismissed();
 
 protected:
+  bool event(QEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
+  void paintEvent(QPaintEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
@@ -83,6 +91,7 @@ private:
   void startDismissAnim();
   void applyTheme();
   void onParentResized();
+  void dismissFromOutsideTap(const QPoint &pos);
   Mode resolveMode(Mode requested) const;
 
   QWidget *m_content{nullptr};
@@ -92,6 +101,7 @@ private:
   QPropertyAnimation *m_cardAnim{nullptr};
   Mode m_mode{Mode::Auto};
   int m_preferredCardWidth{420};
+  bool m_glassBackdrop{false};
   bool m_dismissing{false};
   bool m_dragging{false};
   QPoint m_dragStart;

@@ -33,6 +33,9 @@ Blop ships as Qt 6 / C++17 on Windows (WebEngine + widgets) and Android (Gradle 
    - Otherwise, if CMake **`BLOP_SENTRY_DSN`** was set at configure time, that value is baked into **`BLOP_SENTRY_COMPILE_DSN`** and used.  
    - If neither is set, `sentry_init` is skipped and a log line explains that uploads are disabled (the library may still be linked in CI for symbol workflow).
 
+4b. **Runtime crash-upload consent (Phase 3)**  
+   `blopInitCrashReporting()` additionally requires `privacy/crash_upload_consent=true` in `QSettings(Blop, BlopApp)`. First-run prompt + Settings → Erweitert toggle (`blopSetCrashUploadConsent`). Declining keeps local crash overlay only; see `docs/privacy-policy.md`.
+
 5. **Optional local test crash**  
    Configure with `-DBLOP_SENTRY_FORCE_TEST_CRASH=ON` to `abort()` immediately after a successful `sentry_init` (guarded define **`BLOP_SENTRY_FORCE_TEST_CRASH`**).
 

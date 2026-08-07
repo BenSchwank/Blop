@@ -5,12 +5,14 @@
 #include <QGraphicsScene>
 #include <QPainterPath>
 #include <QTransform>
-#include "ToolManager.h"
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsItem>
 #include <QObject>
 #include <QString>
 #include <QPointF>
+
+/// Must match RulerItem::Type so rulers are excluded from lasso selection.
+constexpr int kBlopRulerItemType = QGraphicsItem::UserType + 100;
 
 class LassoTool : public AbstractTool {
     Q_OBJECT
@@ -81,6 +83,7 @@ public:
     }
 
     bool handleMouseRelease(QGraphicsSceneMouseEvent* event, QGraphicsScene* scene) override {
+        Q_UNUSED(event);
         if (!m_selectionItem) return false;
 
         if (m_config.lassoMode == LassoMode::Freehand) {
@@ -93,7 +96,7 @@ public:
         scene->setSelectionArea(m_currentPath, Qt::ReplaceSelection, selectionMode, QTransform());
 
         for (QGraphicsItem* item : scene->selectedItems()) {
-            if (item->type() == RulerItem::Type) {
+            if (item->type() == kBlopRulerItemType) {
                 item->setSelected(false);
             }
         }

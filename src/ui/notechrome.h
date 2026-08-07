@@ -67,10 +67,12 @@ inline QColor textSecondary() {
 inline QColor accent() { return QColor(91, 157, 255); }
 inline QColor accentSoft() { return QColor(91, 157, 255, 40); }
 inline QColor toolbarFill() {
-  return isDark() ? QColor(36, 36, 36) : QColor(255, 255, 255);
+  // Light editor chrome must stay clearly light (not charcoal) so icons can
+  // reverse to dark-on-light contrast.
+  return isDark() ? QColor(36, 36, 36) : QColor(250, 250, 252);
 }
 inline QColor toolbarFillEnd() {
-  return isDark() ? QColor(28, 28, 28) : QColor(248, 248, 248);
+  return isDark() ? QColor(28, 28, 28) : QColor(242, 243, 246);
 }
 /// Floating bottom notch: stronger edge so it never blends into the canvas.
 inline QColor notchBorder() {

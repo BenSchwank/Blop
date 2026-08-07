@@ -2,6 +2,7 @@
 
 #include "blop_modal.h"
 #include "blop_theme.h"
+#include "uiscale.h"
 
 #include <QDialog>
 #include <QHBoxLayout>
@@ -15,6 +16,20 @@
 #include <QVBoxLayout>
 
 namespace BlopDialogs {
+namespace {
+
+int execDialog(QWidget *parent, QDialog *dlg) {
+#ifdef Q_OS_ANDROID
+  // Prefer a centered Card on Android phones: BottomSheet enter animations
+  // historically left only the scrim visible ("black glass pane").
+  return BlopModal::execBlocking(parent ? parent->window() : nullptr, dlg,
+                                 BlopModal::Mode::Card, UiScale::dp(360));
+#else
+  return BlopModal::execBlocking(parent ? parent->window() : nullptr, dlg);
+#endif
+}
+
+} // namespace
 
 bool confirm(QWidget *parent, const QString &title, const QString &message,
              const QString &acceptLabel, const QString &rejectLabel) {
@@ -53,8 +68,7 @@ bool confirm(QWidget *parent, const QString &title, const QString &message,
   lay->addLayout(btnRow);
   QObject::connect(no, &QPushButton::clicked, &dlg, &QDialog::reject);
   QObject::connect(yes, &QPushButton::clicked, &dlg, &QDialog::accept);
-  return BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg) ==
-         QDialog::Accepted;
+  return execDialog(parent, &dlg) == QDialog::Accepted;
 }
 
 QString promptText(QWidget *parent, const QString &title, const QString &label,
@@ -106,8 +120,7 @@ QString promptText(QWidget *parent, const QString &title, const QString &label,
   QObject::connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
   QObject::connect(edit, &QLineEdit::returnPressed, &dlg, &QDialog::accept);
 
-  if (BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg) !=
-      QDialog::Accepted)
+  if (execDialog(parent, &dlg) != QDialog::Accepted)
     return {};
   return edit->text().trimmed();
 }
@@ -169,8 +182,7 @@ QString promptChoice(QWidget *parent, const QString &title,
   QObject::connect(list, &QListWidget::itemDoubleClicked, &dlg,
                    &QDialog::accept);
 
-  if (BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg) !=
-      QDialog::Accepted)
+  if (execDialog(parent, &dlg) != QDialog::Accepted)
     return {};
   if (auto *it = list->currentItem())
     return it->text();
@@ -226,8 +238,7 @@ int promptInt(QWidget *parent, const QString &title, const QString &label,
   QObject::connect(cancel, &QPushButton::clicked, &dlg, &QDialog::reject);
   QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
 
-  if (BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg) !=
-      QDialog::Accepted)
+  if (execDialog(parent, &dlg) != QDialog::Accepted)
     return value;
   if (ok)
     *ok = true;
@@ -263,7 +274,7 @@ void notify(QWidget *parent, const QString &title, const QString &message) {
   btnRow->addWidget(ok);
   lay->addLayout(btnRow);
   QObject::connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
-  BlopModal::execBlocking(parent ? parent->window() : nullptr, &dlg);
+  execDialog(parent, &dlg);
 }
 
 void ProgressSession::setMessage(const QString &text) {

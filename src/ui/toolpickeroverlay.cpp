@@ -166,8 +166,9 @@ ToolPickerOverlay::ToolPickerOverlay(QWidget *host, const QColor &accent,
 
   auto *hint = new QLabel(
       QStringLiteral(
-          "Tippe +, um ein Tool zur Symbolleiste hinzuzufügen. "
-          "Bereits hinzugefügte Tools (✓) erneut tippen zum Entfernen."),
+          "Tippe +, um ein Tool zur Favoritenleiste hinzuzufügen. "
+          "✓ markiert das Hand-Werkzeug, wenn es bereits vorhanden ist "
+          "(Hand ist einzigartig)."),
       card);
   hint->setWordWrap(true);
   hint->setStyleSheet(
@@ -269,8 +270,12 @@ void ToolPickerOverlay::rebuildGrid(int categoryIndex) {
     const int shapeKind = e.shapeKind;
     connect(btn, &QToolButton::clicked, this, [this, mode, shapeKind]() {
       if (mode == ToolMode::Shape && shapeKind >= 0) {
+        // Update Shape config first, then select Shape so we never apply
+        // shape config onto the previously active (non-Shape) tool.
         ToolConfig &cfg = ToolManager::instance().configFor(ToolMode::Shape);
         cfg.shapeToolKind = static_cast<ShapeToolKind>(shapeKind);
+        ToolManager::instance().selectTool(ToolMode::Shape);
+        // selectTool no-ops when Shape is already active — force config sync.
         ToolManager::instance().setConfig(cfg);
       }
       if (m_onSelect)

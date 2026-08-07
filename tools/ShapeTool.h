@@ -1,6 +1,7 @@
 #pragma once
 #include "AbstractTool.h"
 #include "GraphCanvasItem.h"
+#include "ShapePath.h"
 #include "ToolManager.h"
 #include <QElapsedTimer>
 #include <QGraphicsPathItem>
@@ -8,11 +9,9 @@
 #include <QPainterPath>
 #include <QGraphicsSceneMouseEvent>
 #include <QPen>
-#include <QtMath>
 #include "math/MathExpressionParser.h"
 #include "math/MathEvaluator.h"
 #include "math/NumericAnalysis.h"
-#include <cmath>
 
 class ShapeTool : public AbstractTool {
     Q_OBJECT
@@ -24,133 +23,7 @@ public:
     QString iconName() const override { return "shape"; }
 
     static QPainterPath buildShapePath(const QRectF& dragRect, const ToolConfig& cfg) {
-        const QRectF rn = dragRect.normalized();
-        if (rn.width() < 1.0 && rn.height() < 1.0)
-            return {};
-
-        switch (cfg.shapeToolKind) {
-        case ShapeToolKind::Rectangle: {
-            QPainterPath p;
-            p.addRect(rn);
-            return p;
-        }
-        case ShapeToolKind::Circle: {
-            const QPointF c = rn.center();
-            const qreal rad = qMin(rn.width(), rn.height()) * 0.5;
-            QPainterPath p;
-            p.addEllipse(QRectF(c.x() - rad, c.y() - rad, 2.0 * rad, 2.0 * rad));
-            return p;
-        }
-        case ShapeToolKind::Ellipse: {
-            QPainterPath p;
-            p.addEllipse(rn.normalized());
-            return p;
-        }
-        case ShapeToolKind::Line: {
-            QPainterPath p;
-            p.moveTo(rn.topLeft());
-            p.lineTo(rn.bottomRight());
-            return p;
-        }
-        case ShapeToolKind::Arrow: {
-            QPainterPath p;
-            const QPointF a = rn.topLeft();
-            const QPointF b = rn.bottomRight();
-            p.moveTo(a);
-            p.lineTo(b);
-            QLineF stem(a, b);
-            if (stem.length() < 1.0)
-                return p;
-            const qreal head = qBound(8.0, stem.length() * 0.22, 28.0);
-            QLineF u = stem.unitVector();
-            const QPointF dir(u.dx(), u.dy());
-            const QPointF n(-dir.y(), dir.x());
-            p.moveTo(b);
-            p.lineTo(b - dir * head + n * head * 0.45);
-            p.moveTo(b);
-            p.lineTo(b - dir * head - n * head * 0.45);
-            return p;
-        }
-        case ShapeToolKind::Axes2D: {
-            QPainterPath p;
-            const qreal mx = (rn.left() + rn.right()) * 0.5;
-            const qreal my = (rn.top() + rn.bottom()) * 0.5;
-            p.moveTo(rn.left(), my);
-            p.lineTo(rn.right(), my);
-            p.moveTo(mx, rn.top());
-            p.lineTo(mx, rn.bottom());
-            const int nt = qBound(2, cfg.shapeAxisTicks, 12);
-            const qreal dx = rn.width() / qMax(1, nt - 1);
-            const qreal dy = rn.height() / qMax(1, nt - 1);
-            const qreal tickH = qMax(3.0, qMin(rn.width(), rn.height()) * 0.04);
-            for (int i = 0; i < nt; ++i) {
-                const qreal x = rn.left() + i * dx;
-                p.moveTo(x, my - tickH * 0.5);
-                p.lineTo(x, my + tickH * 0.5);
-            }
-            for (int i = 0; i < nt; ++i) {
-                const qreal y = rn.top() + i * dy;
-                p.moveTo(mx - tickH * 0.5, y);
-                p.lineTo(mx + tickH * 0.5, y);
-            }
-            return p;
-        }
-        case ShapeToolKind::SineGraph: {
-            QPainterPath p;
-            const qreal cy = rn.center().y();
-            const qreal a = qBound(0.01, cfg.shapeMathA, 2.0);
-            const qreal b = qBound(0.05, cfg.shapeMathB, 12.0);
-            const qreal c = qBound(-12.57, cfg.shapeMathC, 12.57);
-            const qreal d = qBound(-1.5, cfg.shapeMathD, 1.5);
-            const qreal w = rn.width();
-            if (cfg.shapeSineFixedParams) {
-                constexpr qreal kLenRef = 100.0; ///< b = volle Perioden pro kLenRef Szeneneinheiten horizontal
-                constexpr qreal kAmpRef = 45.0;  ///< a, d als Faktoren dieser Amplitude (px)
-                const qreal omega = b * (2.0 * M_PI) / kLenRef;
-                const int N = qBound(96, static_cast<int>(w / 3.0) + 1, 640);
-                for (int i = 0; i <= N; ++i) {
-                    const qreal t = static_cast<qreal>(i) / static_cast<qreal>(N);
-                    const qreal x = rn.left() + t * w;
-                    const qreal ang = omega * (x - rn.left()) + c;
-                    const qreal y = cy - (a * kAmpRef * std::sin(ang) + d * kAmpRef);
-                    if (i == 0)
-                        p.moveTo(x, y);
-                    else
-                        p.lineTo(x, y);
-                }
-            } else {
-                const int N = 96;
-                const qreal halfH = rn.height() * 0.5;
-                for (int i = 0; i <= N; ++i) {
-                    const qreal t = static_cast<qreal>(i) / static_cast<qreal>(N);
-                    const qreal x = rn.left() + t * w;
-                    const qreal ang = b * (2.0 * M_PI) * t + c;
-                    const qreal y = cy - halfH * (a * std::sin(ang) + d);
-                    if (i == 0)
-                        p.moveTo(x, y);
-                    else
-                        p.lineTo(x, y);
-                }
-            }
-            return p;
-        }
-        case ShapeToolKind::CoordinateGraph: {
-            QPainterPath p;
-            p.addRect(rn);
-            const qreal x0 = rn.left() + (0.0 - cfg.graphXMin) / qMax(1e-6, (cfg.graphXMax - cfg.graphXMin)) * rn.width();
-            const qreal y0 = rn.bottom() - (0.0 - cfg.graphYMin) / qMax(1e-6, (cfg.graphYMax - cfg.graphYMin)) * rn.height();
-            p.moveTo(rn.left(), y0); p.lineTo(rn.right(), y0);
-            p.moveTo(x0, rn.top()); p.lineTo(x0, rn.bottom());
-
-            auto mapX = [&](double x) { return rn.left() + (x - cfg.graphXMin) / qMax(1e-6, (cfg.graphXMax - cfg.graphXMin)) * rn.width(); };
-            auto mapY = [&](double y) { return rn.bottom() - (y - cfg.graphYMin) / qMax(1e-6, (cfg.graphYMax - cfg.graphYMin)) * rn.height(); };
-
-            // Graph starts empty; curves are added interactively on the graph item.
-            return p;
-        }
-        default:
-            return {};
-        }
+        return blopBuildShapePath(dragRect, cfg);
     }
 
     void setStrokeSceneForTablet(QGraphicsScene* scene) override {
@@ -196,6 +69,10 @@ public:
           pathItem->setBrush(Qt::NoBrush);
         }
         pathItem->setZValue(5);
+        pathItem->setData(0, QStringLiteral("shape"));
+        pathItem->setData(1, int(m_config.shapeToolKind));
+        pathItem->setFlag(QGraphicsItem::ItemIsSelectable, true);
+        pathItem->setFlag(QGraphicsItem::ItemIsMovable, true);
 
         m_currentShape = pathItem;
         scene->addItem(m_currentShape);
@@ -215,12 +92,18 @@ public:
             }
             const bool heldLongEnough = m_pressTimer.elapsed() >= 360;
             const bool draggedEnough = QLineF(m_startPos, event->scenePos()).length() >= 8.0;
-            if (heldLongEnough && draggedEnough && m_config.shapeToolKind == ShapeToolKind::Rectangle)
+            // Square lock for rectangles; circle already inscribes — lock aspect
+            // so the drag rubber-band matches the final circle diameter.
+            if (heldLongEnough && draggedEnough &&
+                (m_config.shapeToolKind == ShapeToolKind::Rectangle ||
+                 m_config.shapeToolKind == ShapeToolKind::Circle))
                 m_longPressLock = true;
         }
 
         QPointF endPos = event->scenePos();
-        if (m_longPressLock) {
+        if (m_longPressLock || m_config.shapeToolKind == ShapeToolKind::Circle) {
+            // Circle: always equal aspect from the drag start (avoids a
+            // "chopped square" rubber-band that users mistake for the shape).
             const QPointF delta = endPos - m_startPos;
             const qreal side = qMax(qAbs(delta.x()), qAbs(delta.y()));
             const qreal sx = (delta.x() >= 0) ? 1.0 : -1.0;
@@ -267,6 +150,8 @@ public:
                     graphItem->setZValue(4.0);
                     scene->addItem(graphItem);
                     m_lastCompletedItem = graphItem;
+                } else {
+                    m_lastCompletedItem = m_currentShape;
                 }
                 emit contentModified();
             }

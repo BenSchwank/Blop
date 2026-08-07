@@ -42,7 +42,9 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   auto *header = new QHBoxLayout;
   header->setSpacing(UiScale::dp(8));
   m_title = new QLabel(QStringLiteral("Eigenschaften"), this);
-  m_title->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+  m_title->setObjectName(QStringLiteral("ToolPropsTitle"));
+  m_title->setStyleSheet(QStringLiteral(
+      "QLabel#ToolPropsTitle { font-size: 15px; font-weight: 700; }"));
   header->addWidget(m_title, 1);
   auto *closeBtn = new QPushButton(QStringLiteral("×"), this);
   closeBtn->setObjectName(QStringLiteral("ToolPropsClose"));
@@ -288,7 +290,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_chkInkToShape =
       new QCheckBox(QStringLiteral("Tinte → Form (halten)"), m_smartRow);
   m_chkSmartLine = new QCheckBox(QStringLiteral("Smart Line"), m_smartRow);
-  for (QCheckBox *c : {m_chkPressure, m_chkInkToShape, m_chkSmartLine}) {
+  m_chkKeepInk =
+      new QCheckBox(QStringLiteral("Nur Marker löschen"), m_smartRow);
+  for (QCheckBox *c :
+       {m_chkPressure, m_chkInkToShape, m_chkSmartLine, m_chkKeepInk}) {
     c->setCursor(Qt::PointingHandCursor);
     c->setMinimumHeight(UiScale::dp(30));
     smartLay->addWidget(c);
@@ -307,6 +312,10 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   });
   connect(m_chkSmartLine, &QCheckBox::toggled, this, [this](bool on) {
     m_config.smartLine = on;
+    applyConfig();
+  });
+  connect(m_chkKeepInk, &QCheckBox::toggled, this, [this](bool on) {
+    m_config.eraserKeepInk = on;
     applyConfig();
   });
   m_root->addWidget(m_smartRow);
@@ -460,10 +469,11 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_chkPressure->setVisible(mode == ToolMode::Pen || mode == ToolMode::Pencil);
   if (m_chkInkToShape)
     m_chkInkToShape->setVisible(mode == ToolMode::Pen ||
-                                mode == ToolMode::Pencil ||
-                                mode == ToolMode::Eraser);
+                                mode == ToolMode::Pencil);
   if (m_chkSmartLine)
     m_chkSmartLine->setVisible(mode == ToolMode::Highlighter);
+  if (m_chkKeepInk)
+    m_chkKeepInk->setVisible(mode == ToolMode::Eraser);
 
   auto hideExtraModes = [this]() {
     for (QPushButton *b : {m_modeC, m_modeD, m_modeE, m_modeF, m_modeG, m_modeH})
@@ -531,39 +541,52 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     case ToolMode::Image:
       hint = QStringLiteral(
           "Tippe auf die Seite, um ein Bild einzufügen. Deckkraft gilt für "
-          "neue Einfügungen.");
+          "die nächste Einfügung — bestehende Bilder ändern sich im "
+          "Auswahl-HUD.");
       break;
     case ToolMode::StickyNote:
       hint = QStringLiteral(
-          "Tippe auf die Seite für eine Haftnotiz. Hintergrundfarbe und "
-          "Schriftgröße steuern das Aussehen.");
+          "Tippe auf die Seite für eine Haftnotiz. Farbe und Schriftgröße "
+          "gelten für die nächste Notiz.");
       break;
     case ToolMode::Text:
       hint = QStringLiteral(
           "Tippe auf die Seite, um Text zu setzen. Schrift, Ausrichtung, Größe "
-          "und Farbe gelten für neue Textfelder.");
+          "und Farbe gelten für das nächste Textfeld.");
       break;
     case ToolMode::Ruler:
       hint = QStringLiteral("Lineal auf der Seite positionieren und zeichnen.");
       break;
     case ToolMode::Eraser:
       hint = QStringLiteral(
-          "Pixel radiert Tinte; Objekt entfernt ganze Striche.");
+          "Pixel schneidet Tinten-Outline; Objekt entfernt ganze Striche. "
+          "„Nur Marker löschen“ schont Stift-Tinte (z≥10). Gilt für den "
+          "nächsten Radier-Strich.");
       break;
     case ToolMode::Lasso:
       hint = QStringLiteral(
-          "Auswahl markieren, dann verschieben, duplizieren oder "
-          "zur Bibliothek hinzufügen.");
+          "Lasso markieren → Auswahl-HUD für Verschieben, Duplizieren oder "
+          "Bibliothek. Diese Props steuern nur den Auswahlmodus.");
       break;
     case ToolMode::Shape:
       hint = QStringLiteral(
-          "Rechteck/Kreis/Ellipse/Linie/Pfeil aufziehen. Achsen, Sinus und "
-          "Graph nutzen die Bounds. Füllfarbe optional.");
+          "Form aufziehen. Einstellungen gelten für die nächste Form. "
+          "Bestehende Formen ändern sich über die Auswahl.");
       break;
     case ToolMode::Pen:
       hint = QStringLiteral(
-          "Einfach = gleichmäßig. Pro = Druck + Glättung. Kalligrafie = "
-          "dynamische Strichstärke.");
+          "Gilt für den nächsten Strich. Einfach = gleichmäßig. Pro = Druck + "
+          "Glättung. Kalligrafie = dynamische Strichstärke.");
+      break;
+    case ToolMode::Pencil:
+      hint = QStringLiteral(
+          "Gilt für den nächsten Strich. Druck und Deckkraft steuern die "
+          "nächste Bleistiftspur.");
+      break;
+    case ToolMode::Highlighter:
+      hint = QStringLiteral(
+          "Gilt für den nächsten Strich. Tip und Deckkraft steuern die "
+          "nächste Markierung.");
       break;
     default:
       break;
@@ -617,7 +640,7 @@ void ToolPropertiesPanel::syncForMode(ToolMode mode) {
     title = QStringLiteral("Radierer");
     break;
   case ToolMode::Lasso:
-    title = QStringLiteral("Auswahl");
+    title = QStringLiteral("Lasso");
     break;
   case ToolMode::Shape:
     title = QStringLiteral("Formen");
@@ -686,22 +709,27 @@ void ToolPropertiesPanel::applyPenInkStyle(PenInkStyle style) {
 
 void ToolPropertiesPanel::refreshStyleTiles() {
   const PenInkStyle cur = detectPenInkStyle();
-  auto styleBtn = [this](QPushButton *btn, bool selected) {
+  const QString idleBg = NoteChrome::isDark()
+                             ? QStringLiteral("rgba(255,255,255,0.04)")
+                             : QStringLiteral("rgba(0,0,0,0.05)");
+  const QString hoverBg = NoteChrome::isDark()
+                              ? QStringLiteral("rgba(255,255,255,0.08)")
+                              : QStringLiteral("rgba(0,0,0,0.09)");
+  auto styleBtn = [this, idleBg, hoverBg](QPushButton *btn, bool selected) {
     if (!btn)
       return;
     const QString border =
         selected ? m_accent.name() : NoteChrome::border().name();
     const QString bg =
-        selected ? QStringLiteral("rgba(91,157,255,0.18)")
-                 : QStringLiteral("rgba(255,255,255,0.04)");
+        selected ? QStringLiteral("rgba(91,157,255,0.18)") : idleBg;
     btn->setStyleSheet(
         QStringLiteral("QPushButton#ToolPropsStyle {"
                        "  background: %1; border: 1px solid %2; border-radius: 10px;"
                        "  text-align: center; padding: 10px 8px;"
                        "  color: %3; font-size: 12px; font-weight: 700;"
                        "}"
-                       "QPushButton#ToolPropsStyle:hover { background: rgba(255,255,255,0.08); }")
-            .arg(bg, border, NoteChrome::textPrimary().name()));
+                       "QPushButton#ToolPropsStyle:hover { background: %4; }")
+            .arg(bg, border, NoteChrome::textPrimary().name(), hoverBg));
     btn->setChecked(selected);
   };
   styleBtn(m_styleEinfach, cur == PenInkStyle::Einfach);
@@ -721,6 +749,7 @@ void ToolPropertiesPanel::refreshSmartInk() {
   blockSet(m_chkInkToShape,
            m_config.holdEnableCircle || m_config.holdEnableTriangle);
   blockSet(m_chkSmartLine, m_config.smartLine);
+  blockSet(m_chkKeepInk, m_config.eraserKeepInk);
 }
 
 QPushButton *ToolPropertiesPanel::makeStyleTile(const QString &title,
@@ -921,6 +950,16 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
 
 void ToolPropertiesPanel::rebuild() {
   const int radius = UiScale::dp(16);
+  const QString idleBg = NoteChrome::isDark()
+                             ? QStringLiteral("rgba(255,255,255,0.07)")
+                             : QStringLiteral("rgba(0,0,0,0.05)");
+  const QString hoverBg = NoteChrome::isDark()
+                              ? QStringLiteral("rgba(255,255,255,0.12)")
+                              : QStringLiteral("rgba(0,0,0,0.09)");
+  // Slightly lifted surface so the panel doesn't read as a black slab on
+  // the charcoal canvas.
+  const QColor surface = NoteChrome::isDark() ? QColor(52, 52, 54)
+                                              : NoteChrome::panelElevated();
   const QString qss = QStringLiteral(
       "QWidget#ToolPropertiesPanel {"
       "  background: %1;"
@@ -932,32 +971,34 @@ void ToolPropertiesPanel::rebuild() {
       "  background: transparent;"
       "}"
       "QLabel { color: %3; background: transparent; font-size: 13px; font-weight: 600; }"
+      "QLabel#ToolPropsTitle { color: %5; font-size: 15px; font-weight: 700; }"
       "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 10px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px;"
-      "  border: 1px solid %2; background: rgba(255,255,255,0.04); }"
+      "  border: 1px solid %2; background: %7; }"
       "QCheckBox::indicator:checked { background: %4; border-color: %4; }"
       "QPushButton#ToolPropsMode {"
-      "  color: %3; background: rgba(255,255,255,0.04);"
+      "  color: %3; background: %7;"
       "  border: 1px solid %2; border-radius: 10px; font-size: 12px; font-weight: 650;"
       "  padding: 8px 10px; }"
       "QPushButton#ToolPropsMode:checked {"
-      "  background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
-      "QPushButton#ToolPropsMode:hover { background: rgba(255,255,255,0.08); }"
+      "  background: rgba(91,157,255,0.22); border-color: %4; color: %5; }"
+      "QPushButton#ToolPropsMode:hover { background: %8; }"
       "QPushButton#ToolPropsClose {"
       "  color: %5; background: transparent; border: none; font-size: 18px; }"
       "QSlider::groove:horizontal { height: 6px; background: %2; border-radius: 3px; }"
       "QSlider::sub-page:horizontal { background: %4; border-radius: 3px; }"
       "QSlider::handle:horizontal { background: %5; width: 16px; height: 16px; "
-      "margin: -5px 0; border-radius: 8px; }"
+      "margin: -5px 0; border-radius: 8px; border: 1px solid %2; }"
       "QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }"
       "QScrollBar::handle:vertical { background: %2; border-radius: 4px; min-height: 24px; }"
       "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }")
-                          .arg(NoteChrome::panelElevated().name(),
+                          .arg(surface.name(),
                                NoteChrome::border().name(),
                                NoteChrome::textSecondary().name(),
                                NoteChrome::accent().name(),
                                NoteChrome::textPrimary().name())
-                          .arg(radius);
+                          .arg(radius)
+                          .arg(idleBg, hoverBg);
   setStyleSheet(qss);
   refreshSwatchSelection();
   refreshFillSwatchSelection();
@@ -971,11 +1012,18 @@ void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
   const qreal radius = UiScale::dp(16);
   p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 55));
+  const QColor shadow = NoteChrome::isDark() ? QColor(0, 0, 0, 40)
+                                             : QColor(0, 0, 0, 28);
+  p.setBrush(shadow);
   p.drawRoundedRect(r.translated(0, 2), radius, radius);
   QLinearGradient grad(r.topLeft(), r.bottomLeft());
-  grad.setColorAt(0, NoteChrome::panelElevated());
-  grad.setColorAt(1, NoteChrome::panelBg());
+  if (NoteChrome::isDark()) {
+    grad.setColorAt(0, QColor(58, 58, 60));
+    grad.setColorAt(1, QColor(46, 46, 48));
+  } else {
+    grad.setColorAt(0, NoteChrome::panelElevated());
+    grad.setColorAt(1, NoteChrome::panelBg());
+  }
   p.setBrush(grad);
   p.setPen(QPen(NoteChrome::borderSoft(), 1));
   p.drawRoundedRect(r, radius, radius);
