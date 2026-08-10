@@ -1,0 +1,61 @@
+# Keep the Free-Tier Supabase project from auto-pausing after ~7 days of
+# inactivity, and optionally nudge the Render backend awake.
+#
+# Schedule: Mon + Thu 12:00 UTC (well under the 7-day pause window).
+# Manual run: Actions → "Supabase Keep-Alive" → Run workflow.
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    - cron: "0 12 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Ping health/db
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake backend + touch Supabase
+        env:
+          # Public Study API (Vercel → Render). Override via repo variable if needed.
+          BLOP_HEALTH_DB_URL: ${{ vars.BLOP_HEALTH_DB_URL || 'https://www.blop-study.com/api/health/db' }}
+          BLOP_HEALTH_URL: ${{ vars.BLOP_HEALTH_URL || 'https://www.blop-study.com/api/health' }}
+        run: |
+          set -euo pipefail
+
+          echo "==> Liveness: $BLOP_HEALTH_URL"
+          curl -fsS --retry 3 --retry-delay 5 --retry-all-errors \
+            -o /tmp/health.json -w "http=%{http_code}\n" \
+            "$BLOP_HEALTH_URL" || true
+          cat /tmp/health.json 2>/dev/null || true
+          echo
+
+          echo "==> DB keep-alive: $BLOP_HEALTH_DB_URL"
+          # /api/health/db runs a real SELECT against Supabase — that is what
+          # counts as activity for Free-Tier pause prevention.
+          http_code=$(curl -sS --retry 4 --retry-delay 8 --retry-all-errors \
+            -o /tmp/health-db.json -w "%{http_code}" \
+            "$BLOP_HEALTH_DB_URL")
+          echo "http=$http_code"
+          cat /tmp/health-db.json
+          echo
+
+          if [ "$http_code" != "200" ]; then
+            echo "::error::health/db returned HTTP $http_code"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json, sys
+          data = json.load(open("/tmp/health-db.json"))
+          ok = bool(data.get("ok"))
+          print("ok=", ok, "host=", data.get("host"), "dns_ok=", data.get("dns_ok"))
+          if not ok:
+              print("::error::Supabase health check failed:", data, file=sys.stderr)
+              sys.exit(1)
+          print("Supabase keep-alive OK")
+          PY
