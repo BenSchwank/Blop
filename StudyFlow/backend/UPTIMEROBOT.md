@@ -28,3 +28,12 @@ Im Render-Dashboard: Service **blop-study-backend** → oben die **URL** (z. B
 ## Hinweis zu 502
 
 502 kann auch bei **langen KI-/ffmpeg-Jobs** oder **Proxy-Timeouts** auftreten — UptimeRobot verhindert nur das **Einschlafen**, nicht alle 502-Ursachen. Siehe auch [`LERNVIDEO_OPS.md`](LERNVIDEO_OPS.md).
+
+## Supabase Free-Tier Pause vermeiden
+
+Supabase pausiert Free-Projekte nach ~7 Tagen ohne DB-Aktivität. Der Workflow
+[`.github/workflows/supabase-keepalive.yml`](../../.github/workflows/supabase-keepalive.yml)
+pingt **Mo + Do 12:00 UTC** `GET /api/health/db` (echte `SELECT`-Query).
+
+- Manuell: GitHub → **Actions** → **Supabase Keep-Alive** → **Run workflow**
+- Optional: Repo-Variables `BLOP_HEALTH_URL` / `BLOP_HEALTH_DB_URL` setzen, falls die API-URL abweicht
