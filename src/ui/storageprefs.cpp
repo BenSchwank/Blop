@@ -22,6 +22,10 @@ QString primarySettingsKey() {
 
 QString cloudMirrorSubdir() { return QStringLiteral("BlopNotizen"); }
 
+bool pathExistsDir(const QString &p) {
+  return !p.isEmpty() && QDir(p).exists();
+}
+
 } // namespace
 
 QString modeKey() { return modeSettingsKey(); }
@@ -70,18 +74,26 @@ QString modeHint(Mode m) {
   switch (m) {
   case Mode::CloudOnly:
     return QStringLiteral(
-        "Notizen liegen im verknüpften Sync-Ordner (Drive, Nextcloud, …). "
-        "Supabase speichert keine Notizen.");
+        "Notizen liegen im verknüpften Sync-Ordner (z. B. Google Drive). "
+        "Blop Study bleibt auf Supabase (Konto, Teilen, Lernmaterial).");
   case Mode::LocalAndCloud:
     return QStringLiteral(
-        "Notizen werden lokal gespeichert und zusätzlich in den "
-        "verknüpften Cloud-Ordner gespiegelt. Supabase speichert keine Notizen.");
+        "Notizen werden lokal gespeichert und in Google Drive / Cloud "
+        "gespiegelt — nutzbar auf Handy, Laptop und Mac. "
+        "Blop Study bleibt auf Supabase.");
   case Mode::LocalOnly:
   default:
     return QStringLiteral(
-        "Notizen bleiben auf diesem Gerät im Ordner „BlopNotizen“. "
-        "Supabase speichert keine Notizen.");
+        "Notizen nur auf diesem Gerät. Für Cloud: Google Drive verbinden "
+        "(unten). Blop Study nutzt weiter Supabase — nicht den Notiz-Speicher.");
   }
+}
+
+QString architectureHint() {
+  return QStringLiteral(
+      "Notizen → Google Drive / Nextcloud (wachsen stark). "
+      "Blop Study → Supabase (Konto, Teile-Links, Lernkarten; "
+      "große PDFs/Videos später ggf. auslagern).");
 }
 
 QString ensureLocalLibraryRoot() {
@@ -102,21 +114,99 @@ QString ensureLocalLibraryRoot() {
 QString primaryLinkedCloudPath() {
   const QVector<CloudStorageEntry> entries = CloudStorageStore::load();
   const QString preferred = primaryCloudId();
-  auto pathOk = [](const QString &p) {
-    return !p.isEmpty() && QDir(p).exists();
-  };
-
   if (!preferred.isEmpty()) {
     for (const CloudStorageEntry &e : entries) {
-      if (e.id == preferred && pathOk(e.path))
+      if (e.id == preferred && pathExistsDir(e.path))
         return e.path;
     }
   }
   for (const CloudStorageEntry &e : entries) {
-    if (pathOk(e.path))
+    if (pathExistsDir(e.path))
       return e.path;
   }
   return {};
+}
+
+bool isProviderLinked(const QString &providerId) {
+  if (providerId.isEmpty())
+    return false;
+  for (const CloudStorageEntry &e : CloudStorageStore::load()) {
+    if (e.id == providerId && pathExistsDir(e.path))
+      return true;
+  }
+  return false;
+}
+
+bool isGoogleDriveLinked() {
+  return isProviderLinked(QStringLiteral("googledrive"));
+}
+
+QStringList suggestedGoogleDriveRoots() {
+  QStringList out;
+  const QString home =
+      QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+  const QStringList candidates = {
+      home + QStringLiteral("/Google Drive"),
+      home + QStringLiteral("/GoogleDrive"),
+      home + QStringLiteral("/google-drive"),
+      home + QStringLiteral("/Meine Ablage"),
+      home + QStringLiteral("/Library/CloudStorage"),
+      QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) +
+          QStringLiteral("/Google Drive"),
+#ifdef Q_OS_ANDROID
+      QStringLiteral("/storage/emulated/0/GoogleDrive"),
+      QStringLiteral("/storage/emulated/0/Download/Google Drive"),
+#endif
+  };
+  for (const QString &c : candidates) {
+    if (!pathExistsDir(c))
+      continue;
+    // On macOS CloudStorage, prefer a GoogleDrive-* child if present.
+    if (c.endsWith(QLatin1String("/Library/CloudStorage"))) {
+      const QFileInfoList kids =
+          QDir(c).entryInfoList(QStringList() << QStringLiteral("GoogleDrive*"),
+                                QDir::Dirs | QDir::NoDotAndDotDot);
+      for (const QFileInfo &fi : kids)
+        out.append(fi.absoluteFilePath());
+      continue;
+    }
+    out.append(c);
+  }
+  out.removeDuplicates();
+  return out;
+}
+
+QString bestSuggestedGoogleDriveRoot() {
+  const QStringList roots = suggestedGoogleDriveRoots();
+  return roots.isEmpty() ? QString() : roots.first();
+}
+
+bool connectProviderForNotes(const QString &providerId,
+                             const QString &folderPath) {
+  if (providerId.isEmpty() || !pathExistsDir(folderPath))
+    return false;
+
+  QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+  CloudStorageEntry *entry = CloudStorageStore::findMutable(entries, providerId);
+  if (!entry) {
+    CloudStorageEntry e;
+    e.id = providerId;
+    e.type = providerId;
+    e.name = CloudStorageStore::displayNameForType(providerId);
+    e.path = folderPath;
+    entries.append(e);
+  } else {
+    entry->path = folderPath;
+  }
+  CloudStorageStore::save(entries);
+
+  const QString nested = folderPath + QLatin1Char('/') + cloudMirrorSubdir();
+  QDir().mkpath(nested);
+
+  setPrimaryCloudId(providerId);
+  // Default usable sync: keep a local copy and mirror into Drive.
+  setMode(Mode::LocalAndCloud);
+  return true;
 }
 
 QString noteWriteRoot(const QString &localRoot) {
@@ -126,7 +216,6 @@ QString noteWriteRoot(const QString &localRoot) {
   if (m == Mode::LocalOnly || m == Mode::LocalAndCloud)
     return local;
 
-  // CloudOnly — prefer a BlopNotizen subfolder inside the linked sync root.
   const QString cloud = primaryLinkedCloudPath();
   if (cloud.isEmpty())
     return {};

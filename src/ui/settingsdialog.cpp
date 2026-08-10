@@ -9,6 +9,7 @@
 #include "ui_SettingsDialog.h"
 
 #include <QButtonGroup>
+#include <QDesktopServices>
 #include <QDir>
 #include <QEasingCurve>
 #include <QFileDialog>
@@ -30,6 +31,7 @@
 #include <QShowEvent>
 #include <QStandardPaths>
 #include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
 #include <functional>
@@ -747,7 +749,35 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "background: transparent; padding: 4px 0;")));
         cardStorage->addBodyWidget(localPathLbl);
 
-        auto *cloudHeader = new QLabel(QStringLiteral("Cloud-Anbieter verknüpfen"),
+        auto *arch = new QLabel(StoragePrefs::architectureHint(), cardStorage);
+        arch->setWordWrap(true);
+        arch->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(160, 168, 195, 0.90); font-size: 11px;"
+            "background: transparent; padding: 2px 0 8px 0;")));
+        cardStorage->addBodyWidget(arch);
+
+        auto *btnConnectDrive = new QPushButton(cardStorage);
+        btnConnectDrive->setCursor(Qt::PointingHandCursor);
+        btnConnectDrive->setMinimumHeight(46);
+        const bool driveLinked = StoragePrefs::isGoogleDriveLinked();
+        btnConnectDrive->setText(
+            driveLinked ? QStringLiteral("Google Drive verbunden · Ordner ändern…")
+                        : QStringLiteral("Google Drive jetzt verbinden"));
+        btnConnectDrive->setStyleSheet(BlopTheme::primaryButtonQss());
+        BlopRipple::attachPressFeedback(btnConnectDrive, 0.92);
+        cardStorage->addBodyWidget(btnConnectDrive);
+
+        auto *btnOpenDriveWeb = new QPushButton(
+            QStringLiteral("Google-Konto / Drive im Browser öffnen"), cardStorage);
+        btnOpenDriveWeb->setCursor(Qt::PointingHandCursor);
+        btnOpenDriveWeb->setStyleSheet(BlopTheme::secondaryButtonQss());
+        BlopRipple::attachPressFeedback(btnOpenDriveWeb, 0.92);
+        QObject::connect(btnOpenDriveWeb, &QPushButton::clicked, this, []() {
+            QDesktopServices::openUrl(QUrl(QStringLiteral("https://drive.google.com")));
+        });
+        cardStorage->addBodyWidget(btnOpenDriveWeb);
+
+        auto *cloudHeader = new QLabel(QStringLiteral("Weitere Cloud-Anbieter"),
                                        cardStorage);
         cloudHeader->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
@@ -810,9 +840,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             btnLink->setStyleSheet(BlopTheme::primaryButtonQss());
             QObject::connect(
                 btnLink, &QPushButton::clicked, this,
-                [this, id, displayName, name, btnLink, btnPrimary]() {
-                  QString start =
-                      QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+                [this, id, displayName, name, btnLink, btnPrimary, btnLocal, btnCloud,
+                 btnBoth, hint, btnConnectDrive]() {
+                  QString start = StoragePrefs::bestSuggestedGoogleDriveRoot();
+                  if (start.isEmpty())
+                    start = QStandardPaths::writableLocation(
+                        QStandardPaths::HomeLocation);
                   QVector<CloudStorageEntry> entries = CloudStorageStore::load();
                   if (CloudStorageEntry *cur =
                           CloudStorageStore::findMutable(entries, id)) {
@@ -821,22 +854,26 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                   }
                   const QString folder = QFileDialog::getExistingDirectory(
                       this,
-                      QStringLiteral("%1 — Sync-Ordner wählen").arg(displayName),
+                      QStringLiteral("%1 — Sync-Ordner wählen (Drive for Desktop / App)")
+                          .arg(displayName),
                       start);
                   if (folder.isEmpty())
                     return;
-                  entries = CloudStorageStore::load();
-                  if (CloudStorageEntry *mut =
-                          CloudStorageStore::findMutable(entries, id)) {
-                    mut->path = folder;
-                    CloudStorageStore::save(entries);
-                    if (StoragePrefs::primaryCloudId().isEmpty())
-                      StoragePrefs::setPrimaryCloudId(id);
-                    name->setText(QStringLiteral("%1 · verknüpft").arg(displayName));
-                    btnLink->setText(QStringLiteral("Ändern…"));
-                    btnPrimary->setEnabled(true);
-                    emit storagePrefsChanged();
-                  }
+                  if (!StoragePrefs::connectProviderForNotes(id, folder))
+                    return;
+                  name->setText(QStringLiteral("%1 · verknüpft").arg(displayName));
+                  btnLink->setText(QStringLiteral("Ändern…"));
+                  btnPrimary->setEnabled(true);
+                  btnPrimary->setText(QStringLiteral("Primär"));
+                  const auto m = StoragePrefs::mode();
+                  btnLocal->setChecked(m == StoragePrefs::Mode::LocalOnly);
+                  btnCloud->setChecked(m == StoragePrefs::Mode::CloudOnly);
+                  btnBoth->setChecked(m == StoragePrefs::Mode::LocalAndCloud);
+                  hint->setText(StoragePrefs::modeHint(m));
+                  if (id == QLatin1String("googledrive"))
+                    btnConnectDrive->setText(
+                        QStringLiteral("Google Drive verbunden · Ordner ändern…"));
+                  emit storagePrefsChanged();
                 });
             hl->addWidget(btnLink);
             cloudLay->addWidget(row);
@@ -864,6 +901,34 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                          [applyMode]() { applyMode(StoragePrefs::Mode::CloudOnly); });
         QObject::connect(btnBoth, &QPushButton::clicked, this,
                          [applyMode]() { applyMode(StoragePrefs::Mode::LocalAndCloud); });
+
+        QObject::connect(
+            btnConnectDrive, &QPushButton::clicked, this,
+            [this, btnConnectDrive, btnLocal, btnCloud, btnBoth, hint]() {
+              QString start = StoragePrefs::bestSuggestedGoogleDriveRoot();
+              if (start.isEmpty())
+                start = QStandardPaths::writableLocation(
+                    QStandardPaths::HomeLocation);
+              const QString folder = QFileDialog::getExistingDirectory(
+                  this,
+                  QStringLiteral(
+                      "Google Drive — Ordner wählen\n"
+                      "(Google Drive for Desktop / Files sync auf dem Gerät)"),
+                  start);
+              if (folder.isEmpty())
+                return;
+              if (!StoragePrefs::connectProviderForNotes(
+                      QStringLiteral("googledrive"), folder))
+                return;
+              btnConnectDrive->setText(
+                  QStringLiteral("Google Drive verbunden · Ordner ändern…"));
+              const auto m = StoragePrefs::mode();
+              btnLocal->setChecked(m == StoragePrefs::Mode::LocalOnly);
+              btnCloud->setChecked(m == StoragePrefs::Mode::CloudOnly);
+              btnBoth->setChecked(m == StoragePrefs::Mode::LocalAndCloud);
+              hint->setText(StoragePrefs::modeHint(m));
+              emit storagePrefsChanged();
+            });
     }
     contentLay->addWidget(cardStorage);
 

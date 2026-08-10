@@ -7698,8 +7698,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     e.path = folder;
     entries.append(e);
     CloudStorageStore::save(entries);
-    if (StoragePrefs::primaryCloudId().isEmpty())
-      StoragePrefs::setPrimaryCloudId(e.id);
+    StoragePrefs::connectProviderForNotes(e.id, folder);
     // Insert before the trailing "Eigene Cloud hinzufügen…" row.
     int insertAt = m_navSidebar->count();
     for (int i = 0; i < m_navSidebar->count(); ++i) {
@@ -7732,21 +7731,28 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     const QString id = item->data(Qt::UserRole + 12).toString();
     QString path = item->data(Qt::UserRole + 10).toString();
     if (path.isEmpty() || !QDir(path).exists()) {
+      QString startDir = StoragePrefs::bestSuggestedGoogleDriveRoot();
+      if (startDir.isEmpty())
+        startDir = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
       path = QFileDialog::getExistingDirectory(
           this,
           QStringLiteral("%1 — Sync-Ordner wählen").arg(item->text()),
-          QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
+          startDir);
       if (path.isEmpty())
         return;
-      QVector<CloudStorageEntry> entries = CloudStorageStore::load();
-      if (CloudStorageEntry *e = CloudStorageStore::findMutable(entries, id)) {
-        e->path = path;
-        CloudStorageStore::save(entries);
-        if (StoragePrefs::primaryCloudId().isEmpty())
-          StoragePrefs::setPrimaryCloudId(id);
-      }
+      if (!StoragePrefs::connectProviderForNotes(id, path))
+        return;
       item->setData(Qt::UserRole + 10, path);
       item->setToolTip(path);
+      applyStoragePrefsToLibrary();
+      BlopDialogs::notify(
+          this, QStringLiteral("Cloud verbunden"),
+          QStringLiteral(
+              "%1 ist verknüpft.\n"
+              "Modus: Lokal + Cloud — Notizen werden gespiegelt.\n"
+              "Blop Study bleibt auf Supabase (Konto & Lernmaterial).")
+              .arg(item->text()));
+      return;
     }
     navigateLibraryToPath(path);
 #ifdef Q_OS_ANDROID
