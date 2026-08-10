@@ -67,7 +67,7 @@ private:
 
   ToolMode m_mode{ToolMode::Pen};
   ToolConfig m_config;
-  QColor m_accentColor{QColor("#7C5CFC")};
+  QColor m_accentColor{QColor(91, 157, 255)}; // NoteChrome::accent
 
   void setupButtons();
   void selectTool(ToolMode mode);

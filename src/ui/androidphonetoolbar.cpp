@@ -5,6 +5,7 @@
 #include "bloommenu.h"
 #include "blop_theme.h"
 #include "moderntoolbar.h"
+#include "notechrome.h"
 #include "blopstyle.h"
 #include "editoroverlays.h"
 #include "tools/ToolUIBridge.h"
@@ -205,7 +206,7 @@ protected:
 
 private:
   QString m_glyph{QStringLiteral("pen")};
-  QColor m_accent{QColor("#7C5CFC")};
+  QColor m_accent{NoteChrome::accent()};
   double m_appear{0.0};
 };
 
@@ -227,7 +228,7 @@ void AndroidPhoneToolbar::setupButtons() {
   btnBrush = new ToolbarBtn(QStringLiteral("brush_size"), this);
   btnOverflow = new ToolbarBtn(QStringLiteral("more"), this);
 
-  const int btnSize = UiScale::dp(32);
+  const int btnSize = UiScale::dp(40);
   for (auto *b : {btnPen, btnEraser, btnLasso, btnUndo, btnRedo, btnColor,
                   btnBrush, btnOverflow}) {
     b->setBtnSize(btnSize);
@@ -439,7 +440,7 @@ void AndroidPhoneToolbar::setAccentColor(const QColor &color) {
 }
 
 int AndroidPhoneToolbar::preferredHeightPx() const {
-  return UiScale::dp(44);
+  return UiScale::dp(52);
 }
 
 void AndroidPhoneToolbar::selectTool(ToolMode mode) {
@@ -561,12 +562,23 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   sheet->setObjectName(QStringLiteral("BlopPhoneBrushSheet"));
   sheet->setAttribute(Qt::WA_DeleteOnClose);
   sheet->setAttribute(Qt::WA_StyledBackground, true);
+  const QColor accent = m_accentColor.isValid() ? m_accentColor
+                                                : NoteChrome::accent();
+  const QString accentHex = accent.name(QColor::HexRgb);
+  const QString accentSoft = QStringLiteral("rgba(%1,%2,%3,0.42)")
+                                 .arg(accent.red())
+                                 .arg(accent.green())
+                                 .arg(accent.blue());
+  const QString accentFill = QStringLiteral("rgba(%1,%2,%3,0.6)")
+                                 .arg(accent.red())
+                                 .arg(accent.green())
+                                 .arg(accent.blue());
   sheet->setStyleSheet(BlopTheme::themed(
       QStringLiteral(
           "QFrame#BlopPhoneBrushSheet { background-color: rgba(28,30,46,0.96); "
-          "border: 1px solid rgba(124,92,252,0.42); border-radius: 14px; }"
-          "QLabel { color: #E8E4FF; %1 }")
-          .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge))));
+          "border: 1px solid %1; border-radius: 14px; }"
+          "QLabel { color: #E8E4FF; %2 }")
+          .arg(accentSoft, BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge))));
   backdrop->sheet = sheet;
 
   auto *layout = new QVBoxLayout(sheet);
@@ -584,13 +596,15 @@ void AndroidPhoneToolbar::showBrushSizeSheet() {
   auto *slider = new QSlider(Qt::Horizontal, sheet);
   slider->setRange(1, 30);
   slider->setValue(m_config.penWidth);
-  slider->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
-      "background: #121212; margin: 2px 0; border-radius: 3px; }"
-      "QSlider::handle:horizontal { background: #7C5CFC; border: 1px solid "
-      "#7C5CFC; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
-      "QSlider::sub-page:horizontal { background: rgba(124,92,252,0.6); "
-      "border-radius: 3px; }")));
+  slider->setStyleSheet(BlopTheme::themed(
+      QStringLiteral(
+          "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
+          "background: #121212; margin: 2px 0; border-radius: 3px; }"
+          "QSlider::handle:horizontal { background: %1; border: 1px solid "
+          "%1; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }"
+          "QSlider::sub-page:horizontal { background: %2; "
+          "border-radius: 3px; }")
+          .arg(accentHex, accentFill)));
 
   auto *row = new QHBoxLayout;
   row->addWidget(slider);
@@ -667,7 +681,7 @@ void AndroidPhoneToolbar::paintEvent(QPaintEvent *) {
 void AndroidPhoneToolbar::resizeEvent(QResizeEvent *) {
   // Reihenfolge: Pen Eraser Lasso | Undo Redo | Color Brush | Overflow
   // Buttons werden in 3 Gruppen + Overflow gerendert.
-  const int btnSize = UiScale::dp(32);
+  const int btnSize = UiScale::dp(40);
   const int gap = UiScale::dp(4);
   const int sepPad = UiScale::dp(6);
 

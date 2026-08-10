@@ -48,7 +48,7 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     btn->setCheckable(true);
     btn->setCursor(Qt::PointingHandCursor);
     const bool phone = UiScale::isAndroidPhoneUi(parentWidget());
-    btn->setFixedHeight(UiScale::dp(phone ? 32 : 28));
+    btn->setFixedHeight(UiScale::dp(phone ? 44 : 28));
     btn->setObjectName(QStringLiteral("libraryOrgChip"));
     m_viewGroup->addButton(btn, int(c.view));
     if (c.view == m_view)
