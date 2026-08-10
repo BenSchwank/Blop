@@ -6236,6 +6236,33 @@ void MainWindow::setupWebBrowser() {
             // Do NOT set isBlopNativeApp — that forced broken loopback OAuth.
             // Android still sets isBlopNativeApp via AndroidWebView.qml.
             window.isBlopDesktopApp = true;
+
+            // Even if Vercel still serves the old GIS-in-WebEngine login,
+            // replace the Google button with the bridge trigger so Chrome
+            // cannot swallow the OAuth popup with no return path.
+            try {
+              if (!window.__blopDesktopBridgeBtn) {
+                var gis = document.querySelector('.g_id_signin') ||
+                          document.getElementById('g_id_signin');
+                if (gis && gis.parentNode) {
+                  window.__blopDesktopBridgeBtn = true;
+                  gis.style.display = 'none';
+                  var onload = document.getElementById('g_id_onload');
+                  if (onload) onload.remove();
+                  var btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.textContent = 'Über Google anmelden';
+                  btn.style.cssText =
+                    'width:100%;padding:14px 16px;border-radius:10px;border:1px solid #ccc;' +
+                    'background:#fff;color:#222;font:600 15px/1.2 system-ui,sans-serif;cursor:pointer;';
+                  btn.onclick = function() {
+                    localStorage.setItem('trigger_google_login', '1');
+                  };
+                  gis.parentNode.insertBefore(btn, gis);
+                }
+              }
+            } catch (e) {}
+
             if (localStorage.getItem('trigger_google_login') === '1') {
                 localStorage.removeItem('trigger_google_login');
                 return 'TRIGGER_GOOGLE_LOGIN';
