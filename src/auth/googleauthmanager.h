@@ -4,12 +4,11 @@
 #include <QString>
 #include <QUrl>
 
-#ifndef Q_OS_ANDROID
-#include <QOAuth2AuthorizationCodeFlow>
-#include <QOAuthHttpServerReplyHandler>
-#endif
-
 class QNetworkAccessManager;
+#ifndef Q_OS_ANDROID
+class QTcpServer;
+class QTimer;
+#endif
 
 class GoogleAuthManager : public QObject {
     Q_OBJECT
@@ -23,6 +22,10 @@ public:
     /// Clear the in-progress PKCE lock so the next login() tap triggers a
     /// fresh flow. Called when the browser could not be opened, the user
     /// returned without a redirect, or MainWindow cancels the wait.
+    void cancelPendingLogin();
+    bool isLoginInProgress() const { return m_loginInProgress; }
+#else
+    /// Cancel an in-flight desktop bridge login (loopback server + timeout).
     void cancelPendingLogin();
     bool isLoginInProgress() const { return m_loginInProgress; }
 #endif
@@ -55,10 +58,11 @@ private:
     GoogleAuthManager(const GoogleAuthManager&) = delete;
     GoogleAuthManager& operator=(const GoogleAuthManager&) = delete;
 
+    void parseUserInfoFromIdToken(const QString &idToken);
+
 #ifdef Q_OS_ANDROID
     void startPkceLogin();
     void exchangeAuthorizationCode(const QString &code);
-    void parseUserInfoFromIdToken(const QString &idToken);
     static QString generateRandomString(int length);
     static QString base64UrlEncode(const QByteArray &data);
 
@@ -77,9 +81,20 @@ private:
     /// Serial for resume-grace timers so a late deep link wins over abandon.
     int m_authResumeGeneration{0};
 #else
-    void fetchUserInfo();
-    QOAuth2AuthorizationCodeFlow* m_oauth2{nullptr};
-    QOAuthHttpServerReplyHandler* m_replyHandler{nullptr};
+    /// Desktop: open system browser to blop-study.com GIS bridge (authorized
+    /// Web client origin), then receive the id_token on a localhost callback.
+    /// Avoids Google's policy block on Web-client + loopback OAuth.
+    void startDesktopBridgeLogin();
+    void onLoopbackConnection();
+    void finishDesktopBridge(const QString &idToken, const QString &error);
+    void stopLoopbackServer();
+    static QString generateRandomString(int length);
+
+    QTcpServer *m_loopbackServer{nullptr};
+    QTimer *m_bridgeTimeout{nullptr};
+    QString m_bridgeState;
+    bool m_loginInProgress{false};
+    qint64 m_loginInProgressSinceMs{0};
 #endif
 
     QString m_email;

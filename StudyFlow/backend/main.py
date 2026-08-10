@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request, Form
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File, BackgroundTasks, Request, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional, Tuple
 import uvicorn
@@ -813,6 +813,106 @@ def logout(session_id: str = Body(..., embed=True)):
     AuthManager.logout_session(session_id)
     return {"message": "Logged out successfully"}
 
+@app.get("/api/auth/google/desktop/bridge")
+def google_desktop_bridge(port: int = Query(..., ge=1024, le=65535),
+                          state: str = Query(..., min_length=8, max_length=128)):
+    """
+    Desktop Google login bridge (GIS on authorized web origin).
+
+    The Qt desktop app opens this page in the system browser, then receives the
+    Google ID token on http://127.0.0.1:{port}/?credential=...&state=...
+
+    This avoids Google's OAuth policy block on Web-client + loopback redirects
+    (Error 400 invalid_request / "doesn't comply with OAuth 2.0 policy").
+    """
+    import html
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", state or ""):
+        raise HTTPException(status_code=400, detail="Ungültiger state-Parameter")
+
+    client_id = (
+        (os.environ.get("NEXT_PUBLIC_GOOGLE_CLIENT_ID") or "").strip().strip('"').strip("'")
+        or (os.environ.get("GOOGLE_CLIENT_ID") or "").strip().strip('"').strip("'")
+        or "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com"
+    )
+    if "BITTE_WEB_CLIENT_ID" in client_id:
+        client_id = "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com"
+
+    safe_client = html.escape(client_id, quote=True)
+    callback = f"http://127.0.0.1:{int(port)}/callback"
+    js_callback = json.dumps(callback)
+    js_state = json.dumps(state)
+
+    page = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Blop — Google Anmeldung</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    :root {{ color-scheme: dark; }}
+    body {{
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: Inter, Segoe UI, system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1a2240 0%, #0f1115 55%, #0a0b0f 100%);
+      color: #e8e4ff;
+    }}
+    .card {{
+      width: min(420px, 92vw); padding: 28px 24px 22px; border-radius: 18px;
+      background: rgba(28, 30, 40, 0.92); border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.45); text-align: center;
+    }}
+    h1 {{ margin: 0 0 8px; font-size: 22px; letter-spacing: -0.02em; }}
+    p {{ margin: 0 0 20px; color: #a8aec2; font-size: 14px; line-height: 1.45; }}
+    #g_id_signin {{ display: flex; justify-content: center; }}
+    .err {{ display:none; margin-top: 14px; color: #ff8f8f; font-size: 13px; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Mit Google anmelden</h1>
+    <p>Melde dich für Blop an. Danach kehrst du automatisch zur App zurück.</p>
+    <div id="g_id_onload"
+         data-client_id="{safe_client}"
+         data-context="signin"
+         data-ux_mode="popup"
+         data-callback="blopDesktopGoogleCb"
+         data-auto_prompt="false">
+    </div>
+    <div class="g_id_signin" id="g_id_signin"
+         data-type="standard"
+         data-shape="rectangular"
+         data-theme="outline"
+         data-text="signin_with"
+         data-size="large"
+         data-logo_alignment="center">
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+  <script>
+    const CALLBACK = {js_callback};
+    const STATE = {js_state};
+    function blopDesktopGoogleCb(response) {{
+      try {{
+        const cred = (response && response.credential) ? String(response.credential) : "";
+        if (!cred) throw new Error("Kein Google-Token erhalten");
+        const url = CALLBACK + "?credential=" + encodeURIComponent(cred)
+                  + "&state=" + encodeURIComponent(STATE);
+        window.location.replace(url);
+      }} catch (e) {{
+        const el = document.getElementById("err");
+        el.style.display = "block";
+        el.textContent = (e && e.message) ? e.message : "Google-Anmeldung fehlgeschlagen";
+      }}
+    }}
+    window.blopDesktopGoogleCb = blopDesktopGoogleCb;
+  </script>
+</body>
+</html>"""
+    return HTMLResponse(content=page)
+
+
 @app.post("/api/auth/google/verify")
 def verify_google_oauth(req: GoogleVerifyRequest):
     try:
@@ -870,7 +970,8 @@ def verify_google_oauth(req: GoogleVerifyRequest):
             # even when Render only has the Web client ID configured.
             defaults = [
                 "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com",  # Android
-                "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com",  # Desktop
+                "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com",  # Desktop (legacy)
+                "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com",  # Web / GIS
             ]
             for raw in (
                 req.client_id,

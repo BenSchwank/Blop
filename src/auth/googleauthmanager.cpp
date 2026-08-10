@@ -1,7 +1,6 @@
 #include "googleauthmanager.h"
 
 #include <QDebug>
-#include <QDesktopServices>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -21,6 +20,13 @@
 #include <QtCore/qnativeinterface.h>
 #include <QJniEnvironment>
 #include <QJniObject>
+#else
+#include <QDateTime>
+#include <QHostAddress>
+#include <QRandomGenerator>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTimer>
 #endif
 
 namespace {
@@ -122,6 +128,10 @@ Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthAbandoned(
   }
   GoogleAuthManager::instance().handleExternalAuthAbandoned(s);
 }
+#else
+// Production GIS / web client used on www.blop-study.com (authorized JS origin).
+constexpr const char *kDesktopBridgeUrl =
+    "https://www.blop-study.com/api/auth/google/desktop/bridge";
 #endif // Q_OS_ANDROID
 } // namespace
 
@@ -132,10 +142,6 @@ GoogleAuthManager &GoogleAuthManager::instance() {
 
 GoogleAuthManager::GoogleAuthManager(QObject *parent)
     : QObject(parent)
-#ifndef Q_OS_ANDROID
-      ,
-      m_oauth2(new QOAuth2AuthorizationCodeFlow(this))
-#endif
 {
 #ifdef Q_OS_ANDROID
   m_networkManager = new QNetworkAccessManager(this);
@@ -180,46 +186,16 @@ GoogleAuthManager::GoogleAuthManager(QObject *parent)
     }
   }
 #else
-  // Desktop: keep loopback flow.
-  m_replyHandler = new QOAuthHttpServerReplyHandler(8080, this);
-  m_oauth2->setReplyHandler(m_replyHandler);
-  m_oauth2->setAuthorizationUrl(
-      QUrl("https://accounts.google.com/o/oauth2/auth"));
-  m_oauth2->setAccessTokenUrl(QUrl("https://oauth2.googleapis.com/token"));
-  m_oauth2->setClientIdentifier(
-      "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com");
-  m_oauth2->setClientIdentifierSharedKey(
-      "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");
-  m_oauth2->setScope("openid email profile");
-
-  connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::authorizeWithBrowser, this,
-          &GoogleAuthManager::requireBrowser);
-
-  connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::error, this,
-          [this](const QString &error, const QString &description,
-                 const QUrl &url) {
-            qWarning() << "Google OAuth Error:" << error << description << url;
-            emit authenticationFailed("OAuth Error: " + error + " - " +
-                                      description);
-          });
-
-  connect(m_oauth2, &QOAuth2AuthorizationCodeFlow::granted, this, [this]() {
-    qDebug() << "Google OAuth granted successfully!";
-    m_authenticated = true;
-    // Prefer id_token (JWT) when Qt exposes it; fall back to access token.
-    QString token;
-    const auto extras = m_oauth2->extraTokens();
-    if (extras.contains(QStringLiteral("id_token")))
-      token = extras.value(QStringLiteral("id_token")).toString();
-    if (token.isEmpty())
-      token = m_oauth2->token();
-    if (token.isEmpty())
-      emit authenticationFailed(
-          "Google hat kein gültiges Access-Token gesendet!");
-    else
-      emit idTokenReceived(token);
-    emit authenticated();
-    fetchUserInfo();
+  m_loopbackServer = new QTcpServer(this);
+  connect(m_loopbackServer, &QTcpServer::newConnection, this,
+          &GoogleAuthManager::onLoopbackConnection);
+  m_bridgeTimeout = new QTimer(this);
+  m_bridgeTimeout->setSingleShot(true);
+  connect(m_bridgeTimeout, &QTimer::timeout, this, [this]() {
+    if (!m_loginInProgress)
+      return;
+    qWarning() << "GoogleAuthManager: desktop bridge timed out";
+    finishDesktopBridge(QString(), QStringLiteral("oauth_bridge_timeout"));
   });
 #endif
 }
@@ -228,8 +204,30 @@ void GoogleAuthManager::login() {
 #ifdef Q_OS_ANDROID
   startPkceLogin();
 #else
-  m_oauth2->grant();
+  startDesktopBridgeLogin();
 #endif
+}
+
+void GoogleAuthManager::parseUserInfoFromIdToken(const QString &idToken) {
+  // Google id_token is a JWT (header.payload.signature). Decode the payload
+  // best-effort to populate display info; signature verification happens on the
+  // backend in /api/auth/google/verify.
+  const QStringList parts = idToken.split('.');
+  if (parts.size() < 2)
+    return;
+  QByteArray payload = QByteArray::fromBase64(
+      parts.at(1).toUtf8(), QByteArray::Base64UrlEncoding);
+  if (payload.isEmpty())
+    return;
+  const QJsonDocument doc = QJsonDocument::fromJson(payload);
+  if (!doc.isObject())
+    return;
+  const QJsonObject obj = doc.object();
+  m_email = obj.value("email").toString();
+  m_name = obj.value("name").toString(m_email);
+  m_pictureUrl = obj.value("picture").toString();
+  if (!m_email.isEmpty())
+    emit userInfoUpdated();
 }
 
 #ifdef Q_OS_ANDROID
@@ -246,9 +244,7 @@ void GoogleAuthManager::cancelPendingLogin() {
   QJniObject::callStaticMethod<void>(
       "com/benschwank/blop/BlopOAuthBridge", "clearExternalAuthPending", "()V");
 }
-#endif
 
-#ifdef Q_OS_ANDROID
 QString GoogleAuthManager::generateRandomString(int length) {
   static const char alphabet[] =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
@@ -478,49 +474,157 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     emit authenticated();
   });
 }
-
-void GoogleAuthManager::parseUserInfoFromIdToken(const QString &idToken) {
-  // Google id_token is a JWT (header.payload.signature). Decode the payload
-  // best-effort to populate display info; signature verification happens on the
-  // backend in /api/auth/google/verify.
-  const QStringList parts = idToken.split('.');
-  if (parts.size() < 2)
-    return;
-  QByteArray payload = QByteArray::fromBase64(
-      parts.at(1).toUtf8(), QByteArray::Base64UrlEncoding);
-  if (payload.isEmpty())
-    return;
-  const QJsonDocument doc = QJsonDocument::fromJson(payload);
-  if (!doc.isObject())
-    return;
-  const QJsonObject obj = doc.object();
-  m_email = obj.value("email").toString();
-  m_name = obj.value("name").toString(m_email);
-  m_pictureUrl = obj.value("picture").toString();
-  if (!m_email.isEmpty())
-    emit userInfoUpdated();
+#else // Desktop
+QString GoogleAuthManager::generateRandomString(int length) {
+  static const char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  QString out;
+  out.reserve(length);
+  for (int i = 0; i < length; ++i) {
+    const quint32 idx =
+        QRandomGenerator::system()->bounded(quint32(sizeof(alphabet) - 1));
+    out.append(QChar::fromLatin1(alphabet[idx]));
+  }
+  return out;
 }
-#else // Desktop only
-void GoogleAuthManager::fetchUserInfo() {
-  QUrl userInfoUrl("https://www.googleapis.com/oauth2/v2/userinfo");
-  QNetworkReply *reply = m_oauth2->get(userInfoUrl);
 
-  connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-    if (reply->error() == QNetworkReply::NoError) {
-      QByteArray data = reply->readAll();
-      QJsonDocument doc = QJsonDocument::fromJson(data);
-      if (!doc.isNull() && doc.isObject()) {
-        QJsonObject obj = doc.object();
-        m_email = obj.value("email").toString();
-        m_name = obj.value("name").toString();
-        m_pictureUrl = obj.value("picture").toString();
-        emit userInfoUpdated();
-      }
+void GoogleAuthManager::cancelPendingLogin() {
+  if (!m_loginInProgress && !m_loopbackServer->isListening())
+    return;
+  qInfo() << "GoogleAuthManager: cancelling desktop bridge login";
+  stopLoopbackServer();
+  m_loginInProgress = false;
+  m_loginInProgressSinceMs = 0;
+  m_bridgeState.clear();
+}
+
+void GoogleAuthManager::stopLoopbackServer() {
+  if (m_bridgeTimeout)
+    m_bridgeTimeout->stop();
+  if (m_loopbackServer && m_loopbackServer->isListening())
+    m_loopbackServer->close();
+}
+
+void GoogleAuthManager::startDesktopBridgeLogin() {
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+  if (m_loginInProgress) {
+    const qint64 ageMs = nowMs - m_loginInProgressSinceMs;
+    if (ageMs > 10 * 60 * 1000) {
+      qInfo() << "GoogleAuthManager: stale desktop bridge lock — restarting";
+      cancelPendingLogin();
     } else {
-      qWarning() << "Failed to fetch user info:" << reply->errorString();
-      emit authenticationFailed(reply->errorString());
+      qInfo() << "GoogleAuthManager: desktop bridge already in progress";
+      return;
     }
-    reply->deleteLater();
-  });
+  }
+
+  m_bridgeState = generateRandomString(32);
+  stopLoopbackServer();
+  if (!m_loopbackServer->listen(QHostAddress::LocalHost, 0)) {
+    qWarning() << "GoogleAuthManager: failed to bind loopback server"
+               << m_loopbackServer->errorString();
+    emit authenticationFailed(QStringLiteral("oauth_loopback_bind_failed"));
+    return;
+  }
+
+  m_loginInProgress = true;
+  m_loginInProgressSinceMs = nowMs;
+  m_bridgeTimeout->start(5 * 60 * 1000);
+
+  const quint16 port = m_loopbackServer->serverPort();
+  QUrl url(QString::fromLatin1(kDesktopBridgeUrl));
+  QUrlQuery q;
+  q.addQueryItem(QStringLiteral("port"), QString::number(port));
+  q.addQueryItem(QStringLiteral("state"), m_bridgeState);
+  url.setQuery(q);
+
+  qInfo() << "GoogleAuthManager: opening desktop GIS bridge"
+          << "port=" << port << "url=" << url.toString();
+  emit requireBrowser(url);
+}
+
+void GoogleAuthManager::onLoopbackConnection() {
+  while (m_loopbackServer && m_loopbackServer->hasPendingConnections()) {
+    QTcpSocket *sock = m_loopbackServer->nextPendingConnection();
+    if (!sock)
+      continue;
+    connect(sock, &QTcpSocket::readyRead, this, [this, sock]() {
+      const QByteArray raw = sock->readAll();
+      // Minimal HTTP request parse: first line "GET /path?query HTTP/1.1"
+      const int lineEnd = raw.indexOf("\r\n");
+      const QByteArray reqLine =
+          lineEnd > 0 ? raw.left(lineEnd) : raw.left(raw.indexOf('\n'));
+      const QList<QByteArray> parts = reqLine.split(' ');
+      QString pathAndQuery =
+          parts.size() >= 2 ? QString::fromUtf8(parts.at(1)) : QString();
+
+      QUrl callbackUrl(QStringLiteral("http://127.0.0.1") + pathAndQuery);
+      QUrlQuery q(callbackUrl);
+      const QString state = q.queryItemValue(QStringLiteral("state"));
+      const QString credential = q.queryItemValue(QStringLiteral("credential"));
+      const QString error = q.queryItemValue(QStringLiteral("error"));
+
+      const QByteArray body =
+          "<!doctype html><html><head><meta charset=utf-8>"
+          "<title>Blop</title></head><body style=\"font-family:sans-serif;"
+          "background:#0F1115;color:#E8E4FF;display:flex;align-items:center;"
+          "justify-content:center;height:100vh;margin:0\">"
+          "<div style=\"text-align:center\"><h2>Anmeldung abgeschlossen</h2>"
+          "<p>Du kannst dieses Fenster schließen und zu Blop zurückkehren.</p>"
+          "</div></body></html>";
+      const QByteArray resp =
+          "HTTP/1.1 200 OK\r\n"
+          "Content-Type: text/html; charset=utf-8\r\n"
+          "Content-Length: " +
+          QByteArray::number(body.size()) +
+          "\r\n"
+          "Connection: close\r\n"
+          "\r\n" +
+          body;
+      sock->write(resp);
+      sock->disconnectFromHost();
+      sock->deleteLater();
+
+      if (!m_loginInProgress)
+        return;
+
+      if (!error.isEmpty()) {
+        finishDesktopBridge(QString(), QStringLiteral("oauth_error:") + error);
+        return;
+      }
+      if (state.isEmpty() || state != m_bridgeState) {
+        finishDesktopBridge(QString(), QStringLiteral("oauth_state_mismatch"));
+        return;
+      }
+      if (credential.isEmpty()) {
+        finishDesktopBridge(QString(), QStringLiteral("oauth_missing_credential"));
+        return;
+      }
+      finishDesktopBridge(credential, QString());
+    });
+    connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+  }
+}
+
+void GoogleAuthManager::finishDesktopBridge(const QString &idToken,
+                                            const QString &error) {
+  stopLoopbackServer();
+  m_loginInProgress = false;
+  m_loginInProgressSinceMs = 0;
+  m_bridgeState.clear();
+
+  if (!error.isEmpty() || idToken.isEmpty()) {
+    qWarning() << "GoogleAuthManager: desktop bridge failed:" << error;
+    emit authenticationFailed(error.isEmpty()
+                                  ? QStringLiteral("oauth_bridge_failed")
+                                  : error);
+    return;
+  }
+
+  qInfo() << "GoogleAuthManager: desktop bridge received id_token";
+  parseUserInfoFromIdToken(idToken);
+  m_authenticated = true;
+  emit idTokenReceived(idToken);
+  emit authenticated();
 }
 #endif

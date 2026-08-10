@@ -110,6 +110,8 @@ export default function LoginPage() {
                     message = 'Server vorübergehend nicht erreichbar. Bitte später erneut versuchen.';
                 } else if (/network|failed to fetch|load failed/i.test(message)) {
                     message = 'Netzwerkfehler — bitte Verbindung prüfen und erneut versuchen.';
+                } else if (/datenbank nicht erreichen|supabase|dns/i.test(message)) {
+                    message = 'Anmelde-Server: Datenbank nicht erreichbar. Bitte SUPABASE_URL auf Render prüfen (Projekt evtl. gelöscht/pausiert).';
                 }
                 throw new Error(message);
             }

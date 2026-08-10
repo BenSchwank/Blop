@@ -1609,8 +1609,10 @@ MainWindow::MainWindow(QWidget *parent)
         body["client_id"] = QStringLiteral(
             "571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s.apps.googleusercontent.com");
 #else
+        // Desktop bridge uses the production GIS / web client (not the legacy
+        // loopback OAuth client that Google rejects with invalid_request).
         body["client_id"] = QStringLiteral(
-            "571766217-omvcb33l9m0kr1bjk9ecdik6gcljpkf6.apps.googleusercontent.com");
+            "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com");
 #endif
         QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
@@ -3616,16 +3618,15 @@ void MainWindow::applyTheme() {
 
   if (m_titleBarWidget) {
     // Keep overview purple chrome; while editing, NoteChrome owns the shell.
+    // Auth/login always forces dark Study chrome via refreshNoteTitleChrome.
     bool editorChrome = false;
 #ifndef Q_OS_ANDROID
     if (m_documentTabBar && m_documentTabBar->noteChromeMode())
       editorChrome = true;
+    refreshNoteTitleChrome(editorChrome);
+#else
+    Q_UNUSED(editorChrome);
 #endif
-    if (editorChrome)
-      refreshNoteTitleChrome(true);
-    else
-      m_titleBarWidget->setStyleSheet(BlopTheme::themed(
-          "background-color: #0B0912; border-bottom: 1px solid rgba(120,130,160,0.12);"));
   }
 
   // Overview: redesigned library chrome (v3.22.1).
@@ -6116,6 +6117,56 @@ void MainWindow::setupWebBrowser() {
   // loadFinished, so we must poll localStorage to detect login state changes.
   m_studySsoTimer = new QTimer(m_studyContainer);
   m_studySsoTimer->setInterval(1000);
+  // One-shot: surface backend DB outage on the login WebView so email/Google
+  // failures are not mysterious (production SUPABASE_URL currently NXDOMAIN).
+  QTimer::singleShot(1800, this, [view]() {
+    if (!view || !view->page())
+      return;
+    QNetworkAccessManager *nam = new QNetworkAccessManager(view);
+    QNetworkRequest req(QUrl(QStringLiteral("https://www.blop-study.com/api/health/db")));
+    QNetworkReply *reply = nam->get(req);
+    QObject::connect(reply, &QNetworkReply::finished, view, [view, reply, nam]() {
+      const QByteArray raw = reply->readAll();
+      reply->deleteLater();
+      nam->deleteLater();
+      const QJsonDocument doc = QJsonDocument::fromJson(raw);
+      if (!doc.isObject())
+        return;
+      const QJsonObject obj = doc.object();
+      if (obj.value(QStringLiteral("ok")).toBool(false))
+        return;
+      const QString host = obj.value(QStringLiteral("host")).toString();
+      const QString msg =
+          QStringLiteral(
+              "Anmeldung derzeit nicht möglich: Datenbank-Host nicht erreichbar"
+              "%1. Bitte SUPABASE_URL auf Render prüfen.")
+              .arg(host.isEmpty() ? QString()
+                                  : QStringLiteral(" (%1)").arg(host));
+      const QString escaped =
+          QString::fromUtf8(QJsonDocument(QJsonArray{msg}).toJson(
+                                QJsonDocument::Compact));
+      // escaped is like ["msg"] — take the quoted string only.
+      const QString jsLiteral =
+          escaped.startsWith('[') && escaped.endsWith(']')
+              ? escaped.mid(1, escaped.size() - 2)
+              : QStringLiteral("\"\"");
+      const QString js = QStringLiteral(
+          "(function(){"
+          "if (document.getElementById('blop-db-banner')) return;"
+          "var b=document.createElement('div');"
+          "b.id='blop-db-banner';"
+          "b.style.cssText='position:fixed;top:12px;left:50%;transform:translateX(-50%);"
+          "z-index:99999;max-width:min(520px,92vw);padding:12px 16px;border-radius:12px;"
+          "background:#3b1111;color:#ffc9c9;border:1px solid rgba(255,120,120,.35);"
+          "font:600 13px/1.35 system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.45);"
+          "text-align:center';"
+          "b.textContent=%1;"
+          "document.body.appendChild(b);"
+          "})();")
+                             .arg(jsLiteral);
+      view->page()->runJavaScript(js);
+    });
+  });
   connect(m_studySsoTimer, &QTimer::timeout, this, [this, view]() {
     if (!m_webViewStack || m_webViewStack->currentWidget() != view)
       return;
@@ -6888,6 +6939,15 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_isSidebarOpen)
       onToggleSidebar();
   }
+
+#ifndef Q_OS_ANDROID
+  {
+    bool editorChrome = false;
+    if (m_documentTabBar && m_documentTabBar->noteChromeMode())
+      editorChrome = true;
+    refreshNoteTitleChrome(editorChrome);
+  }
+#endif
   
   // Re-sync sidebar strip/full sidebar visibility after mode switch
   updateSidebarState();
@@ -11722,23 +11782,35 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   const QString hoverPurple =
       QStringLiteral("background: rgba(124,92,252,0.18);");
 
+  // Guest/login Study surface is always dark. Never paint the light BlopTheme
+  // title bar (white strip + invisible window controls) over it.
+  const bool authChrome = m_authNavigationLocked;
+  const bool darkChrome = authChrome || noteChrome || BlopTheme::instance().isDark();
+  const QColor titleBg =
+      authChrome ? QColor(QStringLiteral("#0F1115"))
+                 : (noteChrome ? NoteChrome::toolbarFill()
+                               : BlopTheme::surfaceBackground());
+  const QColor brandFg =
+      authChrome ? QColor(QStringLiteral("#F3F4F6"))
+                 : (noteChrome ? NoteChrome::textPrimary()
+                               : BlopTheme::textPrimary());
+  const QColor winFg =
+      darkChrome ? QColor(QStringLiteral("#C8CDDC"))
+                 : BlopTheme::textSecondary();
+  const QColor winFgHover =
+      darkChrome ? QColor(QStringLiteral("#F3F4F6"))
+                 : BlopTheme::textPrimary();
+
   if (m_titleBarWidget) {
-    if (noteChrome) {
-      // Seamless with window — no light separator fringe at the top edge.
-      m_titleBarWidget->setStyleSheet(QStringLiteral(
-          "background: %1; border: none;")
-                                          .arg(NoteChrome::toolbarFill().name(
-                                              QColor::HexRgb)));
-    } else {
-      m_titleBarWidget->setStyleSheet(QStringLiteral(
-          "background: %1; border: none;")
-                                          .arg(BlopTheme::surfaceBackground().name(
-                                              QColor::HexRgb)));
-    }
+    m_titleBarWidget->setStyleSheet(
+        QStringLiteral("background: %1; border: none;")
+            .arg(titleBg.name(QColor::HexRgb)));
   }
 
   if (btnEditorMenu) {
-    if (noteChrome) {
+    if (authChrome) {
+      btnEditorMenu->hide();
+    } else if (noteChrome) {
       btnEditorMenu->setIcon(
           createModernIcon(QStringLiteral("menu"), NoteChrome::textSecondary()));
       btnEditorMenu->setStyleSheet(QStringLiteral(
@@ -11757,18 +11829,14 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_lblBrand) {
     m_lblBrand->setStyleSheet(
-        noteChrome
-            ? QStringLiteral(
-                  "color: %1; font-size: 17px; font-weight: 800;"
-                  "letter-spacing: 0.4px; background: transparent; border: none;")
-                  .arg(NoteChrome::textPrimary().name(QColor::HexRgb))
-            : QStringLiteral(
-                  "color: %1; font-size: 17px; font-weight: 800;"
-                  "letter-spacing: 0.4px; background: transparent; border: none;")
-                  .arg(BlopTheme::textPrimary().name(QColor::HexRgb)));
+        QStringLiteral(
+            "color: %1; font-size: 17px; font-weight: 800;"
+            "letter-spacing: 0.4px; background: transparent; border: none;")
+            .arg(brandFg.name(QColor::HexRgb)));
   }
 
   if (m_titleBarSep) {
+    m_titleBarSep->setVisible(!authChrome);
     m_titleBarSep->setStyleSheet(
         noteChrome
             ? QStringLiteral("background: %1; border: none;")
@@ -11947,40 +12015,24 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   auto styleWinBtn = [&](QPushButton *btn, bool isClose) {
     if (!btn)
       return;
-    if (noteChrome) {
-      const QString fg = NoteChrome::textSecondary().name(QColor::HexRgb);
-      const QString fgHover = NoteChrome::textPrimary().name(QColor::HexRgb);
-      btn->setStyleSheet(
-          isClose
-              ? QStringLiteral(
-                    "QPushButton { background: transparent; border: none;"
-                    "  color: %1; font-size: 14px; font-weight: 400; }"
-                    "QPushButton:hover { background: #E81123; color: white; }")
-                    .arg(fg)
-              : QStringLiteral(
-                    "QPushButton { background: transparent; border: none;"
-                    "  color: %1; font-size: 14px; font-weight: 400; }"
-                    "QPushButton:hover { %2 color: %3; }")
-                    .arg(fg, hoverGray, fgHover));
-    } else {
-      const QString fg = BlopTheme::textSecondary().name(QColor::HexRgb);
-      const QString fgHover = BlopTheme::textPrimary().name(QColor::HexRgb);
-      const QString hover =
-          QStringLiteral("background: %1;")
-              .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb));
-      btn->setStyleSheet(
-          isClose
-              ? QStringLiteral(
-                    "QPushButton { background: transparent; border: none;"
-                    "  color: %1; font-size: 14px; font-weight: 400; }"
-                    "QPushButton:hover { background: #E81123; color: white; }")
-                    .arg(fg)
-              : QStringLiteral(
-                    "QPushButton { background: transparent; border: none;"
-                    "  color: %1; font-size: 14px; font-weight: 400; }"
-                    "QPushButton:hover { %2 color: %3; }")
-                    .arg(fg, hover, fgHover));
-    }
+    const QString fg = winFg.name(QColor::HexRgb);
+    const QString fgHover = winFgHover.name(QColor::HexRgb);
+    const QString hover =
+        darkChrome ? hoverGray
+                   : QStringLiteral("background: %1;")
+                         .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb));
+    btn->setStyleSheet(
+        isClose
+            ? QStringLiteral(
+                  "QPushButton { background: transparent; border: none;"
+                  "  color: %1; font-size: 14px; font-weight: 400; }"
+                  "QPushButton:hover { background: #E81123; color: white; }")
+                  .arg(fg)
+            : QStringLiteral(
+                  "QPushButton { background: transparent; border: none;"
+                  "  color: %1; font-size: 14px; font-weight: 400; }"
+                  "QPushButton:hover { %2 color: %3; }")
+                  .arg(fg, hover, fgHover));
   };
   styleWinBtn(m_btnWinMin, false);
   styleWinBtn(m_btnWinMax, false);
