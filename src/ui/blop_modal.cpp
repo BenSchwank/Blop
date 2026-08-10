@@ -17,6 +17,8 @@
 #include <QPropertyAnimation>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QSizePolicy>
+#include <QLayout>
 #include <QShowEvent>
 #include <QTimer>
 #include <QTouchEvent>
@@ -266,11 +268,26 @@ void BlopModal::layoutContent() {
     const int sheetW = W;
     m_card->setGeometry(0, H - sheetH, sheetW, sheetH);
   } else if (m_mode == Mode::SideSheet) {
-    const int preferred =
-        m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(480);
-    const int sheetW = qBound(UiScale::dp(360), preferred,
-                              qMin(W - pad, UiScale::dp(760)));
+    // Desktop/tablet preference panel: width follows preferredCardWidth but
+    // may grow with the window. Never cap at a phone-like 760dp — that made
+    // Settings look like a skinny centered handset card on large monitors.
+    int preferred =
+        m_preferredCardWidth > 0 ? m_preferredCardWidth : int(W * 0.58);
+    if (preferred < UiScale::dp(420))
+      preferred = UiScale::dp(420);
+    const int peek = UiScale::dp(48); // strip of underlying UI stays visible
+    const int maxW = qMax(UiScale::dp(360), W - peek);
+    const int sheetW = qBound(UiScale::dp(360), preferred, maxW);
     m_card->setGeometry(W - sheetW, 0, sheetW, H);
+    if (m_content) {
+      m_content->setMinimumSize(0, 0);
+      m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+      m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+      if (auto *lay = m_content->layout()) {
+        lay->setSizeConstraint(QLayout::SetNoConstraint);
+        lay->activate();
+      }
+    }
   } else {
     // Compact centered card. Measure height *after* giving content a real
     // width — word-wrapped QLabels otherwise report a skyscraper sizeHint

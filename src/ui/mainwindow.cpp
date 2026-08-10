@@ -9391,10 +9391,21 @@ void MainWindow::setPageSettingsOverlayVisible(bool show) {
     m_pageSettingsCard->setStyleSheet(
         QStringLiteral("QWidget#PageSettingsCard { background: transparent; }"));
     m_pageSettingsCard->show();
+#ifndef Q_OS_ANDROID
+    // Desktop: side panel (not a narrow centered phone card).
+    m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
+                                             BlopModal::Mode::SideSheet);
+    if (m_pageSettingsModal) {
+      const int winW = qMax(width(), 800);
+      const int panelW =
+          qBound(560, int(winW * 0.42), qMin(760, winW - 56));
+      m_pageSettingsModal->setPreferredCardWidth(panelW);
+#else
     m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
                                              BlopModal::Mode::Auto);
     if (m_pageSettingsModal) {
-      m_pageSettingsModal->setPreferredCardWidth(520);
+      m_pageSettingsModal->setPreferredCardWidth(UiScale::dp(360));
+#endif
       connect(m_pageSettingsModal, &BlopModal::dismissed, this, [this]() {
         if (m_pageSettingsCard && m_pageSettingsOverlay) {
           // Re-parent the card back to its original home so the next show
@@ -10887,12 +10898,17 @@ void MainWindow::onOpenSettings() {
 #endif
   });
 
-  // Desktop/Windows: full-height side sheet so Settings is not stuck in a
-  // tiny centered card. Preferred width ~640dp scales with the window.
-  // Android phones keep the default BottomSheet via Mode::Auto.
+  // Desktop: wide right-hand preference panel (~2/3 of the window), not a
+  // phone-sized centered card. Android keeps BottomSheet via Mode::Auto.
 #ifndef Q_OS_ANDROID
+  const int winW = qMax(width(), 800);
+  const int settingsW =
+      qBound(820, int(winW * 0.68), qMax(820, winW - 56));
+  dlg.setMinimumSize(qMin(760, settingsW - 32), 560);
+  dlg.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  dlg.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::SideSheet,
-                                    UiScale::dp(640));
+                                    settingsW);
 #else
   int res = BlopModal::execBlocking(this, &dlg);
 #endif

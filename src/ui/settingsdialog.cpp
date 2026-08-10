@@ -14,6 +14,7 @@
 #include <QEasingCurve>
 #include <QFileDialog>
 #include <QFrame>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -29,6 +30,7 @@
 #include <QScrollArea>
 #include <QScroller>
 #include <QShowEvent>
+#include <QSizePolicy>
 #include <QStandardPaths>
 #include <QToolButton>
 #include <QUrl>
@@ -285,10 +287,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground);
     setObjectName(QStringLiteral("SettingsDialog"));
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("SettingsDialog")));
-    // Prefer a roomy panel on desktop; BlopModal SideSheet further sizes it
-    // to ~640dp / full window height so it is not stuck in a tiny card.
-    setMinimumSize(480, 520);
-    resize(720, 860);
+    // Prefer a roomy panel on desktop; BlopModal SideSheet sizes it to
+    // ~2/3 of the main window so it never looks like a phone card.
+    setMinimumSize(640, 560);
+    resize(920, 860);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // Replace the Designer-generated tab with our overhauled layout. The
     // old QFormLayout dump is replaced by a Hero card + 4 section cards.
@@ -387,6 +390,16 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     scroll->setWidget(contentWidget);
     root->addWidget(scroll, 1);
 
+    auto *cardsHost = new QWidget(contentWidget);
+    cardsHost->setObjectName(QStringLiteral("SettingsCardsHost"));
+    cardsHost->setStyleSheet(QStringLiteral("background: transparent;"));
+    auto *cardsGrid = new QGridLayout(cardsHost);
+    cardsGrid->setContentsMargins(0, 0, 0, 0);
+    cardsGrid->setHorizontalSpacing(14);
+    cardsGrid->setVerticalSpacing(14);
+    cardsGrid->setColumnStretch(0, 1);
+    cardsGrid->setColumnStretch(1, 1);
+
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
         QStringLiteral("Konto"),
@@ -424,7 +437,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         BlopRipple::attachPressFeedback(btnLogout, 0.92);
         cardKonto->addBodyWidget(btnLogout);
     }
-    contentLay->addWidget(cardKonto);
 
     // ----- Card: Darstellung (Light/Dark Mode) --------------------------
     // v3.17.0: new theme switcher backed by BlopTheme. Lets the user pick
@@ -570,7 +582,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             emit accentColorChanged(BlopTheme::accentPrimary());
         });
     }
-    contentLay->addWidget(cardTheme);
 
     // ----- Card: Erscheinungsbild ---------------------------------------
     // v3.17.1/B4: the standalone "Akzentfarbe" row is removed -- the
@@ -627,7 +638,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         connect(bgToolbar, &QButtonGroup::idClicked, this,
                 [this](int id) { emit toolbarStyleChanged(id > 0); });
     }
-    contentLay->addWidget(cardLook);
 
     // ----- Card: Verhalten (Profile list) -------------------------------
     auto *cardBehavior = new BlopSettingsCard(
@@ -673,7 +683,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 &SettingsDialog::onCreateProfile);
         cardBehavior->addBodyWidget(btnNewProfile);
     }
-    contentLay->addWidget(cardBehavior);
 
     // ----- Card: Speicher (local / cloud / both) -----------------------
     // Notes stay on the filesystem. Supabase is never the note store.
@@ -930,7 +939,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
               emit storagePrefsChanged();
             });
     }
-    contentLay->addWidget(cardStorage);
 
     // ----- Card: Erweitert ----------------------------------------------
     auto *cardAdv = new BlopSettingsCard(
@@ -944,8 +952,31 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "background: transparent; padding: 4px 0;")));
         cardAdv->addBodyWidget(info);
     }
-    contentLay->addWidget(cardAdv);
     cardAdv->setExpanded(false);
+
+    // Desktop-wide panel: 2-column card grid. Narrow/Android: single column.
+    const bool wideSettings = true; // SideSheet is always wide on desktop builds
+#if defined(Q_OS_ANDROID)
+    const bool useTwoCol = false;
+#else
+    const bool useTwoCol = wideSettings;
+#endif
+    if (useTwoCol) {
+        cardsGrid->addWidget(cardKonto, 0, 0);
+        cardsGrid->addWidget(cardStorage, 0, 1);
+        cardsGrid->addWidget(cardTheme, 1, 0);
+        cardsGrid->addWidget(cardLook, 1, 1);
+        cardsGrid->addWidget(cardBehavior, 2, 0);
+        cardsGrid->addWidget(cardAdv, 2, 1);
+    } else {
+        cardsGrid->addWidget(cardKonto, 0, 0, 1, 2);
+        cardsGrid->addWidget(cardStorage, 1, 0, 1, 2);
+        cardsGrid->addWidget(cardTheme, 2, 0, 1, 2);
+        cardsGrid->addWidget(cardLook, 3, 0, 1, 2);
+        cardsGrid->addWidget(cardBehavior, 4, 0, 1, 2);
+        cardsGrid->addWidget(cardAdv, 5, 0, 1, 2);
+    }
+    contentLay->addWidget(cardsHost, 1);
     contentLay->addStretch();
 
     // Search: hide cards whose title doesn't match the filter (simple
