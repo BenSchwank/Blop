@@ -16,6 +16,11 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [isNativeApp, setIsNativeApp] = useState(false);
+    // Native Google button (Qt loopback / Android Custom Tab) — Android only.
+    // Old desktop builds still inject isBlopNativeApp and then hit Google's
+    // broken Web-client+loopback OAuth (Error 400 invalid_request). Force GIS
+    // on any non-Android UA so a Vercel deploy alone unblocks desktop login.
+    const [useNativeGoogle, setUseNativeGoogle] = useState(false);
     const [showForgot, setShowForgot] = useState(false);
     const [forgotEmail, setForgotEmail] = useState('');
     const [forgotLoading, setForgotLoading] = useState(false);
@@ -30,10 +35,15 @@ export default function LoginPage() {
         localStorage.removeItem('session_id');
         localStorage.removeItem('username');
 
-        // Check if inside Qt Native App (injected by QWebEngine)
+        // Check if inside Qt Native App (injected by QWebEngine / Android WebView)
         const checkNative = setInterval(() => {
-            if ((window as any).isBlopNativeApp) {
-                setIsNativeApp(true);
+            const w = window as any;
+            if (w.isBlopNativeApp || w.isBlopDesktopApp) {
+                setIsNativeApp(!!w.isBlopNativeApp);
+                const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+                const android = /Android/i.test(ua);
+                // Desktop Qt (even old builds that set isBlopNativeApp) → GIS.
+                setUseNativeGoogle(!!w.isBlopNativeApp && android);
                 clearInterval(checkNative);
             }
         }, 100);
@@ -359,7 +369,7 @@ export default function LoginPage() {
                             <div className="h-px bg-[#444] flex-1"></div>
                         </div>
 
-                        {isNativeApp ? (
+                        {useNativeGoogle ? (
                             <button
                                 type="button"
                                 onClick={() => localStorage.setItem('trigger_google_login', '1')}

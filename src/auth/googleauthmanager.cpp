@@ -129,9 +129,9 @@ Java_com_benschwank_blop_BlopOAuthBridge_nativeNotifyAuthAbandoned(
   GoogleAuthManager::instance().handleExternalAuthAbandoned(s);
 }
 #else
-// Production GIS / web client used on www.blop-study.com (authorized JS origin).
+// Production GIS page on the authorized web origin (Vercel).
 constexpr const char *kDesktopBridgeUrl =
-    "https://www.blop-study.com/api/auth/google/desktop/bridge";
+    "https://www.blop-study.com/auth/desktop-bridge";
 #endif // Q_OS_ANDROID
 } // namespace
 
