@@ -913,11 +913,36 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
          data-logo_alignment="center">
     </div>
     <div class="err" id="err"></div>
-    <div class="ok" id="ok">Anmeldung an Blop übermittelt. Du kannst dieses Fenster schließen und zu Blop zurückkehren.</div>
+    <div class="ok" id="ok">Anmeldung an Blop übermittelt.</div>
+    <a id="back" href="#"
+       style="display:none;margin-top:18px;padding:12px 18px;border-radius:12px;
+              background:#5B9DFF;color:#0b1020;font-weight:700;text-decoration:none;">
+      Zurück zu Blop öffnen
+    </a>
   </div>
   <script>
     const STATE = {js_state};
     const COMPLETE_URL = {complete_url};
+    const BLOP_URL = "blop://oauth/done?state=" + encodeURIComponent(STATE);
+    function openBlopApp() {{
+      try {{
+        const back = document.getElementById("back");
+        if (back) back.setAttribute("href", BLOP_URL);
+        // Prefer an <a> navigation — Chrome is more reliable with custom
+        // schemes than assigning location.href from a GIS callback.
+        const a = document.createElement("a");
+        a.href = BLOP_URL;
+        a.rel = "noopener";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Fallback for browsers that ignore synthetic clicks.
+        setTimeout(function() {{
+          try {{ window.location.href = BLOP_URL; }} catch (e) {{}}
+        }}, 250);
+      }} catch (e) {{}}
+    }}
     async function blopDesktopGoogleCb(response) {{
       try {{
         const cred = (response && response.credential) ? String(response.credential) : "";
@@ -934,9 +959,17 @@ def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
         const btn = document.getElementById("g_id_signin");
         if (btn) btn.style.display = "none";
         const hint = document.getElementById("hint");
-        if (hint) hint.textContent = "Fertig — zurück zu Blop.";
+        if (hint) hint.textContent = "Fertig — klicke unten, falls Blop sich nicht öffnet.";
         document.getElementById("ok").style.display = "block";
         document.getElementById("err").style.display = "none";
+        const back = document.getElementById("back");
+        if (back) {{
+          back.setAttribute("href", BLOP_URL);
+          back.style.display = "inline-block";
+        }}
+        openBlopApp();
+        setTimeout(openBlopApp, 700);
+        setTimeout(openBlopApp, 1600);
       }} catch (e) {{
         const el = document.getElementById("err");
         el.style.display = "block";

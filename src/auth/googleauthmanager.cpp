@@ -539,7 +539,48 @@ void GoogleAuthManager::startDesktopBridgeLogin() {
 }
 
 void GoogleAuthManager::pollDesktopClaim() {
-  if (!m_loginInProgress || m_bridgeState.isEmpty() || m_claimInFlight)
+  if (!m_loginInProgress || m_bridgeState.isEmpty())
+    return;
+  claimDesktopState(m_bridgeState, false);
+}
+
+void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
+  // Expected: blop://oauth/done?state=...
+  QString state = QUrlQuery(url).queryItemValue(QStringLiteral("state"));
+  if (state.isEmpty()) {
+    // Also accept blop://oauth/done/?state= or path-form.
+    QUrlQuery q(url.query());
+    state = q.queryItemValue(QStringLiteral("state"));
+  }
+  if (state.isEmpty()) {
+    qWarning() << "GoogleAuthManager: deep link missing state" << url;
+    return;
+  }
+  qInfo() << "GoogleAuthManager: desktop OAuth deep link state=" << state;
+  // Poll may already have finished login — deep link is then only for focus.
+  if (m_authenticated && !m_loginInProgress)
+    return;
+  // Ensure we treat this as an in-progress login so finish emits signals.
+  if (!m_loginInProgress) {
+    m_loginInProgress = true;
+    m_loginInProgressSinceMs = QDateTime::currentMSecsSinceEpoch();
+    m_bridgeState = state;
+    if (m_bridgeTimeout)
+      m_bridgeTimeout->start(60 * 1000);
+  } else if (!m_bridgeState.isEmpty() && m_bridgeState != state) {
+    qWarning() << "GoogleAuthManager: deep-link state mismatch with in-flight";
+  }
+  if (m_claimInFlight) {
+    QTimer::singleShot(400, this, [this, state]() {
+      claimDesktopState(state, true);
+    });
+    return;
+  }
+  claimDesktopState(state, true);
+}
+
+void GoogleAuthManager::claimDesktopState(const QString &state, bool fromDeepLink) {
+  if (state.isEmpty() || m_claimInFlight)
     return;
   if (!m_networkManager)
     return;
@@ -547,45 +588,54 @@ void GoogleAuthManager::pollDesktopClaim() {
   m_claimInFlight = true;
   QUrl url(QString::fromLatin1(kDesktopClaimUrl));
   QUrlQuery q;
-  q.addQueryItem(QStringLiteral("state"), m_bridgeState);
+  q.addQueryItem(QStringLiteral("state"), state);
   url.setQuery(q);
 
   QNetworkRequest req(url);
   req.setHeader(QNetworkRequest::UserAgentHeader,
                 QStringLiteral("BlopDesktop/GoogleAuthClaim"));
   QNetworkReply *reply = m_networkManager->get(req);
-  connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-    reply->deleteLater();
-    m_claimInFlight = false;
-    if (!m_loginInProgress)
-      return;
+  connect(reply, &QNetworkReply::finished, this,
+          [this, reply, fromDeepLink]() {
+            reply->deleteLater();
+            m_claimInFlight = false;
+            const auto netErr = reply->error();
+            const int status =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                    .toInt();
+            const QByteArray raw = reply->readAll();
+            if (netErr != QNetworkReply::NoError || status >= 400) {
+              qWarning() << "GoogleAuthManager: claim failed status=" << status
+                         << "err=" << reply->errorString()
+                         << "deepLink=" << fromDeepLink;
+              if (fromDeepLink && m_loginInProgress) {
+                // Keep polling a bit — complete may still be in flight.
+                if (m_bridgePoll && !m_bridgePoll->isActive())
+                  m_bridgePoll->start();
+              }
+              return;
+            }
 
-    const auto netErr = reply->error();
-    const int status =
-        reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray raw = reply->readAll();
-    if (netErr != QNetworkReply::NoError || status >= 400) {
-      // Transient network blips while the user is still in the browser —
-      // keep polling until the overall timeout.
-      qWarning() << "GoogleAuthManager: claim poll failed status=" << status
-                 << "err=" << reply->errorString();
-      return;
-    }
+            const QJsonDocument doc = QJsonDocument::fromJson(raw);
+            if (!doc.isObject())
+              return;
+            const QJsonObject obj = doc.object();
+            if (!obj.value(QStringLiteral("ready")).toBool(false)) {
+              if (fromDeepLink && m_loginInProgress && m_bridgePoll &&
+                  !m_bridgePoll->isActive())
+                m_bridgePoll->start();
+              return;
+            }
 
-    const QJsonDocument doc = QJsonDocument::fromJson(raw);
-    if (!doc.isObject())
-      return;
-    const QJsonObject obj = doc.object();
-    if (!obj.value(QStringLiteral("ready")).toBool(false))
-      return;
-
-    const QString credential = obj.value(QStringLiteral("credential")).toString();
-    if (credential.isEmpty()) {
-      finishDesktopBridge(QString(), QStringLiteral("oauth_missing_credential"));
-      return;
-    }
-    finishDesktopBridge(credential, QString());
-  });
+            const QString credential =
+                obj.value(QStringLiteral("credential")).toString();
+            if (credential.isEmpty()) {
+              finishDesktopBridge(QString(),
+                                  QStringLiteral("oauth_missing_credential"));
+              return;
+            }
+            finishDesktopBridge(credential, QString());
+          });
 }
 
 void GoogleAuthManager::finishDesktopBridge(const QString &idToken,

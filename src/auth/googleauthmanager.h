@@ -27,6 +27,8 @@ public:
     /// Cancel an in-flight desktop bridge login (poll + timeout).
     void cancelPendingLogin();
     bool isLoginInProgress() const { return m_loginInProgress; }
+    /// Called when OS opens blop://oauth/done?state=... (browser return).
+    void handleDesktopOAuthDeepLink(const QUrl &url);
 #endif
 
     QString userEmail() const { return m_email; }
@@ -82,9 +84,11 @@ private:
 #else
     /// Desktop: open system browser to blop-study.com GIS bridge, then poll
     /// /api/auth/google/desktop/claim (no localhost redirect — Chrome blocks
-    /// https→127.0.0.1 / Private Network Access).
+    /// https→127.0.0.1 / Private Network Access). Browser also opens
+    /// blop://oauth/done?state=… to foreground the app.
     void startDesktopBridgeLogin();
     void pollDesktopClaim();
+    void claimDesktopState(const QString &state, bool fromDeepLink);
     void finishDesktopBridge(const QString &idToken, const QString &error);
     void stopDesktopBridgeTimers();
     static QString generateRandomString(int length);

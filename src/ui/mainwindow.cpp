@@ -38,6 +38,9 @@
 #include "uiscale.h"
 #include "tools/ToolManager.h"
 #include "googleauthmanager.h"
+#ifndef Q_OS_ANDROID
+#include "desktopdeeplink.h"
+#endif
 #ifdef Q_OS_ANDROID
 #include "androidcontentpicker.h"
 #include "androidicons.h"
@@ -1675,6 +1678,7 @@ MainWindow::MainWindow(QWidget *parent)
           activateWindow();
           if (windowHandle())
             windowHandle()->requestActivate();
+          QApplication::alert(this, 4000);
 #endif
 
           // Sync Study WebView localStorage when the embedded view works (optional).
@@ -6076,6 +6080,15 @@ void MainWindow::setupWebBrowser() {
   // Force one reload 4 s after startup to fix the post-install blank page
   QTimer::singleShot(4000, view, [view]() { view->reload(); });
 
+  // Mark desktop Blop as soon as each page loads so Study login can switch
+  // to the system-browser bridge button (not GIS popup in WebEngine).
+  connect(view, &QWebEngineView::loadFinished, view, [view](bool ok) {
+    if (!ok || !view->page())
+      return;
+    view->page()->runJavaScript(
+        QStringLiteral("window.isBlopDesktopApp = true;"));
+  });
+
   InterceptingWebPage *customPage = new InterceptingWebPage(view);
   connect(customPage, &InterceptingWebPage::googleLoginRequested, this, []() {
       GoogleAuthManager::instance().login();
@@ -6219,9 +6232,8 @@ void MainWindow::setupWebBrowser() {
     view->page()->runJavaScript(
         R"js(
           (function() {
-            // Desktop Study login uses GIS in the WebEngine (authorized web
-            // client). Do NOT set isBlopNativeApp — that forced the broken
-            // loopback OAuth path (Google Error 400 invalid_request).
+            // Desktop: system-browser GIS bridge (claim/poll + blop://).
+            // Do NOT set isBlopNativeApp — that forced broken loopback OAuth.
             // Android still sets isBlopNativeApp via AndroidWebView.qml.
             window.isBlopDesktopApp = true;
             if (localStorage.getItem('trigger_google_login') === '1') {
@@ -9858,6 +9870,27 @@ void MainWindow::openNotePath(const QString &absolutePath) {
   else
     qWarning() << "openNotePath: cannot resolve model index for" << absolutePath;
 }
+
+#ifndef Q_OS_ANDROID
+void MainWindow::handleDesktopDeepLinkMessage(const QString &message) {
+  const QString msg = message.trimmed();
+  raise();
+  activateWindow();
+  if (windowHandle())
+    windowHandle()->requestActivate();
+#ifdef Q_OS_WIN
+  // Windows often ignores ActivateWindow while another app is focused;
+  // flash the taskbar as a fallback cue.
+  QApplication::alert(this, 3000);
+#endif
+  if (msg.isEmpty() || msg == QLatin1String("ACTIVATE"))
+    return;
+  if (!msg.startsWith(QStringLiteral("blop:"), Qt::CaseInsensitive))
+    return;
+  const QUrl url(msg);
+  GoogleAuthManager::instance().handleDesktopOAuthDeepLink(url);
+}
+#endif
 
 void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
   BlopDiag::recordUiAction(QStringLiteral("open_note"));

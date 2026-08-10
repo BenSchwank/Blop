@@ -225,6 +225,10 @@ public slots:
   QString savedStudySessionParam() const;
   /// Open a note file by absolute path (CLI / automation).
   void openNotePath(const QString &absolutePath);
+#ifndef Q_OS_ANDROID
+  /// Single-instance / blop:// hand-off from a second process or cold start.
+  void handleDesktopDeepLinkMessage(const QString &message);
+#endif
 
 private slots:
   void checkForUpdates();

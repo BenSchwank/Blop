@@ -39,15 +39,19 @@ export default function LoginPage() {
         const checkNative = setInterval(() => {
             const w = window as any;
             if (w.isBlopNativeApp || w.isBlopDesktopApp) {
-                setIsNativeApp(!!w.isBlopNativeApp);
+                setIsNativeApp(!!w.isBlopNativeApp || !!w.isBlopDesktopApp);
                 const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
                 const android = /Android/i.test(ua);
-                // Desktop Qt (even old builds that set isBlopNativeApp) → GIS.
-                setUseNativeGoogle(!!w.isBlopNativeApp && android);
+                // Android → Custom Tab PKCE. Desktop Blop → system-browser GIS
+                // bridge (claim/poll + blop://). Never use GIS popup inside
+                // Qt WebEngine: Google often escapes to Chrome with no return.
+                setUseNativeGoogle(
+                    (!!w.isBlopNativeApp && android) || !!w.isBlopDesktopApp
+                );
                 clearInterval(checkNative);
             }
         }, 100);
-        setTimeout(() => clearInterval(checkNative), 3000);
+        setTimeout(() => clearInterval(checkNative), 5000);
 
         // Global callback for Google Web Login GIS
         (window as any).handleGoogleLoginSuccess = async (response: any) => {
@@ -372,7 +376,14 @@ export default function LoginPage() {
                         {useNativeGoogle ? (
                             <button
                                 type="button"
-                                onClick={() => localStorage.setItem('trigger_google_login', '1')}
+                                onClick={() => {
+                                    localStorage.setItem('trigger_google_login', '1');
+                                    setError('');
+                                    setLoading(true);
+                                    // Desktop SSO poll picks this up within ~1s and opens
+                                    // the system-browser bridge; clear spinner shortly after.
+                                    window.setTimeout(() => setLoading(false), 2500);
+                                }}
                                 className="w-full py-3.5 bg-white text-gray-800 rounded-lg font-semibold hover:bg-gray-100 active:bg-gray-200 transition-all flex items-center justify-center gap-2 border border-gray-300"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20px" height="20px">

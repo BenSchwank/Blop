@@ -215,8 +215,10 @@ qt_add_executable(Blop
     src/android/androidcontentpicker.cpp
 
     # Auth (Google OAuth)
-    src/auth/googleauthmanager.cpp
-    src/auth/googleauthmanager.h
+  src/auth/googleauthmanager.cpp
+  src/auth/googleauthmanager.h
+  src/auth/desktopdeeplink.cpp
+  src/auth/desktopdeeplink.h
 
     # Util
     src/util/uiscale.h

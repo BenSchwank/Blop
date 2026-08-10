@@ -27,6 +27,9 @@
 #include "blop_observability.h"
 #include "blop_theme.h"
 #include "mainwindow.h"
+#ifndef Q_OS_ANDROID
+#include "desktopdeeplink.h"
+#endif
 #include <QFont>
 #include <QIcon>
 #include <QPixmap>
@@ -103,6 +106,19 @@ int main(int argc, char *argv[]) {
 
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
+
+#ifndef Q_OS_ANDROID
+  // blop://oauth/done?state=… returns from the system-browser Google bridge.
+  DesktopDeepLink::registerProtocolHandler();
+  QString deepLink = DesktopDeepLink::deepLinkFromArguments(a.arguments());
+  if (DesktopDeepLink::instance().handOffToRunningInstance(
+          deepLink.isEmpty() ? QStringLiteral("ACTIVATE") : deepLink)) {
+    return 0;
+  }
+  DesktopDeepLink::instance().startServer();
+#else
+  QString deepLink;
+#endif
 
 #ifdef Q_OS_ANDROID
   // v3.18.31: Initialize TLS/SSL backend AFTER QApplication so Qt plugins can load.
@@ -183,6 +199,17 @@ int main(int argc, char *argv[]) {
   // --- HAUPTFENSTER STARTEN ---
   MainWindow *w = new MainWindow();
 
+#ifndef Q_OS_ANDROID
+  QObject::connect(&DesktopDeepLink::instance(),
+                   &DesktopDeepLink::messageReceived, w,
+                   &MainWindow::handleDesktopDeepLinkMessage);
+  if (!deepLink.isEmpty()) {
+    QTimer::singleShot(0, w, [w, deepLink]() {
+      w->handleDesktopDeepLinkMessage(deepLink);
+    });
+  }
+#endif
+
   QCommandLineParser parser;
   parser.setApplicationDescription(QStringLiteral("Blop"));
   parser.addHelpOption();
@@ -193,7 +220,8 @@ int main(int argc, char *argv[]) {
   parser.process(a);
   const QStringList pos = parser.positionalArguments();
   QString openPath;
-  if (!pos.isEmpty())
+  if (!pos.isEmpty() &&
+      !pos.first().startsWith(QStringLiteral("blop:"), Qt::CaseInsensitive))
     openPath = QFileInfo(pos.first()).absoluteFilePath();
 
   // Restore previous window size/position, or default to maximized/fullscreen

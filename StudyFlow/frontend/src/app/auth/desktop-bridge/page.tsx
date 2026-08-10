@@ -6,8 +6,8 @@ import Script from "next/script";
 
 /**
  * Desktop Qt bridge: system browser opens this page (authorized GIS origin).
- * Credential is POSTed to the backend; the Qt app polls /claim — no localhost
- * redirect (Chrome Private Network Access blocks https→127.0.0.1).
+ * Credential is POSTed to the backend; then blop://oauth/done brings the app
+ * back (Chrome blocks https→127.0.0.1 redirects).
  */
 function DesktopBridgeInner() {
   const params = useSearchParams();
@@ -20,6 +20,29 @@ function DesktopBridgeInner() {
     "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com";
 
   const valid = useMemo(() => /^[A-Za-z0-9_-]{8,128}$/.test(state), [state]);
+
+  const blopUrl = `blop://oauth/done?state=${encodeURIComponent(state)}`;
+
+  const openBlop = () => {
+    try {
+      const a = document.createElement("a");
+      a.href = blopUrl;
+      a.rel = "noopener";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => {
+        try {
+          window.location.href = blopUrl;
+        } catch {
+          /* ignore */
+        }
+      }, 250);
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     if (!valid) {
@@ -41,6 +64,8 @@ function DesktopBridgeInner() {
         }
         setDone(true);
         setError("");
+        openBlop();
+        setTimeout(openBlop, 600);
       } catch (e: any) {
         setError(e?.message || "Google-Anmeldung fehlgeschlagen");
       }
@@ -75,8 +100,8 @@ function DesktopBridgeInner() {
         <h1 style={{ margin: "0 0 8px", fontSize: 22 }}>Mit Google anmelden</h1>
         <p style={{ margin: "0 0 20px", color: "#a8aec2", fontSize: 14, lineHeight: 1.45 }}>
           {done
-            ? "Fertig — zurück zu Blop. Dieses Fenster kannst du schließen."
-            : "Melde dich für Blop an. Die App holt die Anmeldung automatisch ab."}
+            ? "Fertig — Blop sollte sich öffnen. Falls nicht, nutze den Button unten."
+            : "Melde dich für Blop an. Danach springst du zurück in die App."}
         </p>
         {valid && !done ? (
           <>
@@ -105,9 +130,27 @@ function DesktopBridgeInner() {
           <p style={{ marginTop: 14, color: "#ff8f8f", fontSize: 13 }}>{error}</p>
         ) : null}
         {done ? (
-          <p style={{ marginTop: 14, color: "#9dffc9", fontSize: 14 }}>
-            Anmeldung an Blop übermittelt.
-          </p>
+          <a
+            href={blopUrl}
+            onClick={(e) => {
+              e.preventDefault();
+              openBlop();
+            }}
+            style={{
+              display: "inline-block",
+              marginTop: 14,
+              padding: "12px 18px",
+              borderRadius: 12,
+              border: "none",
+              background: "#5B9DFF",
+              color: "#0b1020",
+              fontWeight: 700,
+              textDecoration: "none",
+              cursor: "pointer",
+            }}
+          >
+            Zurück zu Blop öffnen
+          </a>
         ) : null}
       </div>
     </div>

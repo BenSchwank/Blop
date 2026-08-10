@@ -68,6 +68,11 @@ Section "Install"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "DisplayVersion" "3.11.9"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
+
+  ; blop:// protocol — return from Google login in the system browser
+  WriteRegStr HKCU "Software\Classes\blop" "" "URL:Blop Protocol"
+  WriteRegStr HKCU "Software\Classes\blop" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\blop\shell\open\command" "" '"$INSTDIR\Blop.exe" "%1"'
 SectionEnd
 
 Section "Uninstall"
@@ -76,6 +81,7 @@ Section "Uninstall"
   Delete "$DESKTOP\Blop.lnk"
   
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Blop"
+  DeleteRegKey HKCU "Software\Classes\blop"
   
   RMDir /r "$INSTDIR"
 SectionEnd
