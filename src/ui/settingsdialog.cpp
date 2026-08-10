@@ -1,4 +1,6 @@
 #include "settingsdialog.h"
+#include "cloudstoragestore.h"
+#include "storageprefs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
@@ -7,7 +9,9 @@
 #include "ui_SettingsDialog.h"
 
 #include <QButtonGroup>
+#include <QDir>
 #include <QEasingCurve>
+#include <QFileDialog>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -24,9 +28,11 @@
 #include <QScrollArea>
 #include <QScroller>
 #include <QShowEvent>
+#include <QStandardPaths>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
+#include <functional>
 
 // v3.16.1: Settings overhaul.
 //
@@ -667,6 +673,200 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     contentLay->addWidget(cardBehavior);
 
+    // ----- Card: Speicher (local / cloud / both) -----------------------
+    // Notes stay on the filesystem. Supabase is never the note store.
+    auto *cardStorage = new BlopSettingsCard(
+        QStringLiteral("Speicher"),
+        QStringLiteral("Lokal, Cloud oder beides — ohne Supabase-Notizen"),
+        contentWidget);
+    {
+        StoragePrefs::ensureLocalLibraryRoot();
+
+        auto *hint = new QLabel(StoragePrefs::modeHint(StoragePrefs::mode()),
+                                cardStorage);
+        hint->setObjectName(QStringLiteral("StorageModeHint"));
+        hint->setWordWrap(true);
+        hint->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
+            "background: transparent; padding: 2px 0 8px 0;")));
+        cardStorage->addBodyWidget(hint);
+
+        auto *lblMode = new QLabel(QStringLiteral("Speicherort für Notizen"),
+                                   cardStorage);
+        lblMode->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent;")));
+        cardStorage->addBodyWidget(lblMode);
+
+        auto *modeRow = new QWidget(cardStorage);
+        auto *modeLay = new QHBoxLayout(modeRow);
+        modeLay->setContentsMargins(0, 0, 0, 0);
+        modeLay->setSpacing(8);
+
+        const QString segStyle = BlopTheme::themed(QStringLiteral(
+            "QPushButton {"
+            "  background: rgba(40,42,60,0.65);"
+            "  color: #ECEEFD;"
+            "  border: 1px solid rgba(120,130,160,0.32);"
+            "  border-radius: 10px;"
+            "  padding: 8px 10px;"
+            "  font-weight: 600;"
+            "}"
+            "QPushButton:checked {"
+            "  background: rgba(91,157,255,0.85);"
+            "  color: #FFFFFF;"
+            "  border: 1px solid rgba(91,157,255,1.0);"
+            "}"
+            "QPushButton:hover:!checked {"
+            "  border-color: rgba(91,157,255,0.65);"
+            "}"));
+
+        auto *btnLocal = new QPushButton(QStringLiteral("Nur lokal"), modeRow);
+        auto *btnCloud = new QPushButton(QStringLiteral("Nur Cloud"), modeRow);
+        auto *btnBoth = new QPushButton(QStringLiteral("Lokal + Cloud"), modeRow);
+        for (QPushButton *b : {btnLocal, btnCloud, btnBoth}) {
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setMinimumHeight(40);
+            b->setStyleSheet(segStyle);
+            BlopRipple::attachPressFeedback(b, 0.92);
+            modeLay->addWidget(b, 1);
+        }
+        const auto curMode = StoragePrefs::mode();
+        btnLocal->setChecked(curMode == StoragePrefs::Mode::LocalOnly);
+        btnCloud->setChecked(curMode == StoragePrefs::Mode::CloudOnly);
+        btnBoth->setChecked(curMode == StoragePrefs::Mode::LocalAndCloud);
+        cardStorage->addBodyWidget(modeRow);
+
+        auto *localPathLbl = new QLabel(
+            QStringLiteral("Lokal: %1").arg(StoragePrefs::ensureLocalLibraryRoot()),
+            cardStorage);
+        localPathLbl->setWordWrap(true);
+        localPathLbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(160, 168, 195, 0.85); font-size: 11px;"
+            "background: transparent; padding: 4px 0;")));
+        cardStorage->addBodyWidget(localPathLbl);
+
+        auto *cloudHeader = new QLabel(QStringLiteral("Cloud-Anbieter verknüpfen"),
+                                       cardStorage);
+        cloudHeader->setStyleSheet(BlopTheme::themed(QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent; padding-top: 8px;")));
+        cardStorage->addBodyWidget(cloudHeader);
+
+        auto *cloudList = new QWidget(cardStorage);
+        auto *cloudLay = new QVBoxLayout(cloudList);
+        cloudLay->setContentsMargins(0, 0, 0, 0);
+        cloudLay->setSpacing(6);
+
+        const QString primaryId = StoragePrefs::primaryCloudId();
+        for (const CloudStorageEntry &e : CloudStorageStore::load()) {
+            auto *row = new QWidget(cloudList);
+            auto *hl = new QHBoxLayout(row);
+            hl->setContentsMargins(0, 0, 0, 0);
+            hl->setSpacing(8);
+            const bool linked = !e.path.isEmpty() && QDir(e.path).exists();
+            auto *name = new QLabel(row);
+            name->setObjectName(QStringLiteral("CloudProviderLabel"));
+            name->setText(QStringLiteral("%1%2").arg(
+                e.name, linked ? QStringLiteral(" · verknüpft")
+                               : QStringLiteral(" · nicht verknüpft")));
+            name->setStyleSheet(BlopTheme::themed(QStringLiteral(
+                "color: #ECEEFD; font-size: 13px; font-weight: 600;"
+                "background: transparent;")));
+            hl->addWidget(name, 1);
+
+            auto *btnPrimary = new QPushButton(
+                (primaryId == e.id) ? QStringLiteral("Primär")
+                                    : QStringLiteral("Als Primär"),
+                row);
+            btnPrimary->setEnabled(linked);
+            btnPrimary->setCursor(Qt::PointingHandCursor);
+            btnPrimary->setStyleSheet(BlopTheme::secondaryButtonQss());
+            const QString id = e.id;
+            const QString displayName = e.name;
+            QObject::connect(btnPrimary, &QPushButton::clicked, this,
+                             [this, id, cloudList]() {
+                               StoragePrefs::setPrimaryCloudId(id);
+                               // Refresh primary button labels in this card.
+                               const auto buttons =
+                                   cloudList->findChildren<QPushButton *>();
+                               for (QPushButton *b : buttons) {
+                                 if (b->text() == QStringLiteral("Primär") ||
+                                     b->text() == QStringLiteral("Als Primär"))
+                                   b->setText(QStringLiteral("Als Primär"));
+                               }
+                               if (auto *senderBtn =
+                                       qobject_cast<QPushButton *>(sender()))
+                                 senderBtn->setText(QStringLiteral("Primär"));
+                               emit storagePrefsChanged();
+                             });
+            hl->addWidget(btnPrimary);
+
+            auto *btnLink = new QPushButton(
+                linked ? QStringLiteral("Ändern…") : QStringLiteral("Ordner…"),
+                row);
+            btnLink->setCursor(Qt::PointingHandCursor);
+            btnLink->setStyleSheet(BlopTheme::primaryButtonQss());
+            QObject::connect(
+                btnLink, &QPushButton::clicked, this,
+                [this, id, displayName, name, btnLink, btnPrimary]() {
+                  QString start =
+                      QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+                  QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+                  if (CloudStorageEntry *cur =
+                          CloudStorageStore::findMutable(entries, id)) {
+                    if (!cur->path.isEmpty())
+                      start = cur->path;
+                  }
+                  const QString folder = QFileDialog::getExistingDirectory(
+                      this,
+                      QStringLiteral("%1 — Sync-Ordner wählen").arg(displayName),
+                      start);
+                  if (folder.isEmpty())
+                    return;
+                  entries = CloudStorageStore::load();
+                  if (CloudStorageEntry *mut =
+                          CloudStorageStore::findMutable(entries, id)) {
+                    mut->path = folder;
+                    CloudStorageStore::save(entries);
+                    if (StoragePrefs::primaryCloudId().isEmpty())
+                      StoragePrefs::setPrimaryCloudId(id);
+                    name->setText(QStringLiteral("%1 · verknüpft").arg(displayName));
+                    btnLink->setText(QStringLiteral("Ändern…"));
+                    btnPrimary->setEnabled(true);
+                    emit storagePrefsChanged();
+                  }
+                });
+            hl->addWidget(btnLink);
+            cloudLay->addWidget(row);
+        }
+        cardStorage->addBodyWidget(cloudList);
+
+        auto applyMode = [this, btnLocal, btnCloud, btnBoth, hint](StoragePrefs::Mode m) {
+            btnLocal->setChecked(m == StoragePrefs::Mode::LocalOnly);
+            btnCloud->setChecked(m == StoragePrefs::Mode::CloudOnly);
+            btnBoth->setChecked(m == StoragePrefs::Mode::LocalAndCloud);
+            StoragePrefs::setMode(m);
+            QString text = StoragePrefs::modeHint(m);
+            if (m != StoragePrefs::Mode::LocalOnly &&
+                StoragePrefs::primaryLinkedCloudPath().isEmpty()) {
+                text += QStringLiteral(
+                    "\nTipp: Verknüpfe unten Google Drive, Nextcloud oder "
+                    "einen anderen Sync-Ordner.");
+            }
+            hint->setText(text);
+            emit storagePrefsChanged();
+        };
+        QObject::connect(btnLocal, &QPushButton::clicked, this,
+                         [applyMode]() { applyMode(StoragePrefs::Mode::LocalOnly); });
+        QObject::connect(btnCloud, &QPushButton::clicked, this,
+                         [applyMode]() { applyMode(StoragePrefs::Mode::CloudOnly); });
+        QObject::connect(btnBoth, &QPushButton::clicked, this,
+                         [applyMode]() { applyMode(StoragePrefs::Mode::LocalAndCloud); });
+    }
+    contentLay->addWidget(cardStorage);
+
     // ----- Card: Erweitert ----------------------------------------------
     auto *cardAdv = new BlopSettingsCard(
         QStringLiteral("Erweitert"),
@@ -689,7 +889,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // common use case).
     connect(search, &QLineEdit::textChanged, this, [=](const QString &q) {
         const QString needle = q.trimmed().toLower();
-        const QList<BlopSettingsCard *> cards = {cardKonto, cardTheme, cardLook,
+        const QList<BlopSettingsCard *> cards = {cardKonto, cardStorage, cardTheme, cardLook,
                                                  cardBehavior, cardAdv};
         for (BlopSettingsCard *c : cards) {
             if (needle.isEmpty()) {

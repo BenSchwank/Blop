@@ -301,6 +301,9 @@ private:
   /// Light/Dark switch reskins the inner buttons/sliders/combos.
   void refreshPageSettingsTheme();
   void createDefaultFolder();
+  QString noteWriteDirectory() const;
+  void applyStoragePrefsToLibrary();
+  void mirrorNoteIfNeeded(const QString &notePath);
   void applyTheme();
   void applyLibraryFilters();
   void rebuildPageSettingsTags();

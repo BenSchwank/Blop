@@ -33,6 +33,8 @@ signals:
     void accentColorChanged(QColor color);
     void toolbarStyleChanged(bool radial);
     void logoutRequested();
+    /// Emitted when Speicher-Modus or linked cloud folders change.
+    void storagePrefsChanged();
 
     void previewProfileRequested(const UiProfile& p);
 

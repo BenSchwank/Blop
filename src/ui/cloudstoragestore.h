@@ -7,6 +7,10 @@
 /// Nextcloud, OneDrive, Dropbox, or any custom sync path). Paths are
 /// persisted in QSettings — no OAuth required; the vendor sync client
 /// keeps the folder up to date.
+///
+/// Note files (.bnote / .blop) live on the filesystem (local and/or these
+/// linked folders). They are never uploaded to Supabase / Study as the
+/// primary note store — see StoragePrefs.
 struct CloudStorageEntry {
   QString id;
   QString name;

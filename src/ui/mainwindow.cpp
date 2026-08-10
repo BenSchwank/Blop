@@ -14,6 +14,7 @@
 #include "libraryorgstore.h"
 #include "libraryorgbar.h"
 #include "cloudstoragestore.h"
+#include "storageprefs.h"
 #include "pagethumbnailsidebar.h"
 #include "noteleftrail.h"
 #include "radialtoolbarfab.h"
@@ -1480,8 +1481,11 @@ MainWindow::MainWindow(QWidget *parent)
     if (!m_pendingA4SaveNote || m_pendingA4SavePath.isEmpty()) return;
     Note copy = *m_pendingA4SaveNote;
     const QString p = m_pendingA4SavePath;
-    m_noteManager.saveNoteAsync(copy, p, [p](bool ok) {
-      if (!ok) qWarning() << "A4 async save failed" << p;
+    m_noteManager.saveNoteAsync(copy, p, [this, p](bool ok) {
+      if (!ok)
+        qWarning() << "A4 async save failed" << p;
+      else
+        mirrorNoteIfNeeded(p);
     });
   });
 
@@ -4178,17 +4182,9 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
 }
 
 void MainWindow::createDefaultFolder() {
-#ifdef Q_OS_ANDROID
-  QString basePath =
-      QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-#else
-  QString basePath =
-      QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-#endif
-  m_rootPath = basePath + "/BlopNotizen";
-  QDir dir(m_rootPath);
-  if (!dir.exists())
-    dir.mkpath(".");
+  // Always create the device-local library root (phone / laptop / Mac / …).
+  // Cloud providers are optional overlays — see StoragePrefs + CloudStorageStore.
+  m_rootPath = StoragePrefs::ensureLocalLibraryRoot();
 }
 
 void MainWindow::setupUi() {
@@ -4920,6 +4916,7 @@ void MainWindow::setupUi() {
   // Prefer navigateLibraryToPath so fetchMore + directoryLoaded keep the grid
   // populated (bare mapFromSource often yields an empty view at first paint).
   navigateLibraryToPath(m_rootPath);
+  applyStoragePrefsToLibrary();
   m_fileListView->setSpacing(16);
   m_fileListView->setFrameShape(QFrame::NoFrame);
 #ifdef Q_OS_ANDROID
@@ -7701,6 +7698,8 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     e.path = folder;
     entries.append(e);
     CloudStorageStore::save(entries);
+    if (StoragePrefs::primaryCloudId().isEmpty())
+      StoragePrefs::setPrimaryCloudId(e.id);
     // Insert before the trailing "Eigene Cloud hinzufügen…" row.
     int insertAt = m_navSidebar->count();
     for (int i = 0; i < m_navSidebar->count(); ++i) {
@@ -7743,6 +7742,8 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
       if (CloudStorageEntry *e = CloudStorageStore::findMutable(entries, id)) {
         e->path = path;
         CloudStorageStore::save(entries);
+        if (StoragePrefs::primaryCloudId().isEmpty())
+          StoragePrefs::setPrimaryCloudId(id);
       }
       item->setData(Qt::UserRole + 10, path);
       item->setToolTip(path);
@@ -7809,7 +7810,46 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
   }
 }
 
+
+QString MainWindow::noteWriteDirectory() const {
+  QString root = StoragePrefs::noteWriteRoot(m_rootPath);
+  if (!root.isEmpty())
+    return root;
+  // CloudOnly without a link — fall back to local so create never hard-fails,
+  // but callers should prompt the user to link a provider.
+  return m_rootPath;
+}
+
+void MainWindow::applyStoragePrefsToLibrary() {
+  if (!m_fileModel)
+    return;
+  StoragePrefs::ensureLocalLibraryRoot();
+  const StoragePrefs::Mode mode = StoragePrefs::mode();
+  if (mode == StoragePrefs::Mode::CloudOnly) {
+    const QString cloud = StoragePrefs::noteWriteRoot(m_rootPath);
+    if (!cloud.isEmpty()) {
+      navigateLibraryToPath(cloud);
+      return;
+    }
+  }
+  navigateLibraryToPath(m_rootPath);
+}
+
+void MainWindow::mirrorNoteIfNeeded(const QString &notePath) {
+  StoragePrefs::mirrorNoteToCloudIfNeeded(notePath);
+}
+
 void MainWindow::onNewPage() {
+  if (StoragePrefs::mode() == StoragePrefs::Mode::CloudOnly &&
+      StoragePrefs::primaryLinkedCloudPath().isEmpty()) {
+    BlopDialogs::notify(
+        this, QStringLiteral("Cloud-Speicher"),
+        QStringLiteral(
+            "Speicher-Modus ist „Nur Cloud“, aber kein Sync-Ordner ist "
+            "verknüpft.\n\nÖffne Einstellungen → Speicher und verknüpfe "
+            "Google Drive, Nextcloud oder einen anderen Ordner."));
+    return;
+  }
   auto createNote = [this](const QString &name, bool isInfinite,
                            const A4LayoutDialogResult &layoutResult) {
     QString safeName = name;
@@ -7817,7 +7857,7 @@ void MainWindow::onNewPage() {
 
     if (isInfinite) {
       // Legacy unendliche Leinwand (.blop -> CanvasView)
-      QString path = m_fileModel->rootPath() + "/" + safeName + ".blop";
+      QString path = noteWriteDirectory() + "/" + safeName + ".blop";
       QFile file(path);
       if (!file.open(QIODevice::WriteOnly)) {
         BlopDialogs::notify(
@@ -7831,6 +7871,7 @@ void MainWindow::onNewPage() {
       out << isInfinite;
       out << (int)0;
       file.close();
+      mirrorNoteIfNeeded(path);
       onFileDoubleClicked(m_fileModel->index(path));
       if (CanvasView *cv = getCurrentCanvas()) {
         cv->setPageColor(layoutResult.paperColor.isValid()
@@ -7858,7 +7899,7 @@ void MainWindow::onNewPage() {
     }
 
     // Modernes A4-Notizheft (.bnote -> MultiPageNoteView)
-    QString path = m_fileModel->rootPath() + "/" + safeName + ".bnote";
+    QString path = noteWriteDirectory() + "/" + safeName + ".bnote";
     Note note;
     note.id = QUuid::createUuid().toString();
     note.title = name;
@@ -7874,6 +7915,7 @@ void MainWindow::onNewPage() {
               .arg(path));
       return;
     }
+    mirrorNoteIfNeeded(path);
     onFileDoubleClicked(m_fileModel->index(path));
   };
 
@@ -10041,8 +10083,11 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
               if (m_a4SaveDebounce) m_a4SaveDebounce->stop();
               Note copy = *n;
               const QString p = path;
-              m_noteManager.saveNoteAsync(copy, p, [p](bool ok) {
-                if (!ok) qWarning() << "A4 async save failed" << p;
+              m_noteManager.saveNoteAsync(copy, p, [this, p](bool ok) {
+                if (!ok)
+                  qWarning() << "A4 async save failed" << p;
+                else
+                  mirrorNoteIfNeeded(p);
               });
             } else {
               if (m_a4SaveDebounce) m_a4SaveDebounce->start();
@@ -10092,8 +10137,11 @@ void MainWindow::flushPendingA4Save() {
   const QString p = m_pendingA4SavePath;
   m_pendingA4SaveNote = nullptr;
   m_pendingA4SavePath.clear();
-  m_noteManager.saveNoteAsync(copy, p, [p](bool ok) {
-    if (!ok) qWarning() << "A4 flush save failed" << p;
+  m_noteManager.saveNoteAsync(copy, p, [this, p](bool ok) {
+    if (!ok)
+      qWarning() << "A4 flush save failed" << p;
+    else
+      mirrorNoteIfNeeded(p);
   });
 }
 
@@ -10808,6 +10856,8 @@ void MainWindow::onOpenSettings() {
               m_radialFab->setVisible(radial);
 #endif
           });
+  connect(&dlg, &SettingsDialog::storagePrefsChanged, this,
+          [this]() { applyStoragePrefsToLibrary(); });
   connect(&dlg, &SettingsDialog::logoutRequested, this, [this]() {
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     st.remove(QStringLiteral("session_id"));

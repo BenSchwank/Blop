@@ -167,6 +167,8 @@ qt_add_executable(Blop
     src/ui/librarytagspanel.h
     src/ui/cloudstoragestore.cpp
     src/ui/cloudstoragestore.h
+    src/ui/storageprefs.cpp
+    src/ui/storageprefs.h
     src/ui/blop_dialogs.cpp
     src/ui/blop_dialogs.h
     src/ui/introscreen.h
