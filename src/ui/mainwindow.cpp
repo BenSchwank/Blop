@@ -7752,6 +7752,9 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
               "Modus: Lokal + Cloud — Notizen werden gespiegelt.\n"
               "Blop Study bleibt auf Supabase (Konto & Lernmaterial).")
               .arg(item->text()));
+#ifdef Q_OS_ANDROID
+      onToggleSidebar();
+#endif
       return;
     }
     navigateLibraryToPath(path);
