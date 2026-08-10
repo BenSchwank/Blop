@@ -5822,6 +5822,38 @@ bool InterceptingWebPage::acceptNavigationRequest(const QUrl &url, NavigationTyp
     }
     return QWebEnginePage::acceptNavigationRequest(url, type, isMainFrame);
 }
+
+QWebEnginePage *InterceptingWebPage::createWindow(WebWindowType type) {
+  Q_UNUSED(type);
+  // Google Identity Services uses a popup. Host it in a small dialog that
+  // shares this profile (cookies / session) and closes when the popup finishes.
+  auto *dlg = new QDialog(qobject_cast<QWidget *>(parent()));
+  dlg->setAttribute(Qt::WA_DeleteOnClose);
+  dlg->setWindowTitle(QStringLiteral("Google Anmeldung"));
+  dlg->resize(480, 640);
+  auto *lay = new QVBoxLayout(dlg);
+  lay->setContentsMargins(0, 0, 0, 0);
+  auto *view = new QWebEngineView(dlg);
+  lay->addWidget(view);
+  auto *popupPage = new QWebEnginePage(profile(), view);
+  view->setPage(popupPage);
+  QObject::connect(popupPage, &QWebEnginePage::windowCloseRequested, dlg,
+                   &QDialog::close);
+  // If GIS navigates back to blop-study with a session, close the popup.
+  QObject::connect(popupPage, &QWebEnginePage::urlChanged, dlg,
+                   [dlg](const QUrl &u) {
+                     const QString h = u.host();
+                     if ((h == QLatin1String("www.blop-study.com") ||
+                          h == QLatin1String("blop-study.com")) &&
+                         !u.path().contains(QLatin1String("accounts.google"))) {
+                       QTimer::singleShot(400, dlg, &QDialog::close);
+                     }
+                   });
+  dlg->show();
+  dlg->raise();
+  dlg->activateWindow();
+  return popupPage;
+}
 #endif
 
 #ifdef Q_OS_ANDROID
@@ -6064,6 +6096,11 @@ void MainWindow::setupWebBrowser() {
     pf->setPersistentStoragePath(weRoot + QStringLiteral("/storage"));
     pf->setCachePath(weRoot + QStringLiteral("/cache"));
     pf->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
+    // Google GIS blocks QtWebEngine's default UA; present as desktop Chrome.
+    pf->setHttpUserAgent(
+        QStringLiteral(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"));
   }
 
   m_customWebView = new QWebEngineView(m_studyContainer);
@@ -6175,7 +6212,11 @@ void MainWindow::setupWebBrowser() {
     view->page()->runJavaScript(
         R"js(
           (function() {
-            window.isBlopNativeApp = true;
+            // Desktop Study login uses GIS in the WebEngine (authorized web
+            // client). Do NOT set isBlopNativeApp — that forced the broken
+            // loopback OAuth path (Google Error 400 invalid_request).
+            // Android still sets isBlopNativeApp via AndroidWebView.qml.
+            window.isBlopDesktopApp = true;
             if (localStorage.getItem('trigger_google_login') === '1') {
                 localStorage.removeItem('trigger_google_login');
                 return 'TRIGGER_GOOGLE_LOGIN';
@@ -6188,6 +6229,7 @@ void MainWindow::setupWebBrowser() {
         [this](const QVariant &result) {
           QString resStr = result.toString().trimmed();
           if (resStr == "TRIGGER_GOOGLE_LOGIN") {
+            // Fallback: system-browser GIS bridge (also used by Drive connect).
             GoogleAuthManager::instance().login();
           } else if (!resStr.isEmpty()) {
             QString currentUser =
