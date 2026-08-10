@@ -1669,6 +1669,13 @@ MainWindow::MainWindow(QWidget *parent)
           st.sync();
           // Unlock native UI even when Study WebView is black / runJavaScript fails.
           updateSidebarUser(username);
+#ifndef Q_OS_ANDROID
+          // User finished Google in the system browser — bring Blop back.
+          raise();
+          activateWindow();
+          if (windowHandle())
+            windowHandle()->requestActivate();
+#endif
 
           // Sync Study WebView localStorage when the embedded view works (optional).
           QString js = QString(

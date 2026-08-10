@@ -603,6 +603,30 @@ class GoogleVerifyRequest(BaseModel):
     token: str
     client_id: Optional[str] = None
 
+
+class GoogleDesktopCompleteRequest(BaseModel):
+    state: str
+    credential: str
+
+
+# Short-lived desktop GIS handoff (state -> id_token). In-memory is enough on
+# single-instance Render free tier; avoids Chrome blocking https→127.0.0.1.
+_DESKTOP_GOOGLE_PENDING: dict = {}
+_DESKTOP_GOOGLE_PENDING_LOCK = threading.Lock()
+_DESKTOP_GOOGLE_PENDING_TTL_SEC = 300
+
+
+def _desktop_google_pending_purge(now: Optional[float] = None) -> None:
+    ts = time.time() if now is None else now
+    dead = [
+        k
+        for k, v in _DESKTOP_GOOGLE_PENDING.items()
+        if ts - float(v.get("ts", 0)) > _DESKTOP_GOOGLE_PENDING_TTL_SEC
+    ]
+    for k in dead:
+        _DESKTOP_GOOGLE_PENDING.pop(k, None)
+
+
 @app.get("/api/search")
 def global_search(http_request: Request, username: str = "", q: str = "", session_id: str = ""):
     """Searches through all folders and files for the given user"""
@@ -814,16 +838,16 @@ def logout(session_id: str = Body(..., embed=True)):
     return {"message": "Logged out successfully"}
 
 @app.get("/api/auth/google/desktop/bridge")
-def google_desktop_bridge(port: int = Query(..., ge=1024, le=65535),
-                          state: str = Query(..., min_length=8, max_length=128)):
+def google_desktop_bridge(state: str = Query(..., min_length=8, max_length=128),
+                          port: Optional[int] = Query(None, ge=1024, le=65535)):
     """
     Desktop Google login bridge (GIS on authorized web origin).
 
-    The Qt desktop app opens this page in the system browser, then receives the
-    Google ID token on http://127.0.0.1:{port}/?credential=...&state=...
-
-    This avoids Google's OAuth policy block on Web-client + loopback redirects
-    (Error 400 invalid_request / "doesn't comply with OAuth 2.0 policy").
+    Flow (no localhost redirect — Chrome blocks https→127.0.0.1):
+      1) Qt opens this page with ?state=...
+      2) GIS callback POSTs credential to /api/auth/google/desktop/complete
+      3) Qt polls /api/auth/google/desktop/claim?state=...
+    `port` is accepted for older clients but ignored.
     """
     import html
 
@@ -839,9 +863,8 @@ def google_desktop_bridge(port: int = Query(..., ge=1024, le=65535),
         client_id = "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com"
 
     safe_client = html.escape(client_id, quote=True)
-    callback = f"http://127.0.0.1:{int(port)}/callback"
-    js_callback = json.dumps(callback)
     js_state = json.dumps(state)
+    complete_url = json.dumps("/api/auth/google/desktop/complete")
 
     page = f"""<!DOCTYPE html>
 <html lang="de">
@@ -867,12 +890,13 @@ def google_desktop_bridge(port: int = Query(..., ge=1024, le=65535),
     p {{ margin: 0 0 20px; color: #a8aec2; font-size: 14px; line-height: 1.45; }}
     #g_id_signin {{ display: flex; justify-content: center; }}
     .err {{ display:none; margin-top: 14px; color: #ff8f8f; font-size: 13px; }}
+    .ok {{ display:none; margin-top: 14px; color: #9dffc9; font-size: 14px; }}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Mit Google anmelden</h1>
-    <p>Melde dich für Blop an. Danach kehrst du automatisch zur App zurück.</p>
+    <p id="hint">Melde dich für Blop an. Danach kehrst du automatisch zur App zurück — dieses Fenster kannst du schließen.</p>
     <div id="g_id_onload"
          data-client_id="{safe_client}"
          data-context="signin"
@@ -889,17 +913,30 @@ def google_desktop_bridge(port: int = Query(..., ge=1024, le=65535),
          data-logo_alignment="center">
     </div>
     <div class="err" id="err"></div>
+    <div class="ok" id="ok">Anmeldung an Blop übermittelt. Du kannst dieses Fenster schließen und zu Blop zurückkehren.</div>
   </div>
   <script>
-    const CALLBACK = {js_callback};
     const STATE = {js_state};
-    function blopDesktopGoogleCb(response) {{
+    const COMPLETE_URL = {complete_url};
+    async function blopDesktopGoogleCb(response) {{
       try {{
         const cred = (response && response.credential) ? String(response.credential) : "";
         if (!cred) throw new Error("Kein Google-Token erhalten");
-        const url = CALLBACK + "?credential=" + encodeURIComponent(cred)
-                  + "&state=" + encodeURIComponent(STATE);
-        window.location.replace(url);
+        const res = await fetch(COMPLETE_URL, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ state: STATE, credential: cred }})
+        }});
+        const data = await res.json().catch(() => ({{}}));
+        if (!res.ok) {{
+          throw new Error((data && data.detail) ? String(data.detail) : ("HTTP " + res.status));
+        }}
+        const btn = document.getElementById("g_id_signin");
+        if (btn) btn.style.display = "none";
+        const hint = document.getElementById("hint");
+        if (hint) hint.textContent = "Fertig — zurück zu Blop.";
+        document.getElementById("ok").style.display = "block";
+        document.getElementById("err").style.display = "none";
       }} catch (e) {{
         const el = document.getElementById("err");
         el.style.display = "block";
@@ -911,6 +948,36 @@ def google_desktop_bridge(port: int = Query(..., ge=1024, le=65535),
 </body>
 </html>"""
     return HTMLResponse(content=page)
+
+
+@app.post("/api/auth/google/desktop/complete")
+def google_desktop_complete(req: GoogleDesktopCompleteRequest):
+    """Browser posts GIS credential; desktop app claims it via /claim."""
+    state = (req.state or "").strip()
+    credential = (req.credential or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", state):
+        raise HTTPException(status_code=400, detail="Ungültiger state")
+    if not credential or credential.count(".") < 2:
+        raise HTTPException(status_code=400, detail="Ungültiges Google-Token")
+    now = time.time()
+    with _DESKTOP_GOOGLE_PENDING_LOCK:
+        _desktop_google_pending_purge(now)
+        _DESKTOP_GOOGLE_PENDING[state] = {"credential": credential, "ts": now}
+    return {"ok": True}
+
+
+@app.get("/api/auth/google/desktop/claim")
+def google_desktop_claim(state: str = Query(..., min_length=8, max_length=128)):
+    """Desktop app polls until the browser has posted a credential for state."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", state or ""):
+        raise HTTPException(status_code=400, detail="Ungültiger state")
+    now = time.time()
+    with _DESKTOP_GOOGLE_PENDING_LOCK:
+        _desktop_google_pending_purge(now)
+        item = _DESKTOP_GOOGLE_PENDING.pop(state, None)
+    if not item:
+        return {"ready": False}
+    return {"ready": True, "credential": item.get("credential", "")}
 
 
 @app.post("/api/auth/google/verify")

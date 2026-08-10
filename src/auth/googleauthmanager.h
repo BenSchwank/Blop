@@ -6,7 +6,6 @@
 
 class QNetworkAccessManager;
 #ifndef Q_OS_ANDROID
-class QTcpServer;
 class QTimer;
 #endif
 
@@ -25,7 +24,7 @@ public:
     void cancelPendingLogin();
     bool isLoginInProgress() const { return m_loginInProgress; }
 #else
-    /// Cancel an in-flight desktop bridge login (loopback server + timeout).
+    /// Cancel an in-flight desktop bridge login (poll + timeout).
     void cancelPendingLogin();
     bool isLoginInProgress() const { return m_loginInProgress; }
 #endif
@@ -81,20 +80,22 @@ private:
     /// Serial for resume-grace timers so a late deep link wins over abandon.
     int m_authResumeGeneration{0};
 #else
-    /// Desktop: open system browser to blop-study.com GIS bridge (authorized
-    /// Web client origin), then receive the id_token on a localhost callback.
-    /// Avoids Google's policy block on Web-client + loopback OAuth.
+    /// Desktop: open system browser to blop-study.com GIS bridge, then poll
+    /// /api/auth/google/desktop/claim (no localhost redirect — Chrome blocks
+    /// https→127.0.0.1 / Private Network Access).
     void startDesktopBridgeLogin();
-    void onLoopbackConnection();
+    void pollDesktopClaim();
     void finishDesktopBridge(const QString &idToken, const QString &error);
-    void stopLoopbackServer();
+    void stopDesktopBridgeTimers();
     static QString generateRandomString(int length);
 
-    QTcpServer *m_loopbackServer{nullptr};
+    QNetworkAccessManager *m_networkManager{nullptr};
     QTimer *m_bridgeTimeout{nullptr};
+    QTimer *m_bridgePoll{nullptr};
     QString m_bridgeState;
     bool m_loginInProgress{false};
     qint64 m_loginInProgressSinceMs{0};
+    bool m_claimInFlight{false};
 #endif
 
     QString m_email;

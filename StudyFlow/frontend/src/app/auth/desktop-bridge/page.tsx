@@ -5,44 +5,47 @@ import { useSearchParams } from "next/navigation";
 import Script from "next/script";
 
 /**
- * Desktop Qt bridge: system browser opens this page (authorized GIS origin),
- * then redirects the Google ID token back to http://127.0.0.1:{port}/callback.
+ * Desktop Qt bridge: system browser opens this page (authorized GIS origin).
+ * Credential is POSTed to the backend; the Qt app polls /claim — no localhost
+ * redirect (Chrome Private Network Access blocks https→127.0.0.1).
  */
 function DesktopBridgeInner() {
   const params = useSearchParams();
-  const port = Number(params.get("port") || "0");
   const state = params.get("state") || "";
   const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
 
   const clientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     "571766217-ruevgp3i4pj9t0imddardh6mnc3rqfah.apps.googleusercontent.com";
 
-  const valid = useMemo(() => {
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) return false;
-    if (!/^[A-Za-z0-9_-]{8,128}$/.test(state)) return false;
-    return true;
-  }, [port, state]);
+  const valid = useMemo(() => /^[A-Za-z0-9_-]{8,128}$/.test(state), [state]);
 
   useEffect(() => {
     if (!valid) {
-      setError("Ungültige Bridge-Parameter (port/state). Bitte in Blop erneut anmelden.");
+      setError("Ungültige Bridge-Parameter (state). Bitte in Blop erneut anmelden.");
       return;
     }
-    (window as any).blopDesktopGoogleCb = (response: any) => {
+    (window as any).blopDesktopGoogleCb = async (response: any) => {
       try {
         const cred = response?.credential ? String(response.credential) : "";
         if (!cred) throw new Error("Kein Google-Token erhalten");
-        const url =
-          `http://127.0.0.1:${port}/callback` +
-          `?credential=${encodeURIComponent(cred)}` +
-          `&state=${encodeURIComponent(state)}`;
-        window.location.replace(url);
+        const res = await fetch("/api/auth/google/desktop/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state, credential: cred }),
+        });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          throw new Error(data?.detail ? String(data.detail) : `HTTP ${res.status}`);
+        }
+        setDone(true);
+        setError("");
       } catch (e: any) {
         setError(e?.message || "Google-Anmeldung fehlgeschlagen");
       }
     };
-  }, [valid, port, state]);
+  }, [valid, state]);
 
   return (
     <div
@@ -71,9 +74,11 @@ function DesktopBridgeInner() {
       >
         <h1 style={{ margin: "0 0 8px", fontSize: 22 }}>Mit Google anmelden</h1>
         <p style={{ margin: "0 0 20px", color: "#a8aec2", fontSize: 14, lineHeight: 1.45 }}>
-          Melde dich für Blop an. Danach kehrst du automatisch zur App zurück.
+          {done
+            ? "Fertig — zurück zu Blop. Dieses Fenster kannst du schließen."
+            : "Melde dich für Blop an. Die App holt die Anmeldung automatisch ab."}
         </p>
-        {valid ? (
+        {valid && !done ? (
           <>
             <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
             <div
@@ -98,6 +103,11 @@ function DesktopBridgeInner() {
         ) : null}
         {error ? (
           <p style={{ marginTop: 14, color: "#ff8f8f", fontSize: 13 }}>{error}</p>
+        ) : null}
+        {done ? (
+          <p style={{ marginTop: 14, color: "#9dffc9", fontSize: 14 }}>
+            Anmeldung an Blop übermittelt.
+          </p>
         ) : null}
       </div>
     </div>
