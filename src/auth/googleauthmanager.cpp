@@ -323,12 +323,13 @@ void GoogleAuthManager::handleExternalAuthResume() {
     qInfo() << "GoogleAuthManager: auth resume ignored (no login in progress)";
     return;
   }
-  // Deep link often arrives in the same resume wave as onResume. Wait briefly
-  // so a successful redirect is not falsely treated as cancel.
+  // Deep link often arrives slightly after onResume (redirect trampoline →
+  // BlopActivity). Wait long enough so a successful redirect is not falsely
+  // treated as cancel; user account-picker / 2FA returns are also covered.
   const int gen = ++m_authResumeGeneration;
-  qInfo() << "GoogleAuthManager: activity resumed during PKCE — grace 2500ms"
+  qInfo() << "GoogleAuthManager: activity resumed during PKCE — grace 12000ms"
           << "gen=" << gen;
-  QTimer::singleShot(2500, this, [this, gen]() {
+  QTimer::singleShot(12000, this, [this, gen]() {
     if (gen != m_authResumeGeneration)
       return;
     if (!m_loginInProgress)

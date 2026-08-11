@@ -132,14 +132,13 @@ public class BlopActivity extends QtActivity {
             CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
             builder.setShowTitle(true);
             builder.setShareState(CustomTabsIntent.SHARE_STATE_OFF);
-            builder.setUrlBarHidingEnabled(true);
+            builder.setUrlBarHidingEnabled(false);
             CustomTabsIntent intent = builder.build();
             intent.intent.setPackage(packageName);
-            // Keep the Custom Tab in our task. NO_HISTORY closes the tab when
-            // Google redirects to our scheme so onNewIntent receives the code.
+            // AppAuth pattern: NO_HISTORY so the Custom Tab closes when the
+            // redirect trampoline takes focus. Do NOT add CLEAR_TOP/SINGLE_TOP
+            // on Chrome's activity — that caused flaky handoff on some OEMs.
             intent.intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
-            intent.intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            intent.intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             intent.launchUrl(activity, uri);
             return true;
         } catch (Exception e) {

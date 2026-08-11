@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Simulate Android OAuth redirect URI shapes that Blop must accept.
 
-Mirrors what Android Uri + Qt QUrlQuery extract for:
-  com.benschwank.blop:/oauth2redirect?code=...&state=...   (path form, host null)
-  com.benschwank.blop://oauth2redirect?code=...&state=...  (host form)
+Mirrors what Android Uri + Qt QUrlQuery extract for reverse-client-id and
+legacy package schemes (path-form and host-form).
 
-Exit 0 if both yield code+state; exit 1 otherwise.
+Exit 0 if all cases yield code+state; exit 1 otherwise.
 """
 from urllib.parse import urlparse, parse_qs
+
+REVERSE = (
+    "com.googleusercontent.apps.571766217-5pcb10b1bgdv5g31vjgfvftdudufjc4s"
+)
+LEGACY = "com.benschwank.blop"
 
 
 def extract(uri: str) -> tuple[str, str, str | None, str]:
@@ -20,17 +24,24 @@ def extract(uri: str) -> tuple[str, str, str | None, str]:
 
 def main() -> int:
     cases = [
-        ("path-form", "com.benschwank.blop:/oauth2redirect?code=ABC&state=XYZ"),
-        ("host-form", "com.benschwank.blop://oauth2redirect?code=ABC&state=XYZ"),
-        ("host-slash", "com.benschwank.blop://oauth2redirect/?code=ABC&state=XYZ"),
+        ("reverse-path", f"{REVERSE}:/oauth2redirect?code=ABC&state=XYZ"),
+        ("reverse-host", f"{REVERSE}://oauth2redirect?code=ABC&state=XYZ"),
+        ("reverse-host-slash", f"{REVERSE}://oauth2redirect/?code=ABC&state=XYZ"),
+        ("legacy-path", f"{LEGACY}:/oauth2redirect?code=ABC&state=XYZ"),
+        ("legacy-host", f"{LEGACY}://oauth2redirect?code=ABC&state=XYZ"),
+        ("legacy-host-slash", f"{LEGACY}://oauth2redirect/?code=ABC&state=XYZ"),
     ]
     ok = True
     for name, uri in cases:
         scheme, path, host, summary = extract(uri)
         has = "ABC" in summary and "XYZ" in summary
-        print(f"{name}: scheme={scheme!r} host={host!r} path={path!r} → {summary} {'OK' if has else 'FAIL'}")
-        ok = ok and has and scheme == "com.benschwank.blop"
-    # Expected toast diagnostics: host=None for path-form is NOT an error.
+        expect_scheme = REVERSE if name.startswith("reverse") else LEGACY
+        good = has and scheme == expect_scheme
+        print(
+            f"{name}: scheme={scheme!r} host={host!r} path={path!r} "
+            f"→ {summary} {'OK' if good else 'FAIL'}"
+        )
+        ok = ok and good
     print("note: host=None with path=/oauth2redirect is the expected single-slash shape")
     return 0 if ok else 1
 

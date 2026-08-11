@@ -1714,8 +1714,8 @@ MainWindow::MainWindow(QWidget *parent)
         friendly = QStringLiteral(
             "Google hat dich nicht zurück in die App gebracht "
             "(oft bleibt der Browser bei google.com hängen). "
-            "Schließe den Google-Tab und tippe erneut auf "
-            "„Über Google anmelden“.");
+            "Schließe den Google-Tab vollständig, öffne Blop erneut "
+            "und tippe noch einmal auf „Über Google anmelden“.");
       else if (error.contains(QStringLiteral("token_exchange")))
         friendly = QStringLiteral(
             "Google konnte den Login nicht bestätigen. Prüfe die "
