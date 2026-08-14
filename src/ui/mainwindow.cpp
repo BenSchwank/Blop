@@ -95,6 +95,7 @@
 #include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
+#include <QAction>
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
@@ -216,6 +217,32 @@ static const char *BLOP_VERSION = BLOP_VERSION_STR;
 
 /// Embedded Blop Study base URL (Android QML appends "/?native=1" for embedded entry).
 static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
+
+static QColor libraryNavTint(const QString &iconKey) {
+  if (iconKey == QLatin1String("home"))
+    return QColor(QStringLiteral("#A78BFA"));
+  if (iconKey == QLatin1String("folder"))
+    return QColor(QStringLiteral("#E8C26A"));
+  if (iconKey == QLatin1String("device"))
+    return QColor(QStringLiteral("#7DD3FC"));
+  if (iconKey == QLatin1String("cloud"))
+    return QColor(QStringLiteral("#60A5FA"));
+  if (iconKey == QLatin1String("drive"))
+    return QColor(QStringLiteral("#34A853"));
+  if (iconKey == QLatin1String("dropbox"))
+    return QColor(QStringLiteral("#0061FF"));
+  if (iconKey == QLatin1String("onedrive"))
+    return QColor(QStringLiteral("#0078D4"));
+  return BlopTheme::textSecondary();
+}
+
+static QColor libraryPageBackground() {
+  if (!BlopTheme::instance().isDark())
+    return BlopTheme::surfaceBackground();
+  // Warm charcoal — not true black, so tiles and icons can lift.
+  // Editor canvas stays NoteChrome black.
+  return QColor(0x11, 0x0E, 0x1C);
+}
 
 namespace {
 
@@ -1098,14 +1125,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
 
     QRect iconRect(rect.left() + iconOffset, rect.center().y() - iconSize / 2,
                    iconSize, iconSize);
-    QIcon::Mode mode = selected ? QIcon::Selected : QIcon::Normal;
     if (selected) {
-      icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::On);
+      icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
     } else {
-      // v3.18.5: 0.7 opacity on a near-grey icon is invisible in Light
-      // mode; 0.85 still reads as "muted" against either palette.
-      painter->setOpacity(isDark ? 0.7 : 0.85);
-      icon.paint(painter, iconRect, Qt::AlignCenter, mode, QIcon::Off);
+      painter->setOpacity(isDark ? 0.92 : 0.95);
+      icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
       painter->setOpacity(1.0);
     }
 
@@ -1181,28 +1205,27 @@ void ModernItemDelegate::paint(QPainter *painter,
     painter->translate(-rect.center());
   }
 
-  // Soft tile plate — icon-forward, less boxy than the old solid card.
-  QColor bgColor = BlopTheme::surfaceBase();
-  bgColor.setAlpha(hovered ? 230 : 200);
+  // Soft tile plate — opaque elevated card so icons don't sink into black.
+  QColor bgColor = BlopTheme::surfaceElevated();
   if (selected) {
     bgColor = m_window->currentAccentColor();
-    bgColor.setAlpha(48);
+    bgColor.setAlpha(56);
   } else if (hovered) {
-    bgColor = BlopTheme::surfaceElevated();
-    bgColor.setAlpha(220);
+    bgColor = BlopTheme::surfaceMuted();
   }
 
   painter->setBrush(bgColor);
   QColor border = selected ? m_window->currentAccentColor()
                            : BlopTheme::borderSubtle();
   if (!selected)
-    border.setAlpha(hovered ? 90 : 55);
+    border.setAlpha(hovered ? 120 : 80);
   painter->setPen(QPen(border, 1.0));
   const int radius = UiScale::dp(18);
   painter->drawRoundedRect(rect, radius, radius);
 
   QString fileName = index.data(Qt::DisplayRole).toString();
   QIcon icon;
+  QColor iconColor;
   const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
   const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
   bool isFolder = index.data(Qt::UserRole + 1).toBool();
@@ -1217,19 +1240,19 @@ void ModernItemDelegate::paint(QPainter *painter,
     isFolder = true;
 
   if (isBnote) {
-    icon = m_window->createModernIcon(QStringLiteral("note_bnote"),
-                                      QColor(QStringLiteral("#B8B4E8")));
+    iconColor = QColor(QStringLiteral("#9B8CFF"));
+    icon = m_window->createModernIcon(QStringLiteral("note_bnote"), iconColor);
   } else if (isBlop) {
-    icon = m_window->createModernIcon(QStringLiteral("note_blop"),
-                                      m_window->currentAccentColor());
+    iconColor = m_window->currentAccentColor();
+    icon = m_window->createModernIcon(QStringLiteral("note_blop"), iconColor);
   } else if (isFolder) {
-    icon = m_window->createModernIcon(QStringLiteral("folder"),
-                                      QColor(QStringLiteral("#E8C26A")));
+    iconColor = QColor(QStringLiteral("#E8C26A"));
+    icon = m_window->createModernIcon(QStringLiteral("folder"), iconColor);
   } else {
     icon = index.data(Qt::DecorationRole).value<QIcon>();
+    iconColor = QColor(QStringLiteral("#E8C26A"));
     if (icon.isNull())
-      icon = m_window->createModernIcon(QStringLiteral("folder"),
-                                        QColor(QStringLiteral("#E8C26A")));
+      icon = m_window->createModernIcon(QStringLiteral("folder"), iconColor);
   }
 
   // Clean caption: strip Blop extensions so tiles read as product names.
@@ -1257,6 +1280,11 @@ void ModernItemDelegate::paint(QPainter *painter,
     iconDim = qMax(16, (int)(iconDim * iconShrink));
     QRect iconRect(rect.left() + 14, rect.center().y() - iconDim / 2, iconDim,
                    iconDim);
+    QColor halo = iconColor;
+    halo.setAlpha(32);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(halo);
+    painter->drawEllipse(iconRect.adjusted(-4, -4, 4, 4));
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
     QRect textRect = rect;
     textRect.setLeft(iconRect.right() + 14);
@@ -1281,6 +1309,13 @@ void ModernItemDelegate::paint(QPainter *painter,
     int contentHeight = iconDim + textH + UiScale::dp(6);
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
     QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim, iconDim);
+
+    QColor halo = iconColor;
+    halo.setAlpha(38);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(halo);
+    const int pad = qMax(4, iconDim / 10);
+    painter->drawEllipse(iconRect.adjusted(-pad, -pad, pad, pad));
 
     icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 
@@ -1924,6 +1959,27 @@ void MainWindow::applyThemeRefresh() {
 
   // Nudge the file-list viewport so AndroidTileDelegate re-paints with
   // the new card color.
+  if (m_overviewContainer) {
+    m_overviewContainer->setStyleSheet(
+        QStringLiteral("QWidget#OverviewContainer { background-color: %1; }")
+            .arg(libraryPageBackground().name(QColor::HexRgb)));
+  }
+  if (m_overviewSearchBar) {
+    const auto acts = m_overviewSearchBar->actions();
+    for (QAction *a : acts) {
+      if (a)
+        a->setIcon(createModernIcon(QStringLiteral("search"),
+                                    BlopTheme::textSecondary()));
+    }
+  }
+  if (m_libraryOrgBar)
+    m_libraryOrgBar->setAccentColor(m_currentAccentColor);
+  if (m_lblEmptyState) {
+    m_lblEmptyState->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 16px; font-weight: 600;"
+                       " letter-spacing: -0.1px;")
+            .arg(BlopTheme::textSecondary().name(QColor::HexRgb)));
+  }
   if (m_fileListView && m_fileListView->viewport())
     m_fileListView->viewport()->update();
   // Force a polish pass on the entire MainWindow so any QSS-tagged
@@ -1948,7 +2004,6 @@ void MainWindow::applyThemeRefresh() {
   // the Light/Dark switch is fully reflected in the custom-painted
   // nav list (QSS rules don't reach the delegate).
   if (m_navSidebar) {
-    const QColor navIcon = BlopTheme::textSecondary();
     for (int i = 0; i < m_navSidebar->count(); ++i) {
       QListWidgetItem *it = m_navSidebar->item(i);
       if (!it)
@@ -1958,7 +2013,7 @@ void MainWindow::applyThemeRefresh() {
         continue;
       const QString iconKey = it->data(Qt::UserRole + 11).toString();
       if (!iconKey.isEmpty()) {
-        it->setIcon(createModernIcon(iconKey, navIcon));
+        it->setIcon(createModernIcon(iconKey, libraryNavTint(iconKey)));
       }
     }
     if (m_navSidebar->viewport())
@@ -4034,6 +4089,13 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.setBrush(sheen);
     p.drawRoundedRect(QRectF(16, 24, 32, 8), 3, 3);
   } else if (name == "cloud") {
+    QColor fill = color;
+    fill.setAlpha(70);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawEllipse(12, 28, 16, 16);
+    p.drawEllipse(24, 20, 20, 20);
+    p.drawEllipse(40, 28, 14, 14);
     p.setPen(QPen(color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.setBrush(Qt::NoBrush);
     p.drawEllipse(12, 28, 16, 16);
@@ -4046,6 +4108,13 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawLine(22, 30, 42, 20);
     p.drawLine(22, 34, 42, 46);
   } else if (name == "device") {
+    QColor fill = color;
+    fill.setAlpha(50);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawRoundedRect(20, 14, 24, 36, 4, 4);
+    p.setPen(QPen(color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
     p.drawRoundedRect(20, 14, 24, 36, 4, 4);
     p.drawLine(20, 42, 44, 42);
     p.setPen(QPen(color, 2));
@@ -4135,16 +4204,17 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawRoundedRect(22, 15, 24, 24, 3, 3);
     p.drawRoundedRect(28, 10, 24, 24, 3, 3);
   } else if (name == "note_bnote") {
-    // Soft A4 page plate with ruled lines.
+    // Soft A4 page plate with ruled lines — stronger fill so tiles aren't
+    // just the same grey stroke as chrome icons.
     p.setPen(Qt::NoPen);
     QColor plate = color;
-    plate.setAlpha(36);
+    plate.setAlpha(110);
     p.setBrush(plate);
     p.drawRoundedRect(QRectF(15, 10, 34, 44), 6, 6);
     p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(color, 2.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawRoundedRect(QRectF(15, 10, 34, 44), 6, 6);
-    p.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap));
+    p.setPen(QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap));
     p.drawLine(22, 22, 42, 22);
     p.drawLine(22, 30, 42, 30);
     p.drawLine(22, 38, 36, 38);
@@ -4152,13 +4222,13 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     // Infinite canvas tile with quiet grid.
     p.setPen(Qt::NoPen);
     QColor plate = color;
-    plate.setAlpha(40);
+    plate.setAlpha(120);
     p.setBrush(plate);
     p.drawRoundedRect(QRectF(12, 12, 40, 40), 8, 8);
     p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(color, 2.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawRoundedRect(QRectF(12, 12, 40, 40), 8, 8);
-    p.setPen(QPen(color, 1.4, Qt::SolidLine, Qt::RoundCap));
+    p.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap));
     p.drawLine(25, 16, 25, 48);
     p.drawLine(39, 16, 39, 48);
     p.drawLine(16, 25, 48, 25);
@@ -4656,10 +4726,10 @@ void MainWindow::setupUi() {
 
   m_rightStack = new QStackedWidget(this);
   m_overviewContainer = new QWidget(this);
-#ifdef Q_OS_ANDROID
+  m_overviewContainer->setObjectName(QStringLiteral("OverviewContainer"));
   m_overviewContainer->setStyleSheet(
-      BlopTheme::themed(QStringLiteral("background-color: #0D0D12;")));
-#endif
+      QStringLiteral("QWidget#OverviewContainer { background-color: %1; }")
+          .arg(libraryPageBackground().name(QColor::HexRgb)));
   // KEIN installEventFilter - damit Klicks auf Buttons korrekt weitergeleitet werden!
   QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 #ifdef Q_OS_ANDROID
@@ -4730,15 +4800,15 @@ void MainWindow::setupUi() {
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
       "QPushButton {"
-      "  background-color: transparent;"
-      "  color: #E8E4FF;"
+      "  background-color: #7C5CFC;"
+      "  color: #FFFFFF;"
       "  border-radius: 12px;"
-      "  padding: 0 12px;"
-      "  font-weight: 600;"
+      "  padding: 0 14px;"
+      "  font-weight: 700;"
       "  font-size: 12px;"
-      "  border: 1px solid rgba(124,92,252,0.55);"
+      "  border: none;"
       "}"
-      "QPushButton:pressed { background-color: rgba(124,92,252,0.16); }"
+      "QPushButton:pressed { background-color: #6A4DE6; }"
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   BlopRipple::attachPressFeedback(btnNewNote, 0.94);
@@ -4777,13 +4847,13 @@ void MainWindow::setupUi() {
       "QLineEdit {"
       "  background-color: #1A1829;"
       "  color: #F4F5FB;"
-      "  border: 1px solid #201E2E;"
+      "  border: 1px solid #2A2740;"
       "  border-radius: 12px;"
-      "  padding: 0 14px;"
+      "  padding: 0 14px 0 8px;"
       "  font-size: 12px;"
       "}"
       "QLineEdit:focus {"
-      "  border: 1px solid #5E5CE6;"
+      "  border: 1px solid #7C5CFC;"
       "}"
   ));
   headerLayout->addWidget(m_overviewSearchBar);
@@ -4818,16 +4888,16 @@ void MainWindow::setupUi() {
   m_overviewSearchBar->setFixedHeight(UiScale::dp(40));
   m_overviewSearchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
-      "  background-color: #14121F;"
+      "  background-color: #1A1829;"
       "  color: #F4F5FB;"
-      "  border: 1px solid rgba(120,130,160,0.18);"
+      "  border: 1px solid rgba(140,130,190,0.28);"
       "  border-radius: 12px;"
-      "  padding: 0 14px;"
+      "  padding: 0 14px 0 8px;"
       "  font-size: 13px;"
       "}"
       "QLineEdit:focus {"
-      "  border: 1px solid rgba(124,92,252,0.65);"
-      "  background-color: #171524;"
+      "  border: 1px solid rgba(124,92,252,0.75);"
+      "  background-color: #1E1B2E;"
       "}"
   ));
 
@@ -4845,7 +4915,7 @@ void MainWindow::setupUi() {
   btnNewFolder->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btnNewFolder->setCursor(Qt::PointingHandCursor);
   btnNewFolder->setIcon(createModernIcon(QStringLiteral("folder"),
-                                          QColor(QStringLiteral("#E8E4FF"))));
+                                          QColor(QStringLiteral("#E8C26A"))));
   btnNewFolder->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
   btnNewFolder->setStyleSheet(
       "QPushButton {"
@@ -4891,6 +4961,10 @@ void MainWindow::setupUi() {
   overviewLayout->addLayout(headerLayout);
 
   if (m_overviewSearchBar) {
+    auto *searchAct = new QAction(m_overviewSearchBar);
+    searchAct->setIcon(createModernIcon(QStringLiteral("search"),
+                                        BlopTheme::textSecondary()));
+    m_overviewSearchBar->addAction(searchAct, QLineEdit::LeadingPosition);
     connect(m_overviewSearchBar, &QLineEdit::textChanged, this,
             [this](const QString &) { applyLibraryFilters(); });
   }
@@ -5011,7 +5085,7 @@ void MainWindow::setupUi() {
       libraryMain);
   m_lblEmptyState->setAlignment(Qt::AlignCenter);
   m_lblEmptyState->setStyleSheet(
-      QStringLiteral("color: rgba(180,188,215,0.48); font-size: 15px; font-weight: 500;"
+      QStringLiteral("color: #B4AED4; font-size: 16px; font-weight: 600;"
                      " letter-spacing: -0.1px;"));
   m_lblEmptyState->hide();
   libraryMainLay->addWidget(m_lblEmptyState);
@@ -7275,7 +7349,7 @@ void MainWindow::setupSidebar() {
     item->setText(name);
     item->setData(Qt::UserRole + 9, 0);
     if (!isHeader) {
-      item->setIcon(createModernIcon(icon, BlopTheme::textSecondary()));
+      item->setIcon(createModernIcon(icon, libraryNavTint(icon)));
       // v3.18.5: cache icon key so applyThemeRefresh() can re-tint it
       // when the user toggles Light/Dark mode without rebuilding the
       // whole sidebar.
@@ -7298,7 +7372,7 @@ void MainWindow::setupSidebar() {
     }
   };
 
-  addItem(QStringLiteral("Alle"), QStringLiteral("folder"));
+  addItem(QStringLiteral("Alle"), QStringLiteral("home"));
   addItem(QStringLiteral("Blop Notizen"), QStringLiteral("folder"));
   addItem(QStringLiteral("Gerät"), QStringLiteral("device"));
 
@@ -7315,7 +7389,7 @@ void MainWindow::setupSidebar() {
       auto *item = new QListWidgetItem(m_navSidebar);
       item->setText(e.name);
       item->setIcon(createModernIcon(CloudStorageStore::iconForType(e.type),
-                                     BlopTheme::textSecondary()));
+                                     libraryNavTint(CloudStorageStore::iconForType(e.type))));
       item->setData(Qt::UserRole + 11, CloudStorageStore::iconForType(e.type));
       item->setData(Qt::UserRole + 5, QStringLiteral("clouds_item"));
       item->setData(Qt::UserRole + 9, 1); // indent under Cloud-Speicher
@@ -7333,7 +7407,8 @@ void MainWindow::setupSidebar() {
     auto *addCloud = new QListWidgetItem(m_navSidebar);
     addCloud->setText(QStringLiteral("Eigene Cloud hinzufügen…"));
     addCloud->setIcon(
-        createModernIcon(QStringLiteral("cloud"), BlopTheme::textSecondary()));
+        createModernIcon(QStringLiteral("cloud"),
+                         libraryNavTint(QStringLiteral("cloud"))));
     addCloud->setData(Qt::UserRole + 11, QStringLiteral("cloud"));
     addCloud->setData(Qt::UserRole + 5, QStringLiteral("clouds_add"));
     addCloud->setData(Qt::UserRole + 9, 1); // indent under Cloud-Speicher
@@ -7946,7 +8021,7 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
       child->setData(Qt::UserRole + 9, currentDepth + 1);
       child->setData(Qt::UserRole + 8, parentItem->text());
       if (info.isDir()) {
-        child->setIcon(createModernIcon("folder", BlopTheme::textSecondary()));
+        child->setIcon(createModernIcon("folder", libraryNavTint("folder")));
         child->setData(Qt::UserRole + 6, true);
         child->setData(Qt::UserRole + 3, false);
       } else {

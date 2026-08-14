@@ -58,15 +58,14 @@ TileVisual visualFor(const QModelIndex &index, MainWindow *win) {
 
   if (isDir) {
     v.iconName = QStringLiteral("folder");
-    v.iconColor = QColor(QStringLiteral("#A8B0DA"));
+    v.iconColor = QColor(QStringLiteral("#E8C26A"));
   } else if (suffix == QLatin1String("blop")) {
     v.iconName = QStringLiteral("note_blop");
     v.iconColor = win ? win->currentAccentColor()
                       : QColor(QStringLiteral("#7C6CFF"));
   } else {
-    // .bnote and any other non-folder gets the standard note glyph.
     v.iconName = QStringLiteral("note_bnote");
-    v.iconColor = QColor(QStringLiteral("#C8CCE8"));
+    v.iconColor = QColor(QStringLiteral("#9B8CFF"));
   }
   return v;
 }
@@ -161,7 +160,7 @@ void AndroidTileDelegate::paint(QPainter *painter,
              ? BlopTheme::surfaceElevated().lighter(108)
              : BlopTheme::surfaceMuted();
   }
-  painter->setPen(Qt::NoPen);
+  painter->setPen(QPen(BlopTheme::borderSubtle(), 1.0));
   painter->setBrush(bg);
   painter->drawRoundedRect(rect, UiScale::dp(16), UiScale::dp(16));
 
@@ -184,6 +183,14 @@ void AndroidTileDelegate::paint(QPainter *painter,
                                        (rect.height() - contentH) / 2);
   const QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim,
                        iconDim);
+  {
+    QColor halo = visual.iconColor;
+    halo.setAlpha(40);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(halo);
+    const int pad = qMax(UiScale::dp(4), iconDim / 10);
+    painter->drawEllipse(iconRect.adjusted(-pad, -pad, pad, pad));
+  }
   const QPixmap glyph =
       AndroidIcons::pixmap(visual.iconName, visual.iconColor, iconDim);
   if (!glyph.isNull())

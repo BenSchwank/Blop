@@ -7,8 +7,68 @@
 #include <QButtonGroup>
 #include <QColor>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSettings>
+#include <QtMath>
+
+namespace {
+QIcon chipGlyph(LibraryOrgBar::SmartView view, const QColor &color) {
+  const int s = 32;
+  QPixmap pm(s, s);
+  pm.fill(Qt::transparent);
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing, true);
+  p.setPen(QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  switch (view) {
+  case LibraryOrgBar::SmartView::All: {
+    p.drawRoundedRect(QRectF(6, 6, 8, 8), 1.6, 1.6);
+    p.drawRoundedRect(QRectF(18, 6, 8, 8), 1.6, 1.6);
+    p.drawRoundedRect(QRectF(6, 18, 8, 8), 1.6, 1.6);
+    p.drawRoundedRect(QRectF(18, 18, 8, 8), 1.6, 1.6);
+    break;
+  }
+  case LibraryOrgBar::SmartView::Favorites: {
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    const QPointF c(16, 16.5);
+    QPolygonF star;
+    for (int i = 0; i < 5; ++i) {
+      const qreal a = -M_PI / 2 + i * 2 * M_PI / 5;
+      star << QPointF(c.x() + qCos(a) * 10.0, c.y() + qSin(a) * 10.0);
+      const qreal b = a + M_PI / 5;
+      star << QPointF(c.x() + qCos(b) * 4.2, c.y() + qSin(b) * 4.2);
+    }
+    p.drawPolygon(star);
+    break;
+  }
+  case LibraryOrgBar::SmartView::Recent: {
+    p.drawEllipse(QRectF(6, 6, 20, 20));
+    p.drawLine(QPointF(16, 10), QPointF(16, 16));
+    p.drawLine(QPointF(16, 16), QPointF(21, 19));
+    break;
+  }
+  case LibraryOrgBar::SmartView::Untagged: {
+    QPainterPath tag;
+    tag.moveTo(7, 11);
+    tag.lineTo(16, 6);
+    tag.lineTo(25, 11);
+    tag.lineTo(25, 22);
+    tag.lineTo(16, 26);
+    tag.lineTo(7, 22);
+    tag.closeSubpath();
+    p.drawPath(tag);
+    p.drawEllipse(QPointF(16, 12), 1.6, 1.6);
+    break;
+  }
+  }
+  return QIcon(pm);
+}
+} // namespace
 
 LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("LibraryOrgBar"));
@@ -51,6 +111,7 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     btn->setFixedHeight(UiScale::dp(phone ? 44 : 28));
     btn->setObjectName(QStringLiteral("libraryOrgChip"));
     m_viewGroup->addButton(btn, int(c.view));
+    btn->setIconSize(QSize(UiScale::dp(14), UiScale::dp(14)));
     if (c.view == m_view)
       btn->setChecked(true);
     lay->addWidget(btn);
@@ -105,12 +166,14 @@ void LibraryOrgBar::setSmartView(SmartView view) {
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   s.setValue(QStringLiteral("ui/librarySmartView"), int(m_view));
   emit smartViewChanged(m_view);
+  rebuildStyles();
 }
 
 void LibraryOrgBar::onViewClicked(int id) {
   m_view = static_cast<SmartView>(id);
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   s.setValue(QStringLiteral("ui/librarySmartView"), int(m_view));
+  rebuildStyles();
   emit smartViewChanged(m_view);
 }
 
@@ -141,29 +204,41 @@ void LibraryOrgBar::rebuildStyles() {
   setStyleSheet(QStringLiteral(
       "QWidget#LibraryOrgBar { background: transparent; }"
       "QPushButton#libraryOrgChip {"
-      "  background: rgba(255,255,255,0.04); color: %1;"
+      "  background: rgba(255,255,255,0.07); color: %1;"
       "  border: 1px solid %2; border-radius: 14px;"
-      "  padding: 0 11px; font-size: 12px; font-weight: 600;"
+      "  padding: 0 12px 0 10px; font-size: 12px; font-weight: 600;"
       "}"
       "QPushButton#libraryOrgChip:checked {"
-      "  background: rgba(%3,%4,%5,0.22); color: %6;"
+      "  background: %7; color: #FFFFFF;"
       "  border: 1px solid %7;"
       "}"
       "QPushButton#libraryOrgChip:hover:!checked {"
-      "  background: rgba(255,255,255,0.07);"
+      "  background: rgba(255,255,255,0.11);"
       "}"
       "QPushButton#libraryOrgSort {"
-      "  background: rgba(255,255,255,0.04); color: %6;"
+      "  background: rgba(255,255,255,0.07); color: %6;"
       "  border: 1px solid %2; border-radius: 12px;"
       "  padding: 0 14px; font-size: 12px; font-weight: 600;"
       "  min-width: 72px;"
       "}"
       "QPushButton#libraryOrgSort:hover {"
-      "  border-color: %7; background: rgba(%3,%4,%5,0.14);"
+      "  border-color: %7; background: rgba(%3,%4,%5,0.18);"
       "}")
                     .arg(muted, border)
                     .arg(m_accent.red())
                     .arg(m_accent.green())
                     .arg(m_accent.blue())
                     .arg(text, accent));
+
+  if (!m_viewGroup)
+    return;
+  const QColor idle = BlopTheme::textSecondary();
+  const QList<QAbstractButton *> btns = m_viewGroup->buttons();
+  for (QAbstractButton *b : btns) {
+    if (!b)
+      continue;
+    const auto view = static_cast<SmartView>(m_viewGroup->id(b));
+    const QColor ic = b->isChecked() ? QColor(Qt::white) : idle;
+    b->setIcon(chipGlyph(view, ic));
+  }
 }

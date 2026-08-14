@@ -73,7 +73,9 @@ void setupFillBrush(QPainter *p, const QColor &c) {
 
 // Material "description" / sheet of paper with a folded corner.
 void paintNote(QPainter *p, const QColor &c) {
-  setupStrokePen(p, c, 1.8);
+  QColor fill = c;
+  fill.setAlpha(90);
+  setupFillBrush(p, fill);
   QPainterPath path;
   path.moveTo(6.5, 3.0);
   path.lineTo(15.0, 3.0);
@@ -82,13 +84,13 @@ void paintNote(QPainter *p, const QColor &c) {
   path.lineTo(6.5, 21.0);
   path.closeSubpath();
   p->drawPath(path);
-  // Folded corner detail
+  setupStrokePen(p, c, 1.8);
+  p->drawPath(path);
   QPainterPath fold;
   fold.moveTo(15.0, 3.0);
   fold.lineTo(15.0, 7.5);
   fold.lineTo(19.5, 7.5);
   p->drawPath(fold);
-  // Three text lines inside
   p->drawLine(QPointF(9.0, 12.0), QPointF(17.0, 12.0));
   p->drawLine(QPointF(9.0, 15.0), QPointF(17.0, 15.0));
   p->drawLine(QPointF(9.0, 18.0), QPointF(14.0, 18.0));
