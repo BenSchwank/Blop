@@ -2,6 +2,8 @@
 #include "blop_theme.h"
 #include "blopripple.h"
 #include "blopstyle.h"
+#include "notepreviewicon.h"
+#include <QIcon>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,7 +17,7 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground);
-    resize(400, 340);
+    resize(420, 360);
     setupUi();
 }
 
@@ -78,7 +80,8 @@ void NewNoteDialog::setupUi()
         QPushButton *btn = new QPushButton(this);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setFixedHeight(70);
+        btn->setFixedHeight(78);
+        btn->setIconSize(QSize(40, 40));
         btn->setText(text + "\n" + subtext);
         btn->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; text-align: left; padding: 10px; line-height: 1.2; font-size: 14px; }"
@@ -91,6 +94,16 @@ void NewNoteDialog::setupUi()
 
     m_btnFormatInfinite = createFormatBtn("Unendlich", "Freie Leinwand\n(Standard)");
     m_btnFormatA4 = createFormatBtn("DIN A4", "Seitenbasiert\n(Druckoptimiert)");
+    {
+      NotePreviewIcon::Spec inf;
+      inf.kind = NotePreviewIcon::Kind::Infinite;
+      inf.backgroundType = 2;
+      m_btnFormatInfinite->setIcon(QIcon(NotePreviewIcon::pixmap(inf, 48)));
+      NotePreviewIcon::Spec a4;
+      a4.kind = NotePreviewIcon::Kind::A4;
+      a4.backgroundType = 1;
+      m_btnFormatA4->setIcon(QIcon(NotePreviewIcon::pixmap(a4, 48)));
+    }
     m_btnFormatInfinite->setChecked(true); // Default
 
     m_groupFormat = new QButtonGroup(this);

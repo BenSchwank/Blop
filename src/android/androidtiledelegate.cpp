@@ -1,11 +1,13 @@
 #include "androidtiledelegate.h"
 #include "blop_diag.h"
 #include "blop_theme.h"
+#include "notepreviewicon.h"
 
 #include <QApplication>
 #include <QCursor>
 #include <QFileInfo>
 #include <QFileSystemModel>
+#include <QSortFilterProxyModel>
 #include <QFont>
 #include <QFontMetrics>
 #include <QMouseEvent>
@@ -29,46 +31,6 @@
 #include "uiscale.h"
 
 namespace {
-
-// Resolve the right glyph + colour for a model row. Folder rows come from
-// the directory model and don't have the .blop/.bnote extension.
-struct TileVisual {
-  QString iconName;
-  QColor iconColor;
-};
-
-TileVisual visualFor(const QModelIndex &index, MainWindow *win) {
-  TileVisual v;
-  // Primary: ask the QFileSystemModel directly. UserRole+1 is a fallback
-  // that QFileSystemModel doesn't actually populate, and Qt::DisplayRole
-  // can hide the file extension (e.g. when the OS / model strips it),
-  // both of which used to send notes through the folder branch.
-  bool isDir = false;
-  QString suffix;
-  const auto *fsm = qobject_cast<const QFileSystemModel *>(index.model());
-  if (fsm) {
-    isDir = fsm->isDir(index);
-    suffix = fsm->fileInfo(index).suffix().toLower();
-  } else {
-    const QString fn = index.data(Qt::DisplayRole).toString();
-    const int dot = fn.lastIndexOf(QLatin1Char('.'));
-    if (dot >= 0)
-      suffix = fn.mid(dot + 1).toLower();
-  }
-
-  if (isDir) {
-    v.iconName = QStringLiteral("folder");
-    v.iconColor = QColor(QStringLiteral("#E8C26A"));
-  } else if (suffix == QLatin1String("blop")) {
-    v.iconName = QStringLiteral("note_blop");
-    v.iconColor = win ? win->currentAccentColor()
-                      : QColor(QStringLiteral("#7C6CFF"));
-  } else {
-    v.iconName = QStringLiteral("note_bnote");
-    v.iconColor = QColor(QStringLiteral("#9B8CFF"));
-  }
-  return v;
-}
 
 static QHash<QPersistentModelIndex, double> s_tilePressScale;
 static QHash<QPersistentModelIndex, QPointer<QVariantAnimation>> s_tilePressAnim;
@@ -164,7 +126,25 @@ void AndroidTileDelegate::paint(QPainter *painter,
   painter->setBrush(bg);
   painter->drawRoundedRect(rect, UiScale::dp(16), UiScale::dp(16));
 
-  const TileVisual visual = visualFor(index, m_window);
+  bool isDir = false;
+  QString path;
+  if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
+    const QModelIndex src = proxy->mapToSource(index);
+    if (auto *fsm =
+            qobject_cast<const QFileSystemModel *>(proxy->sourceModel())) {
+      isDir = fsm->isDir(src);
+      path = fsm->filePath(src);
+    }
+  } else if (auto *fsm =
+                 qobject_cast<const QFileSystemModel *>(index.model())) {
+    isDir = fsm->isDir(index);
+    path = fsm->filePath(index);
+  } else {
+    const QString fn = index.data(Qt::DisplayRole).toString();
+    if (!fn.contains(QLatin1Char('.')))
+      isDir = true;
+  }
+
   const QString text = index.data(Qt::DisplayRole).toString();
 
   // ---------------------------------------------------------------------
@@ -183,16 +163,7 @@ void AndroidTileDelegate::paint(QPainter *painter,
                                        (rect.height() - contentH) / 2);
   const QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim,
                        iconDim);
-  {
-    QColor halo = visual.iconColor;
-    halo.setAlpha(40);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(halo);
-    const int pad = qMax(UiScale::dp(4), iconDim / 10);
-    painter->drawEllipse(iconRect.adjusted(-pad, -pad, pad, pad));
-  }
-  const QPixmap glyph =
-      AndroidIcons::pixmap(visual.iconName, visual.iconColor, iconDim);
+  const QPixmap glyph = NotePreviewIcon::pixmapForPath(path, isDir, iconDim);
   if (!glyph.isNull())
     painter->drawPixmap(iconRect, glyph);
 

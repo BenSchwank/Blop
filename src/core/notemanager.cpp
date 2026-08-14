@@ -55,6 +55,13 @@ QJsonDocument NoteManager::toJson(const Note &note) {
   QJsonObject root;
   root["id"] = note.id;
   root["title"] = note.title;
+  if (!note.pages.isEmpty()) {
+    QJsonObject cover;
+    cover["bg"] = note.pages.first().backgroundType;
+    if (note.pages.first().paperColor.isValid())
+      cover["paper"] = note.pages.first().paperColor.name(QColor::HexRgb);
+    root["cover"] = cover;
+  }
   {
     QJsonArray tagsArr;
     for (const QString &t : note.tags)

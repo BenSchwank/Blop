@@ -13,6 +13,7 @@
 #include "librarytagstore.h"
 #include "libraryorgstore.h"
 #include "libraryorgbar.h"
+#include "notepreviewicon.h"
 #include "cloudstoragestore.h"
 #include "storageprefs.h"
 #include "pagethumbnailsidebar.h"
@@ -1224,8 +1225,17 @@ void ModernItemDelegate::paint(QPainter *painter,
   painter->drawRoundedRect(rect, radius, radius);
 
   QString fileName = index.data(Qt::DisplayRole).toString();
-  QIcon icon;
-  QColor iconColor;
+  QString path;
+  if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
+    const QModelIndex src = proxy->mapToSource(index);
+    if (auto *fsm =
+            qobject_cast<const QFileSystemModel *>(proxy->sourceModel()))
+      path = fsm->filePath(src);
+  } else if (auto *fsm =
+                 qobject_cast<const QFileSystemModel *>(index.model())) {
+    path = fsm->filePath(index);
+  }
+
   const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
   const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
   bool isFolder = index.data(Qt::UserRole + 1).toBool();
@@ -1239,22 +1249,6 @@ void ModernItemDelegate::paint(QPainter *painter,
   if (!isFolder && !isBnote && !isBlop && !fileName.contains(QLatin1Char('.')))
     isFolder = true;
 
-  if (isBnote) {
-    iconColor = QColor(QStringLiteral("#9B8CFF"));
-    icon = m_window->createModernIcon(QStringLiteral("note_bnote"), iconColor);
-  } else if (isBlop) {
-    iconColor = m_window->currentAccentColor();
-    icon = m_window->createModernIcon(QStringLiteral("note_blop"), iconColor);
-  } else if (isFolder) {
-    iconColor = QColor(QStringLiteral("#E8C26A"));
-    icon = m_window->createModernIcon(QStringLiteral("folder"), iconColor);
-  } else {
-    icon = index.data(Qt::DecorationRole).value<QIcon>();
-    iconColor = QColor(QStringLiteral("#E8C26A"));
-    if (icon.isNull())
-      icon = m_window->createModernIcon(QStringLiteral("folder"), iconColor);
-  }
-
   // Clean caption: strip Blop extensions so tiles read as product names.
   QString text = fileName;
   if (isBnote)
@@ -1265,10 +1259,10 @@ void ModernItemDelegate::paint(QPainter *painter,
   bool isWideList = rect.width() > (rect.height() * 1.5);
 
 #ifdef Q_OS_ANDROID
-  const double iconShrink = 0.92;
+  const double iconShrink = 0.94;
   isWideList = false;
 #else
-  const double iconShrink = 0.72;
+  const double iconShrink = 0.82;
 #endif
 
   painter->setPen(BlopTheme::textPrimary());
@@ -1280,12 +1274,10 @@ void ModernItemDelegate::paint(QPainter *painter,
     iconDim = qMax(16, (int)(iconDim * iconShrink));
     QRect iconRect(rect.left() + 14, rect.center().y() - iconDim / 2, iconDim,
                    iconDim);
-    QColor halo = iconColor;
-    halo.setAlpha(32);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(halo);
-    painter->drawEllipse(iconRect.adjusted(-4, -4, 4, 4));
-    icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+    const QPixmap preview =
+        NotePreviewIcon::pixmapForPath(path, isFolder, iconDim);
+    if (!preview.isNull())
+      painter->drawPixmap(iconRect, preview);
     QRect textRect = rect;
     textRect.setLeft(iconRect.right() + 14);
     textRect.setRight(rect.right() - 44);
@@ -1309,15 +1301,10 @@ void ModernItemDelegate::paint(QPainter *painter,
     int contentHeight = iconDim + textH + UiScale::dp(6);
     int startY = rect.top() + (rect.height() - contentHeight) / 2;
     QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim, iconDim);
-
-    QColor halo = iconColor;
-    halo.setAlpha(38);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(halo);
-    const int pad = qMax(4, iconDim / 10);
-    painter->drawEllipse(iconRect.adjusted(-pad, -pad, pad, pad));
-
-    icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+    const QPixmap preview =
+        NotePreviewIcon::pixmapForPath(path, isFolder, iconDim);
+    if (!preview.isNull())
+      painter->drawPixmap(iconRect, preview);
 
     if (textH > 0) {
       QRect textRect(rect.left() + UiScale::dp(8), iconRect.bottom() + UiScale::dp(6),
@@ -1348,16 +1335,6 @@ void ModernItemDelegate::paint(QPainter *painter,
   menuIcon.paint(painter, menuRect, Qt::AlignCenter);
 
   // Organization badges: color label stripe + favorite star.
-  QString path;
-  if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
-    const QModelIndex src = proxy->mapToSource(index);
-    if (auto *fsm =
-            qobject_cast<const QFileSystemModel *>(proxy->sourceModel()))
-      path = fsm->filePath(src);
-  } else if (auto *fsm =
-                 qobject_cast<const QFileSystemModel *>(index.model())) {
-    path = fsm->filePath(index);
-  }
   if (!path.isEmpty()) {
     const auto label = LibraryOrgStore::colorLabel(path);
     if (label != LibraryOrgStore::ColorLabel::None) {
@@ -3368,9 +3345,13 @@ void MainWindow::onShowNewTabPopup() {
       QFile file(fullPath);
       if (file.open(QIODevice::WriteOnly)) {
         QDataStream out(&file);
-        out << (quint32)0xB10B0002; // Blop Magic Number (v2)
-        out << true;               // isInfinite flag (WICHTIG!)
-        out << (int)0;             // items count
+        out << (quint32)0xB10B0005;
+        out << true;            // infinite canvas
+        out << (qint32)2;       // PageStyle::Squared
+        out << (qint32)40;      // grid
+        out << QColor(252, 250, 245);
+        out << (int)0;          // strokes
+        out << (qint32)0;       // stickies
         file.close();
       }
       
@@ -4070,24 +4051,9 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
   p.setPen(QPen(color, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   p.setBrush(Qt::NoBrush);
   if (name == "folder") {
-    // Soft filled folder with tab — reads clearly at small tile sizes.
-    p.setPen(Qt::NoPen);
-    QColor fill = color;
-    fill.setAlpha(210);
-    p.setBrush(fill);
-    QPainterPath tab;
-    tab.moveTo(12, 20);
-    tab.lineTo(12, 16);
-    tab.cubicTo(12, 14, 13, 13, 15, 13);
-    tab.lineTo(28, 13);
-    tab.cubicTo(30, 13, 31, 14, 32, 16);
-    tab.lineTo(34, 20);
-    tab.closeSubpath();
-    p.drawPath(tab);
-    p.drawRoundedRect(QRectF(12, 20, 40, 28), 5, 5);
-    QColor sheen = QColor(255, 255, 255, 40);
-    p.setBrush(sheen);
-    p.drawRoundedRect(QRectF(16, 24, 32, 8), 3, 3);
+    return QIcon(NotePreviewIcon::pixmap(
+        NotePreviewIcon::Spec{NotePreviewIcon::Kind::Folder, 2, QColor()},
+        size));
   } else if (name == "cloud") {
     QColor fill = color;
     fill.setAlpha(70);
@@ -4204,35 +4170,15 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawRoundedRect(22, 15, 24, 24, 3, 3);
     p.drawRoundedRect(28, 10, 24, 24, 3, 3);
   } else if (name == "note_bnote") {
-    // Soft A4 page plate with ruled lines — stronger fill so tiles aren't
-    // just the same grey stroke as chrome icons.
-    p.setPen(Qt::NoPen);
-    QColor plate = color;
-    plate.setAlpha(110);
-    p.setBrush(plate);
-    p.drawRoundedRect(QRectF(15, 10, 34, 44), 6, 6);
-    p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(color, 2.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawRoundedRect(QRectF(15, 10, 34, 44), 6, 6);
-    p.setPen(QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap));
-    p.drawLine(22, 22, 42, 22);
-    p.drawLine(22, 30, 42, 30);
-    p.drawLine(22, 38, 36, 38);
+    NotePreviewIcon::Spec spec;
+    spec.kind = NotePreviewIcon::Kind::A4;
+    spec.backgroundType = 1; // lined A4 default for chrome
+    return QIcon(NotePreviewIcon::pixmap(spec, size));
   } else if (name == "note_blop") {
-    // Infinite canvas tile with quiet grid.
-    p.setPen(Qt::NoPen);
-    QColor plate = color;
-    plate.setAlpha(120);
-    p.setBrush(plate);
-    p.drawRoundedRect(QRectF(12, 12, 40, 40), 8, 8);
-    p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(color, 2.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawRoundedRect(QRectF(12, 12, 40, 40), 8, 8);
-    p.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap));
-    p.drawLine(25, 16, 25, 48);
-    p.drawLine(39, 16, 39, 48);
-    p.drawLine(16, 25, 48, 25);
-    p.drawLine(16, 39, 48, 39);
+    NotePreviewIcon::Spec spec;
+    spec.kind = NotePreviewIcon::Kind::Infinite;
+    spec.backgroundType = 2; // grid infinite
+    return QIcon(NotePreviewIcon::pixmap(spec, size));
   } else if (name == "select" || name == "lasso") {
     p.setBrush(Qt::NoBrush);
     p.setPen(QPen(color, 2.2, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin));
@@ -8099,31 +8045,36 @@ void MainWindow::onNewPage() {
         return;
       }
       QDataStream out(&file);
-      out << (quint32)0xB10B0002;
+      PageStyle style = PageStyle::Squared;
+      switch (layoutResult.backgroundType) {
+      case 0:
+        style = PageStyle::Blank;
+        break;
+      case 1:
+        style = PageStyle::Lined;
+        break;
+      case 3:
+        style = PageStyle::Dotted;
+        break;
+      default:
+        style = PageStyle::Squared;
+        break;
+      }
+      const QColor paper = layoutResult.paperColor.isValid()
+                               ? layoutResult.paperColor
+                               : UIStyles::PageBackground;
+      out << (quint32)0xB10B0005;
       out << isInfinite;
+      out << (qint32)style;
+      out << (qint32)40;
+      out << paper;
       out << (int)0;
+      out << (qint32)0;
       file.close();
       mirrorNoteIfNeeded(path);
       onFileDoubleClicked(m_fileModel->index(path));
       if (CanvasView *cv = getCurrentCanvas()) {
-        cv->setPageColor(layoutResult.paperColor.isValid()
-                             ? layoutResult.paperColor
-                             : UIStyles::PageBackground);
-        PageStyle style = PageStyle::Squared;
-        switch (layoutResult.backgroundType) {
-        case 0:
-          style = PageStyle::Blank;
-          break;
-        case 1:
-          style = PageStyle::Lined;
-          break;
-        case 3:
-          style = PageStyle::Dotted;
-          break;
-        default:
-          style = PageStyle::Squared;
-          break;
-        }
+        cv->setPageColor(paper);
         cv->setPageStyle(style);
         cv->setGridSize(40);
       }
@@ -8216,7 +8167,8 @@ void MainWindow::onNewPage() {
     auto *btn = new QPushButton(text + "\n" + subtext, card);
     btn->setCheckable(true);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedHeight(UiScale::dp(70));
+    btn->setFixedHeight(UiScale::dp(78));
+    btn->setIconSize(QSize(UiScale::dp(40), UiScale::dp(40)));
     btn->setStyleSheet(BlopTheme::themed(
         "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; text-align: left; padding: 10px; line-height: 1.2; font-size: 14px; }"
         "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
@@ -8227,6 +8179,16 @@ void MainWindow::onNewPage() {
       mkBtn(QStringLiteral("Unendlich"), QStringLiteral("Freie Leinwand\n(Standard)"));
   auto *btnA4 =
       mkBtn(QStringLiteral("DIN A4"), QStringLiteral("Seitenbasiert\n(Druckoptimiert)"));
+  {
+    NotePreviewIcon::Spec inf;
+    inf.kind = NotePreviewIcon::Kind::Infinite;
+    inf.backgroundType = 2;
+    btnInfinite->setIcon(QIcon(NotePreviewIcon::pixmap(inf, UiScale::dp(48))));
+    NotePreviewIcon::Spec a4;
+    a4.kind = NotePreviewIcon::Kind::A4;
+    a4.backgroundType = 1;
+    btnA4->setIcon(QIcon(NotePreviewIcon::pixmap(a4, UiScale::dp(48))));
+  }
   btnInfinite->setChecked(true);
   auto *grp = new QButtonGroup(card);
   grp->setExclusive(true);
@@ -10009,11 +9971,14 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         QDataStream in(&f);
         quint32 magic;
         in >> magic;
-        if (magic == 0xB10B0001 || magic == 0xB10B0002)
+        if (magic == 0xB10B0001 || magic == 0xB10B0002 || magic == 0xB10B0003 ||
+            magic == 0xB10B0004 || magic == 0xB10B0005)
           isBinary = true;
         f.close();
       }
     }
+    if (!isBinary && path.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive))
+      isBinary = true;
 
     if (isBinary) {
       CanvasView *canvas = new CanvasView(this);

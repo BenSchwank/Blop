@@ -626,9 +626,12 @@ bool CanvasView::saveToFile() {
     return false;
   QDataStream out(&file);
 
-  // V4: strokes (V3 layout) + sticky notes
-  out << (quint32)0xB10B0004;
+  // V5: strokes + stickies + page style (so library tiles show lined/grid).
+  out << (quint32)0xB10B0005;
   out << m_isInfinite;
+  out << (qint32)m_pageStyle;
+  out << (qint32)m_gridSize;
+  out << m_pageColor;
 
   QList<QGraphicsItem *> items = m_scene->items(Qt::AscendingOrder);
   int count = 0;
@@ -696,6 +699,16 @@ bool CanvasView::loadFromFile() {
 
   if (magic == 0xB10B0001) {
     m_isInfinite = true;
+  } else if (magic == 0xB10B0005) {
+    qint32 style = 2;
+    qint32 grid = 40;
+    QColor paper;
+    in >> m_isInfinite >> style >> grid >> paper;
+    m_pageStyle = static_cast<PageStyle>(qBound(0, int(style), 3));
+    if (grid > 0)
+      m_gridSize = grid;
+    if (paper.isValid())
+      m_pageColor = paper;
   } else if (magic == 0xB10B0002 || magic == 0xB10B0003 || magic == 0xB10B0004) {
     in >> m_isInfinite;
   } else {
@@ -703,6 +716,7 @@ bool CanvasView::loadFromFile() {
   }
 
   setPageFormat(m_isInfinite);
+  updateBackgroundTile();
   m_scene->clear();
   m_undoStack->clear();
   m_graphPlusBypassItem = nullptr;

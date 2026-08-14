@@ -71,58 +71,6 @@ void setupFillBrush(QPainter *p, const QColor &c) {
   p->setBrush(c);
 }
 
-// Material "description" / sheet of paper with a folded corner.
-void paintNote(QPainter *p, const QColor &c) {
-  QColor fill = c;
-  fill.setAlpha(90);
-  setupFillBrush(p, fill);
-  QPainterPath path;
-  path.moveTo(6.5, 3.0);
-  path.lineTo(15.0, 3.0);
-  path.lineTo(19.5, 7.5);
-  path.lineTo(19.5, 21.0);
-  path.lineTo(6.5, 21.0);
-  path.closeSubpath();
-  p->drawPath(path);
-  setupStrokePen(p, c, 1.8);
-  p->drawPath(path);
-  QPainterPath fold;
-  fold.moveTo(15.0, 3.0);
-  fold.lineTo(15.0, 7.5);
-  fold.lineTo(19.5, 7.5);
-  p->drawPath(fold);
-  p->drawLine(QPointF(9.0, 12.0), QPointF(17.0, 12.0));
-  p->drawLine(QPointF(9.0, 15.0), QPointF(17.0, 15.0));
-  p->drawLine(QPointF(9.0, 18.0), QPointF(14.0, 18.0));
-}
-
-// Variant for .blop notes - same silhouette but with a small accent dot
-// so users can distinguish file types at a glance.
-void paintNoteBlop(QPainter *p, const QColor &c) {
-  paintNote(p, c);
-  setupFillBrush(p, c);
-  p->drawEllipse(QPointF(17.5, 5.5), 1.2, 1.2);
-}
-
-// Standard Material folder with raised tab.
-void paintFolder(QPainter *p, const QColor &c) {
-  setupFillBrush(p, c);
-  QPainterPath path;
-  path.moveTo(3.0, 6.5);
-  path.lineTo(3.0, 19.0);
-  path.quadTo(3.0, 20.5, 4.5, 20.5);
-  path.lineTo(19.5, 20.5);
-  path.quadTo(21.0, 20.5, 21.0, 19.0);
-  path.lineTo(21.0, 9.5);
-  path.quadTo(21.0, 8.0, 19.5, 8.0);
-  path.lineTo(11.5, 8.0);
-  path.lineTo(9.5, 6.0);
-  path.lineTo(4.5, 6.0);
-  path.quadTo(3.0, 6.0, 3.0, 6.5);
-  path.closeSubpath();
-  p->drawPath(path);
-}
-
 // Three horizontal bars (hamburger).
 void paintMenu(QPainter *p, const QColor &c) {
   setupStrokePen(p, c, 2.2);
@@ -351,8 +299,6 @@ PaintFn dispatch(const QString &name) {
     return paintDropbox;
   if (name == QLatin1String("export"))
     return paintExport;
-  if (name == QLatin1String("folder"))
-    return paintFolder;
   if (name == QLatin1String("home"))
     return paintHome;
   if (name == QLatin1String("menu"))
@@ -365,10 +311,6 @@ PaintFn dispatch(const QString &name) {
     return paintPillMore;
   if (name == QLatin1String("more_vert"))
     return paintMoreVert;
-  if (name == QLatin1String("note_blop"))
-    return paintNoteBlop;
-  if (name == QLatin1String("note_bnote"))
-    return paintNote;
   if (name == QLatin1String("onedrive"))
     return paintOneDrive;
   if (name == QLatin1String("pages"))
@@ -388,11 +330,11 @@ PaintFn dispatch(const QString &name) {
 
 QPixmap render(const QString &name, const QColor &color, int pxSize) {
   pxSize = qMax(8, pxSize);
-  QPixmap pm(pxSize, pxSize);
-  pm.fill(Qt::transparent);
   PaintFn fn = dispatch(name);
   if (!fn)
-    return pm; // Caller falls back to the Windows path; keeps callers safe.
+    return QPixmap(); // Caller falls back to createModernIcon / NotePreviewIcon.
+  QPixmap pm(pxSize, pxSize);
+  pm.fill(Qt::transparent);
   QPainter p(&pm);
   p.setRenderHint(QPainter::Antialiasing, true);
   p.setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -413,6 +355,8 @@ QPixmap pixmap(const QString &name, const QColor &color, int pxSize) {
   if (QPixmap *cached = c.object(key))
     return *cached;
   QPixmap pm = render(name, color, pxSize);
+  if (pm.isNull())
+    return pm;
   // QCache takes ownership of the heap pointer and deletes it on eviction.
   c.insert(key, new QPixmap(pm), pixmapCostKb(pm));
   return pm;
