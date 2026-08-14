@@ -216,6 +216,9 @@ public slots:
   bool removeWebBookmarkFromQml(int index);
   void openWebBookmarkFromQml(int index);
   void notifyStudyFirstLoadDone();
+  /// Called from AndroidWebView.qml once surfaceBootTimer arms the WebView
+  /// Loader — completes a deferred main-stack switch to Study.
+  void notifyStudySurfacePhaseActive();
   void showAndroidStudyBootRetry();
   /// Returns "&blop_usr=...&blop_sid=..." (URL-encoded) built from the
   /// natively-persisted session, or an empty string when none is stored.
@@ -426,6 +429,8 @@ private:
   void ensureAndroidStudyBootOverlay();
   void syncAndroidStudyBootOverlayGeometry();
   void setAndroidStudyBootOverlayVisible(bool visible);
+  void completeAndroidStudyTabEntry();
+  bool m_pendingStudyStackSwitch{false};
 #endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
