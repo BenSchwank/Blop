@@ -2683,7 +2683,66 @@ void MainWindow::setAndroidStudyBootOverlayVisible(bool visible) {
   Q_UNUSED(visible)
 }
 
+void MainWindow::completeAndroidStudyTabEntry() {
+  if (!m_studyWindowContainer || !m_studyVBoxLayout)
+    return;
+  m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+  m_studyWindowContainer->setEnabled(true);
+  if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+    qInfo() << "MainWindow: BlopStudy setProperty tabActive=true";
+    QObject *root = m_studyQQuickView->rootObject();
+    root->setProperty("oauthPending", false);
+    root->setProperty("tabActive", true);
+  }
+  if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
+    m_studyVBoxLayout->addWidget(m_studyWindowContainer);
+  if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+    QObject *root = m_studyQQuickView->rootObject();
+    qInfo() << "MainWindow: BlopStudy tab enter — ensureStudyLoaded()";
+    QMetaObject::invokeMethod(root, "ensureStudyLoaded");
+    if (m_authNavigationLocked) {
+      QMetaObject::invokeMethod(
+          root, "requestSurfaceActivation", Qt::QueuedConnection,
+          Q_ARG(QVariant, QVariant(QStringLiteral("modeChanged"))));
+    }
+  }
+  invokeAndroidWebDestination(0);
+  if (m_authNavigationLocked)
+    setAndroidStudyBootOverlayVisible(true);
+  else
+    setAndroidStudyBootOverlayVisible(false);
+  QTimer::singleShot(0, this, [this]() {
+    if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
+      return;
+    if (!m_studyWindowContainer || !m_studyVBoxLayout)
+      return;
+    syncAndroidHeaderGeometry(this);
+    if (m_androidHeader)
+      m_androidHeader->raise();
+    if (m_androidStudyBootOverlay && m_androidStudyBootOverlay->isVisible())
+      m_androidStudyBootOverlay->raise();
+  });
+}
+
 #endif
+
+void MainWindow::notifyStudySurfacePhaseActive() {
+#ifdef Q_OS_ANDROID
+  qInfo() << "MainWindow: notifyStudySurfacePhaseActive pending="
+          << m_pendingStudyStackSwitch;
+  if (!m_pendingStudyStackSwitch)
+    return;
+  if (!m_mainContentStack)
+    return;
+  if (m_modeSelector && m_modeSelector->currentIndex() <= 0) {
+    m_pendingStudyStackSwitch = false;
+    return;
+  }
+  m_pendingStudyStackSwitch = false;
+  m_mainContentStack->setCurrentIndex(1);
+  completeAndroidStudyTabEntry();
+#endif
+}
 
 void MainWindow::notifyStudyFirstLoadDone() {
 #ifdef Q_OS_ANDROID
@@ -6477,6 +6536,7 @@ void MainWindow::onModeChanged(int index) {
   // saw exactly this regression. We track the deactivation timestamp so
   // re-entry can decide whether a surface refresh is needed.
   if (mainStackIdx == 0) {
+    m_pendingStudyStackSwitch = false;
     if (m_studyWindowContainer) {
       m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
       m_studyWindowContainer->setEnabled(false);
@@ -6509,14 +6569,38 @@ void MainWindow::onModeChanged(int index) {
       m_androidSidebarScrim->hide();
     }
   }
+  bool deferStudyStackSwitch = false;
+  if (mainStackIdx == 1 && !m_authNavigationLocked && m_studyQQuickView
+      && m_studyQQuickView->rootObject()) {
+    deferStudyStackSwitch =
+        !m_studyQQuickView->rootObject()->property("surfacePhaseActive").toBool();
+  }
+  if (mainStackIdx == 1 && m_studyQQuickView && m_studyQQuickView->rootObject()) {
+    QObject *root = m_studyQQuickView->rootObject();
+    root->setProperty("oauthPending", false);
+    root->setProperty("tabActive", true);
+    QMetaObject::invokeMethod(root, "requestSurfaceActivation", Qt::QueuedConnection,
+                              Q_ARG(QVariant, QVariant(QStringLiteral("modeChanged"))));
+  }
 #endif
   if (m_mainContentStack) {
     // v3.18.2+: Android hard-switches the main stack (no grab() — SurfaceView
     // + performance). Desktop crossfades around native embeds the same way.
 #ifdef Q_OS_ANDROID
-    m_mainContentStack->setCurrentIndex(mainStackIdx);
+    if (mainStackIdx == 1 && deferStudyStackSwitch) {
+      m_pendingStudyStackSwitch = true;
+      qInfo() << "MainWindow: defer Study stack switch until surface boot";
+    } else {
+      m_pendingStudyStackSwitch = false;
+      m_mainContentStack->setCurrentIndex(mainStackIdx);
+    }
 #else
     crossfadeStackTo(m_mainContentStack, mainStackIdx);
+    if (QWidget *cur = m_mainContentStack->currentWidget()) {
+      cur->raise();
+      cur->setEnabled(true);
+      cur->setFocus(Qt::OtherFocusReason);
+    }
 #endif
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
@@ -6527,78 +6611,19 @@ void MainWindow::onModeChanged(int index) {
 #endif
   }
 #ifdef Q_OS_ANDROID
-  if (mainStackIdx == 1 && m_studyWindowContainer && m_studyVBoxLayout) {
-    m_studyWindowContainer->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    m_studyWindowContainer->setEnabled(true);
-    // v3.17.6: re-enable the QML poll timers now that Study is visible again.
-    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
-      qInfo() << "MainWindow: BlopStudy setProperty tabActive=true";
-      QObject *root = m_studyQQuickView->rootObject();
-      // Clear stale OAuth glass from a previous interrupted Chrome login.
-      root->setProperty("oauthPending", false);
-      root->setProperty("tabActive", true);
-    }
-    if (m_studyVBoxLayout->indexOf(m_studyWindowContainer) < 0)
-      m_studyVBoxLayout->addWidget(m_studyWindowContainer);
-    // v3.18.7: simplified Study re-entry path. The v3.18.6 logic ran
-    // refreshStudySurface() on every re-entry with awayMs > 1500,
-    // which started webLoaderDeactivateTimer (50 ms) and tore down
-    // the WebView that the new studyWebLoader.onLoaded handler had
-    // just loaded — leaving the user staring at the QML root
-    // Rectangle (#0B0B1A, ~black on phone) with no WebView attached.
-    //
-    // Now we rely on the QML side end-to-end:
-    //   - studyWebLoader.onLoaded fires whenever the Loader actually
-    //     instantiates the WebView (initial create OR tabLeaveUnload
-    //     recreate) and triggers loadStudyEntryFresh deterministically.
-    //   - ensureStudyLoaded() handles the "Loader is still alive but
-    //     never got a URL" case by checking firstLoadDone and the
-    //     current url. It is a no-op when the page is already loaded.
-    if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
-      QObject *root = m_studyQQuickView->rootObject();
-      qInfo() << "MainWindow: BlopStudy tab enter — ensureStudyLoaded()";
-      QMetaObject::invokeMethod(root, "ensureStudyLoaded");
-      if (m_authNavigationLocked) {
-        QMetaObject::invokeMethod(
-            root, "requestSurfaceActivation", Qt::QueuedConnection,
-            Q_ARG(QVariant, QVariant(QStringLiteral("modeChanged"))));
-      }
-    }
-    if (m_authNavigationLocked)
-      setAndroidStudyBootOverlayVisible(true);
-    else
-      setAndroidStudyBootOverlayVisible(false);
-    QTimer::singleShot(0, this, [this]() {
-      if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
-        return;
-      if (!m_studyWindowContainer || !m_studyVBoxLayout)
-        return;
-      syncAndroidHeaderGeometry(this);
-      if (m_androidHeader)
-        m_androidHeader->raise();
-      if (m_androidStudyBootOverlay && m_androidStudyBootOverlay->isVisible())
-        m_androidStudyBootOverlay->raise();
-    });
-  } else if (mainStackIdx == 0) {
+  if (mainStackIdx == 1 && !deferStudyStackSwitch)
+    completeAndroidStudyTabEntry();
+  else if (mainStackIdx == 0)
     setAndroidStudyBootOverlayVisible(false);
-  }
   if (m_mainContentStack) {
     if (QWidget *cur = m_mainContentStack->currentWidget()) {
-#ifndef Q_OS_ANDROID
-      cur->raise();
-#else
       // Study page embeds a native SurfaceView; avoid reordering above the tab chrome.
       if (mainStackIdx == 0)
         cur->raise();
-#endif
       cur->setEnabled(true);
-#ifdef Q_OS_ANDROID
       // Study embeds a native SurfaceView; immediate focus here can re-enter GL paths.
       if (mainStackIdx != 1)
         cur->setFocus(Qt::OtherFocusReason);
-#else
-      cur->setFocus(Qt::OtherFocusReason);
-#endif
     }
   }
   if (m_androidHeader) {
@@ -6624,7 +6649,10 @@ void MainWindow::onModeChanged(int index) {
   const int deferredModeIndex = index;
   QTimer::singleShot(48, this, [this, deferredModeIndex]() {
     const int expectedStack = (deferredModeIndex <= 0) ? 0 : 1;
-    if (!m_mainContentStack || m_mainContentStack->currentIndex() != expectedStack) {
+    if (!m_mainContentStack)
+      return;
+    if (m_mainContentStack->currentIndex() != expectedStack
+        && !(expectedStack == 1 && m_pendingStudyStackSwitch)) {
       return;
     }
     if (deferredModeIndex >= 2 && m_modeSelector &&

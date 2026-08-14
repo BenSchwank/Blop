@@ -212,6 +212,20 @@ Rectangle {
         surfaceBootTimer.restart()
     }
 
+    // Arms the WebView Loader after the boot delay and tells C++ it may
+    // swap the main stack to Study (avoids EGL deadlock with Notes GL).
+    function commitSurfacePhase(reason) {
+        if (!tabActive) {
+            console.log("BlopStudy: commitSurfacePhase skipped — tab inactive")
+            return
+        }
+        surfacePhaseActive = true
+        console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
+        if (typeof blopAppBridge !== "undefined"
+                && blopAppBridge.notifyStudySurfacePhaseActive)
+            blopAppBridge.notifyStudySurfacePhaseActive()
+    }
+
     function notifyCppStudyFirstLoadDone() {
         if (typeof blopAppBridge !== "undefined" && blopAppBridge.notifyStudyFirstLoadDone)
             blopAppBridge.notifyStudyFirstLoadDone()
@@ -752,12 +766,7 @@ Rectangle {
         running: false
         repeat: false
         onTriggered: {
-            if (!tabActive) {
-                console.log("BlopStudy: surfaceBootTimer skipped — tab inactive")
-                return
-            }
-            surfacePhaseActive = true
-            console.log("BlopStudy: surfacePhaseActive -> true", "reason=", reason)
+            commitSurfacePhase(surfaceBootTimer.reason)
         }
     }
 
@@ -821,8 +830,10 @@ Rectangle {
         id: startupLoadingOverlayLoader
         anchors.fill: parent
         z: 5
-        // Keep overlay for failed loads even after a partial firstLoadDone edge case.
-        active: (!firstLoadDone || studyLoadFailed) && ssoPollingEnabled && tabActive
+        // Gate on surfacePhaseActive so QQuickView does not allocate QRhi
+        // during the boot delay while the Notes canvas still holds EGL.
+        active: (!firstLoadDone || studyLoadFailed) && ssoPollingEnabled
+                && tabActive && surfacePhaseActive
         sourceComponent: startupLoadingOverlayComponent
     }
 
