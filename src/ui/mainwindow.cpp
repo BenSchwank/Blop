@@ -1226,26 +1226,22 @@ void ModernItemDelegate::paint(QPainter *painter,
 
   QString fileName = index.data(Qt::DisplayRole).toString();
   QString path;
+  bool isFolder = false;
   if (auto *proxy = qobject_cast<const QSortFilterProxyModel *>(index.model())) {
     const QModelIndex src = proxy->mapToSource(index);
     if (auto *fsm =
-            qobject_cast<const QFileSystemModel *>(proxy->sourceModel()))
+            qobject_cast<const QFileSystemModel *>(proxy->sourceModel())) {
       path = fsm->filePath(src);
+      isFolder = fsm->isDir(src);
+    }
   } else if (auto *fsm =
                  qobject_cast<const QFileSystemModel *>(index.model())) {
     path = fsm->filePath(index);
+    isFolder = fsm->isDir(index);
   }
 
   const bool isBnote = fileName.endsWith(QLatin1String(".bnote"), Qt::CaseInsensitive);
   const bool isBlop = fileName.endsWith(QLatin1String(".blop"), Qt::CaseInsensitive);
-  bool isFolder = index.data(Qt::UserRole + 1).toBool();
-  if (!isFolder && m_window && m_window->m_fileModel) {
-    QModelIndex src = index;
-    if (m_window->m_libraryProxy)
-      src = m_window->m_libraryProxy->mapToSource(index);
-    if (src.isValid())
-      isFolder = m_window->m_fileModel->isDir(src);
-  }
   if (!isFolder && !isBnote && !isBlop && !fileName.contains(QLatin1Char('.')))
     isFolder = true;
 
