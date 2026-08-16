@@ -82,6 +82,7 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       so["w"] = s.width;
       so["c"] = s.color.name();
       so["e"] = s.isEraser;
+      so["h"] = s.isHighlighter;
       QJsonArray pts;
       const bool hasPressure = s.pressures.size() == s.points.size();
       for (int i = 0; i < s.points.size(); ++i) {
@@ -209,6 +210,7 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       s.width = so.value("w").toDouble(2.0);
       s.color = QColor(so.value("c").toString("#000000"));
       s.isEraser = so.value("e").toBool(false);
+      s.isHighlighter = so.value("h").toBool(false);
       auto pts = so.value("pts").toArray();
       bool anyPressure = false;
       for (const auto &pv : pts) {
