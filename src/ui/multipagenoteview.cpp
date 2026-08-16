@@ -313,6 +313,42 @@ private:
     bool         m_firstRedo{true};
 };
 
+/// Snapshot-based undo/redo for page-level mutations (move, add, delete,
+/// duplicate, rotate, layout). Keeps the stroke undo stack intact while the
+/// page stack is alive and clears both stacks when a fresh note is loaded.
+class PageSnapshotUndoCommand : public QUndoCommand {
+public:
+  PageSnapshotUndoCommand(MultiPageNoteView *view, QVector<NotePage> before,
+                          QVector<NotePage> after, const QString &text)
+      : QUndoCommand(text), m_view(view), m_before(std::move(before)),
+        m_after(std::move(after)) {}
+
+  void undo() override {
+    if (!m_view || !m_view->note_)
+      return;
+    m_view->note_->pages = m_before;
+    m_view->setNote(m_view->note_, /*clearUndoStack=*/false);
+    if (m_view->onSaveRequested)
+      m_view->onSaveRequested(m_view->note_);
+    emit m_view->pagesChanged();
+  }
+
+  void redo() override {
+    if (!m_view || !m_view->note_)
+      return;
+    m_view->note_->pages = m_after;
+    m_view->setNote(m_view->note_, /*clearUndoStack=*/false);
+    if (m_view->onSaveRequested)
+      m_view->onSaveRequested(m_view->note_);
+    emit m_view->pagesChanged();
+  }
+
+private:
+  MultiPageNoteView *m_view;
+  QVector<NotePage> m_before;
+  QVector<NotePage> m_after;
+};
+
 class NoteSelectionMenu : public QWidget {
   Q_OBJECT
 public:
@@ -1253,6 +1289,7 @@ static void applyGraphicsViewCanvasBackground(QGraphicsView *view) {
 
 MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_undoStack = new QUndoStack(this);
+  m_pageUndoStack = new QUndoStack(this);
 
   setScene(&scene_);
   scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
@@ -1871,12 +1908,16 @@ void MultiPageNoteView::hydrateVisibleRange() {
     hydratePageContent(i);
 }
 
-void MultiPageNoteView::setNote(Note *note) {
+void MultiPageNoteView::setNote(Note *note) { setNote(note, true); }
+
+void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
   note_ = note;
   cancelCrop(); // v3.18.0: offene Crop-Session beenden, bevor scene_.clear()
                 // den Resizer löschen würde (dangling pointer).
   if (m_undoStack)
     m_undoStack->clear();
+  if (m_pageUndoStack && clearUndoStack)
+    m_pageUndoStack->clear();
   scene_.clear();
   pageItems_.clear();
   m_hydratedPages.clear();
@@ -1941,21 +1982,29 @@ void MultiPageNoteView::pushStrokeUndoCommand(int pageIdx, Stroke stroke) {
 }
 
 void MultiPageNoteView::undo() {
-  if (m_undoStack)
+  if (m_undoStack && m_undoStack->canUndo()) {
     m_undoStack->undo();
+  } else if (m_pageUndoStack && m_pageUndoStack->canUndo()) {
+    m_pageUndoStack->undo();
+  }
 }
 
 void MultiPageNoteView::redo() {
-  if (m_undoStack)
+  if (m_pageUndoStack && m_pageUndoStack->canRedo()) {
+    m_pageUndoStack->redo();
+  } else if (m_undoStack && m_undoStack->canRedo()) {
     m_undoStack->redo();
+  }
 }
 
 bool MultiPageNoteView::canUndo() const {
-  return m_undoStack && m_undoStack->canUndo();
+  return (m_undoStack && m_undoStack->canUndo()) ||
+         (m_pageUndoStack && m_pageUndoStack->canUndo());
 }
 
 bool MultiPageNoteView::canRedo() const {
-  return m_undoStack && m_undoStack->canRedo();
+  return (m_undoStack && m_undoStack->canRedo()) ||
+         (m_pageUndoStack && m_pageUndoStack->canRedo());
 }
 
 void MultiPageNoteView::layoutPages() {
@@ -2044,24 +2093,16 @@ int MultiPageNoteView::pageAt(const QPointF &scenePos) const {
 void MultiPageNoteView::addNewPage() {
   if (!note_)
     return;
+  auto before = note_->pages;
   note_->ensurePage(note_->pages.size());
-  layoutPages();
-
-  // Auch hier: Sicherstellen, dass Lineal oben bleibt, falls layoutPages()
-  // Z-Order ändert
-  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
-    RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
-  }
-
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Add page"));
 }
 
 void MultiPageNoteView::addNewPageWithLayout(int backgroundType,
                                              const QColor &paperColor) {
   if (!note_)
     return;
+  auto before = note_->pages;
   int idx = note_->pages.size();
   note_->ensurePage(idx);
   note_->pages[idx].backgroundType =
@@ -2069,13 +2110,7 @@ void MultiPageNoteView::addNewPageWithLayout(int backgroundType,
   note_->pages[idx].paperColor =
       paperColor.isValid() ? paperColor : QColor(Qt::white);
   note_->pages[idx].backgroundImage = QImage();
-  layoutPages();
-  if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
-    RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
-  }
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Add page with layout"));
 }
 
 void MultiPageNoteView::showBottomSheetFromPull() {
@@ -3689,30 +3724,24 @@ void MultiPageNoteView::movePage(int fromIndex, int toIndex) {
   if (!note_ || fromIndex < 0 || fromIndex >= note_->pages.size() ||
       toIndex < 0 || toIndex >= note_->pages.size())
     return;
+  auto before = note_->pages;
   note_->pages.move(fromIndex, toIndex);
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Move page"));
 }
 void MultiPageNoteView::duplicatePage(int pageIndex) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return;
+  auto before = note_->pages;
   NotePage newPage = note_->pages[pageIndex];
   note_->pages.insert(pageIndex + 1, newPage);
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Duplicate page"));
 }
 void MultiPageNoteView::deletePage(int pageIndex) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return;
+  auto before = note_->pages;
   note_->pages.removeAt(pageIndex);
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Delete page"));
 }
 
 void MultiPageNoteView::rotatePage(int pageIndex, int quarterTurns) {
@@ -3722,6 +3751,7 @@ void MultiPageNoteView::rotatePage(int pageIndex, int quarterTurns) {
   if (quarterTurns == 0)
     return;
 
+  auto before = note_->pages;
   NotePage &page = note_->pages[pageIndex];
   const qreal cx = a4wPx() * 0.5;
   const qreal cy = a4hPx() * 0.5;
@@ -3760,10 +3790,7 @@ void MultiPageNoteView::rotatePage(int pageIndex, int quarterTurns) {
         page.backgroundImage.transformed(t, Qt::SmoothTransformation);
   }
   page.rotationDegrees = (page.rotationDegrees + 90 * quarterTurns) % 360;
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Rotate page"));
 }
 
 bool MultiPageNoteView::isPageBookmarked(int pageIndex) const {
@@ -3831,15 +3858,15 @@ QString MultiPageNoteView::pageTitle(int pageIndex) const {
 void MultiPageNoteView::renamePage(int pageIndex, const QString &title) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return;
+  auto before = note_->pages;
   note_->pages[pageIndex].title = title;
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
+  pushPageSnapshotCommand(before, tr("Rename page"));
 }
 
 void MultiPageNoteView::duplicatePages(const QList<int> &pageIndices) {
   if (!note_ || pageIndices.isEmpty())
     return;
+  auto before = note_->pages;
   QList<int> sorted = pageIndices;
   std::sort(sorted.begin(), sorted.end());
   for (int i = sorted.size() - 1; i >= 0; --i) {
@@ -3848,25 +3875,20 @@ void MultiPageNoteView::duplicatePages(const QList<int> &pageIndices) {
       continue;
     note_->pages.insert(idx + 1, note_->pages[idx]);
   }
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Duplicate pages"));
 }
 
 void MultiPageNoteView::deletePages(const QList<int> &pageIndices) {
   if (!note_ || pageIndices.isEmpty())
     return;
+  auto before = note_->pages;
   QList<int> sorted = pageIndices;
   std::sort(sorted.begin(), sorted.end(), std::greater<int>());
   for (int idx : sorted) {
     if (idx >= 0 && idx < note_->pages.size() && note_->pages.size() > 1)
       note_->pages.removeAt(idx);
   }
-  setNote(note_);
-  if (onSaveRequested)
-    onSaveRequested(note_);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Delete pages"));
 }
 
 void MultiPageNoteView::applyLayoutToPages(const QList<int> &pageIndices,
@@ -3874,9 +3896,10 @@ void MultiPageNoteView::applyLayoutToPages(const QList<int> &pageIndices,
                                            const QColor &paperColor) {
   if (!note_ || pageIndices.isEmpty())
     return;
+  auto before = note_->pages;
   for (int idx : pageIndices)
     applyLayoutToPage(idx, backgroundType, paperColor);
-  emit pagesChanged();
+  pushPageSnapshotCommand(before, tr("Apply page layout"));
 }
 
 void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
@@ -4997,6 +5020,14 @@ void MultiPageNoteView::flushStickyNoteSync() {
   if (m_stickySyncTimer && m_stickySyncTimer->isActive())
     m_stickySyncTimer->stop();
   syncStickyNotesToNote();
+}
+
+void MultiPageNoteView::pushPageSnapshotCommand(const QVector<NotePage> &before,
+                                               const QString &text) {
+  if (!m_pageUndoStack)
+    return;
+  m_pageUndoStack->push(
+      new PageSnapshotUndoCommand(this, before, note_->pages, text));
 }
 
 void MultiPageNoteView::syncStickyNotesToNote() {

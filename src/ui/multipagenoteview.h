@@ -37,10 +37,16 @@ class GraphFormulaZone;
 class MultiPageNoteView : public QGraphicsView {
     Q_OBJECT
     friend class StrokeAddUndoCommand;
+    friend class PageSnapshotUndoCommand;
 public:
     explicit MultiPageNoteView(QWidget* parent=nullptr);
 
     void setNote(Note* note);
+private:
+    void setNote(Note* note, bool clearUndoStack);
+    void pushPageSnapshotCommand(const QVector<NotePage> &before,
+                                 const QString &text);
+public:
     Note* note() const { return note_; }
     /// Stop any pending sticky-note debounce and sync immediately.
     void flushStickyNoteSync();
@@ -233,6 +239,7 @@ private:
     static constexpr int MaxUndoSteps = 40;
 
     QUndoStack *m_undoStack{nullptr};
+    QUndoStack *m_pageUndoStack{nullptr};
 
     void layoutPages();
     /// Scene rect must cover mapToScene(viewport) or letterbox margins show wrong color until scroll.
