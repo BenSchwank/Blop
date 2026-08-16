@@ -38,6 +38,10 @@
 #include <QVariantAnimation>
 #include <functional>
 
+#ifndef BLOP_VERSION_STR
+#define BLOP_VERSION_STR "3.18.12"
+#endif
+
 // v3.16.1: Settings overhaul.
 //
 // Old layout was a single QFormLayout-like dump of fields inside the tab
@@ -946,7 +950,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Version, Informationen"),
         contentWidget);
     {
-        auto *info = new QLabel(QStringLiteral("Blop v3.18.12"), cardAdv);
+        const QString version = QString(BLOP_VERSION_STR);
+        const QString versionLabel =
+            (version.startsWith('v') ? QStringLiteral("Blop ")
+                                     : QStringLiteral("Blop v")) +
+            version;
+        auto *info = new QLabel(versionLabel, cardAdv);
         info->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "color: rgba(180, 188, 215, 0.78); font-size: 12px;"
             "background: transparent; padding: 4px 0;")));

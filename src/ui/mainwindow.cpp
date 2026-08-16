@@ -7864,7 +7864,7 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
 
   QString name = item->text();
   if (name == QStringLiteral("Gerät")) {
-    navigateLibraryToPath(QDir::rootPath());
+    navigateLibraryToPath(m_rootPath);
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
