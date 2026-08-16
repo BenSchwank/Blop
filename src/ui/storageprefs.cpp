@@ -181,6 +181,48 @@ QString bestSuggestedGoogleDriveRoot() {
   return roots.isEmpty() ? QString() : roots.first();
 }
 
+QStringList suggestedRootsForProvider(const QString &providerId) {
+  if (providerId == QLatin1String("googledrive"))
+    return suggestedGoogleDriveRoots();
+
+  const QString home =
+      QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+  QStringList candidates;
+  if (providerId == QLatin1String("dropbox")) {
+    candidates << home + QStringLiteral("/Dropbox")
+                 << home + QStringLiteral("/Dropbox (Personal)");
+  } else if (providerId == QLatin1String("onedrive")) {
+    const QFileInfoList entries =
+        QDir(home).entryInfoList(QStringList() << QStringLiteral("OneDrive*"),
+                                 QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo &fi : entries)
+      candidates << fi.absoluteFilePath();
+  } else if (providerId == QLatin1String("nextcloud")) {
+    candidates << home + QStringLiteral("/Nextcloud")
+                 << home + QStringLiteral("/nextcloud");
+  } else if (providerId == QLatin1String("icloud")) {
+#ifdef Q_OS_MACOS
+    candidates << home +
+                        QStringLiteral("/Library/Mobile Documents/com~apple~CloudDocs");
+#endif
+    candidates << home + QStringLiteral("/iCloud Drive")
+                 << home + QStringLiteral("/iCloudDrive");
+  }
+
+  QStringList out;
+  for (const QString &c : candidates) {
+    if (QDir(c).exists())
+      out.append(c);
+  }
+  out.removeDuplicates();
+  return out;
+}
+
+QString bestSuggestedRootForProvider(const QString &providerId) {
+  const QStringList roots = suggestedRootsForProvider(providerId);
+  return roots.isEmpty() ? QString() : roots.first();
+}
+
 bool connectProviderForNotes(const QString &providerId,
                              const QString &folderPath) {
   if (providerId.isEmpty() || !pathExistsDir(folderPath))

@@ -41,6 +41,10 @@ bool isGoogleDriveLinked();
 QStringList suggestedGoogleDriveRoots();
 QString bestSuggestedGoogleDriveRoot();
 
+/// Common sync-root paths for any supported cloud provider.
+QStringList suggestedRootsForProvider(const QString &providerId);
+QString bestSuggestedRootForProvider(const QString &providerId);
+
 /// Link a provider folder and enable Lokal+Cloud note sync immediately.
 /// Creates `<path>/BlopNotizen` and sets the provider as primary.
 bool connectProviderForNotes(const QString &providerId, const QString &folderPath);

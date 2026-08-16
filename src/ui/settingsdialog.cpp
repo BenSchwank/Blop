@@ -874,7 +874,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 btnLink, &QPushButton::clicked, this,
                 [this, id, displayName, name, btnLink, btnPrimary, btnLocal, btnCloud,
                  btnBoth, hint, btnConnectDrive]() {
-                  QString start = StoragePrefs::bestSuggestedGoogleDriveRoot();
+                  QString start =
+                      StoragePrefs::bestSuggestedRootForProvider(id);
                   if (start.isEmpty())
                     start = QStandardPaths::writableLocation(
                         QStandardPaths::HomeLocation);
@@ -939,7 +940,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             [this, btnConnectDrive, btnLocal, btnCloud, btnBoth, hint,
              cloudList, driveListName, driveListPrimaryBtn,
              driveListLinkBtn]() {
-              QString start = StoragePrefs::bestSuggestedGoogleDriveRoot();
+              QString start = StoragePrefs::bestSuggestedRootForProvider(
+                  QStringLiteral("googledrive"));
               if (start.isEmpty())
                 start = QStandardPaths::writableLocation(
                     QStandardPaths::HomeLocation);
