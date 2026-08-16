@@ -1450,8 +1450,6 @@ MainWindow::MainWindow(QWidget *parent)
   f.setPointSize(FONT_SIZE_BASE);
   this->setFont(f);
 #endif
-  qDebug() << "MainWindow: Konstruktor start";
-
 #ifdef Q_OS_ANDROID
   // Register JNI callbacks early so the first pickOpen/pickSave call
   // in this session does not race with the JVM class-loader.
@@ -1505,14 +1503,10 @@ MainWindow::MainWindow(QWidget *parent)
   loadWebBookmarksFromSettings();
 
   setupTools(); // <-- WICHTIG: ToolManager Initialisierung hat gefehlt!
-  qDebug() << "MainWindow: setupTools beendet";
   setupUi();
-  qDebug() << "MainWindow: setupUi beendet";
 
   applyProfile(m_profileManager->currentProfile());
-  qDebug() << "MainWindow: applyProfile beendet";
   applyTheme();
-  qDebug() << "MainWindow: applyTheme beendet";
 
 #ifdef Q_OS_ANDROID
   m_isSidebarOpen = false;
@@ -1522,9 +1516,7 @@ MainWindow::MainWindow(QWidget *parent)
   updateSidebarState();
   m_mainSplitter->setHandleWidth(0);
 #else
-  qDebug() << "MainWindow: updateSidebarState davor";
   updateSidebarState();
-  qDebug() << "MainWindow: updateSidebarState danach";
 #endif
 
   // Initial mode: guest → Study, logged-in → Notes (setCurrentIndex emits onModeChanged)
@@ -1602,7 +1594,6 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Verify the Google access token via our own backend and inject session into the WebView
   connect(&GoogleAuthManager::instance(), &GoogleAuthManager::idTokenReceived, this, [this, failOAuthFlow](const QString &token) {
-      qDebug() << "Received Google token in MainWindow, posting to backend for verification...";
       if (token.trimmed().isEmpty()) {
         qWarning() << "Google idTokenReceived was empty";
         failOAuthFlow(QStringLiteral("empty_id_token"));
@@ -1672,7 +1663,6 @@ MainWindow::MainWindow(QWidget *parent)
             failOAuthFlow(QStringLiteral("missing_session_or_username"));
             return;
           }
-          qDebug() << "Backend verified Google login! username:" << username;
           m_googleLoginInFlight = false;
 
           QSettings st("Blop", "BlopApp");
@@ -4271,12 +4261,10 @@ void MainWindow::createDefaultFolder() {
 }
 
 void MainWindow::setupUi() {
-  qDebug() << "setupUi() start";
   // Custom TitleBar nur auf Android wurde deaktiviert - Desktop nutzt native Titelleiste
 #ifndef Q_OS_ANDROID
   setupTitleBar();
 #endif
-  qDebug() << "setupUi() nach setupTitleBar";
 
   m_centralContainer = new QWidget(this);
   setCentralWidget(m_centralContainer);
@@ -4723,7 +4711,6 @@ void MainWindow::setupUi() {
           });
 
   setupSidebar();
-  qDebug() << "setupUi() nach setupSidebar";
 
   m_rightStack = new QStackedWidget(this);
   m_overviewContainer = new QWidget(this);
@@ -5853,7 +5840,6 @@ void MainWindow::setupUi() {
             onPenConfigChanged);
   }
   setupRightSidebar();
-  qDebug() << "setupUi() nach setupRightSidebar";
 #ifdef Q_OS_ANDROID
   m_pageManager = new PageManager(this);
 #else
@@ -5874,7 +5860,6 @@ void MainWindow::setupUi() {
 #endif
 
   setupWebBrowser();
-  qDebug() << "setupUi() nach setupWebBrowser";
 
   m_mainContentStack->addWidget(notesPage);
   m_mainContentStack->addWidget(m_studyContainer);
@@ -5896,8 +5881,6 @@ void MainWindow::setupUi() {
 
   setWindowTitle("Blop");
   // updateSidebarUser() runs from MainWindow ctor after setupUi — avoid calling twice here
-
-  qDebug() << "setupUi() Ende";
 }
 
 #ifdef BLOP_HAS_WEBENGINE
