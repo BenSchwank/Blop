@@ -267,4 +267,27 @@ bool removeCloudMirrorIfNeeded(const QString &localNotePath) {
   return QFile::remove(dest);
 }
 
+bool renameCloudMirrorIfNeeded(const QString &oldLocalNotePath,
+                                 const QString &newLocalNotePath) {
+  if (mode() != Mode::LocalAndCloud)
+    return false;
+  if (oldLocalNotePath.isEmpty() || newLocalNotePath.isEmpty())
+    return false;
+
+  const QString cloud = primaryLinkedCloudPath();
+  if (cloud.isEmpty())
+    return false;
+
+  const QString destDir = cloud + QLatin1Char('/') + cloudMirrorSubdir();
+  const QString oldDest = destDir + QLatin1Char('/') +
+                          QFileInfo(oldLocalNotePath).fileName();
+  const QString newDest = destDir + QLatin1Char('/') +
+                          QFileInfo(newLocalNotePath).fileName();
+  if (!QFile::exists(oldDest))
+    return true;
+  if (QFile::exists(newDest))
+    QFile::remove(newDest);
+  return QFile::rename(oldDest, newDest);
+}
+
 } // namespace StoragePrefs

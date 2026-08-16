@@ -57,4 +57,9 @@ bool mirrorNoteToCloudIfNeeded(const QString &localNotePath);
 /// No-op for other modes or when no cloud is linked.
 bool removeCloudMirrorIfNeeded(const QString &localNotePath);
 
+/// Rename the cloud mirror of a note file in LocalAndCloud mode.
+/// No-op for other modes or when no cloud is linked.
+bool renameCloudMirrorIfNeeded(const QString &oldLocalNotePath,
+                               const QString &newLocalNotePath);
+
 } // namespace StoragePrefs

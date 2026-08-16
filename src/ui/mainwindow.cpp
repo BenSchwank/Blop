@@ -10917,6 +10917,7 @@ void MainWindow::showRenameOverlay(const QString &currentName) {
           QFileInfo(oldPath).absolutePath() + QLatin1Char('/') + newName;
       LibraryTagStore::remapPath(oldPath, newPath);
       LibraryOrgStore::remapPath(oldPath, newPath);
+      StoragePrefs::renameCloudMirrorIfNeeded(oldPath, newPath);
       applyLibraryFilters();
     }
     m_indexToRename = QModelIndex();
