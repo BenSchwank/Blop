@@ -3,7 +3,9 @@
 #include "util/Async.h"
 #include <QBuffer>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -35,6 +37,10 @@ void NoteManager::loadNoteAsync(const QString &path,
 }
 
 bool NoteManager::saveNote(const Note &note, const QString &path) {
+  // Ensure the parent directory exists before attempting to write; otherwise
+  // saving to a freshly created sub-folder or cloud mirror path can silently fail.
+  QDir().mkpath(QFileInfo(path).absolutePath());
+
   QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly))
     return false;
