@@ -3851,6 +3851,7 @@ void MultiPageNoteView::duplicatePages(const QList<int> &pageIndices) {
   setNote(note_);
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 
 void MultiPageNoteView::deletePages(const QList<int> &pageIndices) {
@@ -3865,6 +3866,7 @@ void MultiPageNoteView::deletePages(const QList<int> &pageIndices) {
   setNote(note_);
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 
 void MultiPageNoteView::applyLayoutToPages(const QList<int> &pageIndices,
@@ -3874,6 +3876,7 @@ void MultiPageNoteView::applyLayoutToPages(const QList<int> &pageIndices,
     return;
   for (int idx : pageIndices)
     applyLayoutToPage(idx, backgroundType, paperColor);
+  emit pagesChanged();
 }
 
 void MultiPageNoteView::drawForeground(QPainter *painter, const QRectF &rect) {
