@@ -1728,7 +1728,26 @@ MainWindow::MainWindow(QWidget *parent)
         friendly = QStringLiteral(
             "Es konnte kein Browser geöffnet werden. Installiere Chrome "
             "oder einen anderen Browser und versuche es erneut.");
+#ifdef Q_OS_ANDROID
       BlopDialogs::notify(this, QStringLiteral("Google Login"), friendly);
+#else
+#if defined(BLOP_HAS_WEBENGINE)
+      if (m_studyWebView && m_studyWebView->page()) {
+        QJsonObject detail;
+        detail["error"] = error;
+        detail["friendly"] = friendly;
+        const QString detailJson = QString::fromUtf8(
+            QJsonDocument(detail).toJson(QJsonDocument::Compact));
+        const QString js = QStringLiteral(
+            "try { "
+            "var evt = new CustomEvent('blop-oauth-failure', { detail: %1 });"
+            "document.dispatchEvent(evt);"
+            "} catch (e) { console.error('blop-oauth-failure dispatch failed', e); }")
+            .arg(detailJson);
+        m_studyWebView->page()->runJavaScript(js);
+      }
+#endif
+#endif
   });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);

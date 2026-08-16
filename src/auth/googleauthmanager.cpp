@@ -546,15 +546,29 @@ void GoogleAuthManager::pollDesktopClaim() {
 }
 
 void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
-  // Expected: blop://oauth/done?state=...
-  QString state = QUrlQuery(url).queryItemValue(QStringLiteral("state"));
+  // Expected: blop://oauth/done?state=...  (or error=... from the provider).
+  QUrlQuery q(url);
+  const QString error = q.queryItemValue(QStringLiteral("error"));
+  if (!error.isEmpty()) {
+    const QString desc = q.queryItemValue(QStringLiteral("error_description"));
+    qWarning() << "GoogleAuthManager: desktop OAuth provider error:" << error
+               << desc;
+    emit authenticationFailed(QStringLiteral("oauth_error:") + error +
+                              (desc.isEmpty()
+                                   ? QString()
+                                   : QStringLiteral(" - ") + desc));
+    return;
+  }
+
+  QString state = q.queryItemValue(QStringLiteral("state"));
   if (state.isEmpty()) {
     // Also accept blop://oauth/done/?state= or path-form.
-    QUrlQuery q(url.query());
-    state = q.queryItemValue(QStringLiteral("state"));
+    QUrlQuery pathQuery(url.query());
+    state = pathQuery.queryItemValue(QStringLiteral("state"));
   }
   if (state.isEmpty()) {
     qWarning() << "GoogleAuthManager: deep link missing state" << url;
+    emit authenticationFailed(QStringLiteral("oauth_missing_state"));
     return;
   }
   qInfo() << "GoogleAuthManager: desktop OAuth deep link state=" << state;
@@ -567,7 +581,9 @@ void GoogleAuthManager::handleDesktopOAuthDeepLink(const QUrl &url) {
     m_loginInProgressSinceMs = QDateTime::currentMSecsSinceEpoch();
     m_bridgeState = state;
     if (m_bridgeTimeout)
-      m_bridgeTimeout->start(60 * 1000);
+      m_bridgeTimeout->start(5 * 60 * 1000);
+    if (m_bridgePoll && !m_bridgePoll->isActive())
+      m_bridgePoll->start();
   } else if (!m_bridgeState.isEmpty() && m_bridgeState != state) {
     qWarning() << "GoogleAuthManager: deep-link state mismatch with in-flight";
   }
