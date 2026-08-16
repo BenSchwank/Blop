@@ -150,6 +150,19 @@ QJsonDocument NoteManager::toJson(const Note &note) {
       stickiesArr.append(so);
     }
     pageObj["stickies"] = stickiesArr;
+    QJsonArray textsArr;
+    for (const auto &t : p.texts) {
+      QJsonObject to;
+      to["x"] = t.pos.x();
+      to["y"] = t.pos.y();
+      to["w"] = t.width;
+      to["text"] = t.text;
+      to["c"] = t.color.name(QColor::HexArgb);
+      to["font"] = t.fontFamily;
+      to["size"] = t.fontPointSize;
+      textsArr.append(to);
+    }
+    pageObj["texts"] = textsArr;
     pageObj["bg"] = p.backgroundType;
     if (!p.title.isEmpty())
       pageObj["title"] = p.title;
@@ -311,6 +324,23 @@ bool NoteManager::fromJson(const QJsonDocument &doc, Note &out) {
       }
       sn.fontPointSize = so.value("fs").toInt(14);
       out.pages[i].stickies.push_back(std::move(sn));
+    }
+    const auto textsArr = pageObj.value("texts").toArray();
+    for (const auto &tv : textsArr) {
+      const auto to = tv.toObject();
+      TextObject t;
+      t.pos = QPointF(to.value("x").toDouble(0.0), to.value("y").toDouble(0.0));
+      t.width = to.value("w").toDouble(300.0);
+      t.text = to.value("text").toString();
+      {
+        const QString cn = to.value("c").toString();
+        QColor c(cn);
+        if (c.isValid())
+          t.color = c;
+      }
+      t.fontFamily = to.value("font").toString();
+      t.fontPointSize = to.value("size").toInt(14);
+      out.pages[i].texts.push_back(std::move(t));
     }
   }
   return true;

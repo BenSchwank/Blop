@@ -165,6 +165,7 @@ public:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
 
     // WICHTIG: Gesten kommen hier an
     bool viewportEvent(QEvent* e) override;
@@ -283,6 +284,11 @@ private:
     void bindStickyNoteSignals(QGraphicsRectItem *card);
     QGraphicsRectItem *createStickyNoteItem(const StickyNoteObject &data,
                                             int pageIndex);
+    void syncTextItemsToNote();
+    void flushTextItemSync();
+    QGraphicsTextItem *createTextItem(const TextObject &data, int pageIndex);
+    void bindTextItemSignals(QGraphicsTextItem *item);
+    void startEditingTextItem(QGraphicsTextItem *item);
     /// v3.18.0: einmalige Signal-Verdrahtung eines GraphCanvasItem (Tap,
     /// Long-Press, Plus, Achsen, Geometrie). Idempotent über data(9001);
     /// vorher existierte der ~60-Zeilen-Block doppelt in
@@ -323,6 +329,8 @@ private:
     bool m_syncingGraphs{false};
     bool m_syncingStickies{false};
     QTimer* m_stickySyncTimer{nullptr};
+    bool m_syncingTexts{false};
+    QPointer<QGraphicsTextItem> m_activeTextItem;
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};

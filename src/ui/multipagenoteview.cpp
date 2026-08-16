@@ -1361,13 +1361,15 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   // v3.18.0: Crop war als Button + Signal vorhanden, aber nie verbunden.
   connect(m_selectionMenu, &NoteSelectionMenu::cropRequested, this, &MultiPageNoteView::startCropSession);
 
-  // v3.18.6: debounce sticky-note text edits so typing doesn't sync + save on
-  // every single keystroke.
+  // v3.18.6: debounce sticky-note and text-box edits so typing doesn't sync +
+  // save on every single keystroke.
   m_stickySyncTimer = new QTimer(this);
   m_stickySyncTimer->setSingleShot(true);
   m_stickySyncTimer->setInterval(400);
-  connect(m_stickySyncTimer, &QTimer::timeout, this,
-          &MultiPageNoteView::syncStickyNotesToNote);
+  connect(m_stickySyncTimer, &QTimer::timeout, this, [this]() {
+    syncStickyNotesToNote();
+    syncTextItemsToNote();
+  });
 
   // Rechteck-Crop-Session (Freihand-Modus gibt es hier nicht, daher nur ✔/✕).
   m_cropMenu = new CropMenu(this, /*showModeButtons=*/false);
@@ -1886,6 +1888,9 @@ void MultiPageNoteView::hydratePageContent(int i) {
   }
   for (const auto &sn : note_->pages[i].stickies) {
     createStickyNoteItem(sn, i);
+  }
+  for (const auto &t : note_->pages[i].texts) {
+    createTextItem(t, i);
   }
   scene_.blockSignals(wasBlocked);
 }
@@ -2968,6 +2973,43 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
       }
   }
 
+  // Dedicated A4 text-box tool: bypass the generic TextTool so we can keep the
+  // box in our Note model and persist it with the note.
+  if (ToolManager::instance().activeToolMode() == ToolMode::Text &&
+      e->button() == Qt::LeftButton && note_) {
+    const QPointF scenePos = mapToScene(e->pos());
+    QGraphicsItem *clicked = scene_.itemAt(scenePos, QTransform());
+    while (clicked &&
+           clicked->data(0).toString() != QLatin1String("text_item"))
+      clicked = clicked->parentItem();
+    if (auto *existing = qgraphicsitem_cast<QGraphicsTextItem *>(clicked)) {
+      startEditingTextItem(existing);
+      e->accept();
+      return;
+    }
+
+    int pIdx = pageAt(scenePos);
+    if (pIdx < 0 || pIdx >= pageItems_.size())
+      pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
+
+    TextObject to;
+    to.pos = pageItems_[pIdx]->mapFromScene(scenePos);
+    to.width = 300.0;
+    to.color = ToolManager::instance().config().penColor.isValid()
+                   ? ToolManager::instance().config().penColor
+                   : QColor(Qt::black);
+    note_->ensurePage(pIdx);
+    note_->pages[pIdx].texts.push_back(to);
+    auto *item = createTextItem(to, pIdx);
+    if (item)
+      startEditingTextItem(item);
+    if (onSaveRequested)
+      onSaveRequested(note_);
+    emit pagesChanged();
+    e->accept();
+    return;
+  }
+
   // --- ToolManager & Ruler Logic ---
   AbstractTool *tool = ToolManager::instance().activeTool();
   if (tool && e->button() == Qt::LeftButton) {
@@ -3275,6 +3317,22 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
     if (e->button() == Qt::LeftButton && stickyInPlay)
       syncStickyNotesToNote();
   }
+}
+
+void MultiPageNoteView::mouseDoubleClickEvent(QMouseEvent *e) {
+  if (e->button() == Qt::LeftButton && note_) {
+    const QPointF scenePos = mapToScene(e->pos());
+    QGraphicsItem *clicked = scene_.itemAt(scenePos, QTransform());
+    while (clicked &&
+           clicked->data(0).toString() != QLatin1String("text_item"))
+      clicked = clicked->parentItem();
+    if (auto *item = qgraphicsitem_cast<QGraphicsTextItem *>(clicked)) {
+      startEditingTextItem(item);
+      e->accept();
+      return;
+    }
+  }
+  QGraphicsView::mouseDoubleClickEvent(e);
 }
 
 void MultiPageNoteView::tabletEvent(QTabletEvent *e) {
@@ -4064,6 +4122,7 @@ void MultiPageNoteView::deleteSelection() {
     if (m_selectionMenu) m_selectionMenu->hide();
     syncGraphItemsToNote();
     syncStickyNotesToNote();
+    syncTextItemsToNote();
     if (onSaveRequested) onSaveRequested(note_);
 }
 
@@ -5020,6 +5079,7 @@ void MultiPageNoteView::flushStickyNoteSync() {
   if (m_stickySyncTimer && m_stickySyncTimer->isActive())
     m_stickySyncTimer->stop();
   syncStickyNotesToNote();
+  syncTextItemsToNote();
 }
 
 void MultiPageNoteView::pushPageSnapshotCommand(const QVector<NotePage> &before,
@@ -5078,6 +5138,133 @@ void MultiPageNoteView::syncStickyNotesToNote() {
   if (onSaveRequested)
     onSaveRequested(note_);
   m_syncingStickies = false;
+}
+
+QGraphicsTextItem *
+MultiPageNoteView::createTextItem(const TextObject &data, int pageIndex) {
+  if (pageIndex < 0 || pageIndex >= pageItems_.size())
+    return nullptr;
+
+  auto *text = new QGraphicsTextItem();
+  text->setParentItem(pageItems_[pageIndex]);
+  text->setPos(data.pos);
+  text->setTextWidth(qMax(20.0, data.width));
+  text->setDefaultTextColor(data.color.isValid() ? data.color : Qt::black);
+  QFont font = text->font();
+  if (!data.fontFamily.isEmpty())
+    font.setFamily(data.fontFamily);
+  font.setPointSize(qBound(8, data.fontPointSize, 72));
+  text->setFont(font);
+  text->setPlainText(data.text);
+  text->setFlags(QGraphicsItem::ItemIsSelectable |
+                 QGraphicsItem::ItemIsMovable |
+                 QGraphicsItem::ItemSendsGeometryChanges);
+  text->setZValue(5);
+  text->setData(0, QStringLiteral("text_item"));
+  bindTextItemSignals(text);
+  return text;
+}
+
+void MultiPageNoteView::bindTextItemSignals(QGraphicsTextItem *item) {
+  if (!item || item->data(9003).toBool())
+    return;
+  item->setData(9003, true);
+  if (item->document()) {
+    connect(item->document(), &QTextDocument::contentsChanged, this, [this]() {
+      if (!m_syncingTexts && m_stickySyncTimer)
+        m_stickySyncTimer->start();
+    });
+  }
+  connect(item, &QGraphicsObject::xChanged, this, [this]() {
+    if (!m_syncingTexts && m_stickySyncTimer)
+      m_stickySyncTimer->start();
+  });
+  connect(item, &QGraphicsObject::yChanged, this, [this]() {
+    if (!m_syncingTexts && m_stickySyncTimer)
+      m_stickySyncTimer->start();
+  });
+}
+
+void MultiPageNoteView::startEditingTextItem(QGraphicsTextItem *item) {
+  if (!item)
+    return;
+  m_activeTextItem = item;
+  item->setTextInteractionFlags(Qt::TextEditorInteraction);
+  item->setFlag(QGraphicsItem::ItemIsFocusable, true);
+  item->setFocus(Qt::MouseFocusReason);
+}
+
+void MultiPageNoteView::flushTextItemSync() {
+  syncTextItemsToNote();
+}
+
+void MultiPageNoteView::syncTextItemsToNote() {
+  if (!note_)
+    return;
+  if (m_syncingTexts)
+    return;
+  m_syncingTexts = true;
+  for (auto &p : note_->pages)
+    p.texts.clear();
+
+  const auto all = scene_.items(Qt::AscendingOrder);
+  QList<QGraphicsTextItem *> emptyItems;
+  for (QGraphicsItem *item : all) {
+    if (item->data(0).toString() != QLatin1String("text_item"))
+      continue;
+    auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(item);
+    if (!text)
+      continue;
+
+    // Leave edit mode on text boxes that are no longer active.
+    if (text != m_activeTextItem &&
+        text->textInteractionFlags() != Qt::NoTextInteraction)
+      text->setTextInteractionFlags(Qt::NoTextInteraction);
+
+    // Remove abandoned empty text boxes (not actively edited).
+    if (text->toPlainText().trimmed().isEmpty() && text != m_activeTextItem) {
+      if (m_activeTextItem == text)
+        m_activeTextItem.clear();
+      emptyItems.append(text);
+      continue;
+    }
+
+    const QPointF sceneCenter = text->sceneBoundingRect().center();
+    int pIdx = pageAt(sceneCenter);
+    if (pIdx < 0 || pIdx >= pageItems_.size())
+      continue;
+
+    if (text->parentItem() != pageItems_[pIdx]) {
+      const QPointF sceneTopLeft = text->sceneBoundingRect().topLeft();
+      text->setParentItem(pageItems_[pIdx]);
+      text->setPos(pageItems_[pIdx]->mapFromScene(sceneTopLeft));
+    }
+
+    TextObject to;
+    to.pos = text->pos();
+    to.width = text->textWidth();
+    to.text = text->toPlainText();
+    to.color = text->defaultTextColor();
+    to.fontFamily = text->font().family();
+    to.fontPointSize = text->font().pointSize();
+    note_->ensurePage(pIdx);
+    note_->pages[pIdx].texts.push_back(std::move(to));
+  }
+
+  for (auto *text : emptyItems) {
+    scene_.removeItem(text);
+    delete text;
+  }
+
+  // If the previously active text box lost focus, clear our edit marker.
+  if (m_activeTextItem && !m_activeTextItem->hasFocus()) {
+    m_activeTextItem->setTextInteractionFlags(Qt::NoTextInteraction);
+    m_activeTextItem.clear();
+  }
+
+  if (onSaveRequested)
+    onSaveRequested(note_);
+  m_syncingTexts = false;
 }
 
 // ============================================================================

@@ -61,11 +61,21 @@ struct StickyNoteObject {
     int fontPointSize{14};
 };
 
+struct TextObject {
+    QPointF pos{0, 0}; // page-local top-left
+    qreal width{300.0};
+    QString text;
+    QColor color{Qt::black};
+    QString fontFamily;   // empty = default application font
+    int fontPointSize{14};
+};
+
 struct NotePage {
     QString title;        // Seitenname
     QVector<Stroke> strokes;
     QVector<GraphObject> graphs;
     QVector<StickyNoteObject> stickies;
+    QVector<TextObject> texts;
     QImage backgroundImage; // PDF-Import: Hintergrundbild (leer = nicht gesetzt)
     /// PageBackgroundType als int (0 Blank … 4 Legal); Standard = Grid (2)
     int backgroundType{2};

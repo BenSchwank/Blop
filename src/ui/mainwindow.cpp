@@ -11216,10 +11216,6 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
   }
 
   QWidget *current = m_editorTabs ? m_editorTabs->currentWidget() : nullptr;
-  // The A4 MultiPageNoteView currently persists sticky notes, not free text
-  // boxes. Map the Text tool to StickyNote for A4 notes to avoid silent data loss.
-  if (qobject_cast<NoteEditor *>(current) && tm == ToolMode::Text)
-    tm = ToolMode::StickyNote;
 
   if (m_toolManager) {
     m_toolManager->selectTool(tm);
