@@ -32,6 +32,7 @@
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QStandardPaths>
+#include <QTabBar>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -287,6 +288,13 @@ static bool blopConfirm(QWidget *parent, const QString &title,
 SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     : QDialog(parent), ui(new Ui::SettingsDialog), m_profileManager(profileMgr) {
     ui->setupUi(this);
+
+    // Remove the legacy Cloud Sync tab from the .ui skeleton; the new
+    // Storage card inside tabDesign owns the cloud UI.
+    if (int cloudIdx = ui->tabWidget->indexOf(ui->tabCloud); cloudIdx >= 0)
+        ui->tabWidget->removeTab(cloudIdx);
+    ui->tabWidget->tabBar()->hide();
+
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground);
     setObjectName(QStringLiteral("SettingsDialog"));
