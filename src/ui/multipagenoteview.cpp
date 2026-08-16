@@ -4990,6 +4990,12 @@ void MultiPageNoteView::bindStickyNoteSignals(QGraphicsRectItem *card) {
   }
 }
 
+void MultiPageNoteView::flushStickyNoteSync() {
+  if (m_stickySyncTimer && m_stickySyncTimer->isActive())
+    m_stickySyncTimer->stop();
+  syncStickyNotesToNote();
+}
+
 void MultiPageNoteView::syncStickyNotesToNote() {
   if (!note_)
     return;

@@ -42,6 +42,8 @@ public:
 
     void setNote(Note* note);
     Note* note() const { return note_; }
+    /// Stop any pending sticky-note debounce and sync immediately.
+    void flushStickyNoteSync();
 
     void setToolMode(ToolMode m);
     void toggleRuler(bool active);

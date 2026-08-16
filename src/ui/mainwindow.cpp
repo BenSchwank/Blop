@@ -12671,6 +12671,14 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   // Make sure no pending note changes are lost when the user closes the
   // window directly from the editor. Flush the A4 debounced save synchronously;
   // an async save could still be in flight when the process exits.
+  // Also flush any in-flight sticky-note text edits before the save copy is made.
+  if (m_editorTabs) {
+    if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget())) {
+      if (auto *view = editor->view()) {
+        view->flushStickyNoteSync();
+      }
+    }
+  }
   if (m_pendingA4SaveNote && !m_pendingA4SavePath.isEmpty()) {
     if (m_a4SaveDebounce)
       m_a4SaveDebounce->stop();
