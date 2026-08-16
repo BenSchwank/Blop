@@ -11215,6 +11215,12 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
     break;
   }
 
+  QWidget *current = m_editorTabs ? m_editorTabs->currentWidget() : nullptr;
+  // The A4 MultiPageNoteView currently persists sticky notes, not free text
+  // boxes. Map the Text tool to StickyNote for A4 notes to avoid silent data loss.
+  if (qobject_cast<NoteEditor *>(current) && tm == ToolMode::Text)
+    tm = ToolMode::StickyNote;
+
   if (m_toolManager) {
     m_toolManager->selectTool(tm);
   }
@@ -11225,7 +11231,6 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
   if (auto *phone = qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
     phone->setToolMode(tm);
   }
-  QWidget *current = m_editorTabs ? m_editorTabs->currentWidget() : nullptr;
   // Direct or inside-wrapper
   if (auto *cv = qobject_cast<CanvasView *>(current)) {
     cv->setTool(tool);
