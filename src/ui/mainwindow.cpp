@@ -3973,6 +3973,15 @@ void MainWindow::applyProfile(const UiProfile &profile) {
 
   ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (tb) {
+#ifdef Q_OS_ANDROID
+    // Persist the toolbar style chosen in Settings per profile.
+    if (profile.toolbarStyle == 1) {
+      tb->setStyle(ModernToolbar::Radial);
+      tb->setRadialType(ModernToolbar::FullCircle);
+    } else {
+      tb->setStyle(ModernToolbar::Normal);
+    }
+#endif
     if (tb->currentStyle() == ModernToolbar::Radial)
       tb->setScale(profile.toolbarScale);
     if (m_sliderToolbarScale) {

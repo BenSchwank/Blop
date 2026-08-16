@@ -1,6 +1,7 @@
 #include "settingsdialog.h"
 #include "cloudstoragestore.h"
 #include "storageprefs.h"
+#include "uiprofilemanager.h"
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
@@ -647,8 +648,18 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto *bgToolbar = new QButtonGroup(this);
         bgToolbar->addButton(rNorm, 0);
         bgToolbar->addButton(rFull, 1);
+        if (m_profileManager &&
+            m_profileManager->currentProfile().toolbarStyle == 1)
+            rFull->setChecked(true);
+        else
+            rNorm->setChecked(true);
         connect(bgToolbar, &QButtonGroup::idClicked, this,
-                [this](int id) { emit toolbarStyleChanged(id > 0); });
+                [this](int id) {
+                    auto profile = m_profileManager->currentProfile();
+                    profile.toolbarStyle = (id > 0) ? 1 : 0;
+                    m_profileManager->updateProfile(profile, true);
+                    emit toolbarStyleChanged(id > 0);
+                });
     }
 
     // ----- Card: Verhalten (Profile list) -------------------------------

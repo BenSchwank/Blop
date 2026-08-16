@@ -119,6 +119,7 @@ void UiProfileManager::createProfile(const QString &name) {
         p.toolbarScale = current.toolbarScale;
         p.buttonSize = current.buttonSize;
         p.snapToGrid = current.snapToGrid;
+        p.toolbarStyle = current.toolbarStyle;
     }
     m_profiles.append(p);
     saveProfiles();

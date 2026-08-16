@@ -13,6 +13,8 @@ struct UiProfile {
     double toolbarScale{1.0};
     int buttonSize{40};
     bool snapToGrid{true};
+    // 0 = Normal/Favorites rail, 1 = Radial toolbar (Android only)
+    int toolbarStyle{0};
 
     UiProfile() : id(QUuid::createUuid().toString()), name("Neues Profil") {}
 
@@ -25,6 +27,7 @@ struct UiProfile {
         obj["toolbarScale"] = toolbarScale;
         obj["buttonSize"] = buttonSize;
         obj["snapToGrid"] = snapToGrid;
+        obj["toolbarStyle"] = toolbarStyle;
         return obj;
     }
 
@@ -37,6 +40,7 @@ struct UiProfile {
         if (obj.contains("toolbarScale")) p.toolbarScale = obj.value("toolbarScale").toDouble(1.0);
         if (obj.contains("buttonSize")) p.buttonSize = obj.value("buttonSize").toInt(40);
         if (obj.contains("snapToGrid")) p.snapToGrid = obj.value("snapToGrid").toBool(true);
+        if (obj.contains("toolbarStyle")) p.toolbarStyle = obj.value("toolbarStyle").toInt(0);
         return p;
     }
 
