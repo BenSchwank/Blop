@@ -1324,6 +1324,14 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   // v3.18.0: Crop war als Button + Signal vorhanden, aber nie verbunden.
   connect(m_selectionMenu, &NoteSelectionMenu::cropRequested, this, &MultiPageNoteView::startCropSession);
 
+  // v3.18.6: debounce sticky-note text edits so typing doesn't sync + save on
+  // every single keystroke.
+  m_stickySyncTimer = new QTimer(this);
+  m_stickySyncTimer->setSingleShot(true);
+  m_stickySyncTimer->setInterval(400);
+  connect(m_stickySyncTimer, &QTimer::timeout, this,
+          &MultiPageNoteView::syncStickyNotesToNote);
+
   // Rechteck-Crop-Session (Freihand-Modus gibt es hier nicht, daher nur ✔/✕).
   m_cropMenu = new CropMenu(this, /*showModeButtons=*/false);
   connect(m_cropMenu, &CropMenu::applyRequested, this, &MultiPageNoteView::applyCrop);
@@ -2047,6 +2055,7 @@ void MultiPageNoteView::addNewPage() {
 
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 
 void MultiPageNoteView::addNewPageWithLayout(int backgroundType,
@@ -2066,6 +2075,7 @@ void MultiPageNoteView::addNewPageWithLayout(int backgroundType,
   }
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 
 void MultiPageNoteView::showBottomSheetFromPull() {
@@ -3683,6 +3693,7 @@ void MultiPageNoteView::movePage(int fromIndex, int toIndex) {
   setNote(note_);
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 void MultiPageNoteView::duplicatePage(int pageIndex) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
@@ -3692,6 +3703,7 @@ void MultiPageNoteView::duplicatePage(int pageIndex) {
   setNote(note_);
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 void MultiPageNoteView::deletePage(int pageIndex) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
@@ -3700,6 +3712,7 @@ void MultiPageNoteView::deletePage(int pageIndex) {
   setNote(note_);
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 
 void MultiPageNoteView::rotatePage(int pageIndex, int quarterTurns) {
@@ -3750,6 +3763,7 @@ void MultiPageNoteView::rotatePage(int pageIndex, int quarterTurns) {
   setNote(note_);
   if (onSaveRequested)
     onSaveRequested(note_);
+  emit pagesChanged();
 }
 
 bool MultiPageNoteView::isPageBookmarked(int pageIndex) const {
@@ -4970,8 +4984,8 @@ void MultiPageNoteView::bindStickyNoteSignals(QGraphicsRectItem *card) {
     if (!text || !text->document())
       continue;
     connect(text->document(), &QTextDocument::contentsChanged, this, [this]() {
-      if (!m_syncingStickies)
-        syncStickyNotesToNote();
+      if (!m_syncingStickies && m_stickySyncTimer)
+        m_stickySyncTimer->start();
     });
   }
 }

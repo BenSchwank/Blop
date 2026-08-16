@@ -292,7 +292,15 @@ void PageThumbnailSidebar::refreshListStyle() {
 }
 
 void PageThumbnailSidebar::setNoteView(MultiPageNoteView *view) {
+  if (m_view == view)
+    return;
+  if (m_view)
+    disconnect(m_view, nullptr, this, nullptr);
   m_view = view;
+  if (m_view) {
+    connect(m_view, &MultiPageNoteView::pagesChanged, this,
+            &PageThumbnailSidebar::rebuild, Qt::UniqueConnection);
+  }
   rebuild();
 }
 

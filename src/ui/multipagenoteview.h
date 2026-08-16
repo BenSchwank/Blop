@@ -147,6 +147,10 @@ protected:
     void focusOutEvent(QFocusEvent *event) override;
 
     /// Apply a fit-to-width transform so the A4 page fits the viewport.
+signals:
+    void pagesChanged();
+
+public:
     void autoFitPageToViewportWidth();
     void tabletEvent(QTabletEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
@@ -309,6 +313,7 @@ private:
     bool m_graphQuickPopupWanted{false};
     bool m_syncingGraphs{false};
     bool m_syncingStickies{false};
+    QTimer* m_stickySyncTimer{nullptr};
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};
