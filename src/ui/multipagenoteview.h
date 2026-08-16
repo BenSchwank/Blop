@@ -153,6 +153,7 @@ signals:
     void pagesChanged();
 
 public:
+    void addNewPage();
     void autoFitPageToViewportWidth();
     void tabletEvent(QTabletEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
@@ -242,7 +243,6 @@ private:
     int pageAt(const QPointF& scenePos) const;
     QRectF pageRect(int idx) const;
 
-    void addNewPage();
     void addNewPageWithLayout(int backgroundType, const QColor &paperColor);
     void applyLayoutToPage(int pageIndex, int backgroundType, const QColor &paperColor);
     int visiblePageIndex() const;

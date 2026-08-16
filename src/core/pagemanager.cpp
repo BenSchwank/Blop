@@ -606,9 +606,7 @@ void PageManager::applyThemeRefresh() {
 
 void PageManager::onAddPage() {
     if (!m_view || !m_view->note()) return;
-    int idx = m_view->note()->pages.size();
-    m_view->note()->ensurePage(idx);
-    m_view->setNote(m_view->note());
+    m_view->addNewPage();
     rebuildList(false);
     m_listWidget->scrollToBottom();
 }
