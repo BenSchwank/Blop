@@ -2437,6 +2437,9 @@ void MultiPageNoteView::fitPage() {
 
 void MultiPageNoteView::requestAutoFit() {
   m_pendingInitialFit = true;
+  // Opening a new note should always attempt the initial fit, even if the
+  // user had zoomed the previously open note.
+  m_userTouchedZoom = false;
   if (isVisible()) {
     QTimer::singleShot(0, this, [this]() {
       m_pendingInitialFit = false;
