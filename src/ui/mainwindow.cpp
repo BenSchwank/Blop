@@ -10717,6 +10717,9 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                              "rückgängig gemacht werden."),
               QStringLiteral("Löschen"), QStringLiteral("Abbrechen")))
         return;
+      const QString notePath = m_fileModel->filePath(QModelIndex(persistent));
+      if (!m_fileModel->isDir(QModelIndex(persistent)))
+        StoragePrefs::removeCloudMirrorIfNeeded(notePath);
       m_fileModel->remove(QModelIndex(persistent));
     });
   };
@@ -10820,6 +10823,10 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                           QStringLiteral("Löschen"),
                           QStringLiteral("Abbrechen")))
                     return;
+                  const QString notePath =
+                      m_fileModel->filePath(QModelIndex(persistent));
+                  if (!m_fileModel->isDir(QModelIndex(persistent)))
+                    StoragePrefs::removeCloudMirrorIfNeeded(notePath);
                   m_fileModel->remove(QModelIndex(persistent));
                 }, true, false});
   BlopInWindowMenu::show(this, globalPos, items);

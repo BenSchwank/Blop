@@ -53,4 +53,8 @@ QString noteWriteRoot(const QString &localRoot);
 /// No-op for other modes or when no cloud is linked.
 bool mirrorNoteToCloudIfNeeded(const QString &localNotePath);
 
+/// Remove the cloud mirror of a note file in LocalAndCloud mode.
+/// No-op for other modes or when no cloud is linked.
+bool removeCloudMirrorIfNeeded(const QString &localNotePath);
+
 } // namespace StoragePrefs
