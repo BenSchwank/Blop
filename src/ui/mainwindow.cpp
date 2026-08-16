@@ -9988,6 +9988,16 @@ void MainWindow::handleDesktopDeepLinkMessage(const QString &message) {
     return;
   const QUrl url(msg);
   GoogleAuthManager::instance().handleDesktopOAuthDeepLink(url);
+
+#if defined(BLOP_HAS_WEBENGINE)
+  // Let the Study/login web page show a "completing login" indicator while
+  // the desktop bridge claim is polled.
+  if (m_studyWebView && m_studyWebView->page()) {
+    m_studyWebView->page()->runJavaScript(QStringLiteral(
+        "try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); }"
+        "catch (e) { console.error('blop-oauth-pending dispatch failed', e); }"));
+  }
+#endif
 }
 #endif
 
