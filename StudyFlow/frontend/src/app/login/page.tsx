@@ -26,6 +26,7 @@ export default function LoginPage() {
     const [forgotLoading, setForgotLoading] = useState(false);
     const [forgotMessage, setForgotMessage] = useState('');
     const [forgotSuccess, setForgotSuccess] = useState(false);
+    const [oauthPending, setOauthPending] = useState(false);
 
     const API_BASE = '/api';
 
@@ -81,6 +82,33 @@ export default function LoginPage() {
 
         return () => clearInterval(checkNative);
     }, [router]);
+
+    // Desktop Blop (and Android WebView) dispatch these from C++ while the
+    // system-browser Google bridge is claimed. Without listeners the login
+    // screen stays silent after a failed or in-flight return.
+    React.useEffect(() => {
+        const onPending = () => {
+            setOauthPending(true);
+            setLoading(true);
+            setError('');
+        };
+        const onFailure = (ev: Event) => {
+            const detail = (ev as CustomEvent<{ error?: string; friendly?: string }>).detail;
+            setOauthPending(false);
+            setLoading(false);
+            setError(
+                detail?.friendly ||
+                    detail?.error ||
+                    'Google-Anmeldung fehlgeschlagen. Bitte erneut versuchen.'
+            );
+        };
+        document.addEventListener('blop-oauth-pending', onPending);
+        document.addEventListener('blop-oauth-failure', onFailure);
+        return () => {
+            document.removeEventListener('blop-oauth-pending', onPending);
+            document.removeEventListener('blop-oauth-failure', onFailure);
+        };
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -343,6 +371,12 @@ export default function LoginPage() {
                             </div>
                         )}
 
+                        {oauthPending && !error && (
+                            <div className="p-3 rounded-lg text-sm bg-[#5E5CE6]/15 text-[#C4B5FF] border border-[#5E5CE6]/30">
+                                Anmeldung wird abgeschlossen…
+                            </div>
+                        )}
+
                         {error && (
                             <div className={`p-3 rounded-lg text-sm ${error.includes('erfolgreich')
                                 ? 'bg-green-500/10 text-green-400 border border-green-500/20'
@@ -376,13 +410,22 @@ export default function LoginPage() {
                         {useNativeGoogle ? (
                             <button
                                 type="button"
+                                disabled={loading || oauthPending}
                                 onClick={() => {
                                     localStorage.setItem('trigger_google_login', '1');
                                     setError('');
+                                    setOauthPending(false);
                                     setLoading(true);
                                     // Desktop SSO poll picks this up within ~1s and opens
-                                    // the system-browser bridge; clear spinner shortly after.
-                                    window.setTimeout(() => setLoading(false), 2500);
+                                    // the system-browser bridge; clear spinner shortly after
+                                    // unless C++ has already flipped us into oauth-pending.
+                                    window.setTimeout(() => {
+                                        setOauthPending((pending) => {
+                                            if (!pending)
+                                                setLoading(false);
+                                            return pending;
+                                        });
+                                    }, 2500);
                                 }}
                                 className="w-full py-3.5 bg-white text-gray-800 rounded-lg font-semibold hover:bg-gray-100 active:bg-gray-200 transition-all flex items-center justify-center gap-2 border border-gray-300"
                             >

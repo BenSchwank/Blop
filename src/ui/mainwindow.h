@@ -312,6 +312,11 @@ private:
   QString noteWriteDirectory() const;
   void applyStoragePrefsToLibrary();
   void mirrorNoteIfNeeded(const QString &notePath);
+  void refreshCloudSyncStatus(const QString &flash = QString());
+  void runStudyJavaScript(const QString &js);
+  void setLibraryBusy(bool busy, const QString &text = QString());
+  void switchToEditorChrome();
+  void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
   void applyTheme();
   void applyLibraryFilters();
   void rebuildPageSettingsTags();
@@ -528,6 +533,9 @@ private:
   QLineEdit *m_overviewSearchBar{nullptr};
   QLabel *m_lblLibraryTitle{nullptr};
   QLabel *m_lblLibrarySubtitle{nullptr};
+  QLabel *m_lblCloudSyncStatus{nullptr};
+  QWidget *m_libraryBusyOverlay{nullptr};
+  QString m_openingNotePath;
   QLabel *m_lblEmptyState{nullptr};
   QPushButton *m_fabNote{nullptr};
 

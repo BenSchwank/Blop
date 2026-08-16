@@ -1687,11 +1687,9 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     syncPagesBarVisibility();
     syncGraphLegendLayout();
     repositionGraphEntryBar();
-#ifdef Q_OS_ANDROID
-    // v3.17.6: piggy-back lazy page hydration on the existing scroll
-    // coalescer so we don't fire a second timer cascade per scroll burst.
+    // Lazy page hydration on scroll (desktop + Android) so long notes
+    // don't build every StrokeItem up front.
     hydrateVisibleRange();
-#endif
   });
   auto kickCoalescer = [this]() {
     if (m_scrollLayoutCoalescer && !m_scrollLayoutCoalescer->isActive())
@@ -1931,8 +1929,6 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
 
   layoutPages();
 
-  // Wenn wir beim Laden im Lineal-Modus sind, muss das Lineal wiederhergestellt
-  // werden (da scene_.clear() es gelöscht hat)
   if (ToolManager::instance().activeToolMode() == ToolMode::Ruler) {
     RulerTool::ensureRulerExists(&scene_, ToolManager::instance().config());
   }
@@ -1940,17 +1936,15 @@ void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
   if (!note_)
     return;
 
-#ifdef Q_OS_ANDROID
-  // v3.17.6: lazy page hydration. Only build the StrokeItem/GraphCanvasItem
-  // graph for pages currently visible in the viewport (+/- N pages of
-  // padding). Off-screen pages get hydrated on-demand from the scroll
-  // coalescer in MultiPageNoteView's ctor. For big notes (>50 pages) this
-  // cuts setNote() from hundreds of ms to a few dozen.
-  hydrateVisibleRange();
-#else
-  for (int i = 0; i < note_->pages.size(); ++i)
-    hydratePageContent(i);
-#endif
+  // Lazy hydrate on long notes (desktop and Android). Short notes still
+  // hydrate fully so the first paint has every stroke.
+  const bool lazy = note_->pages.size() > 8;
+  if (lazy)
+    hydrateVisibleRange();
+  else {
+    for (int i = 0; i < note_->pages.size(); ++i)
+      hydratePageContent(i);
+  }
   syncPagesBarVisibility();
 }
 

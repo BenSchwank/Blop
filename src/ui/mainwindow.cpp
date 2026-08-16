@@ -1730,24 +1730,19 @@ MainWindow::MainWindow(QWidget *parent)
             "oder einen anderen Browser und versuche es erneut.");
 #ifdef Q_OS_ANDROID
       BlopDialogs::notify(this, QStringLiteral("Google Login"), friendly);
-#else
-#if defined(BLOP_HAS_WEBENGINE)
-      if (m_studyWebView && m_studyWebView->page()) {
-        QJsonObject detail;
-        detail["error"] = error;
-        detail["friendly"] = friendly;
-        const QString detailJson = QString::fromUtf8(
-            QJsonDocument(detail).toJson(QJsonDocument::Compact));
-        const QString js = QStringLiteral(
-            "try { "
-            "var evt = new CustomEvent('blop-oauth-failure', { detail: %1 });"
-            "document.dispatchEvent(evt);"
-            "} catch (e) { console.error('blop-oauth-failure dispatch failed', e); }")
-            .arg(detailJson);
-        m_studyWebView->page()->runJavaScript(js);
-      }
 #endif
-#endif
+      QJsonObject detail;
+      detail["error"] = error;
+      detail["friendly"] = friendly;
+      const QString detailJson = QString::fromUtf8(
+          QJsonDocument(detail).toJson(QJsonDocument::Compact));
+      const QString js = QStringLiteral(
+          "try { "
+          "var evt = new CustomEvent('blop-oauth-failure', { detail: %1 });"
+          "document.dispatchEvent(evt);"
+          "} catch (e) { console.error('blop-oauth-failure dispatch failed', e); }")
+                             .arg(detailJson);
+      runStudyJavaScript(js);
   });
 
   QTimer::singleShot(100, this, &MainWindow::updateGrid);
@@ -7426,9 +7421,9 @@ void MainWindow::setupSidebar() {
 #endif
 
 #ifdef Q_OS_ANDROID
-  bottomBar->setFixedHeight(52);
+  bottomBar->setFixedHeight(70);
 #else
-  bottomBar->setFixedHeight(52);
+  bottomBar->setFixedHeight(70);
 #endif
 
   QHBoxLayout *bottomLay = new QHBoxLayout(bottomBar);
@@ -7485,6 +7480,19 @@ void MainWindow::setupSidebar() {
           &MainWindow::onOpenSettings);
   userCol->addWidget(m_btnSidebarSettings);
 
+  m_lblCloudSyncStatus = new QLabel(bottomBar);
+  m_lblCloudSyncStatus->setObjectName(QStringLiteral("cloudSyncStatus"));
+  m_lblCloudSyncStatus->setWordWrap(true);
+#ifdef Q_OS_ANDROID
+  m_lblCloudSyncStatus->setMaximumWidth(118);
+#else
+  m_lblCloudSyncStatus->setMaximumWidth(130);
+#endif
+  m_lblCloudSyncStatus->setStyleSheet(BlopTheme::themed(
+      QStringLiteral("font-size: 10px; font-weight: 500; color: rgba(180,188,215,0.62); "
+                     "background: transparent;")));
+  userCol->addWidget(m_lblCloudSyncStatus);
+
   bottomLay->addLayout(userCol);
   bottomLay->addStretch();
 
@@ -7508,6 +7516,7 @@ void MainWindow::setupSidebar() {
   m_androidSidebarScrim->hide();
   m_androidSidebarScrim->installEventFilter(this);
 #endif
+  refreshCloudSyncStatus();
 }
 
 #ifdef Q_OS_ANDROID
@@ -7614,13 +7623,16 @@ void MainWindow::updateLibraryHeader() {
         dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
     if (atRoot) {
       m_lblLibrarySubtitle->setText(
-          QStringLiteral("Bibliothek · %1 Einträge").arg(count));
+          QStringLiteral("Bibliothek · %1 Einträge · %2")
+              .arg(count)
+              .arg(StoragePrefs::modeLabel(StoragePrefs::mode())));
     } else {
       const QString rel = QDir(m_rootPath).relativeFilePath(folderPath);
       m_lblLibrarySubtitle->setText(
-          QStringLiteral("%1 · %2 Einträge")
+          QStringLiteral("%1 · %2 Einträge · %3")
               .arg(rel.isEmpty() ? folderPath : rel)
-              .arg(count));
+              .arg(count)
+              .arg(StoragePrefs::modeLabel(StoragePrefs::mode())));
     }
   }
 }
@@ -8033,6 +8045,150 @@ QString MainWindow::noteWriteDirectory() const {
   return m_rootPath;
 }
 
+void MainWindow::runStudyJavaScript(const QString &js) {
+  if (js.isEmpty())
+    return;
+#ifdef Q_OS_ANDROID
+  emit injectToken(js);
+#else
+#ifdef BLOP_HAS_WEBENGINE
+  if (m_studyWebView && m_studyWebView->page())
+    m_studyWebView->page()->runJavaScript(js);
+#else
+  Q_UNUSED(js);
+#endif
+#endif
+}
+
+void MainWindow::refreshCloudSyncStatus(const QString &flash) {
+  if (!m_lblCloudSyncStatus)
+    return;
+  QString base;
+  const auto mode = StoragePrefs::mode();
+  const bool linked = !StoragePrefs::primaryLinkedCloudPath().isEmpty();
+  switch (mode) {
+  case StoragePrefs::Mode::CloudOnly:
+    base = linked ? QStringLiteral("Nur Cloud · verbunden")
+                  : QStringLiteral("Cloud nicht verknüpft");
+    break;
+  case StoragePrefs::Mode::LocalAndCloud:
+    base = linked ? QStringLiteral("Lokal + Cloud · Spiegel aktiv")
+                  : QStringLiteral("Lokal + Cloud · Ordner fehlt");
+    break;
+  case StoragePrefs::Mode::LocalOnly:
+  default:
+    base = QStringLiteral("Nur lokal");
+    break;
+  }
+  m_lblCloudSyncStatus->setText(flash.isEmpty() ? base : flash);
+  m_lblCloudSyncStatus->setToolTip(
+      StoragePrefs::modeHint(mode) +
+      (linked ? QStringLiteral("\n%1").arg(StoragePrefs::primaryLinkedCloudPath())
+              : QString()));
+  if (!flash.isEmpty())
+    QTimer::singleShot(2800, this, [this]() { refreshCloudSyncStatus(); });
+}
+
+void MainWindow::setLibraryBusy(bool busy, const QString &text) {
+  if (!m_overviewContainer)
+    return;
+  if (!busy) {
+    if (m_libraryBusyOverlay)
+      m_libraryBusyOverlay->hide();
+    return;
+  }
+  if (!m_libraryBusyOverlay) {
+    m_libraryBusyOverlay = new QWidget(m_overviewContainer);
+    m_libraryBusyOverlay->setObjectName(QStringLiteral("LibraryBusyOverlay"));
+    m_libraryBusyOverlay->setStyleSheet(
+        QStringLiteral("background-color: rgba(10, 8, 20, 0.62);"));
+    auto *lay = new QVBoxLayout(m_libraryBusyOverlay);
+    lay->setAlignment(Qt::AlignCenter);
+    auto *lbl = new QLabel(m_libraryBusyOverlay);
+    lbl->setObjectName(QStringLiteral("LibraryBusyLabel"));
+    lbl->setAlignment(Qt::AlignCenter);
+    lbl->setStyleSheet(QStringLiteral(
+        "color: #F4F2FF; font-size: 14px; font-weight: 600; background: transparent;"));
+    lay->addWidget(lbl);
+  }
+  if (auto *lbl = m_libraryBusyOverlay->findChild<QLabel *>(
+          QStringLiteral("LibraryBusyLabel")))
+    lbl->setText(text.isEmpty() ? QStringLiteral("Notiz wird geladen…") : text);
+  m_libraryBusyOverlay->setGeometry(m_overviewContainer->rect());
+  m_libraryBusyOverlay->show();
+  m_libraryBusyOverlay->raise();
+}
+
+void MainWindow::switchToEditorChrome() {
+  if (m_rightStack) {
+    const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+#ifdef Q_OS_ANDROID
+    m_rightStack->setCurrentIndex(editorIdx);
+#else
+    crossfadeStackTo(m_rightStack, editorIdx);
+#endif
+  }
+  if (m_documentTabBar)
+    m_documentTabBar->setNoteChromeMode(true);
+  applyNoteChromeTheme();
+  setActiveTool(m_activeToolType);
+  updateSidebarState();
+}
+
+void MainWindow::openLoadedA4Note(const QString &path, const QString &fileName,
+                                 Note note) {
+  if (note.tags.isEmpty())
+    note.tags = LibraryTagStore::tagsForPath(path);
+  else
+    LibraryTagStore::setTagsForPath(path, note.tags);
+  NoteEditor *editor = new NoteEditor(this);
+  editor->setProperty("filePath", path);
+  Note *heapNote = new Note(std::move(note));
+  editor->setNote(heapNote);
+  if (editor->view()) {
+    editor->view()->setPenOnlyMode(m_penOnlyMode);
+    editor->view()->setProperty("viewStateKey", path);
+    QTimer::singleShot(0, editor->view(), [v = editor->view(), path]() {
+      if (v)
+        v->restoreViewState(path);
+    });
+  }
+  editor->onSaveRequested = [this, path, editor](Note *n) {
+    if (!n)
+      return;
+    LibraryTagStore::setTagsForPath(path, n->tags);
+    m_pendingA4SaveNote = n;
+    m_pendingA4SavePath = path;
+    const bool force = editor->property("forceSave").toBool();
+    editor->setProperty("forceSave", false);
+    if (force) {
+      if (m_a4SaveDebounce)
+        m_a4SaveDebounce->stop();
+      Note copy = *n;
+      const QString p = path;
+      m_noteManager.saveNoteAsync(copy, p, [this, p](bool ok) {
+        if (!ok)
+          qWarning() << "A4 async save failed" << p;
+        else
+          mirrorNoteIfNeeded(p);
+      });
+    } else {
+      if (m_a4SaveDebounce)
+        m_a4SaveDebounce->start();
+    }
+  };
+  editor->onOpenNoteOptionsRequested = [this]() {
+    if (!m_pageSettingsOverlay)
+      return;
+    if (!m_pageSettingsOverlay->isVisible())
+      setPageSettingsOverlayVisible(true);
+  };
+  editor->onOpenPageManagerRequested = [this]() { onTogglePageManager(); };
+  m_editorTabs->addTab(editor, fileName);
+  m_editorTabs->setCurrentWidget(editor);
+  addNoteTab(QFileInfo(fileName).baseName());
+}
+
 void MainWindow::applyStoragePrefsToLibrary() {
   if (!m_fileModel)
     return;
@@ -8042,14 +8198,22 @@ void MainWindow::applyStoragePrefsToLibrary() {
     const QString cloud = StoragePrefs::noteWriteRoot(m_rootPath);
     if (!cloud.isEmpty()) {
       navigateLibraryToPath(cloud);
+      refreshCloudSyncStatus();
       return;
     }
   }
   navigateLibraryToPath(m_rootPath);
+  refreshCloudSyncStatus();
 }
 
 void MainWindow::mirrorNoteIfNeeded(const QString &notePath) {
-  StoragePrefs::mirrorNoteToCloudIfNeeded(notePath);
+  if (StoragePrefs::mode() != StoragePrefs::Mode::LocalAndCloud) {
+    refreshCloudSyncStatus();
+    return;
+  }
+  const bool ok = StoragePrefs::mirrorNoteToCloudIfNeeded(notePath);
+  refreshCloudSyncStatus(ok ? QStringLiteral("Notiz gespiegelt")
+                            : QStringLiteral("Spiegeln fehlgeschlagen"));
 }
 
 void MainWindow::onNewPage() {
@@ -9989,15 +10153,11 @@ void MainWindow::handleDesktopDeepLinkMessage(const QString &message) {
   const QUrl url(msg);
   GoogleAuthManager::instance().handleDesktopOAuthDeepLink(url);
 
-#if defined(BLOP_HAS_WEBENGINE)
   // Let the Study/login web page show a "completing login" indicator while
   // the desktop bridge claim is polled.
-  if (m_studyWebView && m_studyWebView->page()) {
-    m_studyWebView->page()->runJavaScript(QStringLiteral(
-        "try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); }"
-        "catch (e) { console.error('blop-oauth-pending dispatch failed', e); }"));
-  }
-#endif
+  runStudyJavaScript(QStringLiteral(
+      "try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); }"
+      "catch (e) { console.error('blop-oauth-pending dispatch failed', e); }"));
 }
 #endif
 
@@ -10326,81 +10486,31 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
         m_editorTabs->setCurrentWidget(mdEditor);
         addNoteTab(QFileInfo(fileName).baseName());
       } else {
-        Note note;
-        if (NoteManager::loadNote(path, note)) {
-          // Prefer tags embedded in the note file; fall back to library store.
-          if (note.tags.isEmpty())
-            note.tags = LibraryTagStore::tagsForPath(path);
-          else
-            LibraryTagStore::setTagsForPath(path, note.tags);
-          NoteEditor *editor = new NoteEditor(this);
-          editor->setProperty("filePath", path);
-          Note *heapNote = new Note(note);
-          editor->setNote(heapNote);
-          if (editor->view()) {
-            editor->view()->setPenOnlyMode(m_penOnlyMode);
-            editor->view()->setProperty("viewStateKey", path);
-            // Restore after layout settles so page scroll targets are valid.
-            QTimer::singleShot(0, editor->view(), [v = editor->view(), path]() {
-              if (v)
-                v->restoreViewState(path);
-            });
-          }
-          editor->onSaveRequested = [this, path, editor](Note *n) {
-            if (!n) return;
-            LibraryTagStore::setTagsForPath(path, n->tags);
-            m_pendingA4SaveNote = n;
-            m_pendingA4SavePath = path;
-            const bool force = editor->property("forceSave").toBool();
-            editor->setProperty("forceSave", false);
-            if (force) {
-              if (m_a4SaveDebounce) m_a4SaveDebounce->stop();
-              Note copy = *n;
-              const QString p = path;
-              m_noteManager.saveNoteAsync(copy, p, [this, p](bool ok) {
-                if (!ok)
-                  qWarning() << "A4 async save failed" << p;
-                else
-                  mirrorNoteIfNeeded(p);
-              });
-            } else {
-              if (m_a4SaveDebounce) m_a4SaveDebounce->start();
-            }
-          };
-          editor->onOpenNoteOptionsRequested = [this]() {
-            if (!m_pageSettingsOverlay)
-              return;
-            if (!m_pageSettingsOverlay->isVisible())
-              setPageSettingsOverlayVisible(true);
-          };
-          editor->onOpenPageManagerRequested = [this]() {
-            onTogglePageManager();
-          };
-          m_editorTabs->addTab(editor, fileName);
-          m_editorTabs->setCurrentWidget(editor);
-          addNoteTab(QFileInfo(fileName).baseName());
-        } else {
-          BlopDialogs::notify(
-              this, QStringLiteral("Notiz öffnen"),
-              QStringLiteral("Datei konnte nicht geladen werden:\n%1")
-                  .arg(path));
+        if (!m_openingNotePath.isEmpty())
           return;
-        }
+        m_openingNotePath = path;
+        setLibraryBusy(true, QStringLiteral("Notiz wird geladen…"));
+        QPointer<MainWindow> self(this);
+        m_noteManager.loadNoteAsync(
+            path, [self, path, fileName](bool ok, Note note) {
+              if (!self)
+                return;
+              self->m_openingNotePath.clear();
+              self->setLibraryBusy(false);
+              if (!ok) {
+                BlopDialogs::notify(
+                    self, QStringLiteral("Notiz öffnen"),
+                    QStringLiteral("Datei konnte nicht geladen werden:\n%1")
+                        .arg(path));
+                return;
+              }
+              self->openLoadedA4Note(path, fileName, std::move(note));
+              self->switchToEditorChrome();
+            });
+        return;
       }
     }
-    if (m_rightStack) {
-      const int editorIdx = m_rightStack->indexOf(m_editorContainer);
-#ifdef Q_OS_ANDROID
-      m_rightStack->setCurrentIndex(editorIdx);
-#else
-      crossfadeStackTo(m_rightStack, editorIdx);
-#endif
-    }
-    if (m_documentTabBar)
-      m_documentTabBar->setNoteChromeMode(true);
-    applyNoteChromeTheme();
-    setActiveTool(m_activeToolType);
-    updateSidebarState();
+    switchToEditorChrome();
   }
 }
 
