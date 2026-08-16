@@ -26,6 +26,23 @@ cmake --build build-check --target Blop -j"$(nproc)"
 - Preferred build dir: **`build-check/`** (Ninja). Do not wipe it unless CMake cache is broken.
 - Version string comes from `git describe --tags`; bump tags when shipping testable desktop builds (`v3.22.x`).
 
+### Windows local smoke build (Qt installed under `C:\Qt`)
+
+Qt WebEngine/Pdf are **not available with MinGW on Windows**, so a full release build needs MSVC or the Linux Cloud Agent. For a local MinGW smoke build that compiles the core app:
+
+```powershell
+$env:PATH = "C:\Qt\Tools\Ninja;C:\Qt\Tools\mingw1310_64\bin;C:\Qt\Tools\CMake_64\bin;C:\Qt\6.10.2\mingw_64\bin;$env:PATH"
+
+cmake -S . -B build-check -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DBLOP_DESKTOP_WEBENGINE=OFF `
+  -DCMAKE_PREFIX_PATH="C:/Qt/6.10.2/mingw_64" `
+  -DCMAKE_C_COMPILER="C:/Qt/Tools/mingw1310_64/bin/gcc.exe" `
+  -DCMAKE_CXX_COMPILER="C:/Qt/Tools/mingw1310_64/bin/g++.exe"
+
+cmake --build build-check --target Blop -j $env:NUMBER_OF_PROCESSORS
+```
+
 ### UI / note-editor conventions
 
 - Desktop note chrome uses **NoteChrome** colors (charcoal + blue accent `#5B9DFF`), not Blop purple, while a note is open.

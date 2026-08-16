@@ -77,12 +77,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Durch den Fix im YAML wird dieser Pfad nun korrekt via CMAKE_PREFIX_PATH gefunden.
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidgets QuickControls2 Qml Multimedia MultimediaWidgets)
 
+option(BLOP_DESKTOP_WEBENGINE "Enable desktop Qt WebEngine/Pdf modules (required for release; MSVC is needed on Windows)" ON)
+
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
     # Android: Native WebView
     find_package(Qt6 REQUIRED COMPONENTS WebView)
     find_package(Qt6 OPTIONAL_COMPONENTS NetworkAuth)
-else()
+elseif(BLOP_DESKTOP_WEBENGINE)
     # Desktop: WebEngine (Chromium). WebChannel is a hard dependency of
     # Qt6WebEngineCore — find it first so CI gets a clear missing-module
     # error instead of a nested WebEngineWidgets failure.
@@ -91,6 +93,8 @@ else()
     # PDF support for import — required on desktop so Windows builds don't
     # ship with a dead "PDF-Unterstützung nicht verfügbar" path.
     find_package(Qt6 REQUIRED COMPONENTS Pdf)
+else()
+    message(STATUS "Desktop WebEngine/Pdf disabled — study and PDF-import features will be unavailable.")
 endif()
 
 qt_add_executable(Blop
@@ -447,7 +451,7 @@ if(ANDROID)
         QT_ANDROID_VERSION_CODE "${ANDROID_VERSION_CODE}"
         QT_ANDROID_VERSION_NAME "${SAFE_VERSION}"
     )
-else()
+elseif(BLOP_DESKTOP_WEBENGINE)
     # Desktop: WebEngine linken und Define setzen
     target_link_libraries(Blop PRIVATE Qt6::WebEngineWidgets)
     target_compile_definitions(Blop PRIVATE BLOP_HAS_WEBENGINE)
