@@ -12651,6 +12651,11 @@ void MainWindow::restoreWindowState() {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+  // Make sure no pending note changes are lost when the user closes the
+  // window directly from the editor.
+  performAutoSave();
+  flushPendingA4Save();
+
 #ifndef Q_OS_ANDROID
   QSettings settings("Blop", "BlopApp");
   settings.setValue("geometry", saveGeometry());
