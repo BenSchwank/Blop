@@ -289,10 +289,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     : QDialog(parent), ui(new Ui::SettingsDialog), m_profileManager(profileMgr) {
     ui->setupUi(this);
 
-    // Remove the legacy Cloud Sync tab from the .ui skeleton; the new
-    // Storage card inside tabDesign owns the cloud UI.
-    if (int cloudIdx = ui->tabWidget->indexOf(ui->tabCloud); cloudIdx >= 0)
-        ui->tabWidget->removeTab(cloudIdx);
+    // Remove any legacy tabs from the .ui skeleton; the redesigned cards
+    // live inside tabDesign. Then hide the tab bar since there is only one panel.
+    while (ui->tabWidget->count() > 1)
+        ui->tabWidget->removeTab(1);
     ui->tabWidget->tabBar()->hide();
 
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
