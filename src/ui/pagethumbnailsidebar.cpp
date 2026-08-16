@@ -111,7 +111,7 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
             if (to == start)
               return;
             m_view->movePage(start, to);
-            rebuild();
+            // pagesChanged emitted by movePage triggers rebuild() automatically.
             emit pagesMutated();
             emit pageSelected(to);
           });
