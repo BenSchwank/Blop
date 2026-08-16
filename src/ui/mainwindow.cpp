@@ -12652,9 +12652,21 @@ void MainWindow::restoreWindowState() {
 
 void MainWindow::closeEvent(QCloseEvent *event) {
   // Make sure no pending note changes are lost when the user closes the
-  // window directly from the editor.
+  // window directly from the editor. Flush the A4 debounced save synchronously;
+  // an async save could still be in flight when the process exits.
+  if (m_pendingA4SaveNote && !m_pendingA4SavePath.isEmpty()) {
+    if (m_a4SaveDebounce)
+      m_a4SaveDebounce->stop();
+    Note copy = *m_pendingA4SaveNote;
+    const QString p = m_pendingA4SavePath;
+    m_pendingA4SaveNote = nullptr;
+    m_pendingA4SavePath.clear();
+    if (!m_noteManager.saveNote(copy, p))
+      qWarning() << "Close A4 save failed" << p;
+    else
+      mirrorNoteIfNeeded(p);
+  }
   performAutoSave();
-  flushPendingA4Save();
 
 #ifndef Q_OS_ANDROID
   QSettings settings("Blop", "BlopApp");
