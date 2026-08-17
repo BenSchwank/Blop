@@ -1168,28 +1168,14 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     cardAdv->setExpanded(false);
 
-    // Desktop-wide panel: 2-column card grid. Narrow/Android: single column.
-    const bool wideSettings = true; // SideSheet is always wide on desktop builds
-#if defined(Q_OS_ANDROID)
-    const bool useTwoCol = false;
-#else
-    const bool useTwoCol = wideSettings;
-#endif
-    if (useTwoCol) {
-        cardsGrid->addWidget(cardKonto, 0, 0);
-        cardsGrid->addWidget(cardStorage, 0, 1);
-        cardsGrid->addWidget(cardTheme, 1, 0);
-        cardsGrid->addWidget(cardLook, 1, 1);
-        cardsGrid->addWidget(cardBehavior, 2, 0);
-        cardsGrid->addWidget(cardAdv, 2, 1);
-    } else {
-        cardsGrid->addWidget(cardKonto, 0, 0, 1, 2);
-        cardsGrid->addWidget(cardStorage, 1, 0, 1, 2);
-        cardsGrid->addWidget(cardTheme, 2, 0, 1, 2);
-        cardsGrid->addWidget(cardLook, 3, 0, 1, 2);
-        cardsGrid->addWidget(cardBehavior, 4, 0, 1, 2);
-        cardsGrid->addWidget(cardAdv, 5, 0, 1, 2);
-    }
+    // Centered desktop card is a single column so Speicher/Theme cards
+    // are not clipped. Two-column was for the old right-hand SideSheet.
+    cardsGrid->addWidget(cardKonto, 0, 0);
+    cardsGrid->addWidget(cardStorage, 1, 0);
+    cardsGrid->addWidget(cardTheme, 2, 0);
+    cardsGrid->addWidget(cardLook, 3, 0);
+    cardsGrid->addWidget(cardBehavior, 4, 0);
+    cardsGrid->addWidget(cardAdv, 5, 0);
     contentLay->addWidget(cardsHost, 1);
     contentLay->addStretch();
 

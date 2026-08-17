@@ -94,6 +94,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
 
   setMouseTracking(true);
   setFixedWidth(sizeHint().width());
+  refreshChromeStyle();
 }
 
 void DocumentTab::setNoteChromeMode(bool on) {

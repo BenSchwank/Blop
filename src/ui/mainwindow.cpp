@@ -1947,11 +1947,9 @@ void MainWindow::applyThemeRefresh() {
 
   // Nudge the file-list viewport so AndroidTileDelegate re-paints with
   // the new card color.
-  if (m_overviewContainer) {
-    m_overviewContainer->setStyleSheet(
-        QStringLiteral("QWidget#OverviewContainer { background-color: %1; }")
-            .arg(libraryPageBackground().name(QColor::HexRgb)));
-  }
+  // applyTheme() already rebuilt OverviewContainer object-name QSS.
+  // Do not replace it with a background-only rule — that drops title,
+  // search and action-chip contrast after a Light/Dark toggle.
   if (m_overviewSearchBar) {
     const auto acts = m_overviewSearchBar->actions();
     for (QAction *a : acts) {
@@ -2830,16 +2828,18 @@ void MainWindow::setupTitleBar() {
 
   // ── Hamburger ─────────────────────────────────────────────────────────────
   btnEditorMenu = new ModernButton(m_titleBarWidget);
-  btnEditorMenu->setIcon(createModernIcon("menu", BlopTheme::textSecondary()));
+  btnEditorMenu->setIcon(createModernIcon("menu", BlopTheme::textPrimary()));
   btnEditorMenu->setFixedSize(36, 36);
   btnEditorMenu->setToolTip("Navigation");
   btnEditorMenu->setStyleSheet(
-      "QToolButton {"
-      "  background: transparent; border: none; border-radius: 10px;"
-      "}"
-      "QToolButton:hover {"
-      "  background: rgba(255,255,255,0.07);"
-      "}");
+      QStringLiteral(
+          "QToolButton {"
+          "  background: transparent; border: none; border-radius: 10px;"
+          "}"
+          "QToolButton:hover {"
+          "  background: %1;"
+          "}")
+          .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
   connect(btnEditorMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
   mainLayout->addWidget(btnEditorMenu);
@@ -2849,8 +2849,10 @@ void MainWindow::setupTitleBar() {
   m_lblBrand = new QLabel("Blop", m_titleBarWidget);
   m_lblBrand->setObjectName(QStringLiteral("TitleBarBrand"));
   m_lblBrand->setStyleSheet(
-      "color: #F0EEFF; font-size: 17px; font-weight: 800;"
-      "letter-spacing: 0.4px; background: transparent; border: none;");
+      QStringLiteral(
+          "color: %1; font-size: 17px; font-weight: 800;"
+          "letter-spacing: 0.4px; background: transparent; border: none;")
+          .arg(BlopTheme::textPrimary().name(QColor::HexRgb)));
   mainLayout->addWidget(m_lblBrand);
 
   // ── Separator ─────────────────────────────────────────────────────────────
@@ -2858,7 +2860,9 @@ void MainWindow::setupTitleBar() {
   m_titleBarSep->setObjectName(QStringLiteral("TitleBarSep"));
   m_titleBarSep->setFrameShape(QFrame::VLine);
   m_titleBarSep->setFixedSize(1, 16);
-  m_titleBarSep->setStyleSheet("background: rgba(255,255,255,0.10); border: none;");
+  m_titleBarSep->setStyleSheet(
+      QStringLiteral("background: %1; border: none;")
+          .arg(BlopTheme::borderSubtle().name(QColor::HexArgb)));
   mainLayout->addSpacing(12);
   mainLayout->addWidget(m_titleBarSep);
   mainLayout->addSpacing(12);
@@ -3069,35 +3073,30 @@ void MainWindow::setupTitleBar() {
     bool isClose;
   };
   QList<WinBtn> winBtns = {
-      {&m_btnWinMin, QStringLiteral("\u2212"), false},   // −
-      {&m_btnWinMax, QStringLiteral("\u25A1"), false},   // □
-      {&m_btnWinClose, QStringLiteral("\u00D7"), true},   // ×
+      {&m_btnWinMin, QStringLiteral("win_min"), false},
+      {&m_btnWinMax, QStringLiteral("win_max"), false},
+      {&m_btnWinClose, QStringLiteral("win_close"), true},
   };
   for (auto &wb : winBtns) {
-    *wb.ptr = new QPushButton(wb.sym, m_titleBarWidget);
+    *wb.ptr = new QPushButton(m_titleBarWidget);
     (*wb.ptr)->setFixedSize(46, 50);
     (*wb.ptr)->setCursor(Qt::PointingHandCursor);
+    (*wb.ptr)->setIcon(createModernIcon(wb.sym, BlopTheme::textPrimary()));
+    (*wb.ptr)->setIconSize(QSize(16, 16));
     (*wb.ptr)->setStyleSheet(wb.isClose
                                  ? QStringLiteral(
                                    "QPushButton {"
-                                   "  background: transparent; border: none;"
-                                   "  color: %1;"
-                                   "  font-size: 14px; font-weight: 400;"
+                                   "  background: transparent; border: none; padding: 0;"
                                    "}"
-                                   "QPushButton:hover { background: #E81123; color: white; }")
-                                       .arg(BlopTheme::textSecondary().name(QColor::HexRgb))
+                                   "QPushButton:hover { background: #E81123; }")
                                  : QStringLiteral(
                                    "QPushButton {"
-                                   "  background: transparent; border: none;"
-                                   "  color: %1;"
-                                   "  font-size: 14px; font-weight: 400;"
+                                   "  background: transparent; border: none; padding: 0;"
                                    "}"
                                    "QPushButton:hover {"
-                                   "  background: %2; color: %3;"
+                                   "  background: %1;"
                                    "}")
-                                       .arg(BlopTheme::textSecondary().name(QColor::HexRgb),
-                                            BlopTheme::surfaceMuted().name(QColor::HexArgb),
-                                            BlopTheme::textPrimary().name(QColor::HexRgb)));
+                                       .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
     mainLayout->addWidget(*wb.ptr);
   }
   connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
@@ -3345,31 +3344,32 @@ void MainWindow::onShowNewTabPopup() {
 
   overlay->setMinimumSize(UiScale::dp(320), UiScale::dp(380));
   overlay->resize(UiScale::dp(450), UiScale::dp(550));
-  overlay->setStyleSheet(
-      "QDialog {"
-      "  background-color: #1A1A24;" // Blop Theme Dark
-      "  border: 1px solid rgba(255, 255, 255, 0.1);"
-      "  border-radius: 20px;" // Deutliche Rundung für Centered Popups sieht premium aus
-      "}"
-      "QListWidget {"
-      "  background: transparent;"
-      "  border: none;"
-      "  outline: none;"
-      "  color: #E0E0E0;"
-      "}"
-      "QListWidget::item {"
-      "  padding: 12px 20px;"
-      "  border-radius: 8px;"
-      "  font-size: 14px;"
-      "  margin: 4px 16px;"
-      "}"
-      "QListWidget::item:hover {"
-      "  background-color: rgba(255, 255, 255, 0.06);"
-      "}"
-      "QListWidget::item:selected {"
-      "  background-color: #5E5CE6;"
-      "  color: white;"
-      "}");
+  overlay->setStyleSheet(BlopTheme::themed(
+      QStringLiteral(
+          "QDialog {"
+          "  background-color: #1A1A24;"
+          "  border: 1px solid rgba(255, 255, 255, 0.1);"
+          "  border-radius: 20px;"
+          "}"
+          "QListWidget {"
+          "  background: transparent;"
+          "  border: none;"
+          "  outline: none;"
+          "  color: #E0E0E0;"
+          "}"
+          "QListWidget::item {"
+          "  padding: 12px 20px;"
+          "  border-radius: 8px;"
+          "  font-size: 14px;"
+          "  margin: 4px 16px;"
+          "}"
+          "QListWidget::item:hover {"
+          "  background-color: rgba(255, 255, 255, 0.06);"
+          "}"
+          "QListWidget::item:selected {"
+          "  background-color: #5E5CE6;"
+          "  color: white;"
+          "}")));
 
   QVBoxLayout *overlayLayout = new QVBoxLayout(overlay);
   overlayLayout->setContentsMargins(0, 20, 0, 20);
@@ -3377,7 +3377,8 @@ void MainWindow::onShowNewTabPopup() {
 
   // Header Title
   QLabel *lblTitle = new QLabel("Eine Notiz auswählen", overlay);
-  lblTitle->setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;");
+  lblTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
+      "color: #F4F5FB; font-size: 18px; font-weight: bold; margin-bottom: 10px;")));
   lblTitle->setAlignment(Qt::AlignCenter);
   overlayLayout->addWidget(lblTitle);
 
@@ -3724,11 +3725,21 @@ void MainWindow::applyTheme() {
   this->setStyleSheet(BlopTheme::themed(style));
 
   if (m_sidebarContainer)
-    m_sidebarContainer->setStyleSheet(BlopTheme::themed(
-        "background-color: #0B0912; border-right: 1px solid rgba(120,130,160,0.12);"));
+    m_sidebarContainer->setStyleSheet(
+        QStringLiteral(
+            "background-color: %1; border-right: 1px solid %2;")
+            .arg(BlopTheme::instance().isLight()
+                     ? BlopTheme::surfaceMuted().name(QColor::HexRgb)
+                     : QColor(0x0B, 0x09, 0x12).name(QColor::HexRgb),
+                 BlopTheme::borderDefault().name(QColor::HexArgb)));
   if (m_sidebarStrip)
-    m_sidebarStrip->setStyleSheet(BlopTheme::themed(
-        "background-color: #0B0912; border-right: 1px solid rgba(120,130,160,0.12);"));
+    m_sidebarStrip->setStyleSheet(
+        QStringLiteral(
+            "background-color: %1; border-right: 1px solid %2;")
+            .arg(BlopTheme::instance().isLight()
+                     ? BlopTheme::surfaceMuted().name(QColor::HexRgb)
+                     : QColor(0x0B, 0x09, 0x12).name(QColor::HexRgb),
+                 BlopTheme::borderDefault().name(QColor::HexArgb)));
   if (m_navSidebar)
     m_navSidebar->setStyleSheet(
 #ifdef Q_OS_ANDROID
@@ -4164,8 +4175,9 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     // Capsule matches Android top-bar assets; glyph tint follows `color` (same on Win/Android).
     const QRectF capsule(3, 14, 58, 36);
     const QColor glyph = color.isValid() ? color : QColor(QStringLiteral("#C8CDDC"));
-    p.setPen(QPen(QColor(255, 255, 255, 48), 1.0));
-    p.setBrush(QColor(27, 30, 58, 235));
+    const bool lightSurface = glyph.lightness() < 148;
+    p.setPen(QPen(lightSurface ? QColor(0, 0, 0, 28) : QColor(255, 255, 255, 48), 1.0));
+    p.setBrush(lightSurface ? QColor(236, 235, 241, 235) : QColor(27, 30, 58, 235));
     p.drawRoundedRect(capsule, 18, 18);
 
     p.setPen(QPen(glyph, 2.9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -4274,6 +4286,16 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawLine(18, 20, 46, 20);
     p.drawLine(18, 32, 42, 32);
     p.drawLine(18, 44, 46, 44);
+  } else if (name == "win_min") {
+    p.setPen(QPen(color, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawLine(16, 32, 48, 32);
+  } else if (name == "win_max") {
+    p.setPen(QPen(color, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawRoundedRect(18, 18, 28, 28, 3, 3);
+  } else if (name == "win_close") {
+    p.setPen(QPen(color, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawLine(18, 18, 46, 46);
+    p.drawLine(46, 18, 18, 46);
   } else if (name == "settings") {
     // Minimal gear icon inspired by provided reference.
     const QPointF c(32, 32);
@@ -4843,7 +4865,7 @@ void MainWindow::setupUi() {
 
   QHBoxLayout *overviewTopRow = new QHBoxLayout();
   btnOverviewMenu = new ModernButton(this);
-  btnOverviewMenu->setIcon(createModernIcon("menu", Qt::white));
+  btnOverviewMenu->setIcon(createModernIcon("menu", BlopTheme::textPrimary()));
   connect(btnOverviewMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
 #if defined(Q_OS_ANDROID)
@@ -4857,7 +4879,7 @@ void MainWindow::setupUi() {
 #endif
   overviewTopRow->addWidget(btnOverviewMenu);
   btnBackOverview = new ModernButton(this);
-  btnBackOverview->setIcon(createModernIcon("arrow_left", Qt::white));
+  btnBackOverview->setIcon(createModernIcon("arrow_left", BlopTheme::textPrimary()));
   btnBackOverview->hide();
   connect(btnBackOverview, &QAbstractButton::clicked, this,
           &MainWindow::onNavigateUp);
@@ -4876,7 +4898,7 @@ void MainWindow::setupUi() {
 
   // Top chrome already owns the hamburger — don't duplicate it in the library header.
   btnEditorMenu = new ModernButton(m_overviewContainer);
-  btnEditorMenu->setIcon(createModernIcon("menu", Qt::white));
+  btnEditorMenu->setIcon(createModernIcon("menu", BlopTheme::textPrimary()));
   btnEditorMenu->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btnEditorMenu->hide();
 
@@ -5031,14 +5053,14 @@ void MainWindow::setupUi() {
   btnNewFolder->setIcon(createModernIcon(QStringLiteral("folder"),
                                           QColor(QStringLiteral("#E8C26A"))));
   btnNewFolder->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
-  btnNewFolder->setStyleSheet(
+  btnNewFolder->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QPushButton {"
       "  background-color: rgba(255,255,255,0.04);"
       "  border-radius: 12px;"
       "  border: 1px solid rgba(120,130,160,0.22);"
       "}"
       "QPushButton:hover { background-color: rgba(255,255,255,0.07); border-color: rgba(124,92,252,0.45); }"
-  );
+  )));
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
   BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
 
@@ -7324,7 +7346,7 @@ void MainWindow::setupSidebar() {
   stripLayout->setContentsMargins(0, 10, 0, 0);
   stripLayout->setSpacing(20);
   btnStripMenu = new ModernButton(m_sidebarStrip);
-  btnStripMenu->setIcon(createModernIcon("menu", Qt::white));
+  btnStripMenu->setIcon(createModernIcon("menu", BlopTheme::textPrimary()));
   btnStripMenu->setFixedSize(40, 40);
   connect(btnStripMenu, &QAbstractButton::clicked, this,
           &MainWindow::onToggleSidebar);
@@ -11450,12 +11472,13 @@ void MainWindow::onOpenSettings() {
 #endif
   });
 
-  // Desktop: centered settings card. A right-hand SideSheet plus leftover
-  // QDialog pos() animation shoved the panel into the window on Windows.
+  // Desktop: centered settings card, single-column so the inner cards
+  // are not clipped. SideSheet + leftover QDialog pos() animation shoved
+  // the panel into the window on Windows.
 #ifndef Q_OS_ANDROID
-  dlg.setMinimumSize(640, 520);
+  dlg.setMinimumSize(480, 400);
   dlg.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 760);
+  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 580);
 #else
   int res = BlopModal::execBlocking(this, &dlg);
 #endif
@@ -12313,21 +12336,25 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   // Guest/login Study surface is always dark. Never paint the light BlopTheme
   // title bar (white strip + invisible window controls) over it.
   const bool authChrome = m_authNavigationLocked;
-  const bool darkChrome = authChrome || noteChrome || BlopTheme::instance().isDark();
   const QColor titleBg =
       authChrome ? QColor(QStringLiteral("#0F1115"))
                  : (noteChrome ? NoteChrome::toolbarFill()
                                : BlopTheme::surfaceBackground());
+  // Icon contrast follows the painted title-bar luminance — not "are we in
+  // a dark-looking flow". Guest/auth used to force pale glyphs (#C8CDDC)
+  // even when the bar had already flipped to light surfaceBackground.
+  const bool iconsOnDarkBar = titleBg.lightness() < 148;
   const QColor brandFg =
       authChrome ? QColor(QStringLiteral("#F3F4F6"))
                  : (noteChrome ? NoteChrome::textPrimary()
                                : BlopTheme::textPrimary());
-  const QColor winFg =
-      darkChrome ? QColor(QStringLiteral("#C8CDDC"))
-                 : BlopTheme::textSecondary();
-  const QColor winFgHover =
-      darkChrome ? QColor(QStringLiteral("#F3F4F6"))
-                 : BlopTheme::textPrimary();
+  const QColor chromeFg = noteChrome ? NoteChrome::textPrimary()
+                        : (iconsOnDarkBar ? QColor(QStringLiteral("#E8E4FF"))
+                                          : BlopTheme::textPrimary());
+  const QColor chromeMuted = noteChrome ? NoteChrome::textSecondary()
+                           : (iconsOnDarkBar ? QColor(QStringLiteral("#C8CDDC"))
+                                             : BlopTheme::textSecondary());
+  const QColor winFg = chromeFg;
 
   if (m_titleBarWidget) {
     m_titleBarWidget->setStyleSheet(
@@ -12347,7 +12374,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                        .arg(hoverGray));
     } else {
       btnEditorMenu->setIcon(
-          createModernIcon(QStringLiteral("menu"), BlopTheme::textSecondary()));
+          createModernIcon(QStringLiteral("menu"), chromeFg));
       btnEditorMenu->setStyleSheet(QStringLiteral(
           "QToolButton { background: transparent; border: none; border-radius: 10px; }"
           "QToolButton:hover { background: %1; }")
@@ -12415,7 +12442,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     const QColor plusFg =
         authChrome ? QColor(QStringLiteral("#C8CDDC"))
                    : (noteChrome ? NoteChrome::textSecondary()
-                                 : BlopTheme::textSecondary());
+                                 : chromeFg);
     if (noteChrome) {
       m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
           "QPushButton {"
@@ -12462,7 +12489,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                      .arg(hoverGray));
     } else {
       m_btnNewTab->setIcon(
-          createModernIcon(QStringLiteral("add"), BlopTheme::textSecondary()));
+          createModernIcon(QStringLiteral("add"), chromeFg));
       m_btnNewTab->setIconSize(QSize(18, 18));
       m_btnNewTab->setStyleSheet(QStringLiteral(
           "QPushButton {"
@@ -12528,7 +12555,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_btnEditorNoteOverflow) {
     const QColor ic = noteChrome ? NoteChrome::textSecondary()
-                                 : BlopTheme::textSecondary();
+                                 : chromeMuted;
     m_btnEditorNoteOverflow->setIcon(
         createModernIcon(QStringLiteral("more_pill"), ic));
     m_btnEditorNoteOverflow->setStyleSheet(
@@ -12547,7 +12574,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 
   if (m_btnTitleBarPageManager) {
     const QColor ic = noteChrome ? NoteChrome::textSecondary()
-                                 : BlopTheme::textSecondary();
+                                 : chromeMuted;
     m_btnTitleBarPageManager->setIcon(
         createModernIcon(QStringLiteral("pages_pill"), ic));
     m_btnTitleBarPageManager->setStyleSheet(
@@ -12567,31 +12594,31 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                        BlopTheme::accentSubtle().name(QColor::HexArgb)));
   }
 
-  auto styleWinBtn = [&](QPushButton *btn, bool isClose) {
+  auto styleWinBtn = [&](QPushButton *btn, const QString &iconName, bool isClose) {
     if (!btn)
       return;
-    const QString fg = winFg.name(QColor::HexRgb);
-    const QString fgHover = winFgHover.name(QColor::HexRgb);
+    btn->setText(QString());
+    btn->setIcon(createModernIcon(iconName, winFg));
+    btn->setIconSize(QSize(16, 16));
     const QString hover =
-        darkChrome ? hoverGray
-                   : QStringLiteral("background: %1;")
-                         .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb));
+        iconsOnDarkBar ? hoverGray
+                       : QStringLiteral("background: %1;")
+                             .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb));
     btn->setStyleSheet(
         isClose
             ? QStringLiteral(
                   "QPushButton { background: transparent; border: none;"
-                  "  color: %1; font-size: 14px; font-weight: 400; }"
-                  "QPushButton:hover { background: #E81123; color: white; }")
-                  .arg(fg)
+                  "  padding: 0; }"
+                  "QPushButton:hover { background: #E81123; }")
             : QStringLiteral(
                   "QPushButton { background: transparent; border: none;"
-                  "  color: %1; font-size: 14px; font-weight: 400; }"
-                  "QPushButton:hover { %2 color: %3; }")
-                  .arg(fg, hover, fgHover));
+                  "  padding: 0; }"
+                  "QPushButton:hover { %1 }")
+                  .arg(hover));
   };
-  styleWinBtn(m_btnWinMin, false);
-  styleWinBtn(m_btnWinMax, false);
-  styleWinBtn(m_btnWinClose, true);
+  styleWinBtn(m_btnWinMin, QStringLiteral("win_min"), false);
+  styleWinBtn(m_btnWinMax, QStringLiteral("win_max"), false);
+  styleWinBtn(m_btnWinClose, QStringLiteral("win_close"), true);
 #endif
 }
 

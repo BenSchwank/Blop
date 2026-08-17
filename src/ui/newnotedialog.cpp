@@ -32,7 +32,7 @@ void NewNoteDialog::setupUi()
         BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
         BlopTheme::themed(QStringLiteral(
             "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
-            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: white; border: 1px solid rgba(120,130,160,0.32); border-radius: 8px; padding: 8px; font-size: 14px; selection-background-color: #7C5CFC; }"
+            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #F4F5FB; border: 1px solid rgba(120,130,160,0.32); border-radius: 8px; padding: 8px; font-size: 14px; selection-background-color: #7C5CFC; }"
             "QLineEdit:focus { border: 1px solid #7C5CFC; }"))
         );
 
@@ -127,7 +127,7 @@ void NewNoteDialog::setupUi()
     m_btnCancel = new QPushButton("Abbrechen", container);
     m_btnCancel->setCursor(Qt::PointingHandCursor);
     m_btnCancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: transparent; color: #AAA; border: none; font-weight: bold; font-size: 14px; } QPushButton:hover { color: white; }")));
+        "QPushButton { background: transparent; color: #AAA; border: none; font-weight: bold; font-size: 14px; } QPushButton:hover { color: #F4F5FB; }")));
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
 
     m_btnCreate = new QPushButton("Erstellen", container);

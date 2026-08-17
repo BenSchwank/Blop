@@ -9,7 +9,6 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -229,28 +228,15 @@ void BlopModal::applyTheme() {
                                    BlopTheme::borderDefault().alphaF(), 'f', 3)),
                            QString::number(BlopTheme::r24));
     m_card->setStyleSheet(qss);
-    if (BlopTheme::instance().isLight()) {
-      auto *shadow = new QGraphicsDropShadowEffect(m_card);
-      shadow->setBlurRadius(28);
-      shadow->setOffset(-6, 0);
-      shadow->setColor(QColor(0, 0, 0, 60));
-      m_card->setGraphicsEffect(shadow);
-    } else {
-      m_card->setGraphicsEffect(nullptr);
-    }
+    m_card->setGraphicsEffect(nullptr);
   } else {
     QString qss = BlopTheme::cardQss(QStringLiteral("BlopModalCard"));
     m_card->setStyleSheet(qss);
     m_card->setAutoFillBackground(true);
-    if (BlopTheme::instance().isLight()) {
-      auto *shadow = new QGraphicsDropShadowEffect(m_card);
-      shadow->setBlurRadius(28);
-      shadow->setOffset(0, 6);
-      shadow->setColor(QColor(0, 0, 0, 60));
-      m_card->setGraphicsEffect(shadow);
-    } else {
-      m_card->setGraphicsEffect(nullptr);
-    }
+    // QGraphicsDropShadowEffect + rounded rect paints an L-shaped black
+    // corner on the software rasterizer (Windows light mode / this VM).
+    // The overlay scrim already separates the card; keep a clean border.
+    m_card->setGraphicsEffect(nullptr);
   }
 }
 
