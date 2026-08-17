@@ -2348,7 +2348,9 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnImage = new ToolbarBtn("image", this);
   btnHand = new ToolbarBtn("hand", this);
   btnUndo = new ToolbarBtn("undo", this);
+  btnUndo->setToolTip(tr("Rückgängig"));
   btnRedo = new ToolbarBtn("redo", this);
+  btnRedo->setToolTip(tr("Wiederholen"));
   btnBackOverview = new ToolbarBtn("overview", this);
   btnBackOverview->setToolTip(tr("Zur Übersicht"));
   connect(btnBackOverview, &ToolbarBtn::clicked, this,
@@ -2360,8 +2362,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
   btnLibrary = new ToolbarBtn("library", this);
   btnLibrary->setToolTip(tr("Auszeichnungsbibliothek"));
   btnLibrary->setShowChevron(false);
-  btnRailChevron = new ToolbarBtn("chevron_rail", this);
-  btnRailChevron->setToolTip(tr("Eigenschaften ein-/ausblenden"));
+  btnRailChevron = new ToolbarBtn("palette", this);
+  btnRailChevron->setToolTip(tr("Werkzeug-Eigenschaften"));
   btnMoreProps = new ToolbarBtn("more", this);
   btnMoreProps->setToolTip(tr("More options"));
   btnLayoutToggle = new ToolbarBtn("layout_rows", this);
@@ -3393,7 +3395,7 @@ void ModernToolbar::syncDrawboardToolIcons() {
   if (btnRailChevron)
     btnRailChevron->setIcon(m_propertiesPanelOpen
                                 ? QStringLiteral("chevron_left")
-                                : QStringLiteral("chevron_rail"));
+                                : QStringLiteral("palette"));
   for (int i = 0; i < m_slotButtons.size(); ++i)
     syncSlotButtonAppearance(i);
 }
@@ -4051,9 +4053,9 @@ void ModernToolbar::setPropertiesPanelOpen(bool open) {
   m_propertiesPanelOpen = open;
   if (btnRailChevron) {
     btnRailChevron->setIcon(open ? QStringLiteral("chevron_left")
-                                 : QStringLiteral("chevron_rail"));
+                                 : QStringLiteral("palette"));
     btnRailChevron->setToolTip(open ? tr("Eigenschaften ausblenden")
-                                    : tr("Eigenschaften einblenden"));
+                                    : tr("Werkzeug-Eigenschaften"));
   }
 }
 void ModernToolbar::constrainToParent() {
@@ -5192,6 +5194,22 @@ void ModernToolbar::applyRailSlot(int index) {
       m_slotButtons[i]->setActive(i == m_activeRailSlot);
   }
   emit toolChanged(slot.mode);
+#ifndef Q_OS_ANDROID
+  switch (slot.mode) {
+  case ToolMode::Pen:
+  case ToolMode::Pencil:
+  case ToolMode::Highlighter:
+  case ToolMode::Eraser:
+  case ToolMode::Text:
+  case ToolMode::StickyNote:
+  case ToolMode::Ruler:
+  case ToolMode::Shape:
+    emit toolOptionsRequested();
+    break;
+  default:
+    break;
+  }
+#endif
 }
 
 void ModernToolbar::addCurrentToolAsRailSlot() {
@@ -5610,7 +5628,7 @@ int ModernToolbar::calculateMinLength() {
     int dragH = UiScale::dp(30);
 #ifndef Q_OS_ANDROID
     if (m_orientation == Vertical) {
-      const int n = qMax(1, m_railSlots.size()) + 3; // tools + library/+ /chevron
+      const int n = qMax(1, m_railSlots.size()) + 5; // undo/redo + tools + library/+/props
       const int cell = UiScale::dp(52);
       const int gap = UiScale::dp(8);
       // Two section dividers (select / ink / insert).
@@ -5820,11 +5838,7 @@ void ModernToolbar::updateLayout(bool animate) {
                              m_orientation == Horizontal && m_style == Normal);
   if (m_style == Normal && m_orientation == Vertical &&
       m_markupBarMode == MarkupOff) {
-    // Drawboard Favorites rail: chrome undo/redo live in the bottom notch.
-    if (btnUndo)
-      btnUndo->hide();
-    if (btnRedo)
-      btnRedo->hide();
+    // Drawboard Favorites rail: undo/redo sit at the top of the rail.
     if (btnPalette)
       btnPalette->hide();
     if (btnBrushSize)
@@ -5865,7 +5879,7 @@ void ModernToolbar::updateLayout(bool animate) {
     int numVisible = 0;
     for (auto *b : m_buttons) {
       if (b == btnMoreProps || b == btnLayoutToggle || b == btnLibrary ||
-          b == btnRailChevron) {
+          b == btnRailChevron || b == btnUndo || b == btnRedo) {
         b->hide();
         continue;
       }
@@ -5985,16 +5999,18 @@ void ModernToolbar::updateLayout(bool animate) {
       const QList<ToolbarBtn *> chromeRow = leftChromeButtons();
 
 #ifndef Q_OS_ANDROID
-      // Desktop Drawboard vertical rail: undo/redo/back live in bottom/title
-      // chrome — keep them out of the floating pill (no top-left floaters).
+      // Desktop Drawboard vertical rail: back stays in title chrome.
+      // Undo/redo are placed at the top of the Favorites rail.
       if (m_orientation == Vertical) {
         for (ToolbarBtn *b : chromeRow) {
           if (!b)
             continue;
           b->setDrawFloatingBg(false);
-          b->hide();
           if (b->parentWidget() != this)
             b->setParent(this);
+          if (b == btnUndo || b == btnRedo)
+            continue;
+          b->hide();
         }
       } else
 #endif
@@ -6065,7 +6081,24 @@ void ModernToolbar::updateLayout(bool animate) {
         const int footerH =
             footerBtns.size() * footerBtnS +
             qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(12);
-        const int contentTop = dragSize + UiScale::dp(8);
+        const int headerBtnS = UiScale::dp(44);
+        const int headerGap = UiScale::dp(2);
+        int hy = dragSize + UiScale::dp(6);
+        for (ToolbarBtn *b : {btnUndo, btnRedo}) {
+          if (!b)
+            continue;
+          b->setRailSlotStyle(true);
+          b->setRailFooterStyle(false);
+          b->setShowChevron(false);
+          b->setBtnCell(w - UiScale::dp(6), headerBtnS);
+          b->move(UiScale::dp(3), hy);
+          b->show();
+          b->raise();
+          hy += b->height() + headerGap;
+        }
+        const int headerBottom = hy + UiScale::dp(4);
+        m_separatorYPositions.append(headerBottom);
+        const int contentTop = headerBottom + UiScale::dp(8);
         const int contentBottom = h - footerH - UiScale::dp(10);
         const int contentH = qMax(btnS, contentBottom - contentTop);
 

@@ -301,11 +301,8 @@ void NoteEditor::setupShortcuts() {
         }
     });
 
-    new QShortcut(QKeySequence(Qt::Key_Delete), this, [this]() {
-        if (!note_ || !canvas_)
-            return;
-        canvas_->deleteSelection();
-    });
+    // Delete/Backspace for canvas objects is handled in MultiPageNoteView so
+    // typing in a text box (or formula editor) keeps the keys.
 
     // Tool shortcuts (P/E/H/M/V/T) live in MainWindow so Favorites-rail
     // selection and ToolManager stay in sync — avoid a second parallel map.

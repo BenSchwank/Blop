@@ -375,6 +375,7 @@ private:
   void positionDrawboardToolbar();
   void positionNoteChrome();
   void applyNoteChromeTheme();
+  void styleNoteHeaderChrome();
   void showNoteBookmarksMenu();
   void showNoteHistoryMenu();
   void showNoteExportMenu(QWidget *anchor = nullptr);
@@ -537,6 +538,10 @@ private:
   QWidget *m_libraryBusyOverlay{nullptr};
   QString m_openingNotePath;
   QLabel *m_lblEmptyState{nullptr};
+  QWidget *m_emptyStateHost{nullptr};
+  QLabel *m_lblEmptyIcon{nullptr};
+  QLabel *m_lblEmptySubtitle{nullptr};
+  QPushButton *m_btnEmptyCta{nullptr};
   QPushButton *m_fabNote{nullptr};
 
   // Set true by AndroidTileDelegate when the user taps the three-dots
@@ -559,6 +564,7 @@ private:
   QWidget *m_noteHeader{nullptr};
   QLabel *m_lblNoteHeaderTitle{nullptr};
   QLabel *m_lblNoteHeaderMeta{nullptr};
+  ModernButton *m_btnNoteHeaderLayout{nullptr};
 
   /// Drawboard utilities bar: undo/redo · page · zoom (edge-dockable).
   QWidget *m_noteBottomChrome{nullptr};

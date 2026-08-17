@@ -7,6 +7,7 @@ class QAbstractButton;
 class QButtonGroup;
 class QHBoxLayout;
 class QPushButton;
+class QWidget;
 
 /// Smart-view chip strip for the library. Sort lives in the top action bar
 /// (Drawboard-style) via takeSortButton()/sortButton().
@@ -37,12 +38,15 @@ public slots:
 
 private:
   void rebuildStyles();
+  void relayoutChipHost();
   void onViewClicked(int id);
   void refreshSortLabel();
 
   QButtonGroup *m_viewGroup{nullptr};
   QPushButton *m_btnSort{nullptr};
+  QWidget *m_chipHost{nullptr};
   SmartView m_view{SmartView::All};
   SortMode m_sort{SortMode::Name};
   QColor m_accent{QColor(QStringLiteral("#7C5CFC"))};
+  bool m_compact{false};
 };

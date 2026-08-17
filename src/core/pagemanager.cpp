@@ -769,7 +769,8 @@ void PageManager::onApplyTemplateColor() {
     A4LayoutDialogResult r;
     if (!showA4LayoutOverlay(this, QStringLiteral("Layout auf Seiten anwenden"),
                              QStringLiteral("Ausgewählt: %1 Seite(n)").arg(idxs.size()),
-                             pg.backgroundType, pg.paperColor, &r))
+                             pg.backgroundType, pg.paperColor, &r,
+                             /*noteChrome=*/true))
         return;
     m_view->applyLayoutToPages(idxs, r.backgroundType, r.paperColor);
     rebuildList(false);

@@ -1,6 +1,7 @@
 #include "androidtiledelegate.h"
 #include "blop_diag.h"
 #include "blop_theme.h"
+#include "libraryorgstore.h"
 #include "notepreviewicon.h"
 
 #include <QApplication>
@@ -19,6 +20,7 @@
 #include <QStyledItemDelegate>
 #include <QTextOption>
 #include <QTimer>
+#include <QtMath>
 
 #include <QAbstractAnimation>
 #include <QAbstractItemView>
@@ -207,6 +209,36 @@ void AndroidTileDelegate::paint(QPainter *painter,
                          pillRect.center().y() - dotsSize / 2, dotsSize,
                          dotsSize);
     painter->drawPixmap(dotsRect, dots);
+  }
+
+  if (!path.isEmpty()) {
+    const auto label = LibraryOrgStore::colorLabel(path);
+    if (label != LibraryOrgStore::ColorLabel::None) {
+      QColor stripe = LibraryOrgStore::colorForLabel(label);
+      stripe.setAlpha(230);
+      painter->setPen(Qt::NoPen);
+      painter->setBrush(stripe);
+      painter->drawRoundedRect(
+          QRect(rect.left() + UiScale::dp(3), rect.top() + UiScale::dp(12),
+                UiScale::dp(4), rect.height() - UiScale::dp(24)),
+          UiScale::dp(2), UiScale::dp(2));
+    }
+    if (LibraryOrgStore::isFavorite(path)) {
+      painter->setPen(Qt::NoPen);
+      painter->setBrush(QColor(QStringLiteral("#E6B450")));
+      const QPointF c(rect.left() + UiScale::dp(16),
+                      rect.top() + UiScale::dp(16));
+      const qreal R = UiScale::dp(7);
+      const qreal r = UiScale::dp(3);
+      QPolygonF star;
+      for (int i = 0; i < 5; ++i) {
+        const qreal a = -M_PI / 2 + i * 2 * M_PI / 5;
+        star << QPointF(c.x() + qCos(a) * R, c.y() + qSin(a) * R);
+        const qreal b = a + M_PI / 5;
+        star << QPointF(c.x() + qCos(b) * r, c.y() + qSin(b) * r);
+      }
+      painter->drawPolygon(star);
+    }
   }
 
   painter->restore();

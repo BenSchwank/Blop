@@ -60,6 +60,8 @@ public:
     void redo();
     bool canUndo() const;
     bool canRedo() const;
+    /// True while an A4 text box has keyboard focus for typing.
+    bool isEditingText() const;
 
     void setPenOnlyMode(bool enabled) { m_penOnlyMode = enabled; }
     bool penOnlyMode() const { return m_penOnlyMode; }
@@ -289,6 +291,10 @@ private:
     QGraphicsTextItem *createTextItem(const TextObject &data, int pageIndex);
     void bindTextItemSignals(QGraphicsTextItem *item);
     void startEditingTextItem(QGraphicsTextItem *item);
+    void startEditingTextItem(QGraphicsTextItem *item,
+                              const QVector<NotePage> &undoBefore);
+    void commitTextEditSession();
+    bool shouldForwardKeyToEditor() const;
     /// v3.18.0: einmalige Signal-Verdrahtung eines GraphCanvasItem (Tap,
     /// Long-Press, Plus, Achsen, Geometrie). Idempotent über data(9001);
     /// vorher existierte der ~60-Zeilen-Block doppelt in
@@ -331,6 +337,8 @@ private:
     QTimer* m_stickySyncTimer{nullptr};
     bool m_syncingTexts{false};
     QPointer<QGraphicsTextItem> m_activeTextItem;
+    QVector<NotePage> m_textEditBefore;
+    bool m_textEditOpen{false};
     int m_livePreviewIndex{-1};
     bool m_graphEntryBarOpen{false};
     GraphCanvasItem* m_graphEntryTargetGraph{nullptr};
@@ -346,6 +354,7 @@ private:
     QPropertyAnimation* m_graphLegendFadeAnim{nullptr};
     QGraphicsOpacityEffect* m_graphEntryBarOpacityFx{nullptr};
     QPropertyAnimation* m_graphEntryBarFadeAnim{nullptr};
+    QVector<NotePage> m_graphRootDragBefore;
 
     /// v3.17.5: 16 ms coalescer for scroll-bar valueChanged storms. Each
     /// scroll-pixel previously triggered 3 layout functions; the timer

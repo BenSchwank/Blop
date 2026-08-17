@@ -15,13 +15,15 @@ struct A4LayoutDialogResult {
 /// Modales Overlay im Eltern-Widget (kein separates OS-Fenster).
 bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
                          const QString &subtitle, int initialType,
-                         const QColor &initialPaper, A4LayoutDialogResult *out);
+                         const QColor &initialPaper, A4LayoutDialogResult *out,
+                         bool noteChrome = false);
 
 /// Non-blocking Android-safe variant (no local event loop / exec).
 void showA4LayoutOverlayAsync(
     QWidget *parent, const QString &windowTitle, const QString &subtitle,
     int initialType, const QColor &initialPaper,
-    std::function<void(const A4LayoutDialogResult &)> onDone);
+    std::function<void(const A4LayoutDialogResult &)> onDone,
+    bool noteChrome = false);
 
 /// Farbwahl als Overlay; bei Abbruch false, sonst *color gesetzt.
 bool showColorPickerOverlay(QWidget *parent, QColor *color,

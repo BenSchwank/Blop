@@ -10,13 +10,15 @@ class QPushButton;
 class QVBoxLayout;
 class QWidget;
 
-/// Floating card beside the graph: modern list of functions, footer actions.
+/// Compact chip list of functions for a graph. Tapping a chip selects it
+/// so roots can be dragged on the plot.
 class GraphLegendDock : public QWidget {
     Q_OBJECT
 public:
     explicit GraphLegendDock(QWidget *parent = nullptr);
 
     void bind(GraphCanvasItem *item);
+    void refreshChrome();
 
 signals:
     void removeRequested(int index);
@@ -25,6 +27,7 @@ signals:
     void entryBarRequested();
 
 private:
+    void applyCardStyle();
     void clearRowLayouts();
     void addFunctionRow(int index, const QString &expression, bool selected, const QColor &curveColor);
 

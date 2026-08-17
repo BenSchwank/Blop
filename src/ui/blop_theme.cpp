@@ -636,7 +636,16 @@ QString BlopTheme::themed(const QString &rawQss) {
            R"(rgba\(\s*180\s*,\s*186\s*,\s*210\s*,\s*([0-9.]+)\s*\))")),
        BlopTheme::textSecondary},
       {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*180\s*,\s*188\s*,\s*215\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*180\s*,\s*188\s*,\s*210\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
            R"(rgba\(\s*196\s*,\s*202\s*,\s*224\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::textSecondary},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*200\s*,\s*208\s*,\s*235\s*,\s*([0-9.]+)\s*\))")),
        BlopTheme::textSecondary},
       // High-contrast lavender text
       {QRegularExpression(QStringLiteral(
@@ -670,6 +679,13 @@ QString BlopTheme::themed(const QString &rawQss) {
       {QRegularExpression(QStringLiteral(
            R"(rgba\(\s*28\s*,\s*30\s*,\s*46\s*,\s*([0-9.]+)\s*\))")),
        BlopTheme::surfaceElevated},
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*40\s*,\s*42\s*,\s*60\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::surfaceMuted},
+      // Quiet hairlines used by settings cards / search / lists
+      {QRegularExpression(QStringLiteral(
+           R"(rgba\(\s*120\s*,\s*130\s*,\s*160\s*,\s*([0-9.]+)\s*\))")),
+       BlopTheme::borderDefault},
   };
   for (const TintMap &tm : kTintMaps) {
     const QColor c = tm.to();

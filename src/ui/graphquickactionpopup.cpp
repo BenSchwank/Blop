@@ -1,6 +1,6 @@
 #include "graphquickactionpopup.h"
 #include "tools/GraphCanvasItem.h"
-#include "UIStyles.h"
+#include "notechrome.h"
 
 #include <QDoubleSpinBox>
 #include <QFrame>
@@ -33,30 +33,7 @@ GraphQuickActionPopup::GraphQuickActionPopup(QWidget *parent) : QWidget(parent) 
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_StyledBackground, false);
     setWindowFlags(Qt::Widget);
-
-    const QString bg = UIStyles::Sidebar.name();
-    const QString page = UIStyles::PageBackground.name();
-    const QString text = UIStyles::Text.name();
-    const QString sub = UIStyles::TextSecondary.name();
-
-    setStyleSheet(QStringLiteral(
-        "QWidget#GraphQuickActionPopup { background: transparent; }"
-        "QFrame#GraphQuickCard { background-color: %1; border-radius: 14px; "
-        "border: 1px solid rgba(124,92,252,0.42); }"
-        "QFrame#GraphQuickCard QFrame#GraphQuickToolbar { background: transparent; border: none; }"
-        "QFrame#GraphQuickCard QFrame#GraphQuickSectionRule { background: rgba(255,255,255,0.12); "
-        "border: none; min-height: 1px; max-height: 1px; }"
-        "QFrame#GraphQuickCard QWidget#GraphQuickX0Row { background-color: %2; "
-        "border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; }"
-        "QFrame#GraphQuickCard QWidget#GraphQuickX0Row QLabel#GraphQuickX0Label { "
-        "color: %4; font-size: 11px; font-weight: 700; letter-spacing: 0.2px; padding-left: 4px; }"
-        "QFrame#GraphQuickCard QToolButton { background-color: rgba(255,255,255,0.14); "
-        "border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; min-width: 34px; min-height: 34px; "
-        "color: %3; font-weight: 700; font-size: 13px; }"
-        "QFrame#GraphQuickCard QToolButton:hover { background-color: rgba(124,92,252,0.35); }"
-        "QFrame#GraphQuickCard QDoubleSpinBox { background-color: %2; color: %3; "
-        "border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 3px 6px; min-height: 28px; }")
-                      .arg(bg, page, text, sub));
+    applyCardStyle();
 
     auto *outerLay = new QVBoxLayout(this);
     outerLay->setContentsMargins(5, 5, 5, 5);
@@ -148,18 +125,53 @@ GraphQuickActionPopup::GraphQuickActionPopup(QWidget *parent) : QWidget(parent) 
     hide();
 }
 
+void GraphQuickActionPopup::refreshChrome() {
+    applyCardStyle();
+    rebuildAnalyseMenu();
+}
+
+void GraphQuickActionPopup::applyCardStyle() {
+    const QString bg = NoteChrome::panelElevated().name(QColor::HexRgb);
+    const QString page = NoteChrome::panelBg().name(QColor::HexRgb);
+    const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
+    const QString sub = NoteChrome::textSecondary().name(QColor::HexRgb);
+    setStyleSheet(QStringLiteral(
+        "QWidget#GraphQuickActionPopup { background: transparent; }"
+        "QFrame#GraphQuickCard { background-color: %1; border-radius: 14px; "
+        "border: 1px solid %5; }"
+        "QFrame#GraphQuickCard QFrame#GraphQuickToolbar { background: transparent; border: none; }"
+        "QFrame#GraphQuickCard QFrame#GraphQuickSectionRule { background: %6; "
+        "border: none; min-height: 1px; max-height: 1px; }"
+        "QFrame#GraphQuickCard QWidget#GraphQuickX0Row { background-color: %2; "
+        "border: 1px solid %6; border-radius: 10px; }"
+        "QFrame#GraphQuickCard QWidget#GraphQuickX0Row QLabel#GraphQuickX0Label { "
+        "color: %4; font-size: 11px; font-weight: 700; letter-spacing: 0.2px; padding-left: 4px; }"
+        "QFrame#GraphQuickCard QToolButton { background-color: rgba(255,255,255,0.14); "
+        "border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; min-width: 34px; min-height: 34px; "
+        "color: %3; font-weight: 700; font-size: 13px; }"
+        "QFrame#GraphQuickCard QToolButton:hover { background-color: %7; }"
+        "QFrame#GraphQuickCard QDoubleSpinBox { background-color: %2; color: %3; "
+        "border: 1px solid %6; border-radius: 8px; padding: 3px 6px; min-height: 28px; }")
+                      .arg(bg, page, text, sub,
+                           NoteChrome::rgbaCss(NoteChrome::accent(), 110),
+                           NoteChrome::rgbaCss(NoteChrome::border(), 80),
+                           NoteChrome::rgbaCss(NoteChrome::accent(), 90)));
+}
+
 void GraphQuickActionPopup::rebuildAnalyseMenu() {
     if (!m_menuAnalyse)
         return;
     m_menuAnalyse->clear();
-    const QString page = UIStyles::PageBackground.name();
-    const QString text = UIStyles::Text.name();
+    const QString page = NoteChrome::panelBg().name(QColor::HexRgb);
+    const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
     m_menuAnalyse->setStyleSheet(QStringLiteral(
-        "QMenu { background-color: %1; color: %2; border: 1px solid rgba(124,92,252,0.4); "
+        "QMenu { background-color: %1; color: %2; border: 1px solid %3; "
         "border-radius: 8px; padding: 4px; }"
         "QMenu::item { padding: 8px 24px 8px 12px; border-radius: 6px; }"
-        "QMenu::item:selected { background-color: rgba(124,92,252,0.35); }")
-                                     .arg(page, text));
+        "QMenu::item:selected { background-color: %4; }")
+                                     .arg(page, text,
+                                          NoteChrome::rgbaCss(NoteChrome::accent(), 110),
+                                          NoteChrome::rgbaCss(NoteChrome::accent(), 90)));
     connect(m_menuAnalyse->addAction(QStringLiteral("Ableitungskurve")), &QAction::triggered, this,
             [this]() { emit toggleRequested(QStringLiteral("derivative_create")); });
     connect(m_menuAnalyse->addAction(QStringLiteral("Nullstellen")), &QAction::triggered, this,

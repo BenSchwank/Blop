@@ -33,6 +33,7 @@
 #include <QFutureWatcher>
 #include <QGraphicsRectItem>
 #include <QGraphicsTextItem>
+#include <QGraphicsProxyWidget>
 #include <QGraphicsSceneMouseEvent>
 #include <QTextDocument>
 #include <QImage>
@@ -232,6 +233,71 @@ GraphCanvasItem *graphCanvasHittingChrome(QGraphicsScene *scene, const QPointF &
     }
   }
   return nullptr;
+}
+
+bool textPagesMatch(const QVector<NotePage> &a, const QVector<NotePage> &b) {
+  if (a.size() != b.size())
+    return false;
+  for (int i = 0; i < a.size(); ++i) {
+    const auto &ta = a[i].texts;
+    const auto &tb = b[i].texts;
+    if (ta.size() != tb.size())
+      return false;
+    for (int j = 0; j < ta.size(); ++j) {
+      if (ta[j].text != tb[j].text || ta[j].pos != tb[j].pos ||
+          ta[j].fontFamily != tb[j].fontFamily ||
+          ta[j].fontPointSize != tb[j].fontPointSize ||
+          ta[j].color != tb[j].color ||
+          !qFuzzyCompare(ta[j].width + 1.0, tb[j].width + 1.0))
+        return false;
+    }
+  }
+  return true;
+}
+
+bool isHudSelectableItem(QGraphicsItem *item) {
+  if (!item)
+    return false;
+  const QString kind = item->data(0).toString();
+  if (kind == QLatin1String("text_item") ||
+      kind == QLatin1String("sticky_note"))
+    return true;
+  return dynamic_cast<QGraphicsPathItem *>(item) != nullptr;
+}
+
+void stylePagesBarCard(QFrame *card) {
+  if (!card)
+    return;
+  const QString accent = NoteChrome::accent().name(QColor::HexRgb);
+  const QString fill = NoteChrome::panelElevated().name(QColor::HexRgb);
+  const QString hover = NoteChrome::toolbarFill().name(QColor::HexRgb);
+  const QString border = NoteChrome::border().name(QColor::HexRgb);
+  const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
+  card->setStyleSheet(QStringLiteral(
+      "#PagesBarStrip QPushButton#PagesBarPrimary {"
+      "  background-color: %1; border: 1px solid %2; border-radius: 22px;"
+      "  padding: 18px 16px; min-height: 148px; max-height: 196px; text-align: center;"
+      "}"
+      "#PagesBarStrip QPushButton#PagesBarPrimary:hover {"
+      "  background-color: %3; border-color: %4;"
+      "}"
+      "#PagesBarStrip QLabel#PagesBarPrimaryIcon,"
+      "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
+      "  color: %4; background: transparent;"
+      "}"
+      "#PagesBarStrip QLabel#PagesBarPrimaryIcon { font-size: 40px; font-weight: 500; }"
+      "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
+      "  font-size: 15px; font-weight: 600; letter-spacing: 0.15px;"
+      "}"
+      "#PagesBarStrip QPushButton, #PagesBarStrip QToolButton {"
+      "  background-color: %1; border: 1px solid %2; border-radius: 16px;"
+      "  color: %5; font-size: 12px; font-weight: 600;"
+      "  padding: 10px 8px; min-height: 48px; max-height: 56px;"
+      "}"
+      "#PagesBarStrip QPushButton:hover, #PagesBarStrip QToolButton:hover {"
+      "  background-color: %3; border-color: %4;"
+      "}")
+      .arg(fill, border, hover, accent, text));
 }
 } // namespace
 
@@ -590,11 +656,11 @@ protected:
   }
   void paintEvent(QPaintEvent*) override {
     QPainter p(this);
-    p.fillRect(rect(), UIStyles::PageBackground);
-    p.setPen(QPen(QColor(255, 255, 255, 35), 1));
+    p.fillRect(rect(), NoteChrome::panelBg());
+    p.setPen(QPen(NoteChrome::border(), 1));
     p.drawRect(rect().adjusted(0, 0, -1, -1));
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(QPen(QColor(230, 228, 255, 200), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(NoteChrome::textPrimary(), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     for (const auto& s : m_strokes) p.drawPath(s);
     p.drawPath(m_current);
   }
@@ -629,23 +695,6 @@ public:
   explicit GraphFormulaEntryBar(QWidget *parent = nullptr) : QWidget(parent) {
     setObjectName(QStringLiteral("GraphFormulaEntryBar"));
     setAttribute(Qt::WA_StyledBackground, true);
-    const QString side = UIStyles::Sidebar.name();
-    const QString page = UIStyles::PageBackground.name();
-    const QString accent = UIStyles::Accent.name();
-    const QString text = UIStyles::Text.name();
-    const QString sub = UIStyles::TextSecondary.name();
-    setStyleSheet(QStringLiteral(
-        "QWidget#GraphFormulaEntryBar { background-color: %1; border-radius: 14px; "
-        "border: 1px solid rgba(124,92,252,0.38); }"
-        "QWidget#GraphFormulaEntryBar QLineEdit { background-color: %2; border: 1px solid rgba(255,255,255,0.12); "
-        "border-radius: 10px; padding: 6px 10px; min-height: 30px; color: %3; }"
-        "QWidget#GraphFormulaEntryBar QToolButton { background-color: rgba(255,255,255,0.15); "
-        "border: 1px solid rgba(255,255,255,0.24); border-radius: 8px; min-width: 30px; min-height: 30px; color: %3; font-weight: 700; }"
-        "QWidget#GraphFormulaEntryBar QToolButton:hover { background-color: rgba(124,92,252,0.32); border-color: rgba(124,92,252,0.55); }"
-        "QWidget#GraphFormulaEntryBar QLabel { color: %4; }"
-        "QWidget#GraphFormulaEntryBar QToolButton#GraphFormulaOk { background-color: %5; color: #f6f4ff; border: none; border-radius: 8px; }"
-        "QWidget#GraphFormulaEntryBar QToolButton#GraphFormulaOk:hover { background-color: #8b6eff; }")
-                      .arg(side, page, text, sub, accent));
     auto *v = new QVBoxLayout(this);
     v->setContentsMargins(14, 14, 14, 14);
     v->setSpacing(10);
@@ -676,9 +725,8 @@ public:
     m_status = new QLabel(this);
     m_status->setWordWrap(true);
     m_status->setMaximumWidth(400);
-    m_status->setStyleSheet(
-        QStringLiteral("QLabel { font-size: 11px; color: %1; }").arg(sub));
     v->addWidget(m_status);
+    applyChrome();
 
     m_autoTimer = new QTimer(this);
     m_autoTimer->setInterval(400);
@@ -716,6 +764,35 @@ public:
     hide();
   }
 
+  void applyChrome() {
+    const QString side = NoteChrome::panelElevated().name(QColor::HexRgb);
+    const QString page = NoteChrome::panelBg().name(QColor::HexRgb);
+    const QString accent = NoteChrome::accent().name(QColor::HexRgb);
+    const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
+    const QString sub = NoteChrome::textSecondary().name(QColor::HexRgb);
+    setStyleSheet(QStringLiteral(
+        "QWidget#GraphFormulaEntryBar { background-color: %1; border-radius: 14px; "
+        "border: 1px solid %6; }"
+        "QWidget#GraphFormulaEntryBar QLineEdit { background-color: %2; border: 1px solid %7; "
+        "border-radius: 10px; padding: 6px 10px; min-height: 30px; color: %3; }"
+        "QWidget#GraphFormulaEntryBar QToolButton { background-color: rgba(255,255,255,0.15); "
+        "border: 1px solid rgba(255,255,255,0.24); border-radius: 8px; min-width: 30px; min-height: 30px; color: %3; font-weight: 700; }"
+        "QWidget#GraphFormulaEntryBar QToolButton:hover { background-color: %8; border-color: %6; }"
+        "QWidget#GraphFormulaEntryBar QLabel { color: %4; }"
+        "QWidget#GraphFormulaEntryBar QToolButton#GraphFormulaOk { background-color: %5; color: #0f172a; border: none; border-radius: 8px; }"
+        "QWidget#GraphFormulaEntryBar QToolButton#GraphFormulaOk:hover { background-color: %9; }")
+                      .arg(side, page, text, sub, accent,
+                           NoteChrome::rgbaCss(NoteChrome::accent(), 100),
+                           NoteChrome::rgbaCss(NoteChrome::border(), 90),
+                           NoteChrome::rgbaCss(NoteChrome::accent(), 82),
+                           NoteChrome::accent().lighter(110).name(QColor::HexRgb)));
+    if (m_status && !m_status->styleSheet().contains(QLatin1String("#ff8a8a")))
+      m_status->setStyleSheet(
+          QStringLiteral("QLabel { font-size: 11px; color: %1; }").arg(sub));
+    if (m_ink)
+      m_ink->update();
+  }
+
   QString expressionText() const { return m_expr->text(); }
 
   /// Call after opening from "+" so the first ink stroke schedules recognition soon.
@@ -738,7 +815,7 @@ public:
     m_status->setStyleSheet(isError
       ? QStringLiteral("QLabel { font-size: 11px; color: #ff8a8a; }")
       : QStringLiteral("QLabel { font-size: 11px; color: %1; }")
-            .arg(UIStyles::TextSecondary.name()));
+            .arg(NoteChrome::textSecondary().name(QColor::HexRgb)));
     m_status->setText(text);
     m_status->setVisible(!text.isEmpty());
   }
@@ -1077,21 +1154,6 @@ public:
     shadow->setColor(QColor(0, 0, 0, 130));
     setGraphicsEffect(shadow);
 #endif
-    const QString bg = UIStyles::Sidebar.name();
-    const QString accent = UIStyles::Accent.name();
-    const QString text = UIStyles::Text.name();
-    const QString sub = UIStyles::TextSecondary.name();
-    setStyleSheet(QStringLiteral(
-        "QWidget#GraphTangentXPopup { background-color: %1; border-radius: 12px; "
-        "border: 1px solid rgba(124,92,252,0.38); }"
-        "QWidget#GraphTangentXPopup QLabel { color: %3; }"
-        "QWidget#GraphTangentXPopup QDoubleSpinBox { background-color: %1; color: %3; "
-        "border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 4px 8px; min-height: 28px; }"
-        "QWidget#GraphTangentXPopup QPushButton { background-color: %2; color: #f0eefc; border: none; border-radius: 8px; "
-        "padding: 7px 16px; font-weight: 600; }"
-        "QWidget#GraphTangentXPopup QPushButton#PopupCancel { background-color: rgba(255,255,255,0.1); color: %3; }"
-        "QWidget#GraphTangentXPopup QCheckBox { color: %4; spacing: 6px; }")
-                      .arg(bg, accent, text, sub));
 
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(16, 16, 16, 16);
@@ -1118,7 +1180,6 @@ public:
     lay->addWidget(m_showTangent);
     m_extra = new QLabel(this);
     m_extra->setWordWrap(true);
-    m_extra->setStyleSheet(QStringLiteral("QLabel { font-size: 11px; color: %1; }").arg(sub));
     m_extra->hide();
     lay->addWidget(m_extra);
     auto *row = new QHBoxLayout();
@@ -1136,7 +1197,31 @@ public:
       hide();
     });
     setFixedWidth(280);
+    applyChrome();
     hide();
+  }
+
+  void applyChrome() {
+    const QString bg = NoteChrome::panelElevated().name(QColor::HexRgb);
+    const QString accent = NoteChrome::accent().name(QColor::HexRgb);
+    const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
+    const QString sub = NoteChrome::textSecondary().name(QColor::HexRgb);
+    setStyleSheet(QStringLiteral(
+        "QWidget#GraphTangentXPopup { background-color: %1; border-radius: 12px; "
+        "border: 1px solid %5; }"
+        "QWidget#GraphTangentXPopup QLabel { color: %3; }"
+        "QWidget#GraphTangentXPopup QDoubleSpinBox { background-color: %1; color: %3; "
+        "border: 1px solid %6; border-radius: 8px; padding: 4px 8px; min-height: 28px; }"
+        "QWidget#GraphTangentXPopup QPushButton { background-color: %2; color: #0f172a; border: none; border-radius: 8px; "
+        "padding: 7px 16px; font-weight: 600; }"
+        "QWidget#GraphTangentXPopup QPushButton#PopupCancel { background-color: rgba(255,255,255,0.1); color: %3; }"
+        "QWidget#GraphTangentXPopup QCheckBox { color: %4; spacing: 6px; }")
+                      .arg(bg, accent, text, sub,
+                           NoteChrome::rgbaCss(NoteChrome::accent(), 100),
+                           NoteChrome::rgbaCss(NoteChrome::border(), 90)));
+    if (m_extra)
+      m_extra->setStyleSheet(
+          QStringLiteral("QLabel { font-size: 11px; color: %1; }").arg(sub));
   }
 
   void present(GraphCanvasItem *gi, const QPointF &scenePos, double dataX) {
@@ -1473,7 +1558,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
       return;
     }
     auto d = m_selectedGraphItem->data();
-    const QColor fixedColor = QColor(94, 92, 230);
+    const QColor fixedColor = NoteChrome::accent();
     if (m_livePreviewIndex >= 0 && m_livePreviewIndex < d.functions.size()) {
       d.functions[m_livePreviewIndex].expression = parsed.normalizedInput;
       d.functions[m_livePreviewIndex].color = fixedColor;
@@ -1611,8 +1696,9 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   });
   const auto removeWholeGraph = [this]() {
     GraphCanvasItem *gi = m_selectedGraphItem;
-    if (!gi)
+    if (!gi || !note_)
       return;
+    const QVector<NotePage> before = note_->pages;
     if (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)
       abandonGraphEntrySession();
     else
@@ -1633,15 +1719,17 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
       delete gi;
     }
     syncGraphItemsToNote();
+    pushPageSnapshotCommand(before, tr("Remove graph"));
   };
   connect(m_graphLegendDock, &GraphLegendDock::removeGraphWidgetRequested, this, removeWholeGraph);
   connect(m_graphQuickPopup, &GraphQuickActionPopup::removeGraphRequested, this, removeWholeGraph);
   connect(m_graphQuickPopup, &GraphQuickActionPopup::removeSelectedFunctionRequested, this, [this]() {
-    if (!m_selectedGraphItem)
+    if (!m_selectedGraphItem || !note_)
       return;
     auto d = m_selectedGraphItem->data();
     if (d.functions.isEmpty())
       return;
+    const QVector<NotePage> before = note_->pages;
     const int idx = qBound(0, d.selectedFunction, d.functions.size() - 1);
     d.functions.removeAt(idx);
     if (m_livePreviewIndex == idx)
@@ -1654,6 +1742,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
     syncGraphPlusLayout(m_selectedGraphItem);
     syncGraphLegendLayout();
     syncGraphItemsToNote();
+    pushPageSnapshotCommand(before, tr("Remove function"));
   });
   connect(m_graphQuickPopup, &GraphQuickActionPopup::axisSettingsRequested, this, [this]() {
     if (!m_selectedGraphItem)
@@ -1704,57 +1793,7 @@ MultiPageNoteView::MultiPageNoteView(QWidget *parent) : QGraphicsView(parent) {
   m_pagesBarCard = new QFrame(m_bottomSheet);
   m_pagesBarCard->setObjectName(QStringLiteral("PagesBarStrip"));
   m_pagesBarCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  // v3.16.1: unify the pages-bar surface with the rest of the overlays.
-  m_pagesBarCard->setStyleSheet(
-      BlopStyle::surfaceStyle(QStringLiteral("PagesBarStrip")) +
-      QStringLiteral(
-      "#PagesBarStrip QPushButton#PagesBarPrimary {"
-      "  background-color: rgba(58, 60, 72, 0.98);"
-      "  border: 1px solid rgba(120, 130, 160, 0.35);"
-      "  border-radius: 22px;"
-      "  padding: 18px 16px;"
-      "  min-height: 148px;"
-      "  max-height: 196px;"
-      "  text-align: center;"
-      "}"
-      "#PagesBarStrip QPushButton#PagesBarPrimary:hover {"
-      "  background-color: rgba(68, 70, 86, 0.98);"
-      "  border-color: rgba(140, 150, 185, 0.5);"
-      "}"
-      "#PagesBarStrip QLabel#PagesBarPrimaryIcon {"
-      "  color: #6BA3F5;"
-      "  font-size: 40px; font-weight: 500;"
-      "  background: transparent;"
-      "}"
-      "#PagesBarStrip QLabel#PagesBarPrimaryCaption {"
-      "  color: #6BA3F5;"
-      "  font-size: 15px; font-weight: 600; letter-spacing: 0.15px;"
-      "  background: transparent;"
-      "}"
-      "#PagesBarStrip QPushButton {"
-      "  background-color: rgba(52, 54, 64, 0.98);"
-      "  border: 1px solid rgba(110, 115, 140, 0.4);"
-      "  border-radius: 16px;"
-      "  color: rgba(220, 222, 232, 0.95);"
-      "  font-size: 12px; font-weight: 600;"
-      "  padding: 10px 8px; min-height: 48px; max-height: 56px;"
-      "}"
-      "#PagesBarStrip QPushButton:hover {"
-      "  background-color: rgba(52, 54, 68, 0.98);"
-      "  border-color: rgba(130, 115, 185, 0.45);"
-      "}"
-      "#PagesBarStrip QToolButton {"
-      "  background-color: rgba(52, 54, 64, 0.98);"
-      "  border: 1px solid rgba(110, 115, 140, 0.4);"
-      "  border-radius: 16px;"
-      "  color: rgba(220, 222, 232, 0.95);"
-      "  font-size: 12px; font-weight: 600;"
-      "  padding: 10px 8px; min-height: 48px; max-height: 56px;"
-      "}"
-      "#PagesBarStrip QToolButton:hover {"
-      "  background-color: rgba(52, 54, 68, 0.98);"
-      "  border-color: rgba(130, 115, 185, 0.45);"
-      "}"));
+  stylePagesBarCard(m_pagesBarCard);
 
   auto *outerLay = new QVBoxLayout(m_bottomSheet);
   outerLay->setContentsMargins(0, 0, 0, 0);
@@ -1914,6 +1953,9 @@ void MultiPageNoteView::hydrateVisibleRange() {
 void MultiPageNoteView::setNote(Note *note) { setNote(note, true); }
 
 void MultiPageNoteView::setNote(Note *note, bool clearUndoStack) {
+  m_textEditOpen = false;
+  m_textEditBefore.clear();
+  m_activeTextItem.clear();
   note_ = note;
   cancelCrop(); // v3.18.0: offene Crop-Session beenden, bevor scene_.clear()
                 // den Resizer löschen würde (dangling pointer).
@@ -1981,6 +2023,11 @@ void MultiPageNoteView::pushStrokeUndoCommand(int pageIdx, Stroke stroke) {
 }
 
 void MultiPageNoteView::undo() {
+  if (isEditingText() && m_activeTextItem->document() &&
+      m_activeTextItem->document()->isUndoAvailable()) {
+    m_activeTextItem->document()->undo();
+    return;
+  }
   if (m_undoStack && m_undoStack->canUndo()) {
     m_undoStack->undo();
   } else if (m_pageUndoStack && m_pageUndoStack->canUndo()) {
@@ -1989,6 +2036,11 @@ void MultiPageNoteView::undo() {
 }
 
 void MultiPageNoteView::redo() {
+  if (isEditingText() && m_activeTextItem->document() &&
+      m_activeTextItem->document()->isRedoAvailable()) {
+    m_activeTextItem->document()->redo();
+    return;
+  }
   if (m_pageUndoStack && m_pageUndoStack->canRedo()) {
     m_pageUndoStack->redo();
   } else if (m_undoStack && m_undoStack->canRedo()) {
@@ -1997,13 +2049,24 @@ void MultiPageNoteView::redo() {
 }
 
 bool MultiPageNoteView::canUndo() const {
+  if (isEditingText() && m_activeTextItem->document() &&
+      m_activeTextItem->document()->isUndoAvailable())
+    return true;
   return (m_undoStack && m_undoStack->canUndo()) ||
          (m_pageUndoStack && m_pageUndoStack->canUndo());
 }
 
 bool MultiPageNoteView::canRedo() const {
+  if (isEditingText() && m_activeTextItem->document() &&
+      m_activeTextItem->document()->isRedoAvailable())
+    return true;
   return (m_undoStack && m_undoStack->canRedo()) ||
          (m_pageUndoStack && m_pageUndoStack->canRedo());
+}
+
+bool MultiPageNoteView::isEditingText() const {
+  return m_activeTextItem &&
+         (m_activeTextItem->textInteractionFlags() & Qt::TextEditorInteraction);
 }
 
 void MultiPageNoteView::layoutPages() {
@@ -2224,7 +2287,7 @@ void MultiPageNoteView::openTemplatePageDialog() {
   A4LayoutDialogResult r;
   if (!showA4LayoutOverlay(this, QStringLiteral("Neue Seite von Vorlage"),
                            QString(), static_cast<int>(PageBackgroundType::Grid),
-                           QColor(Qt::white), &r))
+                           QColor(Qt::white), &r, /*noteChrome=*/true))
     return;
   addNewPageWithLayout(r.backgroundType, r.paperColor);
   if (note_)
@@ -2273,7 +2336,7 @@ void MultiPageNoteView::openPageLayoutForVisiblePage() {
   const QString sub = QStringLiteral("Seite: %1").arg(pg.title);
   A4LayoutDialogResult r;
   if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), sub, bt, pc,
-                           &r))
+                           &r, /*noteChrome=*/true))
     return;
   applyLayoutToPage(idx, r.backgroundType, r.paperColor);
 }
@@ -2537,10 +2600,22 @@ void MultiPageNoteView::endSpacePan() {
 }
 
 void MultiPageNoteView::keyPressEvent(QKeyEvent *event) {
-  if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+  if (event->key() == Qt::Key_Space && !event->isAutoRepeat() &&
+      !shouldForwardKeyToEditor()) {
     beginSpacePan();
     event->accept();
     return;
+  }
+  if (shouldForwardKeyToEditor()) {
+    QGraphicsView::keyPressEvent(event);
+    return;
+  }
+  if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+    if (!scene_.selectedItems().isEmpty()) {
+      deleteSelection();
+      event->accept();
+      return;
+    }
   }
   QGraphicsView::keyPressEvent(event);
 }
@@ -2587,8 +2662,18 @@ void MultiPageNoteView::setZoomFactor(qreal factor) {
 }
 
 void MultiPageNoteView::applyNoteChrome() {
+  setBackgroundBrush(NoteChrome::canvasBg());
   if (m_selectionMenu)
     m_selectionMenu->refreshChrome();
+  stylePagesBarCard(m_pagesBarCard);
+  if (m_graphLegendDock)
+    m_graphLegendDock->refreshChrome();
+  if (m_graphQuickPopup)
+    m_graphQuickPopup->refreshChrome();
+  if (m_graphEntryBar)
+    m_graphEntryBar->applyChrome();
+  if (m_tangentXPopup)
+    m_tangentXPopup->applyChrome();
 }
 
 void MultiPageNoteView::persistViewState(const QString &keyOverride) const {
@@ -2977,7 +3062,10 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
            clicked->data(0).toString() != QLatin1String("text_item"))
       clicked = clicked->parentItem();
     if (auto *existing = qgraphicsitem_cast<QGraphicsTextItem *>(clicked)) {
-      startEditingTextItem(existing);
+      if (m_activeTextItem && m_activeTextItem != existing)
+        commitTextEditSession();
+      // Single click selects/moves; double-click (below) starts typing.
+      QGraphicsView::mousePressEvent(e);
       e->accept();
       return;
     }
@@ -2986,6 +3074,7 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     if (pIdx < 0 || pIdx >= pageItems_.size())
       pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
 
+    const QVector<NotePage> before = note_->pages;
     TextObject to;
     to.pos = pageItems_[pIdx]->mapFromScene(scenePos);
     to.width = 300.0;
@@ -2996,7 +3085,7 @@ void MultiPageNoteView::mousePressEvent(QMouseEvent *e) {
     note_->pages[pIdx].texts.push_back(to);
     auto *item = createTextItem(to, pIdx);
     if (item)
-      startEditingTextItem(item);
+      startEditingTextItem(item, before);
     if (onSaveRequested)
       onSaveRequested(note_);
     emit pagesChanged();
@@ -3295,21 +3384,25 @@ void MultiPageNoteView::mouseReleaseEvent(QMouseEvent *e) {
                       e->button(), e->buttons());
     tabletEvent(&fake);
   } else {
-    bool stickyInPlay = false;
+    bool objectInPlay = false;
     for (QGraphicsItem *it : scene_.selectedItems()) {
       if (!it)
         continue;
-      if (it->data(0).toString() == QLatin1String("sticky_note") ||
+      const QString kind = it->data(0).toString();
+      if (kind == QLatin1String("sticky_note") ||
+          kind == QLatin1String("text_item") ||
           (it->parentItem() &&
            it->parentItem()->data(0).toString() ==
                QLatin1String("sticky_note"))) {
-        stickyInPlay = true;
+        objectInPlay = true;
         break;
       }
     }
     QGraphicsView::mouseReleaseEvent(e);
-    if (e->button() == Qt::LeftButton && stickyInPlay)
+    if (e->button() == Qt::LeftButton && objectInPlay) {
       syncStickyNotesToNote();
+      syncTextItemsToNote();
+    }
   }
 }
 
@@ -4088,9 +4181,11 @@ void MultiPageNoteView::onSelectionChanged() {
   // Find bounding rect of all selected items
   QRectF boundingRect;
   for (QGraphicsItem* item : items) {
-      if (item->type() == QGraphicsPathItem::Type) { // StrokeItem is now PathItem
-          boundingRect = boundingRect.isValid() ? boundingRect.united(item->sceneBoundingRect()) : item->sceneBoundingRect();
-      }
+      if (!isHudSelectableItem(item))
+          continue;
+      boundingRect = boundingRect.isValid()
+                         ? boundingRect.united(item->sceneBoundingRect())
+                         : item->sceneBoundingRect();
   }
 
   if (!boundingRect.isValid()) {
@@ -4109,14 +4204,59 @@ void MultiPageNoteView::onSelectionChanged() {
 
 
 void MultiPageNoteView::deleteSelection() {
-    for (auto item : scene_.selectedItems()) {
+    const QList<QGraphicsItem *> selected = scene_.selectedItems();
+    if (selected.isEmpty() || !note_)
+        return;
+
+    // Flush any in-progress text edit into the model, then snapshot so
+    // Delete from the HUD still works while a box is focused.
+    if (m_textEditOpen) {
+      m_textEditOpen = false;
+      m_textEditBefore.clear();
+    }
+    if (m_activeTextItem) {
+      m_activeTextItem->setTextInteractionFlags(Qt::NoTextInteraction);
+      m_activeTextItem.clear();
+    }
+    syncTextItemsToNote();
+    const QVector<NotePage> before = note_->pages;
+    bool removedGraph = false;
+    for (auto *item : selected) {
+        if (!item || !item->scene())
+            continue;
+        if (item->type() == GraphFormulaZone::Type)
+            continue;
+        if (m_activeFormulaZone && item == m_activeFormulaZone)
+            continue;
+        if (item->type() == GraphCanvasItem::Type) {
+            removedGraph = true;
+            if (m_selectedGraphItem == item)
+                m_selectedGraphItem = nullptr;
+            if (m_graphPanelTargetGraph == item)
+                m_graphPanelTargetGraph = nullptr;
+            if (m_graphPlusBypassItem == item)
+                m_graphPlusBypassItem = nullptr;
+            if (m_graphPlotBypassItem == item)
+                m_graphPlotBypassItem = nullptr;
+        }
+        if (m_activeTextItem && item == m_activeTextItem) {
+            m_activeTextItem.clear();
+            m_textEditOpen = false;
+            m_textEditBefore.clear();
+        }
         scene_.removeItem(item);
         delete item;
+    }
+    if (removedGraph) {
+        m_livePreviewIndex = -1;
+        hideGraphLegendQuick();
+        bindGraphChrome(nullptr);
     }
     if (m_selectionMenu) m_selectionMenu->hide();
     syncGraphItemsToNote();
     syncStickyNotesToNote();
     syncTextItemsToNote();
+    pushPageSnapshotCommand(before, tr("Delete selection"));
     if (onSaveRequested) onSaveRequested(note_);
 }
 
@@ -4152,7 +4292,10 @@ void MultiPageNoteView::duplicateSelection() {
     return;
 
   const QPointF offset(20, 20);
+  const QVector<NotePage> before = note_->pages;
   bool duplicatedGraph = false;
+  bool duplicatedText = false;
+  bool duplicatedSticky = false;
   bool hasStrokeTargets = false;
   for (QGraphicsItem *item : selected) {
     if (item->type() != GraphCanvasItem::Type &&
@@ -4182,6 +4325,51 @@ void MultiPageNoteView::duplicateSelection() {
       gi->setFlag(QGraphicsItem::ItemIsMovable, true);
       gi->setZValue(src->zValue());
       duplicatedGraph = true;
+      continue;
+    }
+    if (item->data(0).toString() == QLatin1String("text_item")) {
+      auto *src = qgraphicsitem_cast<QGraphicsTextItem *>(item);
+      if (!src)
+        continue;
+      int pIdx = pageAt(src->sceneBoundingRect().center());
+      if (pIdx < 0)
+        pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
+      TextObject to;
+      to.pos = src->pos() + offset;
+      to.width = src->textWidth();
+      to.text = src->toPlainText();
+      to.color = src->defaultTextColor();
+      to.fontFamily = src->font().family();
+      to.fontPointSize = src->font().pointSize();
+      note_->ensurePage(pIdx);
+      if (auto *copy = createTextItem(to, pIdx))
+        copy->setSelected(true);
+      duplicatedText = true;
+      continue;
+    }
+    if (item->data(0).toString() == QLatin1String("sticky_note")) {
+      auto *card = qgraphicsitem_cast<QGraphicsRectItem *>(item);
+      if (!card)
+        continue;
+      StickyNoteObject sn;
+      sn.pos = card->pos() + offset;
+      sn.width = card->rect().width();
+      sn.height = card->rect().height();
+      sn.color = card->brush().color();
+      for (QGraphicsItem *child : card->childItems()) {
+        if (auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(child)) {
+          sn.text = text->toPlainText();
+          sn.fontPointSize = text->font().pointSize();
+          break;
+        }
+      }
+      int pIdx = pageAt(card->sceneBoundingRect().center());
+      if (pIdx < 0)
+        pIdx = qBound(0, currentPage_, pageItems_.size() - 1);
+      note_->ensurePage(pIdx);
+      if (auto *copy = createStickyNoteItem(sn, pIdx))
+        copy->setSelected(true);
+      duplicatedSticky = true;
       continue;
     }
     // Items, die zu einem Graphen gehören (Formelzonen etc.), überspringen.
@@ -4227,6 +4415,12 @@ void MultiPageNoteView::duplicateSelection() {
     m_undoStack->endMacro();
   if (duplicatedGraph)
     syncGraphItemsToNote();
+  if (duplicatedText)
+    syncTextItemsToNote();
+  if (duplicatedSticky)
+    syncStickyNotesToNote();
+  if (duplicatedGraph || duplicatedText || duplicatedSticky)
+    pushPageSnapshotCommand(before, tr("Duplicate selection"));
   onSelectionChanged();
 }
 
@@ -4526,9 +4720,12 @@ void showViewToast(QWidget *anchor, const QString &text,
   toast->setAlignment(Qt::AlignCenter);
   toast->setWordWrap(true);
   toast->setStyleSheet(QStringLiteral(
-      "QLabel { background: rgba(20,20,30,0.92); color: #E8E4FF;"
-      " border: 1px solid rgba(124,92,252,0.45); border-radius: 10px;"
-      " padding: 10px 18px; font-size: 14px; }"));
+      "QLabel { background: %1; color: %2;"
+      " border: 1px solid %3; border-radius: 10px;"
+      " padding: 10px 18px; font-size: 14px; }")
+                           .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+                                NoteChrome::textPrimary().name(QColor::HexRgb),
+                                NoteChrome::rgbaCss(NoteChrome::accent(), 115)));
   const int maxW = qMin(win->width() - UiScale::dp(40), UiScale::dp(360));
   toast->setMaximumWidth(maxW);
   toast->adjustSize();
@@ -4933,8 +5130,28 @@ void MultiPageNoteView::bindGraphItemSignals(GraphCanvasItem *gi) {
     m_graphPanelExplicitOpen = true;
     m_graphQuickPopupWanted = false;
     hideGraphQuickPopup();
+
+    const QVector<NotePage> before = note_ ? note_->pages : QVector<NotePage>{};
+    bool committedPreview = false;
+    if (idx == m_livePreviewIndex && m_livePreviewIndex >= 0 &&
+        m_livePreviewIndex < gi->data().functions.size()) {
+      auto fns = gi->data().functions;
+      fns[idx].color = NoteChrome::accent();
+      fns[idx].visible = true;
+      m_livePreviewIndex = -1;
+      gi->updateFunctions(fns, idx);
+      if (m_activeFormulaZone) {
+        m_activeFormulaZone->deleteLater();
+        m_activeFormulaZone = nullptr;
+      }
+      syncGraphPlusLayout(gi);
+      committedPreview = true;
+    }
+
     gi->setSelectedFunction(idx);
     refreshGraphPanelForSelection();
+    if (committedPreview && note_)
+      pushPageSnapshotCommand(before, tr("Add function"));
   });
   connect(gi, &GraphCanvasItem::functionLongPressed, this,
           [this, gi](int idx) {
@@ -4984,8 +5201,17 @@ void MultiPageNoteView::bindGraphItemSignals(GraphCanvasItem *gi) {
   connect(gi, &GraphCanvasItem::graphGeometryTweaked, this, [this, gi]() {
     if ((m_graphPanelExplicitOpen && m_selectedGraphItem == gi) ||
         (m_graphEntryBarOpen && m_graphEntryTargetGraph == gi)) {
+      bindGraphChrome(gi);
       syncGraphLegendLayout();
     }
+  });
+  connect(gi, &GraphCanvasItem::rootDragStarted, this, [this]() {
+    m_graphRootDragBefore = note_ ? note_->pages : QVector<NotePage>{};
+  });
+  connect(gi, &GraphCanvasItem::rootDragFinished, this, [this]() {
+    if (note_)
+      pushPageSnapshotCommand(m_graphRootDragBefore, tr("Nullstelle verschieben"));
+    syncGraphItemsToNote();
   });
 
   gi->setData(9001, true);
@@ -5180,12 +5406,59 @@ void MultiPageNoteView::bindTextItemSignals(QGraphicsTextItem *item) {
 }
 
 void MultiPageNoteView::startEditingTextItem(QGraphicsTextItem *item) {
+  if (!item || !note_)
+    return;
+  if (m_activeTextItem && m_activeTextItem != item)
+    commitTextEditSession();
+  syncTextItemsToNote();
+  startEditingTextItem(item, note_->pages);
+}
+
+void MultiPageNoteView::startEditingTextItem(QGraphicsTextItem *item,
+                                            const QVector<NotePage> &undoBefore) {
   if (!item)
     return;
+  if (m_activeTextItem && m_activeTextItem != item)
+    commitTextEditSession();
+  if (!m_textEditOpen && note_) {
+    m_textEditBefore = undoBefore;
+    m_textEditOpen = true;
+  }
   m_activeTextItem = item;
   item->setTextInteractionFlags(Qt::TextEditorInteraction);
   item->setFlag(QGraphicsItem::ItemIsFocusable, true);
   item->setFocus(Qt::MouseFocusReason);
+}
+
+void MultiPageNoteView::commitTextEditSession() {
+  if (!m_textEditOpen)
+    return;
+  m_textEditOpen = false;
+  QVector<NotePage> before = std::move(m_textEditBefore);
+  m_textEditBefore.clear();
+  if (m_activeTextItem) {
+    m_activeTextItem->setTextInteractionFlags(Qt::NoTextInteraction);
+    m_activeTextItem.clear();
+  }
+  syncTextItemsToNote();
+  if (note_ && !textPagesMatch(before, note_->pages))
+    pushPageSnapshotCommand(before, tr("Edit text"));
+}
+
+bool MultiPageNoteView::shouldForwardKeyToEditor() const {
+  if (isEditingText())
+    return true;
+  if (m_activeFormulaZone && m_activeFormulaZone->hasInlineEditor())
+    return true;
+  if (QGraphicsItem *focus = scene_.focusItem()) {
+    if (qgraphicsitem_cast<QGraphicsProxyWidget *>(focus))
+      return true;
+    if (auto *text = qgraphicsitem_cast<QGraphicsTextItem *>(focus)) {
+      if (text->textInteractionFlags() & Qt::TextEditorInteraction)
+        return true;
+    }
+  }
+  return false;
 }
 
 void MultiPageNoteView::flushTextItemSync() {
@@ -5250,8 +5523,10 @@ void MultiPageNoteView::syncTextItemsToNote() {
     delete text;
   }
 
-  // If the previously active text box lost focus, clear our edit marker.
-  if (m_activeTextItem && !m_activeTextItem->hasFocus()) {
+  // If the previously active text box lost focus, close the edit session
+  // so typing becomes a single undo step.
+  const bool lostFocus = m_activeTextItem && !m_activeTextItem->hasFocus();
+  if (lostFocus) {
     m_activeTextItem->setTextInteractionFlags(Qt::NoTextInteraction);
     m_activeTextItem.clear();
   }
@@ -5259,6 +5534,9 @@ void MultiPageNoteView::syncTextItemsToNote() {
   if (onSaveRequested)
     onSaveRequested(note_);
   m_syncingTexts = false;
+
+  if (lostFocus && m_textEditOpen)
+    commitTextEditSession();
 }
 
 // ============================================================================
@@ -5306,7 +5584,8 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     } else {
       GraphFunction previewFn;
       previewFn.expression = parsed.normalizedInput;
-      previewFn.color = QColor(124, 92, 252, 120); // semi-transparent purple
+      previewFn.color = NoteChrome::accent();
+      previewFn.color.setAlpha(120);
       previewFn.visible = true;
       fns.push_back(previewFn);
       m_livePreviewIndex = fns.size() - 1;
@@ -5322,8 +5601,9 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
     const ParsedExpression parsed = MathExpressionParser::parseFunctionExpression(expr);
     if (!parsed.ok) return;
 
+    const QVector<NotePage> before = note_ ? note_->pages : QVector<NotePage>{};
     auto fns = gi->data().functions;
-    const QColor finalColor = QColor(94, 92, 230);
+    const QColor finalColor = NoteChrome::accent();
 
     if (m_livePreviewIndex >= 0 && m_livePreviewIndex < fns.size()) {
       fns[m_livePreviewIndex].expression = parsed.normalizedInput;
@@ -5352,6 +5632,8 @@ void MultiPageNoteView::openGraphFormulaZone(GraphCanvasItem *gi) {
       syncGraphLegendLayout();
     }
     syncGraphItemsToNote();
+    if (note_)
+      pushPageSnapshotCommand(before, tr("Add function"));
   });
 
   // Zone cleared: remove preview curve

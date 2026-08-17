@@ -4,6 +4,7 @@
 #include <QtMath>
 #include "ToolSettings.h"
 #include "UIStyles.h"
+#include "notechrome.h"
 #include <QGraphicsSceneWheelEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QEvent>
@@ -475,7 +476,7 @@ private:
         }
 
         // Center indicator (for snapping radius)
-        p->setPen(QPen(QColor("#5E5CE6"), 2));
+        p->setPen(QPen(NoteChrome::accent(), 2));
         p->setBrush(Qt::NoBrush);
         p->drawEllipse(c, 6, 6);
         p->drawLine(c.x() - 4, c.y(), c.x() + 4, c.y());

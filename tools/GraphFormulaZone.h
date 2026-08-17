@@ -76,6 +76,8 @@ public:
     /// Opens a small inline text editor so the user can type/correct the expression.
     void openInlineEditor();
 
+    bool hasInlineEditor() const { return m_editor != nullptr; }
+
     /// Closes the inline editor (if open), applying the typed text.
     void closeInlineEditor();
 

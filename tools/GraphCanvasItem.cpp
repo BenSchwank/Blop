@@ -299,8 +299,6 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
     p->save();
     p->setClipRect(pr);
 
-    QVector<double> selectedRoots;
-    QVector<QPointF> selectedExtrema;
     for (int i = 0; i < m_data.functions.size(); ++i) {
         const auto& f = m_data.functions[i];
         if (!f.visible)
@@ -378,17 +376,30 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
             }
         }
 
-        if (f.showRoots) {
+        if (f.showRoots || i == m_data.selectedFunction) {
             const QColor rootColor = f.rootMarkerColor;
             const QVector<double> roots = NumericAnalysis::findRootsBisection(expr, m_data.xMin, m_data.xMax, 300);
-            p->setPen(Qt::NoPen);
-            p->setBrush(rootColor);
+            const bool selected = (i == m_data.selectedFunction);
             for (double rx : roots) {
                 const QPointF c(mapX(rx), mapY(0.0));
-                p->drawEllipse(c, 2.8, 2.8);
+                if (selected) {
+                    p->setPen(QPen(QColor(255, 255, 255, 230), 2.0));
+                    p->setBrush(rootColor);
+                    p->drawEllipse(c, 6.4, 6.4);
+                    p->setPen(QPen(QColor(20, 20, 22), 0.9));
+                    QFont rf = p->font();
+                    rf.setPointSizeF(7.5);
+                    rf.setBold(true);
+                    p->setFont(rf);
+                    const QString label = QString::number(rx, 'g', 3);
+                    p->drawText(QRectF(c.x() - 22.0, c.y() + 8.0, 44.0, 12.0),
+                                Qt::AlignHCenter | Qt::AlignTop, label);
+                } else {
+                    p->setPen(Qt::NoPen);
+                    p->setBrush(rootColor);
+                    p->drawEllipse(c, 2.8, 2.8);
+                }
             }
-            if (i == m_data.selectedFunction)
-                selectedRoots = roots;
         }
 
         if (f.showExtrema) {
@@ -401,51 +412,10 @@ void GraphCanvasItem::paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidge
                 if (!qIsFinite(y))
                     continue;
                 p->drawEllipse(QPointF(mapX(exx), mapY(y)), 2.8, 2.8);
-                if (i == m_data.selectedFunction)
-                    selectedExtrema.push_back(QPointF(exx, y));
             }
         }
     }
     p->restore();
-
-    if (m_data.selectedFunction >= 0 &&
-        m_data.selectedFunction < m_data.functions.size()) {
-        p->save();
-        p->setClipRect(pr);
-        p->setPen(QPen(QColor(36, 42, 56), 1));
-        p->setBrush(QColor(246, 248, 252, 230));
-        const QRectF legendRect(pr.right() - 108.0, pr.top() + 4.0, 104.0, 86.0);
-        p->drawRoundedRect(legendRect, 6, 6);
-        p->setPen(QPen(QColor(38, 48, 69), 1));
-        const QColor rootColor = m_data.functions[m_data.selectedFunction].rootMarkerColor;
-        const QColor extColor = m_data.functions[m_data.selectedFunction].extremaMarkerColor;
-        p->setBrush(rootColor);
-        p->drawEllipse(QPointF(legendRect.left() + 8, legendRect.top() + 16), 2.4, 2.4);
-        p->setBrush(extColor);
-        p->drawEllipse(QPointF(legendRect.left() + 8, legendRect.top() + 34), 2.4, 2.4);
-        p->setPen(QPen(QColor(26, 32, 44), 1));
-        p->drawText(QRectF(legendRect.left() + 14, legendRect.top() + 8, 82, 14),
-                    Qt::AlignLeft | Qt::AlignVCenter,
-                    QStringLiteral("x0: %1").arg(selectedRoots.size()));
-        p->drawText(QRectF(legendRect.left() + 14, legendRect.top() + 26, 82, 14),
-                    Qt::AlignLeft | Qt::AlignVCenter,
-                    QStringLiteral("xe: %1").arg(selectedExtrema.size()));
-        if (!selectedRoots.isEmpty()) {
-            const QString rtxt =
-                QStringLiteral("x0 = %1").arg(selectedRoots.first(), 0, 'g', 4);
-            p->drawText(QRectF(legendRect.left() + 6, legendRect.top() + 44, 92, 14),
-                        Qt::AlignLeft | Qt::AlignVCenter, rtxt);
-        }
-        if (!selectedExtrema.isEmpty()) {
-            const QPointF ex = selectedExtrema.first();
-            const QString etxt = QStringLiteral("xe = (%1, %2)")
-                .arg(ex.x(), 0, 'g', 4)
-                .arg(ex.y(), 0, 'g', 4);
-            p->drawText(QRectF(legendRect.left() + 6, legendRect.top() + 62, 92, 14),
-                        Qt::AlignLeft | Qt::AlignVCenter, etxt);
-        }
-        p->restore();
-    }
 
     if (!m_plusSuppressed) {
         const QRectF plusRect = plusButtonLocalRect();
@@ -499,6 +469,7 @@ void GraphCanvasItem::setSelectedFunction(int idx) {
         m_data.selectedFunction = -1;
     } else {
         m_data.selectedFunction = qBound(0, idx, m_data.functions.size() - 1);
+        m_data.functions[m_data.selectedFunction].showRoots = true;
     }
     update();
     emit graphChanged();
@@ -509,6 +480,61 @@ QPointF GraphCanvasItem::mapToLocalPlot(double x, double y) const {
     const qreal px = pr.left() + (x - m_data.xMin) / qMax(1e-6, (m_data.xMax - m_data.xMin)) * pr.width();
     const qreal py = pr.bottom() - (y - m_data.yMin) / qMax(1e-6, (m_data.yMax - m_data.yMin)) * pr.height();
     return QPointF(px, py);
+}
+
+double GraphCanvasItem::mapLocalXToData(qreal localX) const {
+    const QRectF pr = plotAreaLocalRect();
+    return m_data.xMin + (localX - pr.left()) / qMax(1e-6, pr.width()) *
+        (m_data.xMax - m_data.xMin);
+}
+
+QVector<double> GraphCanvasItem::selectedRoots() const {
+    if (m_data.selectedFunction < 0 || m_data.selectedFunction >= m_data.functions.size())
+        return {};
+    const auto &f = m_data.functions[m_data.selectedFunction];
+    if (f.isDerivativeCurve)
+        return {};
+    const ParsedExpression expr = MathExpressionParser::parseFunctionExpression(f.expression);
+    if (!expr.ok)
+        return {};
+    return NumericAnalysis::findRootsBisection(expr, m_data.xMin, m_data.xMax, 360);
+}
+
+int GraphCanvasItem::hitRootHandleAtScene(const QPointF &scenePos, double *outRootX) const {
+    const QVector<double> roots = selectedRoots();
+    if (roots.isEmpty())
+        return -1;
+    const QPointF lp = mapFromScene(scenePos);
+    constexpr qreal kHit = 14.0;
+    int best = -1;
+    qreal bestD = kHit;
+    for (int i = 0; i < roots.size(); ++i) {
+        const QPointF c = mapToLocalPlot(roots[i], 0.0);
+        const qreal d = QLineF(lp, c).length();
+        if (d < bestD) {
+            bestD = d;
+            best = i;
+        }
+    }
+    if (best >= 0 && outRootX)
+        *outRootX = roots[best];
+    return best;
+}
+
+void GraphCanvasItem::applyMovedRoot(double oldX, double newX) {
+    if (m_data.selectedFunction < 0 || m_data.selectedFunction >= m_data.functions.size())
+        return;
+    auto &f = m_data.functions[m_data.selectedFunction];
+    if (f.isDerivativeCurve)
+        return;
+    newX = qBound(m_data.xMin + 1e-4, newX, m_data.xMax - 1e-4);
+    const QString next = NumericAnalysis::moveRootInExpression(
+        f.expression, oldX, newX, m_data.xMin, m_data.xMax);
+    if (next == f.expression)
+        return;
+    f.expression = next;
+    f.showRoots = true;
+    update();
 }
 
 int GraphCanvasItem::nearestFunctionAtScenePos(const QPointF& scenePos, qreal* outDist) const {
@@ -604,6 +630,17 @@ void GraphCanvasItem::mousePressEvent(QGraphicsSceneMouseEvent* e) {
         e->accept();
         return;
     }
+    double rootX = 0.0;
+    const int rootIdx = hitRootHandleAtScene(e->scenePos(), &rootX);
+    if (rootIdx >= 0) {
+        m_draggingRoot = true;
+        m_dragRootIndex = rootIdx;
+        m_dragRootOrigX = rootX;
+        m_rootDidMove = false;
+        emit rootDragStarted();
+        e->accept();
+        return;
+    }
     qreal d = 1e9;
     m_pressedFunction = nearestFunctionAtScenePos(e->scenePos(), &d);
     m_holdTimer.restart();
@@ -611,6 +648,15 @@ void GraphCanvasItem::mousePressEvent(QGraphicsSceneMouseEvent* e) {
 }
 
 void GraphCanvasItem::mouseMoveEvent(QGraphicsSceneMouseEvent* e) {
+    if (m_draggingRoot) {
+        const double nx = mapLocalXToData(e->pos().x());
+        applyMovedRoot(m_dragRootOrigX, nx);
+        m_dragRootOrigX = nx;
+        m_rootDidMove = true;
+        emit graphGeometryTweaked();
+        e->accept();
+        return;
+    }
     if (m_resizing) {
         const QPointF d = e->scenePos() - m_resizeStartScene;
         prepareGeometryChange();
@@ -625,6 +671,17 @@ void GraphCanvasItem::mouseMoveEvent(QGraphicsSceneMouseEvent* e) {
 }
 
 void GraphCanvasItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* e) {
+    if (m_draggingRoot) {
+        const bool moved = m_rootDidMove;
+        m_draggingRoot = false;
+        m_dragRootIndex = -1;
+        m_rootDidMove = false;
+        emit graphChanged();
+        if (moved)
+            emit rootDragFinished();
+        e->accept();
+        return;
+    }
     if (m_pressedPlus) {
         m_pressedPlus = false;
         if (!m_plusSuppressed && plusButtonHitLocalRect().contains(e->pos()))

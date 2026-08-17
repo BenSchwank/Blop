@@ -15,6 +15,7 @@ public:
     explicit GraphQuickActionPopup(QWidget *parent = nullptr);
 
     void bind(GraphCanvasItem *item);
+    void refreshChrome();
     void setAnchorScenePos(const QPointF &scenePos) { m_anchorScene = scenePos; }
     QPointF anchorScenePos() const { return m_anchorScene; }
 
@@ -28,6 +29,7 @@ signals:
     void removeGraphRequested();
 
 private:
+    void applyCardStyle();
     void rebuildAnalyseMenu();
 
     QToolButton *m_btnAxes{nullptr};

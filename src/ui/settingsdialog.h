@@ -55,6 +55,7 @@ private:
 
     void refreshProfileList();
     void openEditor(const QString &profileId);
+    void refreshTheme();
 };
 
 #endif // SETTINGSDIALOG_H

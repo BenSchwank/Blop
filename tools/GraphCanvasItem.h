@@ -52,6 +52,9 @@ public:
 
     void requestPlotBackgroundTap();
 
+    /// Scene-local hit on a draggable root handle of the selected function.
+    int hitRootHandleAtScene(const QPointF &scenePos, double *outRootX = nullptr) const;
+
 signals:
     void graphChanged();
     /// Position/size tweak while dragging (not full graphChanged — avoids heavy note sync each pixel).
@@ -62,6 +65,8 @@ signals:
     /// User tapped near the x-axis (y=0) inside the plot; scene position for anchoring a popup.
     void xAxisTapped(double dataX, QPointF scenePos);
     void plotBackgroundTapped(QPointF scenePos);
+    void rootDragStarted();
+    void rootDragFinished();
 
 protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
@@ -72,10 +77,13 @@ protected:
 private:
     int nearestFunctionAtScenePos(const QPointF& scenePos, qreal* outDist = nullptr) const;
     QPointF mapToLocalPlot(double x, double y) const;
+    double mapLocalXToData(qreal localX) const;
     QRectF plusButtonLocalRect() const;
     QRectF plusButtonHitLocalRect() const;
     QRectF plotAreaLocalRect() const;
     bool hitXAxisAtLocal(const QPointF& localPos, double* outDataX) const;
+    QVector<double> selectedRoots() const;
+    void applyMovedRoot(double oldX, double newX);
 
     QRectF m_rect{0, 0, 280, 180};
     GraphObject m_data;
@@ -87,6 +95,10 @@ private:
     QElapsedTimer m_holdTimer;
     int m_pressedFunction{-1};
     bool m_pressedPlus{false};
+    int m_dragRootIndex{-1};
+    double m_dragRootOrigX{0.0};
+    bool m_draggingRoot{false};
+    bool m_rootDidMove{false};
 
     void processTapRelease(const QPointF& scenePos, int holdElapsedMs);
 };

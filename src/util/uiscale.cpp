@@ -261,18 +261,23 @@ bool isAndroidTablet(QWidget *reference) {
   QScreen *screen = bestScreen(reference);
   if (!screen)
     return false;
-  // Material design defines the tablet breakpoint as >=600 dp wide.
-  // Translated into physical units that's roughly 95 mm
-  // (600 dp / 160 dp/in * 25.4 mm/in). screen->physicalSize() comes
-  // straight from the Android display metrics and is unaffected by
-  // Qt's HighDPI scaling mode or by OEM-specific logicalDpi quirks
-  // (some Samsung / cheap-OEM devices report logicalDpi=96 even on
-  // 480 dpi panels), so it's the most reliable phone-vs-tablet check.
+  // Phones first: a short physical edge under ~85 mm is never a tablet,
+  // even when an OEM lies about logical DPI (which would inflate dp width
+  // past Material's 600 dp breakpoint and give us a desktop library row
+  // that clips off the right edge).
   const QSizeF mm = screen->physicalSize();
-  if (mm.isEmpty())
+  const qreal shortMm = qMin(mm.width(), mm.height());
+  if (shortMm > 1.0 && shortMm < 85.0)
     return false;
-  const qreal widthMm = qMin(mm.width(), mm.height());
-  return widthMm >= 90.0;
+
+  const QSize avail = screen->availableGeometry().size();
+  const int minPx = qMin(avail.width(), avail.height());
+  qreal dpi = screen->logicalDotsPerInch();
+  const qreal physDpi = screen->physicalDotsPerInch();
+  if (dpi < 130.0 && physDpi > 180.0)
+    dpi = physDpi;
+  const qreal minDp = minPx * 160.0 / qMax(dpi, 1.0);
+  return minDp >= 600.0;
 #else
   Q_UNUSED(reference);
   return false;

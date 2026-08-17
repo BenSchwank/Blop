@@ -1,5 +1,6 @@
 #include "GraphFormulaZone.h"
 #include "GraphCanvasItem.h"
+#include "notechrome.h"
 #include "uiscale.h"
 #include "math/MathInkRecognizer.h"
 #include "math/LatexToBlopConverter.h"
@@ -106,7 +107,8 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
     // ── Background (very subtle) ─────────────────────────────────────
     if (hasStrokes() || m_previewActive) {
         p->setPen(Qt::NoPen);
-        p->setBrush(QColor(124, 92, 252, 12));
+        p->setBrush(QColor(NoteChrome::accent().red(), NoteChrome::accent().green(),
+                           NoteChrome::accent().blue(), 12));
         p->drawRoundedRect(r, 6, 6);
     }
 
@@ -134,8 +136,8 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
         sFont.setUnderline(true);   // hint that it's editable
         p->setFont(sFont);
         const QColor textColor = m_previewActive
-            ? QColor(124, 92, 252, 210)   // purple during preview
-            : QColor(100, 100, 110, 160); // gray when committed
+            ? NoteChrome::accent()
+            : QColor(100, 100, 110, 160);
         p->setPen(textColor);
 
         // Draw editable text with pencil icon hint
@@ -180,7 +182,8 @@ void GraphFormulaZone::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWid
     // ── Preview indicator (small pulsing dot) ────────────────────────
     if (m_previewActive) {
         p->setPen(Qt::NoPen);
-        p->setBrush(QColor(124, 92, 252, 180));
+        p->setBrush(QColor(NoteChrome::accent().red(), NoteChrome::accent().green(),
+                           NoteChrome::accent().blue(), 180));
         p->drawEllipse(QPointF(m_currentWidth - 8, 8), 3, 3);
     }
 }
@@ -229,16 +232,20 @@ void GraphFormulaZone::openInlineEditor()
         f.setItalic(true);
         return f;
     }());
+    const QColor acc = NoteChrome::accent();
     m_editor->setStyleSheet(QStringLiteral(
         "QLineEdit {"
-        "  background: rgba(124,92,252,18);"
-        "  color: #5E5CE6;"
-        "  border: 1px solid rgba(124,92,252,80);"
+        "  background: %1;"
+        "  color: %2;"
+        "  border: 1px solid %3;"
         "  border-radius: 4px;"
         "  padding: 1px 4px;"
-        "  selection-background-color: rgba(124,92,252,60);"
+        "  selection-background-color: %4;"
         "}"
-    ));
+    ).arg(NoteChrome::accentSoft().name(QColor::HexArgb),
+          acc.name(QColor::HexRgb),
+          QColor(acc.red(), acc.green(), acc.blue(), 80).name(QColor::HexArgb),
+          QColor(acc.red(), acc.green(), acc.blue(), 60).name(QColor::HexArgb)));
     m_editor->selectAll();
 
     m_editorProxy = new QGraphicsProxyWidget(this);

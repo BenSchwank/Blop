@@ -3,6 +3,8 @@
 #include "PageItem.h"
 #include "blop_theme.h"
 #include "blopstyle.h"
+#include "notechrome.h"
+#include "notepreviewicon.h"
 #include "overlayscrollindicator.h"
 #include "uiscale.h"
 
@@ -17,6 +19,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QAbstractButton>
 #include <QAbstractAnimation>
 #include <QMouseEvent>
 #include <QPainter>
@@ -35,11 +38,12 @@
 #include <QSlider>
 #include <QStackedWidget>
 #include <QToolButton>
+#include <QPair>
+#include <QVector>
 #include <QVBoxLayout>
 
 #include <functional>
 #include <memory>
-#include <QVector>
 
 namespace {
 
@@ -510,76 +514,133 @@ bool showColorPickerOverlay(QWidget *parent, QColor *color, const QString &title
   return accepted;
 }
 
-/// Miniatur der Seitenmuster (an PageItem::paint angelehnt) für die Vorlagenwahl.
-static QIcon makePageTemplateIcon(PageBackgroundType t, int w, int h) {
-  QPixmap pm(w, h);
-  pm.fill(Qt::transparent);
-  QPainter p(&pm);
-  p.setRenderHint(QPainter::Antialiasing, true);
-  const QRectF rr(0.5, 0.5, w - 1.0, h - 1.0);
-  const QColor paper(252, 252, 254);
-  const QColor lineCol(165, 168, 190, 150);
-  p.setPen(Qt::NoPen);
-  p.setBrush(paper);
-  p.drawRoundedRect(rr, 5, 5);
-  const qreal left = 3, right = w - 3.0, top = 3, bottom = h - 3.0;
-  switch (t) {
-  case PageBackgroundType::Blank:
-    break;
-  case PageBackgroundType::Lined: {
-    p.setPen(QPen(lineCol, 1));
-    const int n = 5;
-    const qreal dy = (bottom - top) / static_cast<qreal>(n + 1);
-    for (int i = 1; i <= n; ++i) {
-      const qreal y = top + dy * i;
-      p.drawLine(QPointF(left, y), QPointF(right, y));
-    }
-    break;
+/// Library-style A4 miniature for the layout picker (lined/grid/dots/legal).
+static QString a4LayoutCardQss(const QString &objectName, bool noteChrome) {
+  if (noteChrome) {
+    const QString accent = NoteChrome::accent().name(QColor::HexRgb);
+    return NoteChrome::overlayCardStyle(objectName) + QStringLiteral(
+        "QLabel { color: %1; }"
+        "QToolButton {"
+        "  border-radius: 12px; border: 1px solid %2; background: %3;"
+        "  color: %1; font-size: 11px; font-weight: 600; padding: 6px 6px;"
+        "}"
+        "QToolButton:hover { background: %4; border-color: %5; }"
+        "QToolButton:checked { border: 2px solid %5; background: %6; }"
+        "QDialogButtonBox QPushButton {"
+        "  min-height: 34px; min-width: 84px; border-radius: 10px; font-weight: 600;"
+        "}")
+        .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
+             NoteChrome::border().name(QColor::HexRgb),
+             NoteChrome::toolbarFill().name(QColor::HexRgb),
+             NoteChrome::panelBg().name(QColor::HexRgb), accent,
+             NoteChrome::accentSoft().name(QColor::HexArgb));
   }
-  case PageBackgroundType::Legal: {
-    p.setPen(QPen(lineCol, 1));
-    const int n = 5;
-    const qreal dy = (bottom - top) / static_cast<qreal>(n + 1);
-    for (int i = 1; i <= n; ++i) {
-      const qreal y = top + dy * i;
-      p.drawLine(QPointF(left, y), QPointF(right, y));
-    }
-    const qreal marginX = left + (right - left) * 0.22;
-    p.setPen(QPen(QColor(218, 72, 72), 2));
-    p.drawLine(QPointF(marginX, top), QPointF(marginX, bottom));
-    break;
+  return BlopStyle::surfaceStyle(objectName) +
+         BlopTheme::themed(QStringLiteral(
+             "QLabel { color: rgba(235, 237, 245, 0.95); }"
+             "QToolButton {"
+             "  border-radius: 12px;"
+             "  border: 1px solid rgba(132, 144, 182, 0.36);"
+             "  background: rgba(30, 34, 50, 0.92);"
+             "  color: rgba(236, 239, 248, 0.96);"
+             "  font-size: 11px; font-weight: 600; padding: 6px 6px;"
+             "}"
+             "QToolButton:hover {"
+             "  background: rgba(44, 49, 72, 0.95);"
+             "  border-color: rgba(156, 174, 226, 0.62);"
+             "}"
+             "QToolButton:checked {"
+             "  border: 2px solid #7C5CFC;"
+             "  background: rgba(124, 92, 252, 0.18);"
+             "}"
+             "QDialogButtonBox QPushButton {"
+             "  min-height: 34px; min-width: 84px; border-radius: 10px; font-weight: 600;"
+             "}"));
+}
+
+static QString a4TitleQss(bool noteChrome) {
+  if (noteChrome)
+    return QStringLiteral(
+               "color: %1; font-size: 18px; font-weight: 700; letter-spacing: 0.2px; "
+               "background: transparent;")
+        .arg(NoteChrome::textPrimary().name(QColor::HexRgb));
+  return BlopTheme::typeQss(BlopTheme::TextRole::HeadlineMedium) +
+         QStringLiteral("letter-spacing: 0.2px;");
+}
+
+static QString a4MutedQss(bool noteChrome, int fontPx) {
+  if (noteChrome)
+    return QStringLiteral("color: %1; font-size: %2px; background: transparent;")
+        .arg(NoteChrome::textSecondary().name(QColor::HexRgb))
+        .arg(fontPx);
+  return BlopTheme::themed(
+      QStringLiteral("color: rgba(180,178,200,0.88); font-size: %1px;")
+          .arg(fontPx));
+}
+
+static QString a4SectionQss(bool noteChrome) {
+  if (noteChrome)
+    return QStringLiteral(
+               "font-size: 13px; font-weight: 600; color: %1; background: transparent;")
+        .arg(NoteChrome::textPrimary().name(QColor::HexRgb));
+  return BlopTheme::themed(QStringLiteral(
+      "font-size: 13px; font-weight: 600; color: rgba(225, 230, 246, 0.92);"));
+}
+
+static void styleA4ActionButtons(QAbstractButton *cancel, QAbstractButton *ok,
+                                 bool noteChrome) {
+  if (!cancel || !ok)
+    return;
+  if (noteChrome) {
+    const QString accent = NoteChrome::accent().name(QColor::HexRgb);
+    cancel->setStyleSheet(QStringLiteral(
+        "QPushButton { color: %1; border: 1px solid %2; background: %3; "
+        "border-radius: 12px; font-weight: 700; padding: 10px 18px; }"
+        "QPushButton:hover { color: %4; background: %5; }")
+                              .arg(NoteChrome::textSecondary().name(QColor::HexRgb),
+                                   NoteChrome::border().name(QColor::HexRgb),
+                                   NoteChrome::panelBg().name(QColor::HexRgb),
+                                   NoteChrome::textPrimary().name(QColor::HexRgb),
+                                   NoteChrome::toolbarFill().name(QColor::HexRgb)));
+    ok->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; color: #0f172a; border: none; "
+        "border-radius: 12px; padding: 12px 28px; font-weight: 700; }"
+        "QPushButton:hover { background: %2; }")
+                          .arg(accent, NoteChrome::accent().lighter(110).name(
+                                           QColor::HexRgb)));
+  } else {
+    cancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
+        "QPushButton { color: #8EB8F8; border: none; background: transparent; "
+        "font-weight:600; padding:10px 18px; }"
+        "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
+        "border-radius: 10px; }")));
+    ok->setStyleSheet(QStringLiteral(
+        "QPushButton { background: #7C5CFC; color: white; border: none; "
+        "border-radius: 10px; padding: 12px 28px; font-weight: 600; }"
+        "QPushButton:hover { background: #8B70FF; }"
+        "QPushButton:pressed { background: #6A4DE6; }"));
   }
-  case PageBackgroundType::Grid: {
-    p.setPen(QPen(lineCol, 1));
-    const int n = 5;
-    const qreal dx = (right - left) / static_cast<qreal>(n);
-    const qreal dy = (bottom - top) / static_cast<qreal>(n);
-    for (int i = 1; i < n; ++i) {
-      const qreal x = left + dx * i;
-      p.drawLine(QPointF(x, top), QPointF(x, bottom));
-    }
-    for (int i = 1; i < n; ++i) {
-      const qreal y = top + dy * i;
-      p.drawLine(QPointF(left, y), QPointF(right, y));
-    }
-    break;
-  }
-  case PageBackgroundType::Dotted: {
-    const qreal step = (right - left) / 5.5;
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(lineCol));
-    for (qreal x = left + step * 0.5; x < right; x += step)
-      for (qreal y = top + step * 0.5; y < bottom; y += step)
-        p.drawEllipse(QPointF(x, y), 1.4, 1.4);
-    break;
-  }
-  }
-  return QIcon(pm);
+}
+
+static QIcon makePageTemplateIcon(PageBackgroundType t, int w, int h,
+                                  const QColor &paper = QColor(252, 250, 245)) {
+  NotePreviewIcon::Spec spec;
+  spec.kind = NotePreviewIcon::Kind::A4;
+  spec.backgroundType = static_cast<int>(t);
+  spec.paper = paper.isValid() ? paper : QColor(252, 250, 245);
+  const int px = qMax(w, h);
+  const QPixmap src = NotePreviewIcon::pixmap(spec, px);
+  if (src.isNull())
+    return {};
+  if (src.size() == QSize(w, h))
+    return QIcon(src);
+  return QIcon(src.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
                         const QString &subtitle, int initialType,
-                        const QColor &initialPaper, A4LayoutDialogResult *out) {
+                        const QColor &initialPaper, A4LayoutDialogResult *out,
+                        bool noteChrome) {
   if (!parent || !out)
     return false;
 
@@ -591,28 +652,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   card->setObjectName(QStringLiteral("A4LayoutCard"));
   // v3.16.1: card surface from BlopStyle so the A4 layout overlay shares the
   // visual surface with all other overlays.
-  card->setStyleSheet(
-      BlopStyle::surfaceStyle(QStringLiteral("A4LayoutCard")) +
-      BlopTheme::themed(QStringLiteral(
-      "QLabel { color: rgba(235, 237, 245, 0.95); }"
-      "QToolButton {"
-      "  border-radius: 12px;"
-      "  border: 1px solid rgba(132, 144, 182, 0.36);"
-      "  background: rgba(30, 34, 50, 0.92);"
-      "  color: rgba(236, 239, 248, 0.96);"
-      "  font-size: 11px; font-weight: 600; padding: 6px 6px;"
-      "}"
-      "QToolButton:hover {"
-      "  background: rgba(44, 49, 72, 0.95);"
-      "  border-color: rgba(156, 174, 226, 0.62);"
-      "}"
-      "QToolButton:checked {"
-      "  border: 2px solid #6BA3F5;"
-      "  background: rgba(107, 163, 245, 0.18);"
-      "}"
-      "QDialogButtonBox QPushButton {"
-      "  min-height: 34px; min-width: 84px; border-radius: 10px; font-weight: 600;"
-      "}")));
+  card->setStyleSheet(a4LayoutCardQss(QStringLiteral("A4LayoutCard"), noteChrome));
 
   QScreen *screen = nullptr;
   if (QWidget *w = parent->window())
@@ -651,16 +691,13 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 #endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
-  titleLbl->setStyleSheet(
-      BlopTheme::typeQss(BlopTheme::TextRole::HeadlineMedium) +
-      QStringLiteral("letter-spacing: 0.2px;"));
+  titleLbl->setStyleSheet(a4TitleQss(noteChrome));
   root->addWidget(titleLbl);
 
   if (!subtitle.isEmpty()) {
     auto *sub = new QLabel(subtitle, card);
     sub->setWordWrap(true);
-    sub->setStyleSheet(BlopTheme::themed(
-        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 13px;")));
+    sub->setStyleSheet(a4MutedQss(noteChrome, 13));
     root->addWidget(sub);
   }
 
@@ -672,8 +709,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   auto *colorRow = new QHBoxLayout();
   colorRow->setSpacing(12);
   auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe"), basics);
-  lblColor->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "font-size: 13px; font-weight: 600; color: rgba(225, 230, 246, 0.92);")));
+  lblColor->setStyleSheet(a4SectionQss(noteChrome));
   colorRow->addWidget(lblColor);
   QColor paperColor = initialPaper.isValid() ? initialPaper : QColor(Qt::white);
   auto *colorBtn = new QPushButton(basics);
@@ -686,19 +722,6 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
                                 .arg(paperColor.name()));
   };
   refreshColorBtn();
-  QObject::connect(colorBtn, &QPushButton::clicked, card, [&, overlay]() {
-    QWidget *cpHost = parent->window();
-    if (!cpHost)
-      cpHost = parent;
-    // Seitenlayout ausblenden, sonst liegen zwei Modale übereinander (Fertig + Farbe).
-    overlay->hide();
-    const bool ok = showColorPickerOverlay(cpHost, &paperColor,
-                                           QStringLiteral("Seitenfarbe wählen"));
-    overlay->show();
-    overlay->raise();
-    if (ok)
-      refreshColorBtn();
-  });
   colorRow->addWidget(colorBtn);
   colorRow->addStretch();
   basicsRoot->addLayout(colorRow);
@@ -714,14 +737,35 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
   tplGroup->setExclusive(true);
 
   constexpr int kTplIconW = 72;
-  constexpr int kTplIconH = 58;
+  constexpr int kTplIconH = 72;
+  QVector<QPair<QToolButton *, PageBackgroundType>> tplBtns;
+  auto refreshTplIcons = [&]() {
+    for (const auto &pair : tplBtns)
+      pair.first->setIcon(
+          makePageTemplateIcon(pair.second, kTplIconW, kTplIconH, paperColor));
+  };
+  QObject::connect(colorBtn, &QPushButton::clicked, card, [&, overlay]() {
+    QWidget *cpHost = parent->window();
+    if (!cpHost)
+      cpHost = parent;
+    // Seitenlayout ausblenden, sonst liegen zwei Modale übereinander (Fertig + Farbe).
+    overlay->hide();
+    const bool ok = showColorPickerOverlay(cpHost, &paperColor,
+                                           QStringLiteral("Seitenfarbe wählen"));
+    overlay->show();
+    overlay->raise();
+    if (ok) {
+      refreshColorBtn();
+      refreshTplIcons();
+    }
+  });
   auto addTplBtn = [&](int row, int col, const QString &name, PageBackgroundType t) {
     auto *tb = new QToolButton(basics);
     tb->setText(name);
-    tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH));
+    tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH, paperColor));
     tb->setIconSize(QSize(kTplIconW, kTplIconH));
     tb->setCheckable(true);
-    tb->setFixedSize(112, 118);
+    tb->setFixedSize(112, 128);
     tb->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     const int ti = static_cast<int>(t);
@@ -730,6 +774,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
         chosen = ti;
     });
     tplGroup->addButton(tb);
+    tplBtns.append({tb, t});
     g->addWidget(tb, row, col, Qt::AlignCenter);
     return tb;
   };
@@ -774,16 +819,8 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
       new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);
   bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
-  bbox->button(QDialogButtonBox::Cancel)->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QPushButton { color: #8EB8F8; border: none; background: transparent; "
-      "font-weight:600; padding:10px 18px; }"
-      "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
-      "border-radius: 10px; }")));
-  bbox->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #6BA3F5; color: #0f172a; border: none; "
-      "border-radius: 10px; padding: 12px 28px; font-weight: 600; }"
-      "QPushButton:hover { background: #7EB0F7; }"
-      "QPushButton:pressed { background: #5A94E8; }"));
+  styleA4ActionButtons(bbox->button(QDialogButtonBox::Cancel),
+                       bbox->button(QDialogButtonBox::Ok), noteChrome);
   root->addSpacing(14);
   root->addWidget(bbox, 0, Qt::AlignRight);
 
@@ -821,7 +858,7 @@ bool showA4LayoutOverlay(QWidget *parent, const QString &windowTitle,
 void showA4LayoutOverlayAsync(
     QWidget *parent, const QString &windowTitle, const QString &subtitle,
     int initialType, const QColor &initialPaper,
-    std::function<void(const A4LayoutDialogResult &)> onDone) {
+    std::function<void(const A4LayoutDialogResult &)> onDone, bool noteChrome) {
   if (!parent) {
     if (onDone)
       onDone(A4LayoutDialogResult{});
@@ -832,24 +869,7 @@ void showA4LayoutOverlayAsync(
   overlay->setObjectName(QStringLiteral("AndroidTransientOverlay"));
   auto *card = new QFrame(overlay);
   card->setObjectName(QStringLiteral("A4LayoutCardAsync"));
-  card->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "#A4LayoutCardAsync {"
-      "  background-color: rgba(24, 26, 38, 0.985);"
-      "  border: 1px solid rgba(135, 145, 175, 0.38);"
-      "  border-radius: 20px;"
-      "}"
-      "QLabel { color: rgba(235, 237, 245, 0.95); }"
-      "QToolButton {"
-      "  border-radius: 12px;"
-      "  border: 1px solid rgba(132, 144, 182, 0.36);"
-      "  background: rgba(30, 34, 50, 0.92);"
-      "  color: rgba(236, 239, 248, 0.96);"
-      "  font-size: 11px; font-weight: 600; padding: 8px 8px;"
-      "}"
-      "QToolButton:checked {"
-      "  border: 2px solid #6BA3F5;"
-      "  background: rgba(107, 163, 245, 0.18);"
-      "}")));
+  card->setStyleSheet(a4LayoutCardQss(QStringLiteral("A4LayoutCardAsync"), noteChrome));
 
   int cardW = 420;
   int cardH = 520;
@@ -872,15 +892,12 @@ void showA4LayoutOverlayAsync(
 #endif
 
   auto *titleLbl = new QLabel(windowTitle, card);
-  titleLbl->setStyleSheet(
-      BlopTheme::typeQss(BlopTheme::TextRole::HeadlineMedium) +
-      QStringLiteral("letter-spacing: 0.2px;"));
+  titleLbl->setStyleSheet(a4TitleQss(noteChrome));
   root->addWidget(titleLbl);
   if (!subtitle.isEmpty()) {
     auto *sub = new QLabel(subtitle, card);
     sub->setWordWrap(true);
-    sub->setStyleSheet(BlopTheme::themed(
-        QStringLiteral("color: rgba(180,178,200,0.88); font-size: 14px;")));
+    sub->setStyleSheet(a4MutedQss(noteChrome, 14));
     root->addWidget(sub);
   }
 
@@ -889,23 +906,66 @@ void showA4LayoutOverlayAsync(
   auto paperColor = std::make_shared<QColor>(
       initialPaper.isValid() ? initialPaper : QColor(Qt::white));
 
+  auto *colorRow = new QHBoxLayout();
+  colorRow->setSpacing(12);
+  auto *lblColor = new QLabel(QStringLiteral("Seitenfarbe"), card);
+  lblColor->setStyleSheet(a4SectionQss(noteChrome));
+  colorRow->addWidget(lblColor);
+  auto *colorBtn = new QPushButton(card);
+  colorBtn->setFixedSize(UiScale::dp(44), UiScale::dp(32));
+  colorBtn->setCursor(Qt::PointingHandCursor);
+  auto refreshColorBtn = [colorBtn, paperColor]() {
+    colorBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { background-color: %1; border: 1px solid rgba(180,180,200,0.45); "
+        "border-radius: 10px; }")
+                                .arg(paperColor->name()));
+  };
+  refreshColorBtn();
+  colorRow->addWidget(colorBtn);
+  colorRow->addStretch();
+  root->addLayout(colorRow);
+
   auto *grid = new QGridLayout();
   grid->setHorizontalSpacing(10);
   grid->setVerticalSpacing(10);
   auto *tplGroup = new QButtonGroup(card);
   tplGroup->setExclusive(true);
   int kTplIconW = 72;
-  int kTplIconH = 58;
-  QSize tplButtonSize(112, 118);
+  int kTplIconH = 72;
+  QSize tplButtonSize(112, 128);
 #ifdef Q_OS_ANDROID
   kTplIconW = UiScale::dp(84);
-  kTplIconH = UiScale::dp(68);
-  tplButtonSize = QSize(UiScale::dp(118), UiScale::dp(136));
+  kTplIconH = UiScale::dp(84);
+  tplButtonSize = QSize(UiScale::dp(118), UiScale::dp(148));
 #endif
+  auto tplBtns =
+      std::make_shared<QVector<QPair<QToolButton *, PageBackgroundType>>>();
+  auto refreshTplIcons = [tplBtns, paperColor, kTplIconW, kTplIconH]() {
+    for (const auto &pair : *tplBtns)
+      pair.first->setIcon(makePageTemplateIcon(pair.second, kTplIconW, kTplIconH,
+                                               *paperColor));
+  };
+  QObject::connect(colorBtn, &QPushButton::clicked, card,
+                   [parent, overlay, paperColor, refreshColorBtn,
+                    refreshTplIcons]() {
+                     QWidget *cpHost = parent->window();
+                     if (!cpHost)
+                       cpHost = parent;
+                     overlay->hide();
+                     const bool ok = showColorPickerOverlay(
+                         cpHost, paperColor.get(),
+                         QStringLiteral("Seitenfarbe wählen"));
+                     overlay->show();
+                     overlay->raise();
+                     if (ok) {
+                       refreshColorBtn();
+                       refreshTplIcons();
+                     }
+                   });
   auto addTplBtn = [&](int row, int col, const QString &name, PageBackgroundType t) {
     auto *tb = new QToolButton(card);
     tb->setText(name);
-    tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH));
+    tb->setIcon(makePageTemplateIcon(t, kTplIconW, kTplIconH, *paperColor));
     tb->setIconSize(QSize(kTplIconW, kTplIconH));
     tb->setCheckable(true);
     tb->setFixedSize(tplButtonSize);
@@ -916,6 +976,7 @@ void showA4LayoutOverlayAsync(
         *chosen = ti;
     });
     tplGroup->addButton(tb);
+    tplBtns->append({tb, t});
     grid->addWidget(tb, row, col);
     return tb;
   };
@@ -965,15 +1026,19 @@ void showA4LayoutOverlayAsync(
   auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
   btnCancel->setMinimumHeight(UiScale::dp(48));
   btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  btnCancel->setStyleSheet(BlopTheme::themed(
-      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
-      "QPushButton:hover { background: #312C45; }"));
   auto *btnDone = new QPushButton(QStringLiteral("Fertig"), card);
   btnDone->setMinimumHeight(UiScale::dp(48));
   btnDone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  btnDone->setStyleSheet(
-      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
-      "QPushButton:hover { background: #4b49c9; }");
+  if (noteChrome) {
+    styleA4ActionButtons(btnCancel, btnDone, true);
+  } else {
+    btnCancel->setStyleSheet(BlopTheme::themed(
+        "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+        "QPushButton:hover { background: #312C45; }"));
+    btnDone->setStyleSheet(
+        "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+        "QPushButton:hover { background: #4b49c9; }");
+  }
   actions->addWidget(btnCancel);
   actions->addWidget(btnDone);
   root->addLayout(actions);
@@ -982,6 +1047,8 @@ void showA4LayoutOverlayAsync(
       new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, card);
   bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
   bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
+  styleA4ActionButtons(bbox->button(QDialogButtonBox::Cancel),
+                       bbox->button(QDialogButtonBox::Ok), noteChrome);
   root->addWidget(bbox, 0, Qt::AlignRight);
 #endif
 

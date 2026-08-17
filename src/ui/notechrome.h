@@ -77,4 +77,24 @@ inline QColor notchBorder() {
   return isDark() ? QColor(70, 70, 70) : QColor(160, 160, 160);
 }
 
+inline QString rgbaCss(const QColor &c, int alpha = -1) {
+  const int a = (alpha >= 0) ? alpha : c.alpha();
+  return QStringLiteral("rgba(%1,%2,%3,%4)")
+      .arg(c.red())
+      .arg(c.green())
+      .arg(c.blue())
+      .arg(a);
+}
+
+inline QString overlayCardStyle(const QString &objectName) {
+  return QStringLiteral(
+             "#%1 {"
+             "  background-color: %2;"
+             "  border: 1px solid %3;"
+             "  border-radius: 18px;"
+             "}")
+      .arg(objectName, panelElevated().name(QColor::HexRgb),
+           border().name(QColor::HexRgb));
+}
+
 } // namespace NoteChrome

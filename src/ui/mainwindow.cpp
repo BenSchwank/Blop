@@ -904,7 +904,7 @@ void syncAndroidHeaderGeometry(MainWindow *window) {
   inner->setFixedHeight(rowHeight);
   headerLay->setContentsMargins(horizontalPad, clampedInset + topExtra,
                                 rightPad, UiScale::dp(4));
-  headerLay->setSpacing(narrowPhone ? UiScale::dp(3) : UiScale::dp(8));
+  headerLay->setSpacing(narrowPhone ? UiScale::dp(6) : UiScale::dp(8));
 
   auto syncBtn = [&](QWidget *w) {
     if (!w)
@@ -1876,8 +1876,12 @@ void MainWindow::applyThemeRefresh() {
     phone->setAccentColor(editorOpen ? NoteChrome::accent()
                                      : m_currentAccentColor);
   }
-  if (m_penPresetBar)
-    m_penPresetBar->setAccentColor(m_currentAccentColor);
+  if (m_penPresetBar) {
+    const bool editorOpen =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    m_penPresetBar->setAccentColor(editorOpen ? NoteChrome::accent()
+                                              : m_currentAccentColor);
+  }
   if (m_documentTabBar) {
 #ifndef Q_OS_ANDROID
     if (m_documentTabBar->noteChromeMode()) {
@@ -1908,10 +1912,16 @@ void MainWindow::applyThemeRefresh() {
       m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
     if (m_libraryOrgBar)
       m_libraryOrgBar->setAccentColor(m_currentAccentColor);
-  if (m_noteHeader)
-    m_noteHeader->setStyleSheet(
-        QStringLiteral("QWidget#NoteHeader { background: transparent; border-bottom: 1px solid %1; }")
-            .arg(BlopTheme::borderSubtle().name(QColor::HexArgb)));
+  if (m_noteHeader) {
+    const bool editorOpen =
+        m_documentTabBar && m_documentTabBar->noteChromeMode();
+    if (editorOpen)
+      styleNoteHeaderChrome();
+    else
+      m_noteHeader->setStyleSheet(
+          QStringLiteral("QWidget#NoteHeader { background: transparent; border-bottom: 1px solid %1; }")
+              .arg(BlopTheme::borderSubtle().name(QColor::HexArgb)));
+  }
 
   // PageManager: re-skin scrim + panel using the new tokens. The panel
   // QSS was set once in the ctor; this method is the documented post-
@@ -1951,11 +1961,12 @@ void MainWindow::applyThemeRefresh() {
   }
   if (m_libraryOrgBar)
     m_libraryOrgBar->setAccentColor(m_currentAccentColor);
-  if (m_lblEmptyState) {
-    m_lblEmptyState->setStyleSheet(
-        QStringLiteral("color: %1; font-size: 16px; font-weight: 600;"
-                       " letter-spacing: -0.1px;")
-            .arg(BlopTheme::textSecondary().name(QColor::HexRgb)));
+  if (m_lblEmptyIcon) {
+    NotePreviewIcon::Spec spec;
+    spec.kind = NotePreviewIcon::Kind::A4;
+    spec.backgroundType = 1;
+    m_lblEmptyIcon->setPixmap(NotePreviewIcon::pixmap(
+        spec, UiScale::dp(UiScale::isAndroidPhoneUi(this) ? 96 : 84)));
   }
   if (m_fileListView && m_fileListView->viewport())
     m_fileListView->viewport()->update();
@@ -3621,6 +3632,12 @@ void MainWindow::applyTheme() {
               :
 #endif
               m_currentAccentColor);
+    if (m_penPresetBar) {
+      const bool editorOpen =
+          m_documentTabBar && m_documentTabBar->noteChromeMode();
+      m_penPresetBar->setAccentColor(editorOpen ? NoteChrome::accent()
+                                                : m_currentAccentColor);
+    }
     if (m_radialFab)
       m_radialFab->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
@@ -3715,12 +3732,7 @@ void MainWindow::applyTheme() {
 #endif
 
   if (m_pageSettingsCard)
-    m_pageSettingsCard->setStyleSheet(
-        QStringLiteral(
-            "QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
-            "border-radius: 18px; }")
-            .arg(UIStyles::PageBackground.name(),
-                 QColor(124, 92, 252, 90).name(QColor::HexArgb)));
+    refreshPageSettingsTheme();
 
   if (m_titleBarWidget) {
     // Keep overview purple chrome; while editing, NoteChrome owns the shell.
@@ -3735,45 +3747,88 @@ void MainWindow::applyTheme() {
 #endif
   }
 
-  // Overview: redesigned library chrome (v3.22.1).
+  // Overview: library chrome. Density follows the device — phone stays
+  // touch-sized, desktop keeps the quieter Drawboard action bar.
   if (m_overviewContainer) {
-    m_overviewContainer->setStyleSheet(BlopTheme::themed(
-        QString(
-            "QLabel#overviewLibraryTitle {"
-            "  color: %3; font-size: 28px; font-weight: 800;"
-            "  letter-spacing: -0.6px; background: transparent;"
-            "}"
-            "QLabel#overviewLibrarySubtitle {"
-            "  color: rgba(180,188,215,0.55); font-size: 12px; font-weight: 500;"
-            "  background: transparent;"
-            "}"
-            "QLineEdit#overviewSearchBar {"
-            "  background-color: %4; color: %3;"
-            "  border: 1px solid %5; border-radius: 16px;"
-            "  min-height: 42px; max-height: 42px;"
-            "  padding: 0 18px; font-size: 14px;"
-            "}"
-            "QLineEdit#overviewSearchBar:focus { border: 1px solid %1; }"
-            "QPushButton#overviewBtnNewNote {"
-            "  background-color: %1; color: #FFFFFF; border-radius: 14px;"
-            "  padding: 0 18px; font-weight: 700; font-size: 13px;"
-            "  border: none; min-height: 36px; max-height: 36px;"
-            "}"
-            "QPushButton#overviewBtnNewNote:hover {"
-            "  background-color: %2; }"
-            "QPushButton#overviewBtnNewFolder,"
-            "QPushButton#overviewBtnTags {"
-            "  background-color: rgba(255,255,255,0.04); color: %3; border-radius: 14px;"
-            "  padding: 0 16px; font-weight: 600; font-size: 13px;"
-            "  border: 1px solid %5; min-height: 36px; max-height: 36px;"
-            "}"
-            "QPushButton#overviewBtnNewFolder:hover,"
-            "QPushButton#overviewBtnTags:hover {"
-            "  background-color: rgba(255,255,255,0.07); border-color: %1; }")
-            .arg(c, c_light,
-                 BlopTheme::textPrimary().name(QColor::HexRgb),
-                 BlopTheme::surfaceMuted().name(QColor::HexRgb),
-                 BlopTheme::borderSubtle().name(QColor::HexArgb))));
+    const bool phoneLibrary = UiScale::isAndroidPhoneUi(this);
+    const QString titleSize = phoneLibrary ? QStringLiteral("22")
+#ifdef Q_OS_ANDROID
+                                           : QStringLiteral("24");
+#else
+                                           : QStringLiteral("26");
+#endif
+    const QString searchH = phoneLibrary ? QStringLiteral("44") : QStringLiteral("42");
+    const QString btnH = phoneLibrary ? QStringLiteral("44") : QStringLiteral("40");
+    const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
+    const QString muted = BlopTheme::surfaceMuted().name(QColor::HexRgb);
+    const QString border = BlopTheme::borderSubtle().name(QColor::HexArgb);
+    const QString pageBg = libraryPageBackground().name(QColor::HexRgb);
+    const QString sub = BlopTheme::textSecondary().name(QColor::HexRgb);
+    const QString folderQss = phoneLibrary
+        ? QStringLiteral(
+              "QPushButton#overviewBtnNewFolder {"
+              "  background-color: rgba(255,255,255,0.05); color: %1;"
+              "  border-radius: 12px; padding: 0;"
+              "  border: 1px solid %2; min-width: 44px; max-width: 44px;"
+              "  min-height: 44px; max-height: 44px;"
+              "}"
+              "QPushButton#overviewBtnNewFolder:hover {"
+              "  background-color: rgba(255,255,255,0.08); border-color: %3; }")
+              .arg(text, border, c)
+        : QStringLiteral(
+              "QPushButton#overviewBtnNewFolder,"
+              "QPushButton#overviewBtnTags {"
+              "  background-color: rgba(255,255,255,0.04); color: %1; border-radius: 14px;"
+              "  padding: 0 16px; font-weight: 600; font-size: 13px;"
+              "  border: 1px solid %2; min-height: %3px; max-height: %3px;"
+              "}"
+              "QPushButton#overviewBtnNewFolder:hover,"
+              "QPushButton#overviewBtnTags:hover {"
+              "  background-color: rgba(255,255,255,0.07); border-color: %4; }")
+              .arg(text, border, btnH, c);
+    QString overviewQss = QStringLiteral(
+        "QWidget#OverviewContainer { background-color: %1; }"
+        "QLabel#overviewLibraryTitle {"
+        "  color: %2; font-size: %3px; font-weight: 800;"
+        "  letter-spacing: -0.4px; background: transparent;"
+        "}"
+        "QLabel#overviewLibrarySubtitle {"
+        "  color: rgba(180,188,215,0.55); font-size: 12px; font-weight: 500;"
+        "  background: transparent;"
+        "}"
+        "QLabel#overviewEmptyTitle {"
+        "  color: %2; font-size: 18px; font-weight: 700;"
+        "  letter-spacing: -0.2px; background: transparent;"
+        "}"
+        "QLabel#overviewEmptySubtitle {"
+        "  color: %4; font-size: 13px; font-weight: 500;"
+        "  background: transparent;"
+        "}"
+        "QPushButton#overviewEmptyCta {"
+        "  background-color: %8; color: #FFFFFF; border: none;"
+        "  border-radius: 14px; padding: 0 22px;"
+        "  font-size: 14px; font-weight: 700;"
+        "}"
+        "QLineEdit#overviewSearchBar {"
+        "  background-color: %5; color: %2;"
+        "  border: 1px solid %6; border-radius: 12px;"
+        "  min-height: %7px; max-height: %7px;"
+        "  padding: 0 14px 0 8px; font-size: 13px;"
+        "}"
+        "QLineEdit#overviewSearchBar:focus { border: 1px solid %8; }"
+        "QPushButton#overviewBtnNewNote {"
+        "  background-color: %8; color: #FFFFFF; border-radius: 12px;"
+        "  padding: 0 14px; font-weight: 700; font-size: 13px;"
+        "  border: none; min-height: %9px; max-height: %9px;"
+        "}");
+    overviewQss = overviewQss.arg(pageBg, text, titleSize, sub, muted, border,
+                                  searchH, c, btnH);
+    overviewQss += QStringLiteral(
+                       "QPushButton#overviewBtnNewNote:hover,"
+                       "QPushButton#overviewEmptyCta:hover { background-color: %1; }")
+                       .arg(c_light);
+    overviewQss += folderQss;
+    m_overviewContainer->setStyleSheet(BlopTheme::themed(overviewQss));
   }
 
   if (m_btnSidebarSettings) {
@@ -4744,11 +4799,12 @@ void MainWindow::setupUi() {
   // KEIN installEventFilter - damit Klicks auf Buttons korrekt weitergeleitet werden!
   QVBoxLayout *overviewLayout = new QVBoxLayout(m_overviewContainer);
 #ifdef Q_OS_ANDROID
-  // Align with Windows overview: same horizontal breathing room; keep only a
-  // modest bottom reserve so content does not look vertically "pushed up".
-  overviewLayout->setContentsMargins(MARGIN_OVERVIEW + UiScale::dp(4), UiScale::dp(20),
-                                     MARGIN_OVERVIEW + UiScale::dp(4),
-                                     UiScale::dp(28) + UiScale::androidBottomInsetPx(this));
+  const bool phoneLibrary = UiScale::isAndroidPhoneUi(this);
+  overviewLayout->setContentsMargins(
+      phoneLibrary ? UiScale::dp(12) : MARGIN_OVERVIEW + UiScale::dp(4),
+      phoneLibrary ? UiScale::dp(12) : UiScale::dp(20),
+      phoneLibrary ? UiScale::dp(12) : MARGIN_OVERVIEW + UiScale::dp(4),
+      UiScale::dp(phoneLibrary ? 16 : 28) + UiScale::androidBottomInsetPx(this));
 #else
   overviewLayout->setContentsMargins(UiScale::dp(28), UiScale::dp(18),
                                      UiScale::dp(28), UiScale::dp(24));
@@ -4782,10 +4838,10 @@ void MainWindow::setupUi() {
   QVBoxLayout *headerLayout = new QVBoxLayout();
 
 #ifdef Q_OS_ANDROID
-  // Compact library chrome for phone + tablet.
-  headerLayout->setContentsMargins(UiScale::dp(10), UiScale::dp(8),
-                                   UiScale::dp(10), UiScale::dp(12));
-  headerLayout->setSpacing(UiScale::dp(10));
+  const bool phoneHeader = UiScale::isAndroidPhoneUi(this);
+  headerLayout->setContentsMargins(0, UiScale::dp(phoneHeader ? 4 : 8),
+                                   0, UiScale::dp(phoneHeader ? 8 : 12));
+  headerLayout->setSpacing(UiScale::dp(phoneHeader ? 8 : 10));
 
   // Top chrome already owns the hamburger — don't duplicate it in the library header.
   btnEditorMenu = new ModernButton(m_overviewContainer);
@@ -4793,7 +4849,6 @@ void MainWindow::setupUi() {
   btnEditorMenu->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btnEditorMenu->hide();
 
-  // Title + quiet ghost actions on one row (Drawboard library chrome).
   QHBoxLayout *titleRow = new QHBoxLayout();
   titleRow->setContentsMargins(0, 0, 0, 0);
   titleRow->setSpacing(UiScale::dp(8));
@@ -4801,8 +4856,9 @@ void MainWindow::setupUi() {
   m_lblLibraryTitle = new QLabel(QStringLiteral("Notizen"), m_overviewContainer);
   m_lblLibraryTitle->setObjectName(QStringLiteral("overviewLibraryTitle"));
   m_lblLibraryTitle->setStyleSheet(BlopTheme::themed(
-      QStringLiteral("color: #F4F5FB; font-size: 20px; font-weight: 700;"
-                     " letter-spacing: -0.3px; background: transparent;")));
+      QStringLiteral("color: #F4F5FB; font-size: %1px; font-weight: 700;"
+                     " letter-spacing: -0.3px; background: transparent;")
+          .arg(phoneHeader ? 22 : 24)));
   titleRow->addWidget(m_lblLibraryTitle, 1);
 
   QPushButton *btnNewNote = new QPushButton(QStringLiteral("+ Notiz"), m_overviewContainer);
@@ -4816,7 +4872,7 @@ void MainWindow::setupUi() {
       "  border-radius: 12px;"
       "  padding: 0 14px;"
       "  font-weight: 700;"
-      "  font-size: 12px;"
+      "  font-size: 13px;"
       "  border: none;"
       "}"
       "QPushButton:pressed { background-color: #6A4DE6; }"
@@ -4825,27 +4881,43 @@ void MainWindow::setupUi() {
   BlopRipple::attachPressFeedback(btnNewNote, 0.94);
   titleRow->addWidget(btnNewNote, 0);
 
-  QPushButton *btnNewFolder = new QPushButton(QStringLiteral("Ordner"), m_overviewContainer);
+  QPushButton *btnNewFolder = new QPushButton(m_overviewContainer);
   btnNewFolder->setObjectName("overviewBtnNewFolder");
-  btnNewFolder->setFixedHeight(UiScale::dp(44));
   btnNewFolder->setCursor(Qt::PointingHandCursor);
-  btnNewFolder->setStyleSheet(
-      "QPushButton {"
-      "  background-color: transparent;"
-      "  color: rgba(232,228,255,0.85);"
-      "  border-radius: 12px;"
-      "  padding: 0 12px;"
-      "  font-weight: 500;"
-      "  font-size: 12px;"
-      "  border: 1px solid rgba(120,130,160,0.28);"
-      "}"
-      "QPushButton:pressed { background-color: rgba(255,255,255,0.06); }"
-  );
+  if (phoneHeader) {
+    btnNewFolder->setToolTip(QStringLiteral("Neuer Ordner"));
+    btnNewFolder->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+    btnNewFolder->setIcon(createModernIcon(QStringLiteral("folder"),
+                                           QColor(QStringLiteral("#E8C26A"))));
+    btnNewFolder->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
+    btnNewFolder->setStyleSheet(
+        "QPushButton {"
+        "  background-color: rgba(255,255,255,0.05);"
+        "  border-radius: 12px;"
+        "  border: 1px solid rgba(120,130,160,0.28);"
+        "}"
+        "QPushButton:pressed { background-color: rgba(255,255,255,0.10); }"
+    );
+  } else {
+    btnNewFolder->setText(QStringLiteral("Ordner"));
+    btnNewFolder->setFixedHeight(UiScale::dp(44));
+    btnNewFolder->setStyleSheet(
+        "QPushButton {"
+        "  background-color: transparent;"
+        "  color: rgba(232,228,255,0.85);"
+        "  border-radius: 12px;"
+        "  padding: 0 12px;"
+        "  font-weight: 500;"
+        "  font-size: 12px;"
+        "  border: 1px solid rgba(120,130,160,0.28);"
+        "}"
+        "QPushButton:pressed { background-color: rgba(255,255,255,0.06); }"
+    );
+  }
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
   BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
   titleRow->addWidget(btnNewFolder, 0);
 
-  // Tags live in the left sidebar (Drawboard-style) — no header shelf button.
   headerLayout->addLayout(titleRow);
 
   m_overviewSearchBar = new QLineEdit(m_overviewContainer);
@@ -4861,7 +4933,7 @@ void MainWindow::setupUi() {
       "  border: 1px solid #2A2740;"
       "  border-radius: 12px;"
       "  padding: 0 14px 0 8px;"
-      "  font-size: 12px;"
+      "  font-size: 13px;"
       "}"
       "QLineEdit:focus {"
       "  border: 1px solid #7C5CFC;"
@@ -5091,15 +5163,72 @@ void MainWindow::setupUi() {
   libraryMainLay->addWidget(m_fileListView, 1);
   applyLibraryFilters();
 
-  m_lblEmptyState = new QLabel(
-      QStringLiteral("Noch keine Notizen.\nLeg mit + Notiz deine erste an."),
-      libraryMain);
+  m_emptyStateHost = new QWidget(libraryMain);
+  m_emptyStateHost->setObjectName(QStringLiteral("LibraryEmptyState"));
+  m_emptyStateHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  m_emptyStateHost->hide();
+  auto *emptyLay = new QVBoxLayout(m_emptyStateHost);
+  const bool phoneEmpty = UiScale::isAndroidPhoneUi(this);
+  emptyLay->setContentsMargins(UiScale::dp(24), UiScale::dp(phoneEmpty ? 28 : 36),
+                               UiScale::dp(24), UiScale::dp(24));
+  emptyLay->setSpacing(UiScale::dp(10));
+  emptyLay->addStretch(1);
+
+  m_lblEmptyIcon = new QLabel(m_emptyStateHost);
+  m_lblEmptyIcon->setObjectName(QStringLiteral("overviewEmptyIcon"));
+  m_lblEmptyIcon->setAlignment(Qt::AlignCenter);
+  {
+    NotePreviewIcon::Spec spec;
+    spec.kind = NotePreviewIcon::Kind::A4;
+    spec.backgroundType = 1;
+    m_lblEmptyIcon->setPixmap(NotePreviewIcon::pixmap(spec, UiScale::dp(phoneEmpty ? 96 : 84)));
+  }
+  emptyLay->addWidget(m_lblEmptyIcon, 0, Qt::AlignHCenter);
+
+  m_lblEmptyState = new QLabel(QStringLiteral("Deine Bibliothek ist leer"),
+                               m_emptyStateHost);
+  m_lblEmptyState->setObjectName(QStringLiteral("overviewEmptyTitle"));
   m_lblEmptyState->setAlignment(Qt::AlignCenter);
-  m_lblEmptyState->setStyleSheet(
-      QStringLiteral("color: #B4AED4; font-size: 16px; font-weight: 600;"
-                     " letter-spacing: -0.1px;"));
-  m_lblEmptyState->hide();
-  libraryMainLay->addWidget(m_lblEmptyState);
+  m_lblEmptyState->setWordWrap(true);
+  emptyLay->addWidget(m_lblEmptyState);
+
+  m_lblEmptySubtitle = new QLabel(
+      QStringLiteral("Leg mit + Notiz deine erste Seite an."), m_emptyStateHost);
+  m_lblEmptySubtitle->setObjectName(QStringLiteral("overviewEmptySubtitle"));
+  m_lblEmptySubtitle->setAlignment(Qt::AlignCenter);
+  m_lblEmptySubtitle->setWordWrap(true);
+  emptyLay->addWidget(m_lblEmptySubtitle);
+
+  m_btnEmptyCta = new QPushButton(QStringLiteral("Notiz erstellen"), m_emptyStateHost);
+  m_btnEmptyCta->setObjectName(QStringLiteral("overviewEmptyCta"));
+  m_btnEmptyCta->setCursor(Qt::PointingHandCursor);
+  m_btnEmptyCta->setFixedHeight(UiScale::dp(phoneEmpty ? 48 : 40));
+  m_btnEmptyCta->setMinimumWidth(UiScale::dp(phoneEmpty ? 200 : 160));
+  connect(m_btnEmptyCta, &QPushButton::clicked, this, [this]() {
+    const bool smartFiltered =
+        m_libraryOrgBar &&
+        m_libraryOrgBar->smartView() != LibraryOrgBar::SmartView::All;
+    const bool searchFiltered =
+        m_overviewSearchBar && !m_overviewSearchBar->text().trimmed().isEmpty();
+    const bool tagFiltered =
+        m_libraryTagsPanel && !m_libraryTagsPanel->selectedTags().isEmpty();
+    if (smartFiltered || searchFiltered || tagFiltered) {
+      if (m_libraryOrgBar)
+        m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::All);
+      if (m_overviewSearchBar)
+        m_overviewSearchBar->clear();
+      if (m_libraryTagsPanel)
+        m_libraryTagsPanel->clearSelection();
+      applyLibraryFilters();
+      return;
+    }
+    onNewPage();
+  });
+  BlopRipple::attachPressFeedback(m_btnEmptyCta, 0.94);
+  emptyLay->addWidget(m_btnEmptyCta, 0, Qt::AlignHCenter);
+  emptyLay->addStretch(2);
+  libraryMainLay->addWidget(m_emptyStateHost, 1);
+  updateSidebarBadges();
   libraryBodyLay->addWidget(libraryMain, 1);
   // Tags panel is hosted in the left Super sidebar (setupSidebar).
   overviewLayout->addWidget(libraryBody, 1);
@@ -5330,44 +5459,28 @@ void MainWindow::setupUi() {
   m_noteHeader = new QWidget(m_editorCenterWidget);
   m_noteHeader->setObjectName(QStringLiteral("NoteHeader"));
   m_noteHeader->setFixedHeight(UiScale::dp(44));
-  m_noteHeader->setStyleSheet(QStringLiteral(
-      "QWidget#NoteHeader {"
-      "  background: rgba(12, 10, 20, 0.92);"
-      "  border-bottom: 1px solid rgba(120, 130, 160, 0.14);"
-      "}"));
   QHBoxLayout *noteHeaderLayout = new QHBoxLayout(m_noteHeader);
   noteHeaderLayout->setContentsMargins(UiScale::dp(18), 0, UiScale::dp(12), 0);
   noteHeaderLayout->setSpacing(UiScale::dp(10));
 
   m_lblNoteHeaderTitle = new QLabel(m_noteHeader);
-  m_lblNoteHeaderTitle->setStyleSheet(QStringLiteral(
-      "color: rgba(244,245,251,0.96); font-size: 14px; font-weight: 700;"
-      " letter-spacing: -0.2px; background: transparent;"));
   noteHeaderLayout->addWidget(m_lblNoteHeaderTitle);
   noteHeaderLayout->addStretch(1);
 
   m_lblNoteHeaderMeta = new QLabel(m_noteHeader);
-  m_lblNoteHeaderMeta->setStyleSheet(QStringLiteral(
-      "color: rgba(200,196,255,0.70); font-size: 11px; font-weight: 600;"
-      " background: rgba(124,92,252,0.12); border: 1px solid rgba(124,92,252,0.28);"
-      " border-radius: 10px; padding: 4px 10px;"));
   noteHeaderLayout->addWidget(m_lblNoteHeaderMeta);
 
-  ModernButton *btnPageLayout = new ModernButton(m_noteHeader);
-  btnPageLayout->setIcon(createModernIcon(QStringLiteral("palette"),
-                                          QColor(200, 190, 255, 200)));
-  btnPageLayout->setFixedSize(UiScale::dp(32), UiScale::dp(32));
-  btnPageLayout->setToolTip(QStringLiteral("Seitenlayout & Hintergrund"));
-  btnPageLayout->setStyleSheet(QStringLiteral(
-      "QToolButton { background: rgba(255,255,255,0.04); border: 1px solid rgba(120,130,160,0.18);"
-      "  border-radius: 10px; }"
-      "QToolButton:hover { background: rgba(124,92,252,0.18); border-color: rgba(124,92,252,0.40); }"));
-  connect(btnPageLayout, &QAbstractButton::clicked, this, [this]() {
+  m_btnNoteHeaderLayout = new ModernButton(m_noteHeader);
+  m_btnNoteHeaderLayout->setObjectName(QStringLiteral("NoteHeaderLayoutBtn"));
+  m_btnNoteHeaderLayout->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  m_btnNoteHeaderLayout->setToolTip(QStringLiteral("Seitenlayout & Hintergrund"));
+  connect(m_btnNoteHeaderLayout, &QAbstractButton::clicked, this, [this]() {
     if (auto *editor = qobject_cast<NoteEditor *>(m_editorTabs->currentWidget()))
       if (auto *view = editor->view())
         view->openPageLayoutForVisiblePage();
   });
-  noteHeaderLayout->addWidget(btnPageLayout);
+  noteHeaderLayout->addWidget(m_btnNoteHeaderLayout);
+  styleNoteHeaderChrome();
 
   m_noteHeader->hide();
 #ifndef Q_OS_ANDROID
@@ -6398,41 +6511,42 @@ void MainWindow::applyAndroidTabStyles(int index) {
   const bool narrow = contentW < UiScale::dp(420);
   const QString sizeStyle =
       narrow
-          ? QStringLiteral("padding: 4px 10px; font-size: 12px;")
+          ? QStringLiteral("padding: 6px 12px; font-size: 13px;")
           : QStringLiteral("padding: 5px 14px; font-size: 13px;");
+  const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
+  const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
   const QString accentSoft = m_currentAccentColor.lighter(130).name(QColor::HexArgb);
   const QString tabActive = BlopTheme::themed(
       QString("QPushButton {"
               "  background: %1;"
-              "  color: #F4F5FB;"
-              "  border-radius: 13px;"
+              "  color: #FFFFFF;"
+              "  border-radius: 14px;"
               "  %4"
               "  font-weight: 600;"
               "  border: 1px solid %2;"
               "}"
               "QPushButton:pressed { background: %3; }")
-          .arg(m_currentAccentColor.darker(150).name(QColor::HexArgb),
+          .arg(m_currentAccentColor.name(QColor::HexRgb),
                accentSoft,
-               m_currentAccentColor.darker(120).name(QColor::HexArgb),
+               m_currentAccentColor.darker(110).name(QColor::HexRgb),
                sizeStyle));
   const QString tabInactive = BlopTheme::themed(
       QString("QPushButton {"
               "  background: transparent;"
-              "  color: #A7ACBB;"
-              "  border-radius: 13px;"
+              "  color: %2;"
+              "  border-radius: 14px;"
               "  %1"
               "  font-weight: 600;"
-              "  border: 1px solid rgba(255,255,255,0.08);"
+              "  border: 1px solid %3;"
               "}"
-              "QPushButton:hover { background: rgba(255,255,255,0.04); color: #D8DBE8; }"
-              "QPushButton:pressed { background: rgba(255,255,255,0.08); }")
-          .arg(sizeStyle));
+              "QPushButton:hover { background: rgba(124,92,252,0.12); color: %4; }"
+              "QPushButton:pressed { background: rgba(124,92,252,0.18); }")
+          .arg(sizeStyle, muted,
+               BlopTheme::borderSubtle().name(QColor::HexArgb), text));
   m_btnAndroidNotes->setStyleSheet(index == 0 ? tabActive : tabInactive);
   m_btnAndroidStudy->setStyleSheet(index >= 1 ? tabActive : tabInactive);
 
-  // Cap the maximum width so even with the narrow text we don't accidentally
-  // expand on resize. Without a cap, "Notizen" still claims ~80 dp.
-  const int pillMaxW = narrow ? UiScale::dp(78) : UiScale::dp(120);
+  const int pillMaxW = narrow ? UiScale::dp(102) : UiScale::dp(120);
   m_btnAndroidNotes->setMaximumWidth(pillMaxW);
   m_btnAndroidStudy->setMaximumWidth(pillMaxW);
 }
@@ -7569,8 +7683,8 @@ void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
     m_fileListView->show();
     m_fileListView->viewport()->update();
   }
-  if (m_lblEmptyState)
-    m_lblEmptyState->hide();
+  if (m_emptyStateHost)
+    m_emptyStateHost->hide();
 }
 
 void MainWindow::navigateLibraryToPath(const QString &path) {
@@ -7801,7 +7915,7 @@ void MainWindow::updateSidebarBadges() {
     }
   }
 
-  if (m_lblEmptyState && m_fileListView && m_fileModel) {
+  if (m_emptyStateHost && m_fileListView && m_fileModel) {
     const QModelIndex proxyRoot = m_fileListView->rootIndex();
     const int visible =
         m_libraryProxy ? m_libraryProxy->rowCount(proxyRoot)
@@ -7813,42 +7927,61 @@ void MainWindow::updateSidebarBadges() {
       sourceRoot = m_fileModel->index(m_fileModel->rootPath());
     const int total = m_fileModel->rowCount(sourceRoot);
     if (visible == 0) {
-      if (total > 0) {
-        QString emptyHint = QStringLiteral(
-            "Keine Treffer.\nAndere Suche, Smart-View oder Tags versuchen.");
+      const bool filtered = total > 0;
+      QString title = QStringLiteral("Deine Bibliothek ist leer");
+      QString subtitle =
+          QStringLiteral("Leg mit + Notiz deine erste Seite an.");
+      QString cta = QStringLiteral("Notiz erstellen");
+      if (!filtered && m_fileModel && !m_rootPath.isEmpty()) {
+        const QString here =
+            QFileInfo(m_fileModel->rootPath()).canonicalFilePath();
+        const QString root = QFileInfo(m_rootPath).canonicalFilePath();
+        if (!here.isEmpty() && here != root) {
+          title = QStringLiteral("Dieser Ordner ist leer");
+          subtitle = QStringLiteral(
+              "Leg mit + Notiz eine Seite in diesem Ordner an.");
+        }
+      }
+      if (filtered) {
+        title = QStringLiteral("Keine Treffer");
+        subtitle = QStringLiteral(
+            "Andere Suche, Smart-View oder Tags versuchen.");
+        cta = QStringLiteral("Zurück zu Alle");
         if (m_libraryOrgBar) {
           switch (m_libraryOrgBar->smartView()) {
           case LibraryOrgBar::SmartView::Favorites:
-            emptyHint = QStringLiteral(
-                "Noch keine Favoriten.\nMarkiere Notizen über das ⋯-Menü.");
+            title = QStringLiteral("Noch keine Favoriten");
+            subtitle = QStringLiteral(
+                "Markiere Notizen über das ⋯-Menü.");
             break;
           case LibraryOrgBar::SmartView::Recent:
-            emptyHint = QStringLiteral(
-                "Noch keine kürzlich geöffneten Notizen.");
+            title = QStringLiteral("Noch nichts kürzlich geöffnet");
+            subtitle = QStringLiteral(
+                "Öffne eine Notiz — dann taucht sie hier auf.");
             break;
           case LibraryOrgBar::SmartView::Untagged:
-            emptyHint = QStringLiteral(
-                "Alle Notizen haben Tags.\nOder wechsle zu „Alle“.");
+            title = QStringLiteral("Alle Notizen haben Tags");
+            subtitle = QStringLiteral("Wechsle zu „Alle“, um alles zu sehen.");
             break;
           case LibraryOrgBar::SmartView::All:
           default:
             break;
           }
         }
-        m_lblEmptyState->setText(emptyHint);
-      } else {
-        m_lblEmptyState->setText(QStringLiteral(
-            "Noch keine Notizen.\nLeg mit + Notiz deine erste an."));
       }
-      if (!m_lblEmptyState->isVisible()) {
-        m_lblEmptyState->show();
-        m_fileListView->hide();
+      if (m_lblEmptyState)
+        m_lblEmptyState->setText(title);
+      if (m_lblEmptySubtitle)
+        m_lblEmptySubtitle->setText(subtitle);
+      if (m_btnEmptyCta) {
+        m_btnEmptyCta->setText(cta);
+        m_btnEmptyCta->show();
       }
-    } else {
-      if (m_lblEmptyState->isVisible()) {
-        m_lblEmptyState->hide();
-        m_fileListView->show();
-      }
+      m_emptyStateHost->show();
+      m_fileListView->hide();
+    } else if (m_emptyStateHost->isVisible()) {
+      m_emptyStateHost->hide();
+      m_fileListView->show();
     }
   }
 }
@@ -8656,8 +8789,8 @@ void MainWindow::setupRightSidebar() {
   m_pageSettingsCard->setStyleSheet(
       QStringLiteral("QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
                      "border-radius: 18px; }")
-          .arg(UIStyles::PageBackground.name(),
-               QColor(124, 92, 252, 100).name(QColor::HexArgb)));
+          .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
+               NoteChrome::border().name(QColor::HexRgb)));
 
   QVBoxLayout *mainLayout = new QVBoxLayout(m_pageSettingsCard);
   mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -9164,20 +9297,34 @@ void MainWindow::setupRightSidebar() {
 
 void MainWindow::refreshPageSettingsTheme() {
   // v3.18.5: centralized re-skinning for the Page-Settings sheet.
-  // The original setupRightSidebar() baked in hardcoded #333 / #444 /
-  // #14121f surfaces that were dark even after a Light-mode switch.
-  // Pulling everything through BlopTheme tokens here makes the sheet
-  // respect the current theme on every refresh.
+  // While a note is open, use NoteChrome (charcoal + blue). Library purple
+  // stays on the overview.
   if (!m_pageSettingsCard)
     return;
-  const bool isDark = BlopTheme::instance().isDark();
-  const QString surfaceBg = BlopTheme::surfaceBase().name(QColor::HexRgb);
-  const QString surfaceMuted = BlopTheme::surfaceMuted().name(QColor::HexRgb);
-  const QString textPrimary = BlopTheme::textPrimary().name();
-  const QString textSecondary = BlopTheme::textSecondary().name();
-  const QString textOnAccent = BlopTheme::textOnAccent().name();
-  const QString border = BlopTheme::borderSubtle().name();
-  const QString accent = m_currentAccentColor.name();
+  const bool noteOpen =
+      m_documentTabBar && m_documentTabBar->noteChromeMode();
+  const bool isDark =
+      noteOpen ? NoteChrome::isDark() : BlopTheme::instance().isDark();
+  const QString surfaceBg =
+      noteOpen ? NoteChrome::panelElevated().name(QColor::HexRgb)
+               : BlopTheme::surfaceBase().name(QColor::HexRgb);
+  const QString surfaceMuted =
+      noteOpen ? NoteChrome::toolbarFill().name(QColor::HexRgb)
+               : BlopTheme::surfaceMuted().name(QColor::HexRgb);
+  const QString textPrimary =
+      noteOpen ? NoteChrome::textPrimary().name(QColor::HexRgb)
+               : BlopTheme::textPrimary().name();
+  const QString textSecondary =
+      noteOpen ? NoteChrome::textSecondary().name(QColor::HexRgb)
+               : BlopTheme::textSecondary().name();
+  const QString textOnAccent =
+      noteOpen ? QStringLiteral("#0f172a") : BlopTheme::textOnAccent().name();
+  const QString border =
+      noteOpen ? NoteChrome::border().name(QColor::HexRgb)
+               : BlopTheme::borderSubtle().name();
+  const QString accent =
+      noteOpen ? NoteChrome::accent().name(QColor::HexRgb)
+               : m_currentAccentColor.name();
   const QString divider = isDark ? QStringLiteral("rgba(255,255,255,0.07)")
                                  : QStringLiteral("rgba(0,0,0,0.08)");
   const QString subtleDivider = isDark ? QStringLiteral("rgba(255,255,255,0.05)")
@@ -9653,6 +9800,8 @@ void MainWindow::updateSidebarState() {
       m_btnAndroidNotes->show();
     if (m_btnAndroidStudy)
       m_btnAndroidStudy->show();
+    if (m_btnAndroidAddWebBookmark)
+      m_btnAndroidAddWebBookmark->setVisible(true);
     syncAndroidHeaderGeometry(this);
   } else if (isEditor) {
     if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
@@ -9724,7 +9873,7 @@ void MainWindow::updateSidebarState() {
     if (m_btnAndroidStudy)
       m_btnAndroidStudy->show();
     if (m_btnAndroidAddWebBookmark)
-      m_btnAndroidAddWebBookmark->setVisible(true);
+      m_btnAndroidAddWebBookmark->setVisible(false);
     if (m_pageThumbnailSidebar)
       m_pageThumbnailSidebar->setVisible(false);
     if (m_pageSettingsOverlay && m_pageSettingsOverlay->isVisible())
@@ -11757,16 +11906,17 @@ void MainWindow::positionNoteChrome() {
     }
     const int bottomH = noteBottomChromeHeight();
     const int topClear = noteChromeClearanceTop();
+    const int propsGap = UiScale::dp(6);
     int x = 0;
     if (railLeft) {
-      x = leftX + margin + noteChromeClearanceLeft();
+      x = leftX + propsGap + noteChromeClearanceLeft();
     } else {
       x = qMax(leftX + margin + noteChromeClearanceLeft(),
-               W - railW - propsW - margin - noteChromeClearanceRight());
+               W - railW - propsW - propsGap - noteChromeClearanceRight());
       if (pagesOnRight)
-        x = qMin(x, rightX - propsW - margin);
+        x = qMin(x, rightX - propsW - propsGap);
     }
-    const int y = noteHeaderHeight() + margin + topClear;
+    const int y = noteHeaderHeight() + propsGap + topClear;
     const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
     // Clamp height; ToolPropertiesPanel scrolls internally so controls never
     // stack on top of each other when the card is shorter than its content.
@@ -12039,6 +12189,47 @@ void MainWindow::applyNoteChromeTheme() {
   refreshOpenEditorSceneBackgrounds();
   positionNoteChrome();
 #endif
+  styleNoteHeaderChrome();
+  refreshPageSettingsTheme();
+}
+
+void MainWindow::styleNoteHeaderChrome() {
+  if (!m_noteHeader)
+    return;
+  m_noteHeader->setStyleSheet(
+      QStringLiteral("QWidget#NoteHeader {"
+                     "  background: %1;"
+                     "  border-bottom: 1px solid %2;"
+                     "}")
+          .arg(NoteChrome::toolbarFill().name(QColor::HexRgb),
+               NoteChrome::borderSoft().name(QColor::HexRgb)));
+  if (m_lblNoteHeaderTitle) {
+    m_lblNoteHeaderTitle->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 14px; font-weight: 700;"
+                       " letter-spacing: -0.2px; background: transparent;")
+            .arg(NoteChrome::textPrimary().name(QColor::HexRgb)));
+  }
+  if (m_lblNoteHeaderMeta) {
+    m_lblNoteHeaderMeta->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 11px; font-weight: 600;"
+                       " background: %2; border: 1px solid %3;"
+                       " border-radius: 10px; padding: 4px 10px;")
+            .arg(NoteChrome::textPrimary().name(QColor::HexRgb),
+                 NoteChrome::accentSoft().name(QColor::HexArgb),
+                 NoteChrome::rgbaCss(NoteChrome::accent(), 90)));
+  }
+  if (m_btnNoteHeaderLayout) {
+    m_btnNoteHeaderLayout->setIcon(
+        createModernIcon(QStringLiteral("palette"), NoteChrome::textSecondary()));
+    m_btnNoteHeaderLayout->setStyleSheet(
+        QStringLiteral("QToolButton { background: %1; border: 1px solid %2;"
+                       "  border-radius: 10px; }"
+                       "QToolButton:hover { background: %3; border-color: %4; }")
+            .arg(NoteChrome::panelBg().name(QColor::HexRgb),
+                 NoteChrome::borderSoft().name(QColor::HexRgb),
+                 NoteChrome::accentSoft().name(QColor::HexArgb),
+                 NoteChrome::accent().name(QColor::HexRgb)));
+  }
 }
 
 void MainWindow::refreshNoteBottomChromeIcons() {

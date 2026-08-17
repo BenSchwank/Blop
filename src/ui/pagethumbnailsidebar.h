@@ -44,10 +44,14 @@ signals:
   void pagesMutated();
   void openAllPagesRequested();
 
+private slots:
+  void requestVisibleThumbnails();
+
 private:
   void onItemClicked(int row);
   void showItemContextMenu(const QPoint &pos);
   void requestThumbnail(int pageIndex, QListWidgetItem *item, int epoch);
+  void requestVisibleThumbnails(int epoch);
   void refreshListStyle();
   void applyCollapsedState();
   void applyViewMode();

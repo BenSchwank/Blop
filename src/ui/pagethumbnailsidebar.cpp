@@ -19,7 +19,9 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QSize>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -99,6 +101,11 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
           [this](QListWidgetItem *item) { onItemClicked(m_list->row(item)); });
   connect(m_list, &QWidget::customContextMenuRequested, this,
           &PageThumbnailSidebar::showItemContextMenu);
+  connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this,
+          [this]() { requestVisibleThumbnails(); });
+  if (m_list->horizontalScrollBar())
+    connect(m_list->horizontalScrollBar(), &QScrollBar::valueChanged, this,
+            [this]() { requestVisibleThumbnails(); });
   connect(m_list->model(), &QAbstractItemModel::rowsMoved, this,
           [this](const QModelIndex &, int start, int end,
                  const QModelIndex &, int dest) {
@@ -360,11 +367,16 @@ void PageThumbnailSidebar::rebuild() {
       item->setData(Qt::UserRole + 1, false);
     }
     item->setData(Qt::UserRole, i);
+    item->setData(Qt::UserRole + 2, false); // thumbnail requested flag
     m_list->addItem(item);
-    requestThumbnail(i, item, epoch);
   }
   if (m_currentPage >= 0 && m_currentPage < count)
     m_list->setCurrentRow(m_currentPage);
+
+  // Only render the thumbnails that are currently visible. This keeps note
+  // load and bulk page operations (delete/duplicate/layout) responsive for
+  // notebooks with many pages. Defer until the list has laid out items.
+  QTimer::singleShot(0, this, [this, epoch]() { requestVisibleThumbnails(epoch); });
 }
 
 void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item,
@@ -382,10 +394,57 @@ void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item
       });
 }
 
+void PageThumbnailSidebar::requestVisibleThumbnails() {
+  requestVisibleThumbnails(m_rebuildEpoch);
+}
+
+void PageThumbnailSidebar::requestVisibleThumbnails(int epoch) {
+  if (!m_list || !m_view || !m_view->note())
+    return;
+  if (m_rebuildEpoch != epoch)
+    return;
+
+  const QRect viewport = m_list->viewport()->rect();
+  QModelIndex topIdx = m_list->indexAt(viewport.topLeft());
+  QModelIndex bottomIdx = m_list->indexAt(viewport.bottomRight());
+  int first = topIdx.isValid() ? topIdx.row() : 0;
+  int last = bottomIdx.isValid() ? bottomIdx.row() : m_list->count() - 1;
+  if (first < 0)
+    first = 0;
+  if (last < first)
+    last = first;
+  if (last >= m_list->count())
+    last = m_list->count() - 1;
+
+  constexpr int kPrefetch = 2;
+  first = qMax(0, first - kPrefetch);
+  last = qMin(m_list->count() - 1, last + kPrefetch);
+
+  // Always include the current page even if it scrolled out of view.
+  if (m_currentPage >= 0 && m_currentPage < m_list->count()) {
+    first = qMin(first, m_currentPage);
+    last = qMax(last, m_currentPage);
+  }
+
+  for (int i = first; i <= last; ++i) {
+    auto *item = m_list->item(i);
+    if (!item || item->data(Qt::UserRole + 2).toBool())
+      continue;
+    item->setData(Qt::UserRole + 2, true);
+    requestThumbnail(i, item, epoch);
+  }
+}
+
 void PageThumbnailSidebar::onCurrentPageChanged(int pageIndex) {
   m_currentPage = pageIndex;
-  if (m_list && pageIndex >= 0 && pageIndex < m_list->count())
+  if (m_list && pageIndex >= 0 && pageIndex < m_list->count()) {
     m_list->setCurrentRow(pageIndex);
+    auto *item = m_list->item(pageIndex);
+    if (item && !item->data(Qt::UserRole + 2).toBool()) {
+      item->setData(Qt::UserRole + 2, true);
+      requestThumbnail(pageIndex, item, m_rebuildEpoch);
+    }
+  }
 }
 
 void PageThumbnailSidebar::onItemClicked(int row) {
