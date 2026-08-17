@@ -374,12 +374,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     ui->tabWidget->tabBar()->hide();
 
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
-    setAttribute(Qt::WA_TranslucentBackground);
-    setSurfaceQss(this, QStringLiteral("SettingsDialog"));
-    // Prefer a roomy panel on desktop; BlopModal SideSheet sizes it to
-    // ~2/3 of the main window so it never looks like a phone card.
-    setMinimumSize(640, 560);
-    resize(920, 860);
+    // Opaque fill: nested rounded+translucent surfaces punched black
+    // L-corners through the BlopModal card on the software rasterizer.
+    setAttribute(Qt::WA_TranslucentBackground, false);
+    setThemedQss(this, QStringLiteral(
+        "QDialog { background-color: #1A1829; border: none; border-radius: 0px; }"));
+    setMinimumSize(400, 360);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // Replace the Designer-generated tab with our overhauled layout. The

@@ -3082,7 +3082,7 @@ void MainWindow::setupTitleBar() {
     (*wb.ptr)->setFixedSize(46, 50);
     (*wb.ptr)->setCursor(Qt::PointingHandCursor);
     (*wb.ptr)->setIcon(createModernIcon(wb.sym, BlopTheme::textPrimary()));
-    (*wb.ptr)->setIconSize(QSize(16, 16));
+    (*wb.ptr)->setIconSize(QSize(20, 20));
     (*wb.ptr)->setStyleSheet(wb.isClose
                                  ? QStringLiteral(
                                    "QPushButton {"
@@ -4287,15 +4287,15 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawLine(18, 32, 42, 32);
     p.drawLine(18, 44, 46, 44);
   } else if (name == "win_min") {
-    p.setPen(QPen(color, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawLine(16, 32, 48, 32);
+    p.setPen(QPen(color, 7.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawLine(14, 32, 50, 32);
   } else if (name == "win_max") {
-    p.setPen(QPen(color, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawRoundedRect(18, 18, 28, 28, 3, 3);
+    p.setPen(QPen(color, 5.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawRoundedRect(16, 16, 32, 32, 3, 3);
   } else if (name == "win_close") {
-    p.setPen(QPen(color, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawLine(18, 18, 46, 46);
-    p.drawLine(46, 18, 18, 46);
+    p.setPen(QPen(color, 6.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawLine(16, 16, 48, 48);
+    p.drawLine(48, 16, 16, 48);
   } else if (name == "settings") {
     // Minimal gear icon inspired by provided reference.
     const QPointF c(32, 32);
@@ -4319,6 +4319,7 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawEllipse(18, 16, 20, 20);
     p.drawLine(35, 36, 52, 53);
   } else if (name == "add") {
+    p.setPen(QPen(color, 5.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawLine(32, 14, 32, 50);
     p.drawLine(14, 32, 50, 32);
   } else if (name == "close") {
@@ -11476,9 +11477,9 @@ void MainWindow::onOpenSettings() {
   // are not clipped. SideSheet + leftover QDialog pos() animation shoved
   // the panel into the window on Windows.
 #ifndef Q_OS_ANDROID
-  dlg.setMinimumSize(480, 400);
+  dlg.setMinimumSize(400, 360);
   dlg.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 580);
+  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 640);
 #else
   int res = BlopModal::execBlocking(this, &dlg);
 #endif
@@ -12599,7 +12600,7 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
       return;
     btn->setText(QString());
     btn->setIcon(createModernIcon(iconName, winFg));
-    btn->setIconSize(QSize(16, 16));
+    btn->setIconSize(QSize(20, 20));
     const QString hover =
         iconsOnDarkBar ? hoverGray
                        : QStringLiteral("background: %1;")
