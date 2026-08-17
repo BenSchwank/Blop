@@ -8629,7 +8629,8 @@ void MainWindow::onNewPage() {
   return;
 #else
   NewNoteDialog dlg(this);
-  if (dlg.exec() != QDialog::Accepted)
+  if (BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 440) !=
+      QDialog::Accepted)
     return;
   QString name = dlg.getNoteName();
   bool isInfinite = dlg.isInfiniteFormat();

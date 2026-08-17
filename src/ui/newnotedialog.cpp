@@ -1,13 +1,11 @@
 #include "newnotedialog.h"
 #include "blop_theme.h"
 #include "blopripple.h"
-#include "blopstyle.h"
 #include "notepreviewicon.h"
 #include <QIcon>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QGraphicsDropShadowEffect>
 #include <QMouseEvent>
 #include <QPropertyAnimation>
 #include <QEasingCurve>
@@ -16,31 +14,26 @@
 NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
-    setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_TranslucentBackground, false);
     resize(420, 360);
     setupUi();
 }
 
 void NewNoteDialog::setupUi()
 {
-    // v3.16.1: container uses BlopStyle surface so the new-note dialog shares
-    // bg/border/radius with every other overlay.
     QWidget *container = new QWidget(this);
     container->setObjectName(QStringLiteral("NewNoteCard"));
-    container->setGeometry(5, 5, width()-10, height()-10);
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->addWidget(container);
     container->setStyleSheet(
-        BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
+        QStringLiteral("QWidget#NewNoteCard { background-color: %1; border: none; }")
+            .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)) +
         BlopTheme::themed(QStringLiteral(
             "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
             "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #F4F5FB; border: 1px solid rgba(120,130,160,0.32); border-radius: 8px; padding: 8px; font-size: 14px; selection-background-color: #7C5CFC; }"
             "QLineEdit:focus { border: 1px solid #7C5CFC; }"))
         );
-
-    QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect(this);
-    shadow->setBlurRadius(32);
-    shadow->setColor(BlopStyle::surfaceShadow());
-    shadow->setOffset(0, 12);
-    container->setGraphicsEffect(shadow);
 
     QVBoxLayout *layout = new QVBoxLayout(container);
     layout->setContentsMargins(25, 25, 25, 25);

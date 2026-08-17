@@ -206,7 +206,12 @@ QColor BlopTheme::shadowColor() {
   return instance().isDark() ? QColor(0, 0, 0, 180) : QColor(26, 23, 38, 64);
 }
 
-QColor BlopTheme::scrimColor() { return QColor(0, 0, 0, 115); /* 45% */ }
+QColor BlopTheme::scrimColor() {
+  // Light mode: keep the veil soft so rounded cards don't read as black
+  // L-corners against the Hell library. Dark mode stays the 45% black veil.
+  return instance().isDark() ? QColor(0, 0, 0, 115)
+                             : QColor(24, 22, 34, 72);
+}
 
 // =====================================================================
 // QSS bricks
