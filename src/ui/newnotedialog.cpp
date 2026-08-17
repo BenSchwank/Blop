@@ -155,10 +155,11 @@ bool NewNoteDialog::isInfiniteFormat() const {
 
 void NewNoteDialog::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
-    if (!parentWidget()) {
-        setWindowOpacity(1.0);
+    setWindowOpacity(1.0);
+    if (!isWindow())
         return;
-    }
+    if (!parentWidget())
+        return;
     if (m_dialogIntroDone)
         return;
     m_dialogIntroDone = true;

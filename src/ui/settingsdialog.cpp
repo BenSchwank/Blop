@@ -1226,22 +1226,18 @@ void SettingsDialog::refreshTheme() {
 
 void SettingsDialog::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
-    if (!parentWidget()) {
-        setWindowOpacity(1.0);
+    setWindowOpacity(1.0);
+    // Embedded in BlopModal: never animate pos/opacity here. pos() still
+    // reports leftover top-level coordinates and would shove the panel
+    // sideways inside the card (Windows: settings appeared shifted right).
+    if (!isWindow())
         return;
-    }
-    if (m_dialogIntroDone)
+    if (!parentWidget() || m_dialogIntroDone)
         return;
     m_dialogIntroDone = true;
 #ifdef Q_OS_ANDROID
-    // v3.18.5: on Android the dialog is embedded into BlopModal (no
-    // top-level QWindow), and BlopModal already animates its own card.
-    // Running a windowOpacity/pos animation here during the same
-    // show_sys() flush competes with the EGL surface lock and was a
-    // contributing factor to crash reports when Settings opened.
     return;
 #else
-    // v3.16.1: unified slide-in (280ms OutCubic + 220ms opacity).
     const QPoint dest = pos();
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);

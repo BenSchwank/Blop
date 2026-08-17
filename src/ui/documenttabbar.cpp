@@ -105,8 +105,8 @@ void DocumentTab::setNoteChromeMode(bool on) {
 }
 
 void DocumentTab::refreshChromeStyle() {
-  const QColor fg =
-      m_noteChromeMode ? NoteChrome::textPrimary() : QColor(232, 228, 255);
+  const QColor fg = m_noteChromeMode ? NoteChrome::textPrimary()
+                                     : BlopTheme::textPrimary();
   if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
     iconLbl->setPixmap(
         makeTabIcon(m_iconName, fg, UiScale::dp(18))
@@ -119,21 +119,24 @@ void DocumentTab::refreshChromeStyle() {
   }
   if (auto *closeBtn =
           findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
-    const QString idle = m_noteChromeMode
-                             ? NoteChrome::textSecondary().name(QColor::HexRgb)
-                             : QStringLiteral("rgba(255,255,255,0.45)");
+    const QString idle =
+        m_noteChromeMode ? NoteChrome::textSecondary().name(QColor::HexRgb)
+                         : BlopTheme::textTertiary().name(QColor::HexRgb);
     const QString hoverFg =
         m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
-                         : QStringLiteral("white");
+                         : BlopTheme::textPrimary().name(QColor::HexRgb);
+    const QString hoverBg = BlopTheme::instance().isDark()
+                                ? QStringLiteral("rgba(255,255,255,0.10)")
+                                : QStringLiteral("rgba(0,0,0,0.08)");
     closeBtn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background-color: transparent; border: none;"
                        "  color: %1; font-size: 11px; border-radius: 9px;"
                        "}"
                        "QPushButton:hover {"
-                       "  background-color: rgba(255,255,255,0.10); color: %2;"
+                       "  background-color: %3; color: %2;"
                        "}")
-            .arg(idle, hoverFg));
+            .arg(idle, hoverFg, hoverBg));
   }
 }
 
@@ -228,10 +231,12 @@ void DocumentTab::paintEvent(QPaintEvent *) {
     p.setPen(QPen(border, 1.0));
     p.drawPath(path);
   } else if (m_hovered) {
-    QColor bg(255, 255, 255, 18);
+    QColor bg = BlopTheme::instance().isDark() ? QColor(255, 255, 255, 18)
+                                               : QColor(0, 0, 0, 18);
     p.fillPath(path, bg);
   } else {
-    QColor bg(255, 255, 255, 8);
+    QColor bg = BlopTheme::instance().isDark() ? QColor(255, 255, 255, 8)
+                                               : QColor(0, 0, 0, 10);
     p.fillPath(path, bg);
   }
 }
@@ -433,6 +438,16 @@ void DocumentTabBar::setNoteChromeMode(bool on) {
   for (DocumentTab *tab : m_tabs)
     tab->setNoteChromeMode(on);
   updateIndicator(false);
+}
+
+void DocumentTabBar::refreshTheme() {
+  if (m_homeTab)
+    m_homeTab->refreshChromeStyle();
+  for (DocumentTab *tab : m_tabs) {
+    if (tab)
+      tab->refreshChromeStyle();
+  }
+  update();
 }
 
 void DocumentTabBar::setCurrentIndex(int index) {

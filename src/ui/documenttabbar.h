@@ -34,6 +34,7 @@ public:
   /// Charcoal NoteChrome look while the note editor is active.
   void setNoteChromeMode(bool on);
   bool noteChromeMode() const { return m_noteChromeMode; }
+  void refreshTheme();
 
 signals:
   void currentChanged(int index);
@@ -82,6 +83,7 @@ public:
   void setAccentColor(const QColor &color);
   void setTitle(const QString &title);
   void setNoteChromeMode(bool on);
+  void refreshChromeStyle();
   bool isActive() const { return m_active; }
 
   QSize sizeHint() const override;
@@ -109,5 +111,4 @@ private:
   bool m_closable{true};
   bool m_noteChromeMode{false};
   class QLabel *m_textLbl{nullptr};
-  void refreshChromeStyle();
 };

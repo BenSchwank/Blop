@@ -232,34 +232,35 @@ void LibraryOrgBar::rebuildStyles() {
   const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
   const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
   const QString border = BlopTheme::borderSubtle().name(QColor::HexArgb);
-  setStyleSheet(QStringLiteral(
-      "QWidget#LibraryOrgBar { background: transparent; }"
-      "QPushButton#libraryOrgChip {"
-      "  background: rgba(255,255,255,0.07); color: %1;"
-      "  border: 1px solid %2; border-radius: 14px;"
-      "  padding: 0 12px 0 10px; font-size: 12px; font-weight: 600;"
-      "}"
-      "QPushButton#libraryOrgChip:checked {"
-      "  background: %7; color: #FFFFFF;"
-      "  border: 1px solid %7;"
-      "}"
-      "QPushButton#libraryOrgChip:hover:!checked {"
-      "  background: rgba(255,255,255,0.11);"
-      "}"
-      "QPushButton#libraryOrgSort {"
-      "  background: rgba(255,255,255,0.07); color: %6;"
-      "  border: 1px solid %2; border-radius: 12px;"
-      "  padding: 0 14px; font-size: 12px; font-weight: 600;"
-      "  min-width: 72px;"
-      "}"
-      "QPushButton#libraryOrgSort:hover {"
-      "  border-color: %7; background: rgba(%3,%4,%5,0.18);"
-      "}")
-                    .arg(muted, border)
-                    .arg(m_accent.red())
-                    .arg(m_accent.green())
-                    .arg(m_accent.blue())
-                    .arg(text, accent));
+  setStyleSheet(BlopTheme::themed(
+      QStringLiteral(
+          "QWidget#LibraryOrgBar { background: transparent; }"
+          "QPushButton#libraryOrgChip {"
+          "  background: rgba(255,255,255,0.07); color: %1;"
+          "  border: 1px solid %2; border-radius: 14px;"
+          "  padding: 0 12px 0 10px; font-size: 12px; font-weight: 600;"
+          "}"
+          "QPushButton#libraryOrgChip:checked {"
+          "  background: %7; color: #FFFFFF;"
+          "  border: 1px solid %7;"
+          "}"
+          "QPushButton#libraryOrgChip:hover:!checked {"
+          "  background: rgba(255,255,255,0.11);"
+          "}"
+          "QPushButton#libraryOrgSort {"
+          "  background: rgba(255,255,255,0.07); color: %6;"
+          "  border: 1px solid %2; border-radius: 12px;"
+          "  padding: 0 14px; font-size: 12px; font-weight: 600;"
+          "  min-width: 72px;"
+          "}"
+          "QPushButton#libraryOrgSort:hover {"
+          "  border-color: %7; background: rgba(%3,%4,%5,0.18);"
+          "}")
+          .arg(muted, border)
+          .arg(m_accent.red())
+          .arg(m_accent.green())
+          .arg(m_accent.blue())
+          .arg(text, accent)));
 
   if (!m_viewGroup)
     return;

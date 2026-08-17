@@ -259,48 +259,49 @@ void LibraryTagsPanel::refreshTheme() {
   const QString bg = m_sidebarMode ? QStringLiteral("transparent")
                                    : BlopTheme::surfaceMuted().name(QColor::HexRgb);
 
-  setStyleSheet(QStringLiteral(
-      "QWidget#LibraryTagsPanel {"
-      "  background: %1;"
-      "  border-top: 1px solid %2;"
-      "}"
-      "QLabel#libraryTagsTitle {"
-      "  color: %3; font-size: 11px; font-weight: 700;"
-      "  letter-spacing: 0.6px; text-transform: uppercase;"
-      "  background: transparent;"
-      "}"
-      "QToolButton#libraryTagsToggle {"
-      "  background: transparent; border: none; color: %4; font-size: 12px;"
-      "}"
-      "QLineEdit#libraryTagsInput {"
-      "  background: rgba(255,255,255,0.04); color: %3; border: 1px solid %2;"
-      "  border-radius: 8px; padding: 0 8px; min-height: 28px; font-size: 11px;"
-      "}"
-      "QLineEdit#libraryTagsInput:focus { border: 1px solid %5; }"
-      "QPushButton#libraryTagsBtnAdd {"
-      "  background: rgba(%6,%7,%8,0.20); color: %3; border: 1px solid %5;"
-      "  border-radius: 8px; font-size: 16px; font-weight: 700;"
-      "}"
-      "QPushButton#libraryTagsBtnGhost {"
-      "  background: transparent; color: %4; border: none;"
-      "  font-size: 11px; text-align: left; padding: 2px 0;"
-      "}"
-      "QListWidget#libraryTagsList {"
-      "  background: transparent; border: none; outline: none; color: %3;"
-      "  font-size: 12px;"
-      "}"
-      "QListWidget#libraryTagsList::item {"
-      "  background: transparent; border: none; border-radius: 8px;"
-      "  padding: 6px 8px; margin: 1px 0;"
-      "}"
-      "QListWidget#libraryTagsList::item:selected {"
-      "  background: rgba(%6,%7,%8,0.20); color: %3;"
-      "}"
-      "QListWidget#libraryTagsList::item:hover:!selected {"
-      "  background: rgba(255,255,255,0.05);"
-      "}")
-                    .arg(bg, border, text, muted, accent)
-                    .arg(m_accent.red())
-                    .arg(m_accent.green())
-                    .arg(m_accent.blue()));
+  setStyleSheet(BlopTheme::themed(
+      QStringLiteral(
+          "QWidget#LibraryTagsPanel {"
+          "  background: %1;"
+          "  border-top: 1px solid %2;"
+          "}"
+          "QLabel#libraryTagsTitle {"
+          "  color: %3; font-size: 11px; font-weight: 700;"
+          "  letter-spacing: 0.6px; text-transform: uppercase;"
+          "  background: transparent;"
+          "}"
+          "QToolButton#libraryTagsToggle {"
+          "  background: transparent; border: none; color: %4; font-size: 12px;"
+          "}"
+          "QLineEdit#libraryTagsInput {"
+          "  background: rgba(255,255,255,0.04); color: %3; border: 1px solid %2;"
+          "  border-radius: 8px; padding: 0 8px; min-height: 28px; font-size: 11px;"
+          "}"
+          "QLineEdit#libraryTagsInput:focus { border: 1px solid %5; }"
+          "QPushButton#libraryTagsBtnAdd {"
+          "  background: rgba(%6,%7,%8,0.20); color: %3; border: 1px solid %5;"
+          "  border-radius: 8px; font-size: 16px; font-weight: 700;"
+          "}"
+          "QPushButton#libraryTagsBtnGhost {"
+          "  background: transparent; color: %4; border: none;"
+          "  font-size: 11px; text-align: left; padding: 2px 0;"
+          "}"
+          "QListWidget#libraryTagsList {"
+          "  background: transparent; border: none; outline: none; color: %3;"
+          "  font-size: 12px;"
+          "}"
+          "QListWidget#libraryTagsList::item {"
+          "  background: transparent; border: none; border-radius: 8px;"
+          "  padding: 6px 8px; margin: 1px 0;"
+          "}"
+          "QListWidget#libraryTagsList::item:selected {"
+          "  background: rgba(%6,%7,%8,0.20); color: %3;"
+          "}"
+          "QListWidget#libraryTagsList::item:hover:!selected {"
+          "  background: rgba(255,255,255,0.05);"
+          "}")
+          .arg(bg, border, text, muted, accent)
+          .arg(m_accent.red())
+          .arg(m_accent.green())
+          .arg(m_accent.blue())));
 }

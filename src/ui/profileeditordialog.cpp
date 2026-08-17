@@ -338,6 +338,9 @@ void ProfileEditorDialog::mouseMoveEvent(QMouseEvent *event) {
 
 void ProfileEditorDialog::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
+    setWindowOpacity(1.0);
+    if (!isWindow())
+        return;
     if (!parentWidget())
         return;
     if (m_dialogIntroDone)

@@ -1889,6 +1889,7 @@ void MainWindow::applyThemeRefresh() {
     } else
 #endif
       m_documentTabBar->setAccentColor(m_currentAccentColor);
+    m_documentTabBar->refreshTheme();
   }
     if (m_pageThumbnailSidebar)
       m_pageThumbnailSidebar->setAccentColor(
@@ -1961,6 +1962,15 @@ void MainWindow::applyThemeRefresh() {
   }
   if (m_libraryOrgBar)
     m_libraryOrgBar->setAccentColor(m_currentAccentColor);
+  if (btnOverviewMenu)
+    btnOverviewMenu->setIcon(
+        createModernIcon(QStringLiteral("menu"), BlopTheme::textPrimary()));
+  if (btnBackOverview)
+    btnBackOverview->setIcon(
+        createModernIcon(QStringLiteral("arrow_left"), BlopTheme::textPrimary()));
+  if (btnStripMenu)
+    btnStripMenu->setIcon(
+        createModernIcon(QStringLiteral("menu"), BlopTheme::textPrimary()));
   if (m_lblEmptyIcon) {
     NotePreviewIcon::Spec spec;
     spec.kind = NotePreviewIcon::Kind::A4;
@@ -2820,7 +2830,7 @@ void MainWindow::setupTitleBar() {
 
   // ── Hamburger ─────────────────────────────────────────────────────────────
   btnEditorMenu = new ModernButton(m_titleBarWidget);
-  btnEditorMenu->setIcon(createModernIcon("menu", QColor("#B8B4E0")));
+  btnEditorMenu->setIcon(createModernIcon("menu", BlopTheme::textSecondary()));
   btnEditorMenu->setFixedSize(36, 36);
   btnEditorMenu->setToolTip("Navigation");
   btnEditorMenu->setStyleSheet(
@@ -2950,7 +2960,7 @@ void MainWindow::setupTitleBar() {
   m_btnNewTab->setCursor(Qt::PointingHandCursor);
   m_btnNewTab->setToolTip("Neue Notiz öffnen");
   m_btnNewTab->setIcon(
-      createModernIcon(QStringLiteral("add"), QColor(200, 190, 255, 220)));
+      createModernIcon(QStringLiteral("add"), BlopTheme::textSecondary()));
   m_btnNewTab->setIconSize(QSize(18, 18));
   m_btnNewTab->setStyleSheet(
       "QPushButton {"
@@ -3000,7 +3010,7 @@ void MainWindow::setupTitleBar() {
 
   m_btnEditorNoteOverflow = new ModernButton(m_topNavControls);
   m_btnEditorNoteOverflow->setIcon(
-      createModernIcon(QStringLiteral("more_pill"), QColor(QStringLiteral("#C8CDDC"))));
+      createModernIcon(QStringLiteral("more_pill"), BlopTheme::textSecondary()));
   m_btnEditorNoteOverflow->setText(QString());
   m_btnEditorNoteOverflow->setToolButtonStyle(Qt::ToolButtonIconOnly);
   m_btnEditorNoteOverflow->setFixedSize(kTitleBarNavH, kTitleBarNavH);
@@ -3025,14 +3035,8 @@ void MainWindow::setupTitleBar() {
   m_btnTitleBarPageManager = new ModernButton(m_topNavControls);
   m_btnTitleBarPageManager->setToolTip(QStringLiteral("Seitenmanager"));
   m_btnTitleBarPageManager->setToolButtonStyle(Qt::ToolButtonIconOnly);
-  {
-    QPixmap pm(QStringLiteral(":/assets/android_btn_pages.png"));
-    if (!pm.isNull())
-      m_btnTitleBarPageManager->setIcon(QIcon(pm));
-    else
-      m_btnTitleBarPageManager->setIcon(createModernIcon(
-          QStringLiteral("pages_pill"), QColor(QStringLiteral("#C8CDDC"))));
-  }
+  m_btnTitleBarPageManager->setIcon(createModernIcon(
+      QStringLiteral("pages_pill"), BlopTheme::textSecondary()));
   {
     const int pmW = qRound(kTitleBarNavH * 1.72);
     m_btnTitleBarPageManager->setFixedSize(pmW, kTitleBarNavH);
@@ -3074,20 +3078,26 @@ void MainWindow::setupTitleBar() {
     (*wb.ptr)->setFixedSize(46, 50);
     (*wb.ptr)->setCursor(Qt::PointingHandCursor);
     (*wb.ptr)->setStyleSheet(wb.isClose
-                                 ? "QPushButton {"
+                                 ? QStringLiteral(
+                                   "QPushButton {"
                                    "  background: transparent; border: none;"
-                                   "  color: rgba(255,255,255,0.50);"
+                                   "  color: %1;"
                                    "  font-size: 14px; font-weight: 400;"
                                    "}"
-                                   "QPushButton:hover { background: #E81123; color: white; }"
-                                 : "QPushButton {"
+                                   "QPushButton:hover { background: #E81123; color: white; }")
+                                       .arg(BlopTheme::textSecondary().name(QColor::HexRgb))
+                                 : QStringLiteral(
+                                   "QPushButton {"
                                    "  background: transparent; border: none;"
-                                   "  color: rgba(255,255,255,0.50);"
+                                   "  color: %1;"
                                    "  font-size: 14px; font-weight: 400;"
                                    "}"
                                    "QPushButton:hover {"
-                                   "  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.90);"
-                                   "}");
+                                   "  background: %2; color: %3;"
+                                   "}")
+                                       .arg(BlopTheme::textSecondary().name(QColor::HexRgb),
+                                            BlopTheme::surfaceMuted().name(QColor::HexArgb),
+                                            BlopTheme::textPrimary().name(QColor::HexRgb)));
     mainLayout->addWidget(*wb.ptr);
   }
   connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
@@ -3793,7 +3803,7 @@ void MainWindow::applyTheme() {
         "  letter-spacing: -0.4px; background: transparent;"
         "}"
         "QLabel#overviewLibrarySubtitle {"
-        "  color: rgba(180,188,215,0.55); font-size: 12px; font-weight: 500;"
+        "  color: %4; font-size: 12px; font-weight: 500;"
         "  background: transparent;"
         "}"
         "QLabel#overviewEmptyTitle {"
@@ -3829,6 +3839,21 @@ void MainWindow::applyTheme() {
                        .arg(c_light);
     overviewQss += folderQss;
     m_overviewContainer->setStyleSheet(BlopTheme::themed(overviewQss));
+    // Child widgets that got a one-shot stylesheet in setupUi would otherwise
+    // keep dark-only colors in Light mode. Object-name rules on the container
+    // own the look after this.
+    if (m_lblLibraryTitle)
+      m_lblLibraryTitle->setStyleSheet(QString());
+    if (m_lblLibrarySubtitle)
+      m_lblLibrarySubtitle->setStyleSheet(QString());
+    if (m_overviewSearchBar)
+      m_overviewSearchBar->setStyleSheet(QString());
+    if (auto *folderBtn = m_overviewContainer->findChild<QPushButton *>(
+            QStringLiteral("overviewBtnNewFolder")))
+      folderBtn->setStyleSheet(QString());
+    if (auto *noteBtn = m_overviewContainer->findChild<QPushButton *>(
+            QStringLiteral("overviewBtnNewNote")))
+      noteBtn->setStyleSheet(QString());
   }
 
   if (m_btnSidebarSettings) {
@@ -3838,6 +3863,12 @@ void MainWindow::applyTheme() {
             "font-size: 10px; padding: 0; text-align: left; } "
             "QPushButton:hover { color: %1; }")
             .arg(c)));
+  }
+  if (m_lblSidebarUser) {
+    m_lblSidebarUser->setStyleSheet(QStringLiteral(
+        "font-size: 12px; font-weight: 600; color: %1; background: transparent;")
+                                        .arg(BlopTheme::textPrimary().name(
+                                            QColor::HexRgb)));
   }
   if (m_lblSidebarAvatar) {
     m_lblSidebarAvatar->setStyleSheet(
@@ -11419,17 +11450,12 @@ void MainWindow::onOpenSettings() {
 #endif
   });
 
-  // Desktop: wide right-hand preference panel (~2/3 of the window), not a
-  // phone-sized centered card. Android keeps BottomSheet via Mode::Auto.
+  // Desktop: centered settings card. A right-hand SideSheet plus leftover
+  // QDialog pos() animation shoved the panel into the window on Windows.
 #ifndef Q_OS_ANDROID
-  const int winW = qMax(width(), 800);
-  const int settingsW =
-      qBound(820, int(winW * 0.68), qMax(820, winW - 56));
-  dlg.setMinimumSize(qMin(760, settingsW - 32), 560);
+  dlg.setMinimumSize(640, 520);
   dlg.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  dlg.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::SideSheet,
-                                    settingsW);
+  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 760);
 #else
   int res = BlopModal::execBlocking(this, &dlg);
 #endif
@@ -12283,8 +12309,6 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 #ifndef Q_OS_ANDROID
   const QString hoverGray =
       QStringLiteral("background: rgba(127,127,127,0.18);");
-  const QString hoverPurple =
-      QStringLiteral("background: rgba(124,92,252,0.18);");
 
   // Guest/login Study surface is always dark. Never paint the light BlopTheme
   // title bar (white strip + invisible window controls) over it.
@@ -12388,6 +12412,10 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   }
 
   if (m_btnAddWebBookmark) {
+    const QColor plusFg =
+        authChrome ? QColor(QStringLiteral("#C8CDDC"))
+                   : (noteChrome ? NoteChrome::textSecondary()
+                                 : BlopTheme::textSecondary());
     if (noteChrome) {
       m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
           "QPushButton {"
@@ -12397,18 +12425,27 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
           "QPushButton:hover { %3 }")
                                              .arg(NoteChrome::panelBg().name(
                                                       QColor::HexRgb),
-                                                  NoteChrome::textSecondary().name(
-                                                      QColor::HexRgb),
+                                                  plusFg.name(QColor::HexRgb),
                                                   hoverGray));
     } else {
       m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
           "QPushButton {"
-          "  background: rgba(255,255,255,0.06);"
-          "  border: none; border-radius: 8px;"
-          "  color: rgba(200,196,255,0.95);"
+          "  background: %1;"
+          "  border: 1px solid %2;"
+          "  border-radius: 8px;"
+          "  color: %3;"
           "  font-size: 18px; font-weight: 600;"
           "}"
-          "QPushButton:hover { background: rgba(124,92,252,0.22); }"));
+          "QPushButton:hover { background: %4; border-color: %5; }")
+                                             .arg(BlopTheme::surfaceMuted().name(
+                                                      QColor::HexRgb),
+                                                  BlopTheme::borderSubtle().name(
+                                                      QColor::HexArgb),
+                                                  plusFg.name(QColor::HexRgb),
+                                                  BlopTheme::surfaceElevated().name(
+                                                      QColor::HexRgb),
+                                                  BlopTheme::accentPrimary().name(
+                                                      QColor::HexRgb)));
     }
   }
 
@@ -12425,14 +12462,15 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                                      .arg(hoverGray));
     } else {
       m_btnNewTab->setIcon(
-          createModernIcon(QStringLiteral("add"), QColor(200, 190, 255, 220)));
+          createModernIcon(QStringLiteral("add"), BlopTheme::textSecondary()));
       m_btnNewTab->setIconSize(QSize(18, 18));
       m_btnNewTab->setStyleSheet(QStringLiteral(
           "QPushButton {"
           "  background: transparent; border: none; border-radius: 8px;"
           "}"
-          "QPushButton:hover { %1 }")
-                                     .arg(hoverPurple));
+          "QPushButton:hover { background: %1; }")
+                                     .arg(BlopTheme::surfaceMuted().name(
+                                         QColor::HexArgb)));
     }
   }
 
@@ -12464,23 +12502,33 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     } else {
       m_titleSearchBar->setStyleSheet(QStringLiteral(
           "QLineEdit {"
-          "  background: rgba(255,255,255,0.05);"
-          "  border: 1px solid rgba(120,130,160,0.16);"
+          "  background: %1;"
+          "  border: 1px solid %2;"
           "  border-radius: 11px;"
-          "  color: #D8D5FF; font-size: 12px;"
+          "  color: %3; font-size: 12px;"
           "  padding: 0 14px;"
           "}"
           "QLineEdit:focus {"
-          "  background: rgba(124,92,252,0.10);"
-          "  border: 1px solid rgba(124,92,252,0.48);"
+          "  background: %1;"
+          "  border: 1px solid %4;"
           "}"
-          "QLineEdit::placeholder { color: rgba(255,255,255,0.32); }"));
+          "QLineEdit::placeholder { color: %5; }")
+                                          .arg(BlopTheme::surfaceMuted().name(
+                                                   QColor::HexRgb),
+                                               BlopTheme::borderDefault().name(
+                                                   QColor::HexArgb),
+                                               BlopTheme::textPrimary().name(
+                                                   QColor::HexRgb),
+                                               BlopTheme::accentPrimary().name(
+                                                   QColor::HexRgb),
+                                               BlopTheme::textTertiary().name(
+                                                   QColor::HexRgb)));
     }
   }
 
   if (m_btnEditorNoteOverflow) {
     const QColor ic = noteChrome ? NoteChrome::textSecondary()
-                                 : QColor(QStringLiteral("#C8CDDC"));
+                                 : BlopTheme::textSecondary();
     m_btnEditorNoteOverflow->setIcon(
         createModernIcon(QStringLiteral("more_pill"), ic));
     m_btnEditorNoteOverflow->setStyleSheet(
@@ -12493,12 +12541,13 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
             : QStringLiteral(
                   "QToolButton { background: transparent; border: none; "
                   "border-radius: 8px; }"
-                  "QToolButton:hover { background: rgba(124,92,252,0.22); }"));
+                  "QToolButton:hover { background: %1; }")
+                  .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
   }
 
   if (m_btnTitleBarPageManager) {
     const QColor ic = noteChrome ? NoteChrome::textSecondary()
-                                 : QColor(QStringLiteral("#C8CDDC"));
+                                 : BlopTheme::textSecondary();
     m_btnTitleBarPageManager->setIcon(
         createModernIcon(QStringLiteral("pages_pill"), ic));
     m_btnTitleBarPageManager->setStyleSheet(
@@ -12512,8 +12561,10 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
             : QStringLiteral(
                   "QToolButton { background: transparent; border: none; "
                   "border-radius: 8px; padding: 0; }"
-                  "QToolButton:hover { background: rgba(124,92,252,0.22); }"
-                  "QToolButton:pressed { background: rgba(124,92,252,0.32); }"));
+                  "QToolButton:hover { background: %1; }"
+                  "QToolButton:pressed { background: %2; }")
+                  .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb),
+                       BlopTheme::accentSubtle().name(QColor::HexArgb)));
   }
 
   auto styleWinBtn = [&](QPushButton *btn, bool isClose) {
