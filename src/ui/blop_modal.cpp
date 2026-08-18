@@ -297,30 +297,39 @@ void BlopModal::layoutContent() {
   } else {
     const int preferred =
         m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(420);
-    // preferredCardWidth is already pixels (execBlocking argument). Do not
-    // compare against dp(720) — HiDPI made 920 < dp(720) and fell back to
-    // a squeezed compact card.
-    const bool largeCard = preferred >= 700;
-    if (largeCard) {
-      const int gap = qMax(UiScale::dp(20), UiScale::dp(24));
-      const int cardW = qBound(UiScale::dp(780), int(W * 0.96), W - 2 * gap);
-      const int cardH = qBound(UiScale::dp(560), int(H * 0.92), H - 2 * gap);
-      const int x = (W - cardW) / 2;
-      const int y = (H - cardH) / 2;
-      m_card->setGeometry(x, y, cardW, cardH);
+    // Wider overlays (Neue Notiz) stay a centered card sized to the
+    // preferred width + content height — never a near-fullscreen sheet.
+    const bool sizedCard = preferred >= 700;
+    if (sizedCard) {
+      const int gap = UiScale::dp(28);
+      const int maxW = qMin(int(W * 0.70), qMax(UiScale::dp(320), W - 2 * gap));
+      const int minW = qMin(UiScale::dp(480), maxW);
+      const int cardW = qBound(minW, preferred, maxW);
+      int contentH = UiScale::dp(420);
       if (m_content) {
         m_content->setMinimumSize(0, 0);
-        m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        m_content->setMaximumWidth(cardW);
+        m_content->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
         if (auto *lay = m_content->layout()) {
-          lay->setSizeConstraint(QLayout::SetNoConstraint);
+          lay->setSizeConstraint(QLayout::SetDefaultConstraint);
           lay->activate();
         }
-        if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
-          const int idx = cardLay->indexOf(m_content);
-          if (idx >= 0)
-            cardLay->setStretch(idx, 1);
-        }
+        m_content->adjustSize();
+        const QSize hint = m_content->sizeHint().isValid()
+                               ? m_content->sizeHint()
+                               : m_content->minimumSizeHint();
+        int measured = hint.height();
+        if (m_content->hasHeightForWidth())
+          measured = qMax(measured, m_content->heightForWidth(cardW));
+        contentH = qMax(UiScale::dp(360), measured + UiScale::dp(8));
+      }
+      const int maxH = qMin(int(H * 0.78), H - 2 * gap);
+      const int cardH = qBound(UiScale::dp(360), contentH, maxH);
+      m_card->setGeometry((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
+      if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
+        const int idx = cardLay->indexOf(m_content);
+        if (idx >= 0)
+          cardLay->setStretch(idx, 0);
       }
       return;
     }

@@ -26,7 +26,7 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground, false);
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     setupUi();
 }
 
@@ -46,13 +46,13 @@ void NewNoteDialog::setupUi()
             "QLineEdit:focus { border: 1px solid #7C5CFC; }")));
 
     auto *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(UiScale::dp(48), UiScale::dp(36),
-                               UiScale::dp(48), UiScale::dp(28));
-    layout->setSpacing(UiScale::dp(22));
+    layout->setContentsMargins(UiScale::dp(28), UiScale::dp(24),
+                               UiScale::dp(28), UiScale::dp(20));
+    layout->setSpacing(UiScale::dp(16));
 
     auto *lblTitle = new QLabel(QStringLiteral("Neue Notiz"), container);
     lblTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "font-size: 26px; font-weight: 800; color: #F4F5FB; letter-spacing: -0.4px;")));
+        "font-size: 22px; font-weight: 800; color: #F4F5FB; letter-spacing: -0.3px;")));
     layout->addWidget(lblTitle);
 
     auto sectionLabel = [](const QString &text, QWidget *parent) {
@@ -65,17 +65,15 @@ void NewNoteDialog::setupUi()
     auto *body = new QWidget(container);
     auto *cols = new QHBoxLayout(body);
     cols->setContentsMargins(0, 0, 0, 0);
-    cols->setSpacing(UiScale::dp(48));
+    cols->setSpacing(UiScale::dp(24));
 
-    // Left column stays a readable width; layout tiles take the remaining
-    // overlay so Unendlich/A4 are not stretched into full-window slabs.
     auto *left = new QWidget(body);
-    left->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    left->setMinimumWidth(UiScale::dp(360));
-    left->setMaximumWidth(UiScale::dp(480));
+    left->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    left->setMinimumWidth(UiScale::dp(260));
+    left->setMaximumWidth(UiScale::dp(320));
     auto *leftLay = new QVBoxLayout(left);
-    leftLay->setContentsMargins(0, 0, UiScale::dp(8), 0);
-    leftLay->setSpacing(UiScale::dp(14));
+    leftLay->setContentsMargins(0, 0, 0, 0);
+    leftLay->setSpacing(UiScale::dp(10));
 
     leftLay->addWidget(sectionLabel(QStringLiteral("Format"), left));
 
@@ -84,9 +82,9 @@ void NewNoteDialog::setupUi()
         auto *btn = new QPushButton(left);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setMinimumHeight(UiScale::dp(100));
+        btn->setMinimumHeight(UiScale::dp(72));
         btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        btn->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
+        btn->setIconSize(QSize(UiScale::dp(40), UiScale::dp(40)));
         btn->setText(text + QStringLiteral("\n") + subtext);
         btn->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; "
@@ -118,7 +116,7 @@ void NewNoteDialog::setupUi()
     leftLay->addWidget(sectionLabel(QStringLiteral("Name"), left));
     m_nameInput = new QLineEdit(left);
     m_nameInput->setPlaceholderText(QStringLiteral("Meine Notiz"));
-    m_nameInput->setMinimumHeight(UiScale::dp(48));
+    m_nameInput->setMinimumHeight(UiScale::dp(40));
     m_nameInput->setFocus();
     leftLay->addWidget(m_nameInput);
 
@@ -128,9 +126,9 @@ void NewNoteDialog::setupUi()
     tagRow->setSpacing(UiScale::dp(10));
     m_tagInput = new QLineEdit(left);
     m_tagInput->setPlaceholderText(QStringLiteral("Tag hinzufügen…"));
-    m_tagInput->setMinimumHeight(UiScale::dp(48));
+    m_tagInput->setMinimumHeight(UiScale::dp(40));
     auto *btnAddTag = new QPushButton(QStringLiteral("+"), left);
-    btnAddTag->setFixedSize(UiScale::dp(48), UiScale::dp(48));
+    btnAddTag->setFixedSize(UiScale::dp(40), UiScale::dp(40));
     btnAddTag->setCursor(Qt::PointingHandCursor);
     btnAddTag->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: #7C5CFC; color: white; border: none; "
@@ -144,13 +142,14 @@ void NewNoteDialog::setupUi()
     m_tagList->setSelectionMode(QAbstractItemView::MultiSelection);
     m_tagList->setFrameShape(QFrame::NoFrame);
     m_tagList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_tagList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_tagList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_tagList->setFixedHeight(UiScale::dp(88));
     m_tagList->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QListWidget { background: transparent; color: #E8E4FF; border: none; "
         "font-size: 14px; outline: none; }"
         "QListWidget::item { padding: 10px 8px; border-radius: 10px; }"
         "QListWidget::item:selected { background: rgba(124,92,252,0.28); }")));
-    leftLay->addWidget(m_tagList, 1);
+    leftLay->addWidget(m_tagList);
 
     auto addTagFromInput = [this]() {
         const QString n = LibraryTagStore::normalize(m_tagInput->text());
@@ -171,18 +170,18 @@ void NewNoteDialog::setupUi()
     cols->addWidget(left, 0);
 
     auto *right = new QWidget(body);
-    right->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    right->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *rightLay = new QVBoxLayout(right);
     rightLay->setContentsMargins(0, 0, 0, 0);
-    rightLay->setSpacing(UiScale::dp(12));
+    rightLay->setSpacing(UiScale::dp(10));
     rightLay->addWidget(sectionLabel(QStringLiteral("Layout"), right));
 
     auto *gridHost = new QWidget(right);
-    gridHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    gridHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *grid = new QGridLayout(gridHost);
     grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(UiScale::dp(20));
-    grid->setVerticalSpacing(UiScale::dp(20));
+    grid->setHorizontalSpacing(UiScale::dp(12));
+    grid->setVerticalSpacing(UiScale::dp(12));
     grid->setColumnStretch(0, 1);
     grid->setColumnStretch(1, 1);
     grid->setColumnStretch(2, 1);
@@ -217,7 +216,7 @@ void NewNoteDialog::setupUi()
     auto *bottomRow = new QWidget(gridHost);
     auto *bottomLay = new QHBoxLayout(bottomRow);
     bottomLay->setContentsMargins(0, 0, 0, 0);
-    bottomLay->setSpacing(UiScale::dp(20));
+    bottomLay->setSpacing(UiScale::dp(12));
 
     for (const auto &opt : opts) {
         auto *tb = new QToolButton(gridHost);
@@ -225,9 +224,10 @@ void NewNoteDialog::setupUi()
         tb->setCheckable(true);
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        tb->setMinimumSize(UiScale::dp(160), UiScale::dp(180));
-        tb->setIconSize(QSize(UiScale::dp(96), UiScale::dp(96)));
+        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        tb->setMinimumSize(UiScale::dp(118), UiScale::dp(128));
+        tb->setMaximumHeight(UiScale::dp(148));
+        tb->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
         tb->setStyleSheet(btnQss);
         tb->setProperty("blopBgType", opt.type);
         m_groupLayout->addButton(tb, opt.type);
@@ -247,9 +247,9 @@ void NewNoteDialog::setupUi()
     connect(m_groupFormat, &QButtonGroup::idClicked, this,
             [this](int) { refreshLayoutIcons(); });
 
-    rightLay->addWidget(gridHost, 1);
-    cols->addWidget(right, 3);
-    layout->addWidget(body, 1);
+    rightLay->addWidget(gridHost);
+    cols->addWidget(right, 1);
+    layout->addWidget(body);
 
     auto *actionLay = new QHBoxLayout();
     actionLay->setSpacing(UiScale::dp(14));
@@ -297,7 +297,7 @@ void NewNoteDialog::refreshLayoutIcons()
                              : NotePreviewIcon::Kind::A4;
         spec.backgroundType = tb->property("blopBgType").toInt();
         spec.paper = m_paperColor;
-        tb->setIcon(QIcon(NotePreviewIcon::pixmap(spec, UiScale::dp(80))));
+        tb->setIcon(QIcon(NotePreviewIcon::pixmap(spec, UiScale::dp(56))));
     }
     {
         NotePreviewIcon::Spec inf;

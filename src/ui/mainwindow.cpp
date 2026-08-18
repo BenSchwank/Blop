@@ -8806,7 +8806,8 @@ void MainWindow::onNewPage() {
   return;
 #else
   NewNoteDialog dlg(this);
-  if (BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 1600) !=
+  if (BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card,
+                              UiScale::dp(920)) !=
       QDialog::Accepted)
     return;
   A4LayoutDialogResult layoutResult;
