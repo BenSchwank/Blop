@@ -1253,12 +1253,11 @@ void ModernItemDelegate::paint(QPainter *painter,
     text.chop(5);
 
   bool isWideList = rect.width() > (rect.height() * 1.5);
-
 #ifdef Q_OS_ANDROID
-  const double iconShrink = 0.94;
   isWideList = false;
+  const double iconShrink = 0.94;
 #else
-  const double iconShrink = 0.82;
+  const double iconShrink = 0.96;
 #endif
 
   painter->setPen(BlopTheme::textPrimary());
@@ -1285,35 +1284,34 @@ void ModernItemDelegate::paint(QPainter *painter,
                       painter->fontMetrics().elidedText(text, Qt::ElideRight,
                                                         textRect.width()));
   } else {
-    int textH = UiScale::dp(34);
-    int maxIconH = rect.height() - textH - UiScale::dp(14);
-    int maxIconW = rect.width() - UiScale::dp(24);
-    int iconDim = qMin(maxIconW, maxIconH);
-    iconDim = qMax(22, (int)(iconDim * iconShrink));
+    const int textH = UiScale::dp(40);
+    const int pad = UiScale::dp(12);
+    QRect previewBand(rect.left() + pad, rect.top() + pad,
+                      rect.width() - 2 * pad,
+                      qMax(22, rect.height() - textH - pad * 2));
+    int iconDim = qMin(previewBand.width(), previewBand.height());
+    iconDim = qMax(22, int(iconDim * iconShrink));
 #ifdef Q_OS_ANDROID
-    iconDim = qMax(iconDim, qMin(maxIconW, qMin(maxIconH, UiScale::dp(80))));
+    iconDim = qMax(iconDim, qMin(previewBand.width(),
+                                 qMin(previewBand.height(), UiScale::dp(80))));
 #endif
-
-    int contentHeight = iconDim + textH + UiScale::dp(6);
-    int startY = rect.top() + (rect.height() - contentHeight) / 2;
-    QRect iconRect(rect.center().x() - iconDim / 2, startY, iconDim, iconDim);
+    QRect iconRect(previewBand.center().x() - iconDim / 2,
+                   previewBand.center().y() - iconDim / 2, iconDim, iconDim);
     const QPixmap preview =
         NotePreviewIcon::pixmapForPath(path, isFolder, iconDim);
     if (!preview.isNull())
       painter->drawPixmap(iconRect, preview);
 
-    if (textH > 0) {
-      QRect textRect(rect.left() + UiScale::dp(8), iconRect.bottom() + UiScale::dp(6),
-                     rect.width() - UiScale::dp(16), textH);
-      QFont f = painter->font();
-      f.setPointSize(FONT_SIZE_BASE - 1);
-      f.setWeight(QFont::DemiBold);
-      painter->setFont(f);
-      QTextOption opt;
-      opt.setAlignment(Qt::AlignHCenter | Qt::AlignTop);
-      opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-      painter->drawText(textRect, text, opt);
-    }
+    QRect textRect(rect.left() + UiScale::dp(10),
+                   rect.bottom() - textH + UiScale::dp(2),
+                   rect.width() - UiScale::dp(20), textH - UiScale::dp(8));
+    QFont f = painter->font();
+    f.setPointSize(FONT_SIZE_BASE);
+    f.setWeight(QFont::DemiBold);
+    painter->setFont(f);
+    painter->drawText(textRect, Qt::AlignHCenter | Qt::AlignVCenter,
+                      painter->fontMetrics().elidedText(text, Qt::ElideRight,
+                                                        textRect.width()));
   }
 
   QIcon menuIcon = m_window->createModernIcon(
@@ -2929,6 +2927,7 @@ void MainWindow::setupTitleBar() {
   connect(m_btnAddWebBookmark, &QPushButton::clicked, this,
           &MainWindow::showAddWebBookmarkDialog);
   navLayout->addWidget(m_btnAddWebBookmark);
+  m_btnAddWebBookmark->hide();
   navLayout->addSpacing(8);
 
   // ── TABS ──────────────────────────────────────────────────────────────────
@@ -2957,7 +2956,7 @@ void MainWindow::setupTitleBar() {
   m_btnNewTab->setObjectName(QStringLiteral("TitleBarNewTab"));
   m_btnNewTab->setFixedSize(UiScale::dp(36), UiScale::dp(36));
   m_btnNewTab->setCursor(Qt::PointingHandCursor);
-  m_btnNewTab->setToolTip("Neue Notiz öffnen");
+  m_btnNewTab->setToolTip(QStringLiteral("Neue Notiz"));
   m_btnNewTab->setIcon(
       createModernIcon(QStringLiteral("add"), BlopTheme::textSecondary()));
   m_btnNewTab->setIconSize(QSize(18, 18));
@@ -2970,11 +2969,11 @@ void MainWindow::setupTitleBar() {
       "QPushButton:hover {"
       "  background: rgba(124,92,252,0.18);"
       "}");
-  connect(m_btnNewTab, &QPushButton::clicked, this,
-          &MainWindow::onShowNewTabPopup);
+  connect(m_btnNewTab, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
   navLayout->addWidget(m_documentTabBar);
   navLayout->addWidget(m_btnNewTab);
+  m_btnNewTab->hide();
   navLayout->addSpacing(10);
   // Rest der Leiste nach rechts: Suche und Aktions-Icons
   navLayout->addStretch(1);
@@ -4241,27 +4240,41 @@ void MainWindow::updateGrid() {
     m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
     m_fileListView->setUniformItemSizes(true);
   } else {
-    int s = m_currentProfile.iconSize;
-    if (s <= 20)
-      s = 132;
-    s = qMax(s, 120);
+    // Desktop library: column-fit large preview tiles so two notes don't
+    // sit as tiny icons in a sea of empty space.
+    int screenWidth = 0;
+    if (m_fileListView->viewport())
+      screenWidth = m_fileListView->viewport()->width();
+    if (screenWidth <= 0)
+      screenWidth = m_fileListView->width();
+    if (screenWidth <= 0)
+      screenWidth = 960;
+
     int spacing = m_currentProfile.gridSpacing;
     if (spacing <= 0)
-      spacing = 18;
-    spacing = qMax(spacing, 14);
-    QSize itemS(s, s);
-    m_fileListView->setSpacing(spacing);
-    m_fileListView->setItemSize(itemS);
-    m_fileListView->setIconSize(itemS);
-    m_fileListView->setUniformItemSizes(true);
-    if (m_currentProfile.snapToGrid) {
-      int gridW = itemS.width() + spacing;
-      int gridH = itemS.height() + spacing;
-      m_fileListView->setGridSize(QSize(gridW, gridH));
-    } else {
-      m_fileListView->setGridSize(QSize(itemS.width() + spacing,
-                                        itemS.height() + spacing));
+      spacing = 22;
+    spacing = qMax(spacing, UiScale::dp(18));
+
+    const int minTile = UiScale::dp(220);
+    const int maxTile = UiScale::dp(300);
+    int columns = (screenWidth - spacing) / (minTile + spacing);
+    columns = qBound(2, columns, 5);
+    int totalSpacing = (columns + 1) * spacing;
+    int itemWidth = (screenWidth - totalSpacing) / columns;
+    while (itemWidth < UiScale::dp(180) && columns > 2) {
+      columns--;
+      totalSpacing = (columns + 1) * spacing;
+      itemWidth = (screenWidth - totalSpacing) / columns;
     }
+    itemWidth = qBound(UiScale::dp(180), itemWidth, maxTile);
+    const int titleBand = UiScale::dp(48);
+    const int itemHeight = itemWidth + titleBand;
+
+    m_fileListView->setSpacing(spacing);
+    m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
+    m_fileListView->setIconSize(QSize(itemWidth, itemWidth));
+    m_fileListView->setUniformItemSizes(true);
+    m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
   }
 }
 
@@ -5248,18 +5261,20 @@ void MainWindow::setupUi() {
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
   BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
 
-  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+"), m_overviewContainer);
+  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+  Neue Notiz"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
   btnNewNote->setToolTip(QStringLiteral("Neue Notiz"));
-  btnNewNote->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  btnNewNote->setMinimumHeight(UiScale::dp(40));
+  btnNewNote->setMinimumWidth(UiScale::dp(148));
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
       "QPushButton {"
       "  background-color: #7C5CFC;"
       "  color: #FFFFFF;"
-      "  border-radius: 12px;"
+      "  border-radius: 14px;"
       "  font-weight: 800;"
-      "  font-size: 20px;"
+      "  font-size: 14px;"
+      "  padding: 0 16px;"
       "  border: none;"
       "}"
       "QPushButton:hover { background-color: #8B6CFF; }"
@@ -5267,6 +5282,7 @@ void MainWindow::setupUi() {
   );
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   BlopRipple::attachPressFeedback(btnNewNote, 0.94);
+  m_btnLibraryNewNote = btnNewNote;
 
   auto *actionRow = new QHBoxLayout();
   actionRow->setContentsMargins(0, 0, 0, 0);
@@ -9908,9 +9924,15 @@ void MainWindow::updateSidebarState() {
   // Modus (Notizen / Study / …) immer sichtbar — auch in der Notiz, damit man wechseln kann.
   if (m_btnMode)
     m_btnMode->setVisible(true);
-  // „+“ für Web-Lesezeichen: in Study und in der Notiz-Übersicht, nicht während des Schreibens.
+  // Library: only the purple create button makes a note. Title-bar + is a
+  // tab action once notes are already open. Web-bookmark + lives in Study.
   if (m_btnAddWebBookmark)
-    m_btnAddWebBookmark->setVisible((inNotesMode && !isEditor) || !inNotesMode);
+    m_btnAddWebBookmark->setVisible(!inNotesMode);
+  if (m_btnNewTab) {
+    const bool hasOpenNotes = m_editorTabs && m_editorTabs->count() > 0;
+    m_btnNewTab->setVisible(inNotesMode && hasOpenNotes);
+    m_btnNewTab->setToolTip(QStringLiteral("Neue Notiz"));
+  }
   if (m_documentTabBar)
     m_documentTabBar->setVisible(inNotesMode);
   if (m_noteLeftRail)

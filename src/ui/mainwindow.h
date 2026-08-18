@@ -538,6 +538,7 @@ private:
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
+  QPushButton *m_btnLibraryNewNote{nullptr};
   QLabel *m_lblLibraryTitle{nullptr};
   QLabel *m_lblLibrarySubtitle{nullptr};
   QLabel *m_lblCloudSyncStatus{nullptr};
