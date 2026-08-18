@@ -462,7 +462,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  padding: 12px 16px; font-size: 14px;"
         "}"
         "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.70); }"));
-    search->setMaximumWidth(520);
+    search->setMinimumWidth(420);
+    search->setMaximumWidth(640);
+    search->setMinimumHeight(44);
+    search->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     searchLay->addWidget(search, 0);
     searchLay->addStretch(1);
     root->addWidget(searchRow);
@@ -1203,9 +1206,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     auto *topCols = new QHBoxLayout();
     topCols->setContentsMargins(0, 0, 0, 0);
     topCols->setSpacing(24);
-    topCols->addWidget(makeCol({cardKonto, cardBehavior}), 1);
+    topCols->addWidget(makeCol({cardKonto, cardBehavior, cardAdv}), 1);
     topCols->addWidget(makeCol({cardTheme, cardLook}), 1);
-    topCols->addWidget(makeCol({cardAdv}), 1);
     hostLay->addLayout(topCols, 0);
     hostLay->addWidget(cardStorage, 0);
     hostLay->addStretch(1);

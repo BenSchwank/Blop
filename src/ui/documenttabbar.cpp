@@ -35,7 +35,7 @@ int tabMaxWidthPx() {
   // Narrow phones: leave room for home/menu/overflow in the Android header.
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(120);
-  return UiScale::dp(320);
+  return UiScale::dp(360);
 }
 } // namespace
 
@@ -52,8 +52,8 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
   QHBoxLayout *lay = new QHBoxLayout(this);
-  lay->setContentsMargins(UiScale::dp(10), 0, UiScale::dp(6), 0);
-  lay->setSpacing(UiScale::dp(6));
+  lay->setContentsMargins(UiScale::dp(12), 0, UiScale::dp(8), 0);
+  lay->setSpacing(UiScale::dp(8));
 
   QLabel *iconLbl = new QLabel(this);
   iconLbl->setObjectName(QStringLiteral("DocumentTabIcon"));
@@ -149,15 +149,13 @@ void DocumentTab::refreshTitleLabel() {
   m_textLbl->setStyleSheet(
       QStringLiteral("QLabel { color: %1; font-size: 13px; font-weight: 600; }")
           .arg(fg));
-  QFontMetrics fm(m_textLbl->font());
-  const int textBudget =
-      tabMaxWidthPx() - UiScale::dp(10 + 18 + 6 + (m_closable ? 24 : 0) + 6);
-  const int needed = fm.horizontalAdvance(m_title);
-  if (needed <= qMax(UiScale::dp(40), textBudget))
-    m_textLbl->setText(m_title);
-  else
-    m_textLbl->setText(
-        fm.elidedText(m_title, Qt::ElideRight, qMax(UiScale::dp(40), textBudget)));
+  QFont f = m_textLbl->font();
+  f.setPixelSize(13);
+  f.setWeight(QFont::DemiBold);
+  m_textLbl->setFont(f);
+  m_textLbl->setText(m_title);
+  QFontMetrics fm(f);
+  m_textLbl->setMinimumWidth(fm.horizontalAdvance(m_title) + 4);
   setFixedWidth(sizeHint().width());
 }
 
@@ -192,8 +190,8 @@ QSize DocumentTab::sizeHint() const {
   QFontMetrics fm(font());
   const QString shown = m_textLbl ? m_textLbl->text() : m_title;
   int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
-  int w = UiScale::dp(10) + UiScale::dp(18) + UiScale::dp(6) + textW +
-          (m_closable ? UiScale::dp(24) : 0) + UiScale::dp(6);
+  int w = UiScale::dp(12) + UiScale::dp(18) + UiScale::dp(8) + textW +
+          (m_closable ? UiScale::dp(24) : 0) + UiScale::dp(8);
   if (m_title.isEmpty() && !m_closable) {
     // Home squircle: icon-only compact chip.
     w = UiScale::dp(36);
