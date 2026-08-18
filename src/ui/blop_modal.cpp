@@ -297,13 +297,14 @@ void BlopModal::layoutContent() {
   } else {
     const int preferred =
         m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(420);
-    const bool largeCard = preferred >= UiScale::dp(720);
+    // preferredCardWidth is already pixels (execBlocking argument). Do not
+    // compare against dp(720) — HiDPI made 920 < dp(720) and fell back to
+    // a squeezed compact card.
+    const bool largeCard = preferred >= 700;
     if (largeCard) {
-      // Near-full workspace card (Neue Notiz): fill most of the window
-      // with a rounded overlay, not a phone-sized dialog.
-      const int gap = qMax(pad, UiScale::dp(28));
-      const int cardW = qBound(UiScale::dp(640), int(W * 0.88), W - 2 * gap);
-      const int cardH = qBound(UiScale::dp(480), int(H * 0.86), H - 2 * gap);
+      const int gap = qMax(UiScale::dp(16), UiScale::dp(20));
+      const int cardW = qBound(UiScale::dp(720), int(W * 0.94), W - 2 * gap);
+      const int cardH = qBound(UiScale::dp(520), int(H * 0.90), H - 2 * gap);
       const int x = (W - cardW) / 2;
       const int y = (H - cardH) / 2;
       m_card->setGeometry(x, y, cardW, cardH);

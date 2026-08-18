@@ -173,6 +173,7 @@ public:
     BlopSettingsCard(const QString &title, const QString &subtitle, QWidget *parent)
         : QFrame(parent), m_title(title), m_subtitle(subtitle) {
         setSurfaceQss(this, QStringLiteral("BlopSettingsCard"));
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
         auto *root = new QVBoxLayout(this);
         root->setContentsMargins(20, 14, 20, 16);
@@ -404,7 +405,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  border-bottom: 1px solid rgba(120, 130, 160, 0.18);"
         "}"));
     auto *heroLay = new QHBoxLayout(hero);
-    heroLay->setContentsMargins(22, 16, 22, 16);
+    heroLay->setContentsMargins(28, 18, 28, 18);
     heroLay->setSpacing(12);
 
     auto *avatar = new QLabel(hero);
@@ -448,7 +449,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Search bar ---------------------------------------------------
     auto *searchRow = new QFrame(tabDesign);
     auto *searchLay = new QHBoxLayout(searchRow);
-    searchLay->setContentsMargins(22, 12, 22, 4);
+    searchLay->setContentsMargins(28, 14, 28, 8);
     auto *search = new QLineEdit(searchRow);
     search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
     setThemedQss(search, QStringLiteral(
@@ -467,25 +468,28 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     auto *scroll = new QScrollArea(tabDesign);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setStyleSheet(QStringLiteral("background: transparent;"));
     QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
 
     auto *contentWidget = new QWidget();
     contentWidget->setStyleSheet(QStringLiteral("background: transparent;"));
+    contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *contentLay = new QVBoxLayout(contentWidget);
-    contentLay->setContentsMargins(20, 12, 20, 24);
-    contentLay->setSpacing(14);
+    contentLay->setContentsMargins(28, 20, 28, 28);
+    contentLay->setSpacing(18);
 
     scroll->setWidget(contentWidget);
     root->addWidget(scroll, 1);
 
     auto *cardsHost = new QWidget(contentWidget);
     cardsHost->setObjectName(QStringLiteral("SettingsCardsHost"));
+    cardsHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     cardsHost->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *cardsGrid = new QGridLayout(cardsHost);
     cardsGrid->setContentsMargins(0, 0, 0, 0);
-    cardsGrid->setHorizontalSpacing(14);
-    cardsGrid->setVerticalSpacing(14);
+    cardsGrid->setHorizontalSpacing(18);
+    cardsGrid->setVerticalSpacing(18);
     cardsGrid->setColumnStretch(0, 1);
     cardsGrid->setColumnStretch(1, 1);
 
@@ -1168,16 +1172,15 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     cardAdv->setExpanded(false);
 
-    // Centered desktop card is a single column so Speicher/Theme cards
-    // are not clipped. Two-column was for the old right-hand SideSheet.
+    // Full workspace: two columns so cards spread across the screen instead
+    // of a phone-width stack with an empty second stretch column.
     cardsGrid->addWidget(cardKonto, 0, 0);
-    cardsGrid->addWidget(cardStorage, 1, 0);
-    cardsGrid->addWidget(cardTheme, 2, 0);
-    cardsGrid->addWidget(cardLook, 3, 0);
-    cardsGrid->addWidget(cardBehavior, 4, 0);
-    cardsGrid->addWidget(cardAdv, 5, 0);
+    cardsGrid->addWidget(cardTheme, 0, 1);
+    cardsGrid->addWidget(cardStorage, 1, 0, 1, 2);
+    cardsGrid->addWidget(cardLook, 2, 0);
+    cardsGrid->addWidget(cardBehavior, 2, 1);
+    cardsGrid->addWidget(cardAdv, 3, 0, 1, 2);
     contentLay->addWidget(cardsHost, 1);
-    contentLay->addStretch();
 
     // Search: hide cards whose title doesn't match the filter (simple
     // top-level filter; deeper filtering could match labels inside the
