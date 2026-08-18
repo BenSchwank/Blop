@@ -193,9 +193,14 @@ void BlopModal::applyTheme() {
   setStyleSheet(BlopTheme::scrimQss(QStringLiteral("BlopModalBackdrop")));
 
   if (m_content) {
-    m_content->setStyleSheet(
-        QStringLiteral("background-color: %1;")
-            .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)));
+    if (m_mode == Mode::Card || m_mode == Mode::Auto) {
+      m_content->setAutoFillBackground(false);
+      m_content->setStyleSheet(QStringLiteral("background: transparent;"));
+    } else {
+      m_content->setStyleSheet(
+          QStringLiteral("background-color: %1;")
+              .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)));
+    }
   }
 
   if (m_mode == Mode::BottomSheet) {

@@ -39,10 +39,8 @@ void NewNoteDialog::setupUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->addWidget(container, 1);
     container->setStyleSheet(
-        QStringLiteral("QWidget#NewNoteCard { background-color: %1; border: none; "
-                       "border-radius: %2px; }")
-            .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
-                 QString::number(BlopTheme::r24)) +
+        QStringLiteral("QWidget#NewNoteCard { background-color: %1; border: none; }")
+            .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)) +
         BlopTheme::themed(QStringLiteral(
             "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
             "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #F4F5FB; border: 1px solid rgba(120,130,160,0.32); border-radius: 12px; padding: 10px 12px; font-size: 14px; selection-background-color: #7C5CFC; }"

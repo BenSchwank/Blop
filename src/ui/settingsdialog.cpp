@@ -1326,6 +1326,7 @@ void SettingsDialog::openEditor(const QString &profileId) {
 void SettingsDialog::embedInWorkspace() {
     setWindowFlags(Qt::Widget);
     setModal(false);
+    setAttribute(Qt::WA_QuitOnClose, false);
     setSizeGripEnabled(false);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(0, 0);
