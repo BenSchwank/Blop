@@ -302,9 +302,9 @@ void BlopModal::layoutContent() {
     // a squeezed compact card.
     const bool largeCard = preferred >= 700;
     if (largeCard) {
-      const int gap = qMax(UiScale::dp(16), UiScale::dp(20));
-      const int cardW = qBound(UiScale::dp(720), int(W * 0.94), W - 2 * gap);
-      const int cardH = qBound(UiScale::dp(520), int(H * 0.90), H - 2 * gap);
+      const int gap = qMax(UiScale::dp(20), UiScale::dp(24));
+      const int cardW = qBound(UiScale::dp(780), int(W * 0.96), W - 2 * gap);
+      const int cardH = qBound(UiScale::dp(560), int(H * 0.92), H - 2 * gap);
       const int x = (W - cardW) / 2;
       const int y = (H - cardH) / 2;
       m_card->setGeometry(x, y, cardW, cardH);

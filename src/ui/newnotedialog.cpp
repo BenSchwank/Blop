@@ -46,8 +46,8 @@ void NewNoteDialog::setupUi()
             "QLineEdit:focus { border: 1px solid #7C5CFC; }")));
 
     auto *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(UiScale::dp(40), UiScale::dp(32),
-                               UiScale::dp(40), UiScale::dp(28));
+    layout->setContentsMargins(UiScale::dp(48), UiScale::dp(36),
+                               UiScale::dp(48), UiScale::dp(28));
     layout->setSpacing(UiScale::dp(22));
 
     auto *lblTitle = new QLabel(QStringLiteral("Neue Notiz"), container);
@@ -62,17 +62,31 @@ void NewNoteDialog::setupUi()
         return lbl;
     };
 
-    // ── Format + name across the full width ──────────────────────────────
-    layout->addWidget(sectionLabel(QStringLiteral("Format"), container));
+    auto *body = new QWidget(container);
+    auto *cols = new QHBoxLayout(body);
+    cols->setContentsMargins(0, 0, 0, 0);
+    cols->setSpacing(UiScale::dp(48));
 
-    auto createFormatBtn = [this, container](const QString &text,
-                                             const QString &subtext) {
-        auto *btn = new QPushButton(container);
+    // Left column stays a readable width; layout tiles take the remaining
+    // overlay so Unendlich/A4 are not stretched into full-window slabs.
+    auto *left = new QWidget(body);
+    left->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    left->setMinimumWidth(UiScale::dp(360));
+    left->setMaximumWidth(UiScale::dp(480));
+    auto *leftLay = new QVBoxLayout(left);
+    leftLay->setContentsMargins(0, 0, UiScale::dp(8), 0);
+    leftLay->setSpacing(UiScale::dp(14));
+
+    leftLay->addWidget(sectionLabel(QStringLiteral("Format"), left));
+
+    auto createFormatBtn = [this, left](const QString &text,
+                                        const QString &subtext) {
+        auto *btn = new QPushButton(left);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setMinimumHeight(UiScale::dp(96));
+        btn->setMinimumHeight(UiScale::dp(100));
         btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        btn->setIconSize(QSize(UiScale::dp(52), UiScale::dp(52)));
+        btn->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
         btn->setText(text + QStringLiteral("\n") + subtext);
         btn->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; "
@@ -95,39 +109,28 @@ void NewNoteDialog::setupUi()
     m_groupFormat->addButton(m_btnFormatA4, 1);
     m_groupFormat->setExclusive(true);
 
-    auto *formatRow = new QHBoxLayout();
-    formatRow->setSpacing(UiScale::dp(16));
-    formatRow->addWidget(m_btnFormatInfinite, 1);
-    formatRow->addWidget(m_btnFormatA4, 1);
-    layout->addLayout(formatRow);
+    auto *formatCol = new QVBoxLayout();
+    formatCol->setSpacing(UiScale::dp(12));
+    formatCol->addWidget(m_btnFormatInfinite);
+    formatCol->addWidget(m_btnFormatA4);
+    leftLay->addLayout(formatCol);
 
-    layout->addWidget(sectionLabel(QStringLiteral("Name"), container));
-    m_nameInput = new QLineEdit(container);
+    leftLay->addWidget(sectionLabel(QStringLiteral("Name"), left));
+    m_nameInput = new QLineEdit(left);
     m_nameInput->setPlaceholderText(QStringLiteral("Meine Notiz"));
-    m_nameInput->setMinimumHeight(UiScale::dp(44));
+    m_nameInput->setMinimumHeight(UiScale::dp(48));
     m_nameInput->setFocus();
-    layout->addWidget(m_nameInput);
+    leftLay->addWidget(m_nameInput);
 
-    // ── Tags left, layout right ──────────────────────────────────────────
-    auto *body = new QWidget(container);
-    auto *cols = new QHBoxLayout(body);
-    cols->setContentsMargins(0, 0, 0, 0);
-    cols->setSpacing(UiScale::dp(36));
-
-    auto *left = new QWidget(body);
-    left->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    auto *leftLay = new QVBoxLayout(left);
-    leftLay->setContentsMargins(0, 0, 0, 0);
-    leftLay->setSpacing(UiScale::dp(12));
     leftLay->addWidget(sectionLabel(QStringLiteral("Tags"), left));
 
     auto *tagRow = new QHBoxLayout();
     tagRow->setSpacing(UiScale::dp(10));
     m_tagInput = new QLineEdit(left);
     m_tagInput->setPlaceholderText(QStringLiteral("Tag hinzufügen…"));
-    m_tagInput->setMinimumHeight(UiScale::dp(44));
+    m_tagInput->setMinimumHeight(UiScale::dp(48));
     auto *btnAddTag = new QPushButton(QStringLiteral("+"), left);
-    btnAddTag->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+    btnAddTag->setFixedSize(UiScale::dp(48), UiScale::dp(48));
     btnAddTag->setCursor(Qt::PointingHandCursor);
     btnAddTag->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: #7C5CFC; color: white; border: none; "
@@ -165,7 +168,7 @@ void NewNoteDialog::setupUi()
     connect(m_tagInput, &QLineEdit::returnPressed, this, addTagFromInput);
     rebuildTagList();
 
-    cols->addWidget(left, 2);
+    cols->addWidget(left, 0);
 
     auto *right = new QWidget(body);
     right->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -178,8 +181,8 @@ void NewNoteDialog::setupUi()
     gridHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto *grid = new QGridLayout(gridHost);
     grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(UiScale::dp(16));
-    grid->setVerticalSpacing(UiScale::dp(16));
+    grid->setHorizontalSpacing(UiScale::dp(20));
+    grid->setVerticalSpacing(UiScale::dp(20));
     grid->setColumnStretch(0, 1);
     grid->setColumnStretch(1, 1);
     grid->setColumnStretch(2, 1);
@@ -194,13 +197,14 @@ void NewNoteDialog::setupUi()
         QString name;
         int row;
         int col;
+        int colSpan;
     };
     const LayoutOpt opts[] = {
-        {0, QStringLiteral("Leer"), 0, 0},
-        {1, QStringLiteral("Liniert"), 0, 1},
-        {2, QStringLiteral("Kariert"), 0, 2},
-        {3, QStringLiteral("Punktiert"), 1, 0},
-        {4, QStringLiteral("Legal"), 1, 1},
+        {0, QStringLiteral("Leer"), 0, 0, 1},
+        {1, QStringLiteral("Liniert"), 0, 1, 1},
+        {2, QStringLiteral("Kariert"), 0, 2, 1},
+        {3, QStringLiteral("Punktiert"), 1, 0, 1},
+        {4, QStringLiteral("Legal"), 1, 1, 2},
     };
 
     const QString btnQss = BlopTheme::themed(QStringLiteral(
@@ -218,12 +222,12 @@ void NewNoteDialog::setupUi()
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        tb->setMinimumSize(UiScale::dp(140), UiScale::dp(150));
-        tb->setIconSize(QSize(UiScale::dp(80), UiScale::dp(80)));
+        tb->setMinimumSize(UiScale::dp(160), UiScale::dp(180));
+        tb->setIconSize(QSize(UiScale::dp(96), UiScale::dp(96)));
         tb->setStyleSheet(btnQss);
         tb->setProperty("blopBgType", opt.type);
         m_groupLayout->addButton(tb, opt.type);
-        grid->addWidget(tb, opt.row, opt.col);
+        grid->addWidget(tb, opt.row, opt.col, 1, opt.colSpan);
         if (opt.type == m_backgroundType)
             tb->setChecked(true);
         BlopRipple::attachPressFeedback(tb, 0.94);

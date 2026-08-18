@@ -173,10 +173,10 @@ public:
     BlopSettingsCard(const QString &title, const QString &subtitle, QWidget *parent)
         : QFrame(parent), m_title(title), m_subtitle(subtitle) {
         setSurfaceQss(this, QStringLiteral("BlopSettingsCard"));
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
         auto *root = new QVBoxLayout(this);
-        root->setContentsMargins(20, 14, 20, 16);
+        root->setContentsMargins(24, 20, 24, 22);
         root->setSpacing(0);
 
         auto *header = new QWidget(this);
@@ -405,8 +405,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  border-bottom: 1px solid rgba(120, 130, 160, 0.18);"
         "}"));
     auto *heroLay = new QHBoxLayout(hero);
-    heroLay->setContentsMargins(28, 18, 28, 18);
-    heroLay->setSpacing(12);
+    heroLay->setContentsMargins(36, 22, 36, 22);
+    heroLay->setSpacing(16);
 
     auto *avatar = new QLabel(hero);
     avatar->setFixedSize(44, 44);
@@ -449,7 +449,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Search bar ---------------------------------------------------
     auto *searchRow = new QFrame(tabDesign);
     auto *searchLay = new QHBoxLayout(searchRow);
-    searchLay->setContentsMargins(28, 14, 28, 8);
+    searchLay->setContentsMargins(36, 18, 36, 12);
     auto *search = new QLineEdit(searchRow);
     search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
     setThemedQss(search, QStringLiteral(
@@ -458,7 +458,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  color: #ECEEFD;"
         "  border: 1px solid rgba(120, 130, 160, 0.28);"
         "  border-radius: 12px;"
-        "  padding: 9px 12px; font-size: 13px;"
+        "  padding: 12px 16px; font-size: 14px;"
         "}"
         "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.70); }"));
     searchLay->addWidget(search);
@@ -474,24 +474,27 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
     auto *contentWidget = new QWidget();
     contentWidget->setStyleSheet(QStringLiteral("background: transparent;"));
-    contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto *contentLay = new QVBoxLayout(contentWidget);
-    contentLay->setContentsMargins(28, 20, 28, 28);
-    contentLay->setSpacing(18);
+    contentLay->setContentsMargins(36, 24, 36, 32);
+    contentLay->setSpacing(24);
 
     scroll->setWidget(contentWidget);
     root->addWidget(scroll, 1);
 
     auto *cardsHost = new QWidget(contentWidget);
     cardsHost->setObjectName(QStringLiteral("SettingsCardsHost"));
-    cardsHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    cardsHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardsHost->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *cardsGrid = new QGridLayout(cardsHost);
     cardsGrid->setContentsMargins(0, 0, 0, 0);
-    cardsGrid->setHorizontalSpacing(18);
-    cardsGrid->setVerticalSpacing(18);
+    cardsGrid->setHorizontalSpacing(24);
+    cardsGrid->setVerticalSpacing(24);
     cardsGrid->setColumnStretch(0, 1);
     cardsGrid->setColumnStretch(1, 1);
+    cardsGrid->setRowStretch(0, 1);
+    cardsGrid->setRowStretch(1, 1);
+    cardsGrid->setRowStretch(2, 1);
 
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
@@ -1170,16 +1173,22 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "background: transparent; padding: 4px 0;"));
         cardAdv->addBodyWidget(info);
     }
-    cardAdv->setExpanded(false);
+    cardAdv->setExpanded(true);
 
-    // Full workspace: two columns so cards spread across the screen instead
-    // of a phone-width stack with an empty second stretch column.
+    // Equal 2×3 grid so every section has a real cell and the workspace
+    // fills the window instead of stacking leftover full-width bars.
+    const QList<BlopSettingsCard *> allCards = {
+        cardKonto, cardTheme, cardStorage, cardLook, cardBehavior, cardAdv};
+    for (BlopSettingsCard *c : allCards) {
+        c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        c->setMinimumHeight(220);
+    }
     cardsGrid->addWidget(cardKonto, 0, 0);
     cardsGrid->addWidget(cardTheme, 0, 1);
-    cardsGrid->addWidget(cardStorage, 1, 0, 1, 2);
-    cardsGrid->addWidget(cardLook, 2, 0);
-    cardsGrid->addWidget(cardBehavior, 2, 1);
-    cardsGrid->addWidget(cardAdv, 3, 0, 1, 2);
+    cardsGrid->addWidget(cardStorage, 1, 0);
+    cardsGrid->addWidget(cardLook, 1, 1);
+    cardsGrid->addWidget(cardBehavior, 2, 0);
+    cardsGrid->addWidget(cardAdv, 2, 1);
     contentLay->addWidget(cardsHost, 1);
 
     // Search: hide cards whose title doesn't match the filter (simple

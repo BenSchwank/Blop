@@ -3525,8 +3525,8 @@ void MainWindow::openSettingsWorkspace() {
           .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
 
   auto *outer = new QVBoxLayout(page);
-  outer->setContentsMargins(UiScale::dp(18), UiScale::dp(14),
-                            UiScale::dp(18), UiScale::dp(16));
+  outer->setContentsMargins(UiScale::dp(28), UiScale::dp(22),
+                            UiScale::dp(28), UiScale::dp(24));
   outer->setSpacing(0);
 
   auto *card = new QFrame(page);
