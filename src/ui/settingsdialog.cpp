@@ -461,7 +461,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  padding: 12px 16px; font-size: 14px;"
         "}"
         "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.70); }"));
-    searchLay->addWidget(search);
+    search->setMaximumWidth(520);
+    searchLay->addWidget(search, 0);
+    searchLay->addStretch(1);
     root->addWidget(searchRow);
 
     // ----- Scrollable section area --------------------------------------
@@ -492,9 +494,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     cardsGrid->setVerticalSpacing(24);
     cardsGrid->setColumnStretch(0, 1);
     cardsGrid->setColumnStretch(1, 1);
-    cardsGrid->setRowStretch(0, 1);
-    cardsGrid->setRowStretch(1, 1);
-    cardsGrid->setRowStretch(2, 1);
+    cardsGrid->setColumnStretch(2, 1);
+    cardsGrid->setRowStretch(0, 2);
+    cardsGrid->setRowStretch(1, 2);
+    cardsGrid->setRowStretch(2, 3);
 
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
@@ -690,12 +693,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QStringLiteral("Werkzeugleiste"),
         contentWidget);
     {
-        auto *lblTb = new QLabel(QStringLiteral("Werkzeugleiste"), cardLook);
-        setThemedQss(lblTb, QStringLiteral(
-            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
-            "background: transparent;"));
-        cardLook->addBodyWidget(lblTb);
-
         auto *rNorm = new QRadioButton(
 #ifdef Q_OS_ANDROID
             QStringLiteral("Vertikal / Adaptiv"),
@@ -769,7 +766,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "QListWidget::item:selected {"
             "  background: rgba(124, 92, 252, 0.55);"
             "}"));
-        m_profileList->setFixedHeight(132);
+        m_profileList->setMinimumHeight(132);
+        m_profileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
         QScroller::grabGesture(m_profileList, QScroller::LeftMouseButtonGesture);
         connect(m_profileList, &QListWidget::customContextMenuRequested, this,
@@ -881,14 +879,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                         : QStringLiteral("Google Drive jetzt verbinden"));
         setTokenQss(btnConnectDrive, "primary");
         BlopRipple::attachPressFeedback(btnConnectDrive, 0.92);
-        cardStorage->addBodyWidget(btnConnectDrive);
 
         auto *btnConnectDriveManual = new QPushButton(
             QStringLiteral("Manuell wählen…"), cardStorage);
         btnConnectDriveManual->setCursor(Qt::PointingHandCursor);
         setTokenQss(btnConnectDriveManual, "secondary");
         BlopRipple::attachPressFeedback(btnConnectDriveManual, 0.92);
-        cardStorage->addBodyWidget(btnConnectDriveManual);
 
         auto *btnOpenDriveWeb = new QPushButton(
             QStringLiteral("Google-Konto / Drive im Browser öffnen"), cardStorage);
@@ -898,7 +894,15 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QObject::connect(btnOpenDriveWeb, &QPushButton::clicked, this, []() {
             QDesktopServices::openUrl(QUrl(QStringLiteral("https://drive.google.com")));
         });
-        cardStorage->addBodyWidget(btnOpenDriveWeb);
+
+        auto *driveBtnRow = new QWidget(cardStorage);
+        auto *driveBtnLay = new QHBoxLayout(driveBtnRow);
+        driveBtnLay->setContentsMargins(0, 0, 0, 0);
+        driveBtnLay->setSpacing(12);
+        driveBtnLay->addWidget(btnConnectDrive, 2);
+        driveBtnLay->addWidget(btnConnectDriveManual, 1);
+        driveBtnLay->addWidget(btnOpenDriveWeb, 1);
+        cardStorage->addBodyWidget(driveBtnRow);
 
         auto *cloudHeader = new QLabel(QStringLiteral("Weitere Cloud-Anbieter"),
                                        cardStorage);
@@ -908,9 +912,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         cardStorage->addBodyWidget(cloudHeader);
 
         auto *cloudList = new QWidget(cardStorage);
-        auto *cloudLay = new QVBoxLayout(cloudList);
+        auto *cloudLay = new QGridLayout(cloudList);
         cloudLay->setContentsMargins(0, 0, 0, 0);
-        cloudLay->setSpacing(6);
+        cloudLay->setHorizontalSpacing(16);
+        cloudLay->setVerticalSpacing(8);
+        cloudLay->setColumnStretch(0, 1);
+        cloudLay->setColumnStretch(1, 1);
+        int cloudIdx = 0;
 
         // Helpers used by every cloud-provider row and the Google Drive hero button.
         auto refreshCloudRow = [](const QString &providerId,
@@ -1082,7 +1090,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
             hl->addWidget(btnAuto);
             hl->addWidget(btnManual);
-            cloudLay->addWidget(row);
+            cloudLay->addWidget(row, cloudIdx / 2, cloudIdx % 2);
+            ++cloudIdx;
         }
         cardStorage->addBodyWidget(cloudList);
 
@@ -1175,20 +1184,20 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     cardAdv->setExpanded(true);
 
-    // Equal 2×3 grid so every section has a real cell and the workspace
-    // fills the window instead of stacking leftover full-width bars.
+    // Dashboard: compact cards across the top, storage as a full-width
+    // panel so cloud controls can sit in two columns instead of a phone stack.
     const QList<BlopSettingsCard *> allCards = {
         cardKonto, cardTheme, cardStorage, cardLook, cardBehavior, cardAdv};
     for (BlopSettingsCard *c : allCards) {
         c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        c->setMinimumHeight(220);
+        c->setMinimumHeight(c == cardStorage ? 200 : 160);
     }
     cardsGrid->addWidget(cardKonto, 0, 0);
     cardsGrid->addWidget(cardTheme, 0, 1);
-    cardsGrid->addWidget(cardStorage, 1, 0);
-    cardsGrid->addWidget(cardLook, 1, 1);
-    cardsGrid->addWidget(cardBehavior, 2, 0);
-    cardsGrid->addWidget(cardAdv, 2, 1);
+    cardsGrid->addWidget(cardLook, 0, 2);
+    cardsGrid->addWidget(cardBehavior, 1, 0, 1, 2);
+    cardsGrid->addWidget(cardAdv, 1, 2);
+    cardsGrid->addWidget(cardStorage, 2, 0, 1, 3);
     contentLay->addWidget(cardsHost, 1);
 
     // Search: hide cards whose title doesn't match the filter (simple

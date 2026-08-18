@@ -197,23 +197,27 @@ void NewNoteDialog::setupUi()
         QString name;
         int row;
         int col;
-        int colSpan;
     };
     const LayoutOpt opts[] = {
-        {0, QStringLiteral("Leer"), 0, 0, 1},
-        {1, QStringLiteral("Liniert"), 0, 1, 1},
-        {2, QStringLiteral("Kariert"), 0, 2, 1},
-        {3, QStringLiteral("Punktiert"), 1, 0, 1},
-        {4, QStringLiteral("Legal"), 1, 1, 2},
+        {0, QStringLiteral("Leer"), 0, 0},
+        {1, QStringLiteral("Liniert"), 0, 1},
+        {2, QStringLiteral("Kariert"), 0, 2},
+        {3, QStringLiteral("Punktiert"), 1, 0},
+        {4, QStringLiteral("Legal"), 1, 1},
     };
 
     const QString btnQss = BlopTheme::themed(QStringLiteral(
         "QToolButton { background: #252526; color: #DDD; border: 1px solid #444; "
         "border-radius: 18px; padding: 14px 10px 16px 10px; font-size: 13px; "
         "font-weight: 600; }"
-        "QToolButton:checked { background: rgba(124,92,252,0.22); color: white; "
-        "border: 2px solid #7C5CFC; }"
+        "QToolButton:checked { background: #7C5CFC; color: white; "
+        "border: 2px solid #6A4BE8; }"
         "QToolButton:hover:!checked { border-color: #666; background: #2E2E38; }"));
+
+    auto *bottomRow = new QWidget(gridHost);
+    auto *bottomLay = new QHBoxLayout(bottomRow);
+    bottomLay->setContentsMargins(0, 0, 0, 0);
+    bottomLay->setSpacing(UiScale::dp(20));
 
     for (const auto &opt : opts) {
         auto *tb = new QToolButton(gridHost);
@@ -227,11 +231,15 @@ void NewNoteDialog::setupUi()
         tb->setStyleSheet(btnQss);
         tb->setProperty("blopBgType", opt.type);
         m_groupLayout->addButton(tb, opt.type);
-        grid->addWidget(tb, opt.row, opt.col, 1, opt.colSpan);
+        if (opt.row == 0)
+            grid->addWidget(tb, 0, opt.col);
+        else
+            bottomLay->addWidget(tb, 1);
         if (opt.type == m_backgroundType)
             tb->setChecked(true);
         BlopRipple::attachPressFeedback(tb, 0.94);
     }
+    grid->addWidget(bottomRow, 1, 0, 1, 3);
     connect(m_groupLayout, &QButtonGroup::idClicked, this, [this](int id) {
         m_backgroundType = id;
         refreshLayoutIcons();
