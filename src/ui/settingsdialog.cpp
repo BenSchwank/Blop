@@ -1316,7 +1316,22 @@ void SettingsDialog::onProfileContextMenu(const QPoint &pos) {
 
 void SettingsDialog::openEditor(const QString &profileId) {
     m_editId = profileId;
+    if (!isWindow()) {
+        emit profileEditRequested(profileId);
+        return;
+    }
     done(EditProfileCode);
+}
+
+void SettingsDialog::embedInWorkspace() {
+    setWindowFlags(Qt::Widget);
+    setModal(false);
+    setSizeGripEnabled(false);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMinimumSize(0, 0);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    setThemedQss(this, QStringLiteral(
+        "QDialog { background: transparent; border: none; border-radius: 0px; }"));
 }
 
 void SettingsDialog::setToolbarConfig(bool isRadial, bool) {

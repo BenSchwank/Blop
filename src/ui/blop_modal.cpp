@@ -4,6 +4,7 @@
 #include "uiscale.h"
 
 #include <QApplication>
+#include <QColor>
 #include <QDialog>
 #include <QEasingCurve>
 #include <QEvent>
@@ -34,11 +35,14 @@ constexpr int kDragHandleHeightDp = 28;
 } // namespace
 
 BlopModal *BlopModal::present(QWidget *parent, QWidget *content, Mode mode,
-                              const QString &accessibleTitle) {
+                              const QString &accessibleTitle,
+                              int preferredCardWidth) {
   if (!parent || !content)
     return nullptr;
   auto *win = parent->window();
   auto *modal = new BlopModal(win ? win : parent, content, mode, accessibleTitle);
+  if (preferredCardWidth > 0)
+    modal->setPreferredCardWidth(preferredCardWidth);
   modal->show();
   modal->raise();
   modal->startOpenAnim();
@@ -59,11 +63,9 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   dlg->setAttribute(Qt::WA_TranslucentBackground, false);
   dlg->setAttribute(Qt::WA_DeleteOnClose, false);
 
-  auto *modal = present(parent, dlg, mode);
+  auto *modal = present(parent, dlg, mode, QString(), preferredCardWidth);
   if (!modal)
     return QDialog::Rejected;
-  if (preferredCardWidth > 0)
-    modal->setPreferredCardWidth(preferredCardWidth);
 
   int result = QDialog::Rejected;
   QEventLoop loop;
@@ -230,7 +232,20 @@ void BlopModal::applyTheme() {
     m_card->setStyleSheet(qss);
     m_card->setGraphicsEffect(nullptr);
   } else {
-    QString qss = BlopTheme::cardQss(QStringLiteral("BlopModalCard"));
+    QString qss = QStringLiteral(
+                     "QWidget#BlopModalCard {"
+                     "  background: %1;"
+                     "  border: 1px solid %2;"
+                     "  border-radius: %3px;"
+                     "}")
+                     .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+                          QStringLiteral("rgba(%1,%2,%3,%4)")
+                              .arg(BlopTheme::borderDefault().red())
+                              .arg(BlopTheme::borderDefault().green())
+                              .arg(BlopTheme::borderDefault().blue())
+                              .arg(QString::number(
+                                  BlopTheme::borderDefault().alphaF(), 'f', 3)),
+                          QString::number(BlopTheme::r24));
     m_card->setStyleSheet(qss);
     m_card->setAutoFillBackground(true);
     // QGraphicsDropShadowEffect + rounded rect paints an L-shaped black
@@ -275,11 +290,37 @@ void BlopModal::layoutContent() {
       }
     }
   } else {
+    const int preferred =
+        m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(420);
+    const bool largeCard = preferred >= UiScale::dp(720);
+    if (largeCard) {
+      // Near-full workspace card (Neue Notiz): fill most of the window
+      // with a rounded overlay, not a phone-sized dialog.
+      const int gap = qMax(pad, UiScale::dp(28));
+      const int cardW = qBound(UiScale::dp(640), int(W * 0.88), W - 2 * gap);
+      const int cardH = qBound(UiScale::dp(480), int(H * 0.86), H - 2 * gap);
+      const int x = (W - cardW) / 2;
+      const int y = (H - cardH) / 2;
+      m_card->setGeometry(x, y, cardW, cardH);
+      if (m_content) {
+        m_content->setMinimumSize(0, 0);
+        m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        if (auto *lay = m_content->layout()) {
+          lay->setSizeConstraint(QLayout::SetNoConstraint);
+          lay->activate();
+        }
+        if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
+          const int idx = cardLay->indexOf(m_content);
+          if (idx >= 0)
+            cardLay->setStretch(idx, 1);
+        }
+      }
+      return;
+    }
     // Compact centered card. Measure height *after* giving content a real
     // width — word-wrapped QLabels otherwise report a skyscraper sizeHint
     // (one glyph per line) and overlays look "extrem lang gestreckt".
-    const int preferred =
-        m_preferredCardWidth > 0 ? m_preferredCardWidth : UiScale::dp(420);
     const int cardW = qBound(UiScale::dp(320), preferred, W - 2 * pad);
     int contentH = UiScale::dp(140);
     if (m_content) {
@@ -297,7 +338,6 @@ void BlopModal::layoutContent() {
         measured = qMax(measured, m_content->heightForWidth(cardW));
       contentH = qMax(UiScale::dp(120), measured + UiScale::dp(8));
     }
-    // Large dialogs (Settings) may request near-full height; keep a margin.
     const qreal heightFrac = preferred >= UiScale::dp(560) ? 0.92 : 0.72;
     const int maxH = qMin(int(H * heightFrac), H - 2 * pad);
     const int cardH = qBound(UiScale::dp(120), contentH, maxH);

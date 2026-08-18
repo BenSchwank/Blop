@@ -262,8 +262,10 @@ private slots:
 
   void finishRename();
 
-  void addNoteTab(const QString &title);
+  void addNoteTab(const QString &title,
+                  const QString &iconName = QStringLiteral("note_bnote"));
   void closeNoteTab(int index);
+  void closeEditorTabAt(int index);
 
   void onShowNewTabPopup();
 
@@ -316,6 +318,10 @@ private:
   void runStudyJavaScript(const QString &js);
   void setLibraryBusy(bool busy, const QString &text = QString());
   void switchToEditorChrome();
+  void switchToWorkspaceChrome();
+  void openSettingsWorkspace();
+  bool editorTabIsWorkspace(QWidget *w) const;
+  int findWorkspaceTabIndex(const QString &kind) const;
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
   void applyTheme();
   void applyLibraryFilters();

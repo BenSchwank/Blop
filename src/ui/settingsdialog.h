@@ -25,11 +25,15 @@ public:
     ~SettingsDialog();
 
     void setToolbarConfig(bool isRadial, bool isHalf);
+    void embedInWorkspace();
 
     // Helper so MainWindow knows which profile to edit
     QString profileIdToEdit() const { return m_editId; }
 
 signals:
+    /// Emitted when a profile should be edited without closing an embedded
+    /// settings workspace tab.
+    void profileEditRequested(const QString &profileId);
     void accentColorChanged(QColor color);
     void toolbarStyleChanged(bool radial);
     void logoutRequested();

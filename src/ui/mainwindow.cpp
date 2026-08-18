@@ -2937,23 +2937,18 @@ void MainWindow::setupTitleBar() {
   m_documentTabBar->setAccentColor(m_currentAccentColor);
   connect(m_documentTabBar, &DocumentTabBar::currentChanged, this,
           [this](int index) {
-            if (m_editorTabs && index >= 0 && index != m_editorTabs->currentIndex())
+            if (!m_editorTabs || index < 0)
+              return;
+            if (index != m_editorTabs->currentIndex())
               m_editorTabs->setCurrentIndex(index);
+            QWidget *w = m_editorTabs->widget(index);
+            if (editorTabIsWorkspace(w))
+              switchToWorkspaceChrome();
+            else
+              switchToEditorChrome();
           });
   connect(m_documentTabBar, &DocumentTabBar::tabCloseRequested, this,
-          [this](int index) {
-            if (m_editorTabs) {
-              if (auto *ed = qobject_cast<NoteEditor *>(
-                      m_editorTabs->widget(index))) {
-                if (ed->view())
-                  ed->view()->persistViewState(
-                      ed->view()->property("viewStateKey").toString());
-              }
-              m_editorTabs->removeTab(index);
-              if (m_editorTabs->count() == 0)
-                onBackToOverview();
-            }
-          });
+          [this](int index) { closeEditorTabAt(index); });
   connect(m_documentTabBar, &DocumentTabBar::homeClicked, this,
           &MainWindow::onBackToOverview);
 
@@ -3325,11 +3320,11 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
 // ---------------------------------------------------------------------------
 // addNoteTab / closeNoteTab  (floating squircle document tabs)
 // ---------------------------------------------------------------------------
-void MainWindow::addNoteTab(const QString &title) {
+void MainWindow::addNoteTab(const QString &title, const QString &iconName) {
   if (!m_documentTabBar)
     return;
   m_documentTabBar->setHomeActive(false);
-  int idx = m_documentTabBar->addTab(title);
+  int idx = m_documentTabBar->addTab(title, iconName);
   m_documentTabBar->setCurrentIndex(idx);
 }
 
@@ -3452,11 +3447,203 @@ void MainWindow::onShowNewTabPopup() {
 }
 
 void MainWindow::closeNoteTab(int index) {
-  if (!m_documentTabBar)
+  closeEditorTabAt(index);
+}
+
+void MainWindow::closeEditorTabAt(int index) {
+  if (!m_editorTabs || index < 0 || index >= m_editorTabs->count())
     return;
-  m_documentTabBar->removeTab(index);
-  if (m_documentTabBar->count() == 0)
-    m_documentTabBar->setHomeActive(true);
+  QWidget *w = m_editorTabs->widget(index);
+  if (auto *ed = qobject_cast<NoteEditor *>(w)) {
+    if (ed->view())
+      ed->view()->persistViewState(
+          ed->view()->property("viewStateKey").toString());
+  }
+  m_editorTabs->removeTab(index);
+  if (m_documentTabBar)
+    m_documentTabBar->removeTab(index);
+  if (w)
+    w->deleteLater();
+  if (m_editorTabs->count() == 0)
+    onBackToOverview();
+}
+
+bool MainWindow::editorTabIsWorkspace(QWidget *w) const {
+  return w && !w->property("blopWorkspaceKind").toString().isEmpty();
+}
+
+int MainWindow::findWorkspaceTabIndex(const QString &kind) const {
+  if (!m_editorTabs || kind.isEmpty())
+    return -1;
+  for (int i = 0; i < m_editorTabs->count(); ++i) {
+    QWidget *w = m_editorTabs->widget(i);
+    if (w && w->property("blopWorkspaceKind").toString() == kind)
+      return i;
+  }
+  return -1;
+}
+
+void MainWindow::switchToWorkspaceChrome() {
+  if (m_rightStack) {
+    const int editorIdx = m_rightStack->indexOf(m_editorContainer);
+    m_rightStack->setCurrentIndex(editorIdx);
+  }
+#ifndef Q_OS_ANDROID
+  if (m_editorCenterWidget) {
+    m_editorCenterWidget->setStyleSheet(
+        QStringLiteral("QWidget { background: %1; }")
+            .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+  }
+  if (m_documentTabBar) {
+    m_documentTabBar->setNoteChromeMode(false);
+    m_documentTabBar->setAccentColor(m_currentAccentColor);
+  }
+  refreshNoteTitleChrome(false);
+#endif
+  updateSidebarState();
+}
+
+void MainWindow::openSettingsWorkspace() {
+  if (!m_editorTabs)
+    return;
+
+  const int existing = findWorkspaceTabIndex(QStringLiteral("settings"));
+  if (existing >= 0) {
+    m_editorTabs->setCurrentIndex(existing);
+    if (m_documentTabBar)
+      m_documentTabBar->setCurrentIndex(existing);
+    switchToWorkspaceChrome();
+    return;
+  }
+
+  auto *page = new QWidget();
+  page->setProperty("blopWorkspaceKind", QStringLiteral("settings"));
+  page->setObjectName(QStringLiteral("SettingsWorkspacePage"));
+  page->setStyleSheet(
+      QStringLiteral("QWidget#SettingsWorkspacePage { background: %1; }")
+          .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+
+  auto *outer = new QVBoxLayout(page);
+  outer->setContentsMargins(UiScale::dp(28), UiScale::dp(22),
+                            UiScale::dp(28), UiScale::dp(24));
+  outer->setSpacing(0);
+
+  auto *card = new QFrame(page);
+  card->setObjectName(QStringLiteral("SettingsWorkspaceCard"));
+  card->setAttribute(Qt::WA_StyledBackground, true);
+  card->setStyleSheet(
+      QStringLiteral("QFrame#SettingsWorkspaceCard {"
+                     "  background: %1;"
+                     "  border: 1px solid %2;"
+                     "  border-radius: %3px;"
+                     "}")
+          .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+               BlopTheme::borderDefault().name(QColor::HexArgb),
+               QString::number(BlopTheme::r24)));
+
+  auto *cardLay = new QVBoxLayout(card);
+  cardLay->setContentsMargins(0, 0, 0, 0);
+  cardLay->setSpacing(0);
+
+  auto *dlg = new SettingsDialog(m_profileManager, card);
+  dlg->embedInWorkspace();
+  dlg->show();
+
+  ModernToolbar *toolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
+  if (toolbar) {
+    bool isRad = (toolbar->currentStyle() == ModernToolbar::Radial);
+    bool isHalf = (toolbar->radialType() == ModernToolbar::HalfEdge);
+    dlg->setToolbarConfig(isRad, isHalf);
+  }
+  connect(dlg, &SettingsDialog::accentColorChanged, this,
+          &MainWindow::updateTheme);
+  connect(dlg, &SettingsDialog::toolbarStyleChanged,
+          [this, toolbar](bool radial) {
+#ifndef Q_OS_ANDROID
+            Q_UNUSED(radial);
+            if (toolbar) {
+              toolbar->setStyle(ModernToolbar::Normal);
+              toolbar->applyDrawboardVerticalRail();
+            }
+            if (m_radialFab)
+              m_radialFab->hide();
+            positionNoteChrome();
+#else
+            if (toolbar)
+              toolbar->setStyle(radial ? ModernToolbar::Radial
+                                       : ModernToolbar::Normal);
+            if (m_radialFab)
+              m_radialFab->setVisible(radial);
+#endif
+          });
+  connect(dlg, &SettingsDialog::storagePrefsChanged, this,
+          [this]() { applyStoragePrefsToLibrary(); });
+  connect(dlg, &SettingsDialog::logoutRequested, this, [this]() {
+    QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    st.remove(QStringLiteral("session_id"));
+    st.remove(QStringLiteral("username"));
+    st.sync();
+    updateSidebarUser(QString());
+    const QString clearJs = QStringLiteral(
+        "localStorage.removeItem('session_id');"
+        "localStorage.removeItem('username');"
+        "window.location.href = '/login';");
+#ifdef Q_OS_ANDROID
+    emit injectToken(clearJs);
+#else
+#ifdef BLOP_HAS_WEBENGINE
+    if (m_studyWebView && m_studyWebView->page())
+      m_studyWebView->page()->runJavaScript(clearJs);
+#endif
+#endif
+  });
+  connect(dlg, &SettingsDialog::profileEditRequested, this,
+          [this](const QString &id) {
+            UiProfile p = m_profileManager->profileById(id);
+            UiProfile original = p;
+            ProfileEditorDialog editor(p, this);
+            connect(&editor, &ProfileEditorDialog::previewRequested, this,
+                    &MainWindow::applyProfile);
+            if (BlopModal::execBlocking(this, &editor) == QDialog::Accepted) {
+              m_profileManager->updateProfile(editor.getProfile(), true);
+              applyProfile(editor.getProfile());
+            } else {
+              m_profileManager->updateProfile(original, true);
+              applyProfile(m_profileManager->currentProfile());
+            }
+          });
+  connect(dlg, &QDialog::finished, this, [this, page](int) {
+    if (!m_editorTabs)
+      return;
+    const int idx = m_editorTabs->indexOf(page);
+    if (idx >= 0)
+      closeEditorTabAt(idx);
+  });
+  connect(&BlopTheme::instance(), &BlopTheme::themeChanged, page,
+          [page, card]() {
+            if (!page || !card)
+              return;
+            page->setStyleSheet(
+                QStringLiteral("QWidget#SettingsWorkspacePage { background: %1; }")
+                    .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
+            card->setStyleSheet(
+                QStringLiteral("QFrame#SettingsWorkspaceCard {"
+                               "  background: %1;"
+                               "  border: 1px solid %2;"
+                               "  border-radius: %3px;"
+                               "}")
+                    .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+                         BlopTheme::borderDefault().name(QColor::HexArgb),
+                         QString::number(BlopTheme::r24)));
+          });
+
+  cardLay->addWidget(dlg, 1);
+  outer->addWidget(card, 1);
+
+  m_editorTabs->addTab(page, QStringLiteral("Einstellungen"));
+  m_editorTabs->setCurrentWidget(page);
+  addNoteTab(QStringLiteral("Einstellungen"), QStringLiteral("settings"));
+  switchToWorkspaceChrome();
 }
 
 
@@ -4773,13 +4960,7 @@ void MainWindow::setupUi() {
               m_editorTabs->setCurrentIndex(index);
           });
   connect(m_documentTabBar, &DocumentTabBar::tabCloseRequested, this,
-          [this](int index) {
-            if (m_editorTabs) {
-              m_editorTabs->removeTab(index);
-              if (m_editorTabs->count() == 0)
-                onBackToOverview();
-            }
-          });
+          [this](int index) { closeEditorTabAt(index); });
   connect(m_documentTabBar, &DocumentTabBar::homeClicked, this,
           &MainWindow::onBackToOverview);
 
@@ -5492,19 +5673,8 @@ void MainWindow::setupUi() {
       "}"
       "QTabBar::tab:hover { color: #ccc; }"
       "QTabWidget::pane { border: none; }"));
-  connect(m_editorTabs, &QTabWidget::tabCloseRequested, [this](int index) {
-    if (auto *ed =
-            qobject_cast<NoteEditor *>(m_editorTabs->widget(index))) {
-      if (ed->view())
-        ed->view()->persistViewState(
-            ed->view()->property("viewStateKey").toString());
-    }
-    m_editorTabs->removeTab(index);
-    if (m_documentTabBar)
-      m_documentTabBar->removeTab(index);
-    if (m_editorTabs->count() == 0)
-      onBackToOverview();
-  });
+  connect(m_editorTabs, &QTabWidget::tabCloseRequested, this,
+          [this](int index) { closeEditorTabAt(index); });
   connect(m_editorTabs, &QTabWidget::currentChanged, this,
           &MainWindow::onTabChanged);
   centerLayout->addWidget(m_editorTabs);
@@ -8415,7 +8585,8 @@ void MainWindow::onNewPage() {
     return;
   }
   auto createNote = [this](const QString &name, bool isInfinite,
-                           const A4LayoutDialogResult &layoutResult) {
+                           const A4LayoutDialogResult &layoutResult,
+                           const QStringList &tags = QStringList()) {
     QString safeName = name;
     safeName.replace("/", "_").replace("\\", "_");
 
@@ -8458,6 +8629,8 @@ void MainWindow::onNewPage() {
       out << (qint32)0;
       file.close();
       mirrorNoteIfNeeded(path);
+      if (!tags.isEmpty())
+        LibraryTagStore::setTagsForPath(QFileInfo(path).absoluteFilePath(), tags);
       onFileDoubleClicked(m_fileModel->index(path));
       if (CanvasView *cv = getCurrentCanvas()) {
         cv->setPageColor(paper);
@@ -8485,6 +8658,8 @@ void MainWindow::onNewPage() {
       return;
     }
     mirrorNoteIfNeeded(path);
+    if (!tags.isEmpty())
+      LibraryTagStore::setTagsForPath(QFileInfo(path).absoluteFilePath(), tags);
     onFileDoubleClicked(m_fileModel->index(path));
   };
 
@@ -8629,21 +8804,17 @@ void MainWindow::onNewPage() {
   return;
 #else
   NewNoteDialog dlg(this);
-  if (BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 440) !=
+  if (BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 920) !=
       QDialog::Accepted)
     return;
-  QString name = dlg.getNoteName();
-  bool isInfinite = dlg.isInfiniteFormat();
   A4LayoutDialogResult layoutResult;
-  const QString subtitle = isInfinite
-      ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
-      : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
-  if (!showA4LayoutOverlay(this, QStringLiteral("Seitenlayout"), subtitle, 2,
-                           UIStyles::PageBackground, &layoutResult) ||
-      !layoutResult.accepted) {
-    return;
-  }
-  createNote(name, isInfinite, layoutResult);
+  layoutResult.accepted = true;
+  layoutResult.backgroundType = dlg.backgroundType();
+  layoutResult.paperColor = dlg.paperColor().isValid()
+                                ? dlg.paperColor()
+                                : UIStyles::PageBackground;
+  createNote(dlg.getNoteName(), dlg.isInfiniteFormat(), layoutResult,
+             dlg.selectedTags());
 #endif
 }
 
@@ -9702,7 +9873,12 @@ void MainWindow::updateSidebarState() {
   bool inNotesMode = true;
   if (m_mainContentStack)
     inNotesMode = (m_mainContentStack->currentIndex() == 0);
-  bool isEditor = inNotesMode && (m_rightStack->currentWidget() == m_editorContainer);
+  const bool inEditorStack =
+      inNotesMode && m_rightStack &&
+      (m_rightStack->currentWidget() == m_editorContainer);
+  const bool workspaceTab = editorTabIsWorkspace(
+      m_editorTabs ? m_editorTabs->currentWidget() : nullptr);
+  bool isEditor = inEditorStack && !workspaceTab;
   // Used for small UI morph animation when entering note editing.
   const bool prevIsEditor = m_lastIsEditor;
   const bool shouldMorphTopButtons =
@@ -9802,7 +9978,7 @@ void MainWindow::updateSidebarState() {
   }
   // Title-bar search competes with document tabs while editing; overview has its own.
   if (m_titleSearchBar)
-    m_titleSearchBar->setVisible(inNotesMode && !isEditor);
+    m_titleSearchBar->setVisible(inNotesMode && !inEditorStack);
   {
     bool showNoteOverflow = false;
     if (isEditor && m_editorTabs) {
@@ -11419,10 +11595,12 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
 }
 
 void MainWindow::onOpenSettings() {
-  // Close sidebar so modal overlays receive mouse/touch reliably.
   if (m_isSidebarOpen)
     onToggleSidebar();
 
+#ifndef Q_OS_ANDROID
+  openSettingsWorkspace();
+#else
   SettingsDialog dlg(m_profileManager, this);
   ModernToolbar *toolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (toolbar) {
@@ -11434,23 +11612,11 @@ void MainWindow::onOpenSettings() {
           &MainWindow::updateTheme);
   connect(&dlg, &SettingsDialog::toolbarStyleChanged,
           [this, toolbar](bool radial) {
-#ifndef Q_OS_ANDROID
-            // Desktop Drawboard: keep Favorites rail; ignore Radial.
-            Q_UNUSED(radial);
-            if (toolbar) {
-              toolbar->setStyle(ModernToolbar::Normal);
-              toolbar->applyDrawboardVerticalRail();
-            }
-            if (m_radialFab)
-              m_radialFab->hide();
-            positionNoteChrome();
-#else
             if (toolbar)
               toolbar->setStyle(radial ? ModernToolbar::Radial
                                        : ModernToolbar::Normal);
             if (m_radialFab)
               m_radialFab->setVisible(radial);
-#endif
           });
   connect(&dlg, &SettingsDialog::storagePrefsChanged, this,
           [this]() { applyStoragePrefsToLibrary(); });
@@ -11464,26 +11630,10 @@ void MainWindow::onOpenSettings() {
         "localStorage.removeItem('session_id');"
         "localStorage.removeItem('username');"
         "window.location.href = '/login';");
-#ifdef Q_OS_ANDROID
     emit injectToken(clearJs);
-#else
-#ifdef BLOP_HAS_WEBENGINE
-    if (m_studyWebView && m_studyWebView->page())
-      m_studyWebView->page()->runJavaScript(clearJs);
-#endif
-#endif
   });
 
-  // Desktop: centered settings card, single-column so the inner cards
-  // are not clipped. SideSheet + leftover QDialog pos() animation shoved
-  // the panel into the window on Windows.
-#ifndef Q_OS_ANDROID
-  dlg.setMinimumSize(400, 360);
-  dlg.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-  int res = BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card, 640);
-#else
   int res = BlopModal::execBlocking(this, &dlg);
-#endif
   if (res == SettingsDialog::EditProfileCode) {
     QString id = dlg.profileIdToEdit();
     UiProfile p = m_profileManager->profileById(id);
@@ -11499,6 +11649,7 @@ void MainWindow::onOpenSettings() {
       applyProfile(m_profileManager->currentProfile());
     }
   }
+#endif
 }
 
 void MainWindow::setPageColor(bool dark) {
@@ -12946,6 +13097,12 @@ void MainWindow::onTabChanged(int index) {
 
   QWidget *current = m_editorTabs->currentWidget();
   NoteEditor *editor = qobject_cast<NoteEditor *>(current);
+  if (editorTabIsWorkspace(current)) {
+    switchToWorkspaceChrome();
+  } else if (index >= 0 && current && m_rightStack &&
+             m_rightStack->currentWidget() == m_editorContainer) {
+    switchToEditorChrome();
+  }
   if (m_pageThumbnailSidebar) {
     if (editor && editor->view()) {
       m_pageThumbnailSidebar->setNoteView(editor->view());

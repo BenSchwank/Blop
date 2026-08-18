@@ -452,7 +452,10 @@ void DocumentTabBar::refreshTheme() {
 }
 
 void DocumentTabBar::setCurrentIndex(int index) {
-  if (index < -1 || index >= m_tabs.size() || index == m_currentIndex)
+  if (index < -1 || index >= m_tabs.size())
+    return;
+  const bool leavingHome = m_homeActive;
+  if (index == m_currentIndex && !leavingHome)
     return;
 
   m_homeActive = false;

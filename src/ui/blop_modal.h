@@ -40,7 +40,8 @@ public:
 
   static BlopModal *present(QWidget *parent, QWidget *content,
                             Mode mode = Mode::Auto,
-                            const QString &accessibleTitle = QString());
+                            const QString &accessibleTitle = QString(),
+                            int preferredCardWidth = 0);
 
   /// v3.17.2: synchronous-feel replacement for QDialog::exec() that wraps
   /// any QDialog inside a BlopModal. The dialog is reparented (loses its
