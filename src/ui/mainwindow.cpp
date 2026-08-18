@@ -1289,18 +1289,22 @@ void ModernItemDelegate::paint(QPainter *painter,
     QRect previewBand(rect.left() + pad, rect.top() + pad,
                       rect.width() - 2 * pad,
                       qMax(22, rect.height() - textH - pad * 2));
+#ifdef Q_OS_ANDROID
     int iconDim = qMin(previewBand.width(), previewBand.height());
     iconDim = qMax(22, int(iconDim * iconShrink));
-#ifdef Q_OS_ANDROID
     iconDim = qMax(iconDim, qMin(previewBand.width(),
                                  qMin(previewBand.height(), UiScale::dp(80))));
-#endif
     QRect iconRect(previewBand.center().x() - iconDim / 2,
                    previewBand.center().y() - iconDim / 2, iconDim, iconDim);
     const QPixmap preview =
         NotePreviewIcon::pixmapForPath(path, isFolder, iconDim);
     if (!preview.isNull())
       painter->drawPixmap(iconRect, preview);
+#else
+    Q_UNUSED(iconShrink);
+    NotePreviewIcon::paintHero(painter, previewBand,
+                               NotePreviewIcon::specForPath(path, isFolder));
+#endif
 
     QRect textRect(rect.left() + UiScale::dp(10),
                    rect.bottom() - textH + UiScale::dp(2),

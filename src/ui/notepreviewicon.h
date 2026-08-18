@@ -2,7 +2,10 @@
 
 #include <QColor>
 #include <QPixmap>
+#include <QRect>
 #include <QString>
+
+class QPainter;
 
 /// Library-tile miniatures: A4 vs infinite, lined/grid/dots, and folders.
 namespace NotePreviewIcon {
@@ -19,5 +22,7 @@ struct Spec {
 Spec specForPath(const QString &path, bool isDirectory);
 QPixmap pixmap(const Spec &spec, int px);
 QPixmap pixmapForPath(const QString &path, bool isDirectory, int px);
+/// Full-bleed paper preview for library hero cards.
+void paintHero(QPainter *p, const QRect &r, const Spec &spec);
 
 } // namespace NotePreviewIcon
