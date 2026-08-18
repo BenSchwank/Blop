@@ -40,6 +40,7 @@
 #include <QVBoxLayout>
 #include <QVariantAnimation>
 #include <functional>
+#include <initializer_list>
 
 #ifndef BLOP_VERSION_STR
 #define BLOP_VERSION_STR "3.18.12"
@@ -173,7 +174,7 @@ public:
     BlopSettingsCard(const QString &title, const QString &subtitle, QWidget *parent)
         : QFrame(parent), m_title(title), m_subtitle(subtitle) {
         setSurfaceQss(this, QStringLiteral("BlopSettingsCard"));
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
         auto *root = new QVBoxLayout(this);
         root->setContentsMargins(24, 20, 24, 22);
@@ -488,16 +489,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     cardsHost->setObjectName(QStringLiteral("SettingsCardsHost"));
     cardsHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardsHost->setStyleSheet(QStringLiteral("background: transparent;"));
-    auto *cardsGrid = new QGridLayout(cardsHost);
-    cardsGrid->setContentsMargins(0, 0, 0, 0);
-    cardsGrid->setHorizontalSpacing(24);
-    cardsGrid->setVerticalSpacing(24);
-    cardsGrid->setColumnStretch(0, 1);
-    cardsGrid->setColumnStretch(1, 1);
-    cardsGrid->setColumnStretch(2, 1);
-    cardsGrid->setRowStretch(0, 2);
-    cardsGrid->setRowStretch(1, 2);
-    cardsGrid->setRowStretch(2, 3);
+    auto *hostLay = new QVBoxLayout(cardsHost);
+    hostLay->setContentsMargins(0, 0, 0, 0);
+    hostLay->setSpacing(24);
 
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
@@ -1184,20 +1178,37 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     }
     cardAdv->setExpanded(true);
 
-    // Dashboard: compact cards across the top, storage as a full-width
-    // panel so cloud controls can sit in two columns instead of a phone stack.
-    const QList<BlopSettingsCard *> allCards = {
-        cardKonto, cardTheme, cardStorage, cardLook, cardBehavior, cardAdv};
-    for (BlopSettingsCard *c : allCards) {
-        c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        c->setMinimumHeight(c == cardStorage ? 200 : 160);
-    }
-    cardsGrid->addWidget(cardKonto, 0, 0);
-    cardsGrid->addWidget(cardTheme, 0, 1);
-    cardsGrid->addWidget(cardLook, 0, 2);
-    cardsGrid->addWidget(cardBehavior, 1, 0, 1, 2);
-    cardsGrid->addWidget(cardAdv, 1, 2);
-    cardsGrid->addWidget(cardStorage, 2, 0, 1, 3);
+    // Three equal columns so cards keep their natural height instead of
+    // stretching into empty slabs; Speicher stays a full-width panel.
+    const auto policyCard = [](BlopSettingsCard *c) {
+        c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    };
+    policyCard(cardKonto);
+    policyCard(cardTheme);
+    policyCard(cardLook);
+    policyCard(cardBehavior);
+    policyCard(cardAdv);
+    policyCard(cardStorage);
+
+    auto makeCol = [cardsHost](std::initializer_list<QWidget *> cards) {
+        auto *col = new QWidget(cardsHost);
+        auto *v = new QVBoxLayout(col);
+        v->setContentsMargins(0, 0, 0, 0);
+        v->setSpacing(24);
+        for (QWidget *c : cards)
+            v->addWidget(c);
+        v->addStretch(1);
+        return col;
+    };
+    auto *topCols = new QHBoxLayout();
+    topCols->setContentsMargins(0, 0, 0, 0);
+    topCols->setSpacing(24);
+    topCols->addWidget(makeCol({cardKonto, cardBehavior}), 1);
+    topCols->addWidget(makeCol({cardTheme, cardLook}), 1);
+    topCols->addWidget(makeCol({cardAdv}), 1);
+    hostLay->addLayout(topCols, 0);
+    hostLay->addWidget(cardStorage, 0);
+    hostLay->addStretch(1);
     contentLay->addWidget(cardsHost, 1);
 
     // Search: hide cards whose title doesn't match the filter (simple

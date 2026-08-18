@@ -35,7 +35,7 @@ int tabMaxWidthPx() {
   // Narrow phones: leave room for home/menu/overflow in the Android header.
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(120);
-  return UiScale::dp(280);
+  return UiScale::dp(320);
 }
 } // namespace
 
@@ -144,11 +144,20 @@ void DocumentTab::refreshChromeStyle() {
 void DocumentTab::refreshTitleLabel() {
   if (!m_textLbl)
     return;
+  const QString fg = BlopTheme::instance().isDark() ? QStringLiteral("#E8E8FF")
+                                                    : QStringLiteral("#1C1B22");
+  m_textLbl->setStyleSheet(
+      QStringLiteral("QLabel { color: %1; font-size: 13px; font-weight: 600; }")
+          .arg(fg));
   QFontMetrics fm(m_textLbl->font());
-  // Leave room for icon + close + padding inside max tab width.
   const int textBudget =
       tabMaxWidthPx() - UiScale::dp(10 + 18 + 6 + (m_closable ? 24 : 0) + 6);
-  m_textLbl->setText(fm.elidedText(m_title, Qt::ElideRight, qMax(UiScale::dp(40), textBudget)));
+  const int needed = fm.horizontalAdvance(m_title);
+  if (needed <= qMax(UiScale::dp(40), textBudget))
+    m_textLbl->setText(m_title);
+  else
+    m_textLbl->setText(
+        fm.elidedText(m_title, Qt::ElideRight, qMax(UiScale::dp(40), textBudget)));
   setFixedWidth(sizeHint().width());
 }
 
