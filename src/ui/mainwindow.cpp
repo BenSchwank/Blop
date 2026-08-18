@@ -3519,18 +3519,20 @@ void MainWindow::openSettingsWorkspace() {
   auto *page = new QWidget();
   page->setProperty("blopWorkspaceKind", QStringLiteral("settings"));
   page->setObjectName(QStringLiteral("SettingsWorkspacePage"));
+  page->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   page->setStyleSheet(
       QStringLiteral("QWidget#SettingsWorkspacePage { background: %1; }")
           .arg(BlopTheme::surfaceBackground().name(QColor::HexRgb)));
 
   auto *outer = new QVBoxLayout(page);
-  outer->setContentsMargins(UiScale::dp(28), UiScale::dp(22),
-                            UiScale::dp(28), UiScale::dp(24));
+  outer->setContentsMargins(UiScale::dp(18), UiScale::dp(14),
+                            UiScale::dp(18), UiScale::dp(16));
   outer->setSpacing(0);
 
   auto *card = new QFrame(page);
   card->setObjectName(QStringLiteral("SettingsWorkspaceCard"));
   card->setAttribute(Qt::WA_StyledBackground, true);
+  card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   card->setStyleSheet(
       QStringLiteral("QFrame#SettingsWorkspaceCard {"
                      "  background: %1;"

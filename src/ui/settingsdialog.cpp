@@ -1330,6 +1330,17 @@ void SettingsDialog::embedInWorkspace() {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(0, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    if (auto *lay = layout())
+        lay->setSizeConstraint(QLayout::SetNoConstraint);
+    if (ui && ui->tabWidget) {
+        ui->tabWidget->setSizePolicy(QSizePolicy::Expanding,
+                                     QSizePolicy::Expanding);
+        ui->tabWidget->setMinimumSize(0, 0);
+        if (QWidget *panel = ui->tabWidget->widget(0)) {
+            panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+            panel->setMinimumSize(0, 0);
+        }
+    }
     setThemedQss(this, QStringLiteral(
         "QDialog { background: transparent; border: none; border-radius: 0px; }"));
 }

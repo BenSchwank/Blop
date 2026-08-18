@@ -35,7 +35,7 @@ int tabMaxWidthPx() {
   // Narrow phones: leave room for home/menu/overflow in the Android header.
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(120);
-  return UiScale::dp(168);
+  return UiScale::dp(220);
 }
 } // namespace
 
