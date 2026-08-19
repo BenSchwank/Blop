@@ -490,6 +490,35 @@ if(WIN32)
     set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
+# Standalone VoiceOS-style assistant for try-out. Never linked into the Blop app.
+option(BLOP_BUILD_ASSISTANT_SANDBOX
+    "Build BlopAssistantSandbox (separate window, no Blop UI integration)" ON)
+if(BLOP_BUILD_ASSISTANT_SANDBOX AND NOT ANDROID)
+    qt_add_executable(BlopAssistantSandbox
+        sandbox/assistant/main.cpp
+        src/core/blopassistantengine.h
+        src/core/blopassistantengine.cpp
+        src/ui/blopassistantoverlay.h
+        src/ui/blopassistantoverlay.cpp
+        src/ui/notechrome.h
+        src/util/uiscale.h
+        src/util/uiscale.cpp
+    )
+    target_include_directories(BlopAssistantSandbox PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/util"
+    )
+    target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::Widgets)
+    if(BLOP_DESKTOP_WEBENGINE)
+        target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::WebEngineWidgets)
+        target_compile_definitions(BlopAssistantSandbox PRIVATE BLOP_HAS_WEBENGINE)
+    endif()
+    if(WIN32)
+        set_target_properties(BlopAssistantSandbox PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
+endif()
+
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---
 option(BLOP_BUILD_AUTOMATION "Register headless tooling targets (e.g. blop_benchmark_math); does not change Blop behavior" OFF)
 if(BLOP_BUILD_AUTOMATION AND NOT ANDROID)
