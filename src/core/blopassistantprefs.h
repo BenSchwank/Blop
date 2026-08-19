@@ -18,7 +18,9 @@ inline QKeySequence openChatSequence() {
                             QStringLiteral("Ctrl+Shift+Space"))
                         .toString();
   const QKeySequence seq(v);
-  return seq.isEmpty() ? QKeySequence(QStringLiteral("Ctrl+Shift+Space")) : seq;
+  if (seq.isEmpty() || seq == QKeySequence(Qt::Key_Escape))
+    return QKeySequence(QStringLiteral("Ctrl+Shift+Space"));
+  return seq;
 }
 
 inline void setOpenChatSequence(const QKeySequence &seq) {
@@ -32,7 +34,9 @@ inline QKeySequence pushToTalkSequence() {
                             QStringLiteral("Ctrl+Shift+T"))
                         .toString();
   const QKeySequence seq(v);
-  return seq.isEmpty() ? QKeySequence(QStringLiteral("Ctrl+Shift+T")) : seq;
+  if (seq.isEmpty() || seq == QKeySequence(Qt::Key_Escape))
+    return QKeySequence(QStringLiteral("Ctrl+Shift+T"));
+  return seq;
 }
 
 inline void setPushToTalkSequence(const QKeySequence &seq) {

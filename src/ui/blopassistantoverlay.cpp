@@ -164,12 +164,17 @@ void BlopAssistantOverlay::buildUi() {
   m_scroll->setWidgetResizable(true);
   m_scroll->setFrameShape(QFrame::NoFrame);
   m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_scroll->viewport()->setAutoFillBackground(false);
+  m_scroll->viewport()->setObjectName(QStringLiteral("BlopAssistantScrollView"));
   m_transcript = new QWidget(m_scroll);
+  m_transcript->setObjectName(QStringLiteral("BlopAssistantTranscript"));
+  m_transcript->setAutoFillBackground(false);
   m_transcriptLay = new QVBoxLayout(m_transcript);
   m_transcriptLay->setContentsMargins(0, 0, 2, 0);
   m_transcriptLay->setSpacing(UiScale::dp(6));
   m_transcriptLay->addStretch(1);
   m_scroll->setWidget(m_transcript);
+  m_scroll->hide();
   lay->addWidget(m_scroll, 1);
 
   m_examples = new QWidget(m_chat);
@@ -293,7 +298,8 @@ void BlopAssistantOverlay::applyChrome() {
       "  color: #8E8E8E; font-size: 12px; background: transparent;"
       "}"
       "QLabel#BlopAssistantEmpty { padding: 18px 8px; }"
-      "QScrollArea#BlopAssistantScroll { background: transparent; border: none; }"
+      "QScrollArea#BlopAssistantScroll, QWidget#BlopAssistantScrollView,"
+      "QWidget#BlopAssistantTranscript { background: transparent; border: none; }"
       "QLineEdit#BlopAssistantInput {"
       "  background: #262626; color: #E8E8E8; border: 1px solid #404040;"
       "  border-radius: 12px; padding: 8px 12px; font-size: 13px;"
@@ -441,6 +447,8 @@ void BlopAssistantOverlay::addBubble(const QString &text, bool fromUser) {
     m_empty->hide();
   if (m_examples)
     m_examples->hide();
+  if (m_scroll)
+    m_scroll->show();
   auto *lab = new QLabel(text, m_transcript);
   lab->setWordWrap(true);
   lab->setTextFormat(Qt::PlainText);

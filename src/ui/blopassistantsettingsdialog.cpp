@@ -39,8 +39,10 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   kf->setSpacing(10);
   m_openChat = new QKeySequenceEdit(keys);
   m_openChat->setClearButtonEnabled(true);
+  m_openChat->setFocusPolicy(Qt::ClickFocus);
   m_pushToTalk = new QKeySequenceEdit(keys);
   m_pushToTalk->setClearButtonEnabled(true);
+  m_pushToTalk->setFocusPolicy(Qt::ClickFocus);
   kf->addRow(QStringLiteral("Chat öffnen"), m_openChat);
   kf->addRow(QStringLiteral("Push-to-talk (halten)"), m_pushToTalk);
   auto *keyHint = new QLabel(
@@ -101,6 +103,8 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   auto *box = new QDialogButtonBox(QDialogButtonBox::Close, this);
   connect(box, &QDialogButtonBox::rejected, this, &QDialog::close);
   connect(box, &QDialogButtonBox::accepted, this, &QDialog::close);
+  if (QPushButton *closeBtn = box->button(QDialogButtonBox::Close))
+    closeBtn->setDefault(true);
   root->addWidget(box);
 
   setStyleSheet(QStringLiteral(
@@ -154,8 +158,16 @@ void BlopAssistantSettingsDialog::load() {
 }
 
 void BlopAssistantSettingsDialog::save() {
-  BlopAssistantPrefs::setOpenChatSequence(m_openChat->keySequence());
-  BlopAssistantPrefs::setPushToTalkSequence(m_pushToTalk->keySequence());
+  QKeySequence openSeq = m_openChat->keySequence();
+  QKeySequence pttSeq = m_pushToTalk->keySequence();
+  if (openSeq.isEmpty() || openSeq == QKeySequence(Qt::Key_Escape))
+    openSeq = QKeySequence(QStringLiteral("Ctrl+Shift+Space"));
+  if (pttSeq.isEmpty() || pttSeq == QKeySequence(Qt::Key_Escape))
+    pttSeq = QKeySequence(QStringLiteral("Ctrl+Shift+T"));
+  m_openChat->setKeySequence(openSeq);
+  m_pushToTalk->setKeySequence(pttSeq);
+  BlopAssistantPrefs::setOpenChatSequence(openSeq);
+  BlopAssistantPrefs::setPushToTalkSequence(pttSeq);
   BlopAssistantPrefs::setSpeakReplies(m_speak->isChecked());
   BlopAssistantPrefs::setSpeechRate(m_rate->value());
   BlopAssistantPrefs::setVoiceId(m_voice->currentData().toString());
