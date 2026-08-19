@@ -19,7 +19,8 @@
 BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
     : QDialog(parent) {
   setWindowTitle(QStringLiteral("Blop Assistant — Einstellungen"));
-  setWindowFlag(Qt::Window, true);
+  setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint |
+                 Qt::WindowCloseButtonHint);
   setMinimumWidth(420);
   setModal(false);
 

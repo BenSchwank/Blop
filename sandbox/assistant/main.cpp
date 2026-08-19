@@ -10,7 +10,8 @@
 #include <QKeySequenceEdit>
 #include <QDir>
 #include <QFile>
-#include <QIcon>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QKeyCombination>
@@ -347,7 +348,15 @@ public:
 
 private:
   void showSettings() {
+    m_notch->setExpanded(false);
     m_settings->show();
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
+      const QRect geo = screen->availableGeometry();
+      m_settings->adjustSize();
+      const QSize sz = m_settings->frameGeometry().size();
+      m_settings->move(geo.x() + (geo.width() - sz.width()) / 2,
+                       geo.y() + (geo.height() - sz.height()) / 2);
+    }
     m_settings->raise();
     m_settings->activateWindow();
   }
