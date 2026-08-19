@@ -79,6 +79,18 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidg
 
 option(BLOP_DESKTOP_WEBENGINE "Enable desktop Qt WebEngine/Pdf modules (required for release; MSVC is needed on Windows)" ON)
 
+# Qt does not ship WebEngine/Pdf for MinGW. Keep REQUIRED on MSVC/Linux so
+# release CI still fails if those modules are missing.
+if(WIN32 AND MINGW AND BLOP_DESKTOP_WEBENGINE)
+    message(WARNING
+        "Qt WebEngine/Pdf are not available with MinGW. "
+        "Disabling BLOP_DESKTOP_WEBENGINE for this kit "
+        "(Blop Study, in-app registration/login, PDF import). "
+        "Use a Desktop Qt MSVC kit for a full Windows build. "
+        "BlopAssistantSandbox still builds.")
+    set(BLOP_DESKTOP_WEBENGINE OFF)
+endif()
+
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
     # Android: Native WebView
