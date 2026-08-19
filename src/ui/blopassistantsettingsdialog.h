@@ -5,8 +5,10 @@
 class QCheckBox;
 class QComboBox;
 class QKeySequenceEdit;
-class QSlider;
 class QLabel;
+class QPushButton;
+class QShowEvent;
+class QSlider;
 
 // Standalone settings window for the companion. Opened from the tray /
 // taskbar — never from the notch.
@@ -18,6 +20,9 @@ public:
 signals:
   void prefsChanged();
 
+protected:
+  void showEvent(QShowEvent *event) override;
+
 private:
   void load();
   void save();
@@ -28,4 +33,5 @@ private:
   QSlider *m_rate{nullptr};
   QLabel *m_rateValue{nullptr};
   QComboBox *m_voice{nullptr};
+  QPushButton *m_closeBtn{nullptr};
 };

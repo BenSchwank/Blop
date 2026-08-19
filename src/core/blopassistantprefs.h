@@ -12,13 +12,25 @@ inline QSettings store() {
   return QSettings(QStringLiteral("Blop"), QStringLiteral("BlopAssistantSandbox"));
 }
 
+inline bool unusableShortcut(const QKeySequence &seq) {
+  if (seq.isEmpty() || seq.count() < 1)
+    return true;
+  const QString t = seq.toString(QKeySequence::PortableText);
+  if (t.compare(QLatin1String("Esc"), Qt::CaseInsensitive) == 0 ||
+      t.compare(QLatin1String("Escape"), Qt::CaseInsensitive) == 0)
+    return true;
+  if (seq[0].key() == Qt::Key_Escape)
+    return true;
+  return false;
+}
+
 inline QKeySequence openChatSequence() {
   QSettings s = store();
   const QString v = s.value(QStringLiteral("hotkeys/openChat"),
                             QStringLiteral("Ctrl+Shift+Space"))
                         .toString();
   const QKeySequence seq(v);
-  if (seq.isEmpty() || seq == QKeySequence(Qt::Key_Escape))
+  if (unusableShortcut(seq))
     return QKeySequence(QStringLiteral("Ctrl+Shift+Space"));
   return seq;
 }
@@ -34,7 +46,7 @@ inline QKeySequence pushToTalkSequence() {
                             QStringLiteral("Ctrl+Shift+T"))
                         .toString();
   const QKeySequence seq(v);
-  if (seq.isEmpty() || seq == QKeySequence(Qt::Key_Escape))
+  if (unusableShortcut(seq))
     return QKeySequence(QStringLiteral("Ctrl+Shift+T"));
   return seq;
 }

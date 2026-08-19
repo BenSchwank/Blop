@@ -12,6 +12,7 @@
 #include <QKeySequenceEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QSlider>
 #include <QVBoxLayout>
 
@@ -103,8 +104,10 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   auto *box = new QDialogButtonBox(QDialogButtonBox::Close, this);
   connect(box, &QDialogButtonBox::rejected, this, &QDialog::close);
   connect(box, &QDialogButtonBox::accepted, this, &QDialog::close);
-  if (QPushButton *closeBtn = box->button(QDialogButtonBox::Close))
+  if (QPushButton *closeBtn = box->button(QDialogButtonBox::Close)) {
     closeBtn->setDefault(true);
+    m_closeBtn = closeBtn;
+  }
   root->addWidget(box);
 
   setStyleSheet(QStringLiteral(
@@ -147,6 +150,12 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   });
 }
 
+void BlopAssistantSettingsDialog::showEvent(QShowEvent *event) {
+  QDialog::showEvent(event);
+  if (m_closeBtn)
+    m_closeBtn->setFocus(Qt::OtherFocusReason);
+}
+
 void BlopAssistantSettingsDialog::load() {
   m_openChat->setKeySequence(BlopAssistantPrefs::openChatSequence());
   m_pushToTalk->setKeySequence(BlopAssistantPrefs::pushToTalkSequence());
@@ -160,12 +169,14 @@ void BlopAssistantSettingsDialog::load() {
 void BlopAssistantSettingsDialog::save() {
   QKeySequence openSeq = m_openChat->keySequence();
   QKeySequence pttSeq = m_pushToTalk->keySequence();
-  if (openSeq.isEmpty() || openSeq == QKeySequence(Qt::Key_Escape))
+  if (BlopAssistantPrefs::unusableShortcut(openSeq))
     openSeq = QKeySequence(QStringLiteral("Ctrl+Shift+Space"));
-  if (pttSeq.isEmpty() || pttSeq == QKeySequence(Qt::Key_Escape))
+  if (BlopAssistantPrefs::unusableShortcut(pttSeq))
     pttSeq = QKeySequence(QStringLiteral("Ctrl+Shift+T"));
-  m_openChat->setKeySequence(openSeq);
-  m_pushToTalk->setKeySequence(pttSeq);
+  if (m_openChat->keySequence() != openSeq)
+    m_openChat->setKeySequence(openSeq);
+  if (m_pushToTalk->keySequence() != pttSeq)
+    m_pushToTalk->setKeySequence(pttSeq);
   BlopAssistantPrefs::setOpenChatSequence(openSeq);
   BlopAssistantPrefs::setPushToTalkSequence(pttSeq);
   BlopAssistantPrefs::setSpeakReplies(m_speak->isChecked());
