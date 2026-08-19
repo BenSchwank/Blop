@@ -9,12 +9,14 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
-#include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QScreen>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -113,77 +115,69 @@ void BlopAssistantOverlay::setStandalone(bool on) {
 
 void BlopAssistantOverlay::buildUi() {
   auto *outer = new QVBoxLayout(this);
-  outer->setContentsMargins(UiScale::dp(8), UiScale::dp(8), UiScale::dp(8),
-                            UiScale::dp(8));
-  outer->setSpacing(0);
+  outer->setContentsMargins(UiScale::dp(6), UiScale::dp(4), UiScale::dp(6),
+                            UiScale::dp(6));
+  outer->setSpacing(UiScale::dp(6));
+  outer->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
-  m_card = new QFrame(this);
-  m_card->setObjectName(QStringLiteral("BlopAssistantCard"));
-  outer->addWidget(m_card);
+  m_notch = new QWidget(this);
+  m_notch->setObjectName(QStringLiteral("BlopAssistantNotch"));
+  m_notch->setFixedSize(UiScale::dp(108), UiScale::dp(22));
+  m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  m_notch->setCursor(Qt::PointingHandCursor);
+  m_notch->setToolTip(QStringLiteral("Chat öffnen"));
+  auto *notchLay = new QHBoxLayout(m_notch);
+  notchLay->setContentsMargins(0, 0, 0, 0);
+  notchLay->setAlignment(Qt::AlignCenter);
+  m_notchLine = new QWidget(m_notch);
+  m_notchLine->setObjectName(QStringLiteral("BlopAssistantNotchLine"));
+  m_notchLine->setFixedSize(UiScale::dp(28), UiScale::dp(3));
+  m_notchLine->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  notchLay->addWidget(m_notchLine, 0, Qt::AlignCenter);
+  outer->addWidget(m_notch, 0, Qt::AlignHCenter);
 
-  auto *lay = new QVBoxLayout(m_card);
-  lay->setContentsMargins(UiScale::dp(14), UiScale::dp(12), UiScale::dp(14),
-                          UiScale::dp(12));
+  m_chat = new QFrame(this);
+  m_chat->setObjectName(QStringLiteral("BlopAssistantCard"));
+  outer->addWidget(m_chat, 1);
+
+  auto *lay = new QVBoxLayout(m_chat);
+  lay->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
+                          UiScale::dp(10));
   lay->setSpacing(UiScale::dp(8));
-
-  m_idleRow = new QWidget(m_card);
-  auto *idle = new QHBoxLayout(m_idleRow);
-  idle->setContentsMargins(0, 0, 0, 0);
-  idle->setSpacing(UiScale::dp(10));
-  m_orb = new QLabel(m_idleRow);
-  m_orb->setObjectName(QStringLiteral("BlopAssistantOrb"));
-  m_orb->setFixedSize(UiScale::dp(18), UiScale::dp(18));
-  m_idleLabel = new QLabel(QStringLiteral("Blop  ·  klicken oder sprechen"),
-                           m_idleRow);
-  m_idleLabel->setObjectName(QStringLiteral("BlopAssistantIdle"));
-  idle->addWidget(m_orb, 0);
-  idle->addWidget(m_idleLabel, 1);
-  lay->addWidget(m_idleRow);
 
   auto *top = new QHBoxLayout();
   top->setContentsMargins(0, 0, 0, 0);
-  top->setSpacing(UiScale::dp(8));
-  m_title = new QLabel(QStringLiteral("Blop Assistant"), m_card);
+  m_title = new QLabel(QStringLiteral("Blop"), m_chat);
   m_title->setObjectName(QStringLiteral("BlopAssistantTitle"));
-  m_closeBtn = makeIconBtn(m_card, QStringLiteral("Einklappen (Esc)"));
-  m_closeBtn->setText(QStringLiteral("–"));
-  m_closeBtn->setFixedSize(UiScale::dp(28), UiScale::dp(28));
   top->addWidget(m_title, 1);
-  top->addWidget(m_closeBtn, 0);
   lay->addLayout(top);
 
-  m_status = new QLabel(
-      QStringLiteral("Sag oder tippe, was ich tun soll."), m_card);
-  m_status->setObjectName(QStringLiteral("BlopAssistantStatus"));
-  m_status->setWordWrap(true);
-  lay->addWidget(m_status);
+  m_empty = new QLabel(
+      QStringLiteral("Schreib etwas, oder halt Push-to-talk."), m_chat);
+  m_empty->setObjectName(QStringLiteral("BlopAssistantEmpty"));
+  m_empty->setWordWrap(true);
+  m_empty->setAlignment(Qt::AlignCenter);
+  lay->addWidget(m_empty);
 
-  auto *row = new QHBoxLayout();
-  row->setContentsMargins(0, 0, 0, 0);
-  row->setSpacing(UiScale::dp(8));
-  m_input = new QLineEdit(m_card);
-  m_input->setObjectName(QStringLiteral("BlopAssistantInput"));
-  m_input->setPlaceholderText(
-      QStringLiteral("neue Notiz Einkauf  ·  öffne YouTube  ·  starte Chrome"));
-  m_micBtn = makeIconBtn(m_card, QStringLiteral("Mikrofon"));
-  m_micBtn->setObjectName(QStringLiteral("BlopAssistantMic"));
-  m_micBtn->setText(QStringLiteral("●"));
-  m_micBtn->setFixedSize(UiScale::dp(36), UiScale::dp(36));
-  m_sendBtn = makeIconBtn(m_card, QStringLiteral("Ausführen"));
-  m_sendBtn->setObjectName(QStringLiteral("BlopAssistantSend"));
-  m_sendBtn->setText(QStringLiteral("→"));
-  m_sendBtn->setFixedSize(UiScale::dp(36), UiScale::dp(36));
-  row->addWidget(m_input, 1);
-  row->addWidget(m_micBtn, 0);
-  row->addWidget(m_sendBtn, 0);
-  lay->addLayout(row);
+  m_scroll = new QScrollArea(m_chat);
+  m_scroll->setObjectName(QStringLiteral("BlopAssistantScroll"));
+  m_scroll->setWidgetResizable(true);
+  m_scroll->setFrameShape(QFrame::NoFrame);
+  m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_transcript = new QWidget(m_scroll);
+  m_transcriptLay = new QVBoxLayout(m_transcript);
+  m_transcriptLay->setContentsMargins(0, 0, 2, 0);
+  m_transcriptLay->setSpacing(UiScale::dp(6));
+  m_transcriptLay->addStretch(1);
+  m_scroll->setWidget(m_transcript);
+  lay->addWidget(m_scroll, 1);
 
-  m_examples = new QWidget(m_card);
+  m_examples = new QWidget(m_chat);
   auto *ex = new QHBoxLayout(m_examples);
   ex->setContentsMargins(0, 0, 0, 0);
   ex->setSpacing(UiScale::dp(6));
-  const QStringList chips = {QStringLiteral("Notiz"), QStringLiteral("Browser"),
-                             QStringLiteral("App"), QStringLiteral("Hilfe")};
+  const QStringList chips = {QStringLiteral("Notiz"), QStringLiteral("YouTube"),
+                             QStringLiteral("Hilfe")};
   for (const QString &c : chips) {
     auto *b = new QPushButton(c, m_examples);
     b->setCursor(Qt::PointingHandCursor);
@@ -197,10 +191,8 @@ void BlopAssistantOverlay::buildUi() {
       }
       if (c == QLatin1String("Notiz"))
         m_input->setText(QStringLiteral("neue Notiz "));
-      else if (c == QLatin1String("Browser"))
-        m_input->setText(QStringLiteral("öffne "));
       else
-        m_input->setText(QStringLiteral("starte "));
+        m_input->setText(QStringLiteral("öffne YouTube"));
       m_input->setFocus();
       m_input->end(false);
     });
@@ -209,7 +201,7 @@ void BlopAssistantOverlay::buildUi() {
   ex->addStretch(1);
   lay->addWidget(m_examples);
 
-  m_confirmBar = new QWidget(m_card);
+  m_confirmBar = new QWidget(m_chat);
   m_confirmBar->setObjectName(QStringLiteral("BlopAssistantConfirm"));
   auto *cf = new QHBoxLayout(m_confirmBar);
   cf->setContentsMargins(0, 0, 0, 0);
@@ -217,10 +209,10 @@ void BlopAssistantOverlay::buildUi() {
   m_confirmLabel = new QLabel(m_confirmBar);
   m_confirmLabel->setObjectName(QStringLiteral("BlopAssistantConfirmLabel"));
   m_confirmLabel->setWordWrap(true);
-  m_confirmYes = new QPushButton(QStringLiteral("Ausführen"), m_confirmBar);
+  m_confirmYes = new QPushButton(QStringLiteral("Ja"), m_confirmBar);
   m_confirmYes->setObjectName(QStringLiteral("BlopAssistantConfirmYes"));
   m_confirmYes->setCursor(Qt::PointingHandCursor);
-  m_confirmNo = new QPushButton(QStringLiteral("Abbrechen"), m_confirmBar);
+  m_confirmNo = new QPushButton(QStringLiteral("Nein"), m_confirmBar);
   m_confirmNo->setObjectName(QStringLiteral("BlopAssistantConfirmNo"));
   m_confirmNo->setCursor(Qt::PointingHandCursor);
   cf->addWidget(m_confirmLabel, 1);
@@ -229,12 +221,34 @@ void BlopAssistantOverlay::buildUi() {
   m_confirmBar->hide();
   lay->addWidget(m_confirmBar);
 
+  auto *row = new QHBoxLayout();
+  row->setContentsMargins(0, 0, 0, 0);
+  row->setSpacing(UiScale::dp(6));
+  m_input = new QLineEdit(m_chat);
+  m_input->setObjectName(QStringLiteral("BlopAssistantInput"));
+  m_input->setPlaceholderText(QStringLiteral("Nachricht…"));
+  m_micBtn = makeIconBtn(m_chat, QStringLiteral("Mikrofon"));
+  m_micBtn->setObjectName(QStringLiteral("BlopAssistantMic"));
+  m_micBtn->setText(QStringLiteral("●"));
+  m_micBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  m_sendBtn = makeIconBtn(m_chat, QStringLiteral("Senden"));
+  m_sendBtn->setObjectName(QStringLiteral("BlopAssistantSend"));
+  m_sendBtn->setText(QStringLiteral("↑"));
+  m_sendBtn->setFixedSize(UiScale::dp(32), UiScale::dp(32));
+  row->addWidget(m_input, 1);
+  row->addWidget(m_micBtn, 0);
+  row->addWidget(m_sendBtn, 0);
+  lay->addLayout(row);
+
+  m_hint = new QLabel(m_chat);
+  m_hint->setObjectName(QStringLiteral("BlopAssistantHint"));
+  m_hint->hide();
+  lay->addWidget(m_hint);
+
   connect(m_sendBtn, &QToolButton::clicked, this,
           &BlopAssistantOverlay::submitCurrent);
   connect(m_input, &QLineEdit::returnPressed, this,
           &BlopAssistantOverlay::submitCurrent);
-  connect(m_closeBtn, &QToolButton::clicked, this,
-          [this]() { setExpanded(false); });
   connect(m_micBtn, &QToolButton::clicked, this, [this]() {
     if (m_listening)
       stopListening();
@@ -247,78 +261,71 @@ void BlopAssistantOverlay::buildUi() {
   });
   connect(m_confirmNo, &QPushButton::clicked, this, [this]() {
     clearConfirm();
-    setStatus(QStringLiteral("Abgebrochen."));
+    addAssistantMessage(QStringLiteral("Alles klar, abgebrochen."));
     emit confirmRejected();
   });
 
-  m_idleRow->installEventFilter(this);
   m_input->installEventFilter(this);
 }
 
 void BlopAssistantOverlay::applyChrome() {
   setStyleSheet(QStringLiteral(
       "QWidget#BlopAssistantOverlay { background: transparent; }"
+      "QWidget#BlopAssistantNotch {"
+      "  background: #1C1C1C;"
+      "  border: 1px solid rgba(255,255,255,0.10);"
+      "  border-radius: 11px;"
+      "}"
+      "QWidget#BlopAssistantNotchLine {"
+      "  background: rgba(255,255,255,0.16);"
+      "  border: none; border-radius: 2px;"
+      "}"
       "QFrame#BlopAssistantCard {"
-      "  background: #16131F;"
-      "  border: 1px solid rgba(124,92,252,0.45);"
-      "  border-radius: 22px;"
+      "  background: #1E1E1E;"
+      "  border: 1px solid rgba(255,255,255,0.08);"
+      "  border-radius: 16px;"
       "}"
-      "QLabel#BlopAssistantOrb {"
-      "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-      "    stop:0 #7C5CFC, stop:1 #5B9DFF);"
-      "  border-radius: 9px;"
+      "QLabel#BlopAssistantTitle {"
+      "  color: #E8E8E8; font-weight: 700; font-size: 13px; background: transparent;"
       "}"
-      "QLabel#BlopAssistantIdle, QLabel#BlopAssistantTitle {"
-      "  color: #F4F5FB; font-weight: 800; font-size: 13px; background: transparent;"
+      "QLabel#BlopAssistantEmpty, QLabel#BlopAssistantHint,"
+      "QLabel#BlopAssistantConfirmLabel {"
+      "  color: #8E8E8E; font-size: 12px; background: transparent;"
       "}"
-      "QLabel#BlopAssistantIdle { font-weight: 650; color: rgba(244,245,251,0.88); }"
-      "QLabel#BlopAssistantStatus, QLabel#BlopAssistantConfirmLabel {"
-      "  color: rgba(200,196,230,0.86); font-size: 12px; background: transparent;"
-      "}"
+      "QLabel#BlopAssistantEmpty { padding: 18px 8px; }"
+      "QScrollArea#BlopAssistantScroll { background: transparent; border: none; }"
       "QLineEdit#BlopAssistantInput {"
-      "  background: #211C30; color: #F4F5FB; border: 1px solid rgba(91,157,255,0.28);"
-      "  border-radius: 14px; padding: 9px 12px; font-size: 13px;"
+      "  background: #262626; color: #E8E8E8; border: 1px solid #404040;"
+      "  border-radius: 12px; padding: 8px 12px; font-size: 13px;"
       "}"
       "QLineEdit#BlopAssistantInput:focus { border: 1px solid #5B9DFF; }"
-      "QToolButton { color: #F4F5FB; background: transparent; border: none;"
-      "  font-size: 16px; font-weight: 700; border-radius: 10px; }"
-      "QToolButton:hover { background: rgba(124,92,252,0.22); }"
+      "QToolButton { color: #E8E8E8; background: transparent; border: none;"
+      "  font-size: 15px; font-weight: 700; border-radius: 10px; }"
+      "QToolButton:hover { background: rgba(91,157,255,0.18); }"
       "QToolButton#BlopAssistantMic { color: #5B9DFF; }"
+      "QToolButton#BlopAssistantSend { background: #5B9DFF; color: #0B1220; }"
       "QPushButton#BlopAssistantChip {"
-      "  background: rgba(124,92,252,0.16); color: #EDE9FF; border: none;"
-      "  border-radius: 11px; padding: 6px 11px; font-size: 11px; font-weight: 650;"
+      "  background: #262626; color: #C8C8C8; border: 1px solid #3A3A3A;"
+      "  border-radius: 11px; padding: 5px 10px; font-size: 11px;"
       "}"
-      "QPushButton#BlopAssistantChip:hover { background: rgba(91,157,255,0.28); }"
+      "QPushButton#BlopAssistantChip:hover { border-color: #5B9DFF; color: #E8E8E8; }"
       "QPushButton#BlopAssistantConfirmYes {"
-      "  background: #5B9DFF; color: #0B1220; border: none; border-radius: 11px;"
-      "  padding: 7px 12px; font-weight: 800;"
+      "  background: #5B9DFF; color: #0B1220; border: none; border-radius: 10px;"
+      "  padding: 6px 12px; font-weight: 700;"
       "}"
       "QPushButton#BlopAssistantConfirmNo {"
-      "  background: rgba(255,255,255,0.06); color: #EDE9FF; border: 1px solid #3A3550;"
-      "  border-radius: 11px; padding: 7px 12px; font-weight: 650;"
-      "}"));
+      "  background: transparent; color: #E8E8E8; border: 1px solid #404040;"
+      "  border-radius: 10px; padding: 6px 12px;"
+      "}"
+      "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; }"
+      "QScrollBar::handle:vertical { background: rgba(255,255,255,0.14);"
+      "  border-radius: 4px; min-height: 24px; }"
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
 }
 
 void BlopAssistantOverlay::applyLayoutMode() {
-  const bool exp = m_expanded;
-  if (m_idleRow)
-    m_idleRow->setVisible(!exp && m_standalone);
-  if (m_title)
-    m_title->setVisible(exp);
-  if (m_closeBtn)
-    m_closeBtn->setVisible(exp);
-  if (m_status)
-    m_status->setVisible(exp);
-  if (m_input)
-    m_input->setVisible(exp);
-  if (m_micBtn)
-    m_micBtn->setVisible(exp);
-  if (m_sendBtn)
-    m_sendBtn->setVisible(exp);
-  if (m_examples)
-    m_examples->setVisible(exp);
-  if (m_confirmBar && !exp)
-    m_confirmBar->hide();
+  if (m_chat)
+    m_chat->setVisible(m_expanded);
 }
 
 void BlopAssistantOverlay::placeOnScreen() {
@@ -326,10 +333,10 @@ void BlopAssistantOverlay::placeOnScreen() {
   if (!screen)
     return;
   const QRect geo = screen->availableGeometry();
-  const int w = m_expanded ? UiScale::dp(520) : UiScale::dp(280);
-  const int h = m_expanded ? UiScale::dp(228) : UiScale::dp(56);
+  const int w = m_expanded ? UiScale::dp(380) : UiScale::dp(128);
+  const int h = m_expanded ? UiScale::dp(430) : UiScale::dp(34);
   const int x = geo.x() + (geo.width() - w) / 2;
-  const int y = geo.y() + geo.height() - h - UiScale::dp(28);
+  const int y = geo.y() + UiScale::dp(8);
   setFixedSize(w, h);
   move(x, y);
 }
@@ -343,16 +350,16 @@ void BlopAssistantOverlay::reposition() {
   }
   if (!m_host)
     return;
-  const int margin = UiScale::dp(16);
-  const int w = qBound(UiScale::dp(320), int(m_host->width() * 0.52),
-                       UiScale::dp(560));
-  const int h = m_expanded ? UiScale::dp(188) : UiScale::dp(0);
   if (!m_expanded) {
     hide();
     return;
   }
+  const int margin = UiScale::dp(16);
+  const int w = qBound(UiScale::dp(300), int(m_host->width() * 0.48),
+                       UiScale::dp(420));
+  const int h = UiScale::dp(360);
   const int x = qMax(margin, (m_host->width() - w) / 2);
-  const int y = qMax(margin, m_host->height() - h - UiScale::dp(28));
+  const int y = margin;
   setGeometry(x, y, w, h);
   show();
   raise();
@@ -383,12 +390,10 @@ void BlopAssistantOverlay::setExpanded(bool expanded) {
 void BlopAssistantOverlay::toggleExpanded() { setExpanded(!m_expanded); }
 
 void BlopAssistantOverlay::setStatus(const QString &text) {
-  if (m_status)
-    m_status->setText(text);
-  if (m_idleLabel && !m_expanded)
-    m_idleLabel->setText(text.isEmpty()
-                             ? QStringLiteral("Blop  ·  klicken oder sprechen")
-                             : text);
+  if (m_hint) {
+    m_hint->setText(text);
+    m_hint->setVisible(!text.isEmpty() && m_expanded);
+  }
 }
 
 void BlopAssistantOverlay::setHeadline(const QString &text) {
@@ -399,7 +404,6 @@ void BlopAssistantOverlay::setHeadline(const QString &text) {
 void BlopAssistantOverlay::focusInput() {
   if (m_input && m_expanded) {
     m_input->setFocus(Qt::OtherFocusReason);
-    m_input->selectAll();
   }
 }
 
@@ -410,8 +414,9 @@ void BlopAssistantOverlay::refreshChrome() {
 
 void BlopAssistantOverlay::promptConfirm(const QString &prompt) {
   setExpanded(true);
+  addAssistantMessage(prompt);
   if (m_confirmLabel)
-    m_confirmLabel->setText(prompt);
+    m_confirmLabel->setText(QStringLiteral("Ausführen?"));
   if (m_confirmBar)
     m_confirmBar->show();
 }
@@ -419,6 +424,53 @@ void BlopAssistantOverlay::promptConfirm(const QString &prompt) {
 void BlopAssistantOverlay::clearConfirm() {
   if (m_confirmBar)
     m_confirmBar->hide();
+}
+
+void BlopAssistantOverlay::addUserMessage(const QString &text) {
+  addBubble(text, true);
+}
+
+void BlopAssistantOverlay::addAssistantMessage(const QString &text) {
+  addBubble(text, false);
+}
+
+void BlopAssistantOverlay::addBubble(const QString &text, bool fromUser) {
+  if (text.trimmed().isEmpty() || !m_transcriptLay)
+    return;
+  if (m_empty)
+    m_empty->hide();
+  if (m_examples)
+    m_examples->hide();
+  auto *lab = new QLabel(text, m_transcript);
+  lab->setWordWrap(true);
+  lab->setTextFormat(Qt::PlainText);
+  lab->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  lab->setStyleSheet(fromUser ? QStringLiteral(
+                                    "QLabel { background: #5B9DFF; color: #0B1220;"
+                                    " border-radius: 12px; padding: 8px 10px;"
+                                    " font-size: 12px; }")
+                              : QStringLiteral(
+                                    "QLabel { background: #2A2A2A; color: #E8E8E8;"
+                                    " border-radius: 12px; padding: 8px 10px;"
+                                    " font-size: 12px; }"));
+  auto *row = new QHBoxLayout();
+  row->setContentsMargins(0, 0, 0, 0);
+  if (fromUser)
+    row->addStretch(1);
+  row->addWidget(lab, 0);
+  if (!fromUser)
+    row->addStretch(1);
+  m_transcriptLay->insertLayout(m_transcriptLay->count() - 1, row);
+  scrollChatToEnd();
+}
+
+void BlopAssistantOverlay::scrollChatToEnd() {
+  if (!m_scroll)
+    return;
+  QTimer::singleShot(0, this, [this]() {
+    if (auto *bar = m_scroll->verticalScrollBar())
+      bar->setValue(bar->maximum());
+  });
 }
 
 void BlopAssistantOverlay::submitCurrent() {
@@ -429,26 +481,34 @@ void BlopAssistantOverlay::submitCurrent() {
     return;
   stopListening();
   clearConfirm();
+  addUserMessage(text);
+  m_input->clear();
   emit utteranceSubmitted(text);
 }
+
+void BlopAssistantOverlay::startPushToTalk() {
+  setExpanded(true);
+  startListening();
+}
+
+void BlopAssistantOverlay::endPushToTalk() { stopListening(); }
 
 void BlopAssistantOverlay::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
+  if (!m_expanded)
+    return;
   QPainterPath path;
-  path.addRoundedRect(rect().adjusted(4, 4, -4, -4), 22, 22);
-  QLinearGradient g(0, 0, width(), height());
-  g.setColorAt(0.0, QColor(124, 92, 252, 55));
-  g.setColorAt(1.0, QColor(91, 157, 255, 40));
-  p.fillPath(path, g);
+  path.addRoundedRect(rect().adjusted(2, 2, -2, -2), 16, 16);
+  p.fillPath(path, QColor(0, 0, 0, 28));
 }
 
 void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton && m_standalone) {
-    m_dragging = true;
-    m_dragOffset = event->globalPosition().toPoint() - frameGeometry().topLeft();
-    if (!m_expanded)
-      setExpanded(true);
+    m_pressOnNotch = m_notch && m_notch->geometry().contains(event->pos());
+    m_dragging = false;
+    m_pressGlobal = event->globalPosition().toPoint();
+    m_dragOffset = m_pressGlobal - frameGeometry().topLeft();
     event->accept();
     return;
   }
@@ -456,16 +516,28 @@ void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
 }
 
 void BlopAssistantOverlay::mouseMoveEvent(QMouseEvent *event) {
-  if (m_dragging && (event->buttons() & Qt::LeftButton)) {
-    move(event->globalPosition().toPoint() - m_dragOffset);
-    event->accept();
+  if (!(event->buttons() & Qt::LeftButton) || !m_standalone) {
+    QWidget::mouseMoveEvent(event);
     return;
   }
-  QWidget::mouseMoveEvent(event);
+  const QPoint now = event->globalPosition().toPoint();
+  if ((now - m_pressGlobal).manhattanLength() > 8)
+    m_dragging = true;
+  if (m_dragging)
+    move(now - m_dragOffset);
+  event->accept();
 }
 
 void BlopAssistantOverlay::mouseReleaseEvent(QMouseEvent *event) {
-  m_dragging = false;
+  if (m_standalone && event->button() == Qt::LeftButton) {
+    const bool wasDrag = m_dragging;
+    m_dragging = false;
+    if (!wasDrag && m_pressOnNotch)
+      setExpanded(!m_expanded);
+    m_pressOnNotch = false;
+    event->accept();
+    return;
+  }
   QWidget::mouseReleaseEvent(event);
 }
 
@@ -484,10 +556,6 @@ void BlopAssistantOverlay::keyPressEvent(QKeyEvent *event) {
 }
 
 bool BlopAssistantOverlay::eventFilter(QObject *obj, QEvent *event) {
-  if (obj == m_idleRow && event->type() == QEvent::MouseButtonRelease) {
-    setExpanded(true);
-    return true;
-  }
   if (obj == m_input && event->type() == QEvent::KeyPress) {
     auto *ke = static_cast<QKeyEvent *>(event);
     if (ke->key() == Qt::Key_Escape) {
@@ -503,14 +571,13 @@ void BlopAssistantOverlay::startListening() {
   ensureSpeechPage();
   m_listening = true;
   m_micBtn->setText(QStringLiteral("■"));
-  setStatus(QStringLiteral("Ich höre zu…"));
+  setStatus(QStringLiteral("Zuhören… loslassen zum Senden."));
   if (m_speechView && m_speechView->page()) {
     m_speechView->page()->runJavaScript(
         QStringLiteral("window.blopStart && window.blopStart('de-DE');"));
   }
 #else
-  setStatus(QStringLiteral(
-      "Spracheingabe braucht Desktop-WebEngine — tippe den Befehl."));
+  setStatus(QStringLiteral("Mikrofon braucht WebEngine — tippe einfach."));
 #endif
 }
 
@@ -518,6 +585,8 @@ void BlopAssistantOverlay::stopListening() {
   m_listening = false;
   if (m_micBtn)
     m_micBtn->setText(QStringLiteral("●"));
+  if (m_hint && m_hint->text().startsWith(QLatin1String("Zuhören")))
+    m_hint->hide();
 }
 
 void BlopAssistantOverlay::handleSttConsole(const QString &message) {
@@ -525,22 +594,20 @@ void BlopAssistantOverlay::handleSttConsole(const QString &message) {
     const QString t = message.mid(14).trimmed();
     if (m_input)
       m_input->setText(t);
-    setStatus(QStringLiteral("Verstanden."));
+    setStatus(QString());
     submitCurrent();
     return;
   }
   if (message.startsWith(QLatin1String("BLOP_STT_INTERIM:"))) {
     if (m_input)
       m_input->setText(message.mid(16));
-    setStatus(QStringLiteral("Ich höre zu…"));
     return;
   }
   if (message.startsWith(QLatin1String("BLOP_STT_ERR:"))) {
     m_listening = false;
     if (m_micBtn)
       m_micBtn->setText(QStringLiteral("●"));
-    setStatus(QStringLiteral("Mikrofon: %1 — tippe den Befehl stattdessen.")
-                  .arg(message.mid(12)));
+    setStatus(QStringLiteral("Mikrofon nicht verfügbar — tippe stattdessen."));
     return;
   }
   if (message == QLatin1String("BLOP_STT_END")) {

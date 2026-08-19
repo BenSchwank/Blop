@@ -75,7 +75,7 @@ BlopAssistantIntent makeCreate(const QString &rest, bool infiniteHint,
       out.title = cleaned;
   }
   out.statusLine = QStringLiteral("Erstelle „%1“…").arg(out.title);
-  out.spokenReply = QStringLiteral("Ich lege die Notiz %1 an.").arg(out.title);
+  out.spokenReply = QStringLiteral("Notiz %1 ist angelegt.").arg(out.title);
   return out;
 }
 
@@ -154,7 +154,7 @@ BlopAssistantIntent makeUrl(const QUrl &url) {
   o.query = url.toString();
   o.needsConfirm = true;
   o.statusLine = QStringLiteral("Browser öffnen: %1").arg(url.host());
-  o.spokenReply = QStringLiteral("Ich öffne %1 im Browser.").arg(url.host());
+  o.spokenReply = QStringLiteral("Ich öffne %1.").arg(url.host());
   return o;
 }
 
@@ -165,7 +165,7 @@ BlopAssistantIntent makeApp(const QString &app) {
   o.query = app;
   o.needsConfirm = true;
   o.statusLine = QStringLiteral("App starten: %1").arg(app);
-  o.spokenReply = QStringLiteral("Ich starte %1.").arg(app);
+  o.spokenReply = QStringLiteral("Starte %1.").arg(app);
   return o;
 }
 
@@ -173,12 +173,12 @@ BlopAssistantIntent makeApp(const QString &app) {
 
 QString BlopAssistantEngine::helpText() {
   return QStringLiteral(
-      "Wie VoiceOS, als Blop-Begleiter:\n"
+      "Zum Beispiel:\n"
       "• neue Notiz Einkauf\n"
-      "• öffne YouTube  /  öffne github.com\n"
+      "• öffne YouTube\n"
       "• starte Calculator\n"
       "• suche im Web Qt\n"
-      "• öffne Einkauf  ·  Hilfe");
+      "• öffne Einkauf");
 }
 
 BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
@@ -187,8 +187,8 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
   BlopAssistantIntent unknown;
   unknown.query = raw;
   unknown.statusLine = QStringLiteral("Das habe ich nicht verstanden.");
-  unknown.spokenReply = QStringLiteral(
-      "Sag zum Beispiel: neue Notiz Einkauf, öffne YouTube, oder starte Chrome.");
+  unknown.spokenReply =
+      QStringLiteral("Sag zum Beispiel neue Notiz Einkauf, oder öffne YouTube.");
   if (n.isEmpty())
     return unknown;
 
@@ -198,9 +198,9 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       n == QLatin1String("commands") || n == QLatin1String("befehle")) {
     BlopAssistantIntent h;
     h.action = BlopAssistantAction::Help;
-    h.statusLine = QStringLiteral(
-        "Notizen, Browser, Apps — wie VoiceOS, im Blop-Look.");
-    h.spokenReply = helpText();
+    h.statusLine = QStringLiteral("Notizen, Browser, Apps.");
+    h.spokenReply =
+        QStringLiteral("Zum Beispiel: neue Notiz Einkauf, oder öffne YouTube.");
     return h;
   }
 
@@ -212,7 +212,7 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
     BlopAssistantIntent lib;
     lib.action = BlopAssistantAction::ShowLibrary;
     lib.statusLine = QStringLiteral("Öffne die Notizliste…");
-    lib.spokenReply = QStringLiteral("Hier ist deine Notizliste.");
+    lib.spokenReply = QStringLiteral("Hier sind deine Notizen.");
     return lib;
   }
 
@@ -245,8 +245,7 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       s.action = BlopAssistantAction::SearchNotes;
       s.query = foldWs(m.captured(1));
       s.statusLine = QStringLiteral("Suche „%1“…").arg(s.query);
-      s.spokenReply =
-          QStringLiteral("Ich filtere die Notizen nach %1.").arg(s.query);
+      s.spokenReply = QStringLiteral("Suche nach %1.").arg(s.query);
       return s;
     }
   }
@@ -283,7 +282,7 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       o.action = BlopAssistantAction::OpenNote;
       o.query = rest;
       o.statusLine = QStringLiteral("Öffne „%1“…").arg(o.query);
-      o.spokenReply = QStringLiteral("Ich öffne %1.").arg(o.query);
+      o.spokenReply = QStringLiteral("Öffne %1.").arg(o.query);
       return o;
     }
   }

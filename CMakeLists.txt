@@ -510,8 +510,13 @@ if(BLOP_BUILD_ASSISTANT_SANDBOX AND NOT ANDROID)
         sandbox/assistant/main.cpp
         src/core/blopassistantengine.h
         src/core/blopassistantengine.cpp
+        src/core/blopassistantprefs.h
+        src/core/blopassistantvoice.h
+        src/core/blopassistantvoice.cpp
         src/ui/blopassistantoverlay.h
         src/ui/blopassistantoverlay.cpp
+        src/ui/blopassistantsettingsdialog.h
+        src/ui/blopassistantsettingsdialog.cpp
         src/ui/notechrome.h
         src/util/uiscale.h
         src/util/uiscale.cpp

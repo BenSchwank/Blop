@@ -8,13 +8,14 @@ class QLineEdit;
 class QPushButton;
 class QToolButton;
 class QFrame;
+class QScrollArea;
+class QVBoxLayout;
 
 #ifdef BLOP_HAS_WEBENGINE
 class QWebEngineView;
 #endif
 
-// Floating VoiceOS-style pill with Blop chrome. Can sit on a host widget
-// or run as a standalone always-on-top companion.
+// Floating notch. Click opens a chat sheet. Settings live in a separate window.
 class BlopAssistantOverlay : public QWidget {
   Q_OBJECT
 public:
@@ -35,6 +36,10 @@ public:
   void refreshChrome();
   void promptConfirm(const QString &prompt);
   void clearConfirm();
+  void addUserMessage(const QString &text);
+  void addAssistantMessage(const QString &text);
+  void startPushToTalk();
+  void endPushToTalk();
 
 signals:
   void utteranceSubmitted(const QString &text);
@@ -58,21 +63,25 @@ private:
   void startListening();
   void stopListening();
   void applyLayoutMode();
+  void addBubble(const QString &text, bool fromUser);
+  void scrollChatToEnd();
 #ifdef BLOP_HAS_WEBENGINE
   void ensureSpeechPage();
 #endif
 
   QWidget *m_host{nullptr};
-  QFrame *m_card{nullptr};
-  QWidget *m_idleRow{nullptr};
-  QLabel *m_orb{nullptr};
-  QLabel *m_idleLabel{nullptr};
+  QWidget *m_notch{nullptr};
+  QWidget *m_notchLine{nullptr};
+  QWidget *m_chat{nullptr};
   QLabel *m_title{nullptr};
-  QLabel *m_status{nullptr};
+  QLabel *m_hint{nullptr};
+  QLabel *m_empty{nullptr};
+  QScrollArea *m_scroll{nullptr};
+  QWidget *m_transcript{nullptr};
+  QVBoxLayout *m_transcriptLay{nullptr};
   QLineEdit *m_input{nullptr};
   QToolButton *m_micBtn{nullptr};
   QToolButton *m_sendBtn{nullptr};
-  QToolButton *m_closeBtn{nullptr};
   QWidget *m_examples{nullptr};
   QWidget *m_confirmBar{nullptr};
   QLabel *m_confirmLabel{nullptr};
@@ -82,7 +91,9 @@ private:
   bool m_listening{false};
   bool m_standalone{false};
   bool m_dragging{false};
+  bool m_pressOnNotch{false};
   QPoint m_dragOffset;
+  QPoint m_pressGlobal;
 
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *m_speechView{nullptr};
