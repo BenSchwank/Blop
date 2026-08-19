@@ -2,6 +2,7 @@
 
 #include <QRegularExpression>
 #include <QStringList>
+#include <QUrlQuery>
 
 namespace {
 
@@ -73,24 +74,111 @@ BlopAssistantIntent makeCreate(const QString &rest, bool infiniteHint,
     if (!cleaned.isEmpty())
       out.title = cleaned;
   }
-  out.statusLine =
-      QStringLiteral("Erstelle „%1“…").arg(out.title);
-  out.spokenReply =
-      QStringLiteral("Ich lege die Notiz %1 an.").arg(out.title);
+  out.statusLine = QStringLiteral("Erstelle „%1“…").arg(out.title);
+  out.spokenReply = QStringLiteral("Ich lege die Notiz %1 an.").arg(out.title);
   return out;
+}
+
+QUrl knownSiteUrl(const QString &token) {
+  const QString t = norm(token).remove(QLatin1Char('.'));
+  if (t == QLatin1String("youtube") || t == QLatin1String("yt"))
+    return QUrl(QStringLiteral("https://www.youtube.com"));
+  if (t == QLatin1String("google"))
+    return QUrl(QStringLiteral("https://www.google.com"));
+  if (t == QLatin1String("gmail"))
+    return QUrl(QStringLiteral("https://mail.google.com"));
+  if (t == QLatin1String("github"))
+    return QUrl(QStringLiteral("https://github.com"));
+  if (t == QLatin1String("wikipedia"))
+    return QUrl(QStringLiteral("https://wikipedia.org"));
+  if (t == QLatin1String("maps"))
+    return QUrl(QStringLiteral("https://maps.google.com"));
+  if (t == QLatin1String("netflix"))
+    return QUrl(QStringLiteral("https://www.netflix.com"));
+  if (t == QLatin1String("spotify"))
+    return QUrl(QStringLiteral("https://open.spotify.com"));
+  return {};
+}
+
+QUrl urlFromToken(const QString &raw) {
+  const QString t = foldWs(raw);
+  if (t.startsWith(QLatin1String("http://"), Qt::CaseInsensitive) ||
+      t.startsWith(QLatin1String("https://"), Qt::CaseInsensitive))
+    return QUrl(t);
+  if (const QUrl known = knownSiteUrl(t); known.isValid())
+    return known;
+  if (t.contains(QLatin1Char('.')) && !t.contains(QLatin1Char(' '))) {
+    QUrl u(QStringLiteral("https://") + t);
+    if (u.isValid())
+      return u;
+  }
+  return {};
+}
+
+QString knownApp(const QString &token) {
+  const QString t = norm(token);
+  if (t == QLatin1String("chrome") || t == QLatin1String("google chrome") ||
+      t == QLatin1String("browser"))
+    return QStringLiteral("chrome");
+  if (t == QLatin1String("firefox"))
+    return QStringLiteral("firefox");
+  if (t == QLatin1String("edge") || t == QLatin1String("msedge"))
+    return QStringLiteral("msedge");
+  if (t == QLatin1String("calculator") || t == QLatin1String("rechner") ||
+      t == QLatin1String("calc"))
+    return QStringLiteral("calculator");
+  if (t == QLatin1String("code") || t == QLatin1String("vscode") ||
+      t == QLatin1String("visual studio code"))
+    return QStringLiteral("code");
+  if (t == QLatin1String("notepad") || t == QLatin1String("editor"))
+    return QStringLiteral("notepad");
+  if (t == QLatin1String("explorer") || t == QLatin1String("files") ||
+      t == QLatin1String("dateien") || t == QLatin1String("ordner"))
+    return QStringLiteral("explorer");
+  if (t == QLatin1String("spotify"))
+    return QStringLiteral("spotify");
+  if (t == QLatin1String("slack"))
+    return QStringLiteral("slack");
+  if (t == QLatin1String("discord"))
+    return QStringLiteral("discord");
+  if (t == QLatin1String("terminal") || t == QLatin1String("cmd") ||
+      t == QLatin1String("konsole"))
+    return QStringLiteral("terminal");
+  return {};
+}
+
+BlopAssistantIntent makeUrl(const QUrl &url) {
+  BlopAssistantIntent o;
+  o.action = BlopAssistantAction::OpenUrl;
+  o.url = url;
+  o.query = url.toString();
+  o.needsConfirm = true;
+  o.statusLine = QStringLiteral("Browser öffnen: %1").arg(url.host());
+  o.spokenReply = QStringLiteral("Ich öffne %1 im Browser.").arg(url.host());
+  return o;
+}
+
+BlopAssistantIntent makeApp(const QString &app) {
+  BlopAssistantIntent o;
+  o.action = BlopAssistantAction::LaunchApp;
+  o.appName = app;
+  o.query = app;
+  o.needsConfirm = true;
+  o.statusLine = QStringLiteral("App starten: %1").arg(app);
+  o.spokenReply = QStringLiteral("Ich starte %1.").arg(app);
+  return o;
 }
 
 } // namespace
 
 QString BlopAssistantEngine::helpText() {
   return QStringLiteral(
-      "Sag oder tippe zum Beispiel:\n"
+      "Wie VoiceOS, als Blop-Begleiter:\n"
       "• neue Notiz Einkauf\n"
-      "• Notiz Meeting: Agenda morgen 10 Uhr\n"
-      "• unendliche Notiz Skizze\n"
-      "• öffne Einkauf\n"
-      "• suche Physik\n"
-      "• Bibliothek");
+      "• öffne YouTube  /  öffne github.com\n"
+      "• starte Calculator\n"
+      "• suche im Web Qt\n"
+      "• öffne Einkauf  ·  Hilfe");
 }
 
 BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
@@ -100,7 +188,7 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
   unknown.query = raw;
   unknown.statusLine = QStringLiteral("Das habe ich nicht verstanden.");
   unknown.spokenReply = QStringLiteral(
-      "Sag zum Beispiel: neue Notiz Einkauf, oder öffne gefolgt vom Namen.");
+      "Sag zum Beispiel: neue Notiz Einkauf, öffne YouTube, oder starte Chrome.");
   if (n.isEmpty())
     return unknown;
 
@@ -110,7 +198,8 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       n == QLatin1String("commands") || n == QLatin1String("befehle")) {
     BlopAssistantIntent h;
     h.action = BlopAssistantAction::Help;
-    h.statusLine = QStringLiteral("Ich kann Notizen anlegen, öffnen und suchen.");
+    h.statusLine = QStringLiteral(
+        "Notizen, Browser, Apps — wie VoiceOS, im Blop-Look.");
     h.spokenReply = helpText();
     return h;
   }
@@ -122,9 +211,27 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       n == QLatin1String("zurück") || n == QLatin1String("zurueck")) {
     BlopAssistantIntent lib;
     lib.action = BlopAssistantAction::ShowLibrary;
-    lib.statusLine = QStringLiteral("Öffne die Bibliothek…");
-    lib.spokenReply = QStringLiteral("Hier ist deine Notizbibliothek.");
+    lib.statusLine = QStringLiteral("Öffne die Notizliste…");
+    lib.spokenReply = QStringLiteral("Hier ist deine Notizliste.");
     return lib;
+  }
+
+  static const QRegularExpression webSearchRe(
+      QStringLiteral("^(?:suche im web|search the web(?: for)?|google|web)\\s+"
+                     "(?:nach\\s+|for\\s+)?(.+)$"),
+      QRegularExpression::CaseInsensitiveOption);
+  {
+    const QRegularExpressionMatch m = webSearchRe.match(raw);
+    if (m.hasMatch()) {
+      QUrl url(QStringLiteral("https://www.google.com/search"));
+      QUrlQuery q;
+      q.addQueryItem(QStringLiteral("q"), foldWs(m.captured(1)));
+      url.setQuery(q);
+      BlopAssistantIntent o = makeUrl(url);
+      o.statusLine =
+          QStringLiteral("Websuche: %1").arg(foldWs(m.captured(1)));
+      return o;
+    }
   }
 
   static const QRegularExpression searchRe(
@@ -139,21 +246,42 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       s.query = foldWs(m.captured(1));
       s.statusLine = QStringLiteral("Suche „%1“…").arg(s.query);
       s.spokenReply =
-          QStringLiteral("Ich filtere die Bibliothek nach %1.").arg(s.query);
+          QStringLiteral("Ich filtere die Notizen nach %1.").arg(s.query);
       return s;
+    }
+  }
+
+  static const QRegularExpression launchRe(
+      QStringLiteral(
+          "^(?:starte|starten|start|launch|öffne app|oeffne app)\\s+(.+)$"),
+      QRegularExpression::CaseInsensitiveOption);
+  {
+    const QRegularExpressionMatch m = launchRe.match(raw);
+    if (m.hasMatch()) {
+      const QString rest = foldWs(m.captured(1));
+      if (const QUrl u = urlFromToken(rest); u.isValid())
+        return makeUrl(u);
+      const QString app = knownApp(rest);
+      return makeApp(app.isEmpty() ? rest : app);
     }
   }
 
   static const QRegularExpression openRe(
       QStringLiteral("^(?:öffne|oeffne|open|zeig(?:e)?|show)\\s+"
+                     "(?:im browser\\s+|in (?:the )?browser\\s+)?"
                      "(?:die\\s+|the\\s+)?(?:notiz|note)?\\s*(.+)$"),
       QRegularExpression::CaseInsensitiveOption);
   {
     const QRegularExpressionMatch m = openRe.match(raw);
     if (m.hasMatch()) {
+      const QString rest = foldWs(m.captured(1));
+      if (const QUrl u = urlFromToken(rest); u.isValid())
+        return makeUrl(u);
+      if (const QString app = knownApp(rest); !app.isEmpty())
+        return makeApp(app);
       BlopAssistantIntent o;
       o.action = BlopAssistantAction::OpenNote;
-      o.query = foldWs(m.captured(1));
+      o.query = rest;
       o.statusLine = QStringLiteral("Öffne „%1“…").arg(o.query);
       o.spokenReply = QStringLiteral("Ich öffne %1.").arg(o.query);
       return o;
@@ -188,21 +316,21 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       QRegularExpression::CaseInsensitiveOption);
   {
     const QRegularExpressionMatch m = newNoteRe.match(raw);
-    if (m.hasMatch()) {
+    if (m.hasMatch())
       return makeCreate(m.captured(2), !m.captured(1).isEmpty(), raw);
-    }
   }
 
-  // Bare title: "Einkaufsliste" → create that note.
+  if (const QUrl u = urlFromToken(raw); u.isValid() && n.contains('.'))
+    return makeUrl(u);
+
   const int words = n.split(QLatin1Char(' '), Qt::SkipEmptyParts).size();
   const bool question = n.startsWith(QLatin1String("wie ")) ||
                         n.startsWith(QLatin1String("was ")) ||
                         n.startsWith(QLatin1String("warum ")) ||
                         n.startsWith(QLatin1String("why ")) ||
                         n.startsWith(QLatin1String("how "));
-  if (!question && words >= 1 && words <= 8 && raw.size() <= 80) {
+  if (!question && words >= 1 && words <= 8 && raw.size() <= 80)
     return makeCreate(raw, looksInfinite(raw), raw);
-  }
 
   return unknown;
 }

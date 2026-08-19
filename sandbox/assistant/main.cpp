@@ -1,27 +1,28 @@
 #include "blopassistantengine.h"
 #include "blopassistantoverlay.h"
-#include "notechrome.h"
-#include "uiscale.h"
 
+#include <QAbstractNativeEventFilter>
+#include <QAction>
 #include <QApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
-#include <QHBoxLayout>
-#include <QKeySequence>
-#include <QLabel>
-#include <QListWidget>
-#include <QMainWindow>
-#include <QPlainTextEdit>
-#include <QPushButton>
+#include <QIcon>
+#include <QMenu>
+#include <QPainter>
+#include <QPixmap>
+#include <QProcess>
 #include <QShortcut>
-#include <QShowEvent>
-#include <QResizeEvent>
 #include <QStandardPaths>
+#include <QSystemTrayIcon>
 #include <QTextStream>
-#include <QVBoxLayout>
-#include <QWidget>
+#include <QTimer>
+#include <QUrl>
 #include <cstdio>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -58,10 +59,82 @@ void saveNotes(const QStringList &notes) {
     out << n << '\n';
 }
 
+void speak(const QString &text) {
+  const QString t = text.trimmed();
+  if (t.isEmpty())
+    return;
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+  if (QProcess::startDetached(QStringLiteral("spd-say"),
+                              {QStringLiteral("-l"), QStringLiteral("de"), t}))
+    return;
+  QProcess::startDetached(QStringLiteral("espeak"),
+                          {QStringLiteral("-v"), QStringLiteral("de"), t});
+#elif defined(Q_OS_WIN)
+  const QString escaped =
+      QString(t).replace(QLatin1Char('\''), QStringLiteral("''"));
+  QProcess::startDetached(
+      QStringLiteral("powershell"),
+      {QStringLiteral("-NoProfile"), QStringLiteral("-WindowStyle"),
+       QStringLiteral("Hidden"), QStringLiteral("-Command"),
+       QStringLiteral("Add-Type -AssemblyName System.Speech; "
+                      "(New-Object System.Speech.Synthesis.SpeechSynthesizer)"
+                      ".Speak('%1')")
+           .arg(escaped)});
+#else
+  Q_UNUSED(t);
+#endif
+}
+
+bool launchApp(const QString &name) {
+  const QString n = name.trimmed().toLower();
+#ifdef Q_OS_WIN
+  QString cmd = name;
+  if (n == QLatin1String("chrome"))
+    cmd = QStringLiteral("chrome");
+  else if (n == QLatin1String("calculator"))
+    cmd = QStringLiteral("calc");
+  else if (n == QLatin1String("explorer"))
+    cmd = QStringLiteral("explorer");
+  else if (n == QLatin1String("terminal"))
+    cmd = QStringLiteral("cmd");
+  else if (n == QLatin1String("code"))
+    cmd = QStringLiteral("code");
+  return QProcess::startDetached(QStringLiteral("cmd"),
+                                 {QStringLiteral("/c"), QStringLiteral("start"),
+                                  QStringLiteral(""), cmd});
+#else
+  QStringList candidates;
+  if (n == QLatin1String("chrome"))
+    candidates << QStringLiteral("google-chrome")
+               << QStringLiteral("google-chrome-stable")
+               << QStringLiteral("chromium") << QStringLiteral("chrome");
+  else if (n == QLatin1String("calculator"))
+    candidates << QStringLiteral("gnome-calculator") << QStringLiteral("kcalc")
+               << QStringLiteral("galculator");
+  else if (n == QLatin1String("explorer"))
+    candidates << QStringLiteral("xdg-open");
+  else if (n == QLatin1String("terminal"))
+    candidates << QStringLiteral("x-terminal-emulator")
+               << QStringLiteral("gnome-terminal") << QStringLiteral("konsole");
+  else if (n == QLatin1String("code"))
+    candidates << QStringLiteral("code") << QStringLiteral("codium");
+  else
+    candidates << name;
+  if (n == QLatin1String("explorer"))
+    return QProcess::startDetached(QStringLiteral("xdg-open"),
+                                   {QDir::homePath()});
+  for (const QString &c : candidates) {
+    if (QProcess::startDetached(c, {}))
+      return true;
+  }
+  return false;
+#endif
+}
+
 int runSelfTest() {
   int fails = 0;
   auto expect = [&](const QString &utterance, BlopAssistantAction action,
-                    const QString &titleOrQuery) {
+                    const QString &payload) {
     const BlopAssistantIntent i = BlopAssistantEngine::parse(utterance);
     if (i.action != action) {
       QTextStream(stderr) << "FAIL action: [" << utterance << "] got "
@@ -70,12 +143,19 @@ int runSelfTest() {
       ++fails;
       return;
     }
-    const QString got =
-        (action == BlopAssistantAction::CreateNote) ? i.title : i.query;
-    if (!titleOrQuery.isEmpty() &&
-        got.compare(titleOrQuery, Qt::CaseInsensitive) != 0) {
+    QString got;
+    if (action == BlopAssistantAction::CreateNote)
+      got = i.title;
+    else if (action == BlopAssistantAction::OpenUrl)
+      got = i.url.host();
+    else if (action == BlopAssistantAction::LaunchApp)
+      got = i.appName;
+    else
+      got = i.query;
+    if (!payload.isEmpty() &&
+        !got.contains(payload, Qt::CaseInsensitive)) {
       QTextStream(stderr) << "FAIL payload: [" << utterance << "] got [" << got
-                          << "] expected [" << titleOrQuery << "]\n";
+                          << "] expected to contain [" << payload << "]\n";
       ++fails;
     }
   };
@@ -93,11 +173,23 @@ int runSelfTest() {
   expect(QStringLiteral("Bibliothek"), BlopAssistantAction::ShowLibrary,
          QString());
   expect(QStringLiteral("Hilfe"), BlopAssistantAction::Help, QString());
+  expect(QStringLiteral("öffne YouTube"), BlopAssistantAction::OpenUrl,
+         QStringLiteral("youtube"));
+  expect(QStringLiteral("starte calculator"), BlopAssistantAction::LaunchApp,
+         QStringLiteral("calculator"));
+  expect(QStringLiteral("suche im Web Qt"), BlopAssistantAction::OpenUrl,
+         QStringLiteral("google"));
 
   const BlopAssistantIntent inf =
       BlopAssistantEngine::parse(QStringLiteral("unendliche Notiz Skizze"));
   if (!inf.infinite) {
     QTextStream(stderr) << "FAIL infinite flag\n";
+    ++fails;
+  }
+  const BlopAssistantIntent yt =
+      BlopAssistantEngine::parse(QStringLiteral("öffne YouTube"));
+  if (!yt.needsConfirm) {
+    QTextStream(stderr) << "FAIL confirm flag\n";
     ++fails;
   }
 
@@ -109,190 +201,97 @@ int runSelfTest() {
   return fails == 0 ? 0 : 1;
 }
 
-} // namespace
-
-class AssistantSandboxWindow : public QMainWindow {
+#ifdef Q_OS_WIN
+class WinHotkeyFilter : public QAbstractNativeEventFilter {
 public:
-  explicit AssistantSandboxWindow(QWidget *parent = nullptr)
-      : QMainWindow(parent) {
-    setWindowTitle(QStringLiteral("Blop Assistant — Sandbox (nicht Blop)"));
-    resize(960, 640);
-    setMinimumSize(720, 480);
-
-    auto *central = new QWidget(this);
-    setCentralWidget(central);
-    auto *root = new QVBoxLayout(central);
-    root->setContentsMargins(20, 20, 20, 24);
-    root->setSpacing(14);
-
-    auto *banner = new QLabel(
-        QStringLiteral("Eigenständiger Test — nicht in Blop eingebunden.\n"
-                       "Hier kannst du Befehle ausprobieren, bevor der "
-                       "Assistent in die App kommt."),
-        central);
-    banner->setWordWrap(true);
-    banner->setObjectName(QStringLiteral("SandboxBanner"));
-    root->addWidget(banner);
-
-    auto *hint = new QLabel(
-        QStringLiteral("Shortcut: Ctrl+Shift+Leertaste oder Ctrl+Shift+A"),
-        central);
-    hint->setObjectName(QStringLiteral("SandboxHint"));
-    root->addWidget(hint);
-
-    auto *cols = new QHBoxLayout();
-    cols->setSpacing(14);
-
-    auto *left = new QVBoxLayout();
-    auto *notesLabel = new QLabel(QStringLiteral("Simulierte Notizen"), central);
-    notesLabel->setObjectName(QStringLiteral("SandboxSection"));
-    m_notes = new QListWidget(central);
-    m_notes->setObjectName(QStringLiteral("SandboxNotes"));
-    left->addWidget(notesLabel);
-    left->addWidget(m_notes, 1);
-
-    auto *right = new QVBoxLayout();
-    auto *logLabel = new QLabel(QStringLiteral("Was der Assistent tun würde"),
-                                central);
-    logLabel->setObjectName(QStringLiteral("SandboxSection"));
-    m_log = new QPlainTextEdit(central);
-    m_log->setReadOnly(true);
-    m_log->setObjectName(QStringLiteral("SandboxLog"));
-    right->addWidget(logLabel);
-    right->addWidget(m_log, 1);
-
-    cols->addLayout(left, 1);
-    cols->addLayout(right, 1);
-    root->addLayout(cols, 1);
-
-    auto *row = new QHBoxLayout();
-    auto *showBtn = new QPushButton(QStringLiteral("Assistent öffnen"), central);
-    showBtn->setObjectName(QStringLiteral("SandboxOpenBtn"));
-    showBtn->setCursor(Qt::PointingHandCursor);
-    auto *clearBtn = new QPushButton(QStringLiteral("Log leeren"), central);
-    clearBtn->setCursor(Qt::PointingHandCursor);
-    row->addWidget(showBtn);
-    row->addWidget(clearBtn);
-    row->addStretch(1);
-    root->addLayout(row);
-
-    applyTheme(central);
-
-    for (const QString &n : loadNotes())
-      m_notes->addItem(n);
-    if (m_notes->count() == 0) {
-      m_notes->addItem(QStringLiteral("Willkommen (Beispiel)"));
-      persistNotes();
-    }
-
-    m_assistant = new BlopAssistantOverlay(this);
-    m_assistant->setHeadline(QStringLiteral("Blop Assistant · Sandbox"));
-    connect(m_assistant, &BlopAssistantOverlay::utteranceSubmitted, this,
-            &AssistantSandboxWindow::onUtterance);
-    connect(showBtn, &QPushButton::clicked, this, [this]() {
-      m_assistant->setExpanded(true);
-    });
-    connect(clearBtn, &QPushButton::clicked, m_log, &QPlainTextEdit::clear);
-
-    auto bind = [this](const QKeySequence &seq) {
-      auto *sc = new QShortcut(seq, this);
-      sc->setContext(Qt::WindowShortcut);
-      connect(sc, &QShortcut::activated, this,
-              [this]() { m_assistant->toggleExpanded(); });
-    };
-    bind(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Space));
-    bind(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A));
-
-    logLine(QStringLiteral("Sandbox bereit. Dateien unter:\n%1")
-                .arg(sandboxDir()));
-    logLine(BlopAssistantEngine::helpText());
-  }
-
-protected:
-  void showEvent(QShowEvent *event) override {
-    QMainWindow::showEvent(event);
-    if (m_assistant && !m_assistant->isExpanded())
-      m_assistant->setExpanded(true);
-    if (m_assistant)
-      m_assistant->reposition();
-  }
-
-  void resizeEvent(QResizeEvent *event) override {
-    QMainWindow::resizeEvent(event);
-    if (m_assistant && m_assistant->isExpanded())
-      m_assistant->reposition();
+  explicit WinHotkeyFilter(BlopAssistantOverlay *pill) : m_pill(pill) {}
+  bool nativeEventFilter(const QByteArray &, void *message,
+                         qintptr *) override {
+    auto *msg = static_cast<MSG *>(message);
+    if (msg && msg->message == WM_HOTKEY && m_pill)
+      m_pill->toggleExpanded();
+    return false;
   }
 
 private:
-  void applyTheme(QWidget *central) {
-    const QString bg = NoteChrome::canvasBg().name(QColor::HexRgb);
-    const QString panel = NoteChrome::panelElevated().name(QColor::HexRgb);
-    const QString border = NoteChrome::border().name(QColor::HexRgb);
-    const QString text = NoteChrome::textPrimary().name(QColor::HexRgb);
-    const QString muted = NoteChrome::textSecondary().name(QColor::HexRgb);
-    const QString accent = NoteChrome::accent().name(QColor::HexRgb);
-    central->setStyleSheet(QStringLiteral(
-        "QWidget { background: %1; color: %2; }"
-        "QLabel#SandboxBanner { color: %2; font-size: 15px; font-weight: 600; }"
-        "QLabel#SandboxHint { color: %3; font-size: 12px; }"
-        "QLabel#SandboxSection { color: %3; font-weight: 700; font-size: 11px; }"
-        "QListWidget#SandboxNotes, QPlainTextEdit#SandboxLog {"
-        "  background: %4; color: %2; border: 1px solid %5; border-radius: 12px;"
-        "  padding: 8px; font-size: 13px;"
-        "}"
-        "QPushButton {"
-        "  background: %6; color: #0B1220; border: none; border-radius: 12px;"
-        "  padding: 10px 16px; font-weight: 700;"
-        "}"
-        "QPushButton:hover { background: #6AA8FF; }")
-                               .arg(bg, text, muted, panel, border, accent));
+  BlopAssistantOverlay *m_pill{nullptr};
+};
+#endif
+
+class Companion : public QObject {
+public:
+  explicit Companion(BlopAssistantOverlay *pill, QObject *parent = nullptr)
+      : QObject(parent), m_pill(pill) {
+    m_notes = loadNotes();
+    if (m_notes.isEmpty())
+      m_notes << QStringLiteral("Willkommen (Beispiel)");
+    saveNotes(m_notes);
+
+    connect(pill, &BlopAssistantOverlay::utteranceSubmitted, this,
+            &Companion::onUtterance);
+    connect(pill, &BlopAssistantOverlay::confirmAccepted, this,
+            &Companion::onConfirm);
+    connect(pill, &BlopAssistantOverlay::confirmRejected, this, [this]() {
+      m_pending = {};
+      m_pending.action = BlopAssistantAction::Unknown;
+    });
+
+    auto *tray = new QSystemTrayIcon(this);
+    QPixmap pm(64, 64);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(QColor(124, 92, 252));
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(8, 8, 48, 48);
+    p.setBrush(QColor(91, 157, 255));
+    p.drawEllipse(22, 22, 20, 20);
+    p.end();
+    tray->setIcon(QIcon(pm));
+    tray->setToolTip(QStringLiteral("Blop Assistant"));
+    auto *menu = new QMenu();
+    menu->addAction(QStringLiteral("Assistent öffnen"), pill, [pill]() {
+      pill->setExpanded(true);
+    });
+    menu->addAction(QStringLiteral("Beenden"), qApp, &QApplication::quit);
+    tray->setContextMenu(menu);
+    connect(tray, &QSystemTrayIcon::activated, this,
+            [pill](QSystemTrayIcon::ActivationReason reason) {
+              if (reason == QSystemTrayIcon::Trigger)
+                pill->toggleExpanded();
+            });
+    tray->show();
+    m_pill->setStatus(
+        QStringLiteral("Läuft im Hintergrund. Klick oder Ctrl+Shift+Leertaste."));
   }
 
-  void logLine(const QString &line) {
-    if (m_log)
-      m_log->appendPlainText(line);
-  }
-
-  void persistNotes() {
-    QStringList names;
-    for (int i = 0; i < m_notes->count(); ++i)
-      names << m_notes->item(i)->text();
-    saveNotes(names);
-  }
-
+private:
   QString uniqueName(const QString &title) const {
     QString base = title.trimmed();
     if (base.isEmpty())
       base = QStringLiteral("Neue Notiz");
     QString name = base;
     int n = 2;
-    auto exists = [&](const QString &candidate) {
-      for (int i = 0; i < m_notes->count(); ++i) {
-        if (m_notes->item(i)->text().compare(candidate, Qt::CaseInsensitive) ==
-            0)
-          return true;
-      }
-      return false;
+    auto exists = [&](const QString &c) {
+      return m_notes.contains(c, Qt::CaseInsensitive);
     };
     while (exists(name))
       name = base + QStringLiteral(" (%1)").arg(n++);
     return name;
   }
 
-  bool openMatching(const QString &query) {
-    const QString q = query.trimmed();
+  bool openMatching(const QString &query, QString *opened) {
+    const QString q = query.trimmed().toLower();
     int best = -1;
     int bestScore = 0;
-    for (int i = 0; i < m_notes->count(); ++i) {
-      const QString name = m_notes->item(i)->text();
-      const QString n = name.toLower();
-      const QString qq = q.toLower();
+    for (int i = 0; i < m_notes.size(); ++i) {
+      const QString n = m_notes.at(i).toLower();
       int score = 0;
-      if (n == qq)
+      if (n == q)
         score = 300;
-      else if (n.startsWith(qq))
+      else if (n.startsWith(q))
         score = 200;
-      else if (n.contains(qq))
+      else if (n.contains(q))
         score = 100;
       if (score > bestScore) {
         bestScore = score;
@@ -301,103 +300,150 @@ private:
     }
     if (best < 0)
       return false;
-    m_notes->setCurrentRow(best);
-    m_notes->scrollToItem(m_notes->item(best));
+    *opened = m_notes.at(best);
     return true;
   }
 
   void onUtterance(const QString &text) {
     const BlopAssistantIntent intent = BlopAssistantEngine::parse(text);
-    m_assistant->setStatus(intent.statusLine);
+    if (intent.needsConfirm) {
+      m_pending = intent;
+      m_pill->promptConfirm(intent.statusLine +
+                            QStringLiteral("  — wie VoiceOS erst nach Bestätigung."));
+      return;
+    }
+    runIntent(intent);
+  }
 
+  void onConfirm() {
+    if (m_pending.action == BlopAssistantAction::Unknown)
+      return;
+    runIntent(m_pending);
+    m_pending = {};
+    m_pending.action = BlopAssistantAction::Unknown;
+  }
+
+  void runIntent(const BlopAssistantIntent &intent) {
     switch (intent.action) {
     case BlopAssistantAction::CreateNote: {
       const QString name = uniqueName(intent.title);
-      const QString kind =
-          intent.infinite ? QStringLiteral("unendlich / Leinwand")
-                          : QStringLiteral("A4-Notiz");
-      m_notes->addItem(name);
-      m_notes->setCurrentRow(m_notes->count() - 1);
-      persistNotes();
+      m_notes.append(name);
+      saveNotes(m_notes);
       QFile body(sandboxDir() + QLatin1Char('/') + name +
                  QStringLiteral(".txt"));
       if (body.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QTextStream out(&body);
-        out << name << '\n'
-            << (intent.infinite ? "format: infinite\n" : "format: a4\n");
+        out << name << '\n';
         if (!intent.body.isEmpty())
           out << intent.body << '\n';
       }
-      m_assistant->setStatus(QStringLiteral("Sandbox: „%1“ angelegt (%2).")
-                                 .arg(name, kind));
-      logLine(QStringLiteral("CREATE  %1  [%2]%3")
-                  .arg(name, kind,
-                       intent.body.isEmpty()
-                           ? QString()
-                           : QStringLiteral("\n        text: %1").arg(intent.body)));
+      m_pill->setStatus(
+          QStringLiteral("Notiz „%1“ angelegt. %2 gespeichert.")
+              .arg(name)
+              .arg(m_notes.size()));
+      speak(intent.spokenReply);
       break;
     }
-    case BlopAssistantAction::OpenNote:
-      if (openMatching(intent.query)) {
-        m_assistant->setStatus(QStringLiteral("Sandbox: „%1“ ausgewählt.")
-                                   .arg(m_notes->currentItem()->text()));
-        logLine(QStringLiteral("OPEN    %1").arg(m_notes->currentItem()->text()));
+    case BlopAssistantAction::OpenNote: {
+      QString opened;
+      if (openMatching(intent.query, &opened)) {
+        m_pill->setStatus(QStringLiteral("Notiz „%1“ gefunden.").arg(opened));
+        speak(intent.spokenReply);
       } else {
-        m_assistant->setStatus(
-            QStringLiteral("Sandbox: keine Notiz „%1“ — filtere die Liste.")
-                .arg(intent.query));
-        filterNotes(intent.query);
-        logLine(QStringLiteral("OPEN?   %1 (nicht gefunden, Suche)").arg(intent.query));
+        m_pill->setStatus(
+            QStringLiteral("Keine Notiz „%1“.").arg(intent.query));
       }
       break;
-    case BlopAssistantAction::SearchNotes:
-      filterNotes(intent.query);
-      m_assistant->setStatus(
-          QStringLiteral("Sandbox: Liste gefiltert nach „%1“.").arg(intent.query));
-      logLine(QStringLiteral("SEARCH  %1").arg(intent.query));
+    }
+    case BlopAssistantAction::SearchNotes: {
+      int hits = 0;
+      for (const QString &n : m_notes) {
+        if (n.contains(intent.query, Qt::CaseInsensitive))
+          ++hits;
+      }
+      m_pill->setStatus(
+          QStringLiteral("%1 Treffer für „%2“.").arg(hits).arg(intent.query));
+      speak(intent.spokenReply);
       break;
+    }
     case BlopAssistantAction::ShowLibrary:
-      filterNotes(QString());
-      m_assistant->setStatus(QStringLiteral("Sandbox: ganze Liste."));
-      logLine(QStringLiteral("LIBRARY"));
+      m_pill->setStatus(QStringLiteral("%1 Notizen: %2")
+                            .arg(m_notes.size())
+                            .arg(m_notes.join(QStringLiteral(", "))));
+      speak(intent.spokenReply);
+      break;
+    case BlopAssistantAction::OpenUrl:
+      if (!QDesktopServices::openUrl(intent.url))
+        m_pill->setStatus(QStringLiteral("Browser ließ sich nicht öffnen."));
+      else {
+        m_pill->setStatus(QStringLiteral("Browser: %1").arg(intent.url.host()));
+        speak(intent.spokenReply);
+      }
+      break;
+    case BlopAssistantAction::LaunchApp:
+      if (!launchApp(intent.appName))
+        m_pill->setStatus(
+            QStringLiteral("App „%1“ nicht gefunden.").arg(intent.appName));
+      else {
+        m_pill->setStatus(QStringLiteral("Gestartet: %1").arg(intent.appName));
+        speak(intent.spokenReply);
+      }
       break;
     case BlopAssistantAction::Help:
-      m_assistant->setStatus(BlopAssistantEngine::helpText());
-      logLine(QStringLiteral("HELP"));
+      m_pill->setStatus(BlopAssistantEngine::helpText());
+      speak(QStringLiteral(
+          "Ich kann Notizen anlegen, den Browser öffnen und Apps starten."));
       break;
     case BlopAssistantAction::Unknown:
     default:
-      m_assistant->setStatus(intent.statusLine +
-                             QStringLiteral("  Tipp: „neue Notiz Einkauf“."));
-      logLine(QStringLiteral("UNKNOWN %1").arg(text));
+      m_pill->setStatus(intent.statusLine);
       break;
     }
   }
 
-  void filterNotes(const QString &query) {
-    const QString q = query.trimmed().toLower();
-    for (int i = 0; i < m_notes->count(); ++i) {
-      const bool vis =
-          q.isEmpty() || m_notes->item(i)->text().toLower().contains(q);
-      m_notes->item(i)->setHidden(!vis);
-    }
-  }
-
-  QListWidget *m_notes{nullptr};
-  QPlainTextEdit *m_log{nullptr};
-  BlopAssistantOverlay *m_assistant{nullptr};
+  BlopAssistantOverlay *m_pill{nullptr};
+  QStringList m_notes;
+  BlopAssistantIntent m_pending;
 };
+
+} // namespace
 
 int main(int argc, char *argv[]) {
   QApplication app(argc, argv);
   app.setApplicationName(QStringLiteral("BlopAssistantSandbox"));
   app.setOrganizationName(QStringLiteral("Blop"));
+  app.setQuitOnLastWindowClosed(false);
 
   const QStringList args = app.arguments();
   if (args.contains(QStringLiteral("--self-test")))
     return runSelfTest();
 
-  AssistantSandboxWindow w;
-  w.show();
+  auto *pill = new BlopAssistantOverlay(nullptr);
+  pill->setHeadline(QStringLiteral("Blop  ·  Voice companion"));
+  pill->setStandalone(true);
+
+  auto *sc = new QShortcut(
+      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Space), pill);
+  sc->setContext(Qt::ApplicationShortcut);
+  QObject::connect(sc, &QShortcut::activated, pill,
+                   &BlopAssistantOverlay::toggleExpanded);
+  auto *scA =
+      new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), pill);
+  scA->setContext(Qt::ApplicationShortcut);
+  QObject::connect(scA, &QShortcut::activated, pill,
+                   &BlopAssistantOverlay::toggleExpanded);
+
+  auto *companion = new Companion(pill, &app);
+  Q_UNUSED(companion);
+
+#ifdef Q_OS_WIN
+  auto *hotkeys = new WinHotkeyFilter(pill);
+  app.installNativeEventFilter(hotkeys);
+  QTimer::singleShot(0, pill, [pill]() {
+    RegisterHotKey(reinterpret_cast<HWND>(pill->winId()), 1,
+                   MOD_CONTROL | MOD_SHIFT, VK_SPACE);
+  });
+#endif
+
   return app.exec();
 }
