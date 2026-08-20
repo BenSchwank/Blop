@@ -30,18 +30,18 @@
 
 namespace {
 
-// Collapsed rest state: a true rounded peninsula hanging from the bezel
-// (Dynamic Island), not a thin bar. Height ≈ 2× previous so the lobe reads
-// immediately; radius = half height so the sides are a full stadium.
-const int kNotchWidthDp = 268;
-const int kNotchHeightDp = 72;
+// Collapsed rest state: a rounded peninsula hanging from the bezel
+// (Dynamic Island). Radius equals height so the sides are a full U,
+// not a wide bar with tiny corner fillets.
+const int kNotchWidthDp = 220;
+const int kNotchHeightDp = 84;
 const int kBezelTuckDp = 0;
-const int kNotchAaPadDp = 3;
+const int kNotchAaPadDp = 4;
 
 QPainterPath makePeninsulaPath(const QRectF &bounds) {
   // Top overflows by 1px so the bezel join stays flush.
   const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -1.0);
-  const qreal rad = qMin(r.height() * 0.5, r.width() * 0.5);
+  const qreal rad = qMin(r.height(), r.width() * 0.48);
   QPainterPath path;
   path.moveTo(r.topLeft());
   path.lineTo(r.topRight());
@@ -66,16 +66,16 @@ protected:
     const QPainterPath path = makePeninsulaPath(r);
     p.fillPath(path, QColor(14, 14, 14));
 
-    // Inner sensor bar — the island's visual mass, like the camera lozenge.
-    QRectF sensor(0, 0, r.width() * 0.38,
-                  qMin(qreal(UiScale::dp(10)), r.height() * 0.22));
-    sensor.moveCenter(QPointF(r.center().x(), r.top() + r.height() * 0.52));
+    // Inner sensor bar in the lower bulge — gives the lobe visual mass.
+    QRectF sensor(0, 0, r.width() * 0.34,
+                  qMin(qreal(UiScale::dp(8)), r.height() * 0.14));
+    sensor.moveCenter(QPointF(r.center().x(), r.top() + r.height() * 0.58));
     QPainterPath pill;
     pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
     p.fillPath(pill, QColor(0, 0, 0));
 
-    QPen pen(QColor(255, 255, 255, 48));
-    pen.setWidthF(1.25);
+    QPen pen(QColor(255, 255, 255, 56));
+    pen.setWidthF(1.4);
     p.setPen(pen);
     p.drawPath(path);
   }
