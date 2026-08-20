@@ -298,15 +298,16 @@ CloudWebExplorer *CloudWebExplorer::showOver(QWidget *host,
   const QUrl url = QUrl::fromUserInput(
       entry.webUrl.isEmpty() ? CloudStorageStore::defaultWebUrl(entry.type)
                              : entry.webUrl);
+  entry.webConnected = true;
+  if (entry.webUrl.isEmpty())
+    entry.webUrl = CloudStorageStore::defaultWebUrl(entry.type);
+  CloudStorageStore::upsert(entry);
+  // Launch the system browser. Do not follow with a blocking BlopModal:
+  // a nested QEventLoop while Android opens Chrome Custom Tabs pauses the
+  // Qt activity and aborts the HWUI/EGL render thread (SIGABRT in
+  // libhwui condition_variable::wait).
   if (url.isValid())
     QDesktopServices::openUrl(url);
-  entry.webConnected = true;
-  CloudStorageStore::upsert(entry);
-  BlopDialogs::notify(
-      win, CloudStorageStore::displayNameForType(entry.type),
-      QStringLiteral(
-          "Die Cloud wurde im Browser geöffnet.\n"
-          "Melde dich dort an und arbeite wie in einem Datei-Explorer."));
   return nullptr;
 #endif
 

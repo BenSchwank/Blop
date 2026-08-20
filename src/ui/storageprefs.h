@@ -30,6 +30,13 @@ QString architectureHint();
 /// Absolute path of the always-created local library (Documents/AppData).
 QString ensureLocalLibraryRoot();
 
+/// True for a real local/sync directory. Rejects Android SAF `content://`
+/// tree URIs and other remote schemes that Qt cannot `mkpath`/`QFile`.
+bool isUsableFilesystemDir(const QString &path);
+
+/// True for `content://`, `https://`, and other non-file schemes.
+bool isNonFilesystemPath(const QString &path);
+
 /// First linked cloud path that exists on disk (prefers primaryCloudId).
 QString primaryLinkedCloudPath();
 

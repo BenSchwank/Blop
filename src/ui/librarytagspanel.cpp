@@ -1,6 +1,7 @@
 #include "librarytagspanel.h"
 
 #include "blop_dialogs.h"
+#include "blop_inwindow_menu.h"
 #include "blop_scroll.h"
 #include "blop_theme.h"
 #include "librarytagstore.h"
@@ -80,18 +81,28 @@ LibraryTagsPanel::LibraryTagsPanel(QWidget *parent) : QWidget(parent) {
   m_list->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_list, &QListWidget::itemSelectionChanged, this,
           &LibraryTagsPanel::onSelectionChanged);
-  connect(m_list, &QWidget::customContextMenuRequested, this,
+          connect(m_list, &QWidget::customContextMenuRequested, this,
           [this](const QPoint &pos) {
             QListWidgetItem *it = m_list->itemAt(pos);
             if (!it)
               return;
             m_list->setCurrentItem(it);
+            const QPoint globalPos = m_list->mapToGlobal(pos);
+#ifdef Q_OS_ANDROID
+            QList<BlopInWindowMenu::Item> items;
+            items.append({QStringLiteral("Umbenennen"), QIcon(),
+                          [this]() { onRenameClicked(); }, false, false});
+            items.append({QStringLiteral("Löschen"), QIcon(),
+                          [this]() { onDeleteClicked(); }, true, false});
+            BlopInWindowMenu::show(window() ? window() : this, globalPos, items);
+#else
             QMenu menu(this);
             menu.addAction(QStringLiteral("Umbenennen"), this,
                            &LibraryTagsPanel::onRenameClicked);
             menu.addAction(QStringLiteral("Löschen"), this,
                            &LibraryTagsPanel::onDeleteClicked);
-            menu.exec(m_list->mapToGlobal(pos));
+            menu.exec(globalPos);
+#endif
           });
   bodyLay->addWidget(m_list, 1);
 

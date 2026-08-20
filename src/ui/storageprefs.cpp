@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QUrl>
 
 namespace StoragePrefs {
 
@@ -22,9 +23,40 @@ QString primarySettingsKey() {
 
 QString cloudMirrorSubdir() { return QStringLiteral("BlopNotizen"); }
 
-bool pathExistsDir(const QString &p) {
-  return !p.isEmpty() && QDir(p).exists();
+/// Android Storage Access Framework tree/document URIs, http(s) links, and
+/// similar schemes are not filesystem folders. Qt still reports
+/// `QDir(content://…).exists()` for some Drive tree URIs, then `mkpath` of
+/// `…/BlopNotizen` logs "Cannot create file, parent doesn't exist" and the
+/// subsequent QFile / QFileSystemModel work can abort the Android EGL surface.
+QString localFilesystemPath(const QString &p) {
+  const QString s = p.trimmed();
+  if (s.isEmpty())
+    return {};
+  if (s.startsWith(QLatin1String("file:"), Qt::CaseInsensitive)) {
+    const QUrl u(s);
+    return u.isLocalFile() ? u.toLocalFile() : QString();
+  }
+  const int schemeEnd = s.indexOf(QLatin1String("://"));
+  if (schemeEnd > 0)
+    return {};
+  return s;
 }
+
+} // namespace
+
+bool isUsableFilesystemDir(const QString &path) {
+  const QString local = localFilesystemPath(path);
+  return !local.isEmpty() && QDir(local).exists();
+}
+
+bool isNonFilesystemPath(const QString &path) {
+  const QString s = path.trimmed();
+  return !s.isEmpty() && localFilesystemPath(s).isEmpty();
+}
+
+namespace {
+
+bool pathExistsDir(const QString &p) { return isUsableFilesystemDir(p); }
 
 } // namespace
 
@@ -114,15 +146,21 @@ QString ensureLocalLibraryRoot() {
 QString primaryLinkedCloudPath() {
   const QVector<CloudStorageEntry> entries = CloudStorageStore::load();
   const QString preferred = primaryCloudId();
+  auto usablePath = [](const CloudStorageEntry &e) -> QString {
+    const QString local = localFilesystemPath(e.path);
+    return pathExistsDir(local) ? local : QString();
+  };
   if (!preferred.isEmpty()) {
     for (const CloudStorageEntry &e : entries) {
-      if (e.id == preferred && pathExistsDir(e.path))
-        return e.path;
+      if (e.id == preferred) {
+        if (const QString p = usablePath(e); !p.isEmpty())
+          return p;
+      }
     }
   }
   for (const CloudStorageEntry &e : entries) {
-    if (pathExistsDir(e.path))
-      return e.path;
+    if (const QString p = usablePath(e); !p.isEmpty())
+      return p;
   }
   return {};
 }
@@ -226,7 +264,8 @@ QString bestSuggestedRootForProvider(const QString &providerId) {
 
 bool connectProviderForNotes(const QString &providerId,
                              const QString &folderPath) {
-  if (providerId.isEmpty() || !pathExistsDir(folderPath))
+  const QString folder = localFilesystemPath(folderPath);
+  if (providerId.isEmpty() || !pathExistsDir(folder))
     return false;
 
   QVector<CloudStorageEntry> entries = CloudStorageStore::load();
@@ -236,14 +275,14 @@ bool connectProviderForNotes(const QString &providerId,
     e.id = providerId;
     e.type = providerId;
     e.name = CloudStorageStore::displayNameForType(providerId);
-    e.path = folderPath;
+    e.path = folder;
     entries.append(e);
   } else {
-    entry->path = folderPath;
+    entry->path = folder;
   }
   CloudStorageStore::save(entries);
 
-  const QString nested = folderPath + QLatin1Char('/') + cloudMirrorSubdir();
+  const QString nested = folder + QLatin1Char('/') + cloudMirrorSubdir();
   QDir().mkpath(nested);
 
   setPrimaryCloudId(providerId);
@@ -260,7 +299,7 @@ QString noteWriteRoot(const QString &localRoot) {
     return local;
 
   const QString cloud = primaryLinkedCloudPath();
-  if (cloud.isEmpty())
+  if (cloud.isEmpty() || isNonFilesystemPath(cloud))
     return {};
   const QString nested = cloud + QLatin1Char('/') + cloudMirrorSubdir();
   QDir().mkpath(nested);

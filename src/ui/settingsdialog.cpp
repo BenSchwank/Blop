@@ -5,6 +5,7 @@
 #include "uiprofilemanager.h"
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
+#include "blop_dialogs.h"
 #include "blop_theme.h"
 #include "blop_scroll.h"
 #include "blopripple.h"
@@ -964,6 +965,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     StoragePrefs::bestSuggestedRootForProvider(providerId);
             }
             if (folder.isEmpty()) {
+#ifdef Q_OS_ANDROID
+                // QFileDialog is a top-level QWindow on Android and aborts via
+                // the Qt 6.10 EGL deadlock protector. Notes stay on-device;
+                // Drive/Nextcloud are opened through the in-app/browser explorer.
+                BlopDialogs::notify(
+                    this, displayName,
+                    QStringLiteral(
+                        "Auf dem Handy speichert Blop Notizen lokal auf dem "
+                        "Gerät.\n\nGoogle Drive und andere Clouds öffnest du "
+                        "über „Anmelden“ / „Öffnen“ — nicht über einen "
+                        "Android-Dateiordner."));
+                return QString();
+#else
                 QString start =
                     StoragePrefs::bestSuggestedRootForProvider(providerId);
                 if (start.isEmpty())
@@ -973,7 +987,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     CloudStorageStore::load();
                 if (CloudStorageEntry *cur =
                         CloudStorageStore::findMutable(entries, providerId)) {
-                    if (!cur->path.isEmpty())
+                    if (!cur->path.isEmpty() &&
+                        !StoragePrefs::isNonFilesystemPath(cur->path))
                         start = cur->path;
                 }
                 folder = QFileDialog::getExistingDirectory(
@@ -981,6 +996,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     QStringLiteral("%1 — Sync-Ordner wählen")
                         .arg(displayName),
                     start);
+#endif
             }
             if (folder.isEmpty())
                 return QString();

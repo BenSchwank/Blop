@@ -1,5 +1,7 @@
 #include "cloudstoragestore.h"
 
+#include "storageprefs.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -56,6 +58,19 @@ QVector<CloudStorageEntry> load() {
       e.name = displayNameForType(e.type);
     out.append(e);
   }
+  // Drop leftover Android SAF / remote URIs that older builds stored as
+  // "the Drive folder". They are not a QDir and mkpath/QFile on them
+  // fails (and can take down the Qt 6.10 Android EGL surface). Missing
+  // local folders are kept so a temporarily unmounted sync root survives.
+  bool dirty = false;
+  for (CloudStorageEntry &e : out) {
+    if (!StoragePrefs::isNonFilesystemPath(e.path))
+      continue;
+    e.path.clear();
+    dirty = true;
+  }
+  if (dirty)
+    save(out);
   return out;
 }
 

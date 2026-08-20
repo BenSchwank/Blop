@@ -7851,7 +7851,7 @@ void MainWindow::setupSidebar() {
       item->setData(Qt::UserRole + 9, 1); // indent under Cloud-Speicher
       item->setData(Qt::UserRole + 12, e.id);
       item->setData(Qt::UserRole + 13, e.type);
-      if (!e.path.isEmpty() && QDir(e.path).exists())
+      if (!e.path.isEmpty() && StoragePrefs::isUsableFilesystemDir(e.path))
         item->setData(Qt::UserRole + 10, e.path);
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
       const QString tip = e.webConnected
@@ -8064,6 +8064,8 @@ void MainWindow::setLibraryRootFromSource(const QModelIndex &sourceIndex) {
 
 void MainWindow::navigateLibraryToPath(const QString &path) {
   if (!m_fileModel || !m_fileListView || path.isEmpty())
+    return;
+  if (StoragePrefs::isNonFilesystemPath(path))
     return;
   const QFileInfo fi(path);
   if (!fi.isDir())
@@ -8694,6 +8696,10 @@ void MainWindow::applyStoragePrefsToLibrary() {
 
 void MainWindow::mirrorNoteIfNeeded(const QString &notePath) {
   if (StoragePrefs::mode() != StoragePrefs::Mode::LocalAndCloud) {
+    refreshCloudSyncStatus();
+    return;
+  }
+  if (StoragePrefs::primaryLinkedCloudPath().isEmpty()) {
     refreshCloudSyncStatus();
     return;
   }
@@ -10627,7 +10633,8 @@ void MainWindow::onTogglePageManager() {
 }
 
 void MainWindow::openNotePath(const QString &absolutePath) {
-  if (absolutePath.isEmpty() || !QFile::exists(absolutePath)) {
+  if (absolutePath.isEmpty() || StoragePrefs::isNonFilesystemPath(absolutePath) ||
+      !QFile::exists(absolutePath)) {
     qWarning() << "openNotePath: missing file" << absolutePath;
     return;
   }
@@ -11073,6 +11080,62 @@ void MainWindow::onBackToOverview() {
     m_androidHeader->raise();
 #endif
 }
+void MainWindow::assignTagsForNotePath(const QString &path) {
+  if (path.isEmpty())
+    return;
+  QStringList catalog = LibraryTagStore::catalog();
+  if (catalog.isEmpty()) {
+    LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
+    LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
+    catalog = LibraryTagStore::catalog();
+  }
+  const QStringList current = LibraryTagStore::tagsForPath(path);
+
+  QDialog dlg(this);
+  dlg.setWindowTitle(QStringLiteral("Tags zuweisen"));
+  dlg.setModal(true);
+  dlg.setMinimumWidth(UiScale::dp(280));
+  auto *lay = new QVBoxLayout(&dlg);
+  auto *hint = new QLabel(
+      QStringLiteral("Hake Tags an, um sie an diese Notiz zu hängen."), &dlg);
+  hint->setWordWrap(true);
+  lay->addWidget(hint);
+  QList<QCheckBox *> boxes;
+  for (const QString &tag : catalog) {
+    auto *cb = new QCheckBox(tag, &dlg);
+    for (const QString &c : current) {
+      if (c.compare(tag, Qt::CaseInsensitive) == 0) {
+        cb->setChecked(true);
+        break;
+      }
+    }
+    boxes.append(cb);
+    lay->addWidget(cb);
+  }
+  auto *bbox =
+      new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+  bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
+  bbox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Abbrechen"));
+  lay->addWidget(bbox);
+  QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  // Never QDialog::exec() here: on Android that allocates a top-level QWindow
+  // and aborts via the Qt 6.10 EGL deadlock protector.
+  if (BlopModal::execBlocking(this, &dlg) != QDialog::Accepted)
+    return;
+  QStringList next;
+  for (QCheckBox *cb : boxes) {
+    if (cb && cb->isChecked())
+      next.append(cb->text());
+  }
+  LibraryTagStore::setTagsForPath(path, next);
+  if (m_libraryTagsPanel)
+    m_libraryTagsPanel->reload();
+  applyLibraryFilters();
+  if (m_fileListView)
+    m_fileListView->viewport()->update();
+}
+
 void MainWindow::showContextMenu(const QPoint &globalPos,
                                  const QModelIndex &index) {
   BlopDiag::recordUiAction(QStringLiteral("ctx_menu_show"));
@@ -11312,61 +11375,8 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
       addColor(LibraryOrgStore::ColorLabel::Violet);
       addColor(LibraryOrgStore::ColorLabel::Slate);
 
-      menu->addAction(QStringLiteral("Tags zuweisen\u2026"), [this, path]() {
-        QStringList catalog = LibraryTagStore::catalog();
-        if (catalog.isEmpty()) {
-          LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
-          LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
-          catalog = LibraryTagStore::catalog();
-        }
-        const QStringList current = LibraryTagStore::tagsForPath(path);
-
-        QDialog dlg(this);
-        dlg.setWindowTitle(QStringLiteral("Tags zuweisen"));
-        dlg.setModal(true);
-        dlg.setMinimumWidth(UiScale::dp(280));
-        auto *lay = new QVBoxLayout(&dlg);
-        auto *hint = new QLabel(
-            QStringLiteral("Hake Tags an, um sie an diese Notiz zu hängen."),
-            &dlg);
-        hint->setWordWrap(true);
-        lay->addWidget(hint);
-        QList<QCheckBox *> boxes;
-        for (const QString &tag : catalog) {
-          auto *cb = new QCheckBox(tag, &dlg);
-          for (const QString &c : current) {
-            if (c.compare(tag, Qt::CaseInsensitive) == 0) {
-              cb->setChecked(true);
-              break;
-            }
-          }
-          boxes.append(cb);
-          lay->addWidget(cb);
-        }
-        auto *bbox = new QDialogButtonBox(
-            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-        bbox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Fertig"));
-        bbox->button(QDialogButtonBox::Cancel)
-            ->setText(QStringLiteral("Abbrechen"));
-        lay->addWidget(bbox);
-        QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg,
-                         &QDialog::accept);
-        QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg,
-                         &QDialog::reject);
-        if (dlg.exec() != QDialog::Accepted)
-          return;
-        QStringList next;
-        for (QCheckBox *cb : boxes) {
-          if (cb && cb->isChecked())
-            next.append(cb->text());
-        }
-        LibraryTagStore::setTagsForPath(path, next);
-        if (m_libraryTagsPanel)
-          m_libraryTagsPanel->reload();
-        applyLibraryFilters();
-        if (m_fileListView)
-          m_fileListView->viewport()->update();
-      });
+      menu->addAction(QStringLiteral("Tags zuweisen\u2026"),
+                      [this, path]() { assignTagsForNotePath(path); });
     }
 
     menu->addSeparator();
@@ -11422,52 +11432,7 @@ void MainWindow::showContextMenu(const QPoint &globalPos,
                     },
                     false, false});
       items.append({QStringLiteral("Tags zuweisen\u2026"), QIcon(),
-                    [this, path]() {
-                      QStringList catalog = LibraryTagStore::catalog();
-                      if (catalog.isEmpty()) {
-                        LibraryTagStore::addTagToCatalog(QStringLiteral("Projekt"));
-                        LibraryTagStore::addTagToCatalog(QStringLiteral("Entwurf"));
-                        catalog = LibraryTagStore::catalog();
-                      }
-                      const QStringList current = LibraryTagStore::tagsForPath(path);
-                      QStringList next = current;
-                      // Simple cycle attach: if empty catalog selection, prompt via dialog.
-                      QDialog dlg(this);
-                      dlg.setWindowTitle(QStringLiteral("Tags zuweisen"));
-                      auto *lay = new QVBoxLayout(&dlg);
-                      QList<QCheckBox *> boxes;
-                      for (const QString &tag : catalog) {
-                        auto *cb = new QCheckBox(tag, &dlg);
-                        for (const QString &c : current) {
-                          if (c.compare(tag, Qt::CaseInsensitive) == 0) {
-                            cb->setChecked(true);
-                            break;
-                          }
-                        }
-                        boxes.append(cb);
-                        lay->addWidget(cb);
-                      }
-                      auto *bbox = new QDialogButtonBox(
-                          QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-                      lay->addWidget(bbox);
-                      QObject::connect(bbox, &QDialogButtonBox::accepted, &dlg,
-                                       &QDialog::accept);
-                      QObject::connect(bbox, &QDialogButtonBox::rejected, &dlg,
-                                       &QDialog::reject);
-                      if (dlg.exec() != QDialog::Accepted)
-                        return;
-                      next.clear();
-                      for (QCheckBox *cb : boxes) {
-                        if (cb && cb->isChecked())
-                          next.append(cb->text());
-                      }
-                      LibraryTagStore::setTagsForPath(path, next);
-                      if (m_libraryTagsPanel)
-                        m_libraryTagsPanel->reload();
-                      applyLibraryFilters();
-                      if (m_fileListView)
-                        m_fileListView->viewport()->update();
-                    },
+                    [this, path]() { assignTagsForNotePath(path); },
                     false, false});
     }
   }

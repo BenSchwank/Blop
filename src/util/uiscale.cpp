@@ -8,6 +8,7 @@
 #include <QtGlobal>
 #include <QtMath>
 #include <QByteArray>
+#include <limits>
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
@@ -147,9 +148,24 @@ int androidTopInsetPx(QWidget *reference) {
     inset =
         qBound(0, qRound(androidStatusBarHeightResourcePx() / dpr), dp(72));
   }
-  qWarning("BlopInset: availTop=%d fullTop=%d availInset=%d "
-           "qtHandlesSafeArea=%d -> inset=%d",
-           availTop, fullTop, availInset, qtHandlesSafeArea ? 1 : 0, inset);
+  static int s_loggedAvailTop = std::numeric_limits<int>::min();
+  static int s_loggedFullTop = std::numeric_limits<int>::min();
+  static int s_loggedAvailInset = std::numeric_limits<int>::min();
+  static int s_loggedQtHandles = -1;
+  static int s_loggedInset = std::numeric_limits<int>::min();
+  const int qtFlag = qtHandlesSafeArea ? 1 : 0;
+  if (availTop != s_loggedAvailTop || fullTop != s_loggedFullTop ||
+      availInset != s_loggedAvailInset || qtFlag != s_loggedQtHandles ||
+      inset != s_loggedInset) {
+    s_loggedAvailTop = availTop;
+    s_loggedFullTop = fullTop;
+    s_loggedAvailInset = availInset;
+    s_loggedQtHandles = qtFlag;
+    s_loggedInset = inset;
+    qWarning("BlopInset: availTop=%d fullTop=%d availInset=%d "
+             "qtHandlesSafeArea=%d -> inset=%d",
+             availTop, fullTop, availInset, qtFlag, inset);
+  }
 #else
   Q_UNUSED(availTop);
   Q_UNUSED(fullTop);

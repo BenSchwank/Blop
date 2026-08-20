@@ -330,6 +330,7 @@ private:
   void applyTheme();
   void applyLibraryFilters();
   void rebuildPageSettingsTags();
+  void assignTagsForNotePath(const QString &path);
   QString currentEditorNotePath() const;
   void setLibraryRootFromSource(const QModelIndex &sourceIndex);
   /// Open a folder in the main library grid (and keep QFileSystemModel in sync).

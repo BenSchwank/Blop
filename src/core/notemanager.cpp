@@ -3,6 +3,7 @@
 #include "util/Async.h"
 #include <QBuffer>
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -37,6 +38,18 @@ void NoteManager::loadNoteAsync(const QString &path,
 }
 
 bool NoteManager::saveNote(const Note &note, const QString &path) {
+  // Android SAF `content://` tree URIs (and other remote schemes) are not
+  // local files. mkpath() on them logs "Cannot create file, parent doesn't
+  // exist or not a directory" and QSaveFile can abort the process.
+  const int schemeEnd = path.indexOf(QLatin1String("://"));
+  if (schemeEnd > 0 &&
+      path.left(schemeEnd).compare(QLatin1String("file"), Qt::CaseInsensitive) !=
+          0) {
+    qWarning() << "NoteManager: refusing to save to non-filesystem path"
+               << path;
+    return false;
+  }
+
   // Ensure the parent directory exists before attempting to write; otherwise
   // saving to a freshly created sub-folder or cloud mirror path can silently fail.
   QDir().mkpath(QFileInfo(path).absolutePath());
