@@ -21,6 +21,7 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -277,6 +278,20 @@ void PhoneLibraryNav::openMenu() {
           });
   lay->addWidget(m_list, 1);
   rebuildMenu();
+  m_list->setUniformItemSizes(true);
+  m_list->setSpacing(2);
+  m_list->doItemsLayout();
+  if (m_list->count() > 0)
+    m_list->scrollToItem(m_list->item(0));
+  m_list->viewport()->update();
+  QTimer::singleShot(0, m_list, [list = m_list]() {
+    if (!list)
+      return;
+    list->doItemsLayout();
+    if (list->count() > 0)
+      list->scrollToItem(list->item(0));
+    list->viewport()->update();
+  });
 
   auto *accountRow = new QWidget(card);
   auto *accLay = new QHBoxLayout(accountRow);
