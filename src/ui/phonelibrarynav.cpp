@@ -528,6 +528,11 @@ QLabel *makeColCaption(QWidget *parent, const QString &text) {
 
 QWidget *PhoneLibraryNav::buildQuickAccess(QWidget *parent) {
   auto *col = new QWidget(parent);
+  col->setObjectName(QStringLiteral("PhoneBurgerQuickCol"));
+  col->setAttribute(Qt::WA_TranslucentBackground, true);
+  col->setAutoFillBackground(false);
+  col->setStyleSheet(QStringLiteral(
+      "QWidget#PhoneBurgerQuickCol { background: transparent; }"));
   auto *v = new QVBoxLayout(col);
   v->setContentsMargins(UiScale::dp(6), 0, 0, 0);
   v->setSpacing(UiScale::dp(8));
@@ -838,9 +843,24 @@ void PhoneLibraryNav::openMenu() {
     quickHost->setWidgetResizable(true);
     quickHost->setFrameShape(QFrame::NoFrame);
     quickHost->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    quickHost->setAutoFillBackground(false);
+    QPalette qp = quickHost->palette();
+    qp.setColor(QPalette::Window, Qt::transparent);
+    qp.setColor(QPalette::Base, Qt::transparent);
+    quickHost->setPalette(qp);
+    if (quickHost->viewport()) {
+      quickHost->viewport()->setAutoFillBackground(false);
+      quickHost->viewport()->setPalette(qp);
+    }
     quickHost->setStyleSheet(QStringLiteral(
-        "QScrollArea { background: transparent; border: none; }"));
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollArea > QWidget { background: transparent; }"
+        "QScrollArea QScrollBar:vertical { background: transparent; width: 8px; }"
+        "QScrollArea QScrollBar::handle:vertical {"
+        "  background: rgba(255,255,255,0.18); border-radius: 4px; min-height: 24px; }"));
     auto *quick = buildQuickAccess(quickHost);
+    quick->setAutoFillBackground(false);
+    quick->setAttribute(Qt::WA_TranslucentBackground, true);
     quickHost->setWidget(quick);
 
     hl->addWidget(left, 11);
