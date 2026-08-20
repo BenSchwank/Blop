@@ -105,6 +105,12 @@ int main(int argc, char *argv[]) {
 #  endif
 #endif
 
+#if !defined(Q_OS_ANDROID)
+  // Chromium sandbox fails in many locked-down / container desktops.
+  if (qgetenv("QTWEBENGINE_DISABLE_SANDBOX").isEmpty())
+    qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
+#endif
+
   // QApplication ist notwendig, da wir QMainWindow (Widgets) nutzen
   QApplication a(argc, argv);
   BlopScroll::installApplicationWide(&a);

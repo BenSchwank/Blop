@@ -8367,41 +8367,6 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   bool isHeader = item->data(Qt::UserRole + 1).toBool();
   if (isHeader)
     return;
-  QString path = item->data(Qt::UserRole + 10).toString();
-  bool isExpandable = item->data(Qt::UserRole + 6).toBool();
-
-  if (!path.isEmpty() && QFileInfo(path).isDir()) {
-    const bool alreadyHere =
-        QFileInfo(m_fileModel->rootPath()).canonicalFilePath() ==
-        QFileInfo(path).canonicalFilePath();
-    navigateLibraryToPath(path);
-    // Expand when collapsed. Second click on the already-open folder collapses.
-    if (isExpandable) {
-      const bool expanded = item->data(Qt::UserRole + 3).toBool();
-      if (!expanded || alreadyHere)
-        toggleFolderContent(item);
-    }
-
-#ifdef Q_OS_ANDROID
-    onToggleSidebar();
-#endif
-    return;
-  }
-
-  if (!path.isEmpty() && QFileInfo(path).isFile()) {
-    onFileDoubleClicked(m_fileModel->index(path));
-    return;
-  }
-
-  QString name = item->text();
-  if (name == QStringLiteral("Gerät")) {
-    navigateLibraryToPath(m_rootPath);
-#ifdef Q_OS_ANDROID
-    onToggleSidebar();
-#endif
-    return;
-  }
-
   const QString cloudRole = item->data(Qt::UserRole + 5).toString();
   if (cloudRole == QLatin1String("clouds_add")) {
     const QString label = BlopDialogs::promptText(
@@ -8462,6 +8427,38 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
       e.path = item->data(Qt::UserRole + 10).toString();
     }
     CloudWebExplorer::showOver(this, e);
+#ifdef Q_OS_ANDROID
+    onToggleSidebar();
+#endif
+    return;
+  }
+
+  QString path = item->data(Qt::UserRole + 10).toString();
+  bool isExpandable = item->data(Qt::UserRole + 6).toBool();
+
+  if (!path.isEmpty() && QFileInfo(path).isDir()) {
+    const bool alreadyHere =
+        QFileInfo(m_fileModel->rootPath()).canonicalFilePath() ==
+        QFileInfo(path).canonicalFilePath();
+    navigateLibraryToPath(path);
+    if (isExpandable) {
+      const bool expanded = item->data(Qt::UserRole + 3).toBool();
+      if (!expanded || alreadyHere)
+        toggleFolderContent(item);
+    }
+#ifdef Q_OS_ANDROID
+    onToggleSidebar();
+#endif
+    return;
+  }
+
+  if (!path.isEmpty() && QFileInfo(path).isFile()) {
+    onFileDoubleClicked(m_fileModel->index(path));
+    return;
+  }
+
+  if (item->text() == QStringLiteral("Gerät")) {
+    navigateLibraryToPath(m_rootPath);
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif

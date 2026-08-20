@@ -10,14 +10,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
 #ifdef BLOP_HAS_WEBENGINE
 #include <QDialog>
-#include <QDir>
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
 #include <QWebEngineSettings>
@@ -33,18 +31,18 @@ namespace {
 
 class CloudExplorerPage final : public QWebEnginePage {
 public:
-  explicit CloudExplorerPage(QWebEngineProfile *profile, QWidget *viewParent)
-      : QWebEnginePage(profile, viewParent), m_viewParent(viewParent) {}
+  explicit CloudExplorerPage(QObject *parent) : QWebEnginePage(parent) {}
 
 protected:
   QWebEnginePage *createWindow(WebWindowType) override {
-    auto *dlg = new QDialog(m_viewParent);
+    auto *dlg = new QDialog(qobject_cast<QWidget *>(parent()));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setWindowTitle(QStringLiteral("Anmeldung"));
     dlg->resize(UiScale::dp(480), UiScale::dp(640));
     auto *lay = new QVBoxLayout(dlg);
     lay->setContentsMargins(0, 0, 0, 0);
     auto *view = new QWebEngineView(dlg);
+    view->setAttribute(Qt::WA_NativeWindow);
     lay->addWidget(view);
     auto *page = new QWebEnginePage(profile(), view);
     view->setPage(page);
@@ -55,18 +53,7 @@ protected:
     dlg->activateWindow();
     return page;
   }
-
-private:
-  QWidget *m_viewParent{nullptr};
 };
-
-QString profileDir(const QString &id) {
-  const QString root =
-      QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
-      QStringLiteral("/cloud-web/") + id;
-  QDir().mkpath(root);
-  return root;
-}
 
 } // namespace
 #endif
@@ -127,6 +114,10 @@ void CloudWebExplorer::rebuildChrome() {
 
 #ifdef BLOP_HAS_WEBENGINE
   m_view = new QWebEngineView(this);
+  m_view->setStyleSheet(QStringLiteral("background: #12141C;"));
+  m_view->setAutoFillBackground(true);
+  m_view->setAttribute(Qt::WA_OpaquePaintEvent, true);
+  m_view->setAttribute(Qt::WA_NativeWindow);
   if (QWebEngineSettings *ws = m_view->settings()) {
     ws->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
     ws->setAttribute(QWebEngineSettings::LocalStorageEnabled, true);
@@ -134,6 +125,24 @@ void CloudWebExplorer::rebuildChrome() {
     ws->setAttribute(QWebEngineSettings::WebGLEnabled, false);
     ws->setAttribute(QWebEngineSettings::Accelerated2dCanvasEnabled, false);
   }
+  auto *page = new CloudExplorerPage(m_view);
+  page->setBackgroundColor(QColor(18, 20, 28));
+  m_view->setPage(page);
+  if (QWebEngineProfile *pf = page->profile()) {
+    pf->setPersistentCookiesPolicy(QWebEngineProfile::ForcePersistentCookies);
+    pf->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
+    pf->setHttpUserAgent(
+        QStringLiteral("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"));
+  }
+  connect(page, &QWebEnginePage::renderProcessTerminated, this,
+          [this](QWebEnginePage::RenderProcessTerminationStatus status, int) {
+            if (status != QWebEnginePage::NormalTerminationStatus && m_view)
+              QTimer::singleShot(400, m_view, [this]() {
+                if (m_view)
+                  m_view->reload();
+              });
+          });
   root->addWidget(m_view, 1);
   connect(m_view, &QWebEngineView::urlChanged, this, [this](const QUrl &u) {
     if (m_urlBar && u.isValid() && !m_urlBar->hasFocus())
@@ -254,36 +263,12 @@ void CloudWebExplorer::openEntry(const CloudStorageEntry &entry) {
                          ? CloudStorageStore::displayNameForType(m_entry.type)
                          : m_entry.name);
 
-#ifdef BLOP_HAS_WEBENGINE
-  if (m_view) {
-    const QString dir = profileDir(m_entry.id.isEmpty() ? m_entry.type
-                                                        : m_entry.id);
-    QWebEnginePage *oldPage = m_view->page();
-    QWebEngineProfile *old = m_profile;
-    m_profile = new QWebEngineProfile(QStringLiteral("blop-cloud-%1")
-                                          .arg(m_entry.id),
-                                      m_view);
-    m_profile->setPersistentCookiesPolicy(
-        QWebEngineProfile::ForcePersistentCookies);
-    m_profile->setPersistentStoragePath(dir);
-    m_profile->setCachePath(dir + QStringLiteral("/cache"));
-    m_profile->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
-    m_profile->setHttpUserAgent(
-        QStringLiteral("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"));
-    auto *page = new CloudExplorerPage(m_profile, m_view);
-    m_view->setPage(page);
-    if (oldPage && oldPage != page)
-      oldPage->deleteLater();
-    if (old)
-      old->deleteLater();
-  }
-#endif
-  goHome();
   show();
   raise();
   setFocus();
-  QTimer::singleShot(0, this, [this]() {
+  // Defer navigation until the native Chromium surface exists (same as Study).
+  QTimer::singleShot(250, this, [this]() {
+    goHome();
     raise();
     setFocus();
   });
@@ -310,9 +295,9 @@ CloudWebExplorer *CloudWebExplorer::showOver(QWidget *host,
   }
 
 #ifndef BLOP_HAS_WEBENGINE
-  const QUrl url = entry.webUrl.isEmpty()
-                       ? CloudStorageStore::defaultWebUrl(entry.type)
-                       : QUrl::fromUserInput(entry.webUrl);
+  const QUrl url = QUrl::fromUserInput(
+      entry.webUrl.isEmpty() ? CloudStorageStore::defaultWebUrl(entry.type)
+                             : entry.webUrl);
   if (url.isValid())
     QDesktopServices::openUrl(url);
   entry.webConnected = true;

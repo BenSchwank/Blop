@@ -11,7 +11,6 @@ class QPushButton;
 
 #ifdef BLOP_HAS_WEBENGINE
 class QWebEngineView;
-class QWebEngineProfile;
 #endif
 
 /// In-app cloud file explorer: sign in at the provider and browse like a
@@ -48,6 +47,5 @@ private:
   QPushButton *m_btnClose{nullptr};
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *m_view{nullptr};
-  QWebEngineProfile *m_profile{nullptr};
 #endif
 };
