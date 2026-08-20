@@ -36,23 +36,38 @@ export default function LoginPage() {
         localStorage.removeItem('session_id');
         localStorage.removeItem('username');
 
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+        const android = /Android/i.test(ua);
+        const nativeQuery =
+            typeof window !== 'undefined' &&
+            new URLSearchParams(window.location.search).get('native') === '1';
+        // Android WebView / ?native=1: never fall back to GIS popup
+        // (Google rejects embedded WebView user-agents).
+        if (android || nativeQuery) {
+            setIsNativeApp(true);
+            setUseNativeGoogle(android || nativeQuery);
+        }
+
         // Check if inside Qt Native App (injected by QWebEngine / Android WebView)
         const checkNative = setInterval(() => {
             const w = window as any;
             if (w.isBlopNativeApp || w.isBlopDesktopApp) {
                 setIsNativeApp(!!w.isBlopNativeApp || !!w.isBlopDesktopApp);
-                const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-                const android = /Android/i.test(ua);
+                const uaNow = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+                const androidNow = /Android/i.test(uaNow);
                 // Android → Custom Tab PKCE. Desktop Blop → system-browser GIS
                 // bridge (claim/poll + blop://). Never use GIS popup inside
                 // Qt WebEngine: Google often escapes to Chrome with no return.
                 setUseNativeGoogle(
-                    (!!w.isBlopNativeApp && android) || !!w.isBlopDesktopApp
+                    androidNow ||
+                        nativeQuery ||
+                        (!!w.isBlopNativeApp && androidNow) ||
+                        !!w.isBlopDesktopApp
                 );
                 clearInterval(checkNative);
             }
         }, 100);
-        setTimeout(() => clearInterval(checkNative), 5000);
+        setTimeout(() => clearInterval(checkNative), 15000);
 
         // Global callback for Google Web Login GIS
         (window as any).handleGoogleLoginSuccess = async (response: any) => {

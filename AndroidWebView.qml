@@ -415,6 +415,48 @@ Rectangle {
                      "  return true;" +
                      "})();"
         w.runJavaScript(jsCode)
+        installNativeLoginBridge()
+    }
+
+    function installNativeLoginBridge() {
+        var w = studyWeb()
+        if (!w)
+            return
+        var js = "(function(){" +
+                 "try {" +
+                 "  window.isBlopNativeApp = true;" +
+                 "  var path = (location.pathname || '').toLowerCase();" +
+                 "  var onLogin = path.indexOf('/login') !== -1 || path.indexOf('/register') !== -1;" +
+                 "  if (!onLogin) return true;" +
+                 "  var gis = document.getElementById('g_id_signin') || document.querySelector('.g_id_signin');" +
+                 "  var onload = document.getElementById('g_id_onload');" +
+                 "  if (gis) gis.style.display = 'none';" +
+                 "  if (onload) onload.style.display = 'none';" +
+                 "  var hasNative = !!document.getElementById('blop-native-google-btn');" +
+                 "  if (!hasNative) {" +
+                 "    var buttons = document.getElementsByTagName('button');" +
+                 "    for (var i = 0; i < buttons.length; i++) {" +
+                 "      if ((buttons[i].textContent || '').indexOf('Über Google anmelden') !== -1)" +
+                 "        hasNative = true;" +
+                 "    }" +
+                 "  }" +
+                 "  if (hasNative) return true;" +
+                 "  var btn = document.createElement('button');" +
+                 "  btn.id = 'blop-native-google-btn';" +
+                 "  btn.type = 'button';" +
+                 "  btn.textContent = 'Über Google anmelden';" +
+                 "  btn.style.cssText = 'width:100%;padding:14px 16px;border-radius:10px;border:1px solid #dadce0;background:#fff;color:#202124;font:600 15px/1.25 system-ui,sans-serif;margin-top:10px';" +
+                 "  btn.addEventListener('click', function(ev){" +
+                 "    ev.preventDefault();" +
+                 "    try { localStorage.setItem('trigger_google_login','1'); } catch (e) {}" +
+                 "    try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); } catch (e2) {}" +
+                 "  });" +
+                 "  var host = (gis && gis.parentNode) ? gis.parentNode : document.querySelector('form');" +
+                 "  if (host) host.appendChild(btn);" +
+                 "} catch (e) {}" +
+                 "return true;" +
+                 "})();"
+        w.runJavaScript(js)
     }
 
     function ensureStudyLoaded() {
@@ -702,6 +744,8 @@ Rectangle {
                         pendingInjectJs = ""
                         embeddedStudyWebView.runJavaScript(jsToRun)
                     }
+                    studyRoot.installNativeLoginBridge()
+                    studyRoot.applyAuthUiScale()
                 }
 
                 if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && studyRoot.cacheMissRecoveryArmed) {
@@ -750,8 +794,13 @@ Rectangle {
                 // when normal website navigation happens.
                 if (loadRequest.url.toString().indexOf("https://") === 0 ||
                     loadRequest.url.toString().indexOf("http://") === 0) {
-                    studyRoot.oauthPending = false
-                    studyRoot.applyAuthUiScale()
+                    var oauthFresh = studyRoot.oauthPending &&
+                            (Date.now() - studyRoot.oauthPendingSinceMs) < 120000
+                    if (!oauthFresh) {
+                        studyRoot.oauthPending = false
+                        studyRoot.applyAuthUiScale()
+                    }
+                    studyRoot.installNativeLoginBridge()
                 }
             }
         }
@@ -1561,6 +1610,9 @@ Rectangle {
                             return
                         oauthPending = true;  // Show overlay while Chrome is open
                         oauthPendingSinceMs = Date.now()
+                        w.runJavaScript(
+                            "try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); } catch (e) {}"
+                        )
                         blopAppBridge.requestGoogleLogin();
                     } else if (resStr !== "") {
                         oauthPending = false;
