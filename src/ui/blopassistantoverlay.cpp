@@ -26,6 +26,11 @@
 
 namespace {
 
+const int kNotchWidthDp = 196;
+const int kNotchHeightDp = 36;
+const int kNotchRadiusDp = 18;
+const int kBezelTuckDp = 3;
+
 const char *kSpeechHtml = R"HTML(
 <!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
 <script>
@@ -130,16 +135,17 @@ void BlopAssistantOverlay::buildUi() {
 
   m_notch = new QWidget(this);
   m_notch->setObjectName(QStringLiteral("BlopAssistantNotch"));
-  m_notch->setFixedSize(UiScale::dp(108), UiScale::dp(22));
+  m_notch->setAttribute(Qt::WA_StyledBackground, true);
+  m_notch->setFixedSize(UiScale::dp(kNotchWidthDp), UiScale::dp(kNotchHeightDp));
   m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_notch->setCursor(Qt::PointingHandCursor);
   m_notch->setToolTip(QStringLiteral("Chat öffnen"));
   auto *notchLay = new QVBoxLayout(m_notch);
-  notchLay->setContentsMargins(0, 0, 0, UiScale::dp(4));
+  notchLay->setContentsMargins(0, 0, 0, UiScale::dp(10));
   notchLay->setSpacing(0);
   m_notchLine = new QWidget(m_notch);
   m_notchLine->setObjectName(QStringLiteral("BlopAssistantNotchLine"));
-  m_notchLine->setFixedSize(UiScale::dp(28), UiScale::dp(3));
+  m_notchLine->setFixedSize(UiScale::dp(42), UiScale::dp(4));
   m_notchLine->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   notchLay->addStretch(1);
   notchLay->addWidget(m_notchLine, 0, Qt::AlignHCenter);
@@ -283,16 +289,18 @@ void BlopAssistantOverlay::buildUi() {
 }
 
 void BlopAssistantOverlay::applyChrome() {
+  const int rad = UiScale::dp(kNotchRadiusDp);
   setStyleSheet(QStringLiteral(
       "QWidget#BlopAssistantOverlay { background: transparent; }"
       "QWidget#BlopAssistantNotch {"
-      "  background: #1C1C1C;"
-      "  border: 1px solid rgba(255,255,255,0.10);"
+      "  background: #141414;"
+      "  border: 1px solid rgba(255,255,255,0.12);"
       "  border-top: none;"
-      "  border-radius: 0 0 11px 11px;"
+      "  border-bottom-left-radius: %1px;"
+      "  border-bottom-right-radius: %1px;"
       "}"
       "QWidget#BlopAssistantNotchLine {"
-      "  background: rgba(255,255,255,0.16);"
+      "  background: rgba(255,255,255,0.18);"
       "  border: none; border-radius: 2px;"
       "}"
       "QFrame#BlopAssistantCard {"
@@ -336,7 +344,8 @@ void BlopAssistantOverlay::applyChrome() {
       "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; }"
       "QScrollBar::handle:vertical { background: rgba(255,255,255,0.14);"
       "  border-radius: 4px; min-height: 24px; }"
-      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }")
+                  .arg(rad));
 }
 
 void BlopAssistantOverlay::applyLayoutMode() {
@@ -349,21 +358,22 @@ void BlopAssistantOverlay::placeOnScreen() {
   if (!screen)
     return;
   const QRect full = screen->geometry();
-  const int notchH = m_notch ? m_notch->height() : UiScale::dp(22);
-  const int clip = qMax(1, notchH / 2);
+  const int notchH = m_notch ? m_notch->height() : UiScale::dp(kNotchHeightDp);
+  const int tuck = UiScale::dp(kBezelTuckDp);
   auto *outer = qobject_cast<QVBoxLayout *>(layout());
   if (outer) {
     const int side = m_expanded ? UiScale::dp(6) : 0;
     const int bottom = m_expanded ? UiScale::dp(6) : 0;
-    // Pull the notch up so the hidden half sits in the bezel/panel.
-    outer->setContentsMargins(side, -clip, side, bottom);
-    outer->setSpacing(m_expanded ? UiScale::dp(6) : 0);
+    outer->setContentsMargins(side, -tuck, side, bottom);
+    outer->setSpacing(m_expanded ? UiScale::dp(8) : 0);
   }
   const int w =
       m_expanded ? UiScale::dp(380)
-                 : (m_notch ? m_notch->width() : UiScale::dp(108));
+                 : (m_notch ? m_notch->width() : UiScale::dp(kNotchWidthDp));
+  const int visibleNotch = notchH - tuck;
   const int h =
-      m_expanded ? (clip + UiScale::dp(6) + UiScale::dp(420)) : clip;
+      m_expanded ? (visibleNotch + UiScale::dp(8) + UiScale::dp(420))
+                 : visibleNotch;
   const int x = full.x() + (full.width() - w) / 2;
   setFixedSize(w, h);
   move(x, full.y());
