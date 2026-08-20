@@ -440,7 +440,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         accountSt.value(QStringLiteral("username")).toString().trimmed();
     const QString studySid =
         accountSt.value(QStringLiteral("session_id")).toString().trimmed();
-    const bool studyLoggedIn = !studyUser.isEmpty() && !studySid.isEmpty();
+    const bool studyLoggedIn = !studyUser.isEmpty() && !studySid.isEmpty()
+        && studyUser.compare(QLatin1String("Gast"), Qt::CaseInsensitive) != 0
+        && studyUser.compare(QLatin1String("Guest"), Qt::CaseInsensitive) != 0;
 
     auto *heroText = new QVBoxLayout();
     heroText->setContentsMargins(0, 0, 0, 0);

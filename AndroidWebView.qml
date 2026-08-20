@@ -5,7 +5,7 @@ import QtWebView 1.1
 Rectangle {
     id: studyRoot
     // v3.18.2+: driven from C++ (syncStudyChromeTheme) for Light/Dark parity.
-    property color studyChromeColor: "#0B0B1A"
+    property color studyChromeColor: "#000000"
     // v3.18.20: always transparent so the Android SurfaceView (which renders
     // behind all QML layers) is never obscured by this root Rectangle.
     // The startupLoadingOverlayLoader covers the background during startup.
@@ -102,15 +102,11 @@ Rectangle {
             oauthPendingSinceMs = 0
             if (bookmarkSheetOpen)
                 closeBookmarkSheet()
-            // Unfinished / failed Study surfaces must be dropped immediately.
-            // Waiting 8s (or skipping unload when firstLoadDone is false) lets
-            // Android keep compositing a black glass pane over the Notes tab.
-            if (!firstLoadDone || studyLoadFailed) {
-                tabLeaveUnloadTimer.stop()
-                suspendForNotesTab()
-            } else {
-                tabLeaveUnloadTimer.restart()
-            }
+            // Drop the SurfaceView immediately. A delayed unload lets Study's
+            // empty navy dashboard (or login zoom background) composite over
+            // Notes after a fresh-start login handoff.
+            tabLeaveUnloadTimer.stop()
+            suspendForNotesTab()
         }
     }
 
@@ -242,23 +238,27 @@ Rectangle {
         var base = studyUrl
         if (base.length > 0 && base.charAt(base.length - 1) === "/")
             base = base.slice(0, -1)
-        // Native entry: StudyFlow treats ?native=1 as embedded-app mode (headers, redirects).
-        var u = base + "/?native=1"
+        // Hydrate the embedded WebView's localStorage from the natively-persisted
+        // session so login survives WebView Loader recreation on tab switch.
+        // StudyFlow's AuthCheck consumes blop_usr/blop_sid synchronously before
+        // redirecting, closing the race against C++'s async injectToken.
+        var sessionParam = ""
+        if (ssoPollingEnabled && typeof blopAppBridge !== "undefined"
+                && blopAppBridge.savedStudySessionParam) {
+            sessionParam = blopAppBridge.savedStudySessionParam()
+        }
+        // Guests must open /login. "/?native=1" is the embedded Study shell and
+        // paints an empty navy/blob-blue pane after a brief login flash.
+        var path = (sessionParam && sessionParam.length > 0)
+                   ? "/?native=1" : "/login?native=1"
+        var u = base + path
         if (addCacheBypass) {
             u += "&_src=android_webview"
             u += "&_ts=" + Date.now()
             u += "&_try=" + freshLoadSerial
         }
-        // Hydrate the embedded WebView's localStorage from the natively-persisted
-        // session so login survives WebView Loader recreation on tab switch.
-        // StudyFlow's AuthCheck consumes blop_usr/blop_sid synchronously before
-        // redirecting, closing the race against C++'s async injectToken.
-        if (ssoPollingEnabled && typeof blopAppBridge !== "undefined"
-                && blopAppBridge.savedStudySessionParam) {
-            var sessionParam = blopAppBridge.savedStudySessionParam()
-            if (sessionParam && sessionParam.length > 0)
-                u += sessionParam
-        }
+        if (sessionParam && sessionParam.length > 0)
+            u += sessionParam
         return u
     }
 
@@ -448,8 +448,6 @@ Rectangle {
             return
         var jsCode = "(function() {" +
                      "  try {" +
-                     "    document.documentElement.style.backgroundColor = '#0B0B1A';" +
-                     "    if (document.body) document.body.style.backgroundColor = '#0B0B1A';" +
                      "    var bodyText = (document.body && document.body.innerText ? document.body.innerText : '').toLowerCase();" +
                      "    var path = (location.pathname || '').toLowerCase();" +
                      "    var authLike = path.indexOf('login') !== -1 || path.indexOf('register') !== -1 || bodyText.indexOf('passwort') !== -1 || bodyText.indexOf('benutzername') !== -1;" +
@@ -1779,9 +1777,26 @@ Rectangle {
                          "      localStorage.removeItem('trigger_google_login');\n" +
                          "      return 'TRIGGER_GOOGLE_LOGIN';\n" +
                          "  }\n" +
-                         "  var u = localStorage.getItem('username');\n" +
-                         "  var s = localStorage.getItem('session_id');\n" +
-                         "  return (u && s) ? u : '';\n" +
+                         "  var u = (localStorage.getItem('username') || '').trim();\n" +
+                         "  var s = (localStorage.getItem('session_id') || '').trim();\n" +
+                         "  var path = (location.pathname || '').toLowerCase();\n" +
+                         "  var placeholder = !u || u.toLowerCase() === 'gast' || u.toLowerCase() === 'guest';\n" +
+                         "  var authPath = path.indexOf('/login') !== -1\n" +
+                         "      || path.indexOf('/register') !== -1\n" +
+                         "      || path.indexOf('/forgot') !== -1\n" +
+                         "      || path.indexOf('/reset') !== -1\n" +
+                         "      || path.indexOf('/datenschutz') !== -1\n" +
+                         "      || path.indexOf('/privacy') !== -1;\n" +
+                         "  var authed = !placeholder && !!s;\n" +
+                         "  if (!authed && !authPath) {\n" +
+                         "    if (!window.__blopGateLogin) {\n" +
+                         "      window.__blopGateLogin = 1;\n" +
+                         "      location.replace('/login?native=1');\n" +
+                         "    }\n" +
+                         "    return '';\n" +
+                         "  }\n" +
+                         "  window.__blopGateLogin = 0;\n" +
+                         "  return authed ? u : '';\n" +
                          "})();"
 
             w.runJavaScript(jsCode, function(result) {

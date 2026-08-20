@@ -235,6 +235,79 @@ static const char *BLOP_VERSION = BLOP_VERSION_STR;
 /// Embedded Blop Study base URL (Android QML appends "/?native=1" for embedded entry).
 static const QString kBlopStudyUrl(QStringLiteral("https://blop-study.com"));
 
+/// Display name the Study SPA uses for anonymous shells. Must not unlock Notes.
+static bool isPlaceholderStudyUser(const QString &username) {
+  const QString u = username.trimmed();
+  return u.isEmpty()
+      || u.compare(QLatin1String("Gast"), Qt::CaseInsensitive) == 0
+      || u.compare(QLatin1String("Guest"), Qt::CaseInsensitive) == 0;
+}
+
+static QUrl studyEntryUrlForSavedSession() {
+  const QString user =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("username"))
+          .toString();
+  if (isPlaceholderStudyUser(user))
+    return QUrl(kBlopStudyUrl + QStringLiteral("/login"));
+  return QUrl(kBlopStudyUrl);
+}
+
+// Keep guests on /login. Loading "/" lets StudyFlow paint an empty Gast
+// dashboard (navy/blob-blue pane) after a brief login flash.
+static const char kStudySessionPollJs[] = R"js(
+          (function() {
+            window.isBlopDesktopApp = true;
+            try {
+              if (!window.__blopDesktopBridgeBtn) {
+                var gis = document.querySelector('.g_id_signin') ||
+                          document.getElementById('g_id_signin');
+                if (gis && gis.parentNode) {
+                  window.__blopDesktopBridgeBtn = true;
+                  gis.style.display = 'none';
+                  var onload = document.getElementById('g_id_onload');
+                  if (onload) onload.remove();
+                  var btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.textContent = 'Über Google anmelden';
+                  btn.style.cssText =
+                    'width:100%;padding:14px 16px;border-radius:10px;border:1px solid #ccc;' +
+                    'background:#fff;color:#222;font:600 15px/1.2 system-ui,sans-serif;cursor:pointer;';
+                  btn.onclick = function() {
+                    localStorage.setItem('trigger_google_login', '1');
+                  };
+                  gis.parentNode.insertBefore(btn, gis);
+                }
+              }
+            } catch (e) {}
+
+            if (localStorage.getItem('trigger_google_login') === '1') {
+                localStorage.removeItem('trigger_google_login');
+                return 'TRIGGER_GOOGLE_LOGIN';
+            }
+            var u = (localStorage.getItem('username') || '').trim();
+            var s = (localStorage.getItem('session_id') || '').trim();
+            var path = (location.pathname || '').toLowerCase();
+            var placeholder = !u || u.toLowerCase() === 'gast' || u.toLowerCase() === 'guest';
+            var authPath = path.indexOf('/login') !== -1
+                || path.indexOf('/register') !== -1
+                || path.indexOf('/forgot') !== -1
+                || path.indexOf('/reset') !== -1
+                || path.indexOf('/datenschutz') !== -1
+                || path.indexOf('/privacy') !== -1;
+            var authed = !placeholder && !!s;
+            if (!authed && !authPath) {
+              if (!window.__blopGateLogin) {
+                window.__blopGateLogin = 1;
+                location.replace('/login');
+              }
+              return '';
+            }
+            window.__blopGateLogin = 0;
+            return authed ? u : '';
+          })();
+        )js";
+
 static QColor libraryNavTint(const QString &iconKey) {
   if (iconKey == QLatin1String("home"))
     return QColor(QStringLiteral("#A78BFA"));
@@ -1537,10 +1610,10 @@ MainWindow::MainWindow(QWidget *parent)
   updateSidebarState();
 #endif
 
-  // Initial mode: guest → Study, logged-in → Notes (setCurrentIndex emits onModeChanged)
+  // Initial mode: guest → Study login, logged-in → Notes (setCurrentIndex emits onModeChanged)
   QString savedUser = QSettings("Blop", "BlopApp").value("username").toString();
   qInfo() << "MainWindow: startup savedUser=" << savedUser
-          << "isEmpty=" << savedUser.trimmed().isEmpty()
+          << "placeholder=" << isPlaceholderStudyUser(savedUser)
           << "authLocked=" << m_authNavigationLocked
           << "sidebarOpen=" << m_isSidebarOpen;
   updateSidebarUser(savedUser);
@@ -1548,7 +1621,7 @@ MainWindow::MainWindow(QWidget *parent)
           << "sidebarOpen=" << m_isSidebarOpen
           << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
   // Start unfolded in Notes for logged-in users.
-  if (!savedUser.trimmed().isEmpty()) {
+  if (!m_authNavigationLocked) {
     animateSidebar(true);
   }
 
@@ -1565,7 +1638,7 @@ MainWindow::MainWindow(QWidget *parent)
             .value(QStringLiteral("username"))
             .toString()
             .trimmed();
-    m_authNavigationLocked = user.isEmpty();
+    m_authNavigationLocked = isPlaceholderStudyUser(user);
 #ifdef Q_OS_ANDROID
     if (m_androidHeader) {
       m_androidHeader->setVisible(!m_authNavigationLocked);
@@ -1698,10 +1771,11 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
 
           // Sync Study WebView localStorage when the embedded view works (optional).
+          // Do not navigate to '/' here: that paints Study's empty Gast/navy
+          // dashboard, and on Android the SurfaceView composites it over Notes.
           QString js = QString(
                            "localStorage.setItem('session_id', '%1');"
-                           "localStorage.setItem('username', '%2');"
-                           "window.location.href = '/';")
+                           "localStorage.setItem('username', '%2');")
                            .arg(sessionId, username);
 
 #ifdef Q_OS_ANDROID
@@ -2814,7 +2888,7 @@ void MainWindow::notifyStudyFirstLoadDone() {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QString sessionId = st.value(QStringLiteral("session_id")).toString();
   const QString username  = st.value(QStringLiteral("username")).toString();
-  if (!sessionId.isEmpty() && !username.isEmpty()) {
+  if (!sessionId.isEmpty() && !isPlaceholderStudyUser(username)) {
     qInfo() << "MainWindow: restoring session into Study WebView for user" << username;
     const QString js = QString(
         "localStorage.setItem('session_id', '%1');"
@@ -2831,7 +2905,7 @@ QString MainWindow::savedStudySessionParam() const {
   QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   const QString username = st.value(QStringLiteral("username")).toString();
   const QString sessionId = st.value(QStringLiteral("session_id")).toString();
-  if (username.isEmpty() || sessionId.isEmpty())
+  if (isPlaceholderStudyUser(username) || sessionId.trimmed().isEmpty())
     return QString();
   const QString usrEnc = QString::fromUtf8(QUrl::toPercentEncoding(username));
   const QString sidEnc = QString::fromUtf8(QUrl::toPercentEncoding(sessionId));
@@ -6649,8 +6723,8 @@ void MainWindow::setupWebBrowser() {
 
   // --- Auto-reload fix ---
   // After a fresh install the WebEngine sometimes loads a blank page.
-  // Retry up to 2 times on failure, and force one reload after 4 seconds
-  // to recover from the black-screen-on-first-launch issue.
+  // Retry up to 2 times on failure. Do not blindly reload a working /login
+  // page — that used to dump guests onto Study's empty navy dashboard.
   auto *retryCount = new int(0);
   connect(view, &QWebEngineView::loadFinished, m_studyContainer,
           [view, retryCount](bool ok) {
@@ -6660,8 +6734,14 @@ void MainWindow::setupWebBrowser() {
             }
           });
 
-  // Force one reload 4 s after startup to fix the post-install blank page
-  QTimer::singleShot(4000, view, [view]() { view->reload(); });
+  // If the first navigation never left about:blank, recover once.
+  QTimer::singleShot(4000, view, [view]() {
+    if (!view)
+      return;
+    const QString u = view->url().toString();
+    if (u.isEmpty() || u.startsWith(QLatin1String("about:")))
+      view->load(studyEntryUrlForSavedSession());
+  });
 
   // Mark desktop Blop as soon as each page loads so Study login can switch
   // to the system-browser bridge button (not GIS popup in WebEngine).
@@ -6750,7 +6830,8 @@ void MainWindow::setupWebBrowser() {
 
   // Defer first navigation until after the window is shown so the native surface exists
   // (helps some Windows + frameless + WebEngine combinations that stay black).
-  QTimer::singleShot(250, view, [view]() { view->load(QUrl(kBlopStudyUrl)); });
+  // Guests must land on /login — "/" is an empty Gast shell (blob-blue pane).
+  QTimer::singleShot(250, view, [view]() { view->load(studyEntryUrlForSavedSession()); });
 
   // --- SSO Bridge: Poll localStorage to support SPA Routing ---
   // In Next.js, navigating to Dashboard after login doesn't trigger
@@ -6813,48 +6894,7 @@ void MainWindow::setupWebBrowser() {
     if (!view->page())
       return;
     view->page()->runJavaScript(
-        R"js(
-          (function() {
-            // Desktop: system-browser GIS bridge (claim/poll + blop://).
-            // Do NOT set isBlopNativeApp — that forced broken loopback OAuth.
-            // Android still sets isBlopNativeApp via AndroidWebView.qml.
-            window.isBlopDesktopApp = true;
-
-            // Even if Vercel still serves the old GIS-in-WebEngine login,
-            // replace the Google button with the bridge trigger so Chrome
-            // cannot swallow the OAuth popup with no return path.
-            try {
-              if (!window.__blopDesktopBridgeBtn) {
-                var gis = document.querySelector('.g_id_signin') ||
-                          document.getElementById('g_id_signin');
-                if (gis && gis.parentNode) {
-                  window.__blopDesktopBridgeBtn = true;
-                  gis.style.display = 'none';
-                  var onload = document.getElementById('g_id_onload');
-                  if (onload) onload.remove();
-                  var btn = document.createElement('button');
-                  btn.type = 'button';
-                  btn.textContent = 'Über Google anmelden';
-                  btn.style.cssText =
-                    'width:100%;padding:14px 16px;border-radius:10px;border:1px solid #ccc;' +
-                    'background:#fff;color:#222;font:600 15px/1.2 system-ui,sans-serif;cursor:pointer;';
-                  btn.onclick = function() {
-                    localStorage.setItem('trigger_google_login', '1');
-                  };
-                  gis.parentNode.insertBefore(btn, gis);
-                }
-              }
-            } catch (e) {}
-
-            if (localStorage.getItem('trigger_google_login') === '1') {
-                localStorage.removeItem('trigger_google_login');
-                return 'TRIGGER_GOOGLE_LOGIN';
-            }
-            var u = localStorage.getItem('username');
-            var s = localStorage.getItem('session_id');
-            return (u && s) ? u : '';
-          })();
-        )js",
+        QString::fromUtf8(kStudySessionPollJs),
         [this](const QVariant &result) {
           QString resStr = result.toString().trimmed();
           if (resStr == "TRIGGER_GOOGLE_LOGIN") {
@@ -6872,8 +6912,8 @@ void MainWindow::setupWebBrowser() {
                 QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
                     .value(QStringLiteral("username"))
                     .toString();
-            if (!currentUser.isEmpty())
-              updateSidebarUser("");
+            if (!isPlaceholderStudyUser(currentUser))
+              updateSidebarUser(QString());
           }
         });
   });
@@ -7269,7 +7309,7 @@ void MainWindow::requestGoogleLogin() {
                 .value(QStringLiteral("username"))
                 .toString()
                 .trimmed();
-        m_authNavigationLocked = user.isEmpty();
+        m_authNavigationLocked = isPlaceholderStudyUser(user);
       } else {
         qInfo() << "Google login already in flight, ignoring duplicate request";
         return;
@@ -7288,7 +7328,7 @@ void MainWindow::requestGoogleLogin() {
                 .value(QStringLiteral("username"))
                 .toString()
                 .trimmed();
-        m_authNavigationLocked = user.isEmpty();
+        m_authNavigationLocked = isPlaceholderStudyUser(user);
         return;
       }
 #endif
@@ -7484,34 +7524,38 @@ void MainWindow::openWebBookmarkFromQml(int index) {
 }
 
 void MainWindow::onSessionCheck(const QString &sessionData) {
-    if (!sessionData.isEmpty() && sessionData != "null") {
-        m_googleLoginInFlight = false;
-        m_googleLoginInFlightSinceMs = 0;
-        QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
-        if (sessionData != currentUser) {
-            updateSidebarUser(sessionData);
-        }
+    const QString user = sessionData.trimmed();
+    if (user.isEmpty() || user == QLatin1String("null")
+        || isPlaceholderStudyUser(user)) {
+      return;
     }
+    m_googleLoginInFlight = false;
+    m_googleLoginInFlightSinceMs = 0;
+    QString currentUser = QSettings("Blop", "BlopApp").value("username").toString();
+    if (user != currentUser)
+      updateSidebarUser(user);
 }
 
 void MainWindow::updateSidebarUser(const QString &username) {
+  const QString persist =
+      isPlaceholderStudyUser(username) ? QString() : username.trimmed();
   // Update avatar initial letter
-  QString initial = username.isEmpty() ? "G" : username.left(1).toUpper();
+  QString initial = persist.isEmpty() ? "G" : persist.left(1).toUpper();
   if (m_lblSidebarAvatar)
     m_lblSidebarAvatar->setText(initial);
   // Update username text
   if (m_lblSidebarUser)
-    m_lblSidebarUser->setText(username.isEmpty() ? "Gast" : username);
+    m_lblSidebarUser->setText(persist.isEmpty() ? "Gast" : persist);
   if (m_phoneLibraryNav)
-    m_phoneLibraryNav->setAccountName(username);
+    m_phoneLibraryNav->setAccountName(persist);
 
   // Persist for next app launch
-  QSettings("Blop", "BlopApp").setValue("username", username);
+  QSettings("Blop", "BlopApp").setValue("username", persist);
 
   // --- Auth Check Unlock ---
   bool wasLocked = (m_topNavControls && m_topNavControls->isHidden());
 
-  if (!username.isEmpty()) {
+  if (!persist.isEmpty()) {
     m_authNavigationLocked = false;
     // Logged in: Switch to Blop Notes mode
     if (m_topNavControls) m_topNavControls->show();
@@ -13630,12 +13674,16 @@ void MainWindow::restoreWindowState() {
     restoreGeometry(settings.value("geometry").toByteArray());
     restoreState(settings.value("windowState").toByteArray());
     show(); // Important: Actually display the window if we didn't call showMaximized/showFullScreen!
+    if (width() < 200 || height() < 200)
+      showMaximized();
   } else {
     // Default fallback on first run
 #ifdef Q_OS_ANDROID
     showFullScreen();
 #else
     showMaximized();
+    if (width() < 200 || height() < 200)
+      setGeometry(80, 60, 1280, 800);
 #endif
   }
 }
