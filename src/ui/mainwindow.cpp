@@ -11857,17 +11857,17 @@ void MainWindow::connectSettingsAccountActions(SettingsDialog *dlg) {
   if (!dlg)
     return;
   connect(dlg, &SettingsDialog::studyLoginRequested, this, [this]() {
-    QTimer::singleShot(80, this, [this]() {
+    QTimer::singleShot(280, this, [this]() {
       openStudyAuthPage(QStringLiteral("/login"));
     });
   });
   connect(dlg, &SettingsDialog::studyRegisterRequested, this, [this]() {
-    QTimer::singleShot(80, this, [this]() {
+    QTimer::singleShot(280, this, [this]() {
       openStudyAuthPage(QStringLiteral("/register"));
     });
   });
   connect(dlg, &SettingsDialog::googleLoginRequested, this, [this]() {
-    QTimer::singleShot(80, this, [this]() { requestGoogleLogin(); });
+    QTimer::singleShot(280, this, [this]() { requestGoogleLogin(); });
   });
   connect(dlg, &SettingsDialog::cloudExplorerRequested, this,
           [this](const QString &id, const QString &type, const QString &name,

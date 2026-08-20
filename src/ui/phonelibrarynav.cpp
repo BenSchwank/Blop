@@ -277,8 +277,10 @@ void PhoneLibraryNav::addSpacer() {
   if (!m_list)
     return;
   auto *item = new QListWidgetItem(m_list);
-  item->setFlags(Qt::NoItemFlags);
-  item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(12)));
+  item->setText(QString());
+  item->setFlags(Qt::ItemIsEnabled);
+  item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(14)));
+  item->setData(Qt::UserRole, QString());
   item->setData(kSectionRole, true);
 }
 
@@ -287,7 +289,7 @@ void PhoneLibraryNav::addSection(const QString &title) {
     return;
   auto *item = new QListWidgetItem(m_list);
   item->setText(title.toUpper());
-  item->setFlags(Qt::NoItemFlags);
+  item->setFlags(Qt::ItemIsEnabled);
   item->setData(Qt::UserRole, QString());
   item->setData(kSectionRole, true);
   item->setForeground(QBrush(QColor(QStringLiteral("#8B92A8"))));
@@ -296,7 +298,7 @@ void PhoneLibraryNav::addSection(const QString &title) {
   f.setWeight(QFont::DemiBold);
   f.setLetterSpacing(QFont::PercentageSpacing, 112);
   item->setFont(f);
-  item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(28)));
+  item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(32)));
 }
 
 void PhoneLibraryNav::addRow(const QString &id, const QString &title,

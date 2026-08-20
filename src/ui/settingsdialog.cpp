@@ -783,7 +783,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         });
 
         auto *btnBurger = new QPushButton(
-            QStringLiteral("Kompaktes Menü (Burger)"), cardTheme);
+            QStringLiteral("Burger-Menü auch auf Tablet/Laptop"), cardTheme);
         btnBurger->setCheckable(true);
         btnBurger->setCursor(Qt::PointingHandCursor);
         btnBurger->setMinimumHeight(40);
