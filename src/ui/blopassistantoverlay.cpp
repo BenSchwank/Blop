@@ -10,6 +10,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPen>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -29,7 +32,36 @@ namespace {
 const int kNotchWidthDp = 196;
 const int kNotchHeightDp = 36;
 const int kNotchRadiusDp = 18;
-const int kBezelTuckDp = 3;
+const int kBezelTuckDp = 2;
+
+class NotchIsland : public QWidget {
+public:
+  using QWidget::QWidget;
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QRectF r = QRectF(rect()).adjusted(0.5, -2.0, -0.5, -0.5);
+    const qreal rad = qMin(qreal(UiScale::dp(kNotchRadiusDp)), r.height());
+    QPainterPath path;
+    path.moveTo(r.topLeft());
+    path.lineTo(r.topRight());
+    path.lineTo(r.right(), r.bottom() - rad);
+    path.arcTo(QRectF(r.right() - 2 * rad, r.bottom() - 2 * rad, 2 * rad,
+                      2 * rad),
+               0, -90);
+    path.lineTo(r.left() + rad, r.bottom());
+    path.arcTo(QRectF(r.left(), r.bottom() - 2 * rad, 2 * rad, 2 * rad), -90,
+               -90);
+    path.closeSubpath();
+    p.fillPath(path, QColor(18, 18, 18));
+    QPen pen(QColor(255, 255, 255, 40));
+    pen.setWidthF(1.0);
+    p.setPen(pen);
+    p.drawPath(path);
+  }
+};
 
 const char *kSpeechHtml = R"HTML(
 <!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
@@ -133,7 +165,7 @@ void BlopAssistantOverlay::buildUi() {
   outer->setSpacing(UiScale::dp(6));
   outer->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
-  m_notch = new QWidget(this);
+  m_notch = new NotchIsland(this);
   m_notch->setObjectName(QStringLiteral("BlopAssistantNotch"));
   m_notch->setAttribute(Qt::WA_StyledBackground, true);
   m_notch->setFixedSize(UiScale::dp(kNotchWidthDp), UiScale::dp(kNotchHeightDp));
@@ -289,15 +321,11 @@ void BlopAssistantOverlay::buildUi() {
 }
 
 void BlopAssistantOverlay::applyChrome() {
-  const int rad = UiScale::dp(kNotchRadiusDp);
   setStyleSheet(QStringLiteral(
       "QWidget#BlopAssistantOverlay { background: transparent; }"
       "QWidget#BlopAssistantNotch {"
-      "  background: #141414;"
-      "  border: 1px solid rgba(255,255,255,0.12);"
-      "  border-top: none;"
-      "  border-bottom-left-radius: %1px;"
-      "  border-bottom-right-radius: %1px;"
+      "  background: transparent;"
+      "  border: none;"
       "}"
       "QWidget#BlopAssistantNotchLine {"
       "  background: rgba(255,255,255,0.18);"
@@ -344,8 +372,7 @@ void BlopAssistantOverlay::applyChrome() {
       "QScrollBar:vertical { background: transparent; width: 8px; margin: 0; }"
       "QScrollBar::handle:vertical { background: rgba(255,255,255,0.14);"
       "  border-radius: 4px; min-height: 24px; }"
-      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }")
-                  .arg(rad));
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
 }
 
 void BlopAssistantOverlay::applyLayoutMode() {
@@ -375,10 +402,16 @@ void BlopAssistantOverlay::placeOnScreen() {
       m_expanded ? (visibleNotch + UiScale::dp(8) + UiScale::dp(420))
                  : visibleNotch;
   const int x = full.x() + (full.width() - w) / 2;
+  const QRect avail = screen->availableGeometry();
+  // Hang from the work-area top if a panel covers the physical edge,
+  // so the rounded peninsula stays fully visible.
+  int y = full.y();
+  if (avail.y() >= full.y() + UiScale::dp(20))
+    y = avail.y();
   setFixedSize(w, h);
-  move(x, full.y());
+  move(x, y);
   if (QWindow *win = windowHandle())
-    win->setPosition(x, full.y());
+    win->setPosition(x, y);
 }
 
 void BlopAssistantOverlay::reposition() {
