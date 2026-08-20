@@ -31,9 +31,9 @@
 
 namespace {
 
-const int kNotchWidthDp = 196;
-const int kNotchHeightDp = 36;
-const int kNotchRadiusDp = 18;
+const int kNotchWidthDp = 240;
+const int kNotchHeightDp = 44;
+const int kNotchRadiusDp = 22;
 const int kBezelTuckDp = 2;
 
 class NotchIsland : public QWidget {
@@ -187,11 +187,11 @@ void BlopAssistantOverlay::buildUi() {
   m_notch->setCursor(Qt::PointingHandCursor);
   m_notch->setToolTip(QStringLiteral("Chat öffnen"));
   auto *notchLay = new QVBoxLayout(m_notch);
-  notchLay->setContentsMargins(0, 0, 0, UiScale::dp(10));
+  notchLay->setContentsMargins(0, 0, 0, UiScale::dp(12));
   notchLay->setSpacing(0);
   m_notchLine = new QWidget(m_notch);
   m_notchLine->setObjectName(QStringLiteral("BlopAssistantNotchLine"));
-  m_notchLine->setFixedSize(UiScale::dp(42), UiScale::dp(4));
+  m_notchLine->setFixedSize(UiScale::dp(52), UiScale::dp(5));
   m_notchLine->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   notchLay->addStretch(1);
   notchLay->addWidget(m_notchLine, 0, Qt::AlignHCenter);
