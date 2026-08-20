@@ -1666,6 +1666,11 @@ MainWindow::MainWindow(QWidget *parent)
                 failOAuthFlow(QStringLiteral("browser_open_failed"));
                 return;
               }
+#ifndef Q_OS_ANDROID
+              runStudyJavaScript(QStringLiteral(
+                  "try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); }"
+                  "catch (e) {}"));
+#endif
           });
           
   // Close the overlay when login completes successfully
@@ -1693,8 +1698,10 @@ MainWindow::MainWindow(QWidget *parent)
       auto attemptVerify = std::make_shared<std::function<void(int)>>();
       *attemptVerify = [this, token, attemptVerify, failOAuthFlow](int attempt) {
         QNetworkAccessManager *nam = new QNetworkAccessManager(this);
-        QNetworkRequest req(QUrl("https://blop-study.com/api/auth/google/verify"));
+        QNetworkRequest req(QUrl("https://www.blop-study.com/api/auth/google/verify"));
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
 
         QJsonObject body;
         body["token"] = token;
@@ -1771,12 +1778,19 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
 
           // Sync Study WebView localStorage when the embedded view works (optional).
-          // Do not navigate to '/' here: that paints Study's empty Gast/navy
-          // dashboard, and on Android the SurfaceView composites it over Notes.
-          QString js = QString(
+          // Desktop: leave /login so the Study tab is the dashboard, not a stale
+          // guest form. Android: do not navigate to '/' here — the SurfaceView
+          // would composite Study's navy shell over Notes; the next Study open
+          // hydrates via loadStudyEntryFresh + blop_usr/blop_sid.
+          QString js = QStringLiteral(
                            "localStorage.setItem('session_id', '%1');"
                            "localStorage.setItem('username', '%2');")
                            .arg(sessionId, username);
+#ifndef Q_OS_ANDROID
+          js += QStringLiteral(
+              "if ((location.pathname||'')==='/login'||(location.pathname||'')==='/register')"
+              "{ location.replace('/'); }");
+#endif
 
 #ifdef Q_OS_ANDROID
           emit injectToken(js); // We reuse injectToken to pass raw JS to the QML WebView
@@ -6753,8 +6767,8 @@ void MainWindow::setupWebBrowser() {
   });
 
   InterceptingWebPage *customPage = new InterceptingWebPage(view);
-  connect(customPage, &InterceptingWebPage::googleLoginRequested, this, []() {
-      GoogleAuthManager::instance().login();
+  connect(customPage, &InterceptingWebPage::googleLoginRequested, this, [this]() {
+      requestGoogleLogin();
   });
   
   // Bridge: Send Google ID Token back into the Next.js Web App
@@ -6898,8 +6912,7 @@ void MainWindow::setupWebBrowser() {
         [this](const QVariant &result) {
           QString resStr = result.toString().trimmed();
           if (resStr == "TRIGGER_GOOGLE_LOGIN") {
-            // Fallback: system-browser GIS bridge (also used by Drive connect).
-            GoogleAuthManager::instance().login();
+            requestGoogleLogin();
           } else if (!resStr.isEmpty()) {
             QString currentUser =
                 QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
@@ -13781,8 +13794,9 @@ bool MainWindow::showAuthOverlay(const QUrl &url) {
   }
   return opened;
 #else
-  // Desktop: system browser; redirect to http://127.0.0.1:8080/ is handled by
-  // QOAuthHttpServerReplyHandler.
+  // Desktop: system browser opens the GIS bridge on blop-study.com.
+  // After GIS, the page posts the credential and opens blop://oauth/done?state=…
+  // (poll on /api/auth/google/desktop/claim still succeeds if the scheme is blocked).
   return QDesktopServices::openUrl(url);
 #endif
 }
