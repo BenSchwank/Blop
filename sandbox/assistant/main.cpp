@@ -416,16 +416,6 @@ private:
   void rebindShortcuts() {
     qDeleteAll(m_shortcuts);
     m_shortcuts.clear();
-    auto add = [this](const QKeySequence &seq, auto slot) {
-      if (seq.isEmpty())
-        return;
-      auto *sc = new QShortcut(seq, m_notch);
-      sc->setContext(Qt::ApplicationShortcut);
-      connect(sc, &QShortcut::activated, m_notch, slot);
-      m_shortcuts << sc;
-    };
-    add(BlopAssistantPrefs::openChatSequence(),
-        &BlopAssistantOverlay::toggleListen);
 #ifdef Q_OS_WIN
     registerWinHotkeys();
 #endif
