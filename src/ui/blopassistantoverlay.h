@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QPoint>
+#include <QRect>
 #include <QWidget>
 
 class QLabel;
@@ -10,12 +11,16 @@ class QToolButton;
 class QFrame;
 class QScrollArea;
 class QVBoxLayout;
+class QEnterEvent;
+class QVariantAnimation;
+class QPropertyAnimation;
+class QTimer;
 
 #ifdef BLOP_HAS_WEBENGINE
 class QWebEngineView;
 #endif
 
-// Floating notch. Click opens a chat sheet. Settings live in a separate window.
+// Tiny Blop-cloud at the bezel. Hover puffs it; click grows into chat.
 class BlopAssistantOverlay : public QWidget {
   Q_OBJECT
 public:
@@ -56,6 +61,8 @@ protected:
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
+  void enterEvent(QEnterEvent *event) override;
+  void leaveEvent(QEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   bool eventFilter(QObject *obj, QEvent *event) override;
 
@@ -67,6 +74,9 @@ private:
   void applyLayoutMode();
   void addBubble(const QString &text, bool fromUser);
   void scrollChatToEnd();
+  void setCloudHover(bool on);
+  void applyWindowGeometry(const QRect &target, bool animate);
+  void updateCollapsedMask();
 #ifdef BLOP_HAS_WEBENGINE
   void ensureSpeechPage();
 #endif
@@ -92,6 +102,11 @@ private:
   bool m_listening{false};
   bool m_standalone{false};
   bool m_pressOnNotch{false};
+  bool m_cloudHover{false};
+  QVariantAnimation *m_hoverAnim{nullptr};
+  QPropertyAnimation *m_geoAnim{nullptr};
+  QTimer *m_hoverPoll{nullptr};
+  QRect m_pendingGeom;
 
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *m_speechView{nullptr};

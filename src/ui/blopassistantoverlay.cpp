@@ -2,6 +2,10 @@
 
 #include "uiscale.h"
 
+#include <QAbstractAnimation>
+#include <QCursor>
+#include <QEasingCurve>
+#include <QEnterEvent>
 #include <QEvent>
 #include <QFrame>
 #include <QGuiApplication>
@@ -9,10 +13,12 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPen>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QRegion>
 #include <QScrollArea>
@@ -20,6 +26,8 @@
 #include <QScreen>
 #include <QTimer>
 #include <QToolButton>
+#include <QTransform>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -30,56 +38,106 @@
 
 namespace {
 
-// Collapsed rest state: a rounded peninsula hanging from the bezel
-// (Dynamic Island). Radius equals height so the sides are a full U,
-// not a wide bar with tiny corner fillets.
-const int kNotchWidthDp = 220;
-const int kNotchHeightDp = 84;
-const int kBezelTuckDp = 0;
-const int kNotchAaPadDp = 4;
+// Idle cloud is about a cursor; hover fills this widget; click opens chat.
+const int kCloudWDp = 38;
+const int kCloudHDp = 26;
+const qreal kCloudRestScale = 0.78;
 
-QPainterPath makePeninsulaPath(const QRectF &bounds) {
-  // Top overflows by 1px so the bezel join stays flush.
-  const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -1.0);
-  const qreal rad = qMin(r.height(), r.width() * 0.48);
-  QPainterPath path;
-  path.moveTo(r.topLeft());
-  path.lineTo(r.topRight());
-  path.lineTo(QPointF(r.right(), r.bottom() - rad));
-  path.arcTo(QRectF(r.right() - 2 * rad, r.bottom() - 2 * rad, 2 * rad, 2 * rad),
-             0, -90);
-  path.lineTo(QPointF(r.left() + rad, r.bottom()));
-  path.arcTo(QRectF(r.left(), r.bottom() - 2 * rad, 2 * rad, 2 * rad), -90, -90);
-  path.closeSubpath();
+QPainterPath makeCloudPath(const QRectF &bounds) {
+  // Blop-logo blob: overlapping lobes + a short stem into the bezel.
+  const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -0.5);
+  if (r.width() < 2.0 || r.height() < 2.0)
+    return QPainterPath();
+
+  auto puff = [&](qreal nx, qreal ny, qreal nw, qreal nh) {
+    QPainterPath e;
+    e.addEllipse(QRectF(r.left() + nx * r.width(), r.top() + ny * r.height(),
+                        nw * r.width(), nh * r.height()));
+    return e;
+  };
+
+  QPainterPath path = puff(0.30, 0.10, 0.46, 0.70);
+  path = path.united(puff(0.06, 0.30, 0.42, 0.62));
+  path = path.united(puff(0.52, 0.28, 0.44, 0.64));
+  path = path.united(puff(0.18, 0.48, 0.64, 0.50));
+
+  QPainterPath stem;
+  const qreal stemW = qMax(4.0, r.width() * 0.18);
+  stem.addRoundedRect(
+      QRectF(r.center().x() - stemW * 0.5, r.top() - 2.0, stemW,
+             r.height() * 0.42),
+      stemW * 0.5, stemW * 0.5);
+  path = path.united(stem);
   return path;
 }
 
 class NotchIsland : public QWidget {
 public:
-  using QWidget::QWidget;
+  explicit NotchIsland(QWidget *parent = nullptr) : QWidget(parent) {}
+
+  void setGrow(qreal grow) {
+    const qreal g = qBound(0.0, grow, 1.0);
+    if (qFuzzyCompare(m_grow + 1.0, g + 1.0))
+      return;
+    m_grow = g;
+    update();
+  }
+  qreal grow() const { return m_grow; }
+
+  QRectF cloudRect() const {
+    const QRectF r = QRectF(rect()).adjusted(1.0, 0.0, -1.0, -1.0);
+    const qreal s = kCloudRestScale + (1.0 - kCloudRestScale) * m_grow;
+    QRectF c(0, 0, r.width() * s, r.height() * s);
+    c.moveCenter(QPointF(r.center().x(), r.top() + c.height() * 0.5));
+    return c;
+  }
+
+  QPainterPath cloudPath() const { return makeCloudPath(cloudRect()); }
 
 protected:
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    const QRectF r = QRectF(rect());
-    const QPainterPath path = makePeninsulaPath(r);
-    p.fillPath(path, QColor(14, 14, 14));
+    const QPainterPath path = cloudPath();
+    if (path.isEmpty())
+      return;
+    const QRectF br = path.boundingRect();
 
-    // Inner sensor bar in the lower bulge — gives the lobe visual mass.
-    QRectF sensor(0, 0, r.width() * 0.34,
-                  qMin(qreal(UiScale::dp(8)), r.height() * 0.14));
-    sensor.moveCenter(QPointF(r.center().x(), r.top() + r.height() * 0.58));
-    QPainterPath pill;
-    pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
-    p.fillPath(pill, QColor(0, 0, 0));
+    QTransform glowXf;
+    glowXf.translate(br.center().x(), br.center().y());
+    glowXf.scale(1.16 + 0.10 * m_grow, 1.16 + 0.10 * m_grow);
+    glowXf.translate(-br.center().x(), -br.center().y());
+    p.setOpacity(0.28 + 0.32 * m_grow);
+    p.fillPath(glowXf.map(path), QColor(124, 108, 255));
+    p.setOpacity(1.0);
 
-    QPen pen(QColor(255, 255, 255, 56));
-    pen.setWidthF(1.4);
-    p.setPen(pen);
-    p.drawPath(path);
+    QLinearGradient g(br.topLeft(), br.bottomRight());
+    g.setColorAt(0.0, QColor(186, 176, 255));
+    g.setColorAt(0.45, QColor(118, 104, 250));
+    g.setColorAt(1.0, QColor(72, 62, 214));
+    p.fillPath(path, g);
+
+    QRectF spec(0, 0, br.width() * 0.22, br.height() * 0.18);
+    spec.moveCenter(QPointF(br.left() + br.width() * 0.38,
+                            br.top() + br.height() * 0.32));
+    p.setOpacity(0.22 + 0.28 * m_grow);
+    p.setBrush(QColor(255, 255, 255));
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(spec);
+    p.setOpacity(1.0);
+
+    QPen pen(QColor(255, 255, 255, int(36 + 40 * m_grow)));
+    pen.setWidthF(1.0);
+    p.strokePath(path, pen);
   }
+
+private:
+  qreal m_grow{0.0};
 };
+
+static NotchIsland *asCloud(QWidget *w) {
+  return static_cast<NotchIsland *>(w);
+}
 
 const char *kSpeechHtml = R"HTML(
 <!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
@@ -164,7 +222,25 @@ void BlopAssistantOverlay::setStandalone(bool on) {
   setWindowFlag(Qt::X11BypassWindowManagerHint, true);
 #endif
   setAttribute(Qt::WA_TranslucentBackground, true);
+  setAttribute(Qt::WA_Hover, true);
+  setMouseTracking(true);
   setWindowTitle(QStringLiteral("Blop Assistant"));
+  if (QScreen *screen = QGuiApplication::primaryScreen()) {
+    connect(screen, &QScreen::geometryChanged, this,
+            &BlopAssistantOverlay::placeOnScreen, Qt::UniqueConnection);
+    connect(screen, &QScreen::availableGeometryChanged, this,
+            &BlopAssistantOverlay::placeOnScreen, Qt::UniqueConnection);
+  }
+  if (!m_hoverPoll) {
+    m_hoverPoll = new QTimer(this);
+    m_hoverPoll->setInterval(32);
+    connect(m_hoverPoll, &QTimer::timeout, this, [this]() {
+      if (!m_standalone || m_expanded)
+        return;
+      setCloudHover(frameGeometry().contains(QCursor::pos()));
+    });
+    m_hoverPoll->start();
+  }
   if (QScreen *screen = QGuiApplication::primaryScreen()) {
     connect(screen, &QScreen::geometryChanged, this,
             &BlopAssistantOverlay::placeOnScreen, Qt::UniqueConnection);
@@ -188,10 +264,10 @@ void BlopAssistantOverlay::buildUi() {
   m_notch->setAttribute(Qt::WA_StyledBackground, false);
   m_notch->setAttribute(Qt::WA_TranslucentBackground, true);
   m_notch->setAutoFillBackground(false);
-  m_notch->setFixedSize(UiScale::dp(kNotchWidthDp), UiScale::dp(kNotchHeightDp));
+  m_notch->setFixedSize(UiScale::dp(kCloudWDp), UiScale::dp(kCloudHDp));
   m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_notch->setCursor(Qt::PointingHandCursor);
-  m_notch->setToolTip(QStringLiteral("Chat öffnen"));
+  m_notch->setToolTip(QStringLiteral("Blop"));
   outer->addWidget(m_notch, 0, Qt::AlignHCenter);
 
   m_chat = new QFrame(this);
@@ -340,8 +416,8 @@ void BlopAssistantOverlay::applyChrome() {
       "}"
       "QFrame#BlopAssistantCard {"
       "  background: #1E1E1E;"
-      "  border: 1px solid rgba(255,255,255,0.08);"
-      "  border-radius: 16px;"
+      "  border: 1px solid rgba(124,108,255,0.35);"
+      "  border-radius: 18px;"
       "}"
       "QLabel#BlopAssistantTitle {"
       "  color: #E8E8E8; font-weight: 700; font-size: 13px; background: transparent;"
@@ -387,50 +463,121 @@ void BlopAssistantOverlay::applyLayoutMode() {
     m_chat->setVisible(m_expanded);
 }
 
+void BlopAssistantOverlay::setCloudHover(bool on) {
+  if (m_expanded)
+    on = true;
+  if (m_cloudHover == on && m_hoverAnim &&
+      m_hoverAnim->state() != QAbstractAnimation::Running)
+    return;
+  m_cloudHover = on;
+  if (!m_notch)
+    return;
+  if (!m_hoverAnim) {
+    m_hoverAnim = new QVariantAnimation(this);
+    m_hoverAnim->setDuration(140);
+    m_hoverAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_hoverAnim, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &v) {
+              if (NotchIsland *cloud = asCloud(m_notch))
+                cloud->setGrow(v.toReal());
+              if (!m_expanded)
+                updateCollapsedMask();
+            });
+  }
+  const qreal current = asCloud(m_notch) ? asCloud(m_notch)->grow() : 0.0;
+  const qreal target = on ? 1.0 : 0.0;
+  if (qFuzzyCompare(current + 1.0, target + 1.0))
+    return;
+  m_hoverAnim->stop();
+  m_hoverAnim->setStartValue(current);
+  m_hoverAnim->setEndValue(target);
+  m_hoverAnim->start();
+}
+
+void BlopAssistantOverlay::updateCollapsedMask() {
+  if (m_expanded || !m_notch) {
+    clearMask();
+    return;
+  }
+  NotchIsland *cloud = asCloud(m_notch);
+  if (!cloud) {
+    clearMask();
+    return;
+  }
+  QPainterPath path = cloud->cloudPath();
+  QTransform xf;
+  xf.translate(m_notch->x(), m_notch->y());
+  path = xf.map(path);
+  if (path.isEmpty())
+    clearMask();
+  else
+    setMask(QRegion(path.toFillPolygon().toPolygon()));
+}
+
+void BlopAssistantOverlay::applyWindowGeometry(const QRect &target, bool animate) {
+  m_pendingGeom = target;
+  const bool canAnim =
+      animate && m_standalone && isVisible() && geometry().isValid() &&
+      geometry().width() > 8 && geometry() != target;
+  if (!canAnim) {
+    setMinimumSize(0, 0);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    setFixedSize(target.size());
+    move(target.topLeft());
+    if (layout())
+      layout()->activate();
+    if (QWindow *win = windowHandle())
+      win->setPosition(target.topLeft());
+    updateCollapsedMask();
+    return;
+  }
+  if (m_expanded)
+    clearMask();
+  setMinimumSize(0, 0);
+  setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  if (!m_geoAnim) {
+    m_geoAnim = new QPropertyAnimation(this, "geometry", this);
+    m_geoAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_geoAnim, &QAbstractAnimation::finished, this, [this]() {
+      if (!m_pendingGeom.isValid())
+        return;
+      setFixedSize(m_pendingGeom.size());
+      move(m_pendingGeom.topLeft());
+      updateCollapsedMask();
+    });
+  }
+  m_geoAnim->stop();
+  m_geoAnim->setDuration(m_expanded ? 220 : 160);
+  m_geoAnim->setStartValue(geometry());
+  m_geoAnim->setEndValue(target);
+  m_geoAnim->start();
+}
+
 void BlopAssistantOverlay::placeOnScreen() {
   QScreen *screen = QGuiApplication::primaryScreen();
   if (!screen)
     return;
   const QRect full = screen->geometry();
-  const int notchH = m_notch ? m_notch->height() : UiScale::dp(kNotchHeightDp);
-  const int tuck = UiScale::dp(kBezelTuckDp);
-  const int aaPad = UiScale::dp(kNotchAaPadDp);
+  const int cloudH = m_notch ? m_notch->height() : UiScale::dp(kCloudHDp);
   auto *outer = qobject_cast<QVBoxLayout *>(layout());
   if (outer) {
     const int side = m_expanded ? UiScale::dp(6) : 0;
-    const int bottom = m_expanded ? UiScale::dp(6) : aaPad;
-    outer->setContentsMargins(side, -tuck, side, bottom);
+    const int bottom = m_expanded ? UiScale::dp(6) : UiScale::dp(2);
+    outer->setContentsMargins(side, 0, side, bottom);
     outer->setSpacing(m_expanded ? UiScale::dp(8) : 0);
   }
   const int w =
-      m_expanded ? UiScale::dp(380)
-                 : (m_notch ? m_notch->width() : UiScale::dp(kNotchWidthDp));
-  const int visibleNotch = notchH - tuck;
+      m_expanded ? UiScale::dp(360)
+                 : (m_notch ? m_notch->width() : UiScale::dp(kCloudWDp));
   const int h =
-      m_expanded ? (visibleNotch + UiScale::dp(8) + UiScale::dp(420))
-                 : visibleNotch + aaPad;
+      m_expanded ? (cloudH + UiScale::dp(8) + UiScale::dp(400))
+                 : cloudH + UiScale::dp(2);
   const int x = full.x() + (full.width() - w) / 2;
   const QRect avail = screen->availableGeometry();
-  // Hang from the work-area top if a panel covers the physical edge,
-  // so the rounded peninsula stays fully visible.
   int y = full.y();
   if (avail.y() >= full.y() + UiScale::dp(20))
     y = avail.y();
-  setFixedSize(w, h);
-  move(x, y);
-  if (layout())
-    layout()->activate();
-  if (QWindow *win = windowHandle())
-    win->setPosition(x, y);
-
-  // Clip the frameless window to the peninsula. Otherwise the WM fills a
-  // rectangle around the lobe and the island reads as a thin bar.
-  if (m_expanded || !m_notch) {
-    clearMask();
-  } else {
-    const QPainterPath path = makePeninsulaPath(QRectF(m_notch->geometry()));
-    setMask(QRegion(path.toFillPolygon().toPolygon()));
-  }
+  applyWindowGeometry(QRect(x, y, w, h), isVisible());
 }
 
 void BlopAssistantOverlay::reposition() {
@@ -464,6 +611,7 @@ void BlopAssistantOverlay::setExpanded(bool expanded) {
   applyLayoutMode();
   applyChrome();
   if (m_standalone) {
+    setCloudHover(expanded || frameGeometry().contains(QCursor::pos()));
     placeOnScreen();
     show();
     raise();
@@ -621,7 +769,21 @@ void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
 }
 
 void BlopAssistantOverlay::mouseMoveEvent(QMouseEvent *event) {
+  if (m_standalone && !m_expanded)
+    setCloudHover(true);
   QWidget::mouseMoveEvent(event);
+}
+
+void BlopAssistantOverlay::enterEvent(QEnterEvent *event) {
+  if (m_standalone)
+    setCloudHover(true);
+  QWidget::enterEvent(event);
+}
+
+void BlopAssistantOverlay::leaveEvent(QEvent *event) {
+  if (m_standalone && !m_expanded)
+    setCloudHover(false);
+  QWidget::leaveEvent(event);
 }
 
 void BlopAssistantOverlay::mouseReleaseEvent(QMouseEvent *event) {
