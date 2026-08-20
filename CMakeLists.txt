@@ -284,7 +284,42 @@ qt_add_executable(Blop
 
 # App-Icon für Windows hinzufügen
 if(WIN32)
-    target_sources(Blop PRIVATE app_icon.rc)
+    if(MINGW)
+        # MinGW windres preprocesses via gcc. CMake then forwards every Blop
+        # include dir as -I C:\... and gcc treats a backslash as a flag:
+        #   error: unrecognized command-line option '-\\'
+        #   windres.exe: preprocessing failed
+        # Compile the .rc ourselves with no inherited includes.
+        if(NOT CMAKE_RC_COMPILER AND CMAKE_CXX_COMPILER)
+            get_filename_component(_blop_mingw_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            find_program(CMAKE_RC_COMPILER NAMES windres windres.exe
+                         HINTS "${_blop_mingw_bin}")
+        endif()
+        if(NOT CMAKE_RC_COMPILER)
+            find_program(CMAKE_RC_COMPILER NAMES windres windres.exe)
+        endif()
+        if(CMAKE_RC_COMPILER)
+            set(_blop_rc_obj "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc.obj")
+            add_custom_command(
+                OUTPUT "${_blop_rc_obj}"
+                COMMAND "${CMAKE_RC_COMPILER}"
+                    --use-temp-file
+                    -O coff
+                    -I "${CMAKE_CURRENT_SOURCE_DIR}"
+                    -i "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.rc"
+                    -o "${_blop_rc_obj}"
+                DEPENDS
+                    "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.rc"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico"
+                VERBATIM
+            )
+            target_sources(Blop PRIVATE "${_blop_rc_obj}")
+        else()
+            message(WARNING "MinGW windres not found — skipping Windows app icon")
+        endif()
+    else()
+        target_sources(Blop PRIVATE app_icon.rc)
+    endif()
 endif()
 
 # QML Modul Definition (Nur für Android relevant)
