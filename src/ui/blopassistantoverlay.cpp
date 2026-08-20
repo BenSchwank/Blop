@@ -15,7 +15,6 @@
 #include <QPen>
 #include <QPushButton>
 #include <QRegion>
-#include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QScreen>
@@ -31,45 +30,52 @@
 
 namespace {
 
-const int kNotchWidthDp = 240;
-const int kNotchHeightDp = 44;
-const int kNotchRadiusDp = 22;
-const int kBezelTuckDp = 2;
+// Collapsed rest state: a true rounded peninsula hanging from the bezel
+// (Dynamic Island), not a thin bar. Height ≈ 2× previous so the lobe reads
+// immediately; radius = half height so the sides are a full stadium.
+const int kNotchWidthDp = 268;
+const int kNotchHeightDp = 72;
+const int kBezelTuckDp = 0;
+const int kNotchAaPadDp = 3;
+
+QPainterPath makePeninsulaPath(const QRectF &bounds) {
+  // Top overflows by 1px so the bezel join stays flush.
+  const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -1.0);
+  const qreal rad = qMin(r.height() * 0.5, r.width() * 0.5);
+  QPainterPath path;
+  path.moveTo(r.topLeft());
+  path.lineTo(r.topRight());
+  path.lineTo(QPointF(r.right(), r.bottom() - rad));
+  path.arcTo(QRectF(r.right() - 2 * rad, r.bottom() - 2 * rad, 2 * rad, 2 * rad),
+             0, -90);
+  path.lineTo(QPointF(r.left() + rad, r.bottom()));
+  path.arcTo(QRectF(r.left(), r.bottom() - 2 * rad, 2 * rad, 2 * rad), -90, -90);
+  path.closeSubpath();
+  return path;
+}
 
 class NotchIsland : public QWidget {
 public:
   using QWidget::QWidget;
 
 protected:
-  QPainterPath peninsulaPath() const {
-    const QRectF r = QRectF(rect()).adjusted(0.5, -2.0, -0.5, -0.5);
-    const qreal rad = qMin(qreal(UiScale::dp(kNotchRadiusDp)), r.height());
-    QPainterPath path;
-    path.moveTo(r.topLeft());
-    path.lineTo(r.topRight());
-    path.lineTo(r.right(), r.bottom() - rad);
-    path.arcTo(QRectF(r.right() - 2 * rad, r.bottom() - 2 * rad, 2 * rad,
-                      2 * rad),
-               0, -90);
-    path.lineTo(r.left() + rad, r.bottom());
-    path.arcTo(QRectF(r.left(), r.bottom() - 2 * rad, 2 * rad, 2 * rad), -90,
-               -90);
-    path.closeSubpath();
-    return path;
-  }
-
-  void resizeEvent(QResizeEvent *event) override {
-    QWidget::resizeEvent(event);
-    setMask(QRegion(peninsulaPath().toFillPolygon().toPolygon()));
-  }
-
   void paintEvent(QPaintEvent *) override {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    const QPainterPath path = peninsulaPath();
-    p.fillPath(path, QColor(18, 18, 18));
-    QPen pen(QColor(255, 255, 255, 40));
-    pen.setWidthF(1.0);
+    const QRectF r = QRectF(rect());
+    const QPainterPath path = makePeninsulaPath(r);
+    p.fillPath(path, QColor(14, 14, 14));
+
+    // Inner sensor bar — the island's visual mass, like the camera lozenge.
+    QRectF sensor(0, 0, r.width() * 0.38,
+                  qMin(qreal(UiScale::dp(10)), r.height() * 0.22));
+    sensor.moveCenter(QPointF(r.center().x(), r.top() + r.height() * 0.52));
+    QPainterPath pill;
+    pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
+    p.fillPath(pill, QColor(0, 0, 0));
+
+    QPen pen(QColor(255, 255, 255, 48));
+    pen.setWidthF(1.25);
     p.setPen(pen);
     p.drawPath(path);
   }
@@ -179,22 +185,13 @@ void BlopAssistantOverlay::buildUi() {
 
   m_notch = new NotchIsland(this);
   m_notch->setObjectName(QStringLiteral("BlopAssistantNotch"));
-  m_notch->setAttribute(Qt::WA_StyledBackground, true);
+  m_notch->setAttribute(Qt::WA_StyledBackground, false);
   m_notch->setAttribute(Qt::WA_TranslucentBackground, true);
   m_notch->setAutoFillBackground(false);
   m_notch->setFixedSize(UiScale::dp(kNotchWidthDp), UiScale::dp(kNotchHeightDp));
   m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_notch->setCursor(Qt::PointingHandCursor);
   m_notch->setToolTip(QStringLiteral("Chat öffnen"));
-  auto *notchLay = new QVBoxLayout(m_notch);
-  notchLay->setContentsMargins(0, 0, 0, UiScale::dp(12));
-  notchLay->setSpacing(0);
-  m_notchLine = new QWidget(m_notch);
-  m_notchLine->setObjectName(QStringLiteral("BlopAssistantNotchLine"));
-  m_notchLine->setFixedSize(UiScale::dp(52), UiScale::dp(5));
-  m_notchLine->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-  notchLay->addStretch(1);
-  notchLay->addWidget(m_notchLine, 0, Qt::AlignHCenter);
   outer->addWidget(m_notch, 0, Qt::AlignHCenter);
 
   m_chat = new QFrame(this);
@@ -341,10 +338,6 @@ void BlopAssistantOverlay::applyChrome() {
       "  background: transparent;"
       "  border: none;"
       "}"
-      "QWidget#BlopAssistantNotchLine {"
-      "  background: rgba(255,255,255,0.18);"
-      "  border: none; border-radius: 2px;"
-      "}"
       "QFrame#BlopAssistantCard {"
       "  background: #1E1E1E;"
       "  border: 1px solid rgba(255,255,255,0.08);"
@@ -401,10 +394,11 @@ void BlopAssistantOverlay::placeOnScreen() {
   const QRect full = screen->geometry();
   const int notchH = m_notch ? m_notch->height() : UiScale::dp(kNotchHeightDp);
   const int tuck = UiScale::dp(kBezelTuckDp);
+  const int aaPad = UiScale::dp(kNotchAaPadDp);
   auto *outer = qobject_cast<QVBoxLayout *>(layout());
   if (outer) {
     const int side = m_expanded ? UiScale::dp(6) : 0;
-    const int bottom = m_expanded ? UiScale::dp(6) : 0;
+    const int bottom = m_expanded ? UiScale::dp(6) : aaPad;
     outer->setContentsMargins(side, -tuck, side, bottom);
     outer->setSpacing(m_expanded ? UiScale::dp(8) : 0);
   }
@@ -414,7 +408,7 @@ void BlopAssistantOverlay::placeOnScreen() {
   const int visibleNotch = notchH - tuck;
   const int h =
       m_expanded ? (visibleNotch + UiScale::dp(8) + UiScale::dp(420))
-                 : visibleNotch;
+                 : visibleNotch + aaPad;
   const int x = full.x() + (full.width() - w) / 2;
   const QRect avail = screen->availableGeometry();
   // Hang from the work-area top if a panel covers the physical edge,
@@ -424,8 +418,19 @@ void BlopAssistantOverlay::placeOnScreen() {
     y = avail.y();
   setFixedSize(w, h);
   move(x, y);
+  if (layout())
+    layout()->activate();
   if (QWindow *win = windowHandle())
     win->setPosition(x, y);
+
+  // Clip the frameless window to the peninsula. Otherwise the WM fills a
+  // rectangle around the lobe and the island reads as a thin bar.
+  if (m_expanded || !m_notch) {
+    clearMask();
+  } else {
+    const QPainterPath path = makePeninsulaPath(QRectF(m_notch->geometry()));
+    setMask(QRegion(path.toFillPolygon().toPolygon()));
+  }
 }
 
 void BlopAssistantOverlay::reposition() {

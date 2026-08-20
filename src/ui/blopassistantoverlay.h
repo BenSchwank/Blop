@@ -73,7 +73,6 @@ private:
 
   QWidget *m_host{nullptr};
   QWidget *m_notch{nullptr};
-  QWidget *m_notchLine{nullptr};
   QWidget *m_chat{nullptr};
   QLabel *m_title{nullptr};
   QLabel *m_hint{nullptr};
