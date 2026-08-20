@@ -6,9 +6,11 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFocusEvent>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QKeySequenceEdit>
 #include <QLabel>
 #include <QLineEdit>
@@ -16,6 +18,60 @@
 #include <QShowEvent>
 #include <QSlider>
 #include <QVBoxLayout>
+#include <QtGlobal>
+
+namespace {
+
+class ReplaceKeySequenceEdit : public QKeySequenceEdit {
+public:
+  explicit ReplaceKeySequenceEdit(QWidget *parent = nullptr)
+      : QKeySequenceEdit(parent) {
+    setClearButtonEnabled(true);
+    setFocusPolicy(Qt::ClickFocus);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    setMaximumSequenceLength(1);
+#endif
+  }
+
+protected:
+  void keyPressEvent(QKeyEvent *event) override {
+    if (event->key() == Qt::Key_Escape) {
+      event->ignore();
+      return;
+    }
+    if (event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete) {
+      clear();
+      event->accept();
+      return;
+    }
+    if (event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) {
+      QKeySequenceEdit::keyPressEvent(event);
+      return;
+    }
+    if (!event->isAutoRepeat() &&
+        (m_replaceNext || !keySequence().isEmpty())) {
+      clear();
+      m_replaceNext = false;
+    }
+    QKeySequenceEdit::keyPressEvent(event);
+  }
+
+  void keyReleaseEvent(QKeyEvent *event) override {
+    QKeySequenceEdit::keyReleaseEvent(event);
+    if (!event->isAutoRepeat())
+      m_replaceNext = true;
+  }
+
+  void focusInEvent(QFocusEvent *event) override {
+    QKeySequenceEdit::focusInEvent(event);
+    m_replaceNext = true;
+  }
+
+private:
+  bool m_replaceNext{true};
+};
+
+} // namespace
 
 BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
     : QDialog(parent) {
@@ -30,8 +86,9 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   root->setSpacing(14);
 
   auto *intro = new QLabel(
-      QStringLiteral("Die Notch öffnet nur den Chat.\n"
-                     "Dieses Fenster kommt aus dem Symbol in der Taskleiste."),
+      QStringLiteral("Tastenkombinationen sind frei wählbar. Feld leeren "
+                     "löscht die alte Kombi — danach eine neue drücken.\n"
+                     "Einstellungen kommen aus dem Symbol in der Taskleiste."),
       this);
   intro->setWordWrap(true);
   intro->setStyleSheet(QStringLiteral("color: #B4B4B4; font-size: 12px;"));
@@ -40,17 +97,14 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   auto *keys = new QGroupBox(QStringLiteral("Tastenkombinationen"), this);
   auto *kf = new QFormLayout(keys);
   kf->setSpacing(10);
-  m_openChat = new QKeySequenceEdit(keys);
-  m_openChat->setClearButtonEnabled(true);
-  m_openChat->setFocusPolicy(Qt::ClickFocus);
-  m_pushToTalk = new QKeySequenceEdit(keys);
-  m_pushToTalk->setClearButtonEnabled(true);
-  m_pushToTalk->setFocusPolicy(Qt::ClickFocus);
-  kf->addRow(QStringLiteral("Zuhören (Notch + Visualizer)"), m_openChat);
-  kf->addRow(QStringLiteral("Push-to-talk (halten)"), m_pushToTalk);
+  m_openChat = new ReplaceKeySequenceEdit(keys);
+  m_pushToTalk = new ReplaceKeySequenceEdit(keys);
+  kf->addRow(QStringLiteral("Zuhören (halten, loslassen = senden)"), m_openChat);
+  kf->addRow(QStringLiteral("Zweite Kombi (ebenfalls halten)"), m_pushToTalk);
   auto *keyHint = new QLabel(
-      QStringLiteral("Push-to-talk: Taste gedrückt halten, loslassen zum "
-                     "Senden. Unabhängig von der Notch."),
+      QStringLiteral("Leeres Feld = aus. Klick ins Feld und drücke die neue "
+                     "Kombination — die alte wird ersetzt, nicht angehängt. "
+                     "Escape ist tabu."),
       keys);
   keyHint->setWordWrap(true);
   keyHint->setStyleSheet(QStringLiteral("color: #8E8E8E; font-size: 11px;"));
@@ -78,9 +132,10 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   m_llmModel = new QLineEdit(ai);
   af->addRow(QStringLiteral("Modell"), m_llmModel);
   auto *aiHint = new QLabel(
-      QStringLiteral("Ohne Key bleibt nur der lokale Parser. Mit Key "
-                     "kannst du alles fragen — Notizen und Apps laufen "
-                     "trotzdem über Bestätigung."),
+      QStringLiteral("Ohne Key bleibt nur der lokale Parser. Derselbe Key "
+                     "erkennt beim Zuhören die Sprache (Whisper) und "
+                     "antwortet danach. Notizen und Apps brauchen weiterhin "
+                     "eine Bestätigung."),
       ai);
   aiHint->setWordWrap(true);
   aiHint->setStyleSheet(QStringLiteral("color: #8E8E8E; font-size: 11px;"));
@@ -119,7 +174,7 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   auto *rh = new QHBoxLayout(rateRow);
   rh->setContentsMargins(0, 0, 0, 0);
   m_rate = new QSlider(Qt::Horizontal, rateRow);
-  m_rate->setRange(-6, 2);
+  m_rate->setRange(-8, 2);
   m_rateValue = new QLabel(rateRow);
   m_rateValue->setMinimumWidth(36);
   rh->addWidget(m_rate, 1);
@@ -143,6 +198,14 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
                    QStringLiteral("de-male"));
   m_voice->addItem(QStringLiteral("Englisch"), QStringLiteral("en"));
   vf->addRow(QStringLiteral("Stimme"), m_voice);
+  auto *voiceHint = new QLabel(
+      QStringLiteral("Windows: Natural/OneCore-Stimmen, wenn installiert "
+                     "(Einstellungen → Sprache). Linux: langsameres pico/"
+                     "speech-dispatcher statt dem grellen Standard."),
+      voice);
+  voiceHint->setWordWrap(true);
+  voiceHint->setStyleSheet(QStringLiteral("color: #8E8E8E; font-size: 11px;"));
+  vf->addRow(QString(), voiceHint);
 
   auto *test = new QPushButton(QStringLiteral("Stimme testen"), voice);
   test->setCursor(Qt::PointingHandCursor);
@@ -150,7 +213,7 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
     save();
     emit prefsChanged();
     BlopAssistantVoice::speak(
-        QStringLiteral("Alles klar. So klinge ich, wenn ich antworte."));
+        QStringLiteral("So klinge ich, wenn ich dir antworte. Ruhig und klar."));
   });
   vf->addRow(QString(), test);
   root->addWidget(voice);
@@ -243,14 +306,14 @@ void BlopAssistantSettingsDialog::load() {
 void BlopAssistantSettingsDialog::save() {
   QKeySequence openSeq = m_openChat->keySequence();
   QKeySequence pttSeq = m_pushToTalk->keySequence();
-  if (BlopAssistantPrefs::unusableShortcut(openSeq))
-    openSeq = QKeySequence(QStringLiteral("Ctrl+Shift+Space"));
-  if (BlopAssistantPrefs::unusableShortcut(pttSeq))
-    pttSeq = QKeySequence(QStringLiteral("Ctrl+Shift+T"));
-  if (m_openChat->keySequence() != openSeq)
-    m_openChat->setKeySequence(openSeq);
-  if (m_pushToTalk->keySequence() != pttSeq)
-    m_pushToTalk->setKeySequence(pttSeq);
+  if (BlopAssistantPrefs::isEscapeShortcut(openSeq)) {
+    openSeq = QKeySequence();
+    m_openChat->clear();
+  }
+  if (BlopAssistantPrefs::isEscapeShortcut(pttSeq)) {
+    pttSeq = QKeySequence();
+    m_pushToTalk->clear();
+  }
   BlopAssistantPrefs::setOpenChatSequence(openSeq);
   BlopAssistantPrefs::setPushToTalkSequence(pttSeq);
   BlopAssistantPrefs::setSpeakReplies(m_speak->isChecked());

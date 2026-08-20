@@ -1,5 +1,6 @@
 #include "blopassistantengine.h"
 #include "blopassistantllm.h"
+#include "blopassistantmic.h"
 #include "blopassistantoverlay.h"
 #include "blopassistantprefs.h"
 #include "blopassistantsettingsdialog.h"
@@ -14,6 +15,7 @@
 #include <QGuiApplication>
 #include <QScreen>
 #include <QJsonObject>
+#include <QByteArray>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QKeyCombination>
@@ -195,6 +197,12 @@ int runSelfTest() {
     ++fails;
   }
 
+  const QByteArray wav = BlopAssistantMic::makeWav(QByteArray(3200, char(0)), 16000);
+  if (!wav.startsWith("RIFF") || wav.size() != 44 + 3200) {
+    QTextStream(stderr) << "FAIL wav header\n";
+    ++fails;
+  }
+
   if (fails == 0)
     QTextStream(stdout) << "blop-assistant-sandbox self-test: ok\n";
   else
@@ -236,8 +244,18 @@ bool sequenceToWin(const QKeySequence &seq, UINT *mods, UINT *vk) {
     v = static_cast<UINT>(key);
   else if (key >= Qt::Key_F1 && key <= Qt::Key_F24)
     v = static_cast<UINT>(VK_F1 + (key - Qt::Key_F1));
-  else
+  else if (key == Qt::Key_Return || key == Qt::Key_Enter)
+    v = VK_RETURN;
+  else if (key == Qt::Key_Tab)
     return false;
+  else {
+    const SHORT scan = VkKeyScanW(ushort(key));
+    if (scan == -1)
+      return false;
+    v = LOBYTE(scan);
+    if (v == 0)
+      return false;
+  }
   *mods = m;
   *vk = v;
   return true;
@@ -272,6 +290,8 @@ public:
 
     connect(notch, &BlopAssistantOverlay::utteranceSubmitted, this,
             &Companion::onUtterance);
+    connect(notch, &BlopAssistantOverlay::audioCaptured, this,
+            &Companion::onAudio);
     connect(notch, &BlopAssistantOverlay::confirmAccepted, this,
             &Companion::onConfirm);
     connect(notch, &BlopAssistantOverlay::confirmRejected, this, [this]() {
@@ -282,6 +302,12 @@ public:
     m_settings = new BlopAssistantSettingsDialog();
     connect(m_settings, &BlopAssistantSettingsDialog::prefsChanged, this,
             [this]() {
+              if (m_settings && m_settings->isVisible()) {
+#ifdef Q_OS_WIN
+                unregisterWinHotkeys();
+#endif
+                return;
+              }
               rebindShortcuts();
               refreshEmpty();
             });
@@ -347,23 +373,18 @@ public:
 
 #ifdef Q_OS_WIN
     auto *hotkeys = new WinHotkeyFilter();
-    hotkeys->toggleChat = [notch]() { notch->toggleListen(); };
-    hotkeys->pushToTalkDown = [this]() {
-      m_notch->startPushToTalk();
-      QTimer::singleShot(180, this, [this]() {
-        if (m_pttPoll)
-          m_pttPoll->start();
-      });
-    };
+    hotkeys->toggleChat = [this]() { startHold(1); };
+    hotkeys->pushToTalkDown = [this]() { startHold(2); };
     qApp->installNativeEventFilter(hotkeys);
     QTimer::singleShot(0, this, [this]() { registerWinHotkeys(); });
     m_pttPoll = new QTimer(this);
-    m_pttPoll->setInterval(50);
+    m_pttPoll->setInterval(40);
     connect(m_pttPoll, &QTimer::timeout, this, [this]() {
-      if (m_pttVk == 0)
+      if (m_heldVk == 0)
         return;
-      if (!(GetAsyncKeyState(static_cast<int>(m_pttVk)) & 0x8000)) {
+      if (!(GetAsyncKeyState(static_cast<int>(m_heldVk)) & 0x8000)) {
         m_pttPoll->stop();
+        m_heldVk = 0;
         m_notch->endPushToTalk();
       }
     });
@@ -372,17 +393,15 @@ public:
 
   bool eventFilter(QObject *obj, QEvent *event) override {
     Q_UNUSED(obj);
+    if (m_settings && m_settings->isVisible())
+      return false;
     if (qobject_cast<QKeySequenceEdit *>(QApplication::focusWidget()))
       return false;
     if (event->type() == QEvent::KeyPress) {
       auto *ke = static_cast<QKeyEvent *>(event);
       if (!ke->isAutoRepeat() &&
-          sequenceMatches(BlopAssistantPrefs::openChatSequence(), ke)) {
-        m_notch->toggleListen();
-        return false;
-      }
-      if (!ke->isAutoRepeat() &&
-          sequenceMatches(BlopAssistantPrefs::pushToTalkSequence(), ke)) {
+          (sequenceMatches(BlopAssistantPrefs::openChatSequence(), ke) ||
+           sequenceMatches(BlopAssistantPrefs::pushToTalkSequence(), ke))) {
         m_notch->startPushToTalk();
         return false;
       }
@@ -390,7 +409,8 @@ public:
     if (event->type() == QEvent::KeyRelease) {
       auto *ke = static_cast<QKeyEvent *>(event);
       if (!ke->isAutoRepeat() &&
-          sequenceMatches(BlopAssistantPrefs::pushToTalkSequence(), ke)) {
+          (sequenceMatches(BlopAssistantPrefs::openChatSequence(), ke) ||
+           sequenceMatches(BlopAssistantPrefs::pushToTalkSequence(), ke))) {
         m_notch->endPushToTalk();
         return false;
       }
@@ -401,6 +421,9 @@ public:
 private:
   void showSettings() {
     m_notch->setExpanded(false);
+#ifdef Q_OS_WIN
+    unregisterWinHotkeys();
+#endif
     m_settings->show();
     if (QScreen *screen = QGuiApplication::primaryScreen()) {
       const QRect geo = screen->availableGeometry();
@@ -411,6 +434,10 @@ private:
     }
     m_settings->raise();
     m_settings->activateWindow();
+    connect(m_settings, &QDialog::finished, this, [this]() {
+      rebindShortcuts();
+      refreshEmpty();
+    }, Qt::UniqueConnection);
   }
 
   void rebindShortcuts() {
@@ -422,22 +449,45 @@ private:
   }
 
 #ifdef Q_OS_WIN
-  void registerWinHotkeys() {
+  void unregisterWinHotkeys() {
     if (!m_notch)
       return;
     const HWND hwnd = reinterpret_cast<HWND>(m_notch->winId());
     UnregisterHotKey(hwnd, 1);
     UnregisterHotKey(hwnd, 2);
+    m_wakeVk = 0;
+    m_pttVk = 0;
+    m_heldVk = 0;
+    if (m_pttPoll)
+      m_pttPoll->stop();
+  }
+
+  void startHold(int which) {
+    const UINT vk = (which == 1) ? m_wakeVk : m_pttVk;
+    if (vk == 0)
+      return;
+    m_heldVk = vk;
+    m_notch->startPushToTalk();
+    if (m_pttPoll)
+      m_pttPoll->start();
+  }
+
+  void registerWinHotkeys() {
+    if (!m_notch)
+      return;
+    unregisterWinHotkeys();
     UINT mods = 0, vk = 0;
-    if (sequenceToWin(BlopAssistantPrefs::openChatSequence(), &mods, &vk))
-      RegisterHotKey(hwnd, 1, mods | MOD_NOREPEAT, vk);
+    if (sequenceToWin(BlopAssistantPrefs::openChatSequence(), &mods, &vk)) {
+      m_wakeVk = vk;
+      RegisterHotKey(reinterpret_cast<HWND>(m_notch->winId()), 1,
+                     mods | MOD_NOREPEAT, vk);
+    }
     mods = 0;
     vk = 0;
     if (sequenceToWin(BlopAssistantPrefs::pushToTalkSequence(), &mods, &vk)) {
       m_pttVk = vk;
-      RegisterHotKey(hwnd, 2, mods | MOD_NOREPEAT, vk);
-    } else {
-      m_pttVk = 0;
+      RegisterHotKey(reinterpret_cast<HWND>(m_notch->winId()), 2,
+                     mods | MOD_NOREPEAT, vk);
     }
   }
 #endif
@@ -493,6 +543,25 @@ private:
   void reply(const QString &text, const QString &spoken) {
     m_notch->addAssistantMessage(text);
     BlopAssistantVoice::speak(spoken);
+  }
+
+  void onAudio(const QByteArray &wav) {
+    m_notch->setListenCaption(QStringLiteral("Erkenne Sprache…"));
+    m_llm->transcribe(wav, [this](const QString &text, const QString &error) {
+      if (!error.isEmpty() || text.trimmed().isEmpty()) {
+        const QString msg =
+            error.isEmpty()
+                ? QStringLiteral("Nichts verstanden.")
+                : error;
+        m_notch->setListenCaption(msg);
+        QTimer::singleShot(2400, this, [this]() {
+          m_notch->setListenCaption(QString());
+          m_notch->clearListenBusy();
+        });
+        return;
+      }
+      m_notch->acceptTranscript(text);
+    });
   }
 
   void onUtterance(const QString &text) {
@@ -639,7 +708,9 @@ private:
   BlopAssistantIntent m_pending;
 #ifdef Q_OS_WIN
   QTimer *m_pttPoll{nullptr};
+  UINT m_wakeVk{0};
   UINT m_pttVk{0};
+  UINT m_heldVk{0};
 #endif
 };
 

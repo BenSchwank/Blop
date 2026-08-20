@@ -2,6 +2,7 @@
 
 #include <QPoint>
 #include <QRect>
+#include <QByteArray>
 #include <QWidget>
 
 class QLabel;
@@ -15,6 +16,7 @@ class QEnterEvent;
 class QVariantAnimation;
 class QPropertyAnimation;
 class QTimer;
+class BlopAssistantMic;
 
 #ifdef BLOP_HAS_WEBENGINE
 class QWebEngineView;
@@ -49,10 +51,16 @@ public:
   void endPushToTalk();
   void beginListen();
   void endListen();
+  void cancelListen();
   void toggleListen();
+  bool isListening() const { return m_listening; }
+  void setListenCaption(const QString &text);
+  void acceptTranscript(const QString &text);
+  void clearListenBusy();
 
 signals:
   void utteranceSubmitted(const QString &text);
+  void audioCaptured(const QByteArray &wav);
   void confirmAccepted();
   void confirmRejected();
 
@@ -72,8 +80,9 @@ protected:
 private:
   void buildUi();
   void applyChrome();
-  void startListening();
+  bool startListening();
   void stopListening();
+  void finishListen(bool submit);
   void applyLayoutMode();
   void addBubble(const QString &text, bool fromUser);
   void scrollChatToEnd();
@@ -109,6 +118,8 @@ private:
   QPushButton *m_confirmNo{nullptr};
   bool m_expanded{false};
   bool m_listening{false};
+  bool m_finalizing{false};
+  bool m_usingWebStt{false};
   bool m_standalone{false};
   bool m_pressOnNotch{false};
   bool m_cloudHover{false};
@@ -120,8 +131,8 @@ private:
   QTimer *m_listenTimeout{nullptr};
   QWidget *m_caption{nullptr};
   QLabel *m_captionLabel{nullptr};
-  qreal m_vizPhase{0.0};
   QRect m_pendingGeom;
+  BlopAssistantMic *m_mic{nullptr};
 
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *m_speechView{nullptr};

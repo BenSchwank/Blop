@@ -1,5 +1,6 @@
 #include "blopassistantoverlay.h"
 
+#include "blopassistantmic.h"
 #include "uiscale.h"
 
 #include <QAbstractAnimation>
@@ -16,12 +17,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QByteArray>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPen>
 #include <QPropertyAnimation>
 #include <QPushButton>
-#include <QRandomGenerator>
 #include <QRegion>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -29,6 +30,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QTransform>
+#include <QVector>
 #include <QtMath>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
@@ -241,6 +243,11 @@ BlopAssistantOverlay::BlopAssistantOverlay(QWidget *host)
   setObjectName(QStringLiteral("BlopAssistantOverlay"));
   setAttribute(Qt::WA_StyledBackground, true);
   setAttribute(Qt::WA_TranslucentBackground, true);
+#ifdef BLOP_HAS_MULTIMEDIA
+  m_mic = new BlopAssistantMic(this);
+  connect(m_mic, &BlopAssistantMic::failed, this,
+          [this](const QString &why) { showCaption(why); });
+#endif
   buildUi();
   applyChrome();
   if (host)
@@ -566,16 +573,13 @@ void BlopAssistantOverlay::tickVisualizer() {
   NotchIsland *island = asCloud(m_notch);
   if (!island || !m_listening)
     return;
-  m_vizPhase += 0.22;
-  QVector<qreal> levels(kVizBars);
-  auto *rng = QRandomGenerator::global();
-  for (int i = 0; i < kVizBars; ++i) {
-    const qreal wave =
-        0.5 + 0.5 * qSin(m_vizPhase + i * 0.72 + (i % 2) * 0.4);
-    const qreal jitter = 0.65 + 0.35 * rng->generateDouble();
-    levels[i] = qBound(0.12, 0.18 + 0.82 * wave * jitter, 1.0);
+#ifdef BLOP_HAS_MULTIMEDIA
+  if (m_mic && m_mic->isActive()) {
+    island->setLevels(m_mic->levels());
+    return;
   }
-  island->setLevels(levels);
+#endif
+  island->setLevels(QVector<qreal>(kVizBars, 0.08));
 }
 
 void BlopAssistantOverlay::ensureCaptionStrip() {
@@ -655,6 +659,8 @@ void BlopAssistantOverlay::hideCaption() {
 }
 
 void BlopAssistantOverlay::beginListen() {
+  if (m_listening || m_finalizing)
+    return;
   m_listening = true;
   if (NotchIsland *island = asCloud(m_notch))
     island->setListening(true);
@@ -662,7 +668,7 @@ void BlopAssistantOverlay::beginListen() {
   applyNotchSize();
   if (m_standalone)
     placeOnScreen();
-  showCaption(QStringLiteral("Zuhören…"));
+  showCaption(QStringLiteral("Sprich jetzt — loslassen zum Senden"));
   if (!m_vizTimer) {
     m_vizTimer = new QTimer(this);
     m_vizTimer->setInterval(33);
@@ -677,24 +683,83 @@ void BlopAssistantOverlay::beginListen() {
     connect(m_listenTimeout, &QTimer::timeout, this,
             &BlopAssistantOverlay::endListen);
   }
-  m_listenTimeout->start(8000);
-  startListening();
+  m_listenTimeout->start(60000);
+  if (!startListening()) {
+    if (m_listenTimeout)
+      m_listenTimeout->stop();
+    if (m_vizTimer)
+      m_vizTimer->stop();
+    stopListening();
+    if (NotchIsland *island = asCloud(m_notch))
+      island->setListening(false);
+    applyNotchSize();
+    if (m_standalone)
+      placeOnScreen();
+    showCaption(QStringLiteral("Mikrofon nicht verfügbar."));
+    QTimer::singleShot(1800, this, [this]() { hideCaption(); });
+  }
 }
 
-void BlopAssistantOverlay::endListen() {
+void BlopAssistantOverlay::endListen() { finishListen(true); }
+
+void BlopAssistantOverlay::cancelListen() { finishListen(false); }
+
+void BlopAssistantOverlay::finishListen(bool submit) {
+  if (m_finalizing)
+    return;
+  if (!m_listening)
+    return;
+  m_finalizing = true;
   if (m_listenTimeout)
     m_listenTimeout->stop();
   if (m_vizTimer)
     m_vizTimer->stop();
+
+  QByteArray wav;
+#ifdef BLOP_HAS_MULTIMEDIA
+  if (m_mic && m_mic->isActive())
+    wav = m_mic->stopWav();
+  else if (m_mic)
+    m_mic->cancel();
+#endif
+#ifdef BLOP_HAS_WEBENGINE
+  if (m_speechView && m_speechView->page()) {
+    m_speechView->page()->runJavaScript(
+        QStringLiteral("window.blopStop && window.blopStop();"));
+  }
+#endif
+  const bool webStt = m_usingWebStt;
+  m_usingWebStt = false;
   stopListening();
   if (NotchIsland *island = asCloud(m_notch))
     island->setListening(false);
-  hideCaption();
   applyNotchSize();
   if (m_standalone && !m_expanded)
     placeOnScreen();
   else if (m_standalone)
     updateCollapsedMask();
+
+  if (!submit) {
+    hideCaption();
+    m_finalizing = false;
+    return;
+  }
+  if (webStt) {
+    showCaption(QStringLiteral("Erkenne Sprache…"));
+    m_finalizing = false;
+    return;
+  }
+  const int minBytes = 44 + 16000 * 2 / 4; // ~250 ms of 16 kHz mono
+  if (wav.size() < minBytes) {
+    showCaption(QStringLiteral("Nichts gehört — Taste halten und sprechen."));
+    QTimer::singleShot(1800, this, [this]() {
+      hideCaption();
+      m_finalizing = false;
+    });
+    return;
+  }
+  showCaption(QStringLiteral("Erkenne Sprache…"));
+  emit audioCaptured(wav);
 }
 
 void BlopAssistantOverlay::toggleListen() {
@@ -703,6 +768,29 @@ void BlopAssistantOverlay::toggleListen() {
   else
     beginListen();
 }
+
+void BlopAssistantOverlay::setListenCaption(const QString &text) {
+  if (text.trimmed().isEmpty())
+    hideCaption();
+  else
+    showCaption(text);
+}
+
+void BlopAssistantOverlay::acceptTranscript(const QString &text) {
+  const QString t = text.trimmed();
+  m_finalizing = false;
+  hideCaption();
+  if (t.isEmpty())
+    return;
+  if (m_input)
+    m_input->setText(t);
+  addUserMessage(t);
+  if (m_input)
+    m_input->clear();
+  emit utteranceSubmitted(t);
+}
+
+void BlopAssistantOverlay::clearListenBusy() { m_finalizing = false; }
 
 void BlopAssistantOverlay::applyWindowGeometry(const QRect &target, bool animate) {
   m_pendingGeom = target;
@@ -946,7 +1034,7 @@ void BlopAssistantOverlay::submitCurrent() {
   const QString text = m_input->text().trimmed();
   if (text.isEmpty())
     return;
-  endListen();
+  cancelListen();
   clearConfirm();
   addUserMessage(text);
   m_input->clear();
@@ -1007,7 +1095,7 @@ void BlopAssistantOverlay::keyPressEvent(QKeyEvent *event) {
     }
     if (m_expanded)
       setExpanded(false);
-    endListen();
+    cancelListen();
     event->accept();
     return;
   }
@@ -1032,28 +1120,34 @@ bool BlopAssistantOverlay::eventFilter(QObject *obj, QEvent *event) {
     auto *ke = static_cast<QKeyEvent *>(event);
     if (ke->key() == Qt::Key_Escape) {
       setExpanded(false);
-      endListen();
+      cancelListen();
       return true;
     }
   }
   return QWidget::eventFilter(obj, event);
 }
 
-void BlopAssistantOverlay::startListening() {
+bool BlopAssistantOverlay::startListening() {
+  if (m_micBtn)
+    m_micBtn->setText(QStringLiteral("■"));
+  setStatus(QStringLiteral("Zuhören…"));
+#ifdef BLOP_HAS_MULTIMEDIA
+  if (m_mic && m_mic->start()) {
+    m_usingWebStt = false;
+    return true;
+  }
+#endif
 #ifdef BLOP_HAS_WEBENGINE
   ensureSpeechPage();
-  if (m_micBtn)
-    m_micBtn->setText(QStringLiteral("■"));
-  setStatus(QStringLiteral("Zuhören…"));
   if (m_speechView && m_speechView->page()) {
+    m_usingWebStt = true;
     m_speechView->page()->runJavaScript(
         QStringLiteral("window.blopStart && window.blopStart('de-DE');"));
+    return true;
   }
-#else
-  if (m_micBtn)
-    m_micBtn->setText(QStringLiteral("■"));
-  setStatus(QStringLiteral("Zuhören…"));
 #endif
+  m_usingWebStt = false;
+  return false;
 }
 
 void BlopAssistantOverlay::stopListening() {

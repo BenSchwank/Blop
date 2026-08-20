@@ -21,6 +21,9 @@ public:
   void resetConversation();
   void setToolHandler(std::function<QString(const BlopAssistantIntent &)> handler);
   void ask(const QString &userText, const QStringList &noteNames);
+  void transcribe(const QByteArray &wav,
+                  std::function<void(const QString &text, const QString &error)>
+                      done);
 
   // Test helper: map an OpenAI tool call into an intent.
   static bool intentFromTool(const QString &name, const QJsonObject &args,
@@ -35,6 +38,9 @@ signals:
 private:
   void postTurn();
   void handleHttp(QNetworkReply *reply);
+  void transcribeLocal(const QByteArray &wav,
+                       const std::function<void(const QString &, const QString &)>
+                           &done);
   QJsonArray toolsJson() const;
   QJsonObject messageObject(const QString &role, const QString &content) const;
 

@@ -2,14 +2,20 @@
 
 #include "blopassistantprefs.h"
 
+#include <QDir>
+#include <QHttpMultiPart>
+#include <QHttpPart>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
+#include <QTemporaryFile>
 #include <QTimer>
 #include <QUrl>
+#include <QVariant>
 
 namespace {
 
@@ -42,6 +48,15 @@ QUrl chatCompletionsUrl() {
   if (base.endsWith(QLatin1String("/chat/completions")))
     return QUrl(base);
   return QUrl(base + QStringLiteral("/chat/completions"));
+}
+
+QUrl transcriptionsUrl() {
+  QString base = stripTrailingSlash(BlopAssistantPrefs::llmBaseUrl());
+  if (base.endsWith(QLatin1String("/chat/completions")))
+    base.chop(QStringLiteral("/chat/completions").size());
+  if (base.endsWith(QLatin1String("/audio/transcriptions")))
+    return QUrl(base);
+  return QUrl(base + QStringLiteral("/audio/transcriptions"));
 }
 
 } // namespace
@@ -309,4 +324,148 @@ void BlopAssistantLlm::handleHttp(QNetworkReply *reply) {
   if (text.isEmpty())
     text = QStringLiteral("Mhm, dazu fällt mir gerade nichts Vernünftiges ein.");
   emit assistantSaid(text);
+}
+
+void BlopAssistantLlm::transcribe(
+    const QByteArray &wav,
+    std::function<void(const QString &text, const QString &error)> done) {
+  if (wav.size() < 64) {
+    if (done)
+      done({}, QStringLiteral("Nichts gehört."));
+    return;
+  }
+  if (!isReady()) {
+    transcribeLocal(wav, done);
+    return;
+  }
+
+  auto *multi = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+  QHttpPart model;
+  model.setHeader(QNetworkRequest::ContentDispositionHeader,
+                  QVariant(QStringLiteral("form-data; name=\"model\"")));
+  model.setBody(BlopAssistantPrefs::sttModel().toUtf8());
+  multi->append(model);
+
+  QHttpPart lang;
+  lang.setHeader(QNetworkRequest::ContentDispositionHeader,
+                 QVariant(QStringLiteral("form-data; name=\"language\"")));
+  lang.setBody(QByteArray("de"));
+  multi->append(lang);
+
+  QHttpPart file;
+  file.setHeader(QNetworkRequest::ContentTypeHeader,
+                 QVariant(QStringLiteral("audio/wav")));
+  file.setHeader(
+      QNetworkRequest::ContentDispositionHeader,
+      QVariant(QStringLiteral("form-data; name=\"file\"; filename=\"speech.wav\"")));
+  file.setBody(wav);
+  multi->append(file);
+
+  QNetworkRequest req(transcriptionsUrl());
+  req.setRawHeader("Authorization",
+                   QByteArray("Bearer ") +
+                       BlopAssistantPrefs::llmApiKey().toUtf8());
+  req.setTransferTimeout(60000);
+
+  QNetworkReply *reply = m_nam->post(req, multi);
+  multi->setParent(reply);
+  connect(reply, &QNetworkReply::finished, this, [this, reply, wav, done]() {
+    const QByteArray raw = reply->readAll();
+    const QNetworkReply::NetworkError err = reply->error();
+    reply->deleteLater();
+    if (err != QNetworkReply::NoError) {
+      transcribeLocal(wav, [done, raw, replyErr = err](const QString &t,
+                                                       const QString &e) {
+        Q_UNUSED(replyErr);
+        if (!t.isEmpty() && done) {
+          done(t, {});
+          return;
+        }
+        QString detail = QString::fromUtf8(raw).left(220);
+        if (detail.isEmpty())
+          detail = QStringLiteral("Transkription fehlgeschlagen.");
+        if (done)
+          done({}, detail);
+      });
+      return;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(raw).object();
+    const QString text = root.value(QStringLiteral("text")).toString().trimmed();
+    if (text.isEmpty()) {
+      if (done)
+        done({}, QStringLiteral("Nichts verstanden."));
+      return;
+    }
+    if (done)
+      done(text, {});
+  });
+}
+
+void BlopAssistantLlm::transcribeLocal(
+    const QByteArray &wav,
+    const std::function<void(const QString &, const QString &)> &done) {
+#if defined(Q_OS_WIN)
+  QTemporaryFile *tmp =
+      new QTemporaryFile(QDir::temp().filePath(QStringLiteral("blop-stt-XXXXXX.wav")),
+                         this);
+  tmp->setAutoRemove(true);
+  if (!tmp->open()) {
+    tmp->deleteLater();
+    if (done)
+      done({}, QStringLiteral(
+                   "Kein KI-Schlüssel — Sprache kann ich so nicht erkennen. "
+                   "Unter Einstellungen → KI einen Key eintragen."));
+    return;
+  }
+  tmp->write(wav);
+  tmp->flush();
+  const QString path = tmp->fileName();
+  const QString script = QStringLiteral(
+      "Add-Type -AssemblyName System.Speech; "
+      "$path = '%1'; "
+      "$cultures = @('de-DE','en-US',$null); "
+      "$text = ''; "
+      "foreach ($c in $cultures) { "
+      "  try { "
+      "    if ($c) { $eng = New-Object System.Speech.Recognition.SpeechRecognitionEngine "
+      "      (New-Object System.Globalization.CultureInfo $c) } "
+      "    else { $eng = New-Object System.Speech.Recognition.SpeechRecognitionEngine } "
+      "    $eng.SetInputToWaveFile($path); "
+      "    $eng.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); "
+      "    $eng.InitialSilenceTimeout = New-TimeSpan -Milliseconds 200; "
+      "    $r = $eng.Recognize(); "
+      "    if ($r -and $r.Text) { $text = $r.Text; break } "
+      "  } catch {} "
+      "} "
+      "[Console]::Out.Write($text);");
+  auto *proc = new QProcess(this);
+  connect(proc, &QProcess::finished, this,
+          [proc, tmp, done](int, QProcess::ExitStatus) {
+            const QString text =
+                QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
+            proc->deleteLater();
+            tmp->deleteLater();
+            if (!text.isEmpty()) {
+              if (done)
+                done(text, {});
+              return;
+            }
+            if (done)
+              done({}, QStringLiteral(
+                           "Kein KI-Schlüssel — Sprache kann ich so nicht "
+                           "erkennen. Unter Einstellungen → KI einen Key "
+                           "eintragen (derselbe Key gilt fürs Zuhören)."));
+          });
+  proc->start(QStringLiteral("powershell"),
+              {QStringLiteral("-NoProfile"), QStringLiteral("-WindowStyle"),
+               QStringLiteral("Hidden"), QStringLiteral("-Command"),
+               script.arg(path)});
+#else
+  Q_UNUSED(wav);
+  if (done)
+    done({}, QStringLiteral(
+                 "Kein KI-Schlüssel — Sprache kann ich so nicht erkennen. "
+                 "Unter Einstellungen → KI einen Key eintragen (derselbe Key "
+                 "gilt fürs Zuhören)."));
+#endif
 }

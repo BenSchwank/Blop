@@ -12,48 +12,60 @@ inline QSettings store() {
   return QSettings(QStringLiteral("Blop"), QStringLiteral("BlopAssistantSandbox"));
 }
 
-inline bool unusableShortcut(const QKeySequence &seq) {
+inline bool isEscapeShortcut(const QKeySequence &seq) {
   if (seq.isEmpty() || seq.count() < 1)
-    return true;
+    return false;
   const QString t = seq.toString(QKeySequence::PortableText);
   if (t.compare(QLatin1String("Esc"), Qt::CaseInsensitive) == 0 ||
       t.compare(QLatin1String("Escape"), Qt::CaseInsensitive) == 0)
     return true;
-  if (seq[0].key() == Qt::Key_Escape)
-    return true;
-  return false;
+  return seq[0].key() == Qt::Key_Escape;
+}
+
+// Empty is allowed (hotkey off). Only Escape is rejected.
+inline bool unusableShortcut(const QKeySequence &seq) {
+  return isEscapeShortcut(seq);
+}
+
+inline QKeySequence readHotkey(const QString &key, const QString &factoryDefault) {
+  QSettings s = store();
+  if (!s.contains(key))
+    return QKeySequence(factoryDefault);
+  const QString v = s.value(key).toString().trimmed();
+  if (v.isEmpty())
+    return QKeySequence();
+  const QKeySequence seq(v, QKeySequence::PortableText);
+  if (seq.isEmpty() || isEscapeShortcut(seq))
+    return QKeySequence();
+  return seq;
 }
 
 inline QKeySequence openChatSequence() {
-  QSettings s = store();
-  const QString v = s.value(QStringLiteral("hotkeys/openChat"),
-                            QStringLiteral("Ctrl+Shift+Space"))
-                        .toString();
-  const QKeySequence seq(v);
-  if (unusableShortcut(seq))
-    return QKeySequence(QStringLiteral("Ctrl+Shift+Space"));
-  return seq;
+  return readHotkey(QStringLiteral("hotkeys/openChat"),
+                    QStringLiteral("Ctrl+Shift+Space"));
 }
 
 inline void setOpenChatSequence(const QKeySequence &seq) {
   QSettings s = store();
-  s.setValue(QStringLiteral("hotkeys/openChat"), seq.toString());
+  if (isEscapeShortcut(seq))
+    s.setValue(QStringLiteral("hotkeys/openChat"), QString());
+  else
+    s.setValue(QStringLiteral("hotkeys/openChat"),
+               seq.toString(QKeySequence::PortableText));
 }
 
 inline QKeySequence pushToTalkSequence() {
-  QSettings s = store();
-  const QString v = s.value(QStringLiteral("hotkeys/pushToTalk"),
-                            QStringLiteral("Ctrl+Shift+T"))
-                        .toString();
-  const QKeySequence seq(v);
-  if (unusableShortcut(seq))
-    return QKeySequence(QStringLiteral("Ctrl+Shift+T"));
-  return seq;
+  return readHotkey(QStringLiteral("hotkeys/pushToTalk"),
+                    QStringLiteral("Ctrl+Shift+T"));
 }
 
 inline void setPushToTalkSequence(const QKeySequence &seq) {
   QSettings s = store();
-  s.setValue(QStringLiteral("hotkeys/pushToTalk"), seq.toString());
+  if (isEscapeShortcut(seq))
+    s.setValue(QStringLiteral("hotkeys/pushToTalk"), QString());
+  else
+    s.setValue(QStringLiteral("hotkeys/pushToTalk"),
+               seq.toString(QKeySequence::PortableText));
 }
 
 inline bool speakReplies() {
@@ -69,7 +81,7 @@ inline void setSpeakReplies(bool on) {
 // SAPI-style rate: -10 .. 10. Default slower than stock so it sounds less rushed.
 inline int speechRate() {
   QSettings s = store();
-  return qBound(-8, s.value(QStringLiteral("voice/rate"), -2).toInt(), 4);
+  return qBound(-8, s.value(QStringLiteral("voice/rate"), -4).toInt(), 4);
 }
 
 inline void setSpeechRate(int rate) {
@@ -140,5 +152,12 @@ inline void setLlmModel(const QString &model) {
 }
 
 inline bool llmReady() { return llmEnabled() && !llmApiKey().isEmpty(); }
+
+inline QString sttModel() {
+  const QString base = llmBaseUrl().toLower();
+  if (base.contains(QLatin1String("groq")))
+    return QStringLiteral("whisper-large-v3");
+  return QStringLiteral("whisper-1");
+}
 
 } // namespace BlopAssistantPrefs
