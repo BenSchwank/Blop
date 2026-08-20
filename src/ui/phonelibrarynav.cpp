@@ -10,6 +10,7 @@
 #include <QFont>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -22,11 +23,13 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QTouchEvent>
 #include <QVBoxLayout>
 
 namespace {
 constexpr int kPillW = 168;
 constexpr int kPillH = 48;
+constexpr int kSectionRole = Qt::UserRole + 1;
 } // namespace
 
 PhoneLibraryNav::PhoneLibraryNav(QWidget *host) : QWidget(host), m_host(host) {
@@ -59,6 +62,10 @@ void PhoneLibraryNav::setPillVisible(bool on) {
   } else {
     closeMenu();
   }
+}
+
+bool PhoneLibraryNav::isMenuOpen() const {
+  return m_sheet && m_sheet->isVisible();
 }
 
 void PhoneLibraryNav::syncPillGeometry() {
@@ -107,7 +114,7 @@ void PhoneLibraryNav::paintEvent(QPaintEvent *) {
   p.drawText(QRect(UiScale::dp(36), 0, mid - UiScale::dp(42), height()),
              Qt::AlignVCenter | Qt::AlignLeft, QStringLiteral("Menü"));
 
-  // Hamburger
+  // Burger
   const int hx = (mid + width()) / 2;
   const int hy = height() / 2;
   p.setPen(QPen(QColor(244, 242, 255), 2.0, Qt::SolidLine, Qt::RoundCap));
@@ -129,6 +136,78 @@ void PhoneLibraryNav::resizeEvent(QResizeEvent *event) {
   syncPillGeometry();
 }
 
+void PhoneLibraryNav::keyPressEvent(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Back || event->key() == Qt::Key_Escape) {
+    if (isMenuOpen()) {
+      closeMenu();
+      event->accept();
+      return;
+    }
+  }
+  QWidget::keyPressEvent(event);
+}
+
+bool PhoneLibraryNav::handleSheetPointer(QObject *watched, QEvent *event) {
+  if (!m_sheet || !event)
+    return false;
+  const QEvent::Type t = event->type();
+  if (t != QEvent::MouseButtonPress && t != QEvent::MouseMove &&
+      t != QEvent::MouseButtonRelease && t != QEvent::TouchBegin &&
+      t != QEvent::TouchUpdate && t != QEvent::TouchEnd)
+    return false;
+
+  qreal y = 0;
+  bool isPress = false;
+  bool isMove = false;
+  bool isRelease = false;
+  if (t == QEvent::MouseButtonPress || t == QEvent::MouseMove ||
+      t == QEvent::MouseButtonRelease) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (t != QEvent::MouseMove && me->button() != Qt::LeftButton)
+      return false;
+    y = me->globalPosition().y();
+    isPress = t == QEvent::MouseButtonPress;
+    isMove = t == QEvent::MouseMove;
+    isRelease = t == QEvent::MouseButtonRelease;
+    if (isPress && watched == m_scrim) {
+      closeMenu();
+      return true;
+    }
+    if (isPress && watched == m_sheet && m_card &&
+        !m_card->geometry().contains(me->pos())) {
+      closeMenu();
+      return true;
+    }
+  } else {
+    auto *te = static_cast<QTouchEvent *>(event);
+    if (te->points().isEmpty())
+      return false;
+    y = te->points().first().globalPosition().y();
+    isPress = t == QEvent::TouchBegin;
+    isMove = t == QEvent::TouchUpdate;
+    isRelease = t == QEvent::TouchEnd;
+    if (isPress && watched == m_scrim) {
+      closeMenu();
+      return true;
+    }
+  }
+
+  const bool onHandleZone = (watched == m_card);
+  if (isPress && onHandleZone) {
+    m_swiping = true;
+    m_swipeStartY = y;
+    return false;
+  }
+  if (isMove && m_swiping && (y - m_swipeStartY) >= UiScale::dp(56)) {
+    m_swiping = false;
+    closeMenu();
+    return true;
+  }
+  if (isRelease)
+    m_swiping = false;
+  return false;
+}
+
 bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
   if (event && (event->type() == QEvent::Resize || event->type() == QEvent::Show) &&
       isVisible())
@@ -137,8 +216,44 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
       event->type() == QEvent::Resize && m_sheet->parentWidget()) {
     m_sheet->setGeometry(m_sheet->parentWidget()->rect());
   }
-  Q_UNUSED(watched);
+  if (event && (event->type() == QEvent::KeyPress ||
+                event->type() == QEvent::ShortcutOverride)) {
+    auto *ke = static_cast<QKeyEvent *>(event);
+    if ((ke->key() == Qt::Key_Back || ke->key() == Qt::Key_Escape) &&
+        isMenuOpen()) {
+      closeMenu();
+      return true;
+    }
+  }
+  if (handleSheetPointer(watched, event))
+    return true;
   return QWidget::eventFilter(watched, event);
+}
+
+void PhoneLibraryNav::addSpacer() {
+  if (!m_list)
+    return;
+  auto *item = new QListWidgetItem(m_list);
+  item->setFlags(Qt::NoItemFlags);
+  item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(12)));
+  item->setData(kSectionRole, true);
+}
+
+void PhoneLibraryNav::addSection(const QString &title) {
+  if (!m_list)
+    return;
+  auto *item = new QListWidgetItem(m_list);
+  item->setText(title.toUpper());
+  item->setFlags(Qt::NoItemFlags);
+  item->setData(Qt::UserRole, QString());
+  item->setData(kSectionRole, true);
+  item->setForeground(QBrush(QColor(QStringLiteral("#8B92A8"))));
+  QFont f = m_list->font();
+  f.setPixelSize(UiScale::sp(11));
+  f.setWeight(QFont::DemiBold);
+  f.setLetterSpacing(QFont::PercentageSpacing, 112);
+  item->setFont(f);
+  item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(28)));
 }
 
 void PhoneLibraryNav::addRow(const QString &id, const QString &title,
@@ -148,6 +263,7 @@ void PhoneLibraryNav::addRow(const QString &id, const QString &title,
   auto *item = new QListWidgetItem(m_list);
   item->setText(title + (chevron ? QStringLiteral("  ›") : QString()));
   item->setData(Qt::UserRole, id);
+  item->setData(kSectionRole, false);
   item->setForeground(QBrush(QColor(QStringLiteral("#F4F2FF"))));
   item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(48)));
   if (selected)
@@ -158,25 +274,34 @@ void PhoneLibraryNav::rebuildMenu() {
   if (!m_list)
     return;
   m_list->clear();
+  addSection(QStringLiteral("Bibliothek"));
   addRow(QStringLiteral("notes"), QStringLiteral("Notizen"), true);
   addRow(QStringLiteral("study"), QStringLiteral("Study"));
   addRow(QStringLiteral("device"), QStringLiteral("Gerät"));
   addRow(QStringLiteral("tags"), QStringLiteral("Tags"), false, true);
-  for (const CloudStorageEntry &e : CloudStorageStore::load()) {
+  addSpacer();
+  addSection(QStringLiteral("Cloud"));
+  const auto clouds = CloudStorageStore::load();
+  for (const CloudStorageEntry &e : clouds) {
     addRow(QStringLiteral("cloud:") + e.id, e.name.isEmpty()
                                                 ? CloudStorageStore::displayNameForType(e.type)
                                                 : e.name);
   }
   addRow(QStringLiteral("cloud_add"), QStringLiteral("Eigene Cloud hinzufügen…"));
+  addSpacer();
+  addSection(QStringLiteral("Konto"));
   addRow(QStringLiteral("settings"), QStringLiteral("Einstellungen"), false, true);
 }
 
 void PhoneLibraryNav::closeMenu() {
+  m_swiping = false;
   if (!m_sheet)
     return;
   m_sheet->hide();
   m_sheet->deleteLater();
   m_sheet = nullptr;
+  m_card = nullptr;
+  m_scrim = nullptr;
   m_list = nullptr;
   m_search = nullptr;
   m_account = nullptr;
@@ -195,12 +320,29 @@ void PhoneLibraryNav::openMenu() {
   m_sheet = sheet;
   sheet->setObjectName(QStringLiteral("PhoneLibraryMenuSheet"));
   sheet->setAttribute(Qt::WA_StyledBackground, true);
+  sheet->setFocusPolicy(Qt::StrongFocus);
   sheet->setStyleSheet(QStringLiteral(
-      "QWidget#PhoneLibraryMenuSheet { background: rgba(6,8,14,0.72); }"));
+      "QWidget#PhoneLibraryMenuSheet { background: transparent; }"));
   sheet->setGeometry(win->rect());
   win->installEventFilter(this);
+  sheet->installEventFilter(this);
+
+  auto *root = new QVBoxLayout(sheet);
+  root->setContentsMargins(0, 0, 0, 0);
+  root->setSpacing(0);
+
+  auto *scrim = new QWidget(sheet);
+  m_scrim = scrim;
+  scrim->setObjectName(QStringLiteral("PhoneLibraryMenuScrim"));
+  scrim->setAttribute(Qt::WA_StyledBackground, true);
+  scrim->setCursor(Qt::ArrowCursor);
+  scrim->setStyleSheet(QStringLiteral(
+      "QWidget#PhoneLibraryMenuScrim { background: rgba(6,8,14,0.72); }"));
+  scrim->installEventFilter(this);
+  root->addWidget(scrim, 1);
 
   auto *card = new QWidget(sheet);
+  m_card = card;
   card->setObjectName(QStringLiteral("PhoneLibraryMenuCard"));
   card->setAttribute(Qt::WA_StyledBackground, true);
   card->setStyleSheet(BlopTheme::themed(QStringLiteral(
@@ -210,10 +352,7 @@ void PhoneLibraryNav::openMenu() {
       "  border-top-right-radius: 22px;"
       "  border: 1px solid rgba(255,255,255,0.08);"
       "}")));
-
-  auto *root = new QVBoxLayout(sheet);
-  root->setContentsMargins(0, 0, 0, 0);
-  root->addStretch(1);
+  card->installEventFilter(this);
 
   const int cardH = qBound(UiScale::dp(420), int(win->height() * 0.82),
                            win->height() - UiScale::safeTopPx(win));
@@ -223,7 +362,7 @@ void PhoneLibraryNav::openMenu() {
   auto *lay = new QVBoxLayout(card);
   lay->setContentsMargins(UiScale::dp(18), UiScale::dp(14), UiScale::dp(18),
                           UiScale::dp(18) + UiScale::safeBottomPx(win));
-  lay->setSpacing(UiScale::dp(10));
+  lay->setSpacing(UiScale::dp(8));
 
   auto *handle = new QWidget(card);
   handle->setFixedSize(UiScale::dp(36), UiScale::dp(4));
@@ -231,7 +370,7 @@ void PhoneLibraryNav::openMenu() {
       QStringLiteral("background: rgba(255,255,255,0.22); border-radius: 2px;"));
   lay->addWidget(handle, 0, Qt::AlignHCenter);
 
-  auto *hdr = new QLabel(QStringLiteral("Blop"), card);
+  auto *hdr = new QLabel(QStringLiteral("Menü"), card);
   hdr->setStyleSheet(BlopTheme::themed(
       QStringLiteral("color: #F4F2FF; font-size: 18px; font-weight: 700; "
                      "background: transparent;")));
@@ -251,6 +390,8 @@ void PhoneLibraryNav::openMenu() {
   m_list = new QListWidget(card);
   m_list->setFrameShape(QFrame::NoFrame);
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_list->setUniformItemSizes(false);
+  m_list->setSpacing(2);
   {
     QPalette pal = m_list->palette();
     pal.setColor(QPalette::Base, Qt::transparent);
@@ -261,25 +402,28 @@ void PhoneLibraryNav::openMenu() {
     pal.setColor(QPalette::WindowText, QColor(QStringLiteral("#F4F2FF")));
     m_list->setPalette(pal);
   }
-  // Keep this sheet dark even in Light app theme — Vercel-style menu.
   m_list->setStyleSheet(QStringLiteral(
       "QListWidget { background: transparent; border: none; outline: none; color: #F4F2FF; }"
-      "QListWidget::item { color: #F4F2FF; padding: 12px 14px; border-radius: 10px;"
+      "QListWidget::item { color: #F4F2FF; padding: 10px 14px; border-radius: 10px;"
       "  font-size: 15px; font-weight: 600; }"
       "QListWidget::item:selected { background: rgba(124,92,252,0.45); color: #FFFFFF; }"
-      "QListWidget::item:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }"));
+      "QListWidget::item:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }"
+      "QListWidget::item:disabled { background: transparent; color: #8B92A8;"
+      "  font-size: 11px; font-weight: 700; padding: 6px 14px; }"));
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) {
             if (!item)
               return;
+            if (item->data(kSectionRole).toBool())
+              return;
             const QString id = item->data(Qt::UserRole).toString();
+            if (id.isEmpty())
+              return;
             closeMenu();
             emit menuAction(id);
           });
   lay->addWidget(m_list, 1);
   rebuildMenu();
-  m_list->setUniformItemSizes(true);
-  m_list->setSpacing(2);
   m_list->doItemsLayout();
   if (m_list->count() > 0)
     m_list->scrollToItem(m_list->item(0));
@@ -314,6 +458,6 @@ void PhoneLibraryNav::openMenu() {
 
   sheet->show();
   sheet->raise();
-  m_search->setFocus(Qt::OtherFocusReason);
+  sheet->setFocus(Qt::OtherFocusReason);
   raise();
 }

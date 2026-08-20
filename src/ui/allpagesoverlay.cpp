@@ -243,7 +243,7 @@ void AllPagesOverlay::paintEvent(QPaintEvent *event) {
 }
 
 void AllPagesOverlay::keyPressEvent(QKeyEvent *event) {
-  if (event->key() == Qt::Key_Escape) {
+  if (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Back) {
     dismiss();
     return;
   }

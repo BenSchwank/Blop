@@ -1620,8 +1620,8 @@ MainWindow::MainWindow(QWidget *parent)
   qInfo() << "MainWindow: after updateSidebarUser authLocked=" << m_authNavigationLocked
           << "sidebarOpen=" << m_isSidebarOpen
           << "mainStack=" << (m_mainContentStack ? m_mainContentStack->currentIndex() : -1);
-  // Start unfolded in Notes for logged-in users.
-  if (!m_authNavigationLocked) {
+  // Start unfolded in Notes for logged-in users — not on phone burger UI.
+  if (!m_authNavigationLocked && !UiScale::usePhoneBurgerMenu(this)) {
     animateSidebar(true);
   }
 
@@ -3708,6 +3708,8 @@ void MainWindow::openSettingsWorkspace() {
           });
   connect(dlg, &SettingsDialog::storagePrefsChanged, this,
           [this]() { applyStoragePrefsToLibrary(); });
+  connect(dlg, &SettingsDialog::uiLayoutPrefsChanged, this,
+          &MainWindow::applyCompactNavPref);
   connect(dlg, &SettingsDialog::logoutRequested, this, [this]() {
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     st.remove(QStringLiteral("session_id"));
@@ -7353,6 +7355,23 @@ void MainWindow::requestGoogleLogin() {
     });
 }
 
+void MainWindow::cancelGoogleLogin() {
+  qInfo() << "MainWindow: cancelGoogleLogin";
+  GoogleAuthManager::instance().cancelPendingLogin();
+#ifdef Q_OS_ANDROID
+  dismissAndroidOAuthOverlay();
+#endif
+  m_googleLoginInFlight = false;
+  m_googleLoginInFlightSinceMs = 0;
+  const QString user =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("username"))
+          .toString()
+          .trimmed();
+  m_authNavigationLocked = isPlaceholderStudyUser(user);
+  emit oauthFailed(QStringLiteral("cancelled"));
+}
+
 void MainWindow::resetAndroidWebViewStorage() {
 #ifdef Q_OS_ANDROID
   qInfo() << "Android WebView light reset requested from QML bridge";
@@ -10320,13 +10339,14 @@ void MainWindow::updateSidebarState() {
       animateScale(m_btnAndroidToolbarExport);
     }
   } else {
-    m_sidebarStrip->show();
+    m_sidebarStrip->setVisible(!UiScale::usePhoneBurgerMenu(this));
     // Kein zweites Burger-Menü auf der Übersicht: Navigation nur über Top-Leiste + schmalen Strip.
     if (btnEditorMenu)
       btnEditorMenu->hide();
     // Ein Hamburger: in der Top-Leiste (nicht doppelt neben „Willkommen“).
     if (m_btnAndroidToolbarMenu)
-      m_btnAndroidToolbarMenu->setVisible(!m_isSidebarOpen);
+      m_btnAndroidToolbarMenu->setVisible(
+          !m_isSidebarOpen && !UiScale::usePhoneBurgerMenu(this));
     if (m_btnAndroidToolbarPageManager)
       m_btnAndroidToolbarPageManager->setVisible(false);
     if (m_btnAndroidToolbarExport)
@@ -10362,14 +10382,36 @@ void MainWindow::updateSidebarState() {
     if (btnEditorMenu)
       btnEditorMenu->hide();
     if (btnOverviewMenu)
-      btnOverviewMenu->setVisible(!m_isSidebarOpen);
+      btnOverviewMenu->setVisible(!m_isSidebarOpen &&
+                                  !UiScale::usePhoneBurgerMenu(this));
   }
 #endif
 
   if (m_phoneLibraryNav) {
-    const bool showPill = UiScale::isAndroidPhoneUi(this) && inNotesMode &&
+    const bool showPill = UiScale::usePhoneBurgerMenu(this) && inNotesMode &&
                           !isEditor;
     m_phoneLibraryNav->setPillVisible(showPill);
+  }
+
+  if (UiScale::usePhoneBurgerMenu(this)) {
+    if (m_sidebarStrip)
+      m_sidebarStrip->hide();
+    if (btnEditorMenu)
+      btnEditorMenu->hide();
+    if (btnOverviewMenu)
+      btnOverviewMenu->hide();
+#ifdef Q_OS_ANDROID
+    if (m_btnAndroidToolbarMenu)
+      m_btnAndroidToolbarMenu->hide();
+    if (m_androidSidebarScrim)
+      m_androidSidebarScrim->hide();
+#endif
+    if (m_isSidebarOpen) {
+      m_isSidebarOpen = false;
+      if (m_sidebarContainer)
+        m_sidebarContainer->hide();
+      syncSidebarPushLayout();
+    }
   }
 
   m_lastIsEditor = isEditor;
@@ -11806,6 +11848,9 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
       m_pageManager->setGeometry(0, 0, pw->width(), pw->height());
     }
   }
+  const bool burger = UiScale::usePhoneBurgerMenu(this);
+  if (burger != m_lastBurgerNav)
+    applyCompactNavPref();
 }
 
 void MainWindow::connectSettingsAccountActions(SettingsDialog *dlg) {
@@ -11839,7 +11884,14 @@ void MainWindow::connectSettingsAccountActions(SettingsDialog *dlg) {
 }
 
 void MainWindow::openStudyAuthPage(const QString &path) {
-  const QString url = kBlopStudyUrl + path;
+  QString dest = path;
+#ifdef Q_OS_ANDROID
+  if (dest.startsWith(QLatin1String("/login")) &&
+      !dest.contains(QLatin1String("native=")))
+    dest += dest.contains(QLatin1Char('?')) ? QStringLiteral("&native=1")
+                                            : QStringLiteral("?native=1");
+#endif
+  const QString url = kBlopStudyUrl + dest;
   qInfo() << "MainWindow: openStudyAuthPage" << url;
 #ifdef Q_OS_ANDROID
   m_pendingAndroidWebKind = 2;
@@ -11911,48 +11963,127 @@ void MainWindow::closeCloudBrowser() {
 }
 
 void MainWindow::setupPhoneLibraryNav() {
-  if (!UiScale::isAndroidPhoneUi(this) || !m_overviewContainer)
+  if (!m_overviewContainer)
     return;
-  if (m_phoneLibraryNav)
-    return;
-  m_phoneLibraryNav = new PhoneLibraryNav(m_overviewContainer);
-  const QString user =
-      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
-          .value(QStringLiteral("username"))
-          .toString();
-  m_phoneLibraryNav->setAccountName(user);
-  connect(m_phoneLibraryNav, &PhoneLibraryNav::menuAction, this,
-          &MainWindow::onPhoneNavAction);
-  connect(m_phoneLibraryNav, &PhoneLibraryNav::searchChanged, this,
-          [this](const QString &q) {
-            if (m_overviewSearchBar)
-              m_overviewSearchBar->setText(q);
-          });
-  if (btnOverviewMenu) {
-    disconnect(btnOverviewMenu, &QAbstractButton::clicked, this,
-               &MainWindow::onToggleSidebar);
-    connect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
-            &PhoneLibraryNav::openMenu);
+  const bool burger = UiScale::usePhoneBurgerMenu(this);
+  m_lastBurgerNav = burger;
+  if (burger && !m_phoneLibraryNav) {
+    m_phoneLibraryNav = new PhoneLibraryNav(m_overviewContainer);
+    const QString user =
+        QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+            .value(QStringLiteral("username"))
+            .toString();
+    m_phoneLibraryNav->setAccountName(user);
+    connect(m_phoneLibraryNav, &PhoneLibraryNav::menuAction, this,
+            &MainWindow::onPhoneNavAction);
+    connect(m_phoneLibraryNav, &PhoneLibraryNav::searchChanged, this,
+            [this](const QString &q) {
+              if (m_overviewSearchBar)
+                m_overviewSearchBar->setText(q);
+            });
   }
+  if (burger && m_phoneLibraryNav) {
+    if (btnOverviewMenu) {
+      disconnect(btnOverviewMenu, &QAbstractButton::clicked, this,
+                 &MainWindow::onToggleSidebar);
+      disconnect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
+                 &PhoneLibraryNav::openMenu);
+      connect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
+              &PhoneLibraryNav::openMenu);
+    }
 #ifdef Q_OS_ANDROID
-  if (m_btnAndroidToolbarMenu) {
-    disconnect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
-               &MainWindow::onToggleSidebar);
-    connect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this, [this]() {
-      const bool inNotesMode =
-          m_mainContentStack && m_mainContentStack->currentIndex() == 0;
-      const bool inEditor =
-          inNotesMode && m_rightStack &&
-          m_rightStack->currentWidget() == m_editorContainer &&
-          !editorTabIsWorkspace(m_editorTabs ? m_editorTabs->currentWidget()
-                                             : nullptr);
-      if (inEditor || !m_phoneLibraryNav)
-        onToggleSidebar();
-      else
-        m_phoneLibraryNav->openMenu();
-    });
-  }
+    if (m_btnAndroidToolbarMenu) {
+      disconnect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
+                 &MainWindow::onToggleSidebar);
+    }
 #endif
+  } else {
+    if (btnOverviewMenu) {
+      if (m_phoneLibraryNav)
+        disconnect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
+                   &PhoneLibraryNav::openMenu);
+      disconnect(btnOverviewMenu, &QAbstractButton::clicked, this,
+                 &MainWindow::onToggleSidebar);
+      connect(btnOverviewMenu, &QAbstractButton::clicked, this,
+              &MainWindow::onToggleSidebar);
+    }
+#ifdef Q_OS_ANDROID
+    if (m_btnAndroidToolbarMenu) {
+      disconnect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
+                 &MainWindow::onToggleSidebar);
+      connect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
+              &MainWindow::onToggleSidebar);
+    }
+#endif
+  }
+}
+
+void MainWindow::applyCompactNavPref() {
+  setupPhoneLibraryNav();
+  if (UiScale::usePhoneBurgerMenu(this) && m_isSidebarOpen)
+    animateSidebar(false);
+  updateSidebarState();
+}
+
+bool MainWindow::handleAndroidBack() {
+  m_lastBackHandledMs = QDateTime::currentMSecsSinceEpoch();
+  if (m_phoneLibraryNav && m_phoneLibraryNav->isMenuOpen()) {
+    m_phoneLibraryNav->closeMenu();
+    return true;
+  }
+
+  const auto modals = findChildren<BlopModal *>();
+  for (int i = modals.size() - 1; i >= 0; --i) {
+    BlopModal *modal = modals.at(i);
+    if (modal && modal->isVisible()) {
+      modal->dismiss();
+      return true;
+    }
+  }
+
+  if (m_pageSettingsOverlay && m_pageSettingsOverlay->isVisible()) {
+    setPageSettingsOverlayVisible(false);
+    return true;
+  }
+
+  const auto overlays = findChildren<AllPagesOverlay *>();
+  for (AllPagesOverlay *overlay : overlays) {
+    if (overlay && overlay->isVisible()) {
+      overlay->dismiss();
+      return true;
+    }
+  }
+
+  if (m_pageManager && m_pageManager->isVisible()) {
+    m_pageManager->hide();
+    return true;
+  }
+
+  if (m_isSidebarOpen) {
+    animateSidebar(false);
+    return true;
+  }
+
+  const bool inNotesMode =
+      !m_mainContentStack || m_mainContentStack->currentIndex() == 0;
+  const bool inEditorStack =
+      inNotesMode && m_rightStack &&
+      m_rightStack->currentWidget() == m_editorContainer;
+  if (inEditorStack) {
+    onBackToOverview();
+    return true;
+  }
+  if (!inNotesMode) {
+#ifdef Q_OS_ANDROID
+    if (m_modeSelector) {
+      QSignalBlocker b(m_modeSelector);
+      m_modeSelector->setCurrentIndex(0);
+    }
+#endif
+    onModeChanged(0);
+    return true;
+  }
+  return true;
 }
 
 void MainWindow::onPhoneNavAction(const QString &id) {
@@ -12064,6 +12195,8 @@ void MainWindow::onOpenSettings() {
           });
   connect(&dlg, &SettingsDialog::storagePrefsChanged, this,
           [this]() { applyStoragePrefsToLibrary(); });
+  connect(&dlg, &SettingsDialog::uiLayoutPrefsChanged, this,
+          &MainWindow::applyCompactNavPref);
   connect(&dlg, &SettingsDialog::logoutRequested, this, [this]() {
     QSettings st(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     st.remove(QStringLiteral("session_id"));
@@ -13701,7 +13834,53 @@ void MainWindow::restoreWindowState() {
   }
 }
 
+void MainWindow::keyPressEvent(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Back) {
+    if (m_phoneLibraryNav && m_phoneLibraryNav->isMenuOpen()) {
+      m_phoneLibraryNav->closeMenu();
+      event->accept();
+      return;
+    }
+  }
+#ifdef Q_OS_ANDROID
+  if (event->key() == Qt::Key_Back) {
+    if (handleAndroidBack()) {
+      event->accept();
+      return;
+    }
+  }
+#endif
+  QMainWindow::keyPressEvent(event);
+}
+
+bool MainWindow::event(QEvent *event) {
+#ifdef Q_OS_ANDROID
+  if (event->type() == QEvent::KeyPress ||
+      event->type() == QEvent::ShortcutOverride) {
+    auto *ke = static_cast<QKeyEvent *>(event);
+    if (ke->key() == Qt::Key_Back) {
+      if (handleAndroidBack()) {
+        event->accept();
+        return true;
+      }
+    }
+  }
+#endif
+  return QMainWindow::event(event);
+}
+
 void MainWindow::closeEvent(QCloseEvent *event) {
+#ifdef Q_OS_ANDROID
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  if (now - m_lastBackHandledMs < 400) {
+    event->ignore();
+    return;
+  }
+  if (handleAndroidBack()) {
+    event->ignore();
+    return;
+  }
+#endif
   // Make sure no pending note changes are lost when the user closes the
   // window directly from the editor. Flush the A4 debounced save synchronously;
   // an async save could still be in flight when the process exits.

@@ -538,8 +538,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
         QStringLiteral("Konto"),
-        studyLoggedIn ? QStringLiteral("Profil und Abmeldung")
-                      : QStringLiteral("Anmelden oder registrieren"),
+        studyLoggedIn ? QStringLiteral("Profil und Anmeldebildschirm")
+                      : QStringLiteral("Zum Anmeldebildschirm"),
         contentWidget);
     {
         auto closeAfterAccountAction = [this, phoneUi]() {
@@ -547,7 +547,15 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 accept();
         };
 
-        if (!studyLoggedIn) {
+        if (studyLoggedIn) {
+            auto *who = new QLabel(
+                QStringLiteral("Angemeldet als %1").arg(studyUser), cardKonto);
+            who->setWordWrap(true);
+            setThemedQss(who, QStringLiteral(
+                "color: #ECEEFD; font-size: 14px; font-weight: 600;"
+                "background: transparent; padding: 2px 0 8px 0;"));
+            cardKonto->addBodyWidget(who);
+        } else {
             auto *hint = new QLabel(
                 QStringLiteral(
                     "Melde dich bei Study an, um Notizen zu teilen. "
@@ -559,30 +567,24 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 "color: rgba(180, 188, 215, 0.88); font-size: 13px;"
                 "background: transparent; padding: 2px 0 8px 0;"));
             cardKonto->addBodyWidget(hint);
+        }
 
-            auto *btnLogin = new QPushButton(QStringLiteral("Anmelden"), cardKonto);
-            btnLogin->setCursor(Qt::PointingHandCursor);
-            btnLogin->setMinimumHeight(phoneUi ? UiScale::dp(46) : 42);
-            setTokenQss(btnLogin, "primary");
-            connect(btnLogin, &QPushButton::clicked, this, [this, closeAfterAccountAction]() {
-                emit studyLoginRequested();
-                closeAfterAccountAction();
-            });
-            BlopRipple::attachPressFeedback(btnLogin, 0.92);
-            cardKonto->addBodyWidget(btnLogin);
+        auto *btnAuthScreen = new QPushButton(
+            QStringLiteral("Zum Anmeldebildschirm"), cardKonto);
+        btnAuthScreen->setCursor(Qt::PointingHandCursor);
+        btnAuthScreen->setMinimumHeight(phoneUi ? UiScale::dp(46) : 42);
+        setTokenQss(btnAuthScreen, studyLoggedIn ? "secondary" : "primary");
+        connect(btnAuthScreen, &QPushButton::clicked, this,
+                [this, studyLoggedIn, closeAfterAccountAction]() {
+                  if (studyLoggedIn)
+                    emit logoutRequested();
+                  emit studyLoginRequested();
+                  closeAfterAccountAction();
+                });
+        BlopRipple::attachPressFeedback(btnAuthScreen, 0.92);
+        cardKonto->addBodyWidget(btnAuthScreen);
 
-            auto *btnRegister = new QPushButton(QStringLiteral("Registrieren"), cardKonto);
-            btnRegister->setCursor(Qt::PointingHandCursor);
-            btnRegister->setMinimumHeight(phoneUi ? UiScale::dp(46) : 42);
-            setTokenQss(btnRegister, "secondary");
-            connect(btnRegister, &QPushButton::clicked, this,
-                    [this, closeAfterAccountAction]() {
-                      emit studyRegisterRequested();
-                      closeAfterAccountAction();
-                    });
-            BlopRipple::attachPressFeedback(btnRegister, 0.92);
-            cardKonto->addBodyWidget(btnRegister);
-
+        if (!studyLoggedIn) {
             auto *btnGoogle = new QPushButton(QStringLiteral("Mit Google anmelden"),
                                               cardKonto);
             btnGoogle->setCursor(Qt::PointingHandCursor);
@@ -599,14 +601,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     });
             BlopRipple::attachPressFeedback(btnGoogle, 0.92);
             cardKonto->addBodyWidget(btnGoogle);
-        } else {
-            auto *who = new QLabel(
-                QStringLiteral("Angemeldet als %1").arg(studyUser), cardKonto);
-            who->setWordWrap(true);
-            setThemedQss(who, QStringLiteral(
-                "color: #ECEEFD; font-size: 14px; font-weight: 600;"
-                "background: transparent; padding: 2px 0 8px 0;"));
-            cardKonto->addBodyWidget(who);
         }
 
         auto *btnEdit = new QPushButton(
@@ -787,6 +781,36 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             BlopTheme::instance().setAccent(a);
             emit accentColorChanged(BlopTheme::accentPrimary());
         });
+
+        auto *btnBurger = new QPushButton(
+            QStringLiteral("Kompaktes Menü (Burger)"), cardTheme);
+        btnBurger->setCheckable(true);
+        btnBurger->setCursor(Qt::PointingHandCursor);
+        btnBurger->setMinimumHeight(40);
+        btnBurger->setChecked(UiScale::forceBurgerMenu());
+        setThemedQss(btnBurger, QStringLiteral(
+            "QPushButton { background: rgba(40,42,60,0.65); color: #ECEEFD;"
+            "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
+            "  padding: 10px 14px; text-align: left; font-weight: 600; }"
+            "QPushButton:checked { background: rgba(91,157,255,0.28);"
+            "  border-color: #5B9DFF; }"));
+        connect(btnBurger, &QPushButton::toggled, this, [this](bool on) {
+            UiScale::setForceBurgerMenu(on);
+            emit uiLayoutPrefsChanged();
+        });
+        BlopRipple::attachPressFeedback(btnBurger, 0.96);
+        cardTheme->addBodyWidget(btnBurger);
+        auto *burgerHint = new QLabel(
+            QStringLiteral(
+                "Auf dem Handy ist das Burger-Menü immer an und die "
+                "Seitenleiste ausgeblendet. Auf Tablet oder Laptop kannst du "
+                "es hier zusätzlich einschalten."),
+            cardTheme);
+        burgerHint->setWordWrap(true);
+        setThemedQss(burgerHint, QStringLiteral(
+            "color: rgba(180, 188, 210, 0.78); font-size: 11px;"
+            "background: transparent; padding: 2px 0 4px 0;"));
+        cardTheme->addBodyWidget(burgerHint);
     }
 
     // ----- Card: Erscheinungsbild ---------------------------------------

@@ -45,6 +45,8 @@ signals:
     void studyLoginRequested();
     void studyRegisterRequested();
     void googleLoginRequested();
+    /// Compact burger-nav setting changed (tablet/laptop).
+    void uiLayoutPrefsChanged();
     /// Open the in-app cloud browser (Drive / Nextcloud / … / custom URL).
     void cloudExplorerRequested(const QString &id, const QString &type,
                                 const QString &name, const QString &webUrl);

@@ -40,6 +40,19 @@ bool isAndroidTablet(QWidget *reference = nullptr);
 /// BLOP_SIMULATE_ANDROID_PHONE=1 to exercise the same layout paths.
 bool isAndroidPhoneUi(QWidget *reference = nullptr);
 
+/// Window/screen is phone-width (Material 600 dp). Android uses the
+/// physical screen; desktop uses the current window width so a laptop
+/// resized to phone size gets the compact layout.
+bool isPhoneSizedLayout(QWidget *reference = nullptr);
+
+/// Settings → Darstellung: force the burger menu on tablet/laptop.
+bool forceBurgerMenu();
+void setForceBurgerMenu(bool on);
+
+/// Phone-sized layout, Android phone, or the compact-nav setting.
+/// When true the left sidebar is hidden and PhoneLibraryNav is used.
+bool usePhoneBurgerMenu(QWidget *reference = nullptr);
+
 } // namespace UiScale
 
 #endif // UISCALE_H

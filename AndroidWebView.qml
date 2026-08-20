@@ -424,6 +424,9 @@ Rectangle {
         console.warn("BlopStudy: oauth failed", reason)
         oauthPending = false
         oauthPendingSinceMs = 0
+        var w = studyWeb()
+        if (w)
+            w.runJavaScript("try { window.__blopOauthPending = 0; } catch (e) {}")
     }
 
     function submitBookmarkFromSheet() {
@@ -492,27 +495,37 @@ Rectangle {
                  "  var onload = document.getElementById('g_id_onload');" +
                  "  if (gis) gis.style.display = 'none';" +
                  "  if (onload) onload.style.display = 'none';" +
-                 "  var hasNative = !!document.getElementById('blop-native-google-btn');" +
-                 "  if (!hasNative) {" +
-                 "    var buttons = document.getElementsByTagName('button');" +
-                 "    for (var i = 0; i < buttons.length; i++) {" +
-                 "      if ((buttons[i].textContent || '').indexOf('Über Google anmelden') !== -1)" +
-                 "        hasNative = true;" +
-                 "    }" +
-                 "  }" +
-                 "  if (hasNative) return true;" +
-                 "  var btn = document.createElement('button');" +
-                 "  btn.id = 'blop-native-google-btn';" +
-                 "  btn.type = 'button';" +
-                 "  btn.textContent = 'Über Google anmelden';" +
-                 "  btn.style.cssText = 'width:100%;padding:14px 16px;border-radius:10px;border:1px solid #dadce0;background:#fff;color:#202124;font:600 15px/1.25 system-ui,sans-serif;margin-top:10px';" +
-                 "  btn.addEventListener('click', function(ev){" +
-                 "    ev.preventDefault();" +
+                 "  var kick = function(ev){" +
+                 "    if (ev) ev.preventDefault();" +
                  "    try { localStorage.setItem('trigger_google_login','1'); } catch (e) {}" +
                  "    try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); } catch (e2) {}" +
-                 "  });" +
-                 "  var host = (gis && gis.parentNode) ? gis.parentNode : document.querySelector('form');" +
-                 "  if (host) host.appendChild(btn);" +
+                 "    try { location.href = 'blop://google-login'; } catch (e3) {}" +
+                 "  };" +
+                 "  var buttons = document.getElementsByTagName('button');" +
+                 "  for (var i = 0; i < buttons.length; i++) {" +
+                 "    var t = (buttons[i].textContent || '');" +
+                 "    if (t.indexOf('Google') === -1) continue;" +
+                 "    if (buttons[i].getAttribute('data-blop-google') === '1') continue;" +
+                 "    buttons[i].setAttribute('data-blop-google','1');" +
+                 "    buttons[i].addEventListener('click', kick, true);" +
+                 "  }" +
+                 "  if (!document.getElementById('blop-native-google-btn')) {" +
+                 "    var hasNative = false;" +
+                 "    for (var j = 0; j < buttons.length; j++) {" +
+                 "      if ((buttons[j].textContent || '').indexOf('Google') !== -1) hasNative = true;" +
+                 "    }" +
+                 "    if (!hasNative) {" +
+                 "      var btn = document.createElement('button');" +
+                 "      btn.id = 'blop-native-google-btn';" +
+                 "      btn.type = 'button';" +
+                 "      btn.textContent = 'Über Google anmelden';" +
+                 "      btn.setAttribute('data-blop-google','1');" +
+                 "      btn.style.cssText = 'width:100%;padding:14px 16px;border-radius:10px;border:1px solid #dadce0;background:#fff;color:#202124;font:600 15px/1.25 system-ui,sans-serif;margin-top:10px';" +
+                 "      btn.addEventListener('click', kick, true);" +
+                 "      var host = (gis && gis.parentNode) ? gis.parentNode : document.querySelector('form');" +
+                 "      if (host) host.appendChild(btn);" +
+                 "    }" +
+                 "  }" +
                  "} catch (e) {}" +
                  "return true;" +
                  "})();"
@@ -1451,6 +1464,9 @@ Rectangle {
                         onClicked: {
                             oauthPending = false
                             oauthPendingSinceMs = 0
+                            if (typeof blopAppBridge !== "undefined"
+                                    && blopAppBridge.cancelGoogleLogin)
+                                blopAppBridge.cancelGoogleLogin()
                         }
                     }
                 }
@@ -1476,6 +1492,9 @@ Rectangle {
                         onClicked: {
                             oauthPending = false
                             oauthPendingSinceMs = 0
+                            if (typeof blopAppBridge !== "undefined"
+                                    && blopAppBridge.cancelGoogleLogin)
+                                blopAppBridge.cancelGoogleLogin()
                             suspendForNotesTab()
                             if (typeof blopAppBridge !== "undefined"
                                     && blopAppBridge.switchToNotesFromWebQmlBar)
@@ -1768,6 +1787,8 @@ Rectangle {
         onTriggered: {
             if (!ssoPollingEnabled || !tabActive)
                 return
+            if (oauthPending)
+                return
             var w = studyWeb()
             if (!w)
                 return
@@ -1789,6 +1810,7 @@ Rectangle {
                          "      || path.indexOf('/privacy') !== -1;\n" +
                          "  var authed = !placeholder && !!s;\n" +
                          "  if (!authed && !authPath) {\n" +
+                         "    if (window.__blopOauthPending) return '';\n" +
                          "    if (!window.__blopGateLogin) {\n" +
                          "      window.__blopGateLogin = 1;\n" +
                          "      location.replace('/login?native=1');\n" +
@@ -1805,12 +1827,12 @@ Rectangle {
                 if (typeof blopAppBridge !== "undefined" && result !== undefined) {
                     var resStr = result.toString().trim();
                     if (resStr === "TRIGGER_GOOGLE_LOGIN") {
-                        if (oauthPending && (Date.now() - oauthPendingSinceMs) < 5000)
+                        if (oauthPending)
                             return
                         oauthPending = true;  // Show overlay while Chrome is open
                         oauthPendingSinceMs = Date.now()
                         w.runJavaScript(
-                            "try { document.dispatchEvent(new CustomEvent('blop-oauth-pending')); } catch (e) {}"
+                            "try { window.__blopOauthPending = 1; document.dispatchEvent(new CustomEvent('blop-oauth-pending')); } catch (e) {}"
                         )
                         blopAppBridge.requestGoogleLogin();
                     } else if (resStr !== "") {
@@ -1852,12 +1874,13 @@ Rectangle {
         onTriggered: {
             if (!oauthPending)
                 return
-            if (Date.now() - oauthPendingSinceMs < 20000)
+            if (Date.now() - oauthPendingSinceMs < 120000)
                 return
-            console.warn("BlopStudy: oauth watchdog timeout, forcing fresh load")
+            console.warn("BlopStudy: oauth watchdog timeout, cancelling pending login")
             oauthPending = false
             oauthPendingSinceMs = 0
-            loadStudyEntryFresh("oauthWatchdog", true)
+            if (typeof blopAppBridge !== "undefined" && blopAppBridge.cancelGoogleLogin)
+                blopAppBridge.cancelGoogleLogin()
         }
     }
 }

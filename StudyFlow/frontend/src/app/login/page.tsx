@@ -429,18 +429,28 @@ export default function LoginPage() {
                                 onClick={() => {
                                     localStorage.setItem('trigger_google_login', '1');
                                     setError('');
-                                    setOauthPending(false);
                                     setLoading(true);
-                                    // Desktop SSO poll picks this up within ~1s and opens
-                                    // the system-browser bridge; clear spinner shortly after
-                                    // unless C++ has already flipped us into oauth-pending.
+                                    try {
+                                        document.dispatchEvent(new CustomEvent('blop-oauth-pending'));
+                                    } catch (e) {}
+                                    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+                                    const android = /Android/i.test(ua);
+                                    const nativeQuery =
+                                        typeof window !== 'undefined' &&
+                                        new URLSearchParams(window.location.search).get('native') === '1';
+                                    if (android || nativeQuery) {
+                                        setOauthPending(true);
+                                        try {
+                                            window.location.href = 'blop://google-login';
+                                        } catch (e2) {}
+                                    }
                                     window.setTimeout(() => {
                                         setOauthPending((pending) => {
                                             if (!pending)
                                                 setLoading(false);
                                             return pending;
                                         });
-                                    }, 2500);
+                                    }, 4000);
                                 }}
                                 className="w-full py-3.5 bg-white text-gray-800 rounded-lg font-semibold hover:bg-gray-100 active:bg-gray-200 transition-all flex items-center justify-center gap-2 border border-gray-300"
                             >

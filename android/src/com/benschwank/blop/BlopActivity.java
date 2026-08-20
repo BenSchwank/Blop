@@ -76,6 +76,8 @@ public class BlopActivity extends QtActivity {
         final BlopActivity activity = sInstance;
         if (activity == null) {
             Log.w(TAG, "openCustomTab: activity is null");
+            BlopOAuthBridge.notifyExternalAuthAbandoned(
+                    "activity_unavailable");
             return;
         }
         if (url == null || url.isEmpty()) {
@@ -135,10 +137,11 @@ public class BlopActivity extends QtActivity {
             builder.setUrlBarHidingEnabled(false);
             CustomTabsIntent intent = builder.build();
             intent.intent.setPackage(packageName);
-            // AppAuth pattern: NO_HISTORY so the Custom Tab closes when the
-            // redirect trampoline takes focus. Do NOT add CLEAR_TOP/SINGLE_TOP
-            // on Chrome's activity — that caused flaky handoff on some OEMs.
-            intent.intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+            // Do NOT use FLAG_ACTIVITY_NO_HISTORY. Google's account picker
+            // (and 2FA) is a separate Chrome activity; NO_HISTORY destroys the
+            // Custom Tab when that picker opens, so the OAuth redirect never
+            // returns and the in-app overlay waits forever — especially on a
+            // phone that has never signed into this app.
             intent.launchUrl(activity, uri);
             return true;
         } catch (Exception e) {

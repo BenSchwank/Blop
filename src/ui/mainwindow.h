@@ -58,6 +58,7 @@ class PhoneLibraryNav;
 class SettingsDialog;
 class QSortFilterProxyModel;
 class QShowEvent;
+class QKeyEvent;
 struct WebBookmark {
   QString title;
   QUrl url;
@@ -197,6 +198,8 @@ protected:
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
   void closeEvent(QCloseEvent *event) override;
+  void keyPressEvent(QKeyEvent *event) override;
+  bool event(QEvent *event) override;
 #ifdef Q_OS_WIN
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
   /// Match DWM caption/border to the custom title bar and keep WS_CAPTION off.
@@ -212,6 +215,7 @@ public slots:
   void applyThemeRefresh();
   void refreshOpenEditorSceneBackgrounds();
   void requestGoogleLogin();
+  void cancelGoogleLogin();
   /// QML Fertig on the in-app cloud browser (Android WebView).
   void closeCloudBrowser();
   void onSessionCheck(const QString &sessionData);
@@ -337,6 +341,8 @@ private:
   void showPhoneTagsSheet();
   void onPhoneNavAction(const QString &id);
   void setupPhoneLibraryNav();
+  void applyCompactNavPref();
+  bool handleAndroidBack();
   bool editorTabIsWorkspace(QWidget *w) const;
   int findWorkspaceTabIndex(const QString &kind) const;
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
@@ -541,6 +547,8 @@ private:
 
   bool m_isSidebarOpen;
   bool m_lastIsEditor{false};
+  bool m_lastBurgerNav{false};
+  qint64 m_lastBackHandledMs{0};
   /// True while width animation runs — syncSidebarPushLayout must not snap
   /// the drawer back to full width mid-fold.
   bool m_sidebarAnimating{false};

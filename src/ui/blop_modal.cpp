@@ -508,7 +508,7 @@ bool BlopModal::event(QEvent *event) {
 }
 
 void BlopModal::keyPressEvent(QKeyEvent *event) {
-  if (event->key() == Qt::Key_Escape) {
+  if (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Back) {
     dismiss();
     return;
   }

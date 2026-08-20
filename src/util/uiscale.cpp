@@ -3,6 +3,7 @@
 #include <QGuiApplication>
 #include <QPoint>
 #include <QScreen>
+#include <QSettings>
 #include <QWindow>
 #include <QWidget>
 #include <QtGlobal>
@@ -308,6 +309,33 @@ bool isAndroidPhoneUi(QWidget *reference) {
   // Desktop simulation for layout QA (Cursor-agent / local).
   return qEnvironmentVariableIntValue("BLOP_SIMULATE_ANDROID_PHONE") == 1;
 #endif
+}
+
+bool isPhoneSizedLayout(QWidget *reference) {
+#if defined(Q_OS_ANDROID)
+  return isAndroidPhoneUi(reference);
+#else
+  if (qEnvironmentVariableIntValue("BLOP_SIMULATE_ANDROID_PHONE") == 1)
+    return true;
+  QWidget *win = reference ? reference->window() : nullptr;
+  if (!win || win->width() <= 0)
+    return false;
+  return win->width() < dp(600);
+#endif
+}
+
+bool forceBurgerMenu() {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  return s.value(QStringLiteral("ui/force_burger_menu"), false).toBool();
+}
+
+void setForceBurgerMenu(bool on) {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  s.setValue(QStringLiteral("ui/force_burger_menu"), on);
+}
+
+bool usePhoneBurgerMenu(QWidget *reference) {
+  return forceBurgerMenu() || isPhoneSizedLayout(reference);
 }
 
 } // namespace UiScale
