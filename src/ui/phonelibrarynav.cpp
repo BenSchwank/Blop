@@ -4,6 +4,7 @@
 #include "cloudstoragestore.h"
 #include "uiscale.h"
 
+#include <QApplication>
 #include <QBrush>
 #include <QColor>
 #include <QEvent>
@@ -46,6 +47,11 @@ PhoneLibraryNav::PhoneLibraryNav(QWidget *host) : QWidget(host), m_host(host) {
   }
   syncPillGeometry();
   raise();
+}
+
+PhoneLibraryNav::~PhoneLibraryNav() {
+  if (qApp)
+    qApp->removeEventFilter(this);
 }
 
 void PhoneLibraryNav::setAccountName(const QString &name) {
@@ -209,21 +215,58 @@ bool PhoneLibraryNav::handleSheetPointer(QObject *watched, QEvent *event) {
 }
 
 bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
+  if (m_sheet && event) {
+    if (event->type() == QEvent::KeyPress ||
+        event->type() == QEvent::ShortcutOverride) {
+      auto *ke = static_cast<QKeyEvent *>(event);
+      if (ke->key() == Qt::Key_Back || ke->key() == Qt::Key_Escape) {
+        closeMenu();
+        return true;
+      }
+    }
+    if (event->type() == QEvent::MouseButtonPress) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton && m_card) {
+        const QPoint gp = me->globalPosition().toPoint();
+        const QRect cardGlobal(m_card->mapToGlobal(QPoint(0, 0)), m_card->size());
+        if (!cardGlobal.contains(gp)) {
+          closeMenu();
+          return true;
+        }
+        const int localY = m_card->mapFromGlobal(gp).y();
+        if (localY >= 0 && localY < UiScale::dp(52)) {
+          m_swiping = true;
+          m_swipeStartY = gp.y();
+        }
+      }
+    }
+    if (event->type() == QEvent::MouseMove && m_swiping) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if ((me->globalPosition().y() - m_swipeStartY) >= UiScale::dp(48)) {
+        m_swiping = false;
+        closeMenu();
+        return true;
+      }
+    }
+    if (event->type() == QEvent::MouseButtonRelease)
+      m_swiping = false;
+    if (event->type() == QEvent::TouchBegin && m_card) {
+      auto *te = static_cast<QTouchEvent *>(event);
+      if (!te->points().isEmpty()) {
+        const QRect cardGlobal(m_card->mapToGlobal(QPoint(0, 0)), m_card->size());
+        if (!cardGlobal.contains(te->points().first().globalPosition().toPoint())) {
+          closeMenu();
+          return true;
+        }
+      }
+    }
+  }
   if (event && (event->type() == QEvent::Resize || event->type() == QEvent::Show) &&
       isVisible())
     syncPillGeometry();
   if (m_sheet && watched == m_sheet->parentWidget() && event &&
       event->type() == QEvent::Resize && m_sheet->parentWidget()) {
     m_sheet->setGeometry(m_sheet->parentWidget()->rect());
-  }
-  if (event && (event->type() == QEvent::KeyPress ||
-                event->type() == QEvent::ShortcutOverride)) {
-    auto *ke = static_cast<QKeyEvent *>(event);
-    if ((ke->key() == Qt::Key_Back || ke->key() == Qt::Key_Escape) &&
-        isMenuOpen()) {
-      closeMenu();
-      return true;
-    }
   }
   if (handleSheetPointer(watched, event))
     return true;
@@ -295,6 +338,8 @@ void PhoneLibraryNav::rebuildMenu() {
 
 void PhoneLibraryNav::closeMenu() {
   m_swiping = false;
+  if (qApp)
+    qApp->removeEventFilter(this);
   if (!m_sheet)
     return;
   m_sheet->hide();
@@ -322,10 +367,11 @@ void PhoneLibraryNav::openMenu() {
   sheet->setAttribute(Qt::WA_StyledBackground, true);
   sheet->setFocusPolicy(Qt::StrongFocus);
   sheet->setStyleSheet(QStringLiteral(
-      "QWidget#PhoneLibraryMenuSheet { background: transparent; }"));
+      "QWidget#PhoneLibraryMenuSheet { background: rgba(6,8,14,0.55); }"));
   sheet->setGeometry(win->rect());
   win->installEventFilter(this);
   sheet->installEventFilter(this);
+  qApp->installEventFilter(this);
 
   auto *root = new QVBoxLayout(sheet);
   root->setContentsMargins(0, 0, 0, 0);
@@ -354,8 +400,10 @@ void PhoneLibraryNav::openMenu() {
       "}")));
   card->installEventFilter(this);
 
-  const int cardH = qBound(UiScale::dp(420), int(win->height() * 0.82),
-                           win->height() - UiScale::safeTopPx(win));
+  const int cardH = qBound(UiScale::dp(360), int(win->height() * 0.58),
+                           qMax(UiScale::dp(320),
+                                win->height() - UiScale::safeTopPx(win) -
+                                    UiScale::dp(96)));
   card->setFixedHeight(cardH);
   root->addWidget(card, 0);
 

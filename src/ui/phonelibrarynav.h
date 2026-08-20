@@ -15,6 +15,7 @@ class PhoneLibraryNav : public QWidget {
   Q_OBJECT
 public:
   explicit PhoneLibraryNav(QWidget *host);
+  ~PhoneLibraryNav() override;
 
   void setAccountName(const QString &name);
   void setPillVisible(bool on);
