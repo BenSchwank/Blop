@@ -4,6 +4,7 @@
 #include <QButtonGroup>
 #include <QColor>
 #include <QComboBox>
+#include <QEvent>
 #include <QFileSystemModel>
 #include <QFrame>
 #include <QIcon>
@@ -184,6 +185,7 @@ public:
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
   void showEvent(QShowEvent *event) override;
+  void changeEvent(QEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
@@ -191,6 +193,8 @@ protected:
   void closeEvent(QCloseEvent *event) override;
 #ifdef Q_OS_WIN
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+  /// Match DWM caption/border to the custom title bar and keep WS_CAPTION off.
+  void syncWindowsDwmChrome();
 #endif
 
 signals:

@@ -488,6 +488,8 @@ endif()
 # Windows: Konsole bei Release-Builds ausblenden
 if(WIN32)
     set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
+    # Custom frameless chrome: DwmSetWindowAttribute / DwmExtendFrameIntoClientArea
+    target_link_libraries(Blop PRIVATE dwmapi)
 endif()
 
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---

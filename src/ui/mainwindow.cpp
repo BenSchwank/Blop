@@ -105,6 +105,7 @@
 #include <QNetworkRequest>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPalette>
 #include <QProcess>
 #include <QProgressDialog>
 #include <QProgressBar>
@@ -114,6 +115,19 @@
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <windowsx.h>
+#include <dwmapi.h>
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_COLOR_NONE
+#define DWMWA_COLOR_NONE 0xFFFFFFFE
+#endif
 #endif
 #include <QScroller>
 #include <QScrollerProperties>
@@ -2818,6 +2832,8 @@ void MainWindow::showAndroidStudyBootRetry() {
 void MainWindow::setupTitleBar() {
   m_titleBarWidget = new QWidget(this);
   m_titleBarWidget->setFixedHeight(52);
+  m_titleBarWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  m_titleBarWidget->setAttribute(Qt::WA_StyledBackground, true);
   // Match window fill exactly — no light top fringe / separator mismatch.
   m_titleBarWidget->setStyleSheet(QStringLiteral(
       "background: %1; border: none;")
@@ -3077,7 +3093,9 @@ void MainWindow::setupTitleBar() {
   };
   for (auto &wb : winBtns) {
     *wb.ptr = new QPushButton(m_titleBarWidget);
-    (*wb.ptr)->setFixedSize(46, 50);
+    // Full title-bar height so DWM's 1px top hairline cannot show above the
+    // buttons (Win11 paints native caption hover in that strip).
+    (*wb.ptr)->setFixedSize(46, 52);
     (*wb.ptr)->setCursor(Qt::PointingHandCursor);
     (*wb.ptr)->setIcon(createModernIcon(wb.sym, BlopTheme::textPrimary()));
     (*wb.ptr)->setIconSize(QSize(20, 20));
@@ -3095,7 +3113,7 @@ void MainWindow::setupTitleBar() {
                                    "  background: %1;"
                                    "}")
                                        .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
-    mainLayout->addWidget(*wb.ptr);
+    mainLayout->addWidget(*wb.ptr, 0, Qt::AlignTop);
   }
   connect(m_btnWinMin, &QPushButton::clicked, this, &MainWindow::onWinMinimize);
   connect(m_btnWinMax, &QPushButton::clicked, this, &MainWindow::onWinMaximize);
@@ -3652,19 +3670,19 @@ void MainWindow::openSettingsWorkspace() {
 }
 
 
-void MainWindow::onWinMinimize() {
-  setWindowState((windowState() & ~Qt::WindowMaximized) | Qt::WindowMinimized);
-}
+void MainWindow::onWinMinimize() { showMinimized(); }
 void MainWindow::onWinClose() { close(); }
 void MainWindow::onWinMaximize() {
   if (isMaximized() || (windowState() & Qt::WindowMaximized))
-    setWindowState(windowState() & ~Qt::WindowMaximized);
+    showNormal();
   else
-    setWindowState(windowState() | Qt::WindowMaximized);
-  // Cursor-style: swap □ / ❐ glyph on the single chrome bar.
+    showMaximized();
   if (m_btnWinMax) {
-    m_btnWinMax->setText(isMaximized() ? QStringLiteral("\u2750")  // ❐ restore
-                                       : QStringLiteral("\u25A1")); // □ maximize
+    m_btnWinMax->setText(QString());
+    m_btnWinMax->setIcon(createModernIcon(
+        isMaximized() ? QStringLiteral("win_restore")
+                      : QStringLiteral("win_max"),
+        BlopTheme::textPrimary()));
   }
 }
 void MainWindow::mousePressEvent(QMouseEvent *event) {
@@ -3696,28 +3714,142 @@ bool titleBarRegionIsInteractive(QWidget *hit, QWidget *titleBar) {
   }
   return false;
 }
+
+int winResizeBorderPx(HWND hwnd) {
+  UINT dpi = 96;
+  HMODULE user32 = GetModuleHandleW(L"user32.dll");
+  using GetDpiForWindowFn = UINT (WINAPI *)(HWND);
+  using GetSystemMetricsForDpiFn = int (WINAPI *)(int, UINT);
+  if (user32) {
+    auto getDpi = reinterpret_cast<GetDpiForWindowFn>(
+        GetProcAddress(user32, "GetDpiForWindow"));
+    if (getDpi)
+      dpi = getDpi(hwnd);
+    auto getSm = reinterpret_cast<GetSystemMetricsForDpiFn>(
+        GetProcAddress(user32, "GetSystemMetricsForDpi"));
+    if (getSm)
+      return qMax(6, getSm(SM_CXFRAME, dpi) + getSm(SM_CXPADDEDBORDER, dpi));
+  }
+  return qMax(6, GetSystemMetrics(SM_CXFRAME) +
+                     GetSystemMetrics(SM_CXPADDEDBORDER));
+}
 } // namespace
 
+void MainWindow::syncWindowsDwmChrome() {
+  HWND hwnd = reinterpret_cast<HWND>(winId());
+  if (!hwnd)
+    return;
+
+  const LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+  const LONG_PTR desired =
+      (style & ~static_cast<LONG_PTR>(WS_CAPTION)) |
+      WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
+  if (desired != style) {
+    SetWindowLongPtr(hwnd, GWL_STYLE, desired);
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                     SWP_FRAMECHANGED);
+  }
+
+  QColor titleBg = BlopTheme::surfaceBackground();
+  if (m_authNavigationLocked)
+    titleBg = QColor(QStringLiteral("#0F1115"));
+  else if (m_documentTabBar && m_documentTabBar->noteChromeMode())
+    titleBg = NoteChrome::toolbarFill();
+
+  BOOL dark = titleBg.lightness() < 148 ? TRUE : FALSE;
+  DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
+                        sizeof(dark));
+
+  // Hide the 1px DWM hairline Win11 paints above a frameless client, and
+  // tint any leftover caption so native min/max hover is not white/black.
+  const COLORREF none = DWMWA_COLOR_NONE;
+  DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &none, sizeof(none));
+  const COLORREF cap = RGB(titleBg.red(), titleBg.green(), titleBg.blue());
+  DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &cap, sizeof(cap));
+
+  const MARGINS margins = {0, 0, 0, 0};
+  DwmExtendFrameIntoClientArea(hwnd, &margins);
+}
+
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+  if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
+    return QMainWindow::nativeEvent(eventType, message, result);
+
   MSG *msg = static_cast<MSG *>(message);
-  // Remove the default non-client frame so WS_THICKFRAME does not paint a
-  // light 1px strip above our custom title bar.
-  if (msg->message == WM_NCCALCSIZE && msg->wParam == TRUE) {
+
+  // Client area = full window. When maximized, clip to the monitor work
+  // area so the window does not jump 8px off-screen (WS_THICKFRAME inset).
+  if (msg->message == WM_NCCALCSIZE) {
+    if (msg->wParam == TRUE) {
+      auto *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg->lParam);
+      if (IsZoomed(msg->hwnd)) {
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfo(MonitorFromWindow(msg->hwnd, MONITOR_DEFAULTTONEAREST),
+                           &mi)) {
+          params->rgrc[0] = mi.rcWork;
+        }
+      }
+    }
     *result = 0;
     return true;
   }
-  if (msg->message == WM_NCHITTEST) {
-    long x = GET_X_LPARAM(msg->lParam);
-    long y = GET_Y_LPARAM(msg->lParam);
-    QPoint pos = mapFromGlobal(QPoint(x, y));
 
-    // Edge resize only when not maximized.
-    if (!isMaximized()) {
-      int borderSize = 6;
-      bool left = pos.x() < borderSize;
-      bool right = pos.x() > width() - borderSize;
-      bool top = pos.y() < borderSize;
-      bool bottom = pos.y() > height() - borderSize;
+  if (msg->message == WM_GETMINMAXINFO) {
+    QMainWindow::nativeEvent(eventType, message, result);
+    auto *mmi = reinterpret_cast<MINMAXINFO *>(msg->lParam);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfo(MonitorFromWindow(msg->hwnd, MONITOR_DEFAULTTONEAREST),
+                       &mi)) {
+      const RECT &work = mi.rcWork;
+      const RECT &mon = mi.rcMonitor;
+      mmi->ptMaxPosition.x = work.left - mon.left;
+      mmi->ptMaxPosition.y = work.top - mon.top;
+      mmi->ptMaxSize.x = work.right - work.left;
+      mmi->ptMaxSize.y = work.bottom - work.top;
+    }
+    *result = 0;
+    return true;
+  }
+
+  // Do not let DWM paint the native caption on activate (white flash / 1px line).
+  if (msg->message == WM_NCACTIVATE) {
+    *result = TRUE;
+    return true;
+  }
+
+  if (msg->message == WM_NCHITTEST) {
+    const long x = GET_X_LPARAM(msg->lParam);
+    const long y = GET_Y_LPARAM(msg->lParam);
+    const QPoint pos = mapFromGlobal(QPoint(x, y));
+    const int borderSize = winResizeBorderPx(msg->hwnd);
+    const bool zoomed = IsZoomed(msg->hwnd);
+
+    const bool overInteractiveTitle = [&]() {
+      if (!m_titleBarWidget || !m_titleBarWidget->isVisible())
+        return false;
+      if (!m_titleBarWidget->geometry().contains(pos))
+        return false;
+      QWidget *child = m_titleBarWidget->childAt(
+          m_titleBarWidget->mapFromGlobal(QPoint(x, y)));
+      return titleBarRegionIsInteractive(child, m_titleBarWidget);
+    }();
+
+    // Interactive title controls (min/max/close, search, tabs) must stay
+    // HTCLIENT. Returning HTTOP for the top 6px used to let Win11 paint
+    // native caption-button hover (white hairline → black on hover).
+    if (overInteractiveTitle) {
+      *result = HTCLIENT;
+      return true;
+    }
+
+    if (!zoomed) {
+      const bool left = pos.x() < borderSize;
+      const bool right = pos.x() > width() - borderSize;
+      const bool top = pos.y() < borderSize;
+      const bool bottom = pos.y() > height() - borderSize;
 
       if (top && left) { *result = HTTOPLEFT; return true; }
       if (top && right) { *result = HTTOPRIGHT; return true; }
@@ -3729,19 +3861,10 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
       if (bottom) { *result = HTBOTTOM; return true; }
     }
 
-    // Title bar: only real controls are HTCLIENT — empty stretch areas
-    // (m_topNavControls) must stay HTCAPTION so the window can be dragged.
-    if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
-      const QRect titleRect = m_titleBarWidget->geometry();
-      if (titleRect.contains(pos)) {
-        QWidget *child = m_titleBarWidget->childAt(
-            m_titleBarWidget->mapFromGlobal(QPoint(x, y)));
-        if (titleBarRegionIsInteractive(child, m_titleBarWidget))
-          *result = HTCLIENT;
-        else
-          *result = HTCAPTION;
-        return true;
-      }
+    if (m_titleBarWidget && m_titleBarWidget->isVisible() &&
+        m_titleBarWidget->geometry().contains(pos)) {
+      *result = HTCAPTION;
+      return true;
     }
 
     *result = HTCLIENT;
@@ -4498,6 +4621,10 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
   } else if (name == "win_max") {
     p.setPen(QPen(color, 5.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawRoundedRect(16, 16, 32, 32, 3, 3);
+  } else if (name == "win_restore") {
+    p.setPen(QPen(color, 5.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawRoundedRect(22, 12, 24, 24, 3, 3);
+    p.drawRoundedRect(12, 22, 24, 24, 3, 3);
   } else if (name == "win_close") {
     p.setPen(QPen(color, 6.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawLine(16, 16, 48, 48);
@@ -11518,14 +11645,7 @@ void MainWindow::showEvent(QShowEvent *event) {
   // Keep one Blop chrome bar only: never re-enable WS_CAPTION (that draws the
   // native "Blop" title strip above our custom bar). Still request min/max /
   // thick frame so taskbar minimize and edge-resize work while frameless.
-  if (HWND hwnd = reinterpret_cast<HWND>(winId())) {
-    LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-    style &= ~WS_CAPTION;
-    style |= WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
-    SetWindowLongPtr(hwnd, GWL_STYLE, style);
-    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-  }
+  syncWindowsDwmChrome();
 #endif
 #ifdef Q_OS_ANDROID
   applyAndroidImmersiveUi();
@@ -11559,6 +11679,24 @@ void MainWindow::showEvent(QShowEvent *event) {
   if (m_studyWebView) {
     m_studyWebView->updateGeometry();
     m_studyWebView->raise();
+  }
+#endif
+}
+
+void MainWindow::changeEvent(QEvent *event) {
+  QMainWindow::changeEvent(event);
+#ifdef Q_OS_WIN
+  if (event->type() == QEvent::WinIdChange ||
+      event->type() == QEvent::WindowStateChange ||
+      event->type() == QEvent::ActivationChange) {
+    syncWindowsDwmChrome();
+    if (m_btnWinMax && event->type() == QEvent::WindowStateChange) {
+      m_btnWinMax->setText(QString());
+      m_btnWinMax->setIcon(createModernIcon(
+          isMaximized() ? QStringLiteral("win_restore")
+                        : QStringLiteral("win_max"),
+          BlopTheme::textPrimary()));
+    }
   }
 #endif
 }
@@ -12542,6 +12680,10 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
     m_titleBarWidget->setStyleSheet(
         QStringLiteral("background: %1; border: none;")
             .arg(titleBg.name(QColor::HexRgb)));
+    QPalette pal = m_titleBarWidget->palette();
+    pal.setColor(QPalette::Window, titleBg);
+    pal.setColor(QPalette::Base, titleBg);
+    m_titleBarWidget->setPalette(pal);
   }
 
   if (btnEditorMenu) {
@@ -12799,8 +12941,14 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                   .arg(hover));
   };
   styleWinBtn(m_btnWinMin, QStringLiteral("win_min"), false);
-  styleWinBtn(m_btnWinMax, QStringLiteral("win_max"), false);
+  styleWinBtn(m_btnWinMax,
+              isMaximized() ? QStringLiteral("win_restore")
+                            : QStringLiteral("win_max"),
+              false);
   styleWinBtn(m_btnWinClose, QStringLiteral("win_close"), true);
+#ifdef Q_OS_WIN
+  syncWindowsDwmChrome();
+#endif
 #endif
 }
 
