@@ -11,13 +11,13 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
-#include <QRegion>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QScreen>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QWindow>
 
 #ifdef BLOP_HAS_WEBENGINE
 #include <QWebEnginePage>
@@ -104,6 +104,10 @@ void BlopAssistantOverlay::setStandalone(bool on) {
     return;
   setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
                  Qt::Tool | Qt::NoDropShadowWindowHint);
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+  // Otherwise the WM parks the lip below the panel and leaves a gap.
+  setWindowFlag(Qt::X11BypassWindowManagerHint, true);
+#endif
   setAttribute(Qt::WA_TranslucentBackground, true);
   setWindowTitle(QStringLiteral("Blop Assistant"));
   if (QScreen *screen = QGuiApplication::primaryScreen()) {
@@ -344,29 +348,27 @@ void BlopAssistantOverlay::placeOnScreen() {
   QScreen *screen = QGuiApplication::primaryScreen();
   if (!screen)
     return;
-  // Full framebuffer — sit in the top bezel, not below the work area.
-  const QRect geo = screen->geometry();
+  const QRect full = screen->geometry();
   const int notchH = m_notch ? m_notch->height() : UiScale::dp(22);
   const int clip = qMax(1, notchH / 2);
   auto *outer = qobject_cast<QVBoxLayout *>(layout());
   if (outer) {
     const int side = m_expanded ? UiScale::dp(6) : 0;
     const int bottom = m_expanded ? UiScale::dp(6) : 0;
-    outer->setContentsMargins(side, 0, side, bottom);
+    // Pull the notch up so the hidden half sits in the bezel/panel.
+    outer->setContentsMargins(side, -clip, side, bottom);
     outer->setSpacing(m_expanded ? UiScale::dp(6) : 0);
   }
-  const int w = m_expanded ? UiScale::dp(380) : (m_notch ? m_notch->width() : UiScale::dp(108));
-  const int h = m_expanded ? (notchH + UiScale::dp(430)) : notchH;
-  const int x = geo.x() + (geo.width() - w) / 2;
-  const int y = geo.y() - clip;
+  const int w =
+      m_expanded ? UiScale::dp(380)
+                 : (m_notch ? m_notch->width() : UiScale::dp(108));
+  const int h =
+      m_expanded ? (clip + UiScale::dp(6) + UiScale::dp(420)) : clip;
+  const int x = full.x() + (full.width() - w) / 2;
   setFixedSize(w, h);
-  move(x, y);
-  // Some window managers clamp y to the screen top. Then cut the upper
-  // half with a mask so only the lower lip of the notch remains.
-  if (pos().y() >= geo.y())
-    setMask(QRegion(0, clip, w, h - clip));
-  else
-    clearMask();
+  move(x, full.y());
+  if (QWindow *win = windowHandle())
+    win->setPosition(x, full.y());
 }
 
 void BlopAssistantOverlay::reposition() {
@@ -543,7 +545,8 @@ void BlopAssistantOverlay::paintEvent(QPaintEvent *) {}
 
 void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton && m_standalone) {
-    m_pressOnNotch = m_notch && m_notch->geometry().contains(event->pos());
+    m_pressOnNotch = !m_expanded ||
+                     (m_notch && m_notch->geometry().contains(event->pos()));
     event->accept();
     return;
   }
