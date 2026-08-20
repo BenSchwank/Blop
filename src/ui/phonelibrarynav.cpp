@@ -8,8 +8,10 @@
 #include <QBrush>
 #include <QColor>
 #include <QEvent>
+#include <QFileInfo>
 #include <QFont>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -24,6 +26,8 @@
 #include <QPen>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QScrollArea>
+#include <QSizePolicy>
 #include <QStyle>
 #include <QStyledItemDelegate>
 #include <QTimer>
@@ -150,6 +154,12 @@ void PhoneLibraryNav::setAccountName(const QString &name) {
     m_account->setText(m_accountName);
 }
 
+void PhoneLibraryNav::setQuickNotePaths(const QStringList &recentPaths,
+                                        const QStringList &favoritePaths) {
+  m_recentNotePaths = recentPaths;
+  m_favoriteNotePaths = favoritePaths;
+}
+
 void PhoneLibraryNav::setPillVisible(bool on) {
   setVisible(on);
   if (on) {
@@ -169,6 +179,20 @@ bool PhoneLibraryNav::spaciousMenu() const {
   if (!win)
     return false;
   return win->width() >= UiScale::dp(600);
+}
+
+bool PhoneLibraryNav::wideMenu() const {
+  QWidget *win = window() ? window() : m_host;
+  if (!win)
+    return false;
+  return win->width() >= UiScale::dp(900);
+}
+
+void PhoneLibraryNav::emitAndClose(const QString &id) {
+  if (id.isEmpty())
+    return;
+  closeMenu();
+  emit menuAction(id);
 }
 
 void PhoneLibraryNav::syncPillGeometry() {
@@ -456,6 +480,158 @@ void PhoneLibraryNav::rebuildMenu() {
          true);
 }
 
+namespace {
+QString noteDisplayName(const QString &path) {
+  const QFileInfo fi(path);
+  const QString base = fi.completeBaseName();
+  return base.isEmpty() ? fi.fileName() : base;
+}
+
+QPushButton *makeQuickButton(QWidget *parent, const QString &title, bool primary) {
+  auto *btn = new QPushButton(title, parent);
+  btn->setCursor(Qt::PointingHandCursor);
+  btn->setMinimumHeight(UiScale::dp(primary ? 50 : 42));
+  btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  if (primary) {
+    btn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: #5B9DFF; color: #0B1220;"
+        "  border: none; border-radius: 12px; padding: 10px 14px;"
+        "  font-size: 14px; font-weight: 700; text-align: left; }"
+        "QPushButton:hover { background: #7CB0FF; }"
+        "QPushButton:pressed { background: #3D86F0; }"));
+  } else {
+    btn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: rgba(255,255,255,0.07); color: #F4F2FF;"
+        "  border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
+        "  padding: 9px 14px; font-size: 13px; font-weight: 600; text-align: left; }"
+        "QPushButton:hover { background: rgba(255,255,255,0.12); }"));
+  }
+  return btn;
+}
+
+QLabel *makeMutedHint(QWidget *parent, const QString &text) {
+  auto *lbl = new QLabel(text, parent);
+  lbl->setWordWrap(true);
+  lbl->setStyleSheet(QStringLiteral(
+      "color: #8B92A8; font-size: 12px; font-weight: 500; background: transparent;"));
+  return lbl;
+}
+
+QLabel *makeColCaption(QWidget *parent, const QString &text) {
+  auto *lbl = new QLabel(text.toUpper(), parent);
+  lbl->setStyleSheet(QStringLiteral(
+      "color: #8B92A8; font-size: 11px; font-weight: 700; letter-spacing: 1px;"
+      "background: transparent; padding: 4px 2px 2px 2px;"));
+  return lbl;
+}
+} // namespace
+
+QWidget *PhoneLibraryNav::buildQuickAccess(QWidget *parent) {
+  auto *col = new QWidget(parent);
+  auto *v = new QVBoxLayout(col);
+  v->setContentsMargins(UiScale::dp(6), 0, 0, 0);
+  v->setSpacing(UiScale::dp(8));
+
+  auto *head = new QLabel(QStringLiteral("Schnellzugriff"), col);
+  head->setStyleSheet(QStringLiteral(
+      "color: #F4F2FF; font-size: 16px; font-weight: 700; background: transparent;"));
+  v->addWidget(head);
+  v->addWidget(makeMutedHint(
+      col, QStringLiteral("Konto, neue Notiz und zuletzt geöffnete Dateien.")));
+
+  auto *acc = new QFrame(col);
+  acc->setObjectName(QStringLiteral("PhoneBurgerAccountCard"));
+  acc->setStyleSheet(QStringLiteral(
+      "QFrame#PhoneBurgerAccountCard {"
+      "  background: rgba(255,255,255,0.06);"
+      "  border: 1px solid rgba(255,255,255,0.08);"
+      "  border-radius: 14px;"
+      "}"));
+  auto *al = new QHBoxLayout(acc);
+  al->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
+                         UiScale::dp(10));
+  al->setSpacing(UiScale::dp(10));
+  auto *avatar = new QLabel(acc);
+  const QString initial =
+      m_accountName.isEmpty() ? QStringLiteral("G") : m_accountName.left(1).toUpper();
+  avatar->setText(initial);
+  avatar->setAlignment(Qt::AlignCenter);
+  avatar->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  avatar->setStyleSheet(QStringLiteral(
+      "background: #5B9DFF; color: #0B1220; border-radius: 18px;"
+      "font-size: 15px; font-weight: 800;"));
+  al->addWidget(avatar, 0, Qt::AlignVCenter);
+  auto *accText = new QWidget(acc);
+  auto *accCol = new QVBoxLayout(accText);
+  accCol->setContentsMargins(0, 0, 0, 0);
+  accCol->setSpacing(0);
+  const bool guest =
+      m_accountName.isEmpty() || m_accountName == QLatin1String("Gast");
+  auto *accName = new QLabel(guest ? QStringLiteral("Gast") : m_accountName, accText);
+  accName->setStyleSheet(QStringLiteral(
+      "color: #F4F2FF; font-size: 14px; font-weight: 700; background: transparent;"));
+  auto *accSub = new QLabel(guest ? QStringLiteral("Nicht angemeldet")
+                                  : QStringLiteral("Angemeldet"),
+                            accText);
+  accSub->setStyleSheet(QStringLiteral(
+      "color: #9AA3BB; font-size: 12px; font-weight: 500; background: transparent;"));
+  accCol->addWidget(accName);
+  accCol->addWidget(accSub);
+  al->addWidget(accText, 1);
+  v->addWidget(acc);
+
+  auto *btnNew = makeQuickButton(col, QStringLiteral("Neue Notiz"), true);
+  connect(btnNew, &QPushButton::clicked, this,
+          [this]() { emitAndClose(QStringLiteral("new_note")); });
+  v->addWidget(btnNew);
+
+  auto *shortcuts = new QWidget(col);
+  auto *sh = new QHBoxLayout(shortcuts);
+  sh->setContentsMargins(0, 0, 0, 0);
+  sh->setSpacing(UiScale::dp(8));
+  auto *btnStudy = makeQuickButton(shortcuts, QStringLiteral("Study"), false);
+  auto *btnSettings = makeQuickButton(shortcuts, QStringLiteral("Einstellungen"), false);
+  connect(btnStudy, &QPushButton::clicked, this,
+          [this]() { emitAndClose(QStringLiteral("study")); });
+  connect(btnSettings, &QPushButton::clicked, this,
+          [this]() { emitAndClose(QStringLiteral("settings")); });
+  sh->addWidget(btnStudy);
+  sh->addWidget(btnSettings);
+  v->addWidget(shortcuts);
+
+  auto addNoteButtons = [this, col, v](const QString &caption,
+                                       const QStringList &paths) {
+    if (paths.isEmpty())
+      return 0;
+    v->addWidget(makeColCaption(col, caption));
+    int n = 0;
+    for (const QString &path : paths) {
+      if (path.trimmed().isEmpty())
+        continue;
+      auto *btn = makeQuickButton(col, noteDisplayName(path), false);
+      btn->setToolTip(path);
+      connect(btn, &QPushButton::clicked, this, [this, path]() {
+        emitAndClose(QStringLiteral("note:") + path);
+      });
+      v->addWidget(btn);
+      ++n;
+      if (n >= 4)
+        break;
+    }
+    return n;
+  };
+
+  const int favCount = addNoteButtons(QStringLiteral("Favoriten"), m_favoriteNotePaths);
+  const int recentCount =
+      addNoteButtons(QStringLiteral("Zuletzt"), m_recentNotePaths);
+  if (favCount == 0 && recentCount == 0)
+    v->addWidget(makeMutedHint(
+        col, QStringLiteral("Öffne eine Notiz, dann erscheint sie hier.")));
+
+  v->addStretch(1);
+  return col;
+}
+
 void PhoneLibraryNav::closeMenu() {
   m_swiping = false;
   if (qApp)
@@ -480,6 +656,8 @@ void PhoneLibraryNav::openMenu() {
     closeMenu();
     return;
   }
+
+  emit menuAboutToOpen();
 
   auto *sheet = new QWidget(win);
   m_sheet = sheet;
@@ -508,12 +686,14 @@ void PhoneLibraryNav::openMenu() {
   root->addWidget(scrim, 1);
 
   const bool roomy = spaciousMenu();
-  const int side = roomy ? qMax(UiScale::dp(32), win->width() / 16)
+  const bool wide = wideMenu();
+  const int side = roomy ? qMax(UiScale::dp(28), win->width() / 18)
                          : UiScale::dp(10);
-  const int bottomPad = roomy ? UiScale::dp(28)
+  const int bottomPad = roomy ? UiScale::dp(36)
                               : (UiScale::dp(10) + UiScale::safeBottomPx(win));
+  const int cardCap = wide ? UiScale::dp(920) : UiScale::dp(560);
   const int maxCardW =
-      roomy ? qMin(UiScale::dp(460), qMax(UiScale::dp(320), win->width() - 2 * side))
+      roomy ? qMin(cardCap, qMax(UiScale::dp(320), win->width() - 2 * side))
             : qMax(UiScale::dp(280), win->width() - 2 * side);
 
   auto *card = new QWidget(sheet);
@@ -535,10 +715,18 @@ void PhoneLibraryNav::openMenu() {
                   "  border: 1px solid rgba(255,255,255,0.08);"
                   "}")));
   card->installEventFilter(this);
+  if (roomy) {
+    auto *shadow = new QGraphicsDropShadowEffect(card);
+    shadow->setBlurRadius(48);
+    shadow->setOffset(0, 18);
+    shadow->setColor(QColor(0, 0, 0, 90));
+    card->setGraphicsEffect(shadow);
+  }
 
   const int cardH =
-      roomy ? qBound(UiScale::dp(480), int(win->height() * 0.74),
-                     win->height() - UiScale::safeTopPx(win) - UiScale::dp(72))
+      roomy ? qBound(UiScale::dp(wide ? 520 : 480),
+                     int(win->height() * (wide ? 0.80 : 0.74)),
+                     win->height() - UiScale::safeTopPx(win) - UiScale::dp(64))
             : qBound(UiScale::dp(360), int(win->height() * 0.58),
                      qMax(UiScale::dp(320),
                           win->height() - UiScale::safeTopPx(win) -
@@ -579,7 +767,9 @@ void PhoneLibraryNav::openMenu() {
   lay->addWidget(hdr);
   if (roomy) {
     auto *hdrSub = new QLabel(
-        QStringLiteral("Bibliothek, Clouds und Konto"), card);
+        wide ? QStringLiteral("Navigation links · Schnellzugriff rechts")
+             : QStringLiteral("Bibliothek, Clouds und Konto"),
+        card);
     hdrSub->setStyleSheet(BlopTheme::themed(
         QStringLiteral("color: #9AA3BB; font-size: 12px; font-weight: 500; "
                        "background: transparent; padding-bottom: 2px;")));
@@ -624,13 +814,43 @@ void PhoneLibraryNav::openMenu() {
               return;
             if (item->data(kSectionRole).toBool())
               return;
-            const QString id = item->data(Qt::UserRole).toString();
-            if (id.isEmpty())
-              return;
-            closeMenu();
-            emit menuAction(id);
+            emitAndClose(item->data(Qt::UserRole).toString());
           });
-  lay->addWidget(m_list, 1);
+
+  if (wide) {
+    auto *cols = new QWidget(card);
+    auto *hl = new QHBoxLayout(cols);
+    hl->setContentsMargins(0, 0, 0, 0);
+    hl->setSpacing(UiScale::dp(16));
+
+    auto *left = new QWidget(cols);
+    auto *leftLay = new QVBoxLayout(left);
+    leftLay->setContentsMargins(0, 0, 0, 0);
+    leftLay->setSpacing(0);
+    leftLay->addWidget(m_list, 1);
+
+    auto *div = new QFrame(cols);
+    div->setFixedWidth(1);
+    div->setStyleSheet(
+        QStringLiteral("background: rgba(255,255,255,0.10); border: none;"));
+
+    auto *quickHost = new QScrollArea(cols);
+    quickHost->setWidgetResizable(true);
+    quickHost->setFrameShape(QFrame::NoFrame);
+    quickHost->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    quickHost->setStyleSheet(QStringLiteral(
+        "QScrollArea { background: transparent; border: none; }"));
+    auto *quick = buildQuickAccess(quickHost);
+    quickHost->setWidget(quick);
+
+    hl->addWidget(left, 11);
+    hl->addWidget(div, 0);
+    hl->addWidget(quickHost, 9);
+    lay->addWidget(cols, 1);
+  } else {
+    lay->addWidget(m_list, 1);
+  }
+
   rebuildMenu();
   m_list->doItemsLayout();
   if (m_list->count() > 0)

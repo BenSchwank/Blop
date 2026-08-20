@@ -2,6 +2,7 @@
 
 #include <QPoint>
 #include <QPointer>
+#include <QStringList>
 #include <QWidget>
 
 class QLabel;
@@ -18,6 +19,9 @@ public:
   ~PhoneLibraryNav() override;
 
   void setAccountName(const QString &name);
+  /// Recent / favorite note paths shown in the wide-layout Schnellzugriff column.
+  void setQuickNotePaths(const QStringList &recentPaths,
+                         const QStringList &favoritePaths = {});
   void setPillVisible(bool on);
   bool isMenuOpen() const;
 
@@ -27,6 +31,8 @@ public slots:
   void rebuildMenu();
 
 signals:
+  /// Emitted (same thread) just before the sheet widgets are built.
+  void menuAboutToOpen();
   void menuAction(const QString &id);
   void searchChanged(const QString &query);
 
@@ -40,6 +46,9 @@ protected:
 private:
   void syncPillGeometry();
   bool spaciousMenu() const;
+  bool wideMenu() const;
+  QWidget *buildQuickAccess(QWidget *parent);
+  void emitAndClose(const QString &id);
   void addRow(const QString &id, const QString &title,
               const QString &subtitle = QString(), bool selected = false,
               bool chevron = false);
@@ -55,6 +64,8 @@ private:
   QLineEdit *m_search{nullptr};
   QLabel *m_account{nullptr};
   QString m_accountName;
+  QStringList m_recentNotePaths;
+  QStringList m_favoriteNotePaths;
   bool m_swiping{false};
   qreal m_swipeStartY{0};
 };

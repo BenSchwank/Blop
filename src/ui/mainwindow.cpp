@@ -11976,6 +11976,27 @@ void MainWindow::setupPhoneLibraryNav() {
     m_phoneLibraryNav->setAccountName(user);
     connect(m_phoneLibraryNav, &PhoneLibraryNav::menuAction, this,
             &MainWindow::onPhoneNavAction);
+    connect(m_phoneLibraryNav, &PhoneLibraryNav::menuAboutToOpen, this, [this]() {
+      if (!m_phoneLibraryNav)
+        return;
+      QStringList recents;
+      for (const QString &path : LibraryOrgStore::recentPaths(16)) {
+        if (path.isEmpty() || !QFile::exists(path))
+          continue;
+        recents.append(path);
+        if (recents.size() >= 5)
+          break;
+      }
+      QStringList favs;
+      for (const QString &path : LibraryOrgStore::favoritePaths()) {
+        if (path.isEmpty() || !QFile::exists(path) || recents.contains(path))
+          continue;
+        favs.append(path);
+        if (favs.size() >= 4)
+          break;
+      }
+      m_phoneLibraryNav->setQuickNotePaths(recents, favs);
+    });
     connect(m_phoneLibraryNav, &PhoneLibraryNav::searchChanged, this,
             [this](const QString &q) {
               if (m_overviewSearchBar)
@@ -12120,6 +12141,14 @@ void MainWindow::onPhoneNavAction(const QString &id) {
   }
   if (id == QLatin1String("settings")) {
     onOpenSettings();
+    return;
+  }
+  if (id == QLatin1String("new_note")) {
+    onNewPage();
+    return;
+  }
+  if (id.startsWith(QLatin1String("note:"))) {
+    openNotePath(id.mid(5));
     return;
   }
   if (id == QLatin1String("cloud_add")) {
