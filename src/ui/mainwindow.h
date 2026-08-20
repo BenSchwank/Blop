@@ -38,6 +38,8 @@
 #include "tools/ToolManager.h" // WICHTIG: Include für ToolManager
 #include "uiprofilemanager.h"
 
+class QProgressBar;
+
 // Forward Declarations
 class QBoxLayout;
 class QFrame;
@@ -427,6 +429,10 @@ private:
   void invokeAndroidWebDestination(int kind, const QString &url = QString());
   void invokeAndroidCloudBrowser(const QString &url, const QString &title);
   void dismissAndroidOAuthOverlay();
+  void ensureAndroidNativeLoginGate();
+  void syncAndroidNativeLoginGateGeometry();
+  void setAndroidNativeLoginGateVisible(bool visible);
+  void setAndroidNativeLoginBusy(bool busy, const QString &status = QString());
 #endif
   void resetEmbeddedWebToStudy();
   QWidget *m_studyContainer{nullptr};
@@ -459,6 +465,12 @@ private:
   QWidget *m_androidSidebarScrim{nullptr};
   /// Android OAuth uses Chrome Custom Tabs (see showAuthOverlay); overlay slot unused.
   QWidget *m_androidOAuthOverlay{nullptr};
+  /// Opaque native login (no WebView) so first-start / Custom-Tab return is not a gray surface.
+  QWidget *m_androidNativeLoginGate{nullptr};
+  QLabel *m_androidNativeLoginStatus{nullptr};
+  QPushButton *m_androidNativeLoginGoogleBtn{nullptr};
+  QPushButton *m_androidNativeLoginCancelBtn{nullptr};
+  QProgressBar *m_androidNativeLoginProgress{nullptr};
   /// Study boot spinner above QtWebView SurfaceView (sibling of content stack).
   QWidget *m_androidStudyBootOverlay{nullptr};
   QPushButton *m_androidStudyBootRetryBtn{nullptr};

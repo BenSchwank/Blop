@@ -366,12 +366,13 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
 
   qInfo() << "GoogleAuthManager: deep-link callback received uri=" << uri;
   ++m_authResumeGeneration; // cancel any pending "redirect missing" timer
-  m_loginInProgress = false;
   QJniObject::callStaticMethod<void>(
       "com/benschwank/blop/BlopOAuthBridge", "clearExternalAuthPending", "()V");
+  emit redirectReceived();
 
   qInfo() << "GoogleAuthManager: deep-link accepted, exchanging code";
   if (uri.isEmpty()) {
+    m_loginInProgress = false;
     clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("empty_callback_uri"));
     return;
@@ -389,6 +390,7 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   const QString error = q.queryItemValue(QStringLiteral("error"));
   if (!error.isEmpty()) {
     qWarning() << "OAuth provider returned error:" << error;
+    m_loginInProgress = false;
     clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("oauth_error:") + error);
     return;
@@ -408,6 +410,7 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   if (state.isEmpty() || state != m_pkceState) {
     qWarning() << "OAuth state mismatch (mem empty=" << m_pkceState.isEmpty()
                << "callbackStateEmpty=" << state.isEmpty() << ")";
+    m_loginInProgress = false;
     clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("oauth_state_mismatch"));
     return;
@@ -416,6 +419,7 @@ void GoogleAuthManager::handleDeepLinkCallback(const QString &uri) {
   const QString code = q.queryItemValue(QStringLiteral("code"));
   if (code.isEmpty()) {
     qWarning() << "OAuth callback missing code";
+    m_loginInProgress = false;
     clearPersistedPkce();
     emit authenticationFailed(QStringLiteral("oauth_missing_code"));
     return;
@@ -448,6 +452,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     if (netErr != QNetworkReply::NoError || status >= 400) {
       qWarning() << "Google token exchange failed status=" << status
                  << "body=" << raw;
+      m_loginInProgress = false;
       clearPersistedPkce();
       emit authenticationFailed(QStringLiteral("token_exchange_failed"));
       return;
@@ -456,6 +461,7 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     const QJsonDocument doc = QJsonDocument::fromJson(raw);
     if (!doc.isObject()) {
       qWarning() << "Google token response not JSON object:" << raw;
+      m_loginInProgress = false;
       clearPersistedPkce();
       emit authenticationFailed(QStringLiteral("token_exchange_invalid_json"));
       return;
@@ -464,12 +470,14 @@ void GoogleAuthManager::exchangeAuthorizationCode(const QString &code) {
     const QString idToken = obj.value("id_token").toString();
     if (idToken.isEmpty()) {
       qWarning() << "Google token response missing id_token";
+      m_loginInProgress = false;
       clearPersistedPkce();
       emit authenticationFailed(QStringLiteral("token_exchange_no_id_token"));
       return;
     }
 
     clearPersistedPkce();
+    m_loginInProgress = false;
     parseUserInfoFromIdToken(idToken);
     m_authenticated = true;
     emit idTokenReceived(idToken);

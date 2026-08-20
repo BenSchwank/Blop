@@ -42,12 +42,18 @@ public class BlopOAuthRedirectActivity extends Activity {
             Log.w(TAG, origin + ": missing intent data");
         }
 
-        // Bring the Qt activity back to the foreground.
+        // Stay in the app task (no empty taskAffinity) so CLEAR_TOP pops the
+        // Chrome Custom Tab that was launched on top of BlopActivity. An empty
+        // affinity started this trampoline in a different task, so BLOP came
+        // back behind a blank Custom Tab — the "Redirect zu BLOP → Standbild"
+        // hang. Do not attach the URI to this Intent: BlopOAuthBridge already
+        // delivered it, and a second onNewIntent would double-exchange.
         try {
             Intent main = new Intent(this, BlopActivity.class);
             main.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
                     | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(main);
         } catch (Exception e) {
             Log.e(TAG, "failed to re-focus BlopActivity", e);

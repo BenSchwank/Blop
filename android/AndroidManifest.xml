@@ -96,7 +96,6 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:noHistory="true"
-            android:taskAffinity=""
             android:theme="@style/BlopOAuthRedirectTheme">
             <!-- Reverse-client-id scheme only (most permissive / reliable). -->
             <intent-filter>

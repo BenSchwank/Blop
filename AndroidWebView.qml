@@ -90,16 +90,12 @@ Rectangle {
         if (tabActive) {
             tabLeaveUnloadTimer.stop()
             webviewRecreatePending = false
-            oauthPending = false
-            oauthPendingSinceMs = 0
             if (bookmarkSheetOpen)
                 closeBookmarkSheet()
             requestSurfaceActivation("tabActive")
             if (studyWebLoader.active && visible)
                 ensureStudyLoaded()
         } else {
-            oauthPending = false
-            oauthPendingSinceMs = 0
             if (bookmarkSheetOpen)
                 closeBookmarkSheet()
             // Drop the SurfaceView immediately. A delayed unload lets Study's
