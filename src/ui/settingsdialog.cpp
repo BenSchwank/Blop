@@ -9,9 +9,11 @@
 #include "blop_scroll.h"
 #include "blopripple.h"
 #include "blopstyle.h"
+#include "uiscale.h"
 #include "ui_SettingsDialog.h"
 
 #include <QButtonGroup>
+#include <QBoxLayout>
 #include <QByteArray>
 #include <QDir>
 #include <QEasingCurve>
@@ -177,7 +179,10 @@ public:
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
         auto *root = new QVBoxLayout(this);
-        root->setContentsMargins(24, 20, 24, 22);
+        const bool compact = UiScale::isAndroidPhoneUi(parent);
+        const int cm = compact ? UiScale::dp(14) : 24;
+        const int cv = compact ? UiScale::dp(12) : 20;
+        root->setContentsMargins(cm, cv, cm, cv);
         root->setSpacing(0);
 
         auto *header = new QWidget(this);
@@ -381,7 +386,13 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground, false);
     setThemedQss(this, QStringLiteral(
         "QDialog { background-color: #1A1829; border: none; border-radius: 0px; }"));
-    setMinimumSize(400, 360);
+    const bool phoneUi = UiScale::isAndroidPhoneUi(parent);
+    const int pagePad = phoneUi ? UiScale::dp(14) : 36;
+    const int cardGap = phoneUi ? UiScale::dp(12) : 24;
+    if (phoneUi)
+        setMinimumSize(0, 0);
+    else
+        setMinimumSize(400, 360);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // Replace the Designer-generated tab with our overhauled layout. The
@@ -406,8 +417,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  border-bottom: 1px solid rgba(120, 130, 160, 0.18);"
         "}"));
     auto *heroLay = new QHBoxLayout(hero);
-    heroLay->setContentsMargins(36, 22, 36, 22);
-    heroLay->setSpacing(16);
+    heroLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(14) : 22,
+                                pagePad, phoneUi ? UiScale::dp(14) : 22);
+    heroLay->setSpacing(phoneUi ? UiScale::dp(10) : 16);
 
     auto *avatar = new QLabel(hero);
     avatar->setFixedSize(44, 44);
@@ -450,7 +462,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Search bar ---------------------------------------------------
     auto *searchRow = new QFrame(tabDesign);
     auto *searchLay = new QHBoxLayout(searchRow);
-    searchLay->setContentsMargins(36, 18, 36, 12);
+    searchLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(10) : 18,
+                                  pagePad, phoneUi ? UiScale::dp(8) : 12);
     auto *search = new QLineEdit(searchRow);
     search->setPlaceholderText(QStringLiteral("Einstellungen durchsuchen..."));
     setThemedQss(search, QStringLiteral(
@@ -462,12 +475,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         "  padding: 12px 16px; font-size: 14px;"
         "}"
         "QLineEdit:focus { border: 1px solid rgba(124, 92, 252, 0.70); }"));
-    search->setMinimumWidth(420);
-    search->setMaximumWidth(640);
-    search->setMinimumHeight(44);
-    search->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    searchLay->addWidget(search, 0);
-    searchLay->addStretch(1);
+    if (phoneUi) {
+        search->setMinimumWidth(0);
+        search->setMaximumWidth(QWIDGETSIZE_MAX);
+        search->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    } else {
+        search->setMinimumWidth(420);
+        search->setMaximumWidth(640);
+        search->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    }
+    search->setMinimumHeight(phoneUi ? UiScale::dp(40) : 44);
+    searchLay->addWidget(search, phoneUi ? 1 : 0);
+    if (!phoneUi)
+        searchLay->addStretch(1);
     root->addWidget(searchRow);
 
     // ----- Scrollable section area --------------------------------------
@@ -482,8 +502,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     contentWidget->setStyleSheet(QStringLiteral("background: transparent;"));
     contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto *contentLay = new QVBoxLayout(contentWidget);
-    contentLay->setContentsMargins(36, 24, 36, 32);
-    contentLay->setSpacing(24);
+    contentLay->setContentsMargins(pagePad, phoneUi ? UiScale::dp(12) : 24,
+                                   pagePad, phoneUi ? UiScale::dp(20) : 32);
+    contentLay->setSpacing(cardGap);
 
     scroll->setWidget(contentWidget);
     root->addWidget(scroll, 1);
@@ -494,7 +515,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     cardsHost->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *hostLay = new QVBoxLayout(cardsHost);
     hostLay->setContentsMargins(0, 0, 0, 0);
-    hostLay->setSpacing(24);
+    hostLay->setSpacing(cardGap);
 
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
@@ -884,9 +905,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         BlopRipple::attachPressFeedback(btnConnectDriveManual, 0.92);
 
         auto *driveBtnRow = new QWidget(cardStorage);
-        auto *driveBtnLay = new QHBoxLayout(driveBtnRow);
+        auto *driveBtnLay = new QBoxLayout(
+            phoneUi ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight,
+            driveBtnRow);
         driveBtnLay->setContentsMargins(0, 0, 0, 0);
-        driveBtnLay->setSpacing(12);
+        driveBtnLay->setSpacing(phoneUi ? UiScale::dp(8) : 12);
         driveBtnLay->addWidget(btnConnectDrive, 2);
         driveBtnLay->addWidget(btnConnectDriveManual, 1);
         cardStorage->addBodyWidget(driveBtnRow);
@@ -901,10 +924,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto *cloudList = new QWidget(cardStorage);
         auto *cloudLay = new QGridLayout(cloudList);
         cloudLay->setContentsMargins(0, 0, 0, 0);
-        cloudLay->setHorizontalSpacing(16);
-        cloudLay->setVerticalSpacing(8);
+        cloudLay->setHorizontalSpacing(phoneUi ? 0 : 16);
+        cloudLay->setVerticalSpacing(phoneUi ? UiScale::dp(10) : 8);
         cloudLay->setColumnStretch(0, 1);
-        cloudLay->setColumnStretch(1, 1);
+        if (!phoneUi)
+            cloudLay->setColumnStretch(1, 1);
         int cloudIdx = 0;
 
         // Helpers used by every cloud-provider row and the Google Drive hero button.
@@ -991,7 +1015,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         const QString primaryId = StoragePrefs::primaryCloudId();
         for (const CloudStorageEntry &e : CloudStorageStore::load()) {
             auto *row = new QWidget(cloudList);
-            auto *hl = new QHBoxLayout(row);
+            auto *outer = new QVBoxLayout(row);
+            outer->setContentsMargins(0, 0, 0, 0);
+            outer->setSpacing(phoneUi ? UiScale::dp(6) : 0);
+            auto *hl = new QHBoxLayout();
             hl->setContentsMargins(0, 0, 0, 0);
             hl->setSpacing(8);
             const bool linked = !e.path.isEmpty() && QDir(e.path).exists();
@@ -1088,7 +1115,15 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
             hl->addWidget(btnAuto);
             hl->addWidget(btnManual);
-            cloudLay->addWidget(row, cloudIdx / 2, cloudIdx % 2);
+            if (phoneUi) {
+                hl->removeWidget(name);
+                outer->addWidget(name);
+                outer->addLayout(hl);
+                cloudLay->addWidget(row, cloudIdx, 0);
+            } else {
+                outer->addLayout(hl);
+                cloudLay->addWidget(row, cloudIdx / 2, cloudIdx % 2);
+            }
             ++cloudIdx;
         }
         cardStorage->addBodyWidget(cloudList);
@@ -1199,23 +1234,33 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     policyCard(cardAdv);
     policyCard(cardStorage);
 
-    auto makeCol = [cardsHost](std::initializer_list<QWidget *> cards) {
+    auto makeCol = [cardsHost, cardGap](std::initializer_list<QWidget *> cards) {
         auto *col = new QWidget(cardsHost);
         auto *v = new QVBoxLayout(col);
         v->setContentsMargins(0, 0, 0, 0);
-        v->setSpacing(24);
+        v->setSpacing(cardGap);
         for (QWidget *c : cards)
             v->addWidget(c);
         v->addStretch(1);
         return col;
     };
-    auto *topCols = new QHBoxLayout();
-    topCols->setContentsMargins(0, 0, 0, 0);
-    topCols->setSpacing(24);
-    topCols->addWidget(makeCol({cardKonto, cardBehavior, cardAdv}), 1);
-    topCols->addWidget(makeCol({cardTheme, cardLook}), 1);
-    hostLay->addLayout(topCols, 0);
-    hostLay->addWidget(cardStorage, 0);
+    if (phoneUi) {
+        auto *stack = new QVBoxLayout();
+        stack->setContentsMargins(0, 0, 0, 0);
+        stack->setSpacing(cardGap);
+        for (BlopSettingsCard *c : {cardKonto, cardTheme, cardLook, cardBehavior,
+                                    cardStorage, cardAdv})
+            stack->addWidget(c);
+        hostLay->addLayout(stack, 0);
+    } else {
+        auto *topCols = new QHBoxLayout();
+        topCols->setContentsMargins(0, 0, 0, 0);
+        topCols->setSpacing(cardGap);
+        topCols->addWidget(makeCol({cardKonto, cardBehavior, cardAdv}), 1);
+        topCols->addWidget(makeCol({cardTheme, cardLook}), 1);
+        hostLay->addLayout(topCols, 0);
+        hostLay->addWidget(cardStorage, 0);
+    }
     hostLay->addStretch(1);
     contentLay->addWidget(cardsHost, 1);
 

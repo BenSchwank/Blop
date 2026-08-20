@@ -11746,9 +11746,13 @@ void MainWindow::onOpenSettings() {
     onToggleSidebar();
 
 #ifndef Q_OS_ANDROID
-  openSettingsWorkspace();
-#else
+  if (!UiScale::isAndroidPhoneUi(this)) {
+    openSettingsWorkspace();
+    return;
+  }
+#endif
   SettingsDialog dlg(m_profileManager, this);
+  dlg.embedInWorkspace();
   ModernToolbar *toolbar = qobject_cast<ModernToolbar *>(m_floatingTools);
   if (toolbar) {
     bool isRad = (toolbar->currentStyle() == ModernToolbar::Radial);
@@ -11780,7 +11784,14 @@ void MainWindow::onOpenSettings() {
     emit injectToken(clearJs);
   });
 
-  int res = BlopModal::execBlocking(this, &dlg);
+  const auto sheetMode = UiScale::isAndroidTablet(this)
+                             ? BlopModal::Mode::SideSheet
+                             : BlopModal::Mode::BottomSheet;
+  const int sheetW = UiScale::isAndroidTablet(this)
+                         ? qMax(UiScale::dp(420),
+                                int(UiScale::androidScreenWidthPx(this) * 0.56))
+                         : UiScale::androidScreenWidthPx(this);
+  int res = BlopModal::execBlocking(this, &dlg, sheetMode, sheetW);
   if (res == SettingsDialog::EditProfileCode) {
     QString id = dlg.profileIdToEdit();
     UiProfile p = m_profileManager->profileById(id);
@@ -11788,7 +11799,8 @@ void MainWindow::onOpenSettings() {
     ProfileEditorDialog editor(p, this);
     connect(&editor, &ProfileEditorDialog::previewRequested, this,
             &MainWindow::applyProfile);
-    if (BlopModal::execBlocking(this, &editor) == QDialog::Accepted) {
+    if (BlopModal::execBlocking(this, &editor, sheetMode, sheetW) ==
+        QDialog::Accepted) {
       m_profileManager->updateProfile(editor.getProfile(), true);
       applyProfile(editor.getProfile());
     } else {
@@ -11796,7 +11808,6 @@ void MainWindow::onOpenSettings() {
       applyProfile(m_profileManager->currentProfile());
     }
   }
-#endif
 }
 
 void MainWindow::setPageColor(bool dark) {

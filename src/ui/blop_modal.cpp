@@ -268,11 +268,27 @@ void BlopModal::layoutContent() {
   const int pad = UiScale::dp(16);
 
   if (m_mode == Mode::BottomSheet) {
-    const int sheetMaxH = H - UiScale::dp(48);
+    const int lift = UiScale::safeBottomPx(parentWidget());
+    const int sheetMaxH = H - qMax(UiScale::safeTopPx(parentWidget()),
+                                   UiScale::dp(24));
     const int sheetH = qMin(sheetMaxH, qMax(UiScale::dp(280),
-                                            int(H * 0.92)));
+                                            int(H * 0.96)));
     const int sheetW = W;
-    m_card->setGeometry(0, H - sheetH, sheetW, sheetH);
+    m_card->setGeometry(0, H - sheetH - lift, sheetW, sheetH);
+    if (m_content) {
+      m_content->setMinimumSize(0, 0);
+      m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+      m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+      if (auto *lay = m_content->layout()) {
+        lay->setSizeConstraint(QLayout::SetNoConstraint);
+        lay->activate();
+      }
+    }
+    if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
+      const int idx = cardLay->indexOf(m_content);
+      if (idx >= 0)
+        cardLay->setStretch(idx, 1);
+    }
   } else if (m_mode == Mode::SideSheet) {
     // Desktop/tablet preference panel: width follows preferredCardWidth but
     // may grow with the window. Never cap at a phone-like 760dp — that made
