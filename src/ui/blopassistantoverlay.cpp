@@ -50,11 +50,11 @@ QPainterPath makeNotchPath(const QRectF &bounds) {
   if (r.width() < 10.0 || r.height() < 8.0)
     return QPainterPath();
 
-  const qreal ear = qBound(5.0, r.height() * 0.38, r.width() * 0.13);
+  const qreal ear = qBound(6.0, r.height() * 0.55, r.width() * 0.18);
   const qreal bodyLeft = r.left() + ear;
   const qreal bodyRight = r.right() - ear;
   const qreal bodyW = bodyRight - bodyLeft;
-  const qreal botR = qMin(r.height() * 0.56, bodyW * 0.48);
+  const qreal botR = qMin(r.height() * 0.62, bodyW * 0.46);
 
   QPainterPath body;
   body.moveTo(QPointF(bodyLeft, r.top()));
@@ -122,7 +122,7 @@ protected:
 
     const QRectF br = path.boundingRect();
     QRectF sensor(0, 0, br.width() * 0.28, qMin(5.0, br.height() * 0.18));
-    sensor.moveCenter(QPointF(br.center().x(), br.top() + br.height() * 0.52));
+    sensor.moveCenter(QPointF(br.center().x(), br.top() + br.height() * 0.62));
     QPainterPath pill;
     pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
     p.fillPath(pill, QColor(0, 0, 0, 160));
