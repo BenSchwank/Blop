@@ -196,8 +196,6 @@ void NewNoteDialog::setupUi()
     grid->setColumnStretch(0, 1);
     grid->setColumnStretch(1, 1);
     grid->setColumnStretch(2, 1);
-    grid->setRowStretch(0, 1);
-    grid->setRowStretch(1, 1);
 
     m_groupLayout = new QButtonGroup(this);
     m_groupLayout->setExclusive(true);
@@ -235,7 +233,7 @@ void NewNoteDialog::setupUi()
         tb->setCheckable(true);
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         tb->setMinimumSize(UiScale::dp(112), UiScale::dp(128));
         tb->setIconSize(QSize(UiScale::dp(64), UiScale::dp(64)));
         tb->setStyleSheet(btnQss);
@@ -258,6 +256,7 @@ void NewNoteDialog::setupUi()
             [this](int) { refreshLayoutIcons(); });
 
     rightLay->addWidget(gridHost);
+    rightLay->addStretch(1);
     cols->addWidget(right, 1);
     scroll->setWidget(body);
     layout->addWidget(scroll, 1);
