@@ -323,6 +323,8 @@ public:
     tray->setIcon(QIcon(pm));
     tray->setToolTip(QStringLiteral("Blop Assistant — Einstellungen"));
     auto *menu = new QMenu();
+    menu->addAction(QStringLiteral("Zuhören"), notch,
+                    &BlopAssistantOverlay::beginListen);
     menu->addAction(QStringLiteral("Chat öffnen"), notch, [notch]() {
       notch->setExpanded(true);
     });
@@ -345,7 +347,7 @@ public:
 
 #ifdef Q_OS_WIN
     auto *hotkeys = new WinHotkeyFilter();
-    hotkeys->toggleChat = [notch]() { notch->toggleExpanded(); };
+    hotkeys->toggleChat = [notch]() { notch->toggleListen(); };
     hotkeys->pushToTalkDown = [this]() {
       m_notch->startPushToTalk();
       QTimer::singleShot(180, this, [this]() {
@@ -374,6 +376,11 @@ public:
       return false;
     if (event->type() == QEvent::KeyPress) {
       auto *ke = static_cast<QKeyEvent *>(event);
+      if (!ke->isAutoRepeat() &&
+          sequenceMatches(BlopAssistantPrefs::openChatSequence(), ke)) {
+        m_notch->toggleListen();
+        return false;
+      }
       if (!ke->isAutoRepeat() &&
           sequenceMatches(BlopAssistantPrefs::pushToTalkSequence(), ke)) {
         m_notch->startPushToTalk();
@@ -418,7 +425,7 @@ private:
       m_shortcuts << sc;
     };
     add(BlopAssistantPrefs::openChatSequence(),
-        &BlopAssistantOverlay::toggleExpanded);
+        &BlopAssistantOverlay::toggleListen);
 #ifdef Q_OS_WIN
     registerWinHotkeys();
 #endif

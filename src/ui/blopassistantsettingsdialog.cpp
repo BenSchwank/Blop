@@ -46,7 +46,7 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   m_pushToTalk = new QKeySequenceEdit(keys);
   m_pushToTalk->setClearButtonEnabled(true);
   m_pushToTalk->setFocusPolicy(Qt::ClickFocus);
-  kf->addRow(QStringLiteral("Chat öffnen"), m_openChat);
+  kf->addRow(QStringLiteral("Zuhören (Notch + Visualizer)"), m_openChat);
   kf->addRow(QStringLiteral("Push-to-talk (halten)"), m_pushToTalk);
   auto *keyHint = new QLabel(
       QStringLiteral("Push-to-talk: Taste gedrückt halten, loslassen zum "

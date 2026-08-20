@@ -21,6 +21,7 @@
 #include <QPen>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QRandomGenerator>
 #include <QRegion>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -28,6 +29,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QTransform>
+#include <QtMath>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QWindow>
@@ -43,6 +45,9 @@ namespace {
 // screen) + a puffy rounded bottom — cloud-like transitions, not a logo cloud.
 const int kNotchWDp = 108;
 const int kNotchHDp = 28;
+const int kListenWDp = 196;
+const int kListenHDp = 40;
+const int kVizBars = 7;
 
 QPainterPath makeNotchPath(const QRectF &bounds) {
   const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -0.5);
@@ -94,6 +99,22 @@ public:
   }
   qreal grow() const { return m_grow; }
 
+  void setListening(bool on) {
+    if (m_listening == on)
+      return;
+    m_listening = on;
+    if (!on)
+      m_levels.fill(0.12, kVizBars);
+    update();
+  }
+
+  void setLevels(const QVector<qreal> &levels) {
+    m_levels = levels;
+    if (m_levels.size() < kVizBars)
+      m_levels.resize(kVizBars);
+    update();
+  }
+
   QRectF notchRect() const {
     return QRectF(rect()).adjusted(1.0, 0.0, -1.0, -1.0);
   }
@@ -116,15 +137,38 @@ protected:
     p.strokePath(path, pen);
 
     const QRectF br = path.boundingRect();
-    QRectF sensor(0, 0, br.width() * 0.28, qMin(5.0, br.height() * 0.18));
-    sensor.moveCenter(QPointF(br.center().x(), br.top() + br.height() * 0.62));
-    QPainterPath pill;
-    pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
-    p.fillPath(pill, QColor(0, 0, 0, 160));
+    if (m_listening) {
+      const int n = qMax(3, m_levels.size());
+      const qreal gap = 3.0;
+      const qreal barW = 3.6;
+      const qreal total = n * barW + (n - 1) * gap;
+      qreal x = br.center().x() - total * 0.5;
+      const qreal midY = br.center().y() + br.height() * 0.06;
+      const qreal maxH = br.height() * 0.58;
+      p.setPen(Qt::NoPen);
+      for (int i = 0; i < n; ++i) {
+        const qreal t = (i < m_levels.size()) ? m_levels[i] : 0.15;
+        const qreal h = qBound(3.0, maxH * t, maxH);
+        QRectF bar(x, midY - h * 0.5, barW, h);
+        QPainterPath pill;
+        pill.addRoundedRect(bar, barW * 0.5, barW * 0.5);
+        p.fillPath(pill, QColor(91, 157, 255, int(200 + 55 * t)));
+        x += barW + gap;
+      }
+    } else {
+      QRectF sensor(0, 0, br.width() * 0.28, qMin(5.0, br.height() * 0.18));
+      sensor.moveCenter(
+          QPointF(br.center().x(), br.top() + br.height() * 0.62));
+      QPainterPath pill;
+      pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
+      p.fillPath(pill, QColor(0, 0, 0, 160));
+    }
   }
 
 private:
   qreal m_grow{0.0};
+  bool m_listening{false};
+  QVector<qreal> m_levels = QVector<qreal>(kVizBars, 0.12);
 };
 
 static NotchIsland *asCloud(QWidget *w) {
@@ -227,7 +271,7 @@ void BlopAssistantOverlay::setStandalone(bool on) {
     m_hoverPoll = new QTimer(this);
     m_hoverPoll->setInterval(32);
     connect(m_hoverPoll, &QTimer::timeout, this, [this]() {
-      if (!m_standalone || m_expanded)
+      if (!m_standalone || m_expanded || m_listening)
         return;
       setCloudHover(frameGeometry().contains(QCursor::pos()));
     });
@@ -241,6 +285,7 @@ void BlopAssistantOverlay::setStandalone(bool on) {
   }
   setExpanded(false);
   placeOnScreen();
+  ensureCaptionStrip();
   show();
   raise();
 }
@@ -384,12 +429,8 @@ void BlopAssistantOverlay::buildUi() {
           &BlopAssistantOverlay::submitCurrent);
   connect(m_input, &QLineEdit::returnPressed, this,
           &BlopAssistantOverlay::submitCurrent);
-  connect(m_micBtn, &QToolButton::clicked, this, [this]() {
-    if (m_listening)
-      stopListening();
-    else
-      startListening();
-  });
+  connect(m_micBtn, &QToolButton::clicked, this,
+          &BlopAssistantOverlay::toggleListen);
   connect(m_confirmYes, &QPushButton::clicked, this, [this]() {
     clearConfirm();
     emit confirmAccepted();
@@ -415,8 +456,12 @@ void BlopAssistantOverlay::applyChrome() {
       "  border: 1px solid rgba(124,108,255,0.35);"
       "  border-radius: 18px;"
       "}"
-      "QLabel#BlopAssistantTitle {"
-      "  color: #E8E8E8; font-weight: 700; font-size: 13px; background: transparent;"
+      "QLabel#BlopCaptionLive {"
+      "  color: #5B9DFF; font-weight: 800; font-size: 10px;"
+      "  background: transparent; letter-spacing: 1px;"
+      "}"
+      "QLabel#BlopCaptionText {"
+      "  color: #E8E8E8; font-size: 13px; background: transparent;"
       "}"
       "QLabel#BlopAssistantEmpty, QLabel#BlopAssistantHint,"
       "QLabel#BlopAssistantConfirmLabel {"
@@ -460,7 +505,7 @@ void BlopAssistantOverlay::applyLayoutMode() {
 }
 
 void BlopAssistantOverlay::setCloudHover(bool on) {
-  if (m_expanded)
+  if (m_expanded || m_listening)
     on = true;
   if (m_cloudHover == on && m_hoverAnim &&
       m_hoverAnim->state() != QAbstractAnimation::Running)
@@ -508,6 +553,157 @@ void BlopAssistantOverlay::updateCollapsedMask() {
     setMask(QRegion(path.toFillPolygon().toPolygon()));
 }
 
+void BlopAssistantOverlay::applyNotchSize() {
+  if (!m_notch)
+    return;
+  const int w = UiScale::dp(m_listening ? kListenWDp : kNotchWDp);
+  const int h = UiScale::dp(m_listening ? kListenHDp : kNotchHDp);
+  if (m_notch->width() != w || m_notch->height() != h)
+    m_notch->setFixedSize(w, h);
+}
+
+void BlopAssistantOverlay::tickVisualizer() {
+  NotchIsland *island = asCloud(m_notch);
+  if (!island || !m_listening)
+    return;
+  m_vizPhase += 0.22;
+  QVector<qreal> levels(kVizBars);
+  auto *rng = QRandomGenerator::global();
+  for (int i = 0; i < kVizBars; ++i) {
+    const qreal wave =
+        0.5 + 0.5 * qSin(m_vizPhase + i * 0.72 + (i % 2) * 0.4);
+    const qreal jitter = 0.65 + 0.35 * rng->generateDouble();
+    levels[i] = qBound(0.12, 0.18 + 0.82 * wave * jitter, 1.0);
+  }
+  island->setLevels(levels);
+}
+
+void BlopAssistantOverlay::ensureCaptionStrip() {
+  if (m_caption || !m_standalone)
+    return;
+  m_caption = new QWidget(this, Qt::FramelessWindowHint | Qt::Tool |
+                                    Qt::WindowStaysOnTopHint |
+                                    Qt::NoDropShadowWindowHint);
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+  m_caption->setWindowFlag(Qt::X11BypassWindowManagerHint, true);
+#endif
+  m_caption->setAttribute(Qt::WA_TranslucentBackground, true);
+  m_caption->setAttribute(Qt::WA_ShowWithoutActivating, true);
+  m_caption->setObjectName(QStringLiteral("BlopCaptionStrip"));
+  m_caption->setStyleSheet(QStringLiteral(
+      "QWidget#BlopCaptionStrip { background: transparent; }"
+      "QFrame#BlopCaptionCard {"
+      "  background: rgba(18,18,20,0.92);"
+      "  border: 1px solid rgba(91,157,255,0.28);"
+      "  border-radius: 14px;"
+      "}"
+      "QLabel#BlopCaptionLive {"
+      "  color: #5B9DFF; font-weight: 800; font-size: 10px;"
+      "  background: transparent; letter-spacing: 1px;"
+      "}"
+      "QLabel#BlopCaptionText {"
+      "  color: #E8E8E8; font-size: 13px; background: transparent;"
+      "}"));
+  auto *card = new QFrame(m_caption);
+  card->setObjectName(QStringLiteral("BlopCaptionCard"));
+  auto *outer = new QVBoxLayout(m_caption);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->addWidget(card);
+  auto *row = new QHBoxLayout(card);
+  row->setContentsMargins(UiScale::dp(14), UiScale::dp(8), UiScale::dp(14),
+                          UiScale::dp(8));
+  row->setSpacing(UiScale::dp(10));
+  auto *live = new QLabel(QStringLiteral("LIVE"), card);
+  live->setObjectName(QStringLiteral("BlopCaptionLive"));
+  m_captionLabel = new QLabel(card);
+  m_captionLabel->setObjectName(QStringLiteral("BlopCaptionText"));
+  m_captionLabel->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+  row->addWidget(live, 0);
+  row->addWidget(m_captionLabel, 1);
+  m_caption->hide();
+}
+
+void BlopAssistantOverlay::placeCaptionStrip() {
+  if (!m_caption)
+    return;
+  QScreen *screen = QGuiApplication::primaryScreen();
+  if (!screen)
+    return;
+  const QRect avail = screen->availableGeometry();
+  const int w = qBound(UiScale::dp(280), int(avail.width() * 0.52),
+                       UiScale::dp(640));
+  const int h = UiScale::dp(40);
+  const int x = avail.x() + (avail.width() - w) / 2;
+  const int y = avail.bottom() - h - UiScale::dp(18);
+  m_caption->setFixedSize(w, h);
+  m_caption->move(x, y);
+}
+
+void BlopAssistantOverlay::showCaption(const QString &text) {
+  ensureCaptionStrip();
+  if (!m_caption || !m_captionLabel)
+    return;
+  m_captionLabel->setText(text);
+  placeCaptionStrip();
+  m_caption->show();
+  m_caption->raise();
+}
+
+void BlopAssistantOverlay::hideCaption() {
+  if (m_caption)
+    m_caption->hide();
+}
+
+void BlopAssistantOverlay::beginListen() {
+  m_listening = true;
+  if (NotchIsland *island = asCloud(m_notch))
+    island->setListening(true);
+  setCloudHover(true);
+  applyNotchSize();
+  if (m_standalone)
+    placeOnScreen();
+  showCaption(QStringLiteral("Zuhören…"));
+  if (!m_vizTimer) {
+    m_vizTimer = new QTimer(this);
+    m_vizTimer->setInterval(33);
+    connect(m_vizTimer, &QTimer::timeout, this,
+            &BlopAssistantOverlay::tickVisualizer);
+  }
+  m_vizTimer->start();
+  tickVisualizer();
+  if (!m_listenTimeout) {
+    m_listenTimeout = new QTimer(this);
+    m_listenTimeout->setSingleShot(true);
+    connect(m_listenTimeout, &QTimer::timeout, this,
+            &BlopAssistantOverlay::endListen);
+  }
+  m_listenTimeout->start(8000);
+  startListening();
+}
+
+void BlopAssistantOverlay::endListen() {
+  if (m_listenTimeout)
+    m_listenTimeout->stop();
+  if (m_vizTimer)
+    m_vizTimer->stop();
+  stopListening();
+  if (NotchIsland *island = asCloud(m_notch))
+    island->setListening(false);
+  hideCaption();
+  applyNotchSize();
+  if (m_standalone && !m_expanded)
+    placeOnScreen();
+  else if (m_standalone)
+    updateCollapsedMask();
+}
+
+void BlopAssistantOverlay::toggleListen() {
+  if (m_listening)
+    endListen();
+  else
+    beginListen();
+}
+
 void BlopAssistantOverlay::applyWindowGeometry(const QRect &target, bool animate) {
   m_pendingGeom = target;
   const bool canAnim =
@@ -553,6 +749,7 @@ void BlopAssistantOverlay::placeOnScreen() {
   QScreen *screen = QGuiApplication::primaryScreen();
   if (!screen)
     return;
+  applyNotchSize();
   const QRect full = screen->geometry();
   const int notchH = m_notch ? m_notch->height() : UiScale::dp(kNotchHDp);
   auto *outer = qobject_cast<QVBoxLayout *>(layout());
@@ -574,6 +771,7 @@ void BlopAssistantOverlay::placeOnScreen() {
   if (avail.y() >= full.y() + UiScale::dp(20))
     y = avail.y();
   applyWindowGeometry(QRect(x, y, w, h), isVisible());
+  placeCaptionStrip();
 }
 
 void BlopAssistantOverlay::reposition() {
@@ -748,19 +946,16 @@ void BlopAssistantOverlay::submitCurrent() {
   const QString text = m_input->text().trimmed();
   if (text.isEmpty())
     return;
-  stopListening();
+  endListen();
   clearConfirm();
   addUserMessage(text);
   m_input->clear();
   emit utteranceSubmitted(text);
 }
 
-void BlopAssistantOverlay::startPushToTalk() {
-  setExpanded(true);
-  startListening();
-}
+void BlopAssistantOverlay::startPushToTalk() { beginListen(); }
 
-void BlopAssistantOverlay::endPushToTalk() { stopListening(); }
+void BlopAssistantOverlay::endPushToTalk() { endListen(); }
 
 void BlopAssistantOverlay::paintEvent(QPaintEvent *) {}
 
@@ -775,7 +970,7 @@ void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
 }
 
 void BlopAssistantOverlay::mouseMoveEvent(QMouseEvent *event) {
-  if (m_standalone && !m_expanded)
+  if (m_standalone && !m_expanded && !m_listening)
     setCloudHover(true);
   QWidget::mouseMoveEvent(event);
 }
@@ -787,7 +982,7 @@ void BlopAssistantOverlay::enterEvent(QEnterEvent *event) {
 }
 
 void BlopAssistantOverlay::leaveEvent(QEvent *event) {
-  if (m_standalone && !m_expanded)
+  if (m_standalone && !m_expanded && !m_listening)
     setCloudHover(false);
   QWidget::leaveEvent(event);
 }
@@ -810,7 +1005,9 @@ void BlopAssistantOverlay::keyPressEvent(QKeyEvent *event) {
       event->accept();
       return;
     }
-    setExpanded(false);
+    if (m_expanded)
+      setExpanded(false);
+    endListen();
     event->accept();
     return;
   }
@@ -835,6 +1032,7 @@ bool BlopAssistantOverlay::eventFilter(QObject *obj, QEvent *event) {
     auto *ke = static_cast<QKeyEvent *>(event);
     if (ke->key() == Qt::Key_Escape) {
       setExpanded(false);
+      endListen();
       return true;
     }
   }
@@ -844,15 +1042,17 @@ bool BlopAssistantOverlay::eventFilter(QObject *obj, QEvent *event) {
 void BlopAssistantOverlay::startListening() {
 #ifdef BLOP_HAS_WEBENGINE
   ensureSpeechPage();
-  m_listening = true;
-  m_micBtn->setText(QStringLiteral("■"));
-  setStatus(QStringLiteral("Zuhören… loslassen zum Senden."));
+  if (m_micBtn)
+    m_micBtn->setText(QStringLiteral("■"));
+  setStatus(QStringLiteral("Zuhören…"));
   if (m_speechView && m_speechView->page()) {
     m_speechView->page()->runJavaScript(
         QStringLiteral("window.blopStart && window.blopStart('de-DE');"));
   }
 #else
-  setStatus(QStringLiteral("Mikrofon braucht WebEngine — tippe einfach."));
+  if (m_micBtn)
+    m_micBtn->setText(QStringLiteral("■"));
+  setStatus(QStringLiteral("Zuhören…"));
 #endif
 }
 
@@ -869,13 +1069,18 @@ void BlopAssistantOverlay::handleSttConsole(const QString &message) {
     const QString t = message.mid(14).trimmed();
     if (m_input)
       m_input->setText(t);
+    if (!t.isEmpty())
+      showCaption(t);
     setStatus(QString());
     submitCurrent();
     return;
   }
   if (message.startsWith(QLatin1String("BLOP_STT_INTERIM:"))) {
+    const QString t = message.mid(16).trimmed();
     if (m_input)
       m_input->setText(message.mid(16));
+    if (!t.isEmpty())
+      showCaption(t);
     return;
   }
   if (message.startsWith(QLatin1String("BLOP_STT_ERR:"))) {

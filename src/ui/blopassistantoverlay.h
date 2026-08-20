@@ -47,6 +47,9 @@ public:
   void setBusy(bool busy);
   void startPushToTalk();
   void endPushToTalk();
+  void beginListen();
+  void endListen();
+  void toggleListen();
 
 signals:
   void utteranceSubmitted(const QString &text);
@@ -77,6 +80,12 @@ private:
   void setCloudHover(bool on);
   void applyWindowGeometry(const QRect &target, bool animate);
   void updateCollapsedMask();
+  void applyNotchSize();
+  void tickVisualizer();
+  void ensureCaptionStrip();
+  void placeCaptionStrip();
+  void showCaption(const QString &text);
+  void hideCaption();
 #ifdef BLOP_HAS_WEBENGINE
   void ensureSpeechPage();
 #endif
@@ -107,6 +116,11 @@ private:
   QVariantAnimation *m_hoverAnim{nullptr};
   QPropertyAnimation *m_geoAnim{nullptr};
   QTimer *m_hoverPoll{nullptr};
+  QTimer *m_vizTimer{nullptr};
+  QTimer *m_listenTimeout{nullptr};
+  QWidget *m_caption{nullptr};
+  QLabel *m_captionLabel{nullptr};
+  qreal m_vizPhase{0.0};
   QRect m_pendingGeom;
 
 #ifdef BLOP_HAS_WEBENGINE
