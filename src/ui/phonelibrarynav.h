@@ -39,7 +39,9 @@ protected:
 
 private:
   void syncPillGeometry();
-  void addRow(const QString &id, const QString &title, bool selected = false,
+  bool spaciousMenu() const;
+  void addRow(const QString &id, const QString &title,
+              const QString &subtitle = QString(), bool selected = false,
               bool chevron = false);
   void addSection(const QString &title);
   void addSpacer();
