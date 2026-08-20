@@ -467,8 +467,13 @@ void BlopAssistantOverlay::setExpanded(bool expanded) {
     placeOnScreen();
     show();
     raise();
-    if (expanded)
+    if (expanded) {
+      activateWindow();
+      grabKeyboard();
       focusInput();
+    } else {
+      releaseKeyboard();
+    }
     return;
   }
   if (!expanded) {
