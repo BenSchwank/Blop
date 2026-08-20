@@ -39,13 +39,13 @@
 namespace {
 
 // Idle cloud is about a cursor; hover fills this widget; click opens chat.
-const int kCloudWDp = 38;
-const int kCloudHDp = 26;
-const qreal kCloudRestScale = 0.78;
+const int kCloudWDp = 44;
+const int kCloudHDp = 22;
+const qreal kCloudRestScale = 0.80;
 
 QPainterPath makeCloudPath(const QRectF &bounds) {
-  // Blop-logo blob: overlapping lobes + a short stem into the bezel.
-  const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -0.5);
+  // Slim three-lobe cloud (Blop logo) with a short bezel stem.
+  const QRectF r = bounds.adjusted(0.5, 0.0, -0.5, -0.5);
   if (r.width() < 2.0 || r.height() < 2.0)
     return QPainterPath();
 
@@ -56,16 +56,16 @@ QPainterPath makeCloudPath(const QRectF &bounds) {
     return e;
   };
 
-  QPainterPath path = puff(0.30, 0.10, 0.46, 0.70);
-  path = path.united(puff(0.06, 0.30, 0.42, 0.62));
-  path = path.united(puff(0.52, 0.28, 0.44, 0.64));
-  path = path.united(puff(0.18, 0.48, 0.64, 0.50));
+  QPainterPath path = puff(0.28, -0.08, 0.44, 0.92); // top
+  path = path.united(puff(-0.04, 0.22, 0.42, 0.78)); // left
+  path = path.united(puff(0.62, 0.20, 0.42, 0.80));  // right
+  path = path.united(puff(0.16, 0.42, 0.68, 0.58));  // body
 
   QPainterPath stem;
-  const qreal stemW = qMax(4.0, r.width() * 0.18);
+  const qreal stemW = qMax(3.5, r.width() * 0.12);
   stem.addRoundedRect(
-      QRectF(r.center().x() - stemW * 0.5, r.top() - 2.0, stemW,
-             r.height() * 0.42),
+      QRectF(r.center().x() - stemW * 0.5, r.top() - 1.5, stemW,
+             r.height() * 0.28),
       stemW * 0.5, stemW * 0.5);
   path = path.united(stem);
   return path;
