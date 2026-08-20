@@ -350,7 +350,7 @@ public:
     tray->setToolTip(QStringLiteral("Blop Assistant — Einstellungen"));
     auto *menu = new QMenu();
     menu->addAction(QStringLiteral("Zuhören"), notch,
-                    &BlopAssistantOverlay::beginListen);
+                    &BlopAssistantOverlay::toggleListen);
     menu->addAction(QStringLiteral("Chat öffnen"), notch, [notch]() {
       notch->setExpanded(true);
     });
@@ -399,6 +399,10 @@ public:
       return false;
     if (event->type() == QEvent::KeyPress) {
       auto *ke = static_cast<QKeyEvent *>(event);
+      if (!ke->isAutoRepeat() && ke->key() == Qt::Key_Escape) {
+        m_notch->cancelListen();
+        return false;
+      }
       if (!ke->isAutoRepeat() &&
           (sequenceMatches(BlopAssistantPrefs::openChatSequence(), ke) ||
            sequenceMatches(BlopAssistantPrefs::pushToTalkSequence(), ke))) {
