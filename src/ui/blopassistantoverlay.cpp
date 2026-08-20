@@ -15,7 +15,6 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
-#include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -40,37 +39,47 @@
 
 namespace {
 
-// Idle cloud is about a cursor; hover fills this widget; click opens chat.
-const int kCloudWDp = 44;
-const int kCloudHDp = 22;
-const qreal kCloudRestScale = 0.62;
+// iPhone-style peninsula at the bezel. Concave ears (soft join into the
+// screen) + a puffy rounded bottom — cloud-like transitions, not a logo cloud.
+const int kNotchWDp = 108;
+const int kNotchHDp = 28;
+const qreal kNotchRestScale = 0.88;
 
-QPainterPath makeCloudPath(const QRectF &bounds) {
-  // Slim three-lobe cloud (Blop logo) with a short bezel stem.
-  const QRectF r = bounds.adjusted(0.5, 0.0, -0.5, -0.5);
-  if (r.width() < 2.0 || r.height() < 2.0)
+QPainterPath makeNotchPath(const QRectF &bounds) {
+  const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -0.5);
+  if (r.width() < 10.0 || r.height() < 8.0)
     return QPainterPath();
 
-  auto puff = [&](qreal nx, qreal ny, qreal nw, qreal nh) {
-    QPainterPath e;
-    e.addEllipse(QRectF(r.left() + nx * r.width(), r.top() + ny * r.height(),
-                        nw * r.width(), nh * r.height()));
-    return e;
-  };
+  const qreal ear = qBound(5.0, r.height() * 0.38, r.width() * 0.13);
+  const qreal bodyLeft = r.left() + ear;
+  const qreal bodyRight = r.right() - ear;
+  const qreal bodyW = bodyRight - bodyLeft;
+  const qreal botR = qMin(r.height() * 0.56, bodyW * 0.48);
 
-  QPainterPath path = puff(0.28, -0.08, 0.44, 0.92); // top
-  path = path.united(puff(-0.04, 0.22, 0.42, 0.78)); // left
-  path = path.united(puff(0.62, 0.20, 0.42, 0.80));  // right
-  path = path.united(puff(0.16, 0.42, 0.68, 0.58));  // body
+  QPainterPath body;
+  body.moveTo(QPointF(bodyLeft, r.top()));
+  body.lineTo(QPointF(bodyRight, r.top()));
+  body.lineTo(QPointF(bodyRight, r.bottom() - botR));
+  body.arcTo(QRectF(bodyRight - 2 * botR, r.bottom() - 2 * botR, 2 * botR,
+                    2 * botR),
+             0, -90);
+  body.lineTo(QPointF(bodyLeft + botR, r.bottom()));
+  body.arcTo(QRectF(bodyLeft, r.bottom() - 2 * botR, 2 * botR, 2 * botR), -90,
+             -90);
+  body.closeSubpath();
 
-  QPainterPath stem;
-  const qreal stemW = qMax(3.5, r.width() * 0.12);
-  stem.addRoundedRect(
-      QRectF(r.center().x() - stemW * 0.5, r.top() - 1.5, stemW,
-             r.height() * 0.28),
-      stemW * 0.5, stemW * 0.5);
-  path = path.united(stem);
-  return path;
+  QPainterPath leftBox;
+  leftBox.addRect(QRectF(bodyLeft - ear, r.top(), ear + 0.75, ear + 0.75));
+  QPainterPath leftHole;
+  leftHole.addEllipse(QPointF(bodyLeft - ear, r.top() + ear), ear, ear);
+
+  QPainterPath rightBox;
+  rightBox.addRect(QRectF(bodyRight - 0.75, r.top(), ear + 0.75, ear + 0.75));
+  QPainterPath rightHole;
+  rightHole.addEllipse(QPointF(bodyRight + ear, r.top() + ear), ear, ear);
+
+  return body.united(leftBox.subtracted(leftHole))
+      .united(rightBox.subtracted(rightHole));
 }
 
 class NotchIsland : public QWidget {
@@ -86,15 +95,15 @@ public:
   }
   qreal grow() const { return m_grow; }
 
-  QRectF cloudRect() const {
+  QRectF notchRect() const {
     const QRectF r = QRectF(rect()).adjusted(1.0, 0.0, -1.0, -1.0);
-    const qreal s = kCloudRestScale + (1.0 - kCloudRestScale) * m_grow;
+    const qreal s = kNotchRestScale + (1.0 - kNotchRestScale) * m_grow;
     QRectF c(0, 0, r.width() * s, r.height() * s);
     c.moveCenter(QPointF(r.center().x(), r.top() + c.height() * 0.5));
     return c;
   }
 
-  QPainterPath cloudPath() const { return makeCloudPath(cloudRect()); }
+  QPainterPath cloudPath() const { return makeNotchPath(notchRect()); }
 
 protected:
   void paintEvent(QPaintEvent *) override {
@@ -103,34 +112,20 @@ protected:
     const QPainterPath path = cloudPath();
     if (path.isEmpty())
       return;
-    const QRectF br = path.boundingRect();
 
-    QTransform glowXf;
-    glowXf.translate(br.center().x(), br.center().y());
-    glowXf.scale(1.16 + 0.10 * m_grow, 1.16 + 0.10 * m_grow);
-    glowXf.translate(-br.center().x(), -br.center().y());
-    p.setOpacity(0.28 + 0.32 * m_grow);
-    p.fillPath(glowXf.map(path), QColor(124, 108, 255));
-    p.setOpacity(1.0);
+    const int fill = int(18 + 10 * m_grow);
+    p.fillPath(path, QColor(fill, fill, fill + 2));
 
-    QLinearGradient g(br.topLeft(), br.bottomRight());
-    g.setColorAt(0.0, QColor(186, 176, 255));
-    g.setColorAt(0.45, QColor(118, 104, 250));
-    g.setColorAt(1.0, QColor(72, 62, 214));
-    p.fillPath(path, g);
-
-    QRectF spec(0, 0, br.width() * 0.22, br.height() * 0.18);
-    spec.moveCenter(QPointF(br.left() + br.width() * 0.38,
-                            br.top() + br.height() * 0.32));
-    p.setOpacity(0.22 + 0.28 * m_grow);
-    p.setBrush(QColor(255, 255, 255));
-    p.setPen(Qt::NoPen);
-    p.drawEllipse(spec);
-    p.setOpacity(1.0);
-
-    QPen pen(QColor(255, 255, 255, int(36 + 40 * m_grow)));
+    QPen pen(QColor(255, 255, 255, int(28 + 36 * m_grow)));
     pen.setWidthF(1.0);
     p.strokePath(path, pen);
+
+    const QRectF br = path.boundingRect();
+    QRectF sensor(0, 0, br.width() * 0.28, qMin(5.0, br.height() * 0.18));
+    sensor.moveCenter(QPointF(br.center().x(), br.top() + br.height() * 0.52));
+    QPainterPath pill;
+    pill.addRoundedRect(sensor, sensor.height() / 2.0, sensor.height() / 2.0);
+    p.fillPath(pill, QColor(0, 0, 0, 160));
   }
 
 private:
@@ -266,7 +261,7 @@ void BlopAssistantOverlay::buildUi() {
   m_notch->setAttribute(Qt::WA_StyledBackground, false);
   m_notch->setAttribute(Qt::WA_TranslucentBackground, true);
   m_notch->setAutoFillBackground(false);
-  m_notch->setFixedSize(UiScale::dp(kCloudWDp), UiScale::dp(kCloudHDp));
+  m_notch->setFixedSize(UiScale::dp(kNotchWDp), UiScale::dp(kNotchHDp));
   m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_notch->setCursor(Qt::PointingHandCursor);
   m_notch->setToolTip(QStringLiteral("Blop"));
@@ -566,7 +561,7 @@ void BlopAssistantOverlay::placeOnScreen() {
   if (!screen)
     return;
   const QRect full = screen->geometry();
-  const int cloudH = m_notch ? m_notch->height() : UiScale::dp(kCloudHDp);
+  const int notchH = m_notch ? m_notch->height() : UiScale::dp(kNotchHDp);
   auto *outer = qobject_cast<QVBoxLayout *>(layout());
   if (outer) {
     const int side = m_expanded ? UiScale::dp(6) : 0;
@@ -576,10 +571,10 @@ void BlopAssistantOverlay::placeOnScreen() {
   }
   const int w =
       m_expanded ? UiScale::dp(360)
-                 : (m_notch ? m_notch->width() : UiScale::dp(kCloudWDp));
+                 : (m_notch ? m_notch->width() : UiScale::dp(kNotchWDp));
   const int h =
-      m_expanded ? (cloudH + UiScale::dp(8) + UiScale::dp(400))
-                 : cloudH + UiScale::dp(2);
+      m_expanded ? (notchH + UiScale::dp(8) + UiScale::dp(400))
+                 : notchH + UiScale::dp(2);
   const int x = full.x() + (full.width() - w) / 2;
   const QRect avail = screen->availableGeometry();
   int y = full.y();

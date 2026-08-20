@@ -20,7 +20,7 @@ class QTimer;
 class QWebEngineView;
 #endif
 
-// Tiny Blop-cloud at the bezel. Hover puffs it; click grows into chat.
+// Tiny iPhone-style notch at the bezel. Hover puffs it; click grows into chat.
 class BlopAssistantOverlay : public QWidget {
   Q_OBJECT
 public:
