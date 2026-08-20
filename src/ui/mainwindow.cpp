@@ -157,6 +157,7 @@
 #include <QFormLayout>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QScrollArea>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QMetaObject>
@@ -7762,14 +7763,33 @@ void MainWindow::setupSidebar() {
   headerLay->addWidget(m_closeSidebarBtn);
   layout->addWidget(header);
 
-  m_navSidebar = new QListWidget(m_sidebarContainer);
+  // Header and account/settings stay sticky. Nav + tags flick-scroll together
+  // so a short window still reaches Cloud / Tags without clipping Einstellungen.
+  auto *midScroll = new QScrollArea(m_sidebarContainer);
+  midScroll->setObjectName(QStringLiteral("SidebarMidScroll"));
+  midScroll->setWidgetResizable(true);
+  midScroll->setFrameShape(QFrame::NoFrame);
+  midScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  midScroll->setFocusPolicy(Qt::NoFocus);
+  OverlayScrollIndicator::install(midScroll);
+  BlopScroll::enableFingerScroll(midScroll);
+  midScroll->setStyleSheet(
+      QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+
+  auto *mid = new QWidget(midScroll);
+  mid->setObjectName(QStringLiteral("SidebarMidHost"));
+  mid->setAttribute(Qt::WA_StyledBackground, true);
+  auto *midLay = new QVBoxLayout(mid);
+  midLay->setContentsMargins(0, 0, 0, 0);
+  midLay->setSpacing(0);
+
+  m_navSidebar = new QListWidget(mid);
   m_navSidebar->setItemDelegate(new SidebarNavDelegate(this));
   m_navSidebar->setFrameShape(QFrame::NoFrame);
   m_navSidebar->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
   m_navSidebar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_navSidebar->setTextElideMode(Qt::ElideRight);
   m_navSidebar->setSpacing(1);
-  BlopScroll::enableFingerScroll(m_navSidebar);
 
   QDir rootDir(m_rootPath);
   int rootCount =
@@ -7851,11 +7871,13 @@ void MainWindow::setupSidebar() {
   m_navSidebar->setCurrentRow(1);
   connect(m_navSidebar, &QListWidget::itemClicked, this,
           &MainWindow::onNavItemClicked);
-  layout->addWidget(m_navSidebar, 1);
+  BlopScroll::makeListFitContents(m_navSidebar);
+  midLay->addWidget(m_navSidebar);
+  midLay->addStretch(1);
   updateSidebarBadges();
 
   // Tags — Drawboard-style collapsible section in the left nav.
-  m_libraryTagsPanel = new LibraryTagsPanel(m_sidebarContainer);
+  m_libraryTagsPanel = new LibraryTagsPanel(mid);
   m_libraryTagsPanel->setSidebarMode(true);
   m_libraryTagsPanel->setAccentColor(m_currentAccentColor);
   connect(m_libraryTagsPanel, &LibraryTagsPanel::filterChanged, this,
@@ -7865,7 +7887,9 @@ void MainWindow::setupSidebar() {
             applyLibraryFilters();
             rebuildPageSettingsTags();
           });
-  layout->addWidget(m_libraryTagsPanel, 0);
+  midLay->addWidget(m_libraryTagsPanel, 0);
+  midScroll->setWidget(mid);
+  layout->addWidget(midScroll, 1);
 
   // --- BOTTOM: quiet account + settings row ---
   QWidget *bottomBar = new QWidget(m_sidebarContainer);

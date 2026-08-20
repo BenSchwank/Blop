@@ -1,6 +1,7 @@
 #include "librarytagspanel.h"
 
 #include "blop_dialogs.h"
+#include "blop_scroll.h"
 #include "blop_theme.h"
 #include "librarytagstore.h"
 #include "uiscale.h"
@@ -76,7 +77,6 @@ LibraryTagsPanel::LibraryTagsPanel(QWidget *parent) : QWidget(parent) {
   m_list->setFrameShape(QFrame::NoFrame);
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-  m_list->setMaximumHeight(UiScale::dp(160));
   m_list->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_list, &QListWidget::itemSelectionChanged, this,
           &LibraryTagsPanel::onSelectionChanged);
@@ -132,8 +132,15 @@ void LibraryTagsPanel::setSidebarMode(bool on) {
     m_input->setMinimumWidth(0);
     m_input->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
   }
-  if (m_list)
-    m_list->setMaximumHeight(on ? UiScale::dp(140) : QWIDGETSIZE_MAX);
+  if (m_list) {
+    if (on)
+      BlopScroll::makeListFitContents(m_list);
+    else {
+      m_list->setMinimumHeight(0);
+      m_list->setMaximumHeight(QWIDGETSIZE_MAX);
+      m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    }
+  }
   refreshTheme();
 }
 
@@ -249,6 +256,8 @@ void LibraryTagsPanel::rebuildList(const QStringList &preserveSelection) {
       }
     }
   }
+  if (m_sidebarMode)
+    BlopScroll::makeListFitContents(m_list);
 }
 
 void LibraryTagsPanel::refreshTheme() {

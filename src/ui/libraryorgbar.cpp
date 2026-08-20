@@ -107,27 +107,23 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     m_sort = SortMode::Name;
 
   const bool phone = UiScale::isAndroidPhoneUi(parentWidget());
-  QHBoxLayout *chipLay = root;
-  if (phone) {
-    auto *scroll = new QScrollArea(this);
-    scroll->setObjectName(QStringLiteral("LibraryOrgChipScroll"));
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setWidgetResizable(true);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setFixedHeight(UiScale::dp(48));
-    scroll->setStyleSheet(
-        QStringLiteral("QScrollArea { background: transparent; border: none; }"));
-    auto *host = new QWidget(scroll);
-    host->setObjectName(QStringLiteral("LibraryOrgChipHost"));
-    host->setStyleSheet(QStringLiteral("background: transparent;"));
-    chipLay = new QHBoxLayout(host);
-    chipLay->setContentsMargins(0, 0, 0, 0);
-    chipLay->setSpacing(UiScale::dp(8));
-    scroll->setWidget(host);
-    root->addWidget(scroll, 1);
-    BlopScroll::enableFingerScroll(scroll);
-  }
+  QHBoxLayout *chipLay = nullptr;
+  auto *scroll = new QScrollArea(this);
+  scroll->setObjectName(QStringLiteral("LibraryOrgChipScroll"));
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setWidgetResizable(false);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setFixedHeight(UiScale::dp(phone ? 48 : 32));
+  scroll->setStyleSheet(
+      QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+  auto *host = new QWidget(scroll);
+  host->setObjectName(QStringLiteral("LibraryOrgChipHost"));
+  host->setStyleSheet(QStringLiteral("background: transparent;"));
+  host->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+  chipLay = new QHBoxLayout(host);
+  chipLay->setContentsMargins(0, 0, 0, 0);
+  chipLay->setSpacing(UiScale::dp(8));
 
   for (const auto &c : chips) {
     auto *btn = new QPushButton(QString::fromUtf8(c.label), this);
@@ -142,11 +138,12 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
       btn->setChecked(true);
     chipLay->addWidget(btn);
   }
+  host->adjustSize();
+  scroll->setWidget(host);
+  root->addWidget(scroll, 1);
+  BlopScroll::enableFingerScroll(scroll);
   connect(m_viewGroup, &QButtonGroup::idClicked, this,
           &LibraryOrgBar::onViewClicked);
-
-  if (!phone)
-    root->addStretch(1);
 
   m_btnSort = new QPushButton(this);
   m_btnSort->setObjectName(QStringLiteral("libraryOrgSort"));
