@@ -41,7 +41,7 @@ namespace {
 // Idle cloud is about a cursor; hover fills this widget; click opens chat.
 const int kCloudWDp = 44;
 const int kCloudHDp = 22;
-const qreal kCloudRestScale = 0.80;
+const qreal kCloudRestScale = 0.62;
 
 QPainterPath makeCloudPath(const QRectF &bounds) {
   // Slim three-lobe cloud (Blop logo) with a short bezel stem.
@@ -474,7 +474,7 @@ void BlopAssistantOverlay::setCloudHover(bool on) {
     return;
   if (!m_hoverAnim) {
     m_hoverAnim = new QVariantAnimation(this);
-    m_hoverAnim->setDuration(140);
+    m_hoverAnim->setDuration(160);
     m_hoverAnim->setEasingCurve(QEasingCurve::OutCubic);
     connect(m_hoverAnim, &QVariantAnimation::valueChanged, this,
             [this](const QVariant &v) {
