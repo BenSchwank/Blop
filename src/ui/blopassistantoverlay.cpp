@@ -14,6 +14,8 @@
 #include <QPainterPath>
 #include <QPen>
 #include <QPushButton>
+#include <QRegion>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QScreen>
@@ -39,9 +41,7 @@ public:
   using QWidget::QWidget;
 
 protected:
-  void paintEvent(QPaintEvent *) override {
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
+  QPainterPath peninsulaPath() const {
     const QRectF r = QRectF(rect()).adjusted(0.5, -2.0, -0.5, -0.5);
     const qreal rad = qMin(qreal(UiScale::dp(kNotchRadiusDp)), r.height());
     QPainterPath path;
@@ -55,6 +55,18 @@ protected:
     path.arcTo(QRectF(r.left(), r.bottom() - 2 * rad, 2 * rad, 2 * rad), -90,
                -90);
     path.closeSubpath();
+    return path;
+  }
+
+  void resizeEvent(QResizeEvent *event) override {
+    QWidget::resizeEvent(event);
+    setMask(QRegion(peninsulaPath().toFillPolygon().toPolygon()));
+  }
+
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QPainterPath path = peninsulaPath();
     p.fillPath(path, QColor(18, 18, 18));
     QPen pen(QColor(255, 255, 255, 40));
     pen.setWidthF(1.0);
@@ -168,6 +180,8 @@ void BlopAssistantOverlay::buildUi() {
   m_notch = new NotchIsland(this);
   m_notch->setObjectName(QStringLiteral("BlopAssistantNotch"));
   m_notch->setAttribute(Qt::WA_StyledBackground, true);
+  m_notch->setAttribute(Qt::WA_TranslucentBackground, true);
+  m_notch->setAutoFillBackground(false);
   m_notch->setFixedSize(UiScale::dp(kNotchWidthDp), UiScale::dp(kNotchHeightDp));
   m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_notch->setCursor(Qt::PointingHandCursor);
