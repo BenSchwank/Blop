@@ -92,10 +92,7 @@ private:
   bool m_expanded{false};
   bool m_listening{false};
   bool m_standalone{false};
-  bool m_dragging{false};
   bool m_pressOnNotch{false};
-  QPoint m_dragOffset;
-  QPoint m_pressGlobal;
 
 #ifdef BLOP_HAS_WEBENGINE
   QWebEngineView *m_speechView{nullptr};

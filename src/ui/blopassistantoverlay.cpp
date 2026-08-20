@@ -10,9 +10,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
-#include <QPainter>
-#include <QPainterPath>
 #include <QPushButton>
+#include <QRegion>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QScreen>
@@ -104,9 +103,15 @@ void BlopAssistantOverlay::setStandalone(bool on) {
   if (!on)
     return;
   setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
-                 Qt::Tool);
+                 Qt::Tool | Qt::NoDropShadowWindowHint);
   setAttribute(Qt::WA_TranslucentBackground, true);
   setWindowTitle(QStringLiteral("Blop Assistant"));
+  if (QScreen *screen = QGuiApplication::primaryScreen()) {
+    connect(screen, &QScreen::geometryChanged, this,
+            &BlopAssistantOverlay::placeOnScreen, Qt::UniqueConnection);
+    connect(screen, &QScreen::availableGeometryChanged, this,
+            &BlopAssistantOverlay::placeOnScreen, Qt::UniqueConnection);
+  }
   setExpanded(false);
   placeOnScreen();
   show();
@@ -115,8 +120,7 @@ void BlopAssistantOverlay::setStandalone(bool on) {
 
 void BlopAssistantOverlay::buildUi() {
   auto *outer = new QVBoxLayout(this);
-  outer->setContentsMargins(UiScale::dp(6), UiScale::dp(4), UiScale::dp(6),
-                            UiScale::dp(6));
+  outer->setContentsMargins(0, 0, 0, 0);
   outer->setSpacing(UiScale::dp(6));
   outer->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
@@ -126,14 +130,15 @@ void BlopAssistantOverlay::buildUi() {
   m_notch->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_notch->setCursor(Qt::PointingHandCursor);
   m_notch->setToolTip(QStringLiteral("Chat öffnen"));
-  auto *notchLay = new QHBoxLayout(m_notch);
-  notchLay->setContentsMargins(0, 0, 0, 0);
-  notchLay->setAlignment(Qt::AlignCenter);
+  auto *notchLay = new QVBoxLayout(m_notch);
+  notchLay->setContentsMargins(0, 0, 0, UiScale::dp(4));
+  notchLay->setSpacing(0);
   m_notchLine = new QWidget(m_notch);
   m_notchLine->setObjectName(QStringLiteral("BlopAssistantNotchLine"));
   m_notchLine->setFixedSize(UiScale::dp(28), UiScale::dp(3));
   m_notchLine->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-  notchLay->addWidget(m_notchLine, 0, Qt::AlignCenter);
+  notchLay->addStretch(1);
+  notchLay->addWidget(m_notchLine, 0, Qt::AlignHCenter);
   outer->addWidget(m_notch, 0, Qt::AlignHCenter);
 
   m_chat = new QFrame(this);
@@ -279,7 +284,8 @@ void BlopAssistantOverlay::applyChrome() {
       "QWidget#BlopAssistantNotch {"
       "  background: #1C1C1C;"
       "  border: 1px solid rgba(255,255,255,0.10);"
-      "  border-radius: 11px;"
+      "  border-top: none;"
+      "  border-radius: 0 0 11px 11px;"
       "}"
       "QWidget#BlopAssistantNotchLine {"
       "  background: rgba(255,255,255,0.16);"
@@ -338,13 +344,29 @@ void BlopAssistantOverlay::placeOnScreen() {
   QScreen *screen = QGuiApplication::primaryScreen();
   if (!screen)
     return;
-  const QRect geo = screen->availableGeometry();
-  const int w = m_expanded ? UiScale::dp(380) : UiScale::dp(128);
-  const int h = m_expanded ? UiScale::dp(430) : UiScale::dp(34);
+  // Full framebuffer — sit in the top bezel, not below the work area.
+  const QRect geo = screen->geometry();
+  const int notchH = m_notch ? m_notch->height() : UiScale::dp(22);
+  const int clip = qMax(1, notchH / 2);
+  auto *outer = qobject_cast<QVBoxLayout *>(layout());
+  if (outer) {
+    const int side = m_expanded ? UiScale::dp(6) : 0;
+    const int bottom = m_expanded ? UiScale::dp(6) : 0;
+    outer->setContentsMargins(side, 0, side, bottom);
+    outer->setSpacing(m_expanded ? UiScale::dp(6) : 0);
+  }
+  const int w = m_expanded ? UiScale::dp(380) : (m_notch ? m_notch->width() : UiScale::dp(108));
+  const int h = m_expanded ? (notchH + UiScale::dp(430)) : notchH;
   const int x = geo.x() + (geo.width() - w) / 2;
-  const int y = geo.y() + UiScale::dp(8);
+  const int y = geo.y() - clip;
   setFixedSize(w, h);
   move(x, y);
+  // Some window managers clamp y to the screen top. Then cut the upper
+  // half with a mask so only the lower lip of the notch remains.
+  if (pos().y() >= geo.y())
+    setMask(QRegion(0, clip, w, h - clip));
+  else
+    clearMask();
 }
 
 void BlopAssistantOverlay::reposition() {
@@ -517,22 +539,11 @@ void BlopAssistantOverlay::startPushToTalk() {
 
 void BlopAssistantOverlay::endPushToTalk() { stopListening(); }
 
-void BlopAssistantOverlay::paintEvent(QPaintEvent *) {
-  QPainter p(this);
-  p.setRenderHint(QPainter::Antialiasing);
-  if (!m_expanded)
-    return;
-  QPainterPath path;
-  path.addRoundedRect(rect().adjusted(2, 2, -2, -2), 16, 16);
-  p.fillPath(path, QColor(0, 0, 0, 28));
-}
+void BlopAssistantOverlay::paintEvent(QPaintEvent *) {}
 
 void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton && m_standalone) {
     m_pressOnNotch = m_notch && m_notch->geometry().contains(event->pos());
-    m_dragging = false;
-    m_pressGlobal = event->globalPosition().toPoint();
-    m_dragOffset = m_pressGlobal - frameGeometry().topLeft();
     event->accept();
     return;
   }
@@ -540,23 +551,12 @@ void BlopAssistantOverlay::mousePressEvent(QMouseEvent *event) {
 }
 
 void BlopAssistantOverlay::mouseMoveEvent(QMouseEvent *event) {
-  if (!(event->buttons() & Qt::LeftButton) || !m_standalone) {
-    QWidget::mouseMoveEvent(event);
-    return;
-  }
-  const QPoint now = event->globalPosition().toPoint();
-  if ((now - m_pressGlobal).manhattanLength() > 8)
-    m_dragging = true;
-  if (m_dragging)
-    move(now - m_dragOffset);
-  event->accept();
+  QWidget::mouseMoveEvent(event);
 }
 
 void BlopAssistantOverlay::mouseReleaseEvent(QMouseEvent *event) {
   if (m_standalone && event->button() == Qt::LeftButton) {
-    const bool wasDrag = m_dragging;
-    m_dragging = false;
-    if (!wasDrag && m_pressOnNotch)
+    if (m_pressOnNotch)
       setExpanded(!m_expanded);
     m_pressOnNotch = false;
     event->accept();
