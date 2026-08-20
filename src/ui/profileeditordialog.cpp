@@ -1,5 +1,6 @@
 #include "profileeditordialog.h"
 #include "blop_theme.h"
+#include "blop_scroll.h"
 #include "blopripple.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
@@ -14,8 +15,7 @@
 #include <QMouseEvent>
 #include <QButtonGroup>
 #include <cmath>
-#include <QScrollArea> // NEU
-#include <QScroller>   // NEU
+#include <QScrollArea>
 #include <QPropertyAnimation>
 #include <QEasingCurve>
 #include <QShowEvent>
@@ -69,9 +69,7 @@ void ProfileEditorDialog::setupUi() {
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setStyleSheet("background: transparent;");
-
-    // WICHTIG: Touch-Scrolling aktivieren
-    QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
+    BlopScroll::enableFingerScroll(scroll);
 
     QWidget *contentWidget = new QWidget(scroll);
     contentWidget->setStyleSheet("background: transparent;");

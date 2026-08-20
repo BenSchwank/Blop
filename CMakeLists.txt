@@ -229,6 +229,8 @@ qt_add_executable(Blop
     # Util
     src/util/uiscale.h
     src/util/uiscale.cpp
+    src/util/blop_scroll.h
+    src/util/blop_scroll.cpp
 
     # QML async image provider
     src/imageprovider/BlopAsyncImageProvider.h

@@ -10,10 +10,10 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
-#include <QScroller>
 #include <QWheelEvent>
 
 #include "blop_theme.h"
+#include "blop_scroll.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
 #include "notechrome.h"
@@ -305,11 +305,7 @@ DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
   m_scrollContent->setFixedHeight(UiScale::dp(40));
   m_scroll->setWidget(m_scrollContent);
 
-#ifdef Q_OS_ANDROID
-  QScroller::grabGesture(m_scroll->viewport(), QScroller::LeftMouseButtonGesture);
-#else
-  QScroller::grabGesture(m_scroll->viewport(), QScroller::LeftMouseButtonGesture);
-#endif
+  BlopScroll::enableFingerScroll(m_scroll);
 
   m_outerLayout->addWidget(m_scroll, 1);
 

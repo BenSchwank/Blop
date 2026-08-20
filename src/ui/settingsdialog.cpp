@@ -5,6 +5,7 @@
 #include "blop_inwindow_menu.h"
 #include "blop_modal.h"
 #include "blop_theme.h"
+#include "blop_scroll.h"
 #include "blopripple.h"
 #include "blopstyle.h"
 #include "ui_SettingsDialog.h"
@@ -30,7 +31,6 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScrollArea>
-#include <QScroller>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QStandardPaths>
@@ -476,7 +476,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setStyleSheet(QStringLiteral("background: transparent;"));
-    QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
+    BlopScroll::enableFingerScroll(scroll);
 
     auto *contentWidget = new QWidget();
     contentWidget->setStyleSheet(QStringLiteral("background: transparent;"));
@@ -766,7 +766,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         m_profileList->setMinimumHeight(132);
         m_profileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
-        QScroller::grabGesture(m_profileList, QScroller::LeftMouseButtonGesture);
+        BlopScroll::enableFingerScroll(m_profileList);
         connect(m_profileList, &QListWidget::customContextMenuRequested, this,
                 &SettingsDialog::onProfileContextMenu);
         connect(m_profileList, &QListWidget::itemClicked, this,

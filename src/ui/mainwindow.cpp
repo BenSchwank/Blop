@@ -34,6 +34,7 @@
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "pagemanager.h"
+#include "blop_scroll.h"
 #include "blopstyle.h"
 #include "blop_dialogs.h"
 #include "uiscale.h"
@@ -129,8 +130,6 @@
 #define DWMWA_COLOR_NONE 0xFFFFFFFE
 #endif
 #endif
-#include <QScroller>
-#include <QScrollerProperties>
 #include <QSortFilterProxyModel>
 #include <QVariant>
 #include <QVariantAnimation>
@@ -5485,15 +5484,7 @@ void MainWindow::setupUi() {
 #else
   m_fileListView->setItemDelegate(new ModernItemDelegate(this));
 #endif
-  // On Android, use TouchGesture; LeftMouseButtonGesture can cause "stuck" interactions
-  // and mis-detected taps when using finger input.
-#ifdef Q_OS_ANDROID
-  if (m_fileListView->viewport())
-    m_fileListView->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
-  QScroller::grabGesture(m_fileListView, QScroller::TouchGesture);
-#else
-  QScroller::grabGesture(m_fileListView, QScroller::LeftMouseButtonGesture);
-#endif
+  BlopScroll::enableFingerScroll(m_fileListView);
   // Dateien und Ordner: ein Tap / ein Klick öffnet. Kurze Entprellung verhindert
   // doppeltes Öffnen bei schnellem Doppelklick auf dieselbe Notiz.
   auto mapToSource = [this](const QModelIndex &proxyIndex) -> QModelIndex {
@@ -7778,28 +7769,7 @@ void MainWindow::setupSidebar() {
   m_navSidebar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_navSidebar->setTextElideMode(Qt::ElideRight);
   m_navSidebar->setSpacing(1);
-
-  // On Android: scroll only vertically (no horizontal pan); smooth touch scroll on viewport.
-#ifdef Q_OS_ANDROID
-  if (m_navSidebar->viewport())
-    m_navSidebar->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
-  QScroller::grabGesture(m_navSidebar->viewport(), QScroller::TouchGesture);
-  if (QScroller *navScroller = QScroller::scroller(m_navSidebar->viewport())) {
-    QScrollerProperties sp = navScroller->scrollerProperties();
-    // Prefer vertical drags; no horizontal rubber-band (list is not horizontally scrollable).
-    sp.setScrollMetric(QScrollerProperties::AxisLockThreshold, QVariant(0.55));
-    sp.setScrollMetric(
-        QScrollerProperties::HorizontalOvershootPolicy,
-        QVariant::fromValue(QScrollerProperties::OvershootAlwaysOff));
-    sp.setScrollMetric(
-        QScrollerProperties::VerticalOvershootPolicy,
-        QVariant::fromValue(QScrollerProperties::OvershootWhenScrollable));
-    sp.setScrollMetric(QScrollerProperties::DecelerationFactor, QVariant(0.14));
-    navScroller->setScrollerProperties(sp);
-  }
-#else
-  QScroller::grabGesture(m_navSidebar, QScroller::LeftMouseButtonGesture);
-#endif
+  BlopScroll::enableFingerScroll(m_navSidebar);
 
   QDir rootDir(m_rootPath);
   int rootCount =
@@ -9564,7 +9534,7 @@ void MainWindow::setupRightSidebar() {
   optLayout->addStretch();
   optScroll->setWidget(optContent);
   optLayoutMain->addWidget(optScroll);
-  QScroller::grabGesture(optScroll->viewport(), QScroller::LeftMouseButtonGesture);
+  BlopScroll::enableFingerScroll(optScroll);
 
   settingsTabs->addTab(tabOptions, "Optionen");
 

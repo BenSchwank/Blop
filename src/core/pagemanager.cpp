@@ -2,6 +2,7 @@
 #include "blop_dialogs.h"
 #include "blop_inwindow_menu.h"
 #include "blop_theme.h"
+#include "blop_scroll.h"
 #include "blopripple.h"
 #include "editoroverlays.h"
 #include "uiscale.h"
@@ -9,7 +10,6 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPainter>
-#include <QScroller>
 #include <QMouseEvent>
 #include <QEvent>
 #include <QKeyEvent>
@@ -257,7 +257,7 @@ void PageManager::setupUi() {
 
     connect(m_listWidget->model(), &QAbstractItemModel::rowsMoved, this, &PageManager::onRowMoved);
 
-    QScroller::grabGesture(m_listWidget, QScroller::LeftMouseButtonGesture);
+    BlopScroll::enableFingerScroll(m_listWidget);
 
     contentLay->addWidget(m_listWidget, 1);
 

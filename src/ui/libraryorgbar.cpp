@@ -1,6 +1,7 @@
 #include "libraryorgbar.h"
 
 #include "blop_theme.h"
+#include "blop_scroll.h"
 #include "uiscale.h"
 
 #include <QAbstractButton>
@@ -14,7 +15,6 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QScroller>
 #include <QSettings>
 #include <QtMath>
 
@@ -126,11 +126,7 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
     chipLay->setSpacing(UiScale::dp(8));
     scroll->setWidget(host);
     root->addWidget(scroll, 1);
-#ifdef Q_OS_ANDROID
-    QScroller::grabGesture(scroll, QScroller::TouchGesture);
-#else
-    QScroller::grabGesture(scroll, QScroller::LeftMouseButtonGesture);
-#endif
+    BlopScroll::enableFingerScroll(scroll);
   }
 
   for (const auto &c : chips) {
