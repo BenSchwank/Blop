@@ -43,7 +43,6 @@ namespace {
 // screen) + a puffy rounded bottom — cloud-like transitions, not a logo cloud.
 const int kNotchWDp = 108;
 const int kNotchHDp = 28;
-const qreal kNotchRestScale = 0.88;
 
 QPainterPath makeNotchPath(const QRectF &bounds) {
   const QRectF r = bounds.adjusted(0.5, -1.0, -0.5, -0.5);
@@ -96,11 +95,7 @@ public:
   qreal grow() const { return m_grow; }
 
   QRectF notchRect() const {
-    const QRectF r = QRectF(rect()).adjusted(1.0, 0.0, -1.0, -1.0);
-    const qreal s = kNotchRestScale + (1.0 - kNotchRestScale) * m_grow;
-    QRectF c(0, 0, r.width() * s, r.height() * s);
-    c.moveCenter(QPointF(r.center().x(), r.top() + c.height() * 0.5));
-    return c;
+    return QRectF(rect()).adjusted(1.0, 0.0, -1.0, -1.0);
   }
 
   QPainterPath cloudPath() const { return makeNotchPath(notchRect()); }
@@ -481,8 +476,6 @@ void BlopAssistantOverlay::setCloudHover(bool on) {
             [this](const QVariant &v) {
               if (NotchIsland *cloud = asCloud(m_notch))
                 cloud->setGrow(v.toReal());
-              if (!m_expanded)
-                updateCollapsedMask();
             });
   }
   const qreal current = asCloud(m_notch) ? asCloud(m_notch)->grow() : 0.0;
