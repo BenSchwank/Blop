@@ -7782,6 +7782,8 @@ void MainWindow::setupSidebar() {
   auto *midLay = new QVBoxLayout(mid);
   midLay->setContentsMargins(0, 0, 0, 0);
   midLay->setSpacing(0);
+  midLay->setSizeConstraint(QLayout::SetMinimumSize);
+  mid->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
 
   m_navSidebar = new QListWidget(mid);
   m_navSidebar->setItemDelegate(new SidebarNavDelegate(this));
@@ -7890,6 +7892,11 @@ void MainWindow::setupSidebar() {
   midLay->addWidget(m_libraryTagsPanel, 0);
   midScroll->setWidget(mid);
   layout->addWidget(midScroll, 1);
+  QTimer::singleShot(0, mid, [mid]() {
+    const int h = mid->sizeHint().height();
+    if (h > 0)
+      mid->setMinimumHeight(h);
+  });
 
   // --- BOTTOM: quiet account + settings row ---
   QWidget *bottomBar = new QWidget(m_sidebarContainer);

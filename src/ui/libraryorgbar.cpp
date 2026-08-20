@@ -124,6 +124,7 @@ LibraryOrgBar::LibraryOrgBar(QWidget *parent) : QWidget(parent) {
   chipLay = new QHBoxLayout(host);
   chipLay->setContentsMargins(0, 0, 0, 0);
   chipLay->setSpacing(UiScale::dp(8));
+  chipLay->setSizeConstraint(QLayout::SetMinimumSize);
 
   for (const auto &c : chips) {
     auto *btn = new QPushButton(QString::fromUtf8(c.label), this);

@@ -1,5 +1,6 @@
 #include "blop_scroll.h"
 
+#include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QAbstractScrollArea>
 #include <QAbstractSlider>
@@ -20,7 +21,6 @@
 #include <QScroller>
 #include <QScrollerProperties>
 #include <QTextEdit>
-#include <QTimer>
 #include <QTouchEvent>
 #include <QVariant>
 #include <QWidget>
@@ -29,8 +29,7 @@ namespace {
 
 constexpr const char *kInstalled = "blopFingerScroll";
 constexpr const char *kFitContents = "blopFitContents";
-constexpr int kClickDelayMs = 180;
-constexpr int kDirectDragPx = 10;
+constexpr int kDirectDragPx = 8;
 
 bool isDrawingCanvas(const QAbstractScrollArea *area) {
   if (qobject_cast<const QGraphicsView *>(area))
@@ -42,18 +41,6 @@ bool isDrawingCanvas(const QAbstractScrollArea *area) {
 bool isTextEditor(const QAbstractScrollArea *area) {
   return qobject_cast<const QPlainTextEdit *>(area) ||
          qobject_cast<const QTextEdit *>(area);
-}
-
-bool canScroll(const QAbstractScrollArea *area, Qt::Orientation o) {
-  if (!area)
-    return false;
-  const QScrollBar *sb =
-      (o == Qt::Vertical) ? area->verticalScrollBar() : area->horizontalScrollBar();
-  return sb && sb->maximum() > sb->minimum();
-}
-
-bool canScrollEither(const QAbstractScrollArea *area) {
-  return canScroll(area, Qt::Vertical) || canScroll(area, Qt::Horizontal);
 }
 
 bool isPassthroughWidget(const QWidget *w) {
@@ -85,7 +72,15 @@ QAbstractScrollArea *enclosingScrollable(QWidget *w) {
       continue;
     if (isDrawingCanvas(area) || isTextEditor(area))
       return nullptr;
-    if (canScrollEither(area))
+    // Inner lists that size to their rows must not steal the flick from an
+    // outer QScrollArea (a leftover 1–8 px range looks like "can't scroll").
+    if (area->property(kFitContents).toBool())
+      continue;
+    QScrollBar *vs = area->verticalScrollBar();
+    QScrollBar *hs = area->horizontalScrollBar();
+    const int vr = vs ? vs->maximum() - vs->minimum() : 0;
+    const int hr = hs ? hs->maximum() - hs->minimum() : 0;
+    if (vr >= 12 || hr >= 12)
       return area;
   }
   return nullptr;
@@ -148,7 +143,9 @@ void fitListNow(QAbstractItemView *view) {
   view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   view->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
   view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  view->setFixedHeight(qMax(0, listContentHeight(view)));
+  // A couple of extra pixels so delegate rounding never leaves a tiny inner
+  // scroll range that steals flicks from the outer scroller.
+  view->setFixedHeight(qMax(0, listContentHeight(view) + 6));
 }
 
 class FitContentsHelper final : public QObject {
@@ -183,12 +180,7 @@ private:
 
 class FingerScrollFilter final : public QObject {
 public:
-  explicit FingerScrollFilter(QObject *parent) : QObject(parent) {
-    m_clickDelay = new QTimer(this);
-    m_clickDelay->setSingleShot(true);
-    m_clickDelay->setInterval(kClickDelayMs);
-    connect(m_clickDelay, &QTimer::timeout, this, [this]() { replayHeldPress(); });
-  }
+  explicit FingerScrollFilter(QObject *parent) : QObject(parent) {}
 
   bool eventFilter(QObject *watched, QEvent *event) override {
     if (event->type() == QEvent::Show) {
@@ -196,8 +188,6 @@ public:
         BlopScroll::enableFingerScroll(area);
       return false;
     }
-    if (m_replaying)
-      return false;
 
     switch (event->type()) {
     case QEvent::MouseButtonPress:
@@ -225,14 +215,9 @@ private:
     QPointF lastGlobal;
     bool active{false};
     bool scrolling{false};
-    bool direct{false};
-    bool replayedPress{false};
     bool fromTouch{false};
     int touchId{-1};
   } m;
-
-  QTimer *m_clickDelay{nullptr};
-  bool m_replaying{false};
 
   static qint64 eventTs(const QInputEvent *e) {
     if (!e)
@@ -265,43 +250,12 @@ private:
     }
   }
 
-  void releaseGrab() {
-    if (QWidget *g = QWidget::mouseGrabber()) {
-      if (g == m.pressWidget || g == m.target)
-        g->releaseMouse();
-    }
+  void cancelPressedControl() {
+    if (auto *btn = qobject_cast<QAbstractButton *>(m.pressWidget))
+      btn->setDown(false);
   }
 
-  void clearSession() {
-    releaseGrab();
-    m_clickDelay->stop();
-    m = Session{};
-  }
-
-  void replayMouse(QEvent::Type type, const QPointF &global) {
-    QWidget *w = m.pressWidget;
-    if (!w)
-      return;
-    const QPointF local = w->mapFromGlobal(global);
-    const Qt::MouseButtons buttons = (type == QEvent::MouseButtonRelease)
-                                         ? Qt::MouseButtons(Qt::NoButton)
-                                         : Qt::MouseButtons(Qt::LeftButton);
-    QMouseEvent ev(type, local, global, Qt::LeftButton, buttons, Qt::NoModifier);
-    m_replaying = true;
-    QCoreApplication::sendEvent(w, &ev);
-    m_replaying = false;
-  }
-
-  void replayHeldPress() {
-    if (!m.active || m.scrolling || m.replayedPress)
-      return;
-    if (QScroller *sc = scrollerForTarget())
-      sc->stop();
-    m.replayedPress = true;
-    releaseGrab();
-    replayMouse(QEvent::MouseButtonPress, m.pressGlobal);
-    m.active = false;
-  }
+  void clearSession() { m = Session{}; }
 
   bool beginSession(QWidget *w, const QPointF &global, qint64 ts, bool fromTouch,
                     int touchId) {
@@ -310,7 +264,6 @@ private:
     QAbstractScrollArea *area = enclosingScrollable(w);
     if (!area)
       return false;
-
     BlopScroll::enableFingerScroll(area);
     QWidget *vp = area->viewport() ? area->viewport() : static_cast<QWidget *>(area);
 
@@ -323,11 +276,7 @@ private:
     m.active = true;
     m.fromTouch = fromTouch;
     m.touchId = touchId;
-
     feed(QScroller::InputPress, global, ts);
-    if (!fromTouch && w)
-      w->grabMouse();
-    m_clickDelay->start();
     return true;
   }
 
@@ -341,55 +290,35 @@ private:
     if (!m.scrolling) {
       const QPoint total = (global - m.pressGlobal).toPoint();
       if (total.manhattanLength() < kDirectDragPx)
-        return true;
+        return false;
     }
 
     feed(QScroller::InputMove, global, ts);
     QScroller *sc = scrollerForTarget();
-    if (sc && sc->state() == QScroller::Dragging) {
-      m.scrolling = true;
-      m.direct = false;
-      m_clickDelay->stop();
-      return true;
+    if (!(sc && sc->state() == QScroller::Dragging)) {
+      if (sc)
+        sc->stop();
+      applyDirect(delta);
     }
-
-    m.scrolling = true;
-    m.direct = true;
-    m_clickDelay->stop();
-    if (sc)
-      sc->stop();
-    applyDirect(delta);
+    if (!m.scrolling) {
+      m.scrolling = true;
+      cancelPressedControl();
+    }
     return true;
   }
 
   bool finish(const QPointF &global, qint64 ts) {
-    if (!m.active && !m.replayedPress)
+    if (!m.active)
       return false;
-
     const bool wasScrolling = m.scrolling;
-    const bool replayed = m.replayedPress;
-
-    if (m.active && !wasScrolling && !replayed) {
-      if (QScroller *sc = scrollerForTarget())
-        sc->stop();
-      releaseGrab();
-      replayMouse(QEvent::MouseButtonPress, m.pressGlobal);
-      replayMouse(QEvent::MouseButtonRelease, global);
-      clearSession();
-      return true;
+    if (wasScrolling) {
+      feed(QScroller::InputRelease, global, ts);
+      cancelPressedControl();
+    } else if (QScroller *sc = scrollerForTarget()) {
+      sc->stop();
     }
-
-    if (m.active && wasScrolling) {
-      if (!m.direct)
-        feed(QScroller::InputRelease, global, ts);
-      else if (QScroller *sc = scrollerForTarget())
-        sc->stop();
-      clearSession();
-      return true;
-    }
-
     clearSession();
-    return false;
+    return wasScrolling; // eat release only if we scrolled (no click)
   }
 
   bool onMousePress(QObject *watched, QMouseEvent *me) {
@@ -398,9 +327,9 @@ private:
     if (m.fromTouch && me->source() == Qt::MouseEventSynthesizedByQt)
       return true;
     auto *w = qobject_cast<QWidget *>(watched);
-    if (!beginSession(w, me->globalPosition(), eventTs(me), false, -1))
-      return false;
-    return true;
+    beginSession(w, me->globalPosition(), eventTs(me), false, -1);
+    // Deliver the press so Qt keeps sending moves and a stationary tap clicks.
+    return false;
   }
 
   bool onMouseMove(QMouseEvent *me) {
@@ -408,14 +337,14 @@ private:
       return false;
     if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt)
       return true;
-    if (!me || !(me->buttons() & Qt::LeftButton))
+    if (!me)
       return false;
     return onDrag(me->globalPosition(), eventTs(me));
   }
 
   bool onMouseRelease(QMouseEvent *me) {
     if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt)
-      return m.active || m.replayedPress;
+      return m.active && m.scrolling;
     if (!me || me->button() != Qt::LeftButton)
       return false;
     return finish(me->globalPosition(), eventTs(me));
@@ -434,8 +363,8 @@ private:
       const auto &pt = points.first();
       if (!beginSession(w, pt.globalPosition(), eventTs(te), true, int(pt.id())))
         return false;
-      te->setAccepted(true);
-      return true;
+      // Same as mouse: let the widget see the press so a tap still clicks.
+      return false;
     }
 
     if (!m.active || !m.fromTouch)
@@ -449,7 +378,6 @@ private:
       }
     }
     const qint64 ts = eventTs(te);
-    te->setAccepted(true);
     if (type == QEvent::TouchUpdate)
       return onDrag(global, ts);
     return finish(global, ts);
