@@ -301,12 +301,12 @@ void BlopModal::layoutContent() {
     // preferred width + content height — never a near-fullscreen sheet.
     const bool sizedCard = preferred >= 700;
     if (sizedCard) {
-      const int gap = UiScale::dp(20);
-      const int maxW = qMin(int(W * 0.88), qMax(UiScale::dp(320), W - 2 * gap));
-      const int minW = qMin(UiScale::dp(560), maxW);
+      const int gap = UiScale::dp(16);
+      const int maxW = qMin(int(W * 0.92), qMax(UiScale::dp(320), W - 2 * gap));
+      const int minW = qMin(UiScale::dp(640), maxW);
       const int cardW = qBound(minW, preferred, maxW);
-      const int maxH = qMin(int(H * 0.92), H - 2 * gap);
-      const int cardH = qMax(UiScale::dp(420), maxH);
+      const int maxH = qMin(int(H * 0.94), H - 2 * gap);
+      const int cardH = qMax(UiScale::dp(480), maxH);
       m_card->setGeometry((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
       if (m_content) {
         m_content->setMinimumSize(0, 0);

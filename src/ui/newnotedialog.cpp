@@ -66,6 +66,7 @@ void NewNoteDialog::setupUi()
 
     auto *body = new QWidget(scroll);
     body->setObjectName(QStringLiteral("NewNoteBody"));
+    body->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     auto *cols = new QHBoxLayout(body);
     cols->setContentsMargins(0, 0, 0, 0);
     cols->setSpacing(UiScale::dp(24));
@@ -235,8 +236,8 @@ void NewNoteDialog::setupUi()
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        tb->setMinimumSize(UiScale::dp(100), UiScale::dp(110));
-        tb->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
+        tb->setMinimumSize(UiScale::dp(112), UiScale::dp(128));
+        tb->setIconSize(QSize(UiScale::dp(64), UiScale::dp(64)));
         tb->setStyleSheet(btnQss);
         tb->setProperty("blopBgType", opt.type);
         m_groupLayout->addButton(tb, opt.type);
