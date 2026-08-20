@@ -4,6 +4,8 @@
 #include "cloudstoragestore.h"
 #include "uiscale.h"
 
+#include <QBrush>
+#include <QColor>
 #include <QEvent>
 #include <QFont>
 #include <QFrame>
@@ -16,6 +18,7 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPalette>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QVBoxLayout>
@@ -144,6 +147,7 @@ void PhoneLibraryNav::addRow(const QString &id, const QString &title,
   auto *item = new QListWidgetItem(m_list);
   item->setText(title + (chevron ? QStringLiteral("  ›") : QString()));
   item->setData(Qt::UserRole, id);
+  item->setForeground(QBrush(QColor(QStringLiteral("#F4F2FF"))));
   item->setSizeHint(QSize(item->sizeHint().width(), UiScale::dp(48)));
   if (selected)
     item->setSelected(true);
@@ -236,22 +240,33 @@ void PhoneLibraryNav::openMenu() {
   m_search->setPlaceholderText(QStringLiteral("Suchen…"));
   m_search->setClearButtonEnabled(true);
   m_search->setMinimumHeight(UiScale::dp(42));
-  m_search->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QLineEdit { background: rgba(255,255,255,0.06); color: #E8E4FF;"
-      "  border: 1px solid rgba(120,130,160,0.28); border-radius: 12px;"
-      "  padding: 8px 12px; font-size: 14px; }")));
+  m_search->setStyleSheet(QStringLiteral(
+      "QLineEdit { background: rgba(255,255,255,0.08); color: #E8E4FF;"
+      "  border: 1px solid rgba(255,255,255,0.16); border-radius: 12px;"
+      "  padding: 8px 12px; font-size: 14px; selection-background-color: #7C5CFC; }"));
   connect(m_search, &QLineEdit::textChanged, this, &PhoneLibraryNav::searchChanged);
   lay->addWidget(m_search);
 
   m_list = new QListWidget(card);
   m_list->setFrameShape(QFrame::NoFrame);
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  m_list->setStyleSheet(BlopTheme::themed(QStringLiteral(
-      "QListWidget { background: transparent; border: none; outline: none; }"
-      "QListWidget::item { color: #ECEEFD; padding: 10px 12px; border-radius: 10px;"
+  {
+    QPalette pal = m_list->palette();
+    pal.setColor(QPalette::Base, Qt::transparent);
+    pal.setColor(QPalette::Text, QColor(QStringLiteral("#F4F2FF")));
+    pal.setColor(QPalette::ButtonText, QColor(QStringLiteral("#F4F2FF")));
+    pal.setColor(QPalette::HighlightedText, QColor(QStringLiteral("#FFFFFF")));
+    pal.setColor(QPalette::Highlight, QColor(124, 92, 252, 120));
+    pal.setColor(QPalette::WindowText, QColor(QStringLiteral("#F4F2FF")));
+    m_list->setPalette(pal);
+  }
+  // Keep this sheet dark even in Light app theme — Vercel-style menu.
+  m_list->setStyleSheet(QStringLiteral(
+      "QListWidget { background: transparent; border: none; outline: none; color: #F4F2FF; }"
+      "QListWidget::item { color: #F4F2FF; padding: 12px 14px; border-radius: 10px;"
       "  font-size: 15px; font-weight: 600; }"
-      "QListWidget::item:selected { background: rgba(124,92,252,0.28); color: #FFFFFF; }"
-      "QListWidget::item:hover { background: rgba(255,255,255,0.06); }")));
+      "QListWidget::item:selected { background: rgba(124,92,252,0.45); color: #FFFFFF; }"
+      "QListWidget::item:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }"));
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) {
             if (!item)
