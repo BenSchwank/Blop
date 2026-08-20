@@ -88,4 +88,57 @@ inline void setVoiceId(const QString &id) {
   s.setValue(QStringLiteral("voice/id"), id);
 }
 
+inline bool llmEnabled() {
+  QSettings s = store();
+  return s.value(QStringLiteral("llm/enabled"), true).toBool();
+}
+
+inline void setLlmEnabled(bool on) {
+  QSettings s = store();
+  s.setValue(QStringLiteral("llm/enabled"), on);
+}
+
+inline QString llmApiKey() {
+  const QString env = qEnvironmentVariable("BLOP_ASSISTANT_API_KEY");
+  if (!env.isEmpty())
+    return env;
+  const QString openai = qEnvironmentVariable("OPENAI_API_KEY");
+  if (!openai.isEmpty())
+    return openai;
+  QSettings s = store();
+  return s.value(QStringLiteral("llm/apiKey")).toString();
+}
+
+inline void setLlmApiKey(const QString &key) {
+  QSettings s = store();
+  s.setValue(QStringLiteral("llm/apiKey"), key);
+}
+
+inline QString llmBaseUrl() {
+  QSettings s = store();
+  return s.value(QStringLiteral("llm/baseUrl"),
+                 QStringLiteral("https://api.openai.com/v1"))
+      .toString()
+      .trimmed();
+}
+
+inline void setLlmBaseUrl(const QString &url) {
+  QSettings s = store();
+  s.setValue(QStringLiteral("llm/baseUrl"), url.trimmed());
+}
+
+inline QString llmModel() {
+  QSettings s = store();
+  return s.value(QStringLiteral("llm/model"), QStringLiteral("gpt-4o-mini"))
+      .toString()
+      .trimmed();
+}
+
+inline void setLlmModel(const QString &model) {
+  QSettings s = store();
+  s.setValue(QStringLiteral("llm/model"), model.trimmed());
+}
+
+inline bool llmReady() { return llmEnabled() && !llmApiKey().isEmpty(); }
+
 } // namespace BlopAssistantPrefs

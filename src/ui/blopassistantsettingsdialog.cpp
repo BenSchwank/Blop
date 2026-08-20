@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QKeySequenceEdit>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSlider>
@@ -55,6 +56,58 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
   keyHint->setStyleSheet(QStringLiteral("color: #8E8E8E; font-size: 11px;"));
   kf->addRow(QString(), keyHint);
   root->addWidget(keys);
+
+  auto *ai = new QGroupBox(QStringLiteral("KI"), this);
+  auto *af = new QFormLayout(ai);
+  af->setSpacing(10);
+  m_llmOn = new QCheckBox(QStringLiteral("Frei antworten (Chat-Modell)"), ai);
+  af->addRow(m_llmOn);
+  m_llmPreset = new QComboBox(ai);
+  m_llmPreset->addItem(QStringLiteral("OpenAI"), QStringLiteral("openai"));
+  m_llmPreset->addItem(QStringLiteral("OpenRouter"), QStringLiteral("openrouter"));
+  m_llmPreset->addItem(QStringLiteral("Groq"), QStringLiteral("groq"));
+  m_llmPreset->addItem(QStringLiteral("Ollama (lokal)"), QStringLiteral("ollama"));
+  m_llmPreset->addItem(QStringLiteral("Eigene URL"), QStringLiteral("custom"));
+  af->addRow(QStringLiteral("Anbieter"), m_llmPreset);
+  m_llmKey = new QLineEdit(ai);
+  m_llmKey->setEchoMode(QLineEdit::Password);
+  m_llmKey->setPlaceholderText(QStringLiteral("API-Key (sk-… oder Groq/OpenRouter)"));
+  af->addRow(QStringLiteral("API-Key"), m_llmKey);
+  m_llmUrl = new QLineEdit(ai);
+  af->addRow(QStringLiteral("Base-URL"), m_llmUrl);
+  m_llmModel = new QLineEdit(ai);
+  af->addRow(QStringLiteral("Modell"), m_llmModel);
+  auto *aiHint = new QLabel(
+      QStringLiteral("Ohne Key bleibt nur der lokale Parser. Mit Key "
+                     "kannst du alles fragen — Notizen und Apps laufen "
+                     "trotzdem über Bestätigung."),
+      ai);
+  aiHint->setWordWrap(true);
+  aiHint->setStyleSheet(QStringLiteral("color: #8E8E8E; font-size: 11px;"));
+  af->addRow(QString(), aiHint);
+  root->addWidget(ai);
+
+  connect(m_llmPreset, &QComboBox::currentIndexChanged, this, [this]() {
+    const QString id = m_llmPreset->currentData().toString();
+    if (id == QLatin1String("openai")) {
+      m_llmUrl->setText(QStringLiteral("https://api.openai.com/v1"));
+      if (m_llmModel->text().isEmpty() ||
+          m_llmModel->text().startsWith(QLatin1String("llama")) ||
+          m_llmModel->text().startsWith(QLatin1String("openai/")))
+        m_llmModel->setText(QStringLiteral("gpt-4o-mini"));
+    } else if (id == QLatin1String("openrouter")) {
+      m_llmUrl->setText(QStringLiteral("https://openrouter.ai/api/v1"));
+      m_llmModel->setText(QStringLiteral("openai/gpt-4o-mini"));
+    } else if (id == QLatin1String("groq")) {
+      m_llmUrl->setText(QStringLiteral("https://api.groq.com/openai/v1"));
+      m_llmModel->setText(QStringLiteral("llama-3.1-8b-instant"));
+    } else if (id == QLatin1String("ollama")) {
+      m_llmUrl->setText(QStringLiteral("http://127.0.0.1:11434/v1"));
+      m_llmModel->setText(QStringLiteral("llama3.1"));
+    }
+    save();
+    emit prefsChanged();
+  });
 
   auto *voice = new QGroupBox(QStringLiteral("Stimme"), this);
   auto *vf = new QFormLayout(voice);
@@ -149,6 +202,22 @@ BlopAssistantSettingsDialog::BlopAssistantSettingsDialog(QWidget *parent)
     save();
     emit prefsChanged();
   });
+  connect(m_llmOn, &QCheckBox::toggled, this, [this]() {
+    save();
+    emit prefsChanged();
+  });
+  connect(m_llmKey, &QLineEdit::editingFinished, this, [this]() {
+    save();
+    emit prefsChanged();
+  });
+  connect(m_llmUrl, &QLineEdit::editingFinished, this, [this]() {
+    save();
+    emit prefsChanged();
+  });
+  connect(m_llmModel, &QLineEdit::editingFinished, this, [this]() {
+    save();
+    emit prefsChanged();
+  });
 }
 
 void BlopAssistantSettingsDialog::showEvent(QShowEvent *event) {
@@ -165,6 +234,10 @@ void BlopAssistantSettingsDialog::load() {
   const int idx =
       m_voice->findData(BlopAssistantPrefs::voiceId());
   m_voice->setCurrentIndex(idx >= 0 ? idx : 0);
+  m_llmOn->setChecked(BlopAssistantPrefs::llmEnabled());
+  m_llmKey->setText(BlopAssistantPrefs::llmApiKey());
+  m_llmUrl->setText(BlopAssistantPrefs::llmBaseUrl());
+  m_llmModel->setText(BlopAssistantPrefs::llmModel());
 }
 
 void BlopAssistantSettingsDialog::save() {
@@ -183,4 +256,8 @@ void BlopAssistantSettingsDialog::save() {
   BlopAssistantPrefs::setSpeakReplies(m_speak->isChecked());
   BlopAssistantPrefs::setSpeechRate(m_rate->value());
   BlopAssistantPrefs::setVoiceId(m_voice->currentData().toString());
+  BlopAssistantPrefs::setLlmEnabled(m_llmOn->isChecked());
+  BlopAssistantPrefs::setLlmApiKey(m_llmKey->text().trimmed());
+  BlopAssistantPrefs::setLlmBaseUrl(m_llmUrl->text().trimmed());
+  BlopAssistantPrefs::setLlmModel(m_llmModel->text().trimmed());
 }

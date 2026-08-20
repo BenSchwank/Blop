@@ -173,12 +173,20 @@ BlopAssistantIntent makeApp(const QString &app) {
 
 QString BlopAssistantEngine::helpText() {
   return QStringLiteral(
-      "Zum Beispiel:\n"
+      "Frag mich einfach — Smalltalk, Fragen, oder:\n"
       "• neue Notiz Einkauf\n"
       "• öffne YouTube\n"
       "• starte Calculator\n"
-      "• suche im Web Qt\n"
-      "• öffne Einkauf");
+      "• suche im Web Qt");
+}
+
+BlopAssistantIntent BlopAssistantEngine::talk(const QString &text,
+                                              const QString &spoken) {
+  BlopAssistantIntent t;
+  t.action = BlopAssistantAction::Talk;
+  t.statusLine = text;
+  t.spokenReply = spoken.isEmpty() ? text : spoken;
+  return t;
 }
 
 BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
@@ -191,6 +199,24 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
       QStringLiteral("Sag zum Beispiel neue Notiz Einkauf, oder öffne YouTube.");
   if (n.isEmpty())
     return unknown;
+
+  const bool greeting =
+      n == QLatin1String("hallo") || n == QLatin1String("hi") ||
+      n == QLatin1String("hey") || n == QLatin1String("moin") ||
+      n == QLatin1String("servus") || n == QLatin1String("guten tag") ||
+      n == QLatin1String("guten morgen") || n == QLatin1String("guten abend") ||
+      n == QLatin1String("hello") || n == QLatin1String("yo") ||
+      n == QLatin1String("na") || n == QLatin1String("hihi");
+  if (greeting)
+    return talk(QStringLiteral("Hey. Schön dass du da bist — was liegt an?"));
+
+  if (n == QLatin1String("danke") || n == QLatin1String("dankeschön") ||
+      n == QLatin1String("thanks") || n == QLatin1String("thx"))
+    return talk(QStringLiteral("Gern."));
+
+  if (n.contains(QLatin1String("wie geht")) ||
+      n == QLatin1String("how are you"))
+    return talk(QStringLiteral("Mir geht's gut. Und dir — alles klar?"));
 
   if (n == QLatin1String("hilfe") || n == QLatin1String("help") ||
       n == QLatin1String("was kannst du") ||
@@ -321,15 +347,6 @@ BlopAssistantIntent BlopAssistantEngine::parse(const QString &utterance) {
 
   if (const QUrl u = urlFromToken(raw); u.isValid() && n.contains('.'))
     return makeUrl(u);
-
-  const int words = n.split(QLatin1Char(' '), Qt::SkipEmptyParts).size();
-  const bool question = n.startsWith(QLatin1String("wie ")) ||
-                        n.startsWith(QLatin1String("was ")) ||
-                        n.startsWith(QLatin1String("warum ")) ||
-                        n.startsWith(QLatin1String("why ")) ||
-                        n.startsWith(QLatin1String("how "));
-  if (!question && words >= 1 && words <= 8 && raw.size() <= 80)
-    return makeCreate(raw, looksInfinite(raw), raw);
 
   return unknown;
 }

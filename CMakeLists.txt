@@ -513,6 +513,8 @@ if(BLOP_BUILD_ASSISTANT_SANDBOX AND NOT ANDROID)
         src/core/blopassistantprefs.h
         src/core/blopassistantvoice.h
         src/core/blopassistantvoice.cpp
+        src/core/blopassistantllm.h
+        src/core/blopassistantllm.cpp
         src/ui/blopassistantoverlay.h
         src/ui/blopassistantoverlay.cpp
         src/ui/blopassistantsettingsdialog.h
@@ -526,7 +528,7 @@ if(BLOP_BUILD_ASSISTANT_SANDBOX AND NOT ANDROID)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/ui"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/util"
     )
-    target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::Widgets)
+    target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::Widgets Qt6::Network)
     if(BLOP_DESKTOP_WEBENGINE)
         target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::WebEngineWidgets)
         target_compile_definitions(BlopAssistantSandbox PRIVATE BLOP_HAS_WEBENGINE)

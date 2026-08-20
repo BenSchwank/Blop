@@ -1,4 +1,5 @@
 #include "blopassistantengine.h"
+#include "blopassistantllm.h"
 #include "blopassistantoverlay.h"
 #include "blopassistantprefs.h"
 #include "blopassistantsettingsdialog.h"
@@ -12,6 +13,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QKeyCombination>
@@ -162,6 +164,24 @@ int runSelfTest() {
   expect(QStringLiteral("suche im Web Qt"), BlopAssistantAction::OpenUrl,
          QStringLiteral("google"));
 
+  const BlopAssistantIntent hi =
+      BlopAssistantEngine::parse(QStringLiteral("hallo"));
+  if (hi.action != BlopAssistantAction::Talk) {
+    QTextStream(stderr) << "FAIL hallo should be talk, not a note\n";
+    ++fails;
+  }
+
+  BlopAssistantIntent toolIntent;
+  QJsonObject noteArgs;
+  noteArgs.insert(QStringLiteral("title"), QStringLiteral("Einkauf"));
+  if (!BlopAssistantLlm::intentFromTool(QStringLiteral("create_note"), noteArgs,
+                                        &toolIntent) ||
+      toolIntent.action != BlopAssistantAction::CreateNote ||
+      toolIntent.title != QStringLiteral("Einkauf")) {
+    QTextStream(stderr) << "FAIL llm create_note tool\n";
+    ++fails;
+  }
+
   const BlopAssistantIntent inf =
       BlopAssistantEngine::parse(QStringLiteral("unendliche Notiz Skizze"));
   if (!inf.infinite) {
@@ -261,7 +281,32 @@ public:
 
     m_settings = new BlopAssistantSettingsDialog();
     connect(m_settings, &BlopAssistantSettingsDialog::prefsChanged, this,
-            &Companion::rebindShortcuts);
+            [this]() {
+              rebindShortcuts();
+              refreshEmpty();
+            });
+
+    m_llm = new BlopAssistantLlm(this);
+    m_llm->setToolHandler([this](const BlopAssistantIntent &intent) {
+      if (intent.needsConfirm) {
+        m_pending = intent;
+        m_notch->promptConfirm(intent.statusLine);
+        return QStringLiteral("warte auf bestätigung vom nutzer");
+      }
+      return executeIntent(intent, false);
+    });
+    connect(m_llm, &BlopAssistantLlm::thinking, this,
+            [this]() { m_notch->setBusy(true); });
+    connect(m_llm, &BlopAssistantLlm::assistantSaid, this,
+            [this](const QString &text) {
+              m_notch->setBusy(false);
+              reply(text, text);
+            });
+    connect(m_llm, &BlopAssistantLlm::failed, this, [this](const QString &err) {
+      m_notch->setBusy(false);
+      reply(err, QStringLiteral("Das hat nicht geklappt."));
+    });
+    refreshEmpty();
 
     auto *tray = new QSystemTrayIcon(this);
     QPixmap pm(64, 64);
@@ -438,30 +483,52 @@ private:
     return true;
   }
 
+  void refreshEmpty() {
+    if (BlopAssistantLlm::isReady())
+      m_notch->setEmptyHint(
+          QStringLiteral("Frag mich irgendwas — ich antworte wie ein Mensch."));
+    else
+      m_notch->setEmptyHint(
+          QStringLiteral("Ohne API-Key nur Smalltalk und Befehle.\n"
+                         "Key unter Einstellungen → KI, dann bin ich frei."));
+  }
+
   void reply(const QString &text, const QString &spoken) {
     m_notch->addAssistantMessage(text);
     BlopAssistantVoice::speak(spoken);
   }
 
   void onUtterance(const QString &text) {
-    const BlopAssistantIntent intent = BlopAssistantEngine::parse(text);
+    if (BlopAssistantLlm::isReady()) {
+      m_notch->setBusy(true);
+      m_llm->ask(text, m_notes);
+      return;
+    }
+    BlopAssistantIntent intent = BlopAssistantEngine::parse(text);
+    if (intent.action == BlopAssistantAction::Unknown) {
+      intent = BlopAssistantEngine::talk(QStringLiteral(
+          "Dazu würde ich dir gerne frei antworten. Trag unter "
+          "Einstellungen → KI einen API-Key ein — OpenAI, Groq oder "
+          "OpenRouter reicht. Bis dahin: Notizen, Browser, Apps."));
+    }
     if (intent.needsConfirm) {
       m_pending = intent;
       m_notch->promptConfirm(intent.statusLine);
       return;
     }
-    runIntent(intent);
+    executeIntent(intent, true);
   }
 
   void onConfirm() {
     if (m_pending.action == BlopAssistantAction::Unknown)
       return;
-    runIntent(m_pending);
+    executeIntent(m_pending, true);
     m_pending = {};
     m_pending.action = BlopAssistantAction::Unknown;
   }
 
-  void runIntent(const BlopAssistantIntent &intent) {
+  QString executeIntent(const BlopAssistantIntent &intent, bool announce) {
+    QString result;
     switch (intent.action) {
     case BlopAssistantAction::CreateNote: {
       const QString name = uniqueName(intent.title);
@@ -475,18 +542,27 @@ private:
         if (!intent.body.isEmpty())
           out << intent.body << '\n';
       }
-      reply(QStringLiteral("Notiz „%1“ ist drin.").arg(name),
-            intent.spokenReply);
+      result = QStringLiteral("notiz angelegt: %1").arg(name);
+      if (announce)
+        reply(QStringLiteral("Alles klar, „%1“ liegt in den Notizen.")
+                  .arg(name),
+              intent.spokenReply);
       break;
     }
     case BlopAssistantAction::OpenNote: {
       QString opened;
-      if (openMatching(intent.query, &opened))
-        reply(QStringLiteral("Ich hab „%1“ gefunden.").arg(opened),
-              intent.spokenReply);
-      else
-        reply(QStringLiteral("Keine Notiz „%1“.").arg(intent.query),
-              QStringLiteral("Die Notiz hab ich nicht gefunden."));
+      if (openMatching(intent.query, &opened)) {
+        result = QStringLiteral("gefunden: %1").arg(opened);
+        if (announce)
+          reply(QStringLiteral("Die liegt hier: „%1“.").arg(opened),
+                intent.spokenReply);
+      } else {
+        result = QStringLiteral("nicht gefunden");
+        if (announce)
+          reply(QStringLiteral("Die Notiz „%1“ hab ich nicht.")
+                    .arg(intent.query),
+                QStringLiteral("Die Notiz hab ich nicht gefunden."));
+      }
       break;
     }
     case BlopAssistantAction::SearchNotes: {
@@ -495,44 +571,72 @@ private:
         if (n.contains(intent.query, Qt::CaseInsensitive))
           ++hits;
       }
-      reply(QStringLiteral("%1 Treffer für „%2“.").arg(hits).arg(intent.query),
-            intent.spokenReply);
+      result = QStringLiteral("%1 treffer").arg(hits);
+      if (announce)
+        reply(QStringLiteral("%1 Treffer für „%2“.")
+                  .arg(hits)
+                  .arg(intent.query),
+              intent.spokenReply);
       break;
     }
     case BlopAssistantAction::ShowLibrary:
-      reply(QStringLiteral("%1 Notizen: %2")
-                .arg(m_notes.size())
-                .arg(m_notes.join(QStringLiteral(", "))),
-            intent.spokenReply);
+      result = m_notes.join(QStringLiteral(", "));
+      if (announce)
+        reply(QStringLiteral("%1 Notizen: %2")
+                  .arg(m_notes.size())
+                  .arg(m_notes.join(QStringLiteral(", "))),
+              intent.spokenReply);
       break;
     case BlopAssistantAction::OpenUrl:
-      if (!QDesktopServices::openUrl(intent.url))
-        reply(QStringLiteral("Browser ging nicht auf."),
-              QStringLiteral("Der Browser geht gerade nicht."));
-      else
-        reply(QStringLiteral("Browser: %1").arg(intent.url.host()),
-              intent.spokenReply);
+      if (!QDesktopServices::openUrl(intent.url)) {
+        result = QStringLiteral("browser fehlgeschlagen");
+        if (announce)
+          reply(QStringLiteral("Der Browser will gerade nicht."),
+                QStringLiteral("Der Browser geht gerade nicht."));
+      } else {
+        result = QStringLiteral("browser geöffnet: %1").arg(intent.url.host());
+        if (announce)
+          reply(QStringLiteral("Ist offen: %1.").arg(intent.url.host()),
+                intent.spokenReply);
+      }
       break;
     case BlopAssistantAction::LaunchApp:
-      if (!launchApp(intent.appName))
-        reply(QStringLiteral("„%1“ hab ich nicht gefunden.").arg(intent.appName),
-              QStringLiteral("Die App hab ich nicht gefunden."));
-      else
-        reply(QStringLiteral("Gestartet: %1").arg(intent.appName),
-              intent.spokenReply);
+      if (!launchApp(intent.appName)) {
+        result = QStringLiteral("app nicht gefunden");
+        if (announce)
+          reply(QStringLiteral("„%1“ hab ich nicht gefunden.")
+                    .arg(intent.appName),
+                QStringLiteral("Die App hab ich nicht gefunden."));
+      } else {
+        result = QStringLiteral("gestartet: %1").arg(intent.appName);
+        if (announce)
+          reply(QStringLiteral("Läuft: %1.").arg(intent.appName),
+                intent.spokenReply);
+      }
       break;
     case BlopAssistantAction::Help:
-      reply(BlopAssistantEngine::helpText(), intent.spokenReply);
+      result = QStringLiteral("hilfe");
+      if (announce)
+        reply(BlopAssistantEngine::helpText(), intent.spokenReply);
+      break;
+    case BlopAssistantAction::Talk:
+      result = QStringLiteral("talk");
+      if (announce)
+        reply(intent.statusLine, intent.spokenReply);
       break;
     case BlopAssistantAction::Unknown:
     default:
-      reply(intent.statusLine, intent.spokenReply);
+      result = QStringLiteral("unbekannt");
+      if (announce)
+        reply(intent.statusLine, intent.spokenReply);
       break;
     }
+    return result;
   }
 
   BlopAssistantOverlay *m_notch{nullptr};
   BlopAssistantSettingsDialog *m_settings{nullptr};
+  BlopAssistantLlm *m_llm{nullptr};
   QList<QShortcut *> m_shortcuts;
   QStringList m_notes;
   BlopAssistantIntent m_pending;

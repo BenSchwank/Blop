@@ -6,6 +6,7 @@ class QCheckBox;
 class QComboBox;
 class QKeySequenceEdit;
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QShowEvent;
 class QSlider;
@@ -33,5 +34,10 @@ private:
   QSlider *m_rate{nullptr};
   QLabel *m_rateValue{nullptr};
   QComboBox *m_voice{nullptr};
+  QCheckBox *m_llmOn{nullptr};
+  QLineEdit *m_llmKey{nullptr};
+  QComboBox *m_llmPreset{nullptr};
+  QLineEdit *m_llmUrl{nullptr};
+  QLineEdit *m_llmModel{nullptr};
   QPushButton *m_closeBtn{nullptr};
 };

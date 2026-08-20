@@ -14,6 +14,7 @@ enum class BlopAssistantAction {
   OpenUrl,
   LaunchApp,
   Help,
+  Talk,
   Unknown
 };
 
@@ -34,4 +35,6 @@ class BlopAssistantEngine {
 public:
   static BlopAssistantIntent parse(const QString &utterance);
   static QString helpText();
+  static BlopAssistantIntent talk(const QString &text,
+                                  const QString &spoken = QString());
 };

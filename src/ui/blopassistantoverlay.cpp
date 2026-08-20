@@ -153,7 +153,7 @@ void BlopAssistantOverlay::buildUi() {
   lay->addLayout(top);
 
   m_empty = new QLabel(
-      QStringLiteral("Schreib etwas, oder halt Push-to-talk."), m_chat);
+      QStringLiteral("Frag mich irgendwas. Oder halt Push-to-talk."), m_chat);
   m_empty->setObjectName(QStringLiteral("BlopAssistantEmpty"));
   m_empty->setWordWrap(true);
   m_empty->setAlignment(Qt::AlignCenter);
@@ -181,16 +181,16 @@ void BlopAssistantOverlay::buildUi() {
   auto *ex = new QHBoxLayout(m_examples);
   ex->setContentsMargins(0, 0, 0, 0);
   ex->setSpacing(UiScale::dp(6));
-  const QStringList chips = {QStringLiteral("Notiz"), QStringLiteral("YouTube"),
-                             QStringLiteral("Hilfe")};
+  const QStringList chips = {QStringLiteral("Hallo"), QStringLiteral("Notiz"),
+                             QStringLiteral("YouTube")};
   for (const QString &c : chips) {
     auto *b = new QPushButton(c, m_examples);
     b->setCursor(Qt::PointingHandCursor);
     b->setFlat(true);
     b->setObjectName(QStringLiteral("BlopAssistantChip"));
     connect(b, &QPushButton::clicked, this, [this, c]() {
-      if (c == QLatin1String("Hilfe")) {
-        m_input->setText(QStringLiteral("Hilfe"));
+      if (c == QLatin1String("Hallo")) {
+        m_input->setText(QStringLiteral("hallo"));
         submitCurrent();
         return;
       }
@@ -231,7 +231,7 @@ void BlopAssistantOverlay::buildUi() {
   row->setSpacing(UiScale::dp(6));
   m_input = new QLineEdit(m_chat);
   m_input->setObjectName(QStringLiteral("BlopAssistantInput"));
-  m_input->setPlaceholderText(QStringLiteral("Nachricht…"));
+  m_input->setPlaceholderText(QStringLiteral("Frag Blop…"));
   m_micBtn = makeIconBtn(m_chat, QStringLiteral("Mikrofon"));
   m_micBtn->setObjectName(QStringLiteral("BlopAssistantMic"));
   m_micBtn->setText(QStringLiteral("●"));
@@ -405,6 +405,22 @@ void BlopAssistantOverlay::setStatus(const QString &text) {
 void BlopAssistantOverlay::setHeadline(const QString &text) {
   if (m_title)
     m_title->setText(text);
+}
+
+void BlopAssistantOverlay::setEmptyHint(const QString &text) {
+  if (m_empty)
+    m_empty->setText(text);
+}
+
+void BlopAssistantOverlay::setBusy(bool busy) {
+  if (m_input)
+    m_input->setEnabled(!busy);
+  if (m_sendBtn)
+    m_sendBtn->setEnabled(!busy);
+  if (busy)
+    setStatus(QStringLiteral("Ich denk kurz nach…"));
+  else if (m_hint && m_hint->text().contains(QLatin1String("denk kurz")))
+    setStatus(QString());
 }
 
 void BlopAssistantOverlay::focusInput() {

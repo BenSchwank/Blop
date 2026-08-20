@@ -38,6 +38,8 @@ public:
   void clearConfirm();
   void addUserMessage(const QString &text);
   void addAssistantMessage(const QString &text);
+  void setEmptyHint(const QString &text);
+  void setBusy(bool busy);
   void startPushToTalk();
   void endPushToTalk();
 
