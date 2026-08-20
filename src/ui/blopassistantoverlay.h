@@ -103,6 +103,7 @@ private:
   bool m_standalone{false};
   bool m_pressOnNotch{false};
   bool m_cloudHover{false};
+  bool m_forwardingKey{false};
   QVariantAnimation *m_hoverAnim{nullptr};
   QPropertyAnimation *m_geoAnim{nullptr};
   QTimer *m_hoverPoll{nullptr};

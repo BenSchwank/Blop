@@ -3,6 +3,8 @@
 #include "uiscale.h"
 
 #include <QAbstractAnimation>
+#include <QApplication>
+#include <QCoreApplication>
 #include <QCursor>
 #include <QEasingCurve>
 #include <QEnterEvent>
@@ -366,6 +368,10 @@ void BlopAssistantOverlay::buildUi() {
   m_input = new QLineEdit(m_chat);
   m_input->setObjectName(QStringLiteral("BlopAssistantInput"));
   m_input->setPlaceholderText(QStringLiteral("Frag Blop…"));
+  m_input->setFocusPolicy(Qt::StrongFocus);
+  m_input->setReadOnly(false);
+  m_input->setEnabled(true);
+  m_input->setAttribute(Qt::WA_InputMethodEnabled, true);
   m_micBtn = makeIconBtn(m_chat, QStringLiteral("Mikrofon"));
   m_micBtn->setObjectName(QStringLiteral("BlopAssistantMic"));
   m_micBtn->setText(QStringLiteral("●"));
@@ -544,6 +550,8 @@ void BlopAssistantOverlay::applyWindowGeometry(const QRect &target, bool animate
       setFixedSize(m_pendingGeom.size());
       move(m_pendingGeom.topLeft());
       updateCollapsedMask();
+      if (m_expanded)
+        focusInput();
     });
   }
   m_geoAnim->stop();
@@ -617,9 +625,10 @@ void BlopAssistantOverlay::setExpanded(bool expanded) {
     raise();
     if (expanded) {
       activateWindow();
-      grabKeyboard();
       focusInput();
     } else {
+      if (m_input)
+        m_input->releaseKeyboard();
       releaseKeyboard();
     }
     return;
@@ -663,9 +672,18 @@ void BlopAssistantOverlay::setBusy(bool busy) {
 }
 
 void BlopAssistantOverlay::focusInput() {
-  if (m_input && m_expanded) {
+  if (!m_input || !m_expanded)
+    return;
+  // Overlay grab swallows WM_CHAR / key events — caret blinks, typing dies.
+  releaseKeyboard();
+  m_input->setFocus(Qt::OtherFocusReason);
+  m_input->grabKeyboard();
+  QTimer::singleShot(0, this, [this]() {
+    if (!m_expanded || !m_input)
+      return;
     m_input->setFocus(Qt::OtherFocusReason);
-  }
+    m_input->grabKeyboard();
+  });
 }
 
 void BlopAssistantOverlay::refreshChrome() {
@@ -805,6 +823,19 @@ void BlopAssistantOverlay::keyPressEvent(QKeyEvent *event) {
       return;
     }
     setExpanded(false);
+    event->accept();
+    return;
+  }
+  if (m_expanded && m_input && !m_forwardingKey) {
+    if (QApplication::focusWidget() != m_input)
+      m_input->setFocus(Qt::OtherFocusReason);
+    m_forwardingKey = true;
+    QKeyEvent copy(event->type(), event->key(), event->modifiers(),
+                   event->nativeScanCode(), event->nativeVirtualKey(),
+                   event->nativeModifiers(), event->text(),
+                   event->isAutoRepeat(), event->count());
+    QCoreApplication::sendEvent(m_input, &copy);
+    m_forwardingKey = false;
     event->accept();
     return;
   }
