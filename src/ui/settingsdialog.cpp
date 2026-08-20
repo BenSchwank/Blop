@@ -1,6 +1,5 @@
 #include "settingsdialog.h"
 #include "cloudstoragestore.h"
-#include "cloudwebexplorer.h"
 #include "storageprefs.h"
 #include "uiprofilemanager.h"
 #include "blop_inwindow_menu.h"
@@ -34,12 +33,14 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScrollArea>
+#include <QSettings>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QStandardPaths>
 #include <QTabBar>
 #include <QToolButton>
 #include <QUrl>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
 #include <functional>
@@ -434,14 +435,28 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     avatar->setText(initial);
     heroLay->addWidget(avatar);
 
+    const QSettings accountSt(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    const QString studyUser =
+        accountSt.value(QStringLiteral("username")).toString().trimmed();
+    const QString studySid =
+        accountSt.value(QStringLiteral("session_id")).toString().trimmed();
+    const bool studyLoggedIn = !studyUser.isEmpty() && !studySid.isEmpty();
+
     auto *heroText = new QVBoxLayout();
     heroText->setContentsMargins(0, 0, 0, 0);
     heroText->setSpacing(2);
-    auto *heroName = new QLabel(currentP.name.isEmpty() ? QStringLiteral("Blop") : currentP.name, hero);
+    auto *heroName = new QLabel(studyLoggedIn ? studyUser
+                                              : (currentP.name.isEmpty()
+                                                     ? QStringLiteral("Blop")
+                                                     : currentP.name),
+                                hero);
     setThemedQss(heroName, QStringLiteral(
         "color: #ECEEFD; %1 background: transparent;")
         .arg(BlopTheme::typeQss(BlopTheme::TextRole::TitleLarge)));
-    auto *heroSub = new QLabel(QStringLiteral("Aktives UI-Profil"), hero);
+    auto *heroSub = new QLabel(
+        studyLoggedIn ? QStringLiteral("Angemeldet bei Study")
+                      : QStringLiteral("Nicht angemeldet"),
+        hero);
     setThemedQss(heroSub, QStringLiteral(
         "color: rgba(180, 188, 215, 0.70); %1 background: transparent;")
         .arg(BlopTheme::typeQss(BlopTheme::TextRole::LabelLarge)));
@@ -521,9 +536,77 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // ----- Card: Konto --------------------------------------------------
     auto *cardKonto = new BlopSettingsCard(
         QStringLiteral("Konto"),
-        QStringLiteral("Profil verwalten, abmelden"),
+        studyLoggedIn ? QStringLiteral("Profil und Abmeldung")
+                      : QStringLiteral("Anmelden oder registrieren"),
         contentWidget);
     {
+        auto closeAfterAccountAction = [this, phoneUi]() {
+            if (phoneUi)
+                accept();
+        };
+
+        if (!studyLoggedIn) {
+            auto *hint = new QLabel(
+                QStringLiteral(
+                    "Melde dich bei Study an, um Notizen zu teilen. "
+                    "Google öffnet den sicheren System-Login — "
+                    "E-Mail und Registrierung laufen in Blop."),
+                cardKonto);
+            hint->setWordWrap(true);
+            setThemedQss(hint, QStringLiteral(
+                "color: rgba(180, 188, 215, 0.88); font-size: 13px;"
+                "background: transparent; padding: 2px 0 8px 0;"));
+            cardKonto->addBodyWidget(hint);
+
+            auto *btnLogin = new QPushButton(QStringLiteral("Anmelden"), cardKonto);
+            btnLogin->setCursor(Qt::PointingHandCursor);
+            btnLogin->setMinimumHeight(phoneUi ? UiScale::dp(46) : 42);
+            setTokenQss(btnLogin, "primary");
+            connect(btnLogin, &QPushButton::clicked, this, [this, closeAfterAccountAction]() {
+                emit studyLoginRequested();
+                closeAfterAccountAction();
+            });
+            BlopRipple::attachPressFeedback(btnLogin, 0.92);
+            cardKonto->addBodyWidget(btnLogin);
+
+            auto *btnRegister = new QPushButton(QStringLiteral("Registrieren"), cardKonto);
+            btnRegister->setCursor(Qt::PointingHandCursor);
+            btnRegister->setMinimumHeight(phoneUi ? UiScale::dp(46) : 42);
+            setTokenQss(btnRegister, "secondary");
+            connect(btnRegister, &QPushButton::clicked, this,
+                    [this, closeAfterAccountAction]() {
+                      emit studyRegisterRequested();
+                      closeAfterAccountAction();
+                    });
+            BlopRipple::attachPressFeedback(btnRegister, 0.92);
+            cardKonto->addBodyWidget(btnRegister);
+
+            auto *btnGoogle = new QPushButton(QStringLiteral("Mit Google anmelden"),
+                                              cardKonto);
+            btnGoogle->setCursor(Qt::PointingHandCursor);
+            btnGoogle->setMinimumHeight(phoneUi ? UiScale::dp(46) : 42);
+            setThemedQss(btnGoogle, QStringLiteral(
+                "QPushButton { background-color: #4285F4; color: white;"
+                "  border: none; border-radius: 10px;"
+                "  padding: 11px 14px; text-align: center; font-weight: 700; }"
+                "QPushButton:hover { background-color: #3367D6; }"));
+            connect(btnGoogle, &QPushButton::clicked, this,
+                    [this, closeAfterAccountAction]() {
+                      emit googleLoginRequested();
+                      closeAfterAccountAction();
+                    });
+            BlopRipple::attachPressFeedback(btnGoogle, 0.92);
+            cardKonto->addBodyWidget(btnGoogle);
+        } else {
+            auto *who = new QLabel(
+                QStringLiteral("Angemeldet als %1").arg(studyUser), cardKonto);
+            who->setWordWrap(true);
+            setThemedQss(who, QStringLiteral(
+                "color: #ECEEFD; font-size: 14px; font-weight: 600;"
+                "background: transparent; padding: 2px 0 8px 0;"));
+            cardKonto->addBodyWidget(who);
+        }
+
         auto *btnEdit = new QPushButton(
             QStringLiteral("Aktuelles Profil bearbeiten"), cardKonto);
         btnEdit->setCursor(Qt::PointingHandCursor);
@@ -539,21 +622,23 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         BlopRipple::attachPressFeedback(btnEdit, 0.92);
         cardKonto->addBodyWidget(btnEdit);
 
-        auto *btnLogout = new QPushButton(
-            QStringLiteral("Abmelden"), cardKonto);
-        btnLogout->setCursor(Qt::PointingHandCursor);
-        setThemedQss(btnLogout, QStringLiteral(
-            "QPushButton { background-color: rgba(180,40,40,0.18); color: #FF6B6B;"
-            "  border: 1px solid rgba(200,60,60,0.45); border-radius: 10px;"
-            "  padding: 11px 14px; text-align: left; font-weight: 600; }"
-            "QPushButton:hover { background-color: rgba(200,50,50,0.32);"
-            "  border-color: rgba(220,80,80,0.75); }"));
-        connect(btnLogout, &QPushButton::clicked, this, [this]() {
-            emit logoutRequested();
-            accept();
-        });
-        BlopRipple::attachPressFeedback(btnLogout, 0.92);
-        cardKonto->addBodyWidget(btnLogout);
+        if (studyLoggedIn) {
+            auto *btnLogout = new QPushButton(
+                QStringLiteral("Abmelden"), cardKonto);
+            btnLogout->setCursor(Qt::PointingHandCursor);
+            setThemedQss(btnLogout, QStringLiteral(
+                "QPushButton { background-color: rgba(180,40,40,0.18); color: #FF6B6B;"
+                "  border: 1px solid rgba(200,60,60,0.45); border-radius: 10px;"
+                "  padding: 11px 14px; text-align: left; font-weight: 600; }"
+                "QPushButton:hover { background-color: rgba(200,50,50,0.32);"
+                "  border-color: rgba(220,80,80,0.75); }"));
+            connect(btnLogout, &QPushButton::clicked, this, [this]() {
+                emit logoutRequested();
+                accept();
+            });
+            BlopRipple::attachPressFeedback(btnLogout, 0.92);
+            cardKonto->addBodyWidget(btnLogout);
+        }
     }
 
     // ----- Card: Darstellung (Light/Dark Mode) --------------------------
@@ -812,10 +897,16 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // Notes stay on the filesystem. Supabase is never the note store.
     auto *cardStorage = new BlopSettingsCard(
         QStringLiteral("Speicher"),
-        QStringLiteral("Lokal, Cloud oder beides — ohne Supabase-Notizen"),
+        QStringLiteral("Notizen lokal — Clouds öffnen in Blop, nicht in Chrome"),
         contentWidget);
     {
         StoragePrefs::ensureLocalLibraryRoot();
+
+        auto requestCloud = [this, phoneUi](CloudStorageEntry e) {
+            emit cloudExplorerRequested(e.id, e.type, e.name, e.webUrl);
+            if (phoneUi)
+                accept();
+        };
 
         auto *hint = new QLabel(StoragePrefs::modeHint(StoragePrefs::mode()),
                                 cardStorage);
@@ -938,12 +1029,16 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                   QPushButton *autoBtn, QPushButton *manualBtn,
                                   QPushButton *primaryBtn) {
             const bool linked = StoragePrefs::isProviderLinked(providerId);
+            bool webOk = false;
+            QVector<CloudStorageEntry> rows = CloudStorageStore::load();
+            if (CloudStorageEntry *cur =
+                    CloudStorageStore::findMutable(rows, providerId))
+                webOk = cur->webConnected;
             name->setText(QStringLiteral("%1%2").arg(
                 displayName,
-                linked ? QStringLiteral(" · verknüpft")
-                       : QStringLiteral(" · nicht verknüpft")));
-            autoBtn->setText(linked ? QStringLiteral("Öffnen")
-                                    : QStringLiteral("Anmelden"));
+                (linked || webOk) ? QStringLiteral(" · verbunden")
+                                  : QStringLiteral(" · in Blop anmelden")));
+            autoBtn->setText(QStringLiteral("In Blop öffnen"));
             if (manualBtn)
                 manualBtn->setVisible(true);
             if (manualBtn)
@@ -1095,7 +1190,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
             QObject::connect(btnAuto, &QPushButton::clicked, this,
                              [this, id, displayName, name, btnAuto, btnManual,
-                              btnPrimary, refreshCloudRow,
+                              btnPrimary, refreshCloudRow, requestCloud,
                               syncPrimaryLabels]() {
                                  QVector<CloudStorageEntry> entries =
                                      CloudStorageStore::load();
@@ -1109,7 +1204,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                    e.name = displayName;
                                    e.type = id;
                                  }
-                                 CloudWebExplorer::showOver(this, e);
+                                 requestCloud(e);
                                  refreshCloudRow(id, displayName, name, btnAuto,
                                                  btnManual, btnPrimary);
                                  syncPrimaryLabels(btnPrimary);
@@ -1172,7 +1267,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             btnConnectDrive, &QPushButton::clicked, this,
             [this, btnConnectDrive, driveListName, driveListAutoBtn,
              driveListManualBtn, driveListPrimaryBtn, refreshCloudRow,
-             syncPrimaryLabels]() {
+             requestCloud, syncPrimaryLabels]() {
                 QVector<CloudStorageEntry> entries = CloudStorageStore::load();
                 CloudStorageEntry e;
                 if (CloudStorageEntry *found = CloudStorageStore::findMutable(
@@ -1183,7 +1278,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                   e.type = e.id;
                   e.name = QStringLiteral("Google Drive");
                 }
-                CloudWebExplorer::showOver(this, e);
+                requestCloud(e);
                 btnConnectDrive->setText(QStringLiteral("Google Drive öffnen"));
                 if (driveListName)
                     refreshCloudRow(QStringLiteral("googledrive"),
@@ -1217,6 +1312,55 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                     syncPrimaryLabels(driveListPrimaryBtn);
                 emit storagePrefsChanged();
             });
+
+        auto *customHdr = new QLabel(QStringLiteral("Eigene Cloud einbetten"),
+                                     cardStorage);
+        setThemedQss(customHdr, QStringLiteral(
+            "color: rgba(200, 208, 235, 0.92); font-size: 12px; font-weight: 600;"
+            "background: transparent; padding-top: 10px;"));
+        cardStorage->addBodyWidget(customHdr);
+        auto *customHint = new QLabel(
+            QStringLiteral(
+                "Nextcloud, Owncloud oder eine andere Web-Adresse — "
+                "wird in Blop geöffnet, wie Study."),
+            cardStorage);
+        customHint->setWordWrap(true);
+        setThemedQss(customHint, QStringLiteral(
+            "color: rgba(160, 168, 195, 0.90); font-size: 12px;"
+            "background: transparent;"));
+        cardStorage->addBodyWidget(customHint);
+        auto *customUrl = new QLineEdit(cardStorage);
+        customUrl->setPlaceholderText(QStringLiteral("https://cloud.example.com"));
+        customUrl->setMinimumHeight(phoneUi ? UiScale::dp(42) : 40);
+        setTokenQss(customUrl, "input");
+        cardStorage->addBodyWidget(customUrl);
+        auto *customName = new QLineEdit(cardStorage);
+        customName->setPlaceholderText(QStringLiteral("Name (optional)"));
+        customName->setMinimumHeight(phoneUi ? UiScale::dp(42) : 40);
+        setTokenQss(customName, "input");
+        cardStorage->addBodyWidget(customName);
+        auto *btnEmbed = new QPushButton(QStringLiteral("In Blop öffnen"),
+                                         cardStorage);
+        btnEmbed->setCursor(Qt::PointingHandCursor);
+        btnEmbed->setMinimumHeight(phoneUi ? UiScale::dp(44) : 40);
+        setTokenQss(btnEmbed, "primary");
+        BlopRipple::attachPressFeedback(btnEmbed, 0.92);
+        connect(btnEmbed, &QPushButton::clicked, this,
+                [this, customUrl, customName, requestCloud]() {
+                  const QString typed = customUrl->text().trimmed();
+                  if (typed.isEmpty())
+                    return;
+                  CloudStorageEntry e;
+                  e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                  e.type = QStringLiteral("custom");
+                  e.name = customName->text().trimmed().isEmpty()
+                               ? QStringLiteral("Eigene Cloud")
+                               : customName->text().trimmed();
+                  e.webUrl = QUrl::fromUserInput(typed).toString();
+                  CloudStorageStore::upsert(e);
+                  requestCloud(e);
+                });
+        cardStorage->addBodyWidget(btnEmbed);
     }
 
     // ----- Card: Erweitert ----------------------------------------------
@@ -1264,8 +1408,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto *stack = new QVBoxLayout();
         stack->setContentsMargins(0, 0, 0, 0);
         stack->setSpacing(cardGap);
-        for (BlopSettingsCard *c : {cardKonto, cardTheme, cardLook, cardBehavior,
-                                    cardStorage, cardAdv})
+        for (BlopSettingsCard *c : {cardKonto, cardStorage, cardTheme, cardLook,
+                                    cardBehavior, cardAdv})
             stack->addWidget(c);
         hostLay->addLayout(stack, 0);
     } else {

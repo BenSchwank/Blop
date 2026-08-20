@@ -69,6 +69,11 @@ Rectangle {
     property string bookmarkDraftUrl: ""
     property string bookmarkDraftTitle: ""
     property string bookmarkAddError: ""
+    // In-app cloud explorer (Drive / OneDrive / Dropbox / Nextcloud / custom).
+    // Reuses this WebView SurfaceView so Chrome is never launched.
+    property bool cloudBrowserMode: false
+    property string cloudBrowserTitle: "Cloud"
+    property string pendingOverrideUrl: ""
     // v3.18.5: gate the heavy WebView Loader on tabActive. When the user
     // is on the Notes tab, the QtWebView/SurfaceView competes with the
     // canvas for GPU and was reported as the main cause of v3.18.x
@@ -193,6 +198,8 @@ Rectangle {
         oauthPendingSinceMs = 0
         if (bookmarkSheetOpen)
             closeBookmarkSheet()
+        if (cloudBrowserMode)
+            cloudBrowserMode = false
         webviewRecreatePending = false
         firstLoadDone = false
         // Do NOT assign studyWebLoader.active imperatively — that would break
@@ -297,15 +304,21 @@ Rectangle {
     }
 
     // Called from C++ (MainWindow::invokeAndroidWebDestination) — must match invokeMethod name.
+    // kind 0: Study home + SSO
+    // kind 1: custom bookmark URL, no SSO
+    // kind 2: Study login/register URL + SSO
+    // kind 3: in-app cloud browser, no SSO
     function setWebDestination(kind, urlStr) {
         var k = Number(kind)
+        if (k === 3) {
+            openCloudBrowser(urlStr, cloudBrowserTitle)
+            return
+        }
+        cloudBrowserMode = false
         if (k === 0) {
             ssoPollingEnabled = true
             oauthPending = false
-            // v3.18.9: do NOT pre-mark firstLoadDone here. The flag is the
-            // single trigger that hides the startupLoadingOverlay and
-            // disables surfaceUpWatchdog; both must remain active until
-            // onLoadingChanged reports LoadSucceededStatus for a real URL.
+            pendingOverrideUrl = ""
             cacheMissRecoveryArmed = true
             cacheMissRecoveryCount = 0
             webViewRecreateCount = 0
@@ -315,15 +328,64 @@ Rectangle {
             nativeFullResetPending = false
             loadStudyEntryFresh("setWebDestination", true)
             applyAuthUiScale()
+        } else if (k === 2) {
+            ssoPollingEnabled = true
+            oauthPending = false
+            pendingOverrideUrl = urlStr ? String(urlStr) : ""
+            cacheMissRecoveryArmed = true
+            cacheMissRecoveryCount = 0
+            if (pendingOverrideUrl.length > 0)
+                loadOverrideUrl("setWebDestination:login")
+            else
+                loadStudyEntryFresh("setWebDestination:loginEmpty", true)
+            applyAuthUiScale()
         } else {
             ssoPollingEnabled = false
             oauthPending = false
+            pendingOverrideUrl = ""
             if (urlStr && String(urlStr).length > 0) {
                 var w1 = studyWeb()
                 if (w1)
                     w1.url = urlStr
             }
         }
+    }
+
+    function loadOverrideUrl(reason) {
+        var w = studyWeb()
+        if (!w || !pendingOverrideUrl || pendingOverrideUrl.length === 0) {
+            console.warn("BlopStudy: loadOverrideUrl skipped", "reason=", reason,
+                         "hasWeb=", !!w, "url=", pendingOverrideUrl)
+            return
+        }
+        console.log("BlopStudy: loadOverrideUrl", "reason=", reason, "url=", pendingOverrideUrl)
+        w.url = pendingOverrideUrl
+    }
+
+    function openCloudBrowser(urlStr, titleStr) {
+        cloudBrowserMode = true
+        cloudBrowserTitle = titleStr && String(titleStr).length > 0 ? String(titleStr) : "Cloud"
+        pendingOverrideUrl = urlStr ? String(urlStr) : ""
+        ssoPollingEnabled = false
+        oauthPending = false
+        studyLoadFailed = false
+        studyLoadFailedReason = ""
+        firstLoadDone = true
+        if (typeof blopAppBridge !== "undefined" && blopAppBridge.notifyStudyFirstLoadDone)
+            blopAppBridge.notifyStudyFirstLoadDone()
+        requestSurfaceActivation("cloudBrowser")
+        var w = studyWeb()
+        if (w && pendingOverrideUrl.length > 0)
+            w.url = pendingOverrideUrl
+        console.log("BlopStudy: openCloudBrowser", "title=", cloudBrowserTitle, "url=", pendingOverrideUrl)
+    }
+
+    function closeCloudBrowserFromUi() {
+        cloudBrowserMode = false
+        pendingOverrideUrl = ""
+        ssoPollingEnabled = true
+        if (typeof blopAppBridge !== "undefined" && blopAppBridge.closeCloudBrowser)
+            blopAppBridge.closeCloudBrowser()
     }
 
     function refreshBookmarkModel() {
@@ -688,6 +750,115 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        id: cloudChromeBar
+        visible: cloudBrowserMode
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: cloudBrowserMode ? Math.round(52 * uiScale) : 0
+        color: "#1A1829"
+        z: 30
+
+        Row {
+            anchors.fill: parent
+            anchors.leftMargin: Math.round(8 * uiScale)
+            anchors.rightMargin: Math.round(8 * uiScale)
+            spacing: Math.round(6 * uiScale)
+
+            Rectangle {
+                width: Math.round(36 * uiScale)
+                height: Math.round(36 * uiScale)
+                anchors.verticalCenter: parent.verticalCenter
+                radius: Math.round(8 * uiScale)
+                color: "transparent"
+                Text {
+                    anchors.centerIn: parent
+                    text: "‹"
+                    color: "#E8E4FF"
+                    font.pixelSize: Math.round(22 * uiScale)
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        var w = studyWeb()
+                        if (w && w.canGoBack)
+                            w.goBack()
+                    }
+                }
+            }
+            Rectangle {
+                width: Math.round(36 * uiScale)
+                height: Math.round(36 * uiScale)
+                anchors.verticalCenter: parent.verticalCenter
+                radius: Math.round(8 * uiScale)
+                color: "transparent"
+                Text {
+                    anchors.centerIn: parent
+                    text: "›"
+                    color: "#E8E4FF"
+                    font.pixelSize: Math.round(22 * uiScale)
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        var w = studyWeb()
+                        if (w && w.canGoForward)
+                            w.goForward()
+                    }
+                }
+            }
+            Rectangle {
+                width: Math.round(36 * uiScale)
+                height: Math.round(36 * uiScale)
+                anchors.verticalCenter: parent.verticalCenter
+                radius: Math.round(8 * uiScale)
+                color: "transparent"
+                Text {
+                    anchors.centerIn: parent
+                    text: "↻"
+                    color: "#E8E4FF"
+                    font.pixelSize: Math.round(16 * uiScale)
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        var w = studyWeb()
+                        if (w)
+                            w.reload()
+                    }
+                }
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(40, parent.width - Math.round(200 * uiScale))
+                elide: Text.ElideRight
+                text: cloudBrowserTitle
+                color: "#F4F2FF"
+                font.bold: true
+                font.pixelSize: Math.round(14 * uiScale)
+            }
+            Rectangle {
+                width: Math.round(72 * uiScale)
+                height: Math.round(32 * uiScale)
+                anchors.verticalCenter: parent.verticalCenter
+                radius: Math.round(10 * uiScale)
+                color: "#7C5CFC"
+                Text {
+                    anchors.centerIn: parent
+                    text: "Fertig"
+                    color: "white"
+                    font.bold: true
+                    font.pixelSize: Math.round(13 * uiScale)
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: closeCloudBrowserFromUi()
+                }
+            }
+        }
+    }
+
     Component {
         id: studyWebViewComponent
         WebView {
@@ -744,8 +915,10 @@ Rectangle {
                         pendingInjectJs = ""
                         embeddedStudyWebView.runJavaScript(jsToRun)
                     }
-                    studyRoot.installNativeLoginBridge()
-                    studyRoot.applyAuthUiScale()
+                    if (studyRoot.ssoPollingEnabled) {
+                        studyRoot.installNativeLoginBridge()
+                        studyRoot.applyAuthUiScale()
+                    }
                 }
 
                 if (isFailed && errorText.indexOf("ERR_CACHE_MISS") !== -1 && studyRoot.cacheMissRecoveryArmed) {
@@ -798,9 +971,11 @@ Rectangle {
                             (Date.now() - studyRoot.oauthPendingSinceMs) < 120000
                     if (!oauthFresh) {
                         studyRoot.oauthPending = false
-                        studyRoot.applyAuthUiScale()
+                        if (studyRoot.ssoPollingEnabled)
+                            studyRoot.applyAuthUiScale()
                     }
-                    studyRoot.installNativeLoginBridge()
+                    if (studyRoot.ssoPollingEnabled)
+                        studyRoot.installNativeLoginBridge()
                 }
             }
         }
@@ -821,7 +996,8 @@ Rectangle {
 
     Loader {
         id: studyWebLoader
-        anchors.top: showQmlTopBar ? qmlTopBar.bottom : parent.top
+        anchors.top: cloudBrowserMode ? cloudChromeBar.bottom
+                                      : (showQmlTopBar ? qmlTopBar.bottom : parent.top)
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -855,6 +1031,14 @@ Rectangle {
         onLoaded: {
             console.log("BlopStudy: studyWebLoader onLoaded — item=", item)
             Qt.callLater(function () {
+                if (cloudBrowserMode && pendingOverrideUrl && pendingOverrideUrl.length > 0) {
+                    loadOverrideUrl("loaderOnLoaded:cloud")
+                    return
+                }
+                if (pendingOverrideUrl && pendingOverrideUrl.length > 0 && ssoPollingEnabled) {
+                    loadOverrideUrl("loaderOnLoaded:auth")
+                    return
+                }
                 if (ssoPollingEnabled) {
                     loadStudyEntryFresh("loaderOnLoaded", true)
                     // v3.18.9: firstLoadDone moved to onLoadingChanged

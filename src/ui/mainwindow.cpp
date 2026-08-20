@@ -25,6 +25,7 @@
 #include "overlayscrollindicator.h"
 #include "profileeditordialog.h"
 #include "settingsdialog.h"
+#include "phonelibrarynav.h"
 #include "editoroverlays.h"
 
 // --- WICHTIGE ZUSÄTZLICHE INCLUDES ---
@@ -2635,6 +2636,21 @@ void MainWindow::invokeAndroidWebDestination(int kind, const QString &url) {
   // JNI cache scheduling is handled by the guarded onModeChanged deferred path.
 }
 
+void MainWindow::invokeAndroidCloudBrowser(const QString &url,
+                                          const QString &title) {
+  if (!m_studyQQuickView)
+    return;
+  QObject *root = m_studyQQuickView->rootObject();
+  if (!root)
+    return;
+  root->setProperty("cloudBrowserTitle", title);
+  const bool ok = QMetaObject::invokeMethod(
+      root, "openCloudBrowser", Qt::QueuedConnection, Q_ARG(QVariant, url),
+      Q_ARG(QVariant, title));
+  if (!ok)
+    qWarning() << "QML openCloudBrowser invoke failed";
+}
+
 void MainWindow::dismissAndroidOAuthOverlay() {
   if (!m_androidOAuthOverlay)
     return;
@@ -2739,14 +2755,16 @@ void MainWindow::completeAndroidStudyTabEntry() {
   if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
     QObject *root = m_studyQQuickView->rootObject();
     qInfo() << "MainWindow: BlopStudy tab enter — ensureStudyLoaded()";
-    QMetaObject::invokeMethod(root, "ensureStudyLoaded");
+    if (m_pendingAndroidWebKind == 0)
+      QMetaObject::invokeMethod(root, "ensureStudyLoaded");
     if (m_authNavigationLocked) {
       QMetaObject::invokeMethod(
           root, "requestSurfaceActivation", Qt::QueuedConnection,
           Q_ARG(QVariant, QVariant(QStringLiteral("modeChanged"))));
     }
   }
-  invokeAndroidWebDestination(0);
+  if (m_pendingAndroidWebKind == 0)
+    invokeAndroidWebDestination(0);
   if (m_authNavigationLocked)
     setAndroidStudyBootOverlayVisible(true);
   else
@@ -3621,6 +3639,7 @@ void MainWindow::openSettingsWorkspace() {
 #endif
 #endif
   });
+  connectSettingsAccountActions(dlg);
   connect(dlg, &SettingsDialog::profileEditRequested, this,
           [this](const QString &id) {
             UiProfile p = m_profileManager->profileById(id);
@@ -5186,10 +5205,11 @@ void MainWindow::setupUi() {
       phoneLibrary ? UiScale::dp(12) : MARGIN_OVERVIEW + UiScale::dp(4),
       phoneLibrary ? UiScale::dp(12) : UiScale::dp(20),
       phoneLibrary ? UiScale::dp(12) : MARGIN_OVERVIEW + UiScale::dp(4),
-      UiScale::dp(phoneLibrary ? 16 : 28) + UiScale::androidBottomInsetPx(this));
+      UiScale::dp(phoneLibrary ? 72 : 28) + UiScale::androidBottomInsetPx(this));
 #else
-  overviewLayout->setContentsMargins(UiScale::dp(28), UiScale::dp(18),
-                                     UiScale::dp(28), UiScale::dp(24));
+  overviewLayout->setContentsMargins(
+      UiScale::dp(28), UiScale::dp(18), UiScale::dp(28),
+      UiScale::isAndroidPhoneUi(this) ? UiScale::dp(80) : UiScale::dp(24));
 #endif
 
   QHBoxLayout *overviewTopRow = new QHBoxLayout();
@@ -5609,6 +5629,9 @@ void MainWindow::setupUi() {
   libraryBodyLay->addWidget(libraryMain, 1);
   // Tags panel is hosted in the left Super sidebar (setupSidebar).
   overviewLayout->addWidget(libraryBody, 1);
+  setupPhoneLibraryNav();
+
+  m_editorContainer = new QWidget(this);
 
 
 
@@ -7152,14 +7175,24 @@ void MainWindow::onModeChanged(int index) {
                  << deferredModeIndex;
       return;
     }
-    if (deferredModeIndex == 1)
+    if (m_pendingAndroidWebKind == 3 && !m_pendingAndroidWebUrl.isEmpty()) {
+      invokeAndroidCloudBrowser(m_pendingAndroidWebUrl,
+                                m_pendingCloudBrowserTitle);
+      m_pendingAndroidWebKind = 0;
+      m_pendingAndroidWebUrl.clear();
+    } else if (m_pendingAndroidWebKind == 2 && !m_pendingAndroidWebUrl.isEmpty()) {
+      invokeAndroidWebDestination(2, m_pendingAndroidWebUrl);
+      m_pendingAndroidWebKind = 0;
+      m_pendingAndroidWebUrl.clear();
+    } else if (deferredModeIndex == 1) {
       invokeAndroidWebDestination(0);
-    else if (deferredModeIndex >= 2)
+    } else if (deferredModeIndex >= 2) {
       invokeAndroidWebDestination(1, m_modeSelector
                                          ? m_modeSelector->itemData(deferredModeIndex, Qt::UserRole)
                                                .toUrl()
                                                .toString()
                                          : QString());
+    }
     if (deferredModeIndex >= 1) {
       QTimer::singleShot(180, this, [this, deferredModeIndex]() {
         const int expectedStackNow = (deferredModeIndex <= 0) ? 0 : 1;
@@ -7469,6 +7502,8 @@ void MainWindow::updateSidebarUser(const QString &username) {
   // Update username text
   if (m_lblSidebarUser)
     m_lblSidebarUser->setText(username.isEmpty() ? "Gast" : username);
+  if (m_phoneLibraryNav)
+    m_phoneLibraryNav->setAccountName(username);
 
   // Persist for next app launch
   QSettings("Blop", "BlopApp").setValue("username", username);
@@ -7890,7 +7925,11 @@ void MainWindow::setupSidebar() {
             applyLibraryFilters();
             rebuildPageSettingsTags();
           });
-  midLay->addWidget(m_libraryTagsPanel, 0);
+  if (UiScale::isAndroidPhoneUi(this)) {
+    m_libraryTagsPanel->hide();
+  } else {
+    midLay->addWidget(m_libraryTagsPanel, 0);
+  }
   midScroll->setWidget(mid);
   layout->addWidget(midScroll, 1);
   QTimer::singleShot(0, mid, [mid]() {
@@ -10270,6 +10309,12 @@ void MainWindow::updateSidebarState() {
   }
 #endif
 
+  if (m_phoneLibraryNav) {
+    const bool showPill = UiScale::isAndroidPhoneUi(this) && inNotesMode &&
+                          !isEditor;
+    m_phoneLibraryNav->setPillVisible(showPill);
+  }
+
   m_lastIsEditor = isEditor;
 }
 
@@ -11706,6 +11751,232 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
   }
 }
 
+void MainWindow::connectSettingsAccountActions(SettingsDialog *dlg) {
+  if (!dlg)
+    return;
+  connect(dlg, &SettingsDialog::studyLoginRequested, this, [this]() {
+    QTimer::singleShot(80, this, [this]() {
+      openStudyAuthPage(QStringLiteral("/login"));
+    });
+  });
+  connect(dlg, &SettingsDialog::studyRegisterRequested, this, [this]() {
+    QTimer::singleShot(80, this, [this]() {
+      openStudyAuthPage(QStringLiteral("/register"));
+    });
+  });
+  connect(dlg, &SettingsDialog::googleLoginRequested, this, [this]() {
+    QTimer::singleShot(80, this, [this]() { requestGoogleLogin(); });
+  });
+  connect(dlg, &SettingsDialog::cloudExplorerRequested, this,
+          [this](const QString &id, const QString &type, const QString &name,
+                 const QString &webUrl) {
+            CloudStorageEntry e;
+            e.id = id;
+            e.type = type;
+            e.name = name;
+            e.webUrl = webUrl;
+            QTimer::singleShot(80, this, [this, e]() {
+              openEmbeddedCloudBrowser(e);
+            });
+          });
+}
+
+void MainWindow::openStudyAuthPage(const QString &path) {
+  const QString url = kBlopStudyUrl + path;
+  qInfo() << "MainWindow: openStudyAuthPage" << url;
+#ifdef Q_OS_ANDROID
+  m_pendingAndroidWebKind = 2;
+  m_pendingAndroidWebUrl = url;
+  m_pendingCloudBrowserTitle.clear();
+  if (m_modeSelector) {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(1);
+  }
+  onModeChanged(1);
+#else
+  if (m_modeSelector)
+    m_modeSelector->setCurrentIndex(1);
+#if defined(BLOP_HAS_WEBENGINE) && !defined(Q_OS_ANDROID)
+  QTimer::singleShot(120, this, [this, url]() {
+    if (m_studyWebView)
+      m_studyWebView->setUrl(QUrl(url));
+  });
+#endif
+#endif
+}
+
+void MainWindow::openEmbeddedCloudBrowser(const CloudStorageEntry &entry) {
+  CloudStorageEntry e = entry;
+  if ((e.type == QLatin1String("nextcloud") ||
+       e.type == QLatin1String("custom")) &&
+      e.webUrl.isEmpty()) {
+    const QString typed = BlopDialogs::promptText(
+        this, e.name.isEmpty() ? QStringLiteral("Cloud-Adresse") : e.name,
+        QStringLiteral("Web-Adresse (https://…):"), QStringLiteral("https://"));
+    if (typed.trimmed().isEmpty())
+      return;
+    e.webUrl = QUrl::fromUserInput(typed.trimmed()).toString();
+  }
+  if (e.webUrl.isEmpty())
+    e.webUrl = CloudStorageStore::defaultWebUrl(e.type);
+  if (e.webUrl.isEmpty())
+    return;
+  e.webConnected = true;
+  CloudStorageStore::upsert(e);
+
+#ifdef Q_OS_ANDROID
+  m_pendingAndroidWebKind = 3;
+  m_pendingAndroidWebUrl = e.webUrl;
+  m_pendingCloudBrowserTitle =
+      e.name.isEmpty() ? CloudStorageStore::displayNameForType(e.type) : e.name;
+  setAndroidStudyBootOverlayVisible(false);
+  if (m_modeSelector) {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(1);
+  }
+  onModeChanged(1);
+#else
+  CloudWebExplorer::showOver(this, e);
+#endif
+}
+
+void MainWindow::closeCloudBrowser() {
+#ifdef Q_OS_ANDROID
+  m_pendingAndroidWebKind = 0;
+  m_pendingAndroidWebUrl.clear();
+  m_pendingCloudBrowserTitle.clear();
+  if (m_modeSelector) {
+    QSignalBlocker b(m_modeSelector);
+    m_modeSelector->setCurrentIndex(0);
+  }
+  onModeChanged(0);
+#endif
+}
+
+void MainWindow::setupPhoneLibraryNav() {
+  if (!UiScale::isAndroidPhoneUi(this) || !m_overviewContainer)
+    return;
+  if (m_phoneLibraryNav)
+    return;
+  m_phoneLibraryNav = new PhoneLibraryNav(m_overviewContainer);
+  const QString user =
+      QSettings(QStringLiteral("Blop"), QStringLiteral("BlopApp"))
+          .value(QStringLiteral("username"))
+          .toString();
+  m_phoneLibraryNav->setAccountName(user);
+  connect(m_phoneLibraryNav, &PhoneLibraryNav::menuAction, this,
+          &MainWindow::onPhoneNavAction);
+  connect(m_phoneLibraryNav, &PhoneLibraryNav::searchChanged, this,
+          [this](const QString &q) {
+            if (m_overviewSearchBar)
+              m_overviewSearchBar->setText(q);
+          });
+  if (btnOverviewMenu) {
+    disconnect(btnOverviewMenu, &QAbstractButton::clicked, this,
+               &MainWindow::onToggleSidebar);
+    connect(btnOverviewMenu, &QAbstractButton::clicked, m_phoneLibraryNav,
+            &PhoneLibraryNav::openMenu);
+  }
+#ifdef Q_OS_ANDROID
+  if (m_btnAndroidToolbarMenu) {
+    disconnect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this,
+               &MainWindow::onToggleSidebar);
+    connect(m_btnAndroidToolbarMenu, &QAbstractButton::clicked, this, [this]() {
+      const bool inNotesMode =
+          m_mainContentStack && m_mainContentStack->currentIndex() == 0;
+      const bool inEditor =
+          inNotesMode && m_rightStack &&
+          m_rightStack->currentWidget() == m_editorContainer &&
+          !editorTabIsWorkspace(m_editorTabs ? m_editorTabs->currentWidget()
+                                             : nullptr);
+      if (inEditor || !m_phoneLibraryNav)
+        onToggleSidebar();
+      else
+        m_phoneLibraryNav->openMenu();
+    });
+  }
+#endif
+}
+
+void MainWindow::onPhoneNavAction(const QString &id) {
+  if (id == QLatin1String("notes")) {
+#ifdef Q_OS_ANDROID
+    if (m_modeSelector) {
+      QSignalBlocker b(m_modeSelector);
+      m_modeSelector->setCurrentIndex(0);
+    }
+#endif
+    onModeChanged(0);
+    return;
+  }
+  if (id == QLatin1String("study")) {
+#ifdef Q_OS_ANDROID
+    if (m_modeSelector) {
+      QSignalBlocker b(m_modeSelector);
+      m_modeSelector->setCurrentIndex(1);
+    }
+    onModeChanged(1);
+#else
+    if (m_modeSelector)
+      m_modeSelector->setCurrentIndex(1);
+#endif
+    return;
+  }
+  if (id == QLatin1String("device")) {
+    navigateLibraryToPath(m_rootPath);
+    return;
+  }
+  if (id == QLatin1String("tags")) {
+    showPhoneTagsSheet();
+    return;
+  }
+  if (id == QLatin1String("settings")) {
+    onOpenSettings();
+    return;
+  }
+  if (id == QLatin1String("cloud_add")) {
+    const QString typed = BlopDialogs::promptText(
+        this, QStringLiteral("Eigene Cloud"),
+        QStringLiteral("Web-Adresse (https://…):"), QStringLiteral("https://"));
+    if (typed.trimmed().isEmpty())
+      return;
+    CloudStorageEntry e;
+    e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    e.type = QStringLiteral("custom");
+    e.name = QStringLiteral("Eigene Cloud");
+    e.webUrl = QUrl::fromUserInput(typed.trimmed()).toString();
+    CloudStorageStore::upsert(e);
+    openEmbeddedCloudBrowser(e);
+    return;
+  }
+  if (id.startsWith(QLatin1String("cloud:"))) {
+    const QString cloudId = id.mid(6);
+    QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+    if (CloudStorageEntry *found =
+            CloudStorageStore::findMutable(entries, cloudId))
+      openEmbeddedCloudBrowser(*found);
+  }
+}
+
+void MainWindow::showPhoneTagsSheet() {
+  if (!m_libraryTagsPanel)
+    return;
+  QDialog dlg(this);
+  dlg.setWindowTitle(QStringLiteral("Tags"));
+  dlg.setModal(true);
+  auto *lay = new QVBoxLayout(&dlg);
+  lay->setContentsMargins(0, 0, 0, 0);
+  QWidget *oldParent = m_libraryTagsPanel->parentWidget();
+  m_libraryTagsPanel->setParent(&dlg);
+  m_libraryTagsPanel->setSidebarMode(false);
+  m_libraryTagsPanel->show();
+  lay->addWidget(m_libraryTagsPanel);
+  BlopModal::execBlocking(this, &dlg, BlopModal::Mode::BottomSheet);
+  m_libraryTagsPanel->setParent(oldParent ? oldParent : this);
+  if (UiScale::isAndroidPhoneUi(this))
+    m_libraryTagsPanel->hide();
+}
+
 void MainWindow::onOpenSettings() {
   if (m_isSidebarOpen)
     onToggleSidebar();
@@ -11748,6 +12019,7 @@ void MainWindow::onOpenSettings() {
         "window.location.href = '/login';");
     emit injectToken(clearJs);
   });
+  connectSettingsAccountActions(&dlg);
 
   const auto sheetMode = UiScale::isAndroidTablet(this)
                              ? BlopModal::Mode::SideSheet

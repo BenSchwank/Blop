@@ -21,6 +21,8 @@ public:
   explicit CloudWebExplorer(QWidget *parent = nullptr);
 
   /// Cover `host`'s window with the explorer for this cloud entry.
+  /// On Android this hands off to MainWindow's in-app WebView (same surface
+  /// as Study) instead of opening Chrome.
   static CloudWebExplorer *showOver(QWidget *host, CloudStorageEntry entry);
 
   void openEntry(const CloudStorageEntry &entry);

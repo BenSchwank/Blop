@@ -30,6 +30,7 @@
 #include <QUrl>
 #include <QVector>
 
+#include "cloudstoragestore.h"
 #include "canvasview.h"
 #include "freegridview.h"
 #include "notechromeedge.h"
@@ -53,6 +54,8 @@ class RadialToolbarFab;
 class MultiPageNoteView;
 class ToolPropertiesPanel;
 class AllPagesOverlay;
+class PhoneLibraryNav;
+class SettingsDialog;
 class QSortFilterProxyModel;
 class QShowEvent;
 struct WebBookmark {
@@ -178,6 +181,9 @@ public:
 
   void switchToSelectTool();
 
+  /// Open Drive / Nextcloud / OneDrive / Dropbox / custom URL in-app
+  /// (desktop WebEngine overlay, Android Study WebView).
+  void openEmbeddedCloudBrowser(const CloudStorageEntry &entry);
   void restoreWindowState();
 
   bool isAuthNavigationLocked() const { return m_authNavigationLocked; }
@@ -206,6 +212,8 @@ public slots:
   void applyThemeRefresh();
   void refreshOpenEditorSceneBackgrounds();
   void requestGoogleLogin();
+  /// QML Fertig on the in-app cloud browser (Android WebView).
+  void closeCloudBrowser();
   void onSessionCheck(const QString &sessionData);
   void resetAndroidWebViewStorage();
   void resetAndroidWebViewStorageFull();
@@ -324,6 +332,11 @@ private:
   void switchToEditorChrome();
   void switchToWorkspaceChrome();
   void openSettingsWorkspace();
+  void connectSettingsAccountActions(class SettingsDialog *dlg);
+  void openStudyAuthPage(const QString &path);
+  void showPhoneTagsSheet();
+  void onPhoneNavAction(const QString &id);
+  void setupPhoneLibraryNav();
   bool editorTabIsWorkspace(QWidget *w) const;
   int findWorkspaceTabIndex(const QString &kind) const;
   void openLoadedA4Note(const QString &path, const QString &fileName, Note note);
@@ -406,6 +419,7 @@ private:
   void applyDesktopWebSubviewForModeIndex(int modeIndex);
 #ifdef Q_OS_ANDROID
   void invokeAndroidWebDestination(int kind, const QString &url = QString());
+  void invokeAndroidCloudBrowser(const QString &url, const QString &title);
   void dismissAndroidOAuthOverlay();
 #endif
   void resetEmbeddedWebToStudy();
@@ -448,6 +462,10 @@ private:
   void setAndroidStudyBootOverlayVisible(bool visible);
   void completeAndroidStudyTabEntry();
   bool m_pendingStudyStackSwitch{false};
+  /// 0 = Study home, 2 = Study login/register URL, 3 = in-app cloud browser.
+  int m_pendingAndroidWebKind{0};
+  QString m_pendingAndroidWebUrl;
+  QString m_pendingCloudBrowserTitle;
 #endif
   QDialog *m_authOverlay{nullptr};
   QStackedWidget *m_mainContentStack{nullptr};
@@ -541,6 +559,7 @@ private:
   FreeGridView *m_fileListView{nullptr};
   QSortFilterProxyModel *m_libraryProxy{nullptr};
   LibraryTagsPanel *m_libraryTagsPanel{nullptr};
+  PhoneLibraryNav *m_phoneLibraryNav{nullptr};
   LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
   QPushButton *m_btnLibraryNewNote{nullptr};

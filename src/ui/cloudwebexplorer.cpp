@@ -23,6 +23,7 @@
 #endif
 
 #ifndef BLOP_HAS_WEBENGINE
+#include "mainwindow.h"
 #include <QDesktopServices>
 #endif
 
@@ -295,6 +296,12 @@ CloudWebExplorer *CloudWebExplorer::showOver(QWidget *host,
   }
 
 #ifndef BLOP_HAS_WEBENGINE
+  // Android has no Qt WebEngine. Reuse the Study QtWebView (single SurfaceView)
+  // so Drive / Nextcloud / … open in-app instead of Chrome.
+  if (auto *mw = qobject_cast<MainWindow *>(win)) {
+    mw->openEmbeddedCloudBrowser(entry);
+    return nullptr;
+  }
   const QUrl url = QUrl::fromUserInput(
       entry.webUrl.isEmpty() ? CloudStorageStore::defaultWebUrl(entry.type)
                              : entry.webUrl);
@@ -302,10 +309,6 @@ CloudWebExplorer *CloudWebExplorer::showOver(QWidget *host,
   if (entry.webUrl.isEmpty())
     entry.webUrl = CloudStorageStore::defaultWebUrl(entry.type);
   CloudStorageStore::upsert(entry);
-  // Launch the system browser. Do not follow with a blocking BlopModal:
-  // a nested QEventLoop while Android opens Chrome Custom Tabs pauses the
-  // Qt activity and aborts the HWUI/EGL render thread (SIGABRT in
-  // libhwui condition_variable::wait).
   if (url.isValid())
     QDesktopServices::openUrl(url);
   return nullptr;

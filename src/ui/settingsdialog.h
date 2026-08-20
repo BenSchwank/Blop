@@ -41,6 +41,13 @@ signals:
     void storagePrefsChanged();
 
     void previewProfileRequested(const UiProfile& p);
+    /// Guest Konto actions — MainWindow opens Study login / Google OAuth.
+    void studyLoginRequested();
+    void studyRegisterRequested();
+    void googleLoginRequested();
+    /// Open the in-app cloud browser (Drive / Nextcloud / … / custom URL).
+    void cloudExplorerRequested(const QString &id, const QString &type,
+                                const QString &name, const QString &webUrl);
 
 protected:
     void showEvent(QShowEvent *event) override;
