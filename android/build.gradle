@@ -3,7 +3,13 @@
 
 buildscript {
     repositories {
+        // buildscript is evaluated before top-level helpers; keep this block inlined.
+        // AGP / androidx: Google Maven. kotlin/guava/…: GCS Central mirror (GHA 429s repo1).
         google()
+        maven {
+            name = 'GoogleMavenCentralMirror'
+            url = 'https://maven-central.storage-download.googleapis.com/maven2/'
+        }
         mavenCentral()
     }
 
@@ -17,6 +23,10 @@ buildscript {
 
 repositories {
     google()
+    maven {
+        name = 'GoogleMavenCentralMirror'
+        url = 'https://maven-central.storage-download.googleapis.com/maven2/'
+    }
     mavenCentral()
 }
 

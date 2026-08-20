@@ -14,7 +14,7 @@ jobs:
   build:
     name: Android Build
     runs-on: ubuntu-latest
-    # Maven Central liefert auf GHA manchmal 403 (IPv6/Bot-Filter); IPv4 + explizite Gradle-Config mildert das.
+    # Maven Central rate-limits GHA (HTTP 429) and used to 403 on IPv6. IPv4 + GCS mirror + Gradle cache.
     env:
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
       # Sentry secrets exposed at job-level so steps can use env.* in `if:` conditions
@@ -40,6 +40,17 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-agp8.0.2-${{ hashFiles('android/build.gradle', 'android/gradle/wrapper/gradle-wrapper.properties', 'scripts/ci/gradle-maven-init.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-agp8.0.2-
+            ${{ runner.os }}-gradle-
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -127,33 +138,21 @@ jobs:
             -DANDROID_OPENSSL_ROOT="${{ runner.workspace }}/android_openssl" \
             ..
 
-      # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Ohne diese Einstellungen schlagen
-      # Downloads von repo.maven.apache.org mit 403 fehl (bekanntes GHA-/IPv6-Thema).
+      # Qt/androiddeployqt erzeugt ein Gradle-Projekt. Maven Central 429t auf GHA;
+      # init.gradle stellt Googles GCS-Mirror vor Central (kein zweites repo1).
       - name: Configure Gradle for Maven (CI)
         run: |
           mkdir -p ~/.gradle
           cat > ~/.gradle/gradle.properties << 'EOF'
           org.gradle.jvmargs=-Djava.net.preferIPv4Stack=true -Xmx2048m -XX:MaxMetaspaceSize=512m
           systemProp.java.net.preferIPv4Stack=true
-          systemProp.http.connectionTimeout=120000
-          systemProp.http.socketTimeout=120000
+          systemProp.org.gradle.internal.http.connectionTimeout=180000
+          systemProp.org.gradle.internal.http.socketTimeout=180000
+          systemProp.org.gradle.internal.repository.max.retries=12
+          systemProp.org.gradle.internal.repository.initial.backoff=1500
           systemProp.org.gradle.internal.http.userAgent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
           EOF
-          cat > ~/.gradle/init.gradle << 'EOF'
-          // Zusätzliche Repos (repo1 = gleicher Inhalt, oft andere CDN-Route als repo.maven.apache.org)
-          gradle.beforeProject { p ->
-              p.buildscript.repositories {
-                  maven { url 'https://repo1.maven.org/maven2' }
-                  google()
-                  mavenCentral()
-              }
-              p.repositories {
-                  maven { url 'https://repo1.maven.org/maven2' }
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
+          cp "${GITHUB_WORKSPACE}/scripts/ci/gradle-maven-init.gradle" ~/.gradle/init.gradle
 
       - name: Normalize Android package name in deployment settings
         working-directory: build
@@ -167,7 +166,19 @@ jobs:
 
       - name: Build APK
         working-directory: build
-        run: cmake --build . --target Blop_make_apk
+        run: |
+          # C++ is already linked; this step is androiddeployqt/Gradle. Retry 429 flakes.
+          attempt=1
+          until cmake --build . --target Blop_make_apk; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "APK packaging failed after ${attempt} attempts."
+              exit 1
+            fi
+            delay=$((attempt * 45))
+            echo "::warning::APK packaging failed (often Maven HTTP 429). Retry ${attempt}/3 after ${delay}s..."
+            attempt=$((attempt + 1))
+            sleep "$delay"
+          done
 
       - name: Debug android package wiring (on failure)
         if: failure()
@@ -191,7 +202,18 @@ jobs:
       # Lokal nach qt-cmake: cmake --build <build-dir> --target Blop_make_aab — .aab unter .../outputs/bundle/release/
       - name: Build Android App Bundle (AAB)
         working-directory: build
-        run: cmake --build . --target Blop_make_aab
+        run: |
+          attempt=1
+          until cmake --build . --target Blop_make_aab; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "AAB packaging failed after ${attempt} attempts."
+              exit 1
+            fi
+            delay=$((attempt * 45))
+            echo "::warning::AAB packaging failed (often Maven HTTP 429). Retry ${attempt}/3 after ${delay}s..."
+            attempt=$((attempt + 1))
+            sleep "$delay"
+          done
 
       # Optional native debug uploads for Sentry (sentry-native). Secrets: SENTRY_AUTH_TOKEN,
       # SENTRY_ORG, SENTRY_PROJECT — optional self-host: SENTRY_URL.

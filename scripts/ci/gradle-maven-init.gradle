@@ -1,0 +1,23 @@
+// GitHub Actions: Maven Central (repo1 + repo.maven.apache.org) rate-limits cold
+// androiddeployqt Gradle runs with HTTP 429. Prefer Google's Maven Central GCS
+// mirror, then Central. Do not add repo1 as a third Central URL — that doubles
+// 429s. Applied via ~/.gradle/init.gradle in .github/workflows/android_build.yml.
+
+def addBlopMavenRepos = { RepositoryHandler repos ->
+    repos.google()
+    repos.maven {
+        name = 'GoogleMavenCentralMirror'
+        url = 'https://maven-central.storage-download.googleapis.com/maven2/'
+    }
+    repos.mavenCentral()
+    repos.gradlePluginPortal()
+}
+
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories { addBlopMavenRepos(it) }
+}
+
+gradle.beforeProject { p ->
+    addBlopMavenRepos(p.buildscript.repositories)
+    addBlopMavenRepos(p.repositories)
+}
