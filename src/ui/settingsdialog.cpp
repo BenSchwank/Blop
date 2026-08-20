@@ -1,5 +1,6 @@
 #include "settingsdialog.h"
 #include "cloudstoragestore.h"
+#include "cloudwebexplorer.h"
 #include "storageprefs.h"
 #include "uiprofilemanager.h"
 #include "blop_inwindow_menu.h"
@@ -12,7 +13,6 @@
 
 #include <QButtonGroup>
 #include <QByteArray>
-#include <QDesktopServices>
 #include <QDir>
 #include <QEasingCurve>
 #include <QFileDialog>
@@ -872,25 +872,16 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         btnConnectDrive->setMinimumHeight(46);
         const bool driveLinked = StoragePrefs::isGoogleDriveLinked();
         btnConnectDrive->setText(
-            driveLinked ? QStringLiteral("Google Drive verbunden · Ordner ändern…")
-                        : QStringLiteral("Google Drive jetzt verbinden"));
+            driveLinked ? QStringLiteral("Google Drive öffnen")
+                        : QStringLiteral("Bei Google Drive anmelden"));
         setTokenQss(btnConnectDrive, "primary");
         BlopRipple::attachPressFeedback(btnConnectDrive, 0.92);
 
         auto *btnConnectDriveManual = new QPushButton(
-            QStringLiteral("Manuell wählen…"), cardStorage);
+            QStringLiteral("Lokaler Ordner…"), cardStorage);
         btnConnectDriveManual->setCursor(Qt::PointingHandCursor);
         setTokenQss(btnConnectDriveManual, "secondary");
         BlopRipple::attachPressFeedback(btnConnectDriveManual, 0.92);
-
-        auto *btnOpenDriveWeb = new QPushButton(
-            QStringLiteral("Google-Konto / Drive im Browser öffnen"), cardStorage);
-        btnOpenDriveWeb->setCursor(Qt::PointingHandCursor);
-        setTokenQss(btnOpenDriveWeb, "secondary");
-        BlopRipple::attachPressFeedback(btnOpenDriveWeb, 0.92);
-        QObject::connect(btnOpenDriveWeb, &QPushButton::clicked, this, []() {
-            QDesktopServices::openUrl(QUrl(QStringLiteral("https://drive.google.com")));
-        });
 
         auto *driveBtnRow = new QWidget(cardStorage);
         auto *driveBtnLay = new QHBoxLayout(driveBtnRow);
@@ -898,7 +889,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         driveBtnLay->setSpacing(12);
         driveBtnLay->addWidget(btnConnectDrive, 2);
         driveBtnLay->addWidget(btnConnectDriveManual, 1);
-        driveBtnLay->addWidget(btnOpenDriveWeb, 1);
         cardStorage->addBodyWidget(driveBtnRow);
 
         auto *cloudHeader = new QLabel(QStringLiteral("Weitere Cloud-Anbieter"),
@@ -927,10 +917,12 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 displayName,
                 linked ? QStringLiteral(" · verknüpft")
                        : QStringLiteral(" · nicht verknüpft")));
-            autoBtn->setText(linked ? QStringLiteral("Ändern…")
-                                    : QStringLiteral("Verbinden"));
+            autoBtn->setText(linked ? QStringLiteral("Öffnen")
+                                    : QStringLiteral("Anmelden"));
             if (manualBtn)
-                manualBtn->setVisible(!linked);
+                manualBtn->setVisible(true);
+            if (manualBtn)
+                manualBtn->setText(QStringLiteral("Lokaler Ordner…"));
             primaryBtn->setEnabled(linked);
             primaryBtn->setText(
                 (StoragePrefs::primaryCloudId() == providerId)
@@ -1060,12 +1052,21 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
             QObject::connect(btnAuto, &QPushButton::clicked, this,
                              [this, id, displayName, name, btnAuto, btnManual,
-                              btnPrimary, connectCloudProvider, refreshCloudRow,
+                              btnPrimary, refreshCloudRow,
                               syncPrimaryLabels]() {
-                                 const QString folder = connectCloudProvider(
-                                     id, displayName, /*forceManual=*/false);
-                                 if (folder.isEmpty())
-                                     return;
+                                 QVector<CloudStorageEntry> entries =
+                                     CloudStorageStore::load();
+                                 CloudStorageEntry e;
+                                 if (CloudStorageEntry *found =
+                                         CloudStorageStore::findMutable(
+                                             entries, id))
+                                   e = *found;
+                                 else {
+                                   e.id = id;
+                                   e.name = displayName;
+                                   e.type = id;
+                                 }
+                                 CloudWebExplorer::showOver(this, e);
                                  refreshCloudRow(id, displayName, name, btnAuto,
                                                  btnManual, btnPrimary);
                                  syncPrimaryLabels(btnPrimary);
@@ -1119,15 +1120,20 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         QObject::connect(
             btnConnectDrive, &QPushButton::clicked, this,
             [this, btnConnectDrive, driveListName, driveListAutoBtn,
-             driveListManualBtn, driveListPrimaryBtn, connectCloudProvider,
-             refreshCloudRow, syncPrimaryLabels]() {
-                const QString folder = connectCloudProvider(
-                    QStringLiteral("googledrive"),
-                    QStringLiteral("Google Drive"), /*forceManual=*/false);
-                if (folder.isEmpty())
-                    return;
-                btnConnectDrive->setText(QStringLiteral(
-                    "Google Drive verbunden · Ordner ändern…"));
+             driveListManualBtn, driveListPrimaryBtn, refreshCloudRow,
+             syncPrimaryLabels]() {
+                QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+                CloudStorageEntry e;
+                if (CloudStorageEntry *found = CloudStorageStore::findMutable(
+                        entries, QStringLiteral("googledrive")))
+                  e = *found;
+                else {
+                  e.id = QStringLiteral("googledrive");
+                  e.type = e.id;
+                  e.name = QStringLiteral("Google Drive");
+                }
+                CloudWebExplorer::showOver(this, e);
+                btnConnectDrive->setText(QStringLiteral("Google Drive öffnen"));
                 if (driveListName)
                     refreshCloudRow(QStringLiteral("googledrive"),
                                     QStringLiteral("Google Drive"),

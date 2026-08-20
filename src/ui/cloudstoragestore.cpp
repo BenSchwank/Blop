@@ -48,6 +48,8 @@ QVector<CloudStorageEntry> load() {
     e.name = o.value(QStringLiteral("name")).toString();
     e.type = o.value(QStringLiteral("type")).toString();
     e.path = o.value(QStringLiteral("path")).toString();
+    e.webUrl = o.value(QStringLiteral("webUrl")).toString();
+    e.webConnected = o.value(QStringLiteral("webConnected")).toBool();
     if (e.id.isEmpty())
       e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     if (e.name.isEmpty())
@@ -65,6 +67,8 @@ void save(const QVector<CloudStorageEntry> &entries) {
     o.insert(QStringLiteral("name"), e.name);
     o.insert(QStringLiteral("type"), e.type);
     o.insert(QStringLiteral("path"), e.path);
+    o.insert(QStringLiteral("webUrl"), e.webUrl);
+    o.insert(QStringLiteral("webConnected"), e.webConnected);
     arr.append(o);
   }
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
@@ -103,6 +107,29 @@ QString iconForType(const QString &type) {
   if (type == QLatin1String("dropbox"))
     return QStringLiteral("dropbox");
   return QStringLiteral("cloud");
+}
+
+QString defaultWebUrl(const QString &type) {
+  if (type == QLatin1String("googledrive"))
+    return QStringLiteral("https://drive.google.com/drive/my-drive");
+  if (type == QLatin1String("onedrive"))
+    return QStringLiteral("https://onedrive.live.com");
+  if (type == QLatin1String("dropbox"))
+    return QStringLiteral("https://www.dropbox.com/home");
+  if (type == QLatin1String("nextcloud"))
+    return QString();
+  return QString();
+}
+
+void upsert(const CloudStorageEntry &entry) {
+  if (entry.id.isEmpty())
+    return;
+  QVector<CloudStorageEntry> entries = load();
+  if (CloudStorageEntry *cur = findMutable(entries, entry.id))
+    *cur = entry;
+  else
+    entries.append(entry);
+  save(entries);
 }
 
 } // namespace CloudStorageStore

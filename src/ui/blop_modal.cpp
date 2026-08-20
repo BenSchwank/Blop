@@ -301,35 +301,26 @@ void BlopModal::layoutContent() {
     // preferred width + content height — never a near-fullscreen sheet.
     const bool sizedCard = preferred >= 700;
     if (sizedCard) {
-      const int gap = UiScale::dp(28);
-      const int maxW = qMin(int(W * 0.70), qMax(UiScale::dp(320), W - 2 * gap));
-      const int minW = qMin(UiScale::dp(480), maxW);
+      const int gap = UiScale::dp(20);
+      const int maxW = qMin(int(W * 0.88), qMax(UiScale::dp(320), W - 2 * gap));
+      const int minW = qMin(UiScale::dp(560), maxW);
       const int cardW = qBound(minW, preferred, maxW);
-      int contentH = UiScale::dp(420);
+      const int maxH = qMin(int(H * 0.92), H - 2 * gap);
+      const int cardH = qMax(UiScale::dp(420), maxH);
+      m_card->setGeometry((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
       if (m_content) {
         m_content->setMinimumSize(0, 0);
-        m_content->setMaximumWidth(cardW);
-        m_content->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        m_content->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         if (auto *lay = m_content->layout()) {
-          lay->setSizeConstraint(QLayout::SetDefaultConstraint);
+          lay->setSizeConstraint(QLayout::SetNoConstraint);
           lay->activate();
         }
-        m_content->adjustSize();
-        const QSize hint = m_content->sizeHint().isValid()
-                               ? m_content->sizeHint()
-                               : m_content->minimumSizeHint();
-        int measured = hint.height();
-        if (m_content->hasHeightForWidth())
-          measured = qMax(measured, m_content->heightForWidth(cardW));
-        contentH = qMax(UiScale::dp(360), measured + UiScale::dp(8));
       }
-      const int maxH = qMin(int(H * 0.78), H - 2 * gap);
-      const int cardH = qBound(UiScale::dp(360), contentH, maxH);
-      m_card->setGeometry((W - cardW) / 2, (H - cardH) / 2, cardW, cardH);
       if (auto *cardLay = qobject_cast<QVBoxLayout *>(m_card->layout())) {
         const int idx = cardLay->indexOf(m_content);
         if (idx >= 0)
-          cardLay->setStretch(idx, 0);
+          cardLay->setStretch(idx, 1);
       }
       return;
     }

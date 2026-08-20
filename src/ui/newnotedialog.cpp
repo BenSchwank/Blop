@@ -18,6 +18,7 @@
 #include <QMouseEvent>
 #include <QPropertyAnimation>
 #include <QShowEvent>
+#include <QScrollArea>
 #include <QSizePolicy>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -26,7 +27,7 @@ NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
     setAttribute(Qt::WA_TranslucentBackground, false);
-    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setupUi();
 }
 
@@ -55,17 +56,26 @@ void NewNoteDialog::setupUi()
         "font-size: 22px; font-weight: 800; color: #F4F5FB; letter-spacing: -0.3px;")));
     layout->addWidget(lblTitle);
 
+    auto *scroll = new QScrollArea(container);
+    scroll->setObjectName(QStringLiteral("NewNoteScroll"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setStyleSheet(QStringLiteral(
+        "QScrollArea { background: transparent; border: none; }"));
+
+    auto *body = new QWidget(scroll);
+    body->setObjectName(QStringLiteral("NewNoteBody"));
+    auto *cols = new QHBoxLayout(body);
+    cols->setContentsMargins(0, 0, 0, 0);
+    cols->setSpacing(UiScale::dp(24));
+
     auto sectionLabel = [](const QString &text, QWidget *parent) {
         auto *lbl = new QLabel(text, parent);
         lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
             "font-size: 13px; color: #BBB; font-weight: 700; letter-spacing: 0.4px;")));
         return lbl;
     };
-
-    auto *body = new QWidget(container);
-    auto *cols = new QHBoxLayout(body);
-    cols->setContentsMargins(0, 0, 0, 0);
-    cols->setSpacing(UiScale::dp(24));
 
     auto *left = new QWidget(body);
     left->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
@@ -224,9 +234,8 @@ void NewNoteDialog::setupUi()
         tb->setCheckable(true);
         tb->setCursor(Qt::PointingHandCursor);
         tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        tb->setMinimumSize(UiScale::dp(118), UiScale::dp(128));
-        tb->setMaximumHeight(UiScale::dp(148));
+        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        tb->setMinimumSize(UiScale::dp(100), UiScale::dp(110));
         tb->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
         tb->setStyleSheet(btnQss);
         tb->setProperty("blopBgType", opt.type);
@@ -249,7 +258,8 @@ void NewNoteDialog::setupUi()
 
     rightLay->addWidget(gridHost);
     cols->addWidget(right, 1);
-    layout->addWidget(body);
+    scroll->setWidget(body);
+    layout->addWidget(scroll, 1);
 
     auto *actionLay = new QHBoxLayout();
     actionLay->setSpacing(UiScale::dp(14));

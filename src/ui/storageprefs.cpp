@@ -131,7 +131,8 @@ bool isProviderLinked(const QString &providerId) {
   if (providerId.isEmpty())
     return false;
   for (const CloudStorageEntry &e : CloudStorageStore::load()) {
-    if (e.id == providerId && pathExistsDir(e.path))
+    if (e.id == providerId &&
+        (pathExistsDir(e.path) || e.webConnected || !e.webUrl.isEmpty()))
       return true;
   }
   return false;

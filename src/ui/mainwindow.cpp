@@ -15,6 +15,7 @@
 #include "libraryorgbar.h"
 #include "notepreviewicon.h"
 #include "cloudstoragestore.h"
+#include "cloudwebexplorer.h"
 #include "storageprefs.h"
 #include "pagethumbnailsidebar.h"
 #include "noteleftrail.h"
@@ -7853,9 +7854,9 @@ void MainWindow::setupSidebar() {
       if (!e.path.isEmpty() && QDir(e.path).exists())
         item->setData(Qt::UserRole + 10, e.path);
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-      const QString tip = e.path.isEmpty()
-                              ? QStringLiteral("Tippen zum Verknüpfen eines Sync-Ordners")
-                              : e.path;
+      const QString tip = e.webConnected
+                              ? QStringLiteral("In der Cloud anmelden und Dateien öffnen")
+                              : QStringLiteral("Tippen zum Anmelden in der Cloud");
       item->setToolTip(tip);
     }
 
@@ -8408,21 +8409,20 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
         QStringLiteral("Anzeigename:"), QStringLiteral("Meine Cloud"));
     if (label.isEmpty())
       return;
-    const QString folder = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Sync-Ordner wählen"),
-        QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
-    if (folder.isEmpty())
+    const QString url = BlopDialogs::promptText(
+        this, QStringLiteral("Eigene Cloud"),
+        QStringLiteral("Web-Adresse (https://cloud.example.com):"),
+        QStringLiteral("https://"));
+    if (url.trimmed().isEmpty())
       return;
     QVector<CloudStorageEntry> entries = CloudStorageStore::load();
     CloudStorageEntry e;
     e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     e.name = label;
     e.type = QStringLiteral("custom");
-    e.path = folder;
+    e.webUrl = QUrl::fromUserInput(url.trimmed()).toString();
     entries.append(e);
     CloudStorageStore::save(entries);
-    StoragePrefs::connectProviderForNotes(e.id, folder);
-    // Insert before the trailing "Eigene Cloud hinzufügen…" row.
     int insertAt = m_navSidebar->count();
     for (int i = 0; i < m_navSidebar->count(); ++i) {
       if (m_navSidebar->item(i)->data(Qt::UserRole + 5).toString() ==
@@ -8439,11 +8439,10 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
     navItem->setData(Qt::UserRole + 5, QStringLiteral("clouds_item"));
     navItem->setData(Qt::UserRole + 12, e.id);
     navItem->setData(Qt::UserRole + 13, e.type);
-    navItem->setData(Qt::UserRole + 10, e.path);
-    navItem->setToolTip(e.path);
+    navItem->setToolTip(e.webUrl);
     navItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     m_navSidebar->insertItem(insertAt, navItem);
-    navigateLibraryToPath(folder);
+    CloudWebExplorer::showOver(this, e);
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
@@ -8452,38 +8451,21 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
 
   if (cloudRole == QLatin1String("clouds_item")) {
     const QString id = item->data(Qt::UserRole + 12).toString();
-    QString path = item->data(Qt::UserRole + 10).toString();
-    if (path.isEmpty() || !QDir(path).exists()) {
-      QString startDir = StoragePrefs::bestSuggestedGoogleDriveRoot();
-      if (startDir.isEmpty())
-        startDir = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
-      path = QFileDialog::getExistingDirectory(
-          this,
-          QStringLiteral("%1 — Sync-Ordner wählen").arg(item->text()),
-          startDir);
-      if (path.isEmpty())
-        return;
-      if (!StoragePrefs::connectProviderForNotes(id, path))
-        return;
-      item->setData(Qt::UserRole + 10, path);
-      item->setToolTip(path);
-      applyStoragePrefsToLibrary();
-      BlopDialogs::notify(
-          this, QStringLiteral("Cloud verbunden"),
-          QStringLiteral(
-              "%1 ist verknüpft.\n"
-              "Modus: Lokal + Cloud — Notizen werden gespiegelt.\n"
-              "Blop Study bleibt auf Supabase (Konto & Lernmaterial).")
-              .arg(item->text()));
-#ifdef Q_OS_ANDROID
-      onToggleSidebar();
-#endif
-      return;
+    QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+    CloudStorageEntry e;
+    if (CloudStorageEntry *found = CloudStorageStore::findMutable(entries, id))
+      e = *found;
+    else {
+      e.id = id;
+      e.name = item->text();
+      e.type = item->data(Qt::UserRole + 13).toString();
+      e.path = item->data(Qt::UserRole + 10).toString();
     }
-    navigateLibraryToPath(path);
+    CloudWebExplorer::showOver(this, e);
 #ifdef Q_OS_ANDROID
     onToggleSidebar();
 #endif
+    return;
   }
 }
 
