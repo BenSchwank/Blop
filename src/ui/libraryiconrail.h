@@ -18,11 +18,11 @@ public:
   void setActiveId(const QString &id);
   void setAvatarLetter(const QString &letter);
 
-protected:
-  void paintEvent(QPaintEvent *event) override;
-
 signals:
   void actionTriggered(const QString &id);
+
+protected:
+  void paintEvent(QPaintEvent *event) override;
 
 private:
   QToolButton *addBtn(const QString &id, const QString &iconKey,
@@ -32,4 +32,5 @@ private:
   QHash<QString, QToolButton *> m_btns;
   QString m_active{QStringLiteral("library")};
   QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
+  QString m_avatar{QStringLiteral("B")};
 };

@@ -19,6 +19,8 @@ class QContextMenuEvent;
 // --- Helper Button Class ---
 class QPushButton;
 class QPainter;
+class QLabel;
+class QSlider;
 
 /// One Drawboard Favorites slot (same ToolMode may appear multiple times).
 struct RailSlot {
@@ -372,6 +374,8 @@ private:
     ToolbarBtn *btnSave;
     ToolbarBtn *btnPalette;
     ToolbarBtn *btnBrushSize;
+    QLabel *m_studioSizeLabel{nullptr};
+    QSlider *m_studioSizeSlider{nullptr};
     QList<ToolbarBtn*> m_dockedOnlyButtons;
 
     QVector<ToolbarBtn*> m_buttons;

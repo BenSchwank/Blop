@@ -37,7 +37,7 @@ struct RailMetrics {
 
 RailMetrics railMetrics(QWidget *ref, bool twoCol, bool horizontal) {
   if (horizontal) {
-    return {0, UiScale::dp(56), UiScale::dp(74), UiScale::dp(96),
+    return {0, UiScale::dp(64), UiScale::dp(80), UiScale::dp(110),
             UiScale::dp(8)};
   }
   if (UiScale::isAndroidPhoneUi(ref)) {
@@ -529,17 +529,26 @@ void PageThumbnailSidebar::rebuild() {
   for (int i = 0; i < count; ++i) {
     auto *item = new QListWidgetItem(m_list);
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
-    item->setSizeHint(QSize(m.thumbW + UiScale::dp(12), m.itemH));
-    QString label = QString::number(i + 1);
+    item->setSizeHint(QSize(m.thumbW + UiScale::dp(m_horizontalStrip ? 20 : 12),
+                            m.itemH));
+    QString label;
+    if (m_horizontalStrip && m_view) {
+      label = m_view->pageTitle(i).trimmed();
+      if (label.isEmpty())
+        label = QStringLiteral("Seite %1").arg(i + 1);
+    } else {
+      label = QString::number(i + 1);
+    }
     item->setText(label);
     if (note->pages[i].bookmarked) {
-      item->setForeground(NoteChrome::accent());
-      item->setToolTip(QStringLiteral("Seite %1 · Lesezeichen").arg(i + 1));
-      // Tiny bookmark ribbon as decoration overlay on the right of the label.
+      item->setForeground(m_horizontalStrip ? QColor(QStringLiteral("#5B9DFF"))
+                                            : NoteChrome::accent());
+      item->setToolTip(QStringLiteral("%1 · Lesezeichen").arg(label));
       item->setData(Qt::UserRole + 1, true);
     } else {
-      item->setForeground(NoteChrome::textSecondary());
-      item->setToolTip(QStringLiteral("Seite %1").arg(i + 1));
+      item->setForeground(m_horizontalStrip ? QColor(0x5A, 0x60, 0x70)
+                                            : NoteChrome::textSecondary());
+      item->setToolTip(label);
       item->setData(Qt::UserRole + 1, false);
     }
     item->setData(Qt::UserRole, i);

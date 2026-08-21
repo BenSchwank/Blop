@@ -214,7 +214,7 @@ void LibraryOrgBar::refreshSortLabel() {
   if (!m_btnSort)
     return;
   m_btnSort->setText(m_sort == SortMode::Modified
-                         ? QStringLiteral("Datum")
+                         ? QStringLiteral("Zuletzt geändert")
                          : QStringLiteral("Name"));
   m_btnSort->setToolTip(m_sort == SortMode::Modified
                             ? QStringLiteral("Sortierung: zuletzt geändert")

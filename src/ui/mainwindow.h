@@ -308,6 +308,7 @@ private slots:
   void performAutoSave();
 
   void updateSidebarBadges();
+  void refreshSidebarNotesList();
 
   void onNavigateUp();
 
@@ -573,6 +574,7 @@ private:
   LibraryIconRail *m_libraryIconRail{nullptr};
   QLineEdit *m_sidebarSearch{nullptr};
   QListWidget *m_navSidebar{nullptr};
+  QListWidget *m_sidebarNotesList{nullptr};
   QFileSystemModel *m_fileModel{nullptr};
   QString m_pendingLibraryRootPath;
   QPushButton *m_closeSidebarBtn{nullptr};

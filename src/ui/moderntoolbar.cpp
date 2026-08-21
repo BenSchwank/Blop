@@ -629,6 +629,26 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawArc(QRectF(16, 32, 32, 24), 0, 180 * 16);
     return;
   }
+  if (name == QLatin1String("help")) {
+    p->setPen(primaryPen);
+    p->drawEllipse(QPointF(32, 32), 18, 18);
+    QFont f = p->font();
+    f.setBold(true);
+    f.setPixelSize(22);
+    p->setFont(f);
+    p->drawText(QRectF(0, 4, 64, 52), Qt::AlignCenter, QStringLiteral("?"));
+    return;
+  }
+  if (name == QLatin1String("trash") || name == QLatin1String("delete")) {
+    p->setPen(primaryPen);
+    p->drawRoundedRect(QRectF(20, 22, 24, 28), 3, 3);
+    p->drawLine(18, 22, 46, 22);
+    p->drawLine(26, 18, 38, 18);
+    p->drawLine(26, 28, 26, 42);
+    p->drawLine(32, 28, 32, 42);
+    p->drawLine(38, 28, 38, 42);
+    return;
+  }
   // Fallback: single-character / unknown (legacy)
   QFont f = p->font();
   f.setPixelSize(28);
@@ -4866,17 +4886,17 @@ static QString studioCaptionForIcon(const QString &icon) {
   if (icon == QLatin1String("pencil"))
     return QStringLiteral("Bleistift");
   if (icon == QLatin1String("highlighter"))
-    return QStringLiteral("Marker");
+    return QStringLiteral("Textmarker");
   if (icon == QLatin1String("eraser"))
     return QStringLiteral("Radierer");
   if (icon == QLatin1String("select") || icon == QLatin1String("lasso"))
     return QStringLiteral("Lasso");
+  if (icon == QLatin1String("hand"))
+    return QStringLiteral("Auswählen");
   if (icon == QLatin1String("undo"))
-    return QStringLiteral("Zurück");
+    return QStringLiteral("Rückgängig");
   if (icon == QLatin1String("redo"))
     return QStringLiteral("Redo");
-  if (icon == QLatin1String("hand"))
-    return QStringLiteral("Hand");
   if (icon == QLatin1String("text"))
     return QStringLiteral("Text");
   return QString();
@@ -4915,6 +4935,10 @@ void ModernToolbar::applyStudioSnappedPill() {
   resize(w, h);
   updateLayout(false);
   setToolTip(QStringLiteral("Am Rand eingerastet — ziehen zum Lösen"));
+  if (m_studioSizeLabel)
+    m_studioSizeLabel->hide();
+  if (m_studioSizeSlider)
+    m_studioSizeSlider->hide();
   update();
 #endif
 }
@@ -4952,10 +4976,50 @@ void ModernToolbar::applyStudioFloatingRail() {
     b->setCaption(QString());
     b->show();
   }
+  if (btnLibrary)
+    btnLibrary->hide();
+  if (btnAddTool)
+    btnAddTool->hide();
+  if (btnRailChevron)
+    btnRailChevron->hide();
+
+  if (!m_studioSizeLabel) {
+    m_studioSizeLabel = new QLabel(this);
+    m_studioSizeLabel->setAlignment(Qt::AlignCenter);
+    m_studioSizeLabel->setStyleSheet(QStringLiteral(
+        "color: #5B9DFF; font-size: 11px; font-weight: 700; background: transparent;"));
+  }
+  if (!m_studioSizeSlider) {
+    m_studioSizeSlider = new QSlider(Qt::Vertical, this);
+    m_studioSizeSlider->setRange(1, 40);
+    m_studioSizeSlider->setFixedWidth(UiScale::dp(22));
+    m_studioSizeSlider->setStyleSheet(QStringLiteral(
+        "QSlider::groove:vertical {"
+        "  background: #E4E7EE; width: 4px; border-radius: 2px;"
+        "}"
+        "QSlider::handle:vertical {"
+        "  background: #5B9DFF; height: 14px; margin: 0 -5px; border-radius: 7px;"
+        "}"));
+    connect(m_studioSizeSlider, &QSlider::valueChanged, this, [this](int v) {
+      ToolConfig cfg = ToolManager::instance().config();
+      cfg.penWidth = v;
+      ToolManager::instance().setConfig(cfg);
+      if (m_studioSizeLabel)
+        m_studioSizeLabel->setText(QString::number(v / 10.0, 'f', 1));
+    });
+  }
+  const int wNow = ToolManager::instance().config().penWidth;
+  m_studioSizeSlider->blockSignals(true);
+  m_studioSizeSlider->setValue(qBound(1, wNow, 40));
+  m_studioSizeSlider->blockSignals(false);
+  m_studioSizeLabel->setText(QString::number(qMax(1, wNow) / 10.0, 'f', 1));
+  m_studioSizeLabel->show();
+  m_studioSizeSlider->show();
+
   syncDrawboardToolIcons();
   syncToolBadges();
   const int w = UiScale::dp(56);
-  const int h = qMax(calculateMinLength(), UiScale::dp(280));
+  const int h = qMax(calculateMinLength(), UiScale::dp(320));
   setMinimumSize(0, 0);
   setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   setFixedWidth(w);
@@ -6332,11 +6396,15 @@ void ModernToolbar::updateLayout(bool animate) {
         }
         const int footerGap = UiScale::dp(4);
         const int footerBtnS = UiScale::dp(40);
+        const bool studioFloat = isStudioChrome();
+        const int studioSliderH = studioFloat ? UiScale::dp(96) : 0;
         // Extra bottom pad so the last chevron isn't flush-cut against the
         // window edge (rail now owns the bottom-right corner).
-        const int footerH =
+        int footerH =
             footerBtns.size() * footerBtnS +
             qMax(0, footerBtns.size() - 1) * footerGap + UiScale::dp(12);
+        if (studioFloat)
+          footerH = studioSliderH + UiScale::dp(16);
         const int headerBtnS = UiScale::dp(44);
         const int headerGap = UiScale::dp(2);
         int hy = dragSize + UiScale::dp(6);
@@ -6414,6 +6482,10 @@ void ModernToolbar::updateLayout(bool animate) {
                     lastSlotBottom + UiScale::dp(12));
         m_separatorYPositions.append(fy - UiScale::dp(6));
         for (ToolbarBtn *b : footerBtns) {
+          if (studioFloat) {
+            b->hide();
+            continue;
+          }
           b->setRailSlotStyle(true);
           b->setRailFooterStyle(true);
           b->setBtnCell(w - UiScale::dp(6), footerBtnS);
@@ -6421,6 +6493,25 @@ void ModernToolbar::updateLayout(bool animate) {
           b->show();
           b->raise();
           fy += b->height() + footerGap;
+        }
+        if (studioFloat && m_studioSizeLabel && m_studioSizeSlider) {
+          const int labelH = UiScale::dp(16);
+          const int sliderH = UiScale::dp(72);
+          m_studioSizeLabel->setFixedSize(w - UiScale::dp(8), labelH);
+          m_studioSizeLabel->move(UiScale::dp(4),
+                                 h - studioSliderH - UiScale::dp(8));
+          m_studioSizeLabel->show();
+          m_studioSizeLabel->raise();
+          m_studioSizeSlider->setFixedHeight(sliderH);
+          m_studioSizeSlider->move((w - m_studioSizeSlider->width()) / 2,
+                                  h - sliderH - UiScale::dp(10));
+          m_studioSizeSlider->show();
+          m_studioSizeSlider->raise();
+        } else {
+          if (m_studioSizeLabel)
+            m_studioSizeLabel->hide();
+          if (m_studioSizeSlider)
+            m_studioSizeSlider->hide();
         }
 
         for (auto *b : m_buttons) {
