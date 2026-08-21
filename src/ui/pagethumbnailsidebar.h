@@ -4,6 +4,7 @@
 // canvas. Supports 1/2-column layout, context actions, and bookmarks.
 
 #include <QColor>
+#include <QMouseEvent>
 #include <QWidget>
 
 class MultiPageNoteView;
@@ -37,6 +38,9 @@ public:
 
   bool isCollapsed() const { return m_collapsed; }
   void setCollapsed(bool collapsed);
+
+protected:
+  void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 public slots:
   void onCurrentPageChanged(int pageIndex);

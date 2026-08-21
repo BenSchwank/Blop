@@ -12,6 +12,7 @@
 #include "tools/WritingTools.h"
 #include "uiscale.h"
 #include <QApplication>
+#include <QCoreApplication>
 #include <QButtonGroup>
 #include <QAbstractSpinBox>
 #include <QCheckBox>
@@ -1081,6 +1082,20 @@ void ToolbarBtn::mouseMoveEvent(QMouseEvent *e) {
         m_holdAnim->stop();
       m_holdProgress = 0.0;
       m_longPressTriggered = false;
+#ifndef Q_OS_ANDROID
+      // K snapped pill: dragging a tool cell undocks into the J float rail.
+      if (m_lightStudioStyle) {
+        if (auto *tb = qobject_cast<ModernToolbar *>(parentWidget())) {
+          if (tb->isStudioChrome() && tb->isDockedMode()) {
+            m_pressing = false;
+            m_longPressTriggered = true;
+            tb->beginStudioUndockDrag(mapToGlobal(e->pos()));
+            e->accept();
+            return;
+          }
+        }
+      }
+#endif
     }
   }
   if (m_railDragging) {
@@ -1089,6 +1104,25 @@ void ToolbarBtn::mouseMoveEvent(QMouseEvent *e) {
     return;
   }
   QWidget::mouseMoveEvent(e);
+}
+
+void ToolbarBtn::mouseDoubleClickEvent(QMouseEvent *e) {
+#ifndef Q_OS_ANDROID
+  if (e->button() == Qt::LeftButton && m_lightStudioStyle) {
+    if (auto *tb = qobject_cast<ModernToolbar *>(parentWidget())) {
+      if (tb->isStudioChrome()) {
+        // Double-click any K/J tool cell toggles snapped ↔ floating.
+        QMouseEvent relay(QEvent::MouseButtonDblClick, tb->mapFromGlobal(e->globalPosition().toPoint()),
+                          e->globalPosition(), e->button(), e->buttons(),
+                          e->modifiers());
+        QCoreApplication::sendEvent(tb, &relay);
+        e->accept();
+        return;
+      }
+    }
+  }
+#endif
+  QWidget::mouseDoubleClickEvent(e);
 }
 
 void ToolbarBtn::mouseReleaseEvent(QMouseEvent *e) {
@@ -3374,6 +3408,60 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
     snapToEdge();
   else
     constrainToParent();
+}
+
+void ModernToolbar::beginStudioUndockDrag(const QPoint &globalPos) {
+#ifndef Q_OS_ANDROID
+  if (!isStudioChrome() || !m_isDockedMode || !parentWidget())
+    return;
+  m_isDragging = true;
+  m_isScrolling = false;
+  m_pressedButton = nullptr;
+  m_dragOffset = globalPos - mapToGlobal(QPoint(0, 0));
+  dragStartPos_ = mapFromGlobal(globalPos);
+  clearMask();
+  // Immediately morph to floating rail so the drag silhouette matches J.
+  applyStudioFloatingRail();
+  const int railW = preferredRailWidth();
+  const int railH = qBound(UiScale::dp(280), calculateMinLength(),
+                           parentWidget()->height() - UiScale::dp(48));
+  QPoint topLeft = parentWidget()->mapFromGlobal(globalPos - m_dragOffset);
+  // Recenter under cursor after size change.
+  topLeft = parentWidget()->mapFromGlobal(globalPos) -
+            QPoint(railW / 2, UiScale::dp(24));
+  m_dragOffset = QPoint(railW / 2, UiScale::dp(24));
+  setGeometry(topLeft.x(), topLeft.y(), railW, railH);
+  raise();
+#else
+  Q_UNUSED(globalPos);
+#endif
+}
+
+void ModernToolbar::mouseDoubleClickEvent(QMouseEvent *e) {
+#ifndef Q_OS_ANDROID
+  if (e->button() == Qt::LeftButton && isStudioChrome()) {
+    if (m_isDockedMode) {
+      applyStudioFloatingRail();
+      if (parentWidget()) {
+        const int railW = preferredRailWidth();
+        const int railH = qBound(UiScale::dp(280), calculateMinLength(),
+                                 parentWidget()->height() - UiScale::dp(48));
+        const int x = qBound(UiScale::dp(8),
+                              parentWidget()->width() - railW - UiScale::dp(24),
+                              parentWidget()->width() - railW - UiScale::dp(8));
+        const int y = UiScale::dp(48);
+        setGeometry(x, y, railW, railH);
+      }
+      emit dockModeChanged(false);
+    } else {
+      applyStudioSnappedPill();
+      emit dockModeChanged(true);
+    }
+    e->accept();
+    return;
+  }
+#endif
+  QWidget::mouseDoubleClickEvent(e);
 }
 
 void ModernToolbar::resizeEvent(QResizeEvent *) {

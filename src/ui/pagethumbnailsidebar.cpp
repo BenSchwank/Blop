@@ -19,6 +19,7 @@
 #include <QListView>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSize>
@@ -183,6 +184,15 @@ void PageThumbnailSidebar::setCollapsed(bool collapsed) {
 
 void PageThumbnailSidebar::toggleCollapsed() {
   setCollapsed(!m_collapsed);
+}
+
+void PageThumbnailSidebar::mouseDoubleClickEvent(QMouseEvent *event) {
+  if (m_horizontalStrip && event->button() == Qt::LeftButton) {
+    toggleCollapsed();
+    event->accept();
+    return;
+  }
+  QWidget::mouseDoubleClickEvent(event);
 }
 
 void PageThumbnailSidebar::setTwoColumnMode(bool on) {

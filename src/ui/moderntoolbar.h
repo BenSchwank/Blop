@@ -122,6 +122,7 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
     void contextMenuEvent(QContextMenuEvent *e) override;
@@ -231,6 +232,8 @@ public:
                          bool notify = true);
     bool isRailDockedLeft() const { return m_railDockEdge == RailDockEdge::Left; }
     bool isDragging() const { return m_isDragging; }
+    /// Start undock drag from a child tool button (studio K pill).
+    void beginStudioUndockDrag(const QPoint &globalPos);
 
     /// Customize which tools appear in the vertical Drawboard rail.
     void addToolToRail(ToolMode mode);
@@ -295,6 +298,7 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
     void contextMenuEvent(QContextMenuEvent*) override;
     void wheelEvent(QWheelEvent*) override;
     void leaveEvent(QEvent*) override;
