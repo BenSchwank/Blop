@@ -11,15 +11,16 @@
 #include <QAbstractItemModel>
 #include <QAbstractItemView>
 #include <QEasingCurve>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
-#include <QPainter>
-#include <QPixmap>
 #include <QListView>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSize>
@@ -115,6 +116,7 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   if (m_list->horizontalScrollBar())
     connect(m_list->horizontalScrollBar(), &QScrollBar::valueChanged, this,
             [this]() { requestVisibleThumbnails(); });
+  m_list->viewport()->installEventFilter(this);
   connect(m_list->model(), &QAbstractItemModel::rowsMoved, this,
           [this](const QModelIndex &, int start, int end,
                  const QModelIndex &, int dest) {
@@ -195,6 +197,19 @@ void PageThumbnailSidebar::mouseDoubleClickEvent(QMouseEvent *event) {
   QWidget::mouseDoubleClickEvent(event);
 }
 
+bool PageThumbnailSidebar::eventFilter(QObject *watched, QEvent *event) {
+  if (m_horizontalStrip && m_list && watched == m_list->viewport() &&
+      event->type() == QEvent::MouseButtonDblClick) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() == Qt::LeftButton) {
+      // Double-click anywhere on the J strip (incl. thumbnails) collapses.
+      toggleCollapsed();
+      return true;
+    }
+  }
+  return QWidget::eventFilter(watched, event);
+}
+
 void PageThumbnailSidebar::setTwoColumnMode(bool on) {
   if (m_twoColumn == on)
     return;
@@ -271,17 +286,17 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
     if (m_btnToggle) {
       m_btnToggle->setParent(this);
       m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
-      m_btnToggle->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+      m_btnToggle->setFixedSize(UiScale::dp(44), UiScale::dp(44));
       m_btnToggle->setToolTip(QStringLiteral("Seitenleiste einklappen"));
-      m_btnToggle->setIcon(railGlyph(QStringLiteral("chevron_up"),
-                                     QColor(0x5A, 0x60, 0x70), UiScale::dp(18)));
-      m_btnToggle->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
+      m_btnToggle->setText(QStringLiteral("▴"));
+      m_btnToggle->setIcon(QIcon());
       m_btnToggle->setStyleSheet(QStringLiteral(
           "QPushButton#PageRailToggleBtn {"
-          "  background: #FFFFFF; border: 1px solid #D8DCE6; border-radius: 8px;"
+          "  background: #FFFFFF; border: 1px solid #D8DCE6; border-radius: 10px;"
+          "  color: #3A3F4A; font-size: 16px; font-weight: 700;"
           "}"
           "QPushButton#PageRailToggleBtn:hover {"
-          "  border-color: #5B9DFF; background: rgba(91,157,255,0.08);"
+          "  border-color: #5B9DFF; background: rgba(91,157,255,0.10);"
           "}"));
       row->addWidget(m_btnToggle, 0, Qt::AlignVCenter);
     }
@@ -352,20 +367,17 @@ void PageThumbnailSidebar::applyCollapsedState() {
       m_btnAddPage->setVisible(!m_collapsed);
     if (m_btnToggle) {
       m_btnToggle->show();
-      m_btnToggle->setIcon(railGlyph(
-          m_collapsed ? QStringLiteral("chevron_down")
-                      : QStringLiteral("chevron_up"),
-          NoteChrome::textSecondary(), UiScale::dp(16)));
+      m_btnToggle->setIcon(QIcon());
+      m_btnToggle->setText(m_collapsed ? QStringLiteral("▾ Seiten")
+                                       : QStringLiteral("▴"));
       m_btnToggle->setToolTip(m_collapsed
                                   ? QStringLiteral("Seitenleiste aufklappen")
                                   : QStringLiteral("Seitenleiste einklappen"));
       if (m_collapsed) {
         m_btnToggle->setFixedHeight(handle);
-        m_btnToggle->setMinimumWidth(UiScale::dp(72));
-        m_btnToggle->setText(QStringLiteral(" Seiten"));
+        m_btnToggle->setMinimumWidth(UiScale::dp(96));
       } else {
-        m_btnToggle->setText(QString());
-        m_btnToggle->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+        m_btnToggle->setFixedSize(UiScale::dp(44), UiScale::dp(44));
       }
     }
     show();

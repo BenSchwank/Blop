@@ -41,6 +41,7 @@ public:
 
 protected:
   void mouseDoubleClickEvent(QMouseEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 public slots:
   void onCurrentPageChanged(int pageIndex);
