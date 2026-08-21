@@ -1650,7 +1650,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_androidHeader->raise();
     }
     if (m_authNavigationLocked)
-      setAndroidNativeLoginGateVisible(true);
+      setAndroidNativeLoginGateVisible(m_googleLoginInFlight);
 #endif
     emit oauthFailed(reason);
   };
@@ -1673,6 +1673,7 @@ MainWindow::MainWindow(QWidget *parent)
                 return;
               }
 #ifdef Q_OS_ANDROID
+              setAndroidNativeLoginGateVisible(true);
               setAndroidNativeLoginBusy(
                   true, QStringLiteral(
                             "Google-Konto wählen und auf Weiter tippen…"));
@@ -2799,7 +2800,7 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   lay->addWidget(brand);
 
   auto *sub = new QLabel(
-      QStringLiteral("Melde dich mit Google an,\num Notizen zu nutzen."),
+      QStringLiteral("Google-Anmeldung"),
       gate);
   sub->setAlignment(Qt::AlignCenter);
   sub->setWordWrap(true);
@@ -2824,20 +2825,7 @@ void MainWindow::ensureAndroidNativeLoginGate() {
   m_androidNativeLoginStatus->hide();
   lay->addWidget(m_androidNativeLoginStatus);
 
-  m_androidNativeLoginGoogleBtn =
-      new QPushButton(QStringLiteral("Mit Google anmelden"), gate);
-  m_androidNativeLoginGoogleBtn->setCursor(Qt::PointingHandCursor);
-  m_androidNativeLoginGoogleBtn->setMinimumHeight(UiScale::dp(48));
-  m_androidNativeLoginGoogleBtn->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #4285F4; color: white; border: none;"
-      "  border-radius: 12px; padding: 12px 18px; font-weight: 700; font-size: 16px; }"
-      "QPushButton:disabled { background: #2A3A66; color: #99AAD4; }"));
-  connect(m_androidNativeLoginGoogleBtn, &QPushButton::clicked, this, [this]() {
-    setAndroidNativeLoginBusy(
-        true, QStringLiteral("Google-Konto wählen und auf Weiter tippen…"));
-    requestGoogleLogin();
-  });
-  lay->addWidget(m_androidNativeLoginGoogleBtn);
+  m_androidNativeLoginGoogleBtn = nullptr;
 
   m_androidNativeLoginCancelBtn =
       new QPushButton(QStringLiteral("Abbrechen"), gate);
@@ -7281,13 +7269,12 @@ void MainWindow::onModeChanged(int index) {
     }
   }
   bool deferStudyStackSwitch = false;
-  if (mainStackIdx == 1 && !m_authNavigationLocked && m_studyQQuickView
+  if (mainStackIdx == 1 && m_studyQQuickView
       && m_studyQQuickView->rootObject()) {
     deferStudyStackSwitch =
         !m_studyQQuickView->rootObject()->property("surfacePhaseActive").toBool();
   }
-  if (mainStackIdx == 1 && m_studyQQuickView && m_studyQQuickView->rootObject()
-      && !m_authNavigationLocked) {
+  if (mainStackIdx == 1 && m_studyQQuickView && m_studyQQuickView->rootObject()) {
     QObject *root = m_studyQQuickView->rootObject();
     if (!m_googleLoginInFlight)
       root->setProperty("oauthPending", false);
@@ -7510,6 +7497,7 @@ void MainWindow::cancelGoogleLogin() {
 #ifdef Q_OS_ANDROID
   dismissAndroidOAuthOverlay();
   setAndroidNativeLoginBusy(false, QString());
+  setAndroidNativeLoginGateVisible(false);
 #endif
   m_googleLoginInFlight = false;
   m_googleLoginInFlightSinceMs = 0;
@@ -7785,11 +7773,9 @@ void MainWindow::updateSidebarUser(const QString &username) {
     if (m_modeSelector) {
 #ifdef Q_OS_ANDROID
       QSignalBlocker b(m_modeSelector);
-      // Stay on Notes under an opaque native gate. Opening Study WebView here
-      // is the gray first-start freeze (SurfaceView paints over the login UI).
-      m_modeSelector->setCurrentIndex(0);
-#else
+#endif
       m_modeSelector->setCurrentIndex(1); // Force back to web login
+#ifndef Q_OS_ANDROID
       m_modeSelector->hide(); // Desktop: hide selector on auth screen
 #endif
     }
@@ -7799,9 +7785,8 @@ void MainWindow::updateSidebarUser(const QString &username) {
       m_androidHeader->setFixedHeight(0);
     }
     syncAndroidHeaderGeometry(this);
-    setAndroidNativeLoginGateVisible(true);
-    onModeChanged(0);
-    setAndroidNativeLoginGateVisible(true);
+    setAndroidNativeLoginGateVisible(false);
+    onModeChanged(1);
     // Keep login screen clean: hide Notes/Study pills until session is confirmed.
     if (m_btnAndroidNotes) {
       m_btnAndroidNotes->setVisible(false);
@@ -11898,11 +11883,23 @@ void MainWindow::showEvent(QShowEvent *event) {
   syncAndroidHeaderGeometry(this);
   if (m_androidHeader)
     m_androidHeader->raise();
-  if (m_authNavigationLocked && m_mainContentStack) {
+  if (m_authNavigationLocked && m_mainContentStack &&
+      m_mainContentStack->currentIndex() == 1) {
     QTimer::singleShot(100, this, [this]() {
       if (!m_authNavigationLocked)
         return;
-      setAndroidNativeLoginGateVisible(true);
+      if (!m_mainContentStack || m_mainContentStack->currentIndex() != 1)
+        return;
+      setAndroidStudyBootOverlayVisible(true);
+      if (m_studyQQuickView && m_studyQQuickView->rootObject()) {
+        QObject *root = m_studyQQuickView->rootObject();
+        root->setProperty("tabActive", true);
+        QMetaObject::invokeMethod(
+            root, "requestSurfaceActivation", Qt::QueuedConnection,
+            Q_ARG(QVariant, QVariant(QStringLiteral("showEvent"))));
+        QMetaObject::invokeMethod(root, "ensureStudyLoaded",
+                                  Qt::QueuedConnection);
+      }
     });
   }
 #endif
@@ -12194,9 +12191,9 @@ void MainWindow::applyCompactNavPref() {
 bool MainWindow::handleAndroidBack() {
   m_lastBackHandledMs = QDateTime::currentMSecsSinceEpoch();
 #ifdef Q_OS_ANDROID
-  if (m_androidNativeLoginGate && m_androidNativeLoginGate->isVisible()) {
-    if (m_googleLoginInFlight)
-      cancelGoogleLogin();
+  if (m_androidNativeLoginGate && m_androidNativeLoginGate->isVisible()
+      && m_googleLoginInFlight) {
+    cancelGoogleLogin();
     return true;
   }
 #endif

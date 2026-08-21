@@ -321,8 +321,17 @@ bool PhoneLibraryNav::handleSheetPointer(QObject *watched, QEvent *event) {
 
   const bool onHandleZone = (watched == m_card);
   if (isPress && onHandleZone) {
-    m_swiping = true;
-    m_swipeStartY = y;
+    qreal localY = y;
+    if (t == QEvent::MouseButtonPress) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      localY = me->position().y();
+    } else if (m_card) {
+      localY = y - m_card->mapToGlobal(QPoint(0, 0)).y();
+    }
+    if (localY < UiScale::dp(52)) {
+      m_swiping = true;
+      m_swipeStartY = y;
+    }
     return false;
   }
   if (isMove && m_swiping && (y - m_swipeStartY) >= UiScale::dp(56)) {
@@ -345,7 +354,8 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
         return true;
       }
     }
-    if (event->type() == QEvent::MouseButtonPress) {
+    if (event->type() == QEvent::MouseButtonPress &&
+        (watched == m_scrim || watched == m_sheet)) {
       auto *me = static_cast<QMouseEvent *>(event);
       if (me->button() == Qt::LeftButton && m_card) {
         const QPoint gp = me->globalPosition().toPoint();
@@ -354,10 +364,12 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
           closeMenu();
           return true;
         }
-        const int localY = m_card->mapFromGlobal(gp).y();
-        if (localY >= 0 && localY < UiScale::dp(52)) {
-          m_swiping = true;
-          m_swipeStartY = gp.y();
+        if (watched == m_card) {
+          const int localY = m_card->mapFromGlobal(gp).y();
+          if (localY >= 0 && localY < UiScale::dp(52)) {
+            m_swiping = true;
+            m_swipeStartY = gp.y();
+          }
         }
       }
     }
@@ -371,7 +383,8 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
     }
     if (event->type() == QEvent::MouseButtonRelease)
       m_swiping = false;
-    if (event->type() == QEvent::TouchBegin && m_card) {
+    if (event->type() == QEvent::TouchBegin &&
+        (watched == m_scrim || watched == m_sheet) && m_card) {
       auto *te = static_cast<QTouchEvent *>(event);
       if (!te->points().isEmpty()) {
         const QRect cardGlobal(m_card->mapToGlobal(QPoint(0, 0)), m_card->size());
@@ -674,7 +687,6 @@ void PhoneLibraryNav::openMenu() {
   sheet->setGeometry(win->rect());
   win->installEventFilter(this);
   sheet->installEventFilter(this);
-  qApp->installEventFilter(this);
 
   auto *root = new QVBoxLayout(sheet);
   root->setContentsMargins(0, 0, 0, 0);
@@ -813,6 +825,9 @@ void PhoneLibraryNav::openMenu() {
       "QListWidget::item { color: #F4F2FF; padding: 0; border-radius: 10px; }"
       "QListWidget::item:selected { background: transparent; }"
       "QListWidget::item:hover { background: transparent; }"));
+  m_list->setAttribute(Qt::WA_AcceptTouchEvents, true);
+  if (m_list->viewport())
+    m_list->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) {
             if (!item)
