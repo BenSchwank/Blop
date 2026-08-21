@@ -260,7 +260,19 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
     }
     if (m_btnToggle) {
       m_btnToggle->setParent(this);
-      m_btnToggle->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+      m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
+      m_btnToggle->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+      m_btnToggle->setToolTip(QStringLiteral("Seitenleiste einklappen"));
+      m_btnToggle->setIcon(railGlyph(QStringLiteral("chevron_up"),
+                                     QColor(0x5A, 0x60, 0x70), UiScale::dp(18)));
+      m_btnToggle->setIconSize(QSize(UiScale::dp(18), UiScale::dp(18)));
+      m_btnToggle->setStyleSheet(QStringLiteral(
+          "QPushButton#PageRailToggleBtn {"
+          "  background: #FFFFFF; border: 1px solid #D8DCE6; border-radius: 8px;"
+          "}"
+          "QPushButton#PageRailToggleBtn:hover {"
+          "  border-color: #5B9DFF; background: rgba(91,157,255,0.08);"
+          "}"));
       row->addWidget(m_btnToggle, 0, Qt::AlignVCenter);
     }
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -339,9 +351,11 @@ void PageThumbnailSidebar::applyCollapsedState() {
                                   : QStringLiteral("Seitenleiste einklappen"));
       if (m_collapsed) {
         m_btnToggle->setFixedHeight(handle);
-        m_btnToggle->setMinimumWidth(UiScale::dp(48));
+        m_btnToggle->setMinimumWidth(UiScale::dp(72));
+        m_btnToggle->setText(QStringLiteral(" Seiten"));
       } else {
-        m_btnToggle->setFixedSize(UiScale::dp(28), UiScale::dp(28));
+        m_btnToggle->setText(QString());
+        m_btnToggle->setFixedSize(UiScale::dp(36), UiScale::dp(36));
       }
     }
     show();

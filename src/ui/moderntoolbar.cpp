@@ -3326,6 +3326,7 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
                 geometry().center().y() > (parentH * 3 / 4);
             if (nearBottom) {
               applyStudioSnappedPill();
+              m_isDragging = false;
               emit dockModeChanged(true);
             } else {
               const QPoint dropCenter = geometry().center();
@@ -3343,6 +3344,7 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
                                   ? RailDockEdge::Left
                                   : RailDockEdge::Right,
                               true, false);
+              m_isDragging = false;
               emit dockModeChanged(false);
             }
             e->accept();
@@ -6178,7 +6180,12 @@ void ModernToolbar::updateLayout(bool animate) {
       const int cellW = UiScale::dp(68);
       const int cellH = qMax(UiScale::dp(56), h - UiScale::dp(10));
       const int gap = UiScale::dp(4);
+      const int grip = UiScale::dp(22); // empty ends = drag-to-float grips
       for (ToolbarBtn *b : m_slotButtons) {
+        if (b)
+          b->hide();
+      }
+      for (ToolbarBtn *b : m_buttons) {
         if (b)
           b->hide();
       }
@@ -6212,7 +6219,9 @@ void ModernToolbar::updateLayout(bool animate) {
         row.append(b);
       }
       const int total = row.size() * cellW + qMax(0, row.size() - 1) * gap;
-      int x = qMax(UiScale::dp(12), (w - total) / 2);
+      int x = qMax(grip, (w - total) / 2);
+      if (x + total > w - grip)
+        x = grip;
       const int y = qMax(0, (h - cellH) / 2);
       for (ToolbarBtn *b : row) {
         if (animate) {
@@ -6454,30 +6463,41 @@ void ModernToolbar::updateLayout(bool animate) {
         const int headerBtnS = UiScale::dp(44);
         const int headerGap = UiScale::dp(2);
         int hy = dragSize + UiScale::dp(6);
-        for (ToolbarBtn *b : {btnUndo, btnRedo}) {
-          if (!b)
-            continue;
-          b->setRailSlotStyle(true);
-          b->setRailFooterStyle(false);
-          b->setShowChevron(false);
-          b->setBtnCell(w - UiScale::dp(6), headerBtnS);
-          b->move(UiScale::dp(3), hy);
-          b->show();
-          b->raise();
-          hy += b->height() + headerGap;
+        if (studioFloat) {
+          // J: tools first, undo sits with the slots (not a separate header).
+          if (btnUndo)
+            btnUndo->hide();
+          if (btnRedo)
+            btnRedo->hide();
+        } else {
+          for (ToolbarBtn *b : {btnUndo, btnRedo}) {
+            if (!b)
+              continue;
+            b->setRailSlotStyle(true);
+            b->setRailFooterStyle(false);
+            b->setShowChevron(false);
+            b->setBtnCell(w - UiScale::dp(6), headerBtnS);
+            b->move(UiScale::dp(3), hy);
+            b->show();
+            b->raise();
+            hy += b->height() + headerGap;
+          }
         }
-        const int headerBottom = hy + UiScale::dp(4);
-        m_separatorYPositions.append(headerBottom);
+        const int headerBottom = studioFloat ? (dragSize + UiScale::dp(8))
+                                             : (hy + UiScale::dp(4));
+        if (!studioFloat)
+          m_separatorYPositions.append(headerBottom);
         const int contentTop = headerBottom + UiScale::dp(8);
         const int contentBottom = h - footerH - UiScale::dp(10);
         const int contentH = qMax(btnS, contentBottom - contentTop);
 
         // Content height of all slots (+ soft dividers).
         int contentNeeded = 0;
+        if (studioFloat && btnUndo)
+          slotBtns.append(btnUndo);
         for (int i = 0; i < slotBtns.size(); ++i) {
           contentNeeded += btnS + gap;
-          // Dividers after select-group / ink-group.
-          if (i < m_railSlots.size()) {
+          if (!studioFloat && i < m_railSlots.size()) {
             const ToolMode m = m_railSlots[i].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser)
               contentNeeded += UiScale::dp(10);
