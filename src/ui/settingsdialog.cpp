@@ -1184,7 +1184,11 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
         const QString primaryId = StoragePrefs::primaryCloudId();
         for (const CloudStorageEntry &e : CloudStorageStore::load()) {
-            if (!phoneUi && e.id == QLatin1String("googledrive"))
+            const bool isDrive =
+                e.id.compare(QLatin1String("googledrive"), Qt::CaseInsensitive) == 0 ||
+                e.type.compare(QLatin1String("googledrive"), Qt::CaseInsensitive) == 0 ||
+                e.name.compare(QLatin1String("Google Drive"), Qt::CaseInsensitive) == 0;
+            if (!phoneUi && isDrive)
                 continue;
             auto *row = new QWidget(cloudList);
             row->setObjectName(QStringLiteral("CloudProviderRow"));
@@ -1209,7 +1213,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             setThemedQss(name, QStringLiteral(
                 "color: #ECEEFD; font-size: 13px; font-weight: 600;"
                 "background: transparent;"));
-            hl->addWidget(name, 1);
 
             auto *btnPrimary = new QPushButton(
                 (primaryId == e.id) ? QStringLiteral("Primär")
@@ -1292,10 +1295,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                  emit storagePrefsChanged();
                              });
 
-            hl->addWidget(btnAuto);
-            hl->addWidget(btnManual);
-            hl->removeWidget(name);
             outer->addWidget(name);
+            outer->addWidget(btnAuto);
+            hl->addWidget(btnPrimary, 1);
+            hl->addWidget(btnManual, 1);
             outer->addLayout(hl);
             cloudLay->addWidget(row, cloudIdx, 0);
             ++cloudIdx;
