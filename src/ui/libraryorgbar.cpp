@@ -225,7 +225,7 @@ void LibraryOrgBar::rebuildStyles() {
   const QString accent = m_accent.name(QColor::HexRgb);
   const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
   const QString muted = BlopTheme::textSecondary().name(QColor::HexRgb);
-  const QString border = BlopTheme::borderSubtle().name(QColor::HexArgb);
+  const QString border = BlopTheme::borderDefault().name(QColor::HexArgb);
   setStyleSheet(BlopTheme::themed(
       QStringLiteral(
           "QWidget#LibraryOrgBar { background: transparent; }"
