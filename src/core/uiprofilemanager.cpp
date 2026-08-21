@@ -1,9 +1,11 @@
 #include "uiprofilemanager.h"
+#include "uiscale.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QSettings>
 
 UiProfileManager::UiProfileManager(QObject *parent) : QObject(parent) {
     loadProfiles();
@@ -43,9 +45,10 @@ void UiProfileManager::ensureDefaults() {
     tablet.buttonSize = 56;
     m_profiles.append(tablet);
 
-    // ANPASSUNG: Auf Android standardmäßig das Tablet-Profil nutzen
+    // Phone chrome is AndroidPhoneToolbar + compact library — Tablet (Groß)
+    // made extra-settings look like a tablet on a Nothing Phone 2.
 #ifdef Q_OS_ANDROID
-    m_currentId = tablet.id;
+    m_currentId = UiScale::isAndroidPhoneUi() ? desktop.id : tablet.id;
 #else
     m_currentId = desktop.id;
 #endif
@@ -73,6 +76,21 @@ void UiProfileManager::loadProfiles() {
     if (!m_currentId.isEmpty()) {
         emit profileChanged(currentProfile());
     }
+
+#ifdef Q_OS_ANDROID
+    // One-time: phones that inherited the old tablet default.
+    if (UiScale::isAndroidPhoneUi()) {
+        QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+        if (!s.value(QStringLiteral("ui/phone_profile_migrated")).toBool()) {
+            if (m_currentId == QLatin1String("{tablet-default}") ||
+                m_currentId.isEmpty()) {
+                m_currentId = QStringLiteral("{desktop-default}");
+                saveProfiles();
+            }
+            s.setValue(QStringLiteral("ui/phone_profile_migrated"), true);
+        }
+    }
+#endif
 }
 
 void UiProfileManager::saveProfiles() {

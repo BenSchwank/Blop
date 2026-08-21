@@ -5,6 +5,7 @@
 #include <QUrl>
 
 class QLocalServer;
+class QWidget;
 
 /// Desktop single-instance + blop:// protocol helpers.
 class DesktopDeepLink : public QObject {
@@ -23,6 +24,10 @@ public:
 
   /// Parse argv for a blop: URL (empty if none).
   static QString deepLinkFromArguments(const QStringList &args);
+
+  /// Raise + activate the running window after browser OAuth (Windows
+  /// foreground-lock workaround).
+  static void bringWindowToFront(QWidget *window);
 
 signals:
   void messageReceived(const QString &message);

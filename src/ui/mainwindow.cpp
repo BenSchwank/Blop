@@ -1703,6 +1703,9 @@ MainWindow::MainWindow(QWidget *parent)
       dismissAndroidOAuthOverlay();
       setAndroidNativeLoginGateVisible(false);
 #endif
+#ifndef Q_OS_ANDROID
+      DesktopDeepLink::bringWindowToFront(this);
+#endif
       if (m_authOverlay) {
           m_authOverlay->accept();
           m_authOverlay->deleteLater();
@@ -1797,11 +1800,7 @@ MainWindow::MainWindow(QWidget *parent)
           updateSidebarUser(username);
 #ifndef Q_OS_ANDROID
           // User finished Google in the system browser — bring Blop back.
-          raise();
-          activateWindow();
-          if (windowHandle())
-            windowHandle()->requestActivate();
-          QApplication::alert(this, 4000);
+          DesktopDeepLink::bringWindowToFront(this);
 #endif
 
           // Sync Study WebView localStorage when the embedded view works (optional).
@@ -3798,11 +3797,10 @@ void MainWindow::openSettingsWorkspace() {
   card->setStyleSheet(
       QStringLiteral("QFrame#SettingsWorkspaceCard {"
                      "  background: %1;"
-                     "  border: 1px solid %2;"
-                     "  border-radius: %3px;"
+                     "  border: none;"
+                     "  border-radius: %2px;"
                      "}")
           .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
-               BlopTheme::borderDefault().name(QColor::HexArgb),
                QString::number(BlopTheme::r24)));
 
   auto *cardLay = new QVBoxLayout(card);
@@ -3896,11 +3894,10 @@ void MainWindow::openSettingsWorkspace() {
             card->setStyleSheet(
                 QStringLiteral("QFrame#SettingsWorkspaceCard {"
                                "  background: %1;"
-                               "  border: 1px solid %2;"
-                               "  border-radius: %3px;"
+                               "  border: none;"
+                               "  border-radius: %2px;"
                                "}")
                     .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
-                         BlopTheme::borderDefault().name(QColor::HexArgb),
                          QString::number(BlopTheme::r24)));
           });
 
@@ -9679,7 +9676,7 @@ void MainWindow::setupRightSidebar() {
       "}");
   connect(m_btnInputPen, &QPushButton::clicked,
           [this]() { updateInputMode(true); });
-  m_btnInputTouch = new QPushButton("Touch & Pen\n(2 Fingers scroll)");
+  m_btnInputTouch = new QPushButton("Touch && Pen\n(2 Fingers scroll)");
   m_btnInputTouch->setCheckable(true);
   m_btnInputTouch->setCursor(Qt::PointingHandCursor);
   m_btnInputTouch->setStyleSheet(
@@ -9739,8 +9736,8 @@ void MainWindow::setupRightSidebar() {
             }
           });
   if (phoneToolbarActive) {
-    lblToolbarStyle->setEnabled(false);
-    m_comboToolbarStyle->setEnabled(false);
+    lblToolbarStyle->hide();
+    m_comboToolbarStyle->hide();
     m_comboToolbarStyle->setToolTip(
         "Toolbar-Style ist auf Android Phones fest (Bottom-Pille).");
   }
@@ -9797,14 +9794,15 @@ void MainWindow::setupRightSidebar() {
       tb->setScale(val / 100.0);
   });
   if (phoneToolbarActive) {
-    lblToolbarSize->setEnabled(false);
-    m_sliderToolbarScale->setEnabled(false);
+    lblToolbarSize->hide();
+    m_sliderToolbarScale->hide();
     m_sliderToolbarScale->setToolTip(
         "Toolbar-Skala auf Android Phones fest (Bottom-Pille).");
   }
   optLayout->addWidget(m_sliderToolbarScale);
 
-  optLayout->addStretch();
+  if (!phoneToolbarActive)
+    optLayout->addStretch();
   optScroll->setWidget(optContent);
   optLayoutMain->addWidget(optScroll);
   BlopScroll::enableFingerScroll(optScroll);
@@ -10946,15 +10944,7 @@ void MainWindow::openNotePath(const QString &absolutePath) {
 #ifndef Q_OS_ANDROID
 void MainWindow::handleDesktopDeepLinkMessage(const QString &message) {
   const QString msg = message.trimmed();
-  raise();
-  activateWindow();
-  if (windowHandle())
-    windowHandle()->requestActivate();
-#ifdef Q_OS_WIN
-  // Windows often ignores ActivateWindow while another app is focused;
-  // flash the taskbar as a fallback cue.
-  QApplication::alert(this, 3000);
-#endif
+  DesktopDeepLink::bringWindowToFront(this);
   if (msg.isEmpty() || msg == QLatin1String("ACTIVATE"))
     return;
   if (!msg.startsWith(QStringLiteral("blop:"), Qt::CaseInsensitive))

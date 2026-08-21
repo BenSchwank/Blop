@@ -982,6 +982,15 @@ void ToolbarBtn::mouseMoveEvent(QMouseEvent *e) {
       emit railDragStarted(m_railSlotIndex);
     }
   }
+  if (!m_railSlotStyle && m_pressing && !m_railDragging) {
+    const QPoint d = e->pos() - m_pressPos;
+    if (d.manhattanLength() >= QApplication::startDragDistance()) {
+      if (m_holdAnim)
+        m_holdAnim->stop();
+      m_holdProgress = 0.0;
+      m_longPressTriggered = false;
+    }
+  }
   if (m_railDragging) {
     emit railDragMoved(mapToGlobal(e->pos()).y());
     e->accept();

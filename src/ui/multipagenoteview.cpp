@@ -2202,6 +2202,16 @@ void MultiPageNoteView::hideBottomSheet() {
 void MultiPageNoteView::syncPagesBarVisibility() {
   if (!m_bottomSheet)
     return;
+  // Phone: the desktop Vorlagen/Importieren/Mehr strip sits on the canvas
+  // and steals taps (and pops "Letzte Seite duplizieren"). Pages are added
+  // from the thumbnail rail + button instead.
+  if (UiScale::isAndroidPhoneUi()) {
+    m_bottomSheet->hide();
+    if (m_pagesBarAnchorStrip)
+      m_pagesBarAnchorStrip->setVisible(true);
+    m_pullDistance = 0.f;
+    return;
+  }
   if (!note_ || pageItems_.isEmpty() ||
       !isSkeletonStripIntersectingViewport()) {
     m_bottomSheet->hide();

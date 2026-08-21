@@ -178,6 +178,24 @@ public:
     BlopSettingsCard(const QString &title, const QString &subtitle, QWidget *parent)
         : QFrame(parent), m_title(title), m_subtitle(subtitle) {
         setSurfaceQss(this, QStringLiteral("BlopSettingsCard"));
+#ifndef Q_OS_ANDROID
+        // Desktop workspace: no accent hairline — it read as a white rim
+        // against the dark page (and stacked with SettingsWorkspaceCard).
+        if (!UiScale::isAndroidPhoneUi(parent)) {
+            const QColor bg = BlopStyle::surfaceBg();
+            setStyleSheet(QStringLiteral(
+                "#BlopSettingsCard {"
+                "  background-color: rgba(%1, %2, %3, %4);"
+                "  border: none;"
+                "  border-radius: %5px;"
+                "}")
+                              .arg(bg.red())
+                              .arg(bg.green())
+                              .arg(bg.blue())
+                              .arg(QString::number(bg.alphaF(), 'f', 3))
+                              .arg(UiScale::dp(BlopStyle::surfaceRadiusDp())));
+        }
+#endif
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
         auto *root = new QVBoxLayout(this);
@@ -266,6 +284,22 @@ public:
 
     void refreshTheme() {
         setSurfaceQss(this, QStringLiteral("BlopSettingsCard"));
+#ifndef Q_OS_ANDROID
+        if (!UiScale::isAndroidPhoneUi(parentWidget())) {
+            const QColor bg = BlopStyle::surfaceBg();
+            setStyleSheet(QStringLiteral(
+                "#BlopSettingsCard {"
+                "  background-color: rgba(%1, %2, %3, %4);"
+                "  border: none;"
+                "  border-radius: %5px;"
+                "}")
+                              .arg(bg.red())
+                              .arg(bg.green())
+                              .arg(bg.blue())
+                              .arg(QString::number(bg.alphaF(), 'f', 3))
+                              .arg(UiScale::dp(BlopStyle::surfaceRadiusDp())));
+        }
+#endif
         if (m_titleLbl)
             applyStoredQss(m_titleLbl);
         if (m_subtitleLbl)
@@ -1045,8 +1079,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         cloudLay->setHorizontalSpacing(phoneUi ? 0 : 16);
         cloudLay->setVerticalSpacing(phoneUi ? UiScale::dp(10) : 8);
         cloudLay->setColumnStretch(0, 1);
-        if (!phoneUi)
-            cloudLay->setColumnStretch(1, 1);
+        cloudLay->setColumnStretch(1, 0);
         int cloudIdx = 0;
 
         // Helpers used by every cloud-provider row and the Google Drive hero button.
@@ -1151,10 +1184,19 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
         const QString primaryId = StoragePrefs::primaryCloudId();
         for (const CloudStorageEntry &e : CloudStorageStore::load()) {
+            if (!phoneUi && e.id == QLatin1String("googledrive"))
+                continue;
             auto *row = new QWidget(cloudList);
+            row->setObjectName(QStringLiteral("CloudProviderRow"));
+            row->setStyleSheet(QStringLiteral(
+                "QWidget#CloudProviderRow {"
+                "  background: rgba(255,255,255,0.04);"
+                "  border-radius: 12px;"
+                "}"));
             auto *outer = new QVBoxLayout(row);
-            outer->setContentsMargins(0, 0, 0, 0);
-            outer->setSpacing(phoneUi ? UiScale::dp(6) : 0);
+            outer->setContentsMargins(phoneUi ? 0 : 12, phoneUi ? 0 : 10,
+                                      phoneUi ? 0 : 12, phoneUi ? 0 : 10);
+            outer->setSpacing(phoneUi ? UiScale::dp(6) : 8);
             auto *hl = new QHBoxLayout();
             hl->setContentsMargins(0, 0, 0, 0);
             hl->setSpacing(8);
@@ -1252,15 +1294,10 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
             hl->addWidget(btnAuto);
             hl->addWidget(btnManual);
-            if (phoneUi) {
-                hl->removeWidget(name);
-                outer->addWidget(name);
-                outer->addLayout(hl);
-                cloudLay->addWidget(row, cloudIdx, 0);
-            } else {
-                outer->addLayout(hl);
-                cloudLay->addWidget(row, cloudIdx / 2, cloudIdx % 2);
-            }
+            hl->removeWidget(name);
+            outer->addWidget(name);
+            outer->addLayout(hl);
+            cloudLay->addWidget(row, cloudIdx, 0);
             ++cloudIdx;
         }
         cardStorage->addBodyWidget(cloudList);
@@ -1427,7 +1464,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         v->setSpacing(cardGap);
         for (QWidget *c : cards)
             v->addWidget(c);
-        v->addStretch(1);
         return col;
     };
     if (phoneUi) {

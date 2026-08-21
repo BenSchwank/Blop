@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QBrush>
 #include <QColor>
+#include <QDateTime>
 #include <QEvent>
 #include <QFileInfo>
 #include <QFont>
@@ -191,6 +192,10 @@ bool PhoneLibraryNav::wideMenu() const {
 void PhoneLibraryNav::emitAndClose(const QString &id) {
   if (id.isEmpty())
     return;
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  if (now - m_lastMenuActionMs < 450)
+    return;
+  m_lastMenuActionMs = now;
   closeMenu();
   emit menuAction(id);
 }
@@ -345,6 +350,27 @@ bool PhoneLibraryNav::handleSheetPointer(QObject *watched, QEvent *event) {
 }
 
 bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
+  if (m_list && m_list->viewport() && watched == m_list->viewport() && event) {
+    const QEvent::Type t = event->type();
+    if (t == QEvent::MouseButtonPress || t == QEvent::MouseButtonRelease) {
+      auto *me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton) {
+        if (t == QEvent::MouseButtonPress) {
+          m_listPressPos = me->pos();
+          m_listPressItem = m_list->itemAt(me->pos());
+        } else if (m_listPressItem) {
+          const QPoint delta = me->pos() - m_listPressPos;
+          QListWidgetItem *item = m_listPressItem;
+          m_listPressItem = nullptr;
+          if (delta.manhattanLength() < UiScale::dp(28) &&
+              !item->data(kSectionRole).toBool()) {
+            emitAndClose(item->data(Qt::UserRole).toString());
+            return true;
+          }
+        }
+      }
+    }
+  }
   if (m_sheet && event) {
     if (event->type() == QEvent::KeyPress ||
         event->type() == QEvent::ShortcutOverride) {
@@ -664,6 +690,7 @@ void PhoneLibraryNav::closeMenu() {
   m_list = nullptr;
   m_search = nullptr;
   m_account = nullptr;
+  m_listPressItem = nullptr;
 }
 
 void PhoneLibraryNav::openMenu() {
@@ -826,8 +853,12 @@ void PhoneLibraryNav::openMenu() {
       "QListWidget::item:selected { background: transparent; }"
       "QListWidget::item:hover { background: transparent; }"));
   m_list->setAttribute(Qt::WA_AcceptTouchEvents, true);
-  if (m_list->viewport())
+  m_list->setProperty("blopPreferClick", true);
+  if (m_list->viewport()) {
     m_list->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
+    m_list->viewport()->setProperty("blopPreferClick", true);
+    m_list->viewport()->installEventFilter(this);
+  }
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) {
             if (!item)

@@ -29,7 +29,18 @@ namespace {
 
 constexpr const char *kInstalled = "blopFingerScroll";
 constexpr const char *kFitContents = "blopFitContents";
+constexpr const char *kPreferClick = "blopPreferClick";
 constexpr int kDirectDragPx = 8;
+constexpr int kTouchDragPx = 24;
+constexpr int kPreferClickDragPx = 32;
+
+bool preferClickWidget(const QWidget *w) {
+  for (const QWidget *p = w; p; p = p->parentWidget()) {
+    if (p->property(kPreferClick).toBool())
+      return true;
+  }
+  return false;
+}
 
 bool isDrawingCanvas(const QAbstractScrollArea *area) {
   if (qobject_cast<const QGraphicsView *>(area))
@@ -257,9 +268,20 @@ private:
 
   void clearSession() { m = Session{}; }
 
+  int dragSlop() const {
+    if (preferClickWidget(m.pressWidget) || preferClickWidget(m.area))
+      return kPreferClickDragPx;
+    return m.fromTouch ? kTouchDragPx : kDirectDragPx;
+  }
+
   bool beginSession(QWidget *w, const QPointF &global, qint64 ts, bool fromTouch,
                     int touchId) {
     if (!w || isPassthroughWidget(w) || isUnderDrawingCanvas(w))
+      return false;
+    // Burger / other "prefer click" lists: do not steal the press. Finger
+    // jitter of a few pixels used to cancel itemClicked after a visible
+    // highlight.
+    if (preferClickWidget(w))
       return false;
     QAbstractScrollArea *area = enclosingScrollable(w);
     if (!area)
@@ -289,7 +311,7 @@ private:
 
     if (!m.scrolling) {
       const QPoint total = (global - m.pressGlobal).toPoint();
-      if (total.manhattanLength() < kDirectDragPx)
+      if (total.manhattanLength() < dragSlop())
         return false;
     }
 
@@ -324,9 +346,14 @@ private:
   bool onMousePress(QObject *watched, QMouseEvent *me) {
     if (!me || me->button() != Qt::LeftButton)
       return false;
-    if (m.fromTouch && me->source() == Qt::MouseEventSynthesizedByQt)
-      return true;
     auto *w = qobject_cast<QWidget *>(watched);
+    if (m.fromTouch && me->source() == Qt::MouseEventSynthesizedByQt) {
+      // Lists that must receive a real click (burger rows) need the
+      // synthesized mouse press. Other widgets already saw TouchBegin.
+      if (preferClickWidget(w))
+        return false;
+      return true;
+    }
     beginSession(w, me->globalPosition(), eventTs(me), false, -1);
     // Deliver the press so Qt keeps sending moves and a stationary tap clicks.
     return false;
@@ -335,16 +362,22 @@ private:
   bool onMouseMove(QMouseEvent *me) {
     if (!m.active)
       return false;
-    if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt)
+    if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt) {
+      if (preferClickWidget(m.pressWidget))
+        return false;
       return true;
+    }
     if (!me)
       return false;
     return onDrag(me->globalPosition(), eventTs(me));
   }
 
   bool onMouseRelease(QMouseEvent *me) {
-    if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt)
+    if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt) {
+      if (preferClickWidget(m.pressWidget))
+        return false;
       return m.active && m.scrolling;
+    }
     if (!me || me->button() != Qt::LeftButton)
       return false;
     return finish(me->globalPosition(), eventTs(me));

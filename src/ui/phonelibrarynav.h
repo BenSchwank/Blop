@@ -8,6 +8,7 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QListWidgetItem;
 class QPushButton;
 
 /// Floating bottom burger pill + sectioned library sheet for phone-sized UI.
@@ -68,4 +69,7 @@ private:
   QStringList m_favoriteNotePaths;
   bool m_swiping{false};
   qreal m_swipeStartY{0};
+  qint64 m_lastMenuActionMs{0};
+  QPoint m_listPressPos;
+  QListWidgetItem *m_listPressItem{nullptr};
 };

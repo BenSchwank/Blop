@@ -924,7 +924,7 @@ void ToolPropertiesPanel::rebuild() {
   const QString qss = QStringLiteral(
       "QWidget#ToolPropertiesPanel {"
       "  background: %1;"
-      "  border: 1px solid %2;"
+      "  border: none;"
       "  border-radius: %6px;"
       "}"
       "QWidget#ToolPropsBody, QScrollArea#ToolPropsScroll,"
@@ -971,8 +971,8 @@ void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
   const qreal radius = UiScale::dp(16);
   p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 55));
-  p.drawRoundedRect(r.translated(0, 2), radius, radius);
+  p.setBrush(QColor(0, 0, 0, 22));
+  p.drawRoundedRect(r.translated(0, 1), radius, radius);
   QLinearGradient grad(r.topLeft(), r.bottomLeft());
   grad.setColorAt(0, NoteChrome::panelElevated());
   grad.setColorAt(1, NoteChrome::panelBg());

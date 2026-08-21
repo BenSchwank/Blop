@@ -9,6 +9,14 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUrl>
+#include <QWidget>
+#include <QWindow>
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 namespace {
 constexpr const char *kServerName = "BlopDesktopSingleInstance_v1";
 }
@@ -77,6 +85,38 @@ void DesktopDeepLink::registerProtocolHandler() {
 #else
   Q_UNUSED(exe);
 #endif
+#endif
+}
+
+void DesktopDeepLink::bringWindowToFront(QWidget *window) {
+#ifndef Q_OS_ANDROID
+  if (!window)
+    return;
+  window->show();
+  window->setWindowState(window->windowState() & ~Qt::WindowMinimized);
+  window->raise();
+  window->activateWindow();
+  if (window->windowHandle())
+    window->windowHandle()->requestActivate();
+#ifdef Q_OS_WIN
+  HWND hwnd = reinterpret_cast<HWND>(window->winId());
+  if (hwnd) {
+    HWND fg = GetForegroundWindow();
+    const DWORD fgThread = GetWindowThreadProcessId(fg, nullptr);
+    const DWORD thisThread = GetCurrentThreadId();
+    if (fg && fgThread != thisThread)
+      AttachThreadInput(fgThread, thisThread, TRUE);
+    ShowWindow(hwnd, SW_SHOW);
+    SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    BringWindowToTop(hwnd);
+    SetForegroundWindow(hwnd);
+    if (fg && fgThread != thisThread)
+      AttachThreadInput(fgThread, thisThread, FALSE);
+  }
+#endif
+#else
+  Q_UNUSED(window);
 #endif
 }
 
