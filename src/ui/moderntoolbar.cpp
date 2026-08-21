@@ -476,6 +476,18 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(24, 32, 38, 46);
     return;
   }
+  if (name == QLatin1String("chevron_up")) {
+    p->setPen(QPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(18, 38, 32, 24);
+    p->drawLine(32, 24, 46, 38);
+    return;
+  }
+  if (name == QLatin1String("chevron_down")) {
+    p->setPen(QPen(primary, 3.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p->drawLine(18, 26, 32, 40);
+    p->drawLine(32, 40, 46, 26);
+    return;
+  }
   if (name == QLatin1String("zoom_in")) {
     p->setPen(primaryPen);
     p->drawEllipse(QPointF(28, 28), 14, 14);
@@ -567,6 +579,54 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawRoundedRect(14, 24, 36, 16, 4, 4);
     p->setPen(accentPen);
     p->drawLine(20, 32, 44, 32);
+    return;
+  }
+  if (name == QLatin1String("home")) {
+    p->setPen(primaryPen);
+    QPolygonF house;
+    house << QPointF(32, 14) << QPointF(50, 28) << QPointF(50, 50)
+          << QPointF(14, 50) << QPointF(14, 28);
+    p->drawPolyline(house);
+    p->drawLine(14, 28, 32, 14);
+    p->drawLine(32, 14, 50, 28);
+    p->setPen(accentPen);
+    p->drawRect(QRectF(26, 36, 12, 14));
+    return;
+  }
+  if (name == QLatin1String("folder")) {
+    p->setPen(primaryPen);
+    p->drawRoundedRect(12, 24, 40, 26, 4, 4);
+    p->drawLine(12, 24, 12, 20);
+    p->drawLine(12, 20, 26, 20);
+    p->drawLine(26, 20, 30, 24);
+    p->setPen(accentPen);
+    p->drawLine(18, 36, 46, 36);
+    return;
+  }
+  if (name == QLatin1String("star")) {
+    p->setPen(accentPen);
+    p->setBrush(Qt::NoBrush);
+    QPolygonF star;
+    for (int i = 0; i < 5; ++i) {
+      const qreal a = -M_PI / 2 + i * 2 * M_PI / 5;
+      star << QPointF(32 + qCos(a) * 16, 32 + qSin(a) * 16);
+      const qreal b = a + M_PI / 5;
+      star << QPointF(32 + qCos(b) * 7, 32 + qSin(b) * 7);
+    }
+    p->drawPolygon(star);
+    return;
+  }
+  if (name == QLatin1String("search")) {
+    p->setPen(primaryPen);
+    p->drawEllipse(QPointF(28, 28), 12, 12);
+    p->setPen(accentPen);
+    p->drawLine(37, 37, 50, 50);
+    return;
+  }
+  if (name == QLatin1String("person")) {
+    p->setPen(primaryPen);
+    p->drawEllipse(QPointF(32, 22), 8, 8);
+    p->drawArc(QRectF(16, 32, 32, 24), 0, 180 * 16);
     return;
   }
   // Fallback: single-character / unknown (legacy)
@@ -807,6 +867,18 @@ void ToolbarBtn::setBtnSize(int s) {
 void ToolbarBtn::setBtnCell(int w, int h) {
   m_size = qMin(w, h);
   setFixedSize(w, h);
+  update();
+}
+void ToolbarBtn::setCaption(const QString &text) {
+  if (m_caption == text)
+    return;
+  m_caption = text;
+  update();
+}
+void ToolbarBtn::setLightStudioStyle(bool on) {
+  if (m_lightStudioStyle == on)
+    return;
+  m_lightStudioStyle = on;
   update();
 }
 void ToolbarBtn::setIcon(const QString &name) {
@@ -1094,13 +1166,19 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
                         UiScale::dp(4));
     } else if (m_active && !m_railFooterStyle) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 170 : 36));
-      p.drawRoundedRect(rect().adjusted(0, 1, 0, -1), UiScale::dp(4),
-                        UiScale::dp(4));
-      p.setBrush(m_accentColor.isValid() ? m_accentColor : NoteChrome::accent());
-      p.drawRoundedRect(QRect(0, UiScale::dp(6), UiScale::dp(3),
-                              h - UiScale::dp(12)),
-                        UiScale::dp(1), UiScale::dp(1));
+      if (m_lightStudioStyle) {
+        p.setBrush(QColor(91, 157, 255, 46));
+        p.drawRoundedRect(rect().adjusted(3, 3, -3, -3), UiScale::dp(10),
+                          UiScale::dp(10));
+      } else {
+        p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 170 : 36));
+        p.drawRoundedRect(rect().adjusted(0, 1, 0, -1), UiScale::dp(4),
+                          UiScale::dp(4));
+        p.setBrush(m_accentColor.isValid() ? m_accentColor : NoteChrome::accent());
+        p.drawRoundedRect(QRect(0, UiScale::dp(6), UiScale::dp(3),
+                                h - UiScale::dp(12)),
+                          UiScale::dp(1), UiScale::dp(1));
+      }
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
       const int a = m_railFooterStyle
@@ -1113,7 +1191,10 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
 
     QColor tip =
         m_glyphColor.isValid() ? m_glyphColor : NoteChrome::textPrimary();
-    if (m_railFooterStyle && !m_glyphColor.isValid()) {
+    if (m_lightStudioStyle) {
+      tip = m_active ? QColor(QStringLiteral("#5B9DFF"))
+                     : QColor(40, 44, 52, 220);
+    } else if (m_railFooterStyle && !m_glyphColor.isValid()) {
       tip = NoteChrome::textSecondary();
       if (m_hover || m_pressing)
         tip = NoteChrome::textPrimary();
@@ -1177,6 +1258,36 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   p.save();
   if (m_liftOffset > 0.0)
     p.translate(0.0, -m_liftOffset);
+
+  if (!m_caption.isEmpty()) {
+    const QColor ink = m_active ? QColor(QStringLiteral("#5B9DFF"))
+                                : QColor(40, 44, 52, 220);
+    const int capH = UiScale::dp(14);
+    const int iconBox = qMax(UiScale::dp(18), h - capH - UiScale::dp(8));
+    p.save();
+    p.translate(w / 2.0, iconBox / 2.0 + UiScale::dp(4));
+    p.scale(m_animScale, m_animScale);
+    const qreal g = qMin(w - UiScale::dp(8), iconBox) / 64.0;
+    p.scale(g, g);
+    p.translate(-32, -32);
+    drawToolbarGlyph64(&p, m_iconName, ink);
+    p.restore();
+    QFont f = p.font();
+    f.setPixelSize(UiScale::sp(9));
+    f.setWeight(QFont::DemiBold);
+    p.setFont(f);
+    p.setPen(ink);
+    p.drawText(QRect(2, h - capH - UiScale::dp(4), w - 4, capH),
+               Qt::AlignHCenter | Qt::AlignTop, m_caption);
+    if (m_active) {
+      p.setPen(QPen(QColor(QStringLiteral("#5B9DFF")), 2, Qt::SolidLine,
+                    Qt::RoundCap));
+      const int y = h - UiScale::dp(4);
+      p.drawLine(w / 2 - UiScale::dp(10), y, w / 2 + UiScale::dp(10), y);
+    }
+    p.restore();
+    return;
+  }
 
   if (m_active) {
     p.setBrush(NoteChrome::accent());
@@ -2654,19 +2765,14 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
-        // Drawboard Markup Toolbar: flat charcoal bar, soft bottom corners.
-        QLinearGradient grad(0, 0, 0, h);
-        grad.setColorAt(0, NoteChrome::toolbarFill());
-        grad.setColorAt(1, NoteChrome::toolbarFillEnd());
-        p.setBrush(grad);
+        // K snapped pill: light plate, fully rounded.
+        const int r = qMin(h / 2, UiScale::dp(22));
         p.setPen(Qt::NoPen);
-
-        const int r = UiScale::dp(10);
-        p.drawRoundedRect(0, -r, w, h + r, r, r);
-
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(NoteChrome::borderSoft(), 1));
-        p.drawRoundedRect(0, -r, w - 1, h + r - 1, r, r);
+        p.setBrush(QColor(0, 0, 0, 28));
+        p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), r, r);
+        p.setBrush(QColor(255, 255, 255, 245));
+        p.setPen(QPen(QColor(20, 22, 28, 28), 1));
+        p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), r, r);
 
         p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sx : m_separatorXPositions) {
@@ -2684,42 +2790,16 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
                      m_markupRowDividerY);
         }
       } else if (isDrawboardVerticalRail()) {
-        // Edge-flush Favorites rail: soft inner corners, flush outer edge.
-        QLinearGradient grad(0, 0, 0, h);
-        grad.setColorAt(0, NoteChrome::toolbarFill());
-        grad.setColorAt(1, NoteChrome::toolbarFillEnd());
+        // J floating vertical pill: light, fully rounded.
+        const qreal rad = qMin(w / 2.0, 28.0);
         p.setPen(Qt::NoPen);
-        p.setBrush(grad);
-        const qreal rad = UiScale::dp(14);
-        QPainterPath plate;
-        const QRectF rf(0.5, 0.5, w - 1.0, h - 1.0);
-        const bool leftDock = (m_railDockEdge == RailDockEdge::Left);
-        // Round the canvas-facing corners; keep the screen edge square.
-        if (leftDock) {
-          plate.moveTo(rf.left(), rf.top());
-          plate.lineTo(rf.right() - rad, rf.top());
-          plate.quadTo(rf.right(), rf.top(), rf.right(), rf.top() + rad);
-          plate.lineTo(rf.right(), rf.bottom() - rad);
-          plate.quadTo(rf.right(), rf.bottom(), rf.right() - rad, rf.bottom());
-          plate.lineTo(rf.left(), rf.bottom());
-          plate.closeSubpath();
-        } else {
-          plate.moveTo(rf.left() + rad, rf.top());
-          plate.lineTo(rf.right(), rf.top());
-          plate.lineTo(rf.right(), rf.bottom());
-          plate.lineTo(rf.left() + rad, rf.bottom());
-          plate.quadTo(rf.left(), rf.bottom(), rf.left(), rf.bottom() - rad);
-          plate.lineTo(rf.left(), rf.top() + rad);
-          plate.quadTo(rf.left(), rf.top(), rf.left() + rad, rf.top());
-          plate.closeSubpath();
-        }
-        p.drawPath(plate);
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(NoteChrome::borderSoft(), 1));
-        p.drawPath(plate);
-        // Drag handle (grip) at the top — invites moving / snapping the rail.
+        p.setBrush(QColor(0, 0, 0, 32));
+        p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), rad, rad);
+        p.setBrush(QColor(255, 255, 255, 245));
+        p.setPen(QPen(QColor(20, 22, 28, 28), 1));
+        p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), rad, rad);
         if (m_draggable) {
-          p.setBrush(QColor(255, 255, 255, NoteChrome::isDark() ? 55 : 90));
+          p.setBrush(QColor(20, 22, 28, 50));
           p.setPen(Qt::NoPen);
           const int gy = UiScale::dp(8);
           const int cx = w / 2;
@@ -3192,48 +3272,26 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
 
         // Prefer geometry shape over fragile y==10 checks (DPI/safe-area
         // offsets broke top-snap → left a tall vertical pill on Windows).
-        const bool isTopSnap = snapGeom.width() >= snapGeom.height();
-
-        // Desktop Drawboard: always prefer the vertical Favorites rail.
-        // Top-edge snaps still resolve to a vertical rail (nearest side).
-        applyDrawboardVerticalRail();
-        {
-          const int w = preferredRailWidth();
-          const int parentH = parentWidget() ? parentWidget()->height() : height();
-          const int topY = y(); // keep under header; MainWindow repositions
-          const int h = qMax(calculateMinLength(), parentH - topY);
-          const bool dockLeft =
-              !isTopSnap &&
-              (snapGeom.center().x() <= parentWidget()->width() / 2);
-          setRailDockEdge(dockLeft ? RailDockEdge::Left : RailDockEdge::Right,
-                          true, false);
-          snapGeom.setWidth(w);
-          snapGeom.setHeight(h);
-          snapGeom.moveTop(topY);
-          if (dockLeft)
-            snapGeom.moveLeft(0);
-          else
-            snapGeom.moveLeft(parentWidget()->width() - w);
-          setFixedWidth(w);
-          setMinimumHeight(0);
-          setMaximumHeight(QWIDGETSIZE_MAX);
-        }
-
-        // Smooth snap animation
-        QPropertyAnimation *snapAnim = new QPropertyAnimation(this, "geometry");
-        snapAnim->setDuration(220);
-        snapAnim->setStartValue(geometry());
-        snapAnim->setEndValue(snapGeom);
-        snapAnim->setEasingCurve(QEasingCurve::OutCubic);
-        connect(snapAnim, &QPropertyAnimation::finished, this, [this]() {
-          emit railDockEdgeChanged(m_railDockEdge);
-        });
-        snapAnim->start(QAbstractAnimation::DeleteWhenStopped);
+        applyStudioSnappedPill();
+        const int barH = height();
+        const int barW = qMin(qMax(width(), UiScale::dp(420)),
+                              parentWidget()->width() - UiScale::dp(24));
+        snapGeom.setWidth(barW);
+        snapGeom.setHeight(barH);
+        snapGeom.moveLeft((parentWidget()->width() - barW) / 2);
+        snapGeom.moveTop(parentWidget()->height() - barH - UiScale::dp(12));
+        setFixedHeight(barH);
+        setGeometry(snapGeom);
+        emit dockModeChanged(m_isDockedMode);
+        e->accept();
+        return;
     } else {
         if (m_snapPreview) m_snapPreview->hide();
         if (m_style == Normal) {
-          if (isDrawboardVerticalRail() && parentWidget()) {
-            // Snap to nearest left/right edge when released without preview.
+          if (geometry().center().y() > (parentWidget()->height() * 3 / 4)) {
+            applyStudioSnappedPill();
+            emit dockModeChanged(true);
+          } else if (isDrawboardVerticalRail() && parentWidget()) {
             const bool dockLeft =
                 geometry().center().x() <= parentWidget()->width() / 2;
             setRailDockEdge(dockLeft ? RailDockEdge::Left : RailDockEdge::Right,
@@ -4794,16 +4852,129 @@ void ModernToolbar::contextMenuEvent(QContextMenuEvent *e) {
   QWidget::contextMenuEvent(e);
 }
 
-bool ModernToolbar::isDrawboardVerticalRail() const {
+bool ModernToolbar::isStudioChrome() const {
 #ifndef Q_OS_ANDROID
-  return m_style == Normal && m_orientation == Vertical &&
-         m_markupBarMode == MarkupOff;
+  return m_style == Normal && m_markupBarMode == MarkupOff;
 #else
   return false;
 #endif
 }
 
-int ModernToolbar::preferredRailWidth() const { return UiScale::dp(64); }
+static QString studioCaptionForIcon(const QString &icon) {
+  if (icon == QLatin1String("pen"))
+    return QStringLiteral("Stift");
+  if (icon == QLatin1String("pencil"))
+    return QStringLiteral("Bleistift");
+  if (icon == QLatin1String("highlighter"))
+    return QStringLiteral("Marker");
+  if (icon == QLatin1String("eraser"))
+    return QStringLiteral("Radierer");
+  if (icon == QLatin1String("select") || icon == QLatin1String("lasso"))
+    return QStringLiteral("Lasso");
+  if (icon == QLatin1String("undo"))
+    return QStringLiteral("Zurück");
+  if (icon == QLatin1String("redo"))
+    return QStringLiteral("Redo");
+  if (icon == QLatin1String("hand"))
+    return QStringLiteral("Hand");
+  if (icon == QLatin1String("text"))
+    return QStringLiteral("Text");
+  return QString();
+}
+
+void ModernToolbar::applyStudioSnappedPill() {
+#ifndef Q_OS_ANDROID
+  m_markupBarMode = MarkupOff;
+  m_isDockedMode = true;
+  m_draggable = true;
+  m_style = Normal;
+  if (btnDockToggle) {
+    btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
+    btnDockToggle->hide();
+  }
+  if (m_railSlots.isEmpty())
+    loadRailTools();
+  else
+    rebuildSlotButtons();
+  for (ToolbarBtn *b : m_buttons) {
+    if (!b)
+      continue;
+    b->setLightStudioStyle(true);
+    b->setRailSlotStyle(false);
+    b->setCaption(studioCaptionForIcon(b->iconName()));
+  }
+  syncDrawboardToolIcons();
+  syncToolBadges();
+  if (m_orientation != Horizontal)
+    setOrientation(Horizontal, false);
+  const int h = UiScale::dp(72);
+  const int w = qMax(calculateMinLength(), UiScale::dp(420));
+  setMinimumSize(0, 0);
+  setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  setFixedHeight(h);
+  resize(w, h);
+  updateLayout(false);
+  setToolTip(QStringLiteral("Am Rand eingerastet — ziehen zum Lösen"));
+  update();
+#endif
+}
+
+void ModernToolbar::applyStudioFloatingRail() {
+#ifndef Q_OS_ANDROID
+  m_markupBarMode = MarkupOff;
+  m_isDockedMode = false;
+  m_draggable = true;
+  m_style = Normal;
+  if (btnDockToggle) {
+    btnDockToggle->setIcon(QStringLiteral("dock_float"));
+    btnDockToggle->hide();
+  }
+  if (m_orientation != Vertical)
+    setOrientation(Vertical, false);
+  if (m_railSlots.isEmpty())
+    loadRailTools();
+  else
+    rebuildSlotButtons();
+  for (ToolbarBtn *b : m_buttons) {
+    if (!b)
+      continue;
+    if (b != btnUndo && b != btnRedo)
+      b->hide();
+    b->setLightStudioStyle(true);
+    b->setRailSlotStyle(true);
+    b->setCaption(QString());
+  }
+  for (ToolbarBtn *b : m_slotButtons) {
+    if (!b)
+      continue;
+    b->setLightStudioStyle(true);
+    b->setRailSlotStyle(true);
+    b->setCaption(QString());
+    b->show();
+  }
+  syncDrawboardToolIcons();
+  syncToolBadges();
+  const int w = UiScale::dp(56);
+  const int h = qMax(calculateMinLength(), UiScale::dp(280));
+  setMinimumSize(0, 0);
+  setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  setFixedWidth(w);
+  resize(w, h);
+  updateLayout(false);
+  setToolTip(QStringLiteral("Schwebend — an den Rand ziehen zum Einrasten"));
+  update();
+#endif
+}
+
+bool ModernToolbar::isDrawboardVerticalRail() const {
+#ifndef Q_OS_ANDROID
+  return isStudioChrome() && !m_isDockedMode && m_orientation == Vertical;
+#else
+  return false;
+#endif
+}
+
+int ModernToolbar::preferredRailWidth() const { return UiScale::dp(56); }
 
 void ModernToolbar::loadRailTools() {
   m_railSlots.clear();
@@ -5486,11 +5657,15 @@ void ModernToolbar::setDockMode(bool docked) {
   setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
 
 #ifndef Q_OS_ANDROID
-  // Desktop Drawboard default: vertical Favorites rail on the right.
-  // "Docked" still means edge-anchored vertical rail (not Windows top bar).
+  // Desktop studio: snapped edge = K pill, floating = J vertical rail.
   if (docked && m_style == Normal) {
-    applyDrawboardVerticalRail();
+    applyStudioSnappedPill();
     emit dockModeChanged(true);
+    return;
+  }
+  if (!docked && m_style == Normal) {
+    applyStudioFloatingRail();
+    emit dockModeChanged(false);
     return;
   }
   if (!docked && m_markupBarMode != MarkupOff)
@@ -5617,6 +5792,15 @@ int ModernToolbar::calculateMinLength() {
     const int chromeW = UiScale::dp(40) * 2 + minGap; // more + layout
     return UiScale::dp(24) + catW + UiScale::dp(16) + toolsW + UiScale::dp(16) +
            propsW + chromeW + UiScale::dp(16);
+  }
+#endif
+
+#ifndef Q_OS_ANDROID
+  if (isStudioChrome() && m_isDockedMode) {
+    const int n = 7;
+    const int cellW = UiScale::dp(68);
+    const int gap = UiScale::dp(4);
+    return n * cellW + (n - 1) * gap + UiScale::dp(32);
   }
 #endif
   
@@ -5877,6 +6061,64 @@ void ModernToolbar::updateLayout(bool animate) {
     }
   }
   if (m_style == Normal) {
+#ifndef Q_OS_ANDROID
+    if (isStudioChrome() && m_isDockedMode && m_orientation == Horizontal) {
+      const int w = width();
+      const int h = height();
+      const int cellW = UiScale::dp(68);
+      const int cellH = qMax(UiScale::dp(56), h - UiScale::dp(10));
+      const int gap = UiScale::dp(4);
+      for (ToolbarBtn *b : m_slotButtons) {
+        if (b)
+          b->hide();
+      }
+      const QList<ToolbarBtn *> hideChrome = {
+          btnPalette, btnBrushSize, btnSave,       btnDockToggle, btnMoreProps,
+          btnLayoutToggle, btnLibrary, btnRailChevron, btnAddTool, btnRedo,
+          btnBackOverview};
+      for (ToolbarBtn *b : hideChrome) {
+        if (b)
+          b->hide();
+      }
+      QList<ToolbarBtn *> row;
+      const QList<ToolbarBtn *> preferred = {
+          getButtonForMode(ToolMode::Pen),
+          getButtonForMode(ToolMode::Pencil),
+          getButtonForMode(ToolMode::Highlighter),
+          getButtonForMode(ToolMode::Eraser),
+          getButtonForMode(ToolMode::Lasso),
+          getButtonForMode(ToolMode::Hand),
+          btnUndo};
+      for (ToolbarBtn *b : preferred) {
+        if (!b || row.contains(b))
+          continue;
+        b->setParent(this);
+        b->setDrawFloatingBg(false);
+        b->setLightStudioStyle(true);
+        b->setRailSlotStyle(false);
+        b->setCaption(studioCaptionForIcon(b->iconName()));
+        b->setBtnCell(cellW, cellH);
+        b->show();
+        row.append(b);
+      }
+      const int total = row.size() * cellW + qMax(0, row.size() - 1) * gap;
+      int x = qMax(UiScale::dp(12), (w - total) / 2);
+      const int y = qMax(0, (h - cellH) / 2);
+      for (ToolbarBtn *b : row) {
+        if (animate) {
+          auto *anim = new QPropertyAnimation(b, "pos");
+          anim->setDuration(160);
+          anim->setEndValue(QPoint(x, y));
+          anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+          b->move(x, y);
+        }
+        x += cellW + gap;
+      }
+      updateActiveIndicator(false);
+      return;
+    }
+#endif
     int w = width();
     int h = height();
     int btnS = effectiveButtonSize(w, h);
@@ -5888,9 +6130,14 @@ void ModernToolbar::updateLayout(bool animate) {
     int numVisible = 0;
     for (auto *b : m_buttons) {
       if (b == btnMoreProps || b == btnLayoutToggle || b == btnLibrary ||
-          b == btnRailChevron || b == btnUndo || b == btnRedo) {
+          b == btnRailChevron || b == btnRedo) {
         b->hide();
         continue;
+      }
+      if (b == btnUndo) {
+        b->setVisible(isStudioChrome());
+        if (!b->isVisible())
+          continue;
       }
       if (m_dockedOnlyButtons.contains(b)) {
         b->setVisible(m_isDockedMode);

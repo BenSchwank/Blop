@@ -10,6 +10,7 @@ class MultiPageNoteView;
 class QListWidget;
 class QListWidgetItem;
 class QPushButton;
+class QVariantAnimation;
 class Note;
 
 class PageThumbnailSidebar : public QWidget {
@@ -19,10 +20,14 @@ public:
 
   void setNoteView(MultiPageNoteView *view);
   void setAccentColor(const QColor &color);
-
-  /// Floating Drawboard panel (rounded, translucent) vs docked column.
   void setFloatingMode(bool on);
-  bool isFloatingMode() const { return m_floatingMode; }
+
+  /// Horizontal J-style page strip along the top of the canvas.
+  void setHorizontalStrip(bool on);
+  bool isHorizontalStrip() const { return m_horizontalStrip; }
+
+  int expandedHeight() const;
+  int collapsedHandleHeight() const;
 
   void setTwoColumnMode(bool on);
   bool twoColumnMode() const { return m_twoColumn; }
@@ -67,6 +72,9 @@ private:
   int m_rebuildEpoch{0};
   bool m_collapsed{false};
   bool m_floatingMode{false};
+  bool m_horizontalStrip{false};
   bool m_twoColumn{false};
   int m_expandedWidth{0};
+  int m_expandedHeight{0};
+  QVariantAnimation *m_heightAnim{nullptr};
 };

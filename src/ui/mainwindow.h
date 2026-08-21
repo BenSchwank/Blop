@@ -57,6 +57,7 @@ class MultiPageNoteView;
 class ToolPropertiesPanel;
 class AllPagesOverlay;
 class PhoneLibraryNav;
+class LibraryIconRail;
 class SettingsDialog;
 class QSortFilterProxyModel;
 class QShowEvent;
@@ -568,6 +569,9 @@ private:
   QPointer<QVariantAnimation> m_sidebarAnim;
 
   QWidget *m_sidebarContainer{nullptr};
+  QWidget *m_sidebarNavPanel{nullptr};
+  LibraryIconRail *m_libraryIconRail{nullptr};
+  QLineEdit *m_sidebarSearch{nullptr};
   QListWidget *m_navSidebar{nullptr};
   QFileSystemModel *m_fileModel{nullptr};
   QString m_pendingLibraryRootPath;

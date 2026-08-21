@@ -85,6 +85,10 @@ public:
     void setRailFooterStyle(bool enable);
     bool railFooterStyle() const { return m_railFooterStyle; }
     void setBtnCell(int w, int h);
+    void setCaption(const QString &text);
+    QString caption() const { return m_caption; }
+    void setLightStudioStyle(bool on);
+    bool lightStudioStyle() const { return m_lightStudioStyle; }
 
     double animScale() const { return m_animScale; }
     void setAnimScale(double s) { m_animScale = s; update(); }
@@ -131,6 +135,8 @@ private:
     int m_size{40};
     int m_railSlotIndex{-1};
     QString m_badgeText;
+    QString m_caption;
+    bool m_lightStudioStyle{false};
     QColor m_glyphColor; // invalid = use default chrome foreground
 
     double m_animScale{1.0};
@@ -205,6 +211,10 @@ public:
     void applyDrawboardMarkupToolbar();
     /// Drawboard Favorites / tool rail — vertical bar on the right (desktop default).
     void applyDrawboardVerticalRail();
+    /// K snapped pill (edge) vs J floating vertical rail (desktop studio).
+    void applyStudioSnappedPill();
+    void applyStudioFloatingRail();
+    bool isStudioChrome() const;
     bool isMarkupToolbar() const { return m_markupBarMode != MarkupOff; }
     bool isDrawboardVerticalRail() const;
     MarkupBarMode markupBarMode() const { return m_markupBarMode; }

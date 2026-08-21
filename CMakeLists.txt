@@ -149,6 +149,8 @@ qt_add_executable(Blop
     src/ui/documenttabbar.h
     src/ui/pagethumbnailsidebar.cpp
     src/ui/pagethumbnailsidebar.h
+    src/ui/libraryiconrail.cpp
+    src/ui/libraryiconrail.h
     src/ui/noteleftrail.cpp
     src/ui/noteleftrail.h
     src/ui/toolpropertiespanel.cpp

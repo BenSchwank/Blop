@@ -18,6 +18,7 @@
 #include "cloudwebexplorer.h"
 #include "storageprefs.h"
 #include "pagethumbnailsidebar.h"
+#include "libraryiconrail.h"
 #include "noteleftrail.h"
 #include "radialtoolbarfab.h"
 #include "penpresetbar.h"
@@ -77,6 +78,7 @@
 #include <QWindow>
 #include <QDataStream>
 #include <QDateTime>
+#include <QDate>
 #include <QElapsedTimer>
 #include <QDesktopServices>
 #include <QDir>
@@ -218,9 +220,9 @@ static const int MARGIN_ANDROID_SIDE = 16;
 static const int FAB_SIZE_ANDROID = 56;
 static const int FAB_DISTANCE_FROM_BOTTOM = 30;
 #else
-static const int SIDEBAR_WIDTH = 248;
-static const int ROW_HEIGHT_HEADER = 34;
-static const int ROW_HEIGHT_ITEM = 38;
+static const int SIDEBAR_WIDTH = 300;
+static const int ROW_HEIGHT_HEADER = 28;
+static const int ROW_HEIGHT_ITEM = 34;
 static const int FONT_SIZE_BASE = 10;
 static const int FONT_SIZE_HEADER = 18;
 #endif
@@ -327,11 +329,16 @@ static QColor libraryNavTint(const QString &iconKey) {
 }
 
 static QColor libraryPageBackground() {
+#ifndef Q_OS_ANDROID
+  // K Hauptmenü: light paper library, charcoal sidebar.
+  return QColor(0xF3, 0xF4, 0xF7);
+#else
   if (!BlopTheme::instance().isDark())
     return BlopTheme::surfaceBackground();
   // Warm charcoal — not true black, so tiles and icons can lift.
   // Editor canvas stays NoteChrome black.
   return QColor(0x11, 0x0E, 0x1C);
+#endif
 }
 
 namespace {
@@ -1127,13 +1134,24 @@ void SidebarNavDelegate::paint(QPainter *painter,
   // QSS rules, so we read the live BlopTheme tokens directly. This
   // restores readable text and selection state in Light mode where the
   // old hardcoded grey-on-white was nearly invisible.
-  const QColor secondaryText = BlopTheme::textSecondary();
+  const QColor secondaryText =
+#ifndef Q_OS_ANDROID
+      QColor(0x9A, 0xA0, 0xAE);
+  const QColor primaryText = QColor(0xE8, 0xEA, 0xF0);
+  const QColor accentTint = QColor(91, 157, 255, 46);
+  const bool isDark = true;
+  const QColor hoverTint = QColor(255, 255, 255, 16);
+  const QColor dividerColor = QColor(255, 255, 255, 22);
+  Q_UNUSED(isDark);
+#else
+      BlopTheme::textSecondary();
   const QColor primaryText = BlopTheme::textPrimary();
   const QColor accentTint = BlopTheme::accentSubtle();
   const bool isDark = BlopTheme::instance().isDark();
   const QColor hoverTint = isDark ? QColor(255, 255, 255, 16)
                                   : QColor(0, 0, 0, 16);
   const QColor dividerColor = BlopTheme::borderSubtle();
+#endif
 
   if (isHeader) {
     painter->setPen(secondaryText);
@@ -1285,11 +1303,23 @@ void ModernItemDelegate::paint(QPainter *painter,
   painter->save();
   painter->setRenderHint(QPainter::Antialiasing);
   painter->setRenderHint(QPainter::SmoothPixmapTransform);
-  QRect rect = option.rect.adjusted(6, 6, -6, -6);
+  QRect rect = option.rect.adjusted(4, 4, -4, -4);
 
   const bool hovered = option.state & QStyle::State_MouseOver;
   const bool selected = option.state & QStyle::State_Selected;
 
+#ifndef Q_OS_ANDROID
+  QColor bgColor = QColor(255, 255, 255);
+  if (selected)
+    bgColor = QColor(91, 157, 255, 18);
+  else if (hovered)
+    bgColor = QColor(247, 248, 251);
+  painter->setBrush(bgColor);
+  painter->setPen(QPen(selected ? QColor(QStringLiteral("#5B9DFF"))
+                                : QColor(0xE4, 0xE7, 0xEE),
+                       selected ? 1.6 : 1.0));
+  const int radius = UiScale::dp(8);
+#else
   // Soft tile plate — opaque elevated card so icons don't sink into black.
   QColor bgColor = BlopTheme::surfaceElevated();
   if (selected) {
@@ -1306,6 +1336,7 @@ void ModernItemDelegate::paint(QPainter *painter,
     border.setAlpha(hovered ? 120 : 80);
   painter->setPen(QPen(border, 1.0));
   const int radius = UiScale::dp(12);
+#endif
   painter->drawRoundedRect(rect, radius, radius);
 
   QString fileName = index.data(Qt::DisplayRole).toString();
@@ -1344,7 +1375,11 @@ void ModernItemDelegate::paint(QPainter *painter,
   const double iconShrink = 0.96;
 #endif
 
+#ifndef Q_OS_ANDROID
+  painter->setPen(QColor(0x1C, 0x1E, 0x24));
+#else
   painter->setPen(BlopTheme::textPrimary());
+#endif
 
   if (isWideList) {
     int iconDim = rect.height() - 24;
@@ -1393,6 +1428,45 @@ void ModernItemDelegate::paint(QPainter *painter,
     QRect textRect(rect.left() + UiScale::dp(10),
                    rect.bottom() - textH + UiScale::dp(2),
                    rect.width() - UiScale::dp(20), textH - UiScale::dp(8));
+#ifndef Q_OS_ANDROID
+    QString dateStr;
+    if (!path.isEmpty()) {
+      const QDateTime dt = QFileInfo(path).lastModified();
+      if (dt.isValid()) {
+        const QDate d = dt.date();
+        const QDate today = QDate::currentDate();
+        if (d == today)
+          dateStr = QStringLiteral("Heute");
+        else if (d == today.addDays(-1))
+          dateStr = QStringLiteral("Gestern");
+        else
+          dateStr = QLocale().toString(d, QStringLiteral("d. MMM"));
+      }
+    }
+    const int titleH = dateStr.isEmpty() ? textH - UiScale::dp(6)
+                                         : UiScale::dp(18);
+    QRect titleRect(rect.left() + UiScale::dp(8),
+                    rect.bottom() - textH + UiScale::dp(2),
+                    rect.width() - UiScale::dp(16), titleH);
+    QFont f = painter->font();
+    f.setPointSize(FONT_SIZE_BASE);
+    f.setWeight(QFont::DemiBold);
+    painter->setFont(f);
+    painter->setPen(QColor(0x1C, 0x1E, 0x24));
+    painter->drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
+                      painter->fontMetrics().elidedText(text, Qt::ElideRight,
+                                                        titleRect.width()));
+    if (!dateStr.isEmpty()) {
+      QFont df = painter->font();
+      df.setPointSize(qMax(8, FONT_SIZE_BASE - 1));
+      df.setWeight(QFont::Normal);
+      painter->setFont(df);
+      painter->setPen(QColor(0x8A, 0x90, 0xA0));
+      QRect dateRect(titleRect.left(), titleRect.bottom(), titleRect.width(),
+                     UiScale::dp(16));
+      painter->drawText(dateRect, Qt::AlignLeft | Qt::AlignVCenter, dateStr);
+    }
+#else
     QFont f = painter->font();
     f.setPointSize(FONT_SIZE_BASE);
     f.setWeight(QFont::DemiBold);
@@ -1400,6 +1474,7 @@ void ModernItemDelegate::paint(QPainter *painter,
     painter->drawText(textRect, Qt::AlignHCenter | Qt::AlignVCenter,
                       painter->fontMetrics().elidedText(text, Qt::ElideRight,
                                                         textRect.width()));
+#endif
   }
 
   QIcon menuIcon = m_window->createModernIcon(
@@ -3820,7 +3895,7 @@ void MainWindow::openSettingsWorkspace() {
             Q_UNUSED(radial);
             if (toolbar) {
               toolbar->setStyle(ModernToolbar::Normal);
-              toolbar->applyDrawboardVerticalRail();
+              toolbar->applyStudioSnappedPill();
             }
             if (m_radialFab)
               m_radialFab->hide();
@@ -4279,10 +4354,14 @@ void MainWindow::applyTheme() {
     m_sidebarContainer->setStyleSheet(
         QStringLiteral(
             "background-color: %1; border-right: 1px solid %2;")
+#ifndef Q_OS_ANDROID
+            .arg(QStringLiteral("#1C1E24"), QStringLiteral("#111318")));
+#else
             .arg(BlopTheme::instance().isLight()
                      ? BlopTheme::surfaceMuted().name(QColor::HexRgb)
                      : QColor(0x0B, 0x09, 0x12).name(QColor::HexRgb),
                  BlopTheme::borderDefault().name(QColor::HexArgb)));
+#endif
   if (m_sidebarStrip)
     m_sidebarStrip->setStyleSheet(
         QStringLiteral(
@@ -4331,11 +4410,19 @@ void MainWindow::applyTheme() {
 #endif
     const QString searchH = phoneLibrary ? QStringLiteral("44") : QStringLiteral("42");
     const QString btnH = phoneLibrary ? QStringLiteral("44") : QStringLiteral("40");
+#ifndef Q_OS_ANDROID
+    const QString text = QStringLiteral("#1C1E24");
+    const QString muted = QStringLiteral("#FFFFFF");
+    const QString border = QStringLiteral("#E4E7EE");
+    const QString pageBg = QStringLiteral("#F3F4F7");
+    const QString sub = QStringLiteral("#6B7280");
+#else
     const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
     const QString muted = BlopTheme::surfaceMuted().name(QColor::HexRgb);
     const QString border = BlopTheme::borderSubtle().name(QColor::HexArgb);
     const QString pageBg = libraryPageBackground().name(QColor::HexRgb);
     const QString sub = BlopTheme::textSecondary().name(QColor::HexRgb);
+#endif
     const QString folderQss = phoneLibrary
         ? QStringLiteral(
               "QPushButton#overviewBtnNewFolder {"
@@ -4615,23 +4702,23 @@ void MainWindow::updateGrid() {
 
     int spacing = m_currentProfile.gridSpacing;
     if (spacing <= 0)
-      spacing = 22;
-    spacing = qMax(spacing, UiScale::dp(18));
+      spacing = 14;
+    spacing = qMax(spacing, UiScale::dp(12));
 
-    const int minTile = UiScale::dp(220);
-    const int maxTile = UiScale::dp(300);
+    const int minTile = UiScale::dp(124);
+    const int maxTile = UiScale::dp(168);
     int columns = (screenWidth - spacing) / (minTile + spacing);
-    columns = qBound(2, columns, 5);
+    columns = qBound(3, columns, 7);
     int totalSpacing = (columns + 1) * spacing;
     int itemWidth = (screenWidth - totalSpacing) / columns;
-    while (itemWidth < UiScale::dp(180) && columns > 2) {
+    while (itemWidth < UiScale::dp(110) && columns > 3) {
       columns--;
       totalSpacing = (columns + 1) * spacing;
       itemWidth = (screenWidth - totalSpacing) / columns;
     }
-    itemWidth = qBound(UiScale::dp(180), itemWidth, maxTile);
-    const int titleBand = UiScale::dp(48);
-    const int itemHeight = itemWidth + titleBand;
+    itemWidth = qBound(UiScale::dp(110), itemWidth, maxTile);
+    const int titleBand = UiScale::dp(42);
+    const int itemHeight = int(itemWidth * 0.72) + titleBand;
 
     m_fileListView->setSpacing(spacing);
     m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
@@ -5892,8 +5979,8 @@ void MainWindow::setupUi() {
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
-    // Desktop Drawboard: vertical Favorites / tool rail on the right.
-    topToolbar->applyDrawboardVerticalRail();
+    // Desktop studio: K snapped pill at the bottom (drag off to float J).
+    topToolbar->applyStudioSnappedPill();
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) { positionNoteChrome(); });
@@ -6388,26 +6475,17 @@ void MainWindow::setupUi() {
 #endif
   m_pageThumbnailSidebar->setAccentColor(NoteChrome::accent());
 #ifndef Q_OS_ANDROID
-  m_pageThumbnailSidebar->setFloatingMode(true);
+  m_pageThumbnailSidebar->setHorizontalStrip(true);
   {
     QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     const bool collapsed =
         pageUi.value(QStringLiteral("ui/pageRailCollapsed"), false).toBool();
     m_pageThumbnailSidebar->setCollapsed(collapsed);
-    if (m_noteLeftRail)
-      m_noteLeftRail->setPagesExpanded(!collapsed);
   }
   connect(m_pageThumbnailSidebar, &PageThumbnailSidebar::collapsedChanged, this,
           [this](bool collapsed) {
             QSettings pageUi(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
             pageUi.setValue(QStringLiteral("ui/pageRailCollapsed"), collapsed);
-            if (m_noteLeftRail)
-              m_noteLeftRail->setPagesExpanded(!collapsed);
-            // Keep thumbsAdjacent in sync when the strip fully folds away.
-            if (m_noteLeftRail)
-              m_noteLeftRail->setThumbsAdjacent(!collapsed &&
-                                               m_pageThumbnailSidebar &&
-                                               m_pageThumbnailSidebar->isVisible());
             positionNoteChrome();
           });
 #else
@@ -7926,9 +8004,64 @@ void MainWindow::setupSidebar() {
   m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
   m_sidebarContainer->setStyleSheet(
       BlopTheme::themed("background-color: #0F111A;"));
+#else
+  m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
+  m_sidebarContainer->setStyleSheet(
+      QStringLiteral("background-color: #1C1E24; border-right: 1px solid #111318;"));
 #endif
 
+#ifndef Q_OS_ANDROID
+  auto *shellLay = new QHBoxLayout(m_sidebarContainer);
+  shellLay->setContentsMargins(0, 0, 0, 0);
+  shellLay->setSpacing(0);
+  m_libraryIconRail = new LibraryIconRail(m_sidebarContainer);
+  shellLay->addWidget(m_libraryIconRail, 0);
+  connect(m_libraryIconRail, &LibraryIconRail::actionTriggered, this,
+          [this](const QString &id) {
+            if (id == QLatin1String("home")) {
+              if (m_libraryOrgBar)
+                m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::All);
+              navigateLibraryToPath(m_rootPath);
+              onBackToOverview();
+            } else if (id == QLatin1String("new")) {
+              onNewPage();
+            } else if (id == QLatin1String("folders")) {
+              onBackToOverview();
+              if (m_navSidebar) {
+                for (int i = 0; i < m_navSidebar->count(); ++i) {
+                  auto *it = m_navSidebar->item(i);
+                  if (it && it->text() == QLatin1String("Blop Notizen")) {
+                    m_navSidebar->setCurrentItem(it);
+                    onNavItemClicked(it);
+                    break;
+                  }
+                }
+              }
+            } else if (id == QLatin1String("favorites")) {
+              onBackToOverview();
+              if (m_libraryOrgBar)
+                m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::Favorites);
+            } else if (id == QLatin1String("search")) {
+              onBackToOverview();
+              if (m_sidebarSearch)
+                m_sidebarSearch->setFocus(Qt::OtherFocusReason);
+              else if (m_overviewSearchBar)
+                m_overviewSearchBar->setFocus(Qt::OtherFocusReason);
+            } else if (id == QLatin1String("settings") ||
+                       id == QLatin1String("account")) {
+              onOpenSettings();
+            }
+          });
+  m_sidebarNavPanel = new QWidget(m_sidebarContainer);
+  m_sidebarNavPanel->setObjectName(QStringLiteral("SidebarNavPanel"));
+  m_sidebarNavPanel->setAttribute(Qt::WA_StyledBackground, true);
+  m_sidebarNavPanel->setStyleSheet(
+      QStringLiteral("QWidget#SidebarNavPanel { background: #25272E; border: none; }"));
+  shellLay->addWidget(m_sidebarNavPanel, 1);
+  QVBoxLayout *layout = new QVBoxLayout(m_sidebarNavPanel);
+#else
   QVBoxLayout *layout = new QVBoxLayout(m_sidebarContainer);
+#endif
   layout->setSizeConstraint(QLayout::SetNoConstraint);
 #ifdef Q_OS_ANDROID
   layout->setContentsMargins(UiScale::dp(6), 0, UiScale::dp(6), 0);
@@ -8007,7 +8140,37 @@ void MainWindow::setupSidebar() {
   connect(m_closeSidebarBtn, &QPushButton::clicked, this,
           &MainWindow::onToggleSidebar);
   headerLay->addWidget(m_closeSidebarBtn);
+#ifndef Q_OS_ANDROID
+  m_closeSidebarBtn->hide();
+#endif
   layout->addWidget(header);
+
+#ifndef Q_OS_ANDROID
+  m_sidebarSearch = new QLineEdit(m_sidebarNavPanel);
+  m_sidebarSearch->setObjectName(QStringLiteral("SidebarSearch"));
+  m_sidebarSearch->setPlaceholderText(QStringLiteral("Suche"));
+  m_sidebarSearch->setClearButtonEnabled(true);
+  m_sidebarSearch->setFixedHeight(UiScale::dp(32));
+  m_sidebarSearch->setStyleSheet(QStringLiteral(
+      "QLineEdit#SidebarSearch {"
+      "  background: #1C1E24; color: #E8EAF0;"
+      "  border: 1px solid #3A3D46; border-radius: 8px;"
+      "  padding: 0 10px; font-size: 12px;"
+      "}"
+      "QLineEdit#SidebarSearch:focus { border: 1px solid #5B9DFF; }"));
+  {
+    auto *searchWrap = new QWidget(m_sidebarNavPanel);
+    auto *sLay = new QHBoxLayout(searchWrap);
+    sLay->setContentsMargins(10, 8, 10, 6);
+    sLay->addWidget(m_sidebarSearch);
+    layout->addWidget(searchWrap);
+  }
+  connect(m_sidebarSearch, &QLineEdit::textChanged, this,
+          [this](const QString &t) {
+            if (m_overviewSearchBar && m_overviewSearchBar->text() != t)
+              m_overviewSearchBar->setText(t);
+          });
+#endif
 
   // Header and account/settings stay sticky. Nav + tags flick-scroll together
   // so a short window still reaches Cloud / Tags without clipping Einstellungen.
@@ -8056,6 +8219,7 @@ void MainWindow::setupSidebar() {
       // whole sidebar.
       item->setData(Qt::UserRole + 11, icon);
       if (name == QStringLiteral("Alle") ||
+          name == QStringLiteral("Bibliothek") ||
           name == QStringLiteral("Blop Notizen")) {
         item->setData(Qt::UserRole + 2, rootCountStr);
         item->setData(Qt::UserRole + 10, m_rootPath);
@@ -8067,13 +8231,16 @@ void MainWindow::setupSidebar() {
     } else {
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
       if (name == QStringLiteral("Blop Notizen") ||
-          name == QStringLiteral("Alle")) {
+          name == QStringLiteral("Alle") ||
+          name == QStringLiteral("Bibliothek")) {
         item->setData(Qt::UserRole + 6, true);
       }
     }
   };
 
-  addItem(QStringLiteral("Alle"), QStringLiteral("home"));
+  addItem(QStringLiteral("Favoriten"), QStringLiteral("star"));
+  addItem(QStringLiteral("Bibliothek"), QStringLiteral("home"));
+  addItem(QStringLiteral("ORDNER"), QString(), true);
   addItem(QStringLiteral("Blop Notizen"), QStringLiteral("folder"));
   addItem(QStringLiteral("Gerät"), QStringLiteral("device"));
 
@@ -8235,6 +8402,9 @@ void MainWindow::setupSidebar() {
   bottomLay->addStretch();
 
   layout->addWidget(bottomBar);
+#ifndef Q_OS_ANDROID
+  bottomBar->hide();
+#endif
 
   m_sidebarContainer->setParent(this);
   {
@@ -8618,6 +8788,25 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   bool isHeader = item->data(Qt::UserRole + 1).toBool();
   if (isHeader)
     return;
+  if (item->text() == QStringLiteral("Favoriten")) {
+    if (m_libraryOrgBar)
+      m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::Favorites);
+    onBackToOverview();
+#ifdef Q_OS_ANDROID
+    onToggleSidebar();
+#endif
+    return;
+  }
+  if (item->text() == QStringLiteral("Bibliothek")) {
+    if (m_libraryOrgBar)
+      m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::All);
+    navigateLibraryToPath(m_rootPath);
+    onBackToOverview();
+#ifdef Q_OS_ANDROID
+    onToggleSidebar();
+#endif
+    return;
+  }
   const QString cloudRole = item->data(Qt::UserRole + 5).toString();
   if (cloudRole == QLatin1String("clouds_add")) {
     const QString label = BlopDialogs::promptText(
@@ -8722,7 +8911,8 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
   QString parentPath = parentItem->data(Qt::UserRole + 10).toString();
   if (parentPath.isEmpty()) {
     if (parentItem->text() == QStringLiteral("Blop Notizen") ||
-        parentItem->text() == QStringLiteral("Alle"))
+        parentItem->text() == QStringLiteral("Alle") ||
+        parentItem->text() == QStringLiteral("Bibliothek"))
       parentPath = m_rootPath;
     else
       return;
@@ -9717,7 +9907,7 @@ void MainWindow::setupRightSidebar() {
             if (tb) {
               if (index == 0) {
                 tb->setStyle(ModernToolbar::Normal);
-                tb->applyDrawboardVerticalRail();
+                tb->applyStudioSnappedPill();
                 if (m_radialFab)
                   m_radialFab->hide();
                 positionNoteChrome();
@@ -10308,6 +10498,10 @@ void MainWindow::updateSidebarState() {
   }
   if (m_documentTabBar)
     m_documentTabBar->setVisible(inNotesMode);
+#ifndef Q_OS_ANDROID
+  if (m_noteLeftRail)
+    m_noteLeftRail->hide();
+#else
   if (m_noteLeftRail)
     m_noteLeftRail->setVisible(inNotesMode && isEditor &&
                                m_noteLeftRailPrefVisible);
@@ -10318,6 +10512,7 @@ void MainWindow::updateSidebarState() {
     if (!m_noteLeftRailPrefVisible && m_pageThumbnailSidebar->isCollapsed())
       m_pageThumbnailSidebar->hide();
   }
+#endif
 
   // Lock Drawboard vertical Favorites rail whenever the note editor is active.
   if (isEditor) {
@@ -10328,7 +10523,7 @@ void MainWindow::updateSidebarState() {
         tb->setStyle(ModernToolbar::Normal);
 #endif
       if (tb->currentStyle() == ModernToolbar::Normal)
-        tb->applyDrawboardVerticalRail();
+        positionDrawboardToolbar();
     }
     if (m_toolPropertiesPanel)
       m_toolPropertiesPanel->setVisible(m_toolPropertiesVisible);
@@ -10357,6 +10552,12 @@ void MainWindow::updateSidebarState() {
       hasA4Pages = (editor->view() != nullptr);
   }
   if (m_pageThumbnailSidebar) {
+#ifndef Q_OS_ANDROID
+    const bool wantPages = inNotesMode && isEditor && hasA4Pages;
+    m_pageThumbnailSidebar->setVisible(wantPages);
+    if (wantPages)
+      m_pageThumbnailSidebar->rebuild();
+#else
     const bool pagesWantedByRail =
         !m_noteLeftRail || !m_noteLeftRail->isVisible() ||
         m_noteLeftRail->pagesExpanded();
@@ -10369,6 +10570,7 @@ void MainWindow::updateSidebarState() {
     m_pageThumbnailSidebar->setVisible(showPages);
     if (showPages)
       m_pageThumbnailSidebar->rebuild();
+#endif
   }
   if (isEditor) {
     // Keep library sidebar state as the user left it (hamburger toggles).
@@ -12485,7 +12687,13 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
 }
 
 int MainWindow::noteHeaderHeight() const {
-  return (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
+  int h = (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
+#ifndef Q_OS_ANDROID
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isHorizontalStrip() &&
+      m_pageThumbnailSidebar->isVisible())
+    h += m_pageThumbnailSidebar->height();
+#endif
+  return h;
 }
 
 int MainWindow::noteChromeThickness() const { return UiScale::dp(48); }
@@ -12545,7 +12753,8 @@ QRect MainWindow::noteChromeContentRect() const {
     if (m_noteLeftRail && m_noteLeftRail->isVisible())
       left += m_noteLeftRail->preferredWidth();
     if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
-        !m_pageThumbnailSidebar->isCollapsed())
+        !m_pageThumbnailSidebar->isCollapsed() &&
+        !m_pageThumbnailSidebar->isHorizontalStrip())
       left += m_pageThumbnailSidebar->width();
   }
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
@@ -12559,7 +12768,8 @@ QRect MainWindow::noteChromeContentRect() const {
   }
   if (pagesOnRight) {
     if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
-        !m_pageThumbnailSidebar->isCollapsed())
+        !m_pageThumbnailSidebar->isCollapsed() &&
+        !m_pageThumbnailSidebar->isHorizontalStrip())
       right -= m_pageThumbnailSidebar->width();
     if (m_noteLeftRail && m_noteLeftRail->isVisible())
       right -= m_noteLeftRail->preferredWidth();
@@ -12734,42 +12944,54 @@ void MainWindow::positionDrawboardToolbar() {
     return;
   if (tb->currentStyle() != ModernToolbar::Normal)
     return;
-  // Don't fight the user while they drag/snap the Favorites rail.
   if (tb->isDragging())
     return;
 
   const int W = m_editorCenterWidget->width();
   const int H = m_editorCenterWidget->height();
-  // Small inset so rounded corners / icons are not clipped by the window edge.
-  const int edgePad = UiScale::dp(4);
+  const int edgePad = UiScale::dp(12);
 
-  // Desktop Drawboard: vertical Favorites rail, nearly full page height.
+#ifndef Q_OS_ANDROID
+  if (tb->isDockedMode()) {
+    tb->applyStudioSnappedPill();
+    const int barH = qMax(tb->height(), UiScale::dp(72));
+    const int barW =
+        qMin(qMax(tb->calculateMinLength(), UiScale::dp(420)), W - edgePad * 2);
+    tb->setMinimumSize(0, 0);
+    tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    tb->setFixedHeight(barH);
+    tb->setGeometry((W - barW) / 2, H - barH - edgePad, barW, barH);
+    tb->raise();
+    return;
+  }
+  tb->applyStudioFloatingRail();
+  const int railW = tb->preferredRailWidth();
+  const int railH = qBound(UiScale::dp(260), tb->calculateMinLength(),
+                           H - noteHeaderHeight() - edgePad * 2);
+  int x = W - railW - edgePad;
+  if (tb->isRailDockedLeft())
+    x = edgePad;
+  const int y = noteHeaderHeight() + edgePad;
+  tb->setMinimumSize(0, 0);
+  tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  tb->setFixedWidth(railW);
+  tb->setGeometry(x, y, railW, railH);
+  tb->raise();
+  return;
+#else
   tb->applyDrawboardVerticalRail();
   const int railW = tb->preferredRailWidth();
   const int topY = noteHeaderHeight();
   const int h = qMax(UiScale::dp(200), H - topY - edgePad);
   int x = edgePad;
-  if (tb->isRailDockedLeft()) {
-    x = edgePad;
-  } else {
-    int rightInset = edgePad;
-#ifndef Q_OS_ANDROID
-    if (pageRailOnRight()) {
-      if (m_noteLeftRail && m_noteLeftRail->isVisible())
-        rightInset += m_noteLeftRail->preferredWidth();
-      if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
-          !m_pageThumbnailSidebar->isCollapsed())
-        rightInset += m_pageThumbnailSidebar->width();
-    }
-#endif
-    x = qBound(edgePad, W - railW - rightInset, W - railW - edgePad);
-  }
-  const int y = topY;
+  if (!tb->isRailDockedLeft())
+    x = qBound(edgePad, W - railW - edgePad, W - railW - edgePad);
   tb->setMinimumSize(0, 0);
   tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   tb->setFixedWidth(railW);
-  tb->setGeometry(x, y, railW, h);
+  tb->setGeometry(x, topY, railW, h);
   tb->raise();
+#endif
 }
 
 void MainWindow::positionNoteChrome() {
@@ -12784,14 +13006,7 @@ void MainWindow::positionNoteChrome() {
   int leftX = 0;
   int rightX = W;
   const bool pagesOnRight = pageRailOnRight();
-  const bool thumbsExpanded =
-      m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
-      !m_pageThumbnailSidebar->isCollapsed();
-  const bool thumbsVisible =
-      m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible();
 
-  // Favorites rail may occupy left or right — reserve space first when pages
-  // share that edge so stacks don't overlap.
   int favLeft = 0;
   int favRight = 0;
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
@@ -12803,49 +13018,23 @@ void MainWindow::positionNoteChrome() {
     }
   }
 
-  if (!pagesOnRight) {
-    leftX = favLeft;
-    if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
-      const int railW = m_noteLeftRail->preferredWidth();
-      m_noteLeftRail->setGeometry(leftX, 0, railW, H);
-      m_noteLeftRail->setThumbsAdjacent(thumbsExpanded);
-      m_noteLeftRail->raise();
-      leftX += railW;
-    } else if (m_noteLeftRail) {
-      m_noteLeftRail->setThumbsAdjacent(false);
-    }
+  if (m_noteLeftRail)
+    m_noteLeftRail->hide();
 
-    if (thumbsExpanded) {
-      const int thumbW = m_pageThumbnailSidebar->width();
-      m_pageThumbnailSidebar->setGeometry(leftX, 0, thumbW, H);
-      m_pageThumbnailSidebar->raise();
-      leftX += thumbW;
-    } else if (thumbsVisible && m_pageThumbnailSidebar->isCollapsed()) {
-      // Fully folded: no stub strip. Pages button on the left rail re-opens it.
-      m_pageThumbnailSidebar->setGeometry(0, 0, 0, H);
+  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isHorizontalStrip() &&
+      m_pageThumbnailSidebar->isVisible()) {
+    int pageStripH = m_pageThumbnailSidebar->height();
+    if (pageStripH <= 0) {
+      pageStripH = m_pageThumbnailSidebar->isCollapsed()
+                       ? m_pageThumbnailSidebar->collapsedHandleHeight()
+                       : m_pageThumbnailSidebar->expandedHeight();
     }
-  } else {
-    // Pages chrome on the right (inside of Favorites when Favorites is right).
-    rightX = W - favRight;
-    if (m_noteLeftRail && m_noteLeftRail->isVisible()) {
-      const int railW = m_noteLeftRail->preferredWidth();
-      rightX -= railW;
-      m_noteLeftRail->setGeometry(rightX, 0, railW, H);
-      m_noteLeftRail->setThumbsAdjacent(thumbsExpanded);
-      m_noteLeftRail->raise();
-    } else if (m_noteLeftRail) {
-      m_noteLeftRail->setThumbsAdjacent(false);
-    }
-    if (thumbsExpanded) {
-      const int thumbW = m_pageThumbnailSidebar->width();
-      rightX -= thumbW;
-      m_pageThumbnailSidebar->setGeometry(rightX, 0, thumbW, H);
-      m_pageThumbnailSidebar->raise();
-    } else if (thumbsVisible && m_pageThumbnailSidebar->isCollapsed()) {
-      m_pageThumbnailSidebar->setGeometry(0, 0, 0, H);
-    }
-    leftX = favLeft;
+    m_pageThumbnailSidebar->setGeometry(0, 0, W, pageStripH);
+    m_pageThumbnailSidebar->raise();
   }
+
+  leftX = favLeft;
+  rightX = W - favRight;
 
   // Tool options float as a card beside the Favorites rail (not a full-height
   // sidebar dock). The rail stays edge-flush into the corner.
