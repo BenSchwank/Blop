@@ -1188,7 +1188,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 e.id.compare(QLatin1String("googledrive"), Qt::CaseInsensitive) == 0 ||
                 e.type.compare(QLatin1String("googledrive"), Qt::CaseInsensitive) == 0 ||
                 e.name.compare(QLatin1String("Google Drive"), Qt::CaseInsensitive) == 0;
-            if (!phoneUi && isDrive)
+            if (isDrive)
                 continue;
             auto *row = new QWidget(cloudList);
             row->setObjectName(QStringLiteral("CloudProviderRow"));
