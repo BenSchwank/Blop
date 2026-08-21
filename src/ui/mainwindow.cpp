@@ -311,6 +311,13 @@ static const char kStudySessionPollJs[] = R"js(
         )js";
 
 static QColor libraryNavTint(const QString &iconKey) {
+#ifndef Q_OS_ANDROID
+  // K sidebar: quiet charcoal icons — no purple brand tint on Bibliothek.
+  if (iconKey == QLatin1String("home") || iconKey == QLatin1String("star") ||
+      iconKey == QLatin1String("trash") || iconKey == QLatin1String("folder") ||
+      iconKey == QLatin1String("search") || iconKey == QLatin1String("add"))
+    return QColor(0xC8, 0xCD, 0xD8);
+#endif
   if (iconKey == QLatin1String("home"))
     return QColor(QStringLiteral("#A78BFA"));
   if (iconKey == QLatin1String("folder"))
@@ -1222,7 +1229,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
         arrow.lineTo(arrowX + 5, arrowY);
         arrow.lineTo(arrowX, arrowY + 4);
       }
+#ifndef Q_OS_ANDROID
+      painter->setBrush(secondaryText);
+#else
       painter->setBrush(selected ? m_window->currentAccentColor() : secondaryText);
+#endif
       painter->setPen(Qt::NoPen);
       painter->drawPath(arrow);
       iconOffset = 22;
@@ -1270,7 +1281,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
 #endif
       QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH / 2,
                       badgeW, badgeH);
+#ifndef Q_OS_ANDROID
+      painter->setPen(QColor(0x8A, 0x90, 0xA0));
+#else
       painter->setPen(m_window->currentAccentColor());
+#endif
       QFont bf = f;
       bf.setBold(true);
       bf.setPointSize(navFont - 2);
@@ -1480,19 +1495,18 @@ void ModernItemDelegate::paint(QPainter *painter,
 #endif
   }
 
+#ifndef Q_OS_ANDROID
+  // K cards: no persistent overflow pill — context menu stays on right-click.
+#else
   QIcon menuIcon = m_window->createModernIcon(
       QStringLiteral("more_pill"), QColor(QStringLiteral("#C8CDDC")));
-#ifdef Q_OS_ANDROID
   const int pillW = UiScale::dp(28);
   const int pillH = UiScale::dp(20);
-#else
-  const int pillW = 28;
-  const int pillH = 20;
-#endif
   QRect menuRect(rect.right() - pillW - 6, rect.top() + 6, pillW, pillH);
   if (isWideList)
     menuRect.moveTop(rect.center().y() - pillH / 2);
   menuIcon.paint(painter, menuRect, Qt::AlignCenter);
+#endif
 
   // Organization badges: color label stripe + favorite star.
   if (!path.isEmpty()) {
@@ -4693,8 +4707,7 @@ void MainWindow::updateGrid() {
     m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
     m_fileListView->setUniformItemSizes(true);
   } else {
-    // Desktop library: column-fit large preview tiles so two notes don't
-    // sit as tiny icons in a sea of empty space.
+    // Desktop K Hauptmenü: denser 5–7 column paper cards (title + date).
     int screenWidth = 0;
     if (m_fileListView->viewport())
       screenWidth = m_fileListView->viewport()->width();
@@ -4705,23 +4718,23 @@ void MainWindow::updateGrid() {
 
     int spacing = m_currentProfile.gridSpacing;
     if (spacing <= 0)
-      spacing = 14;
-    spacing = qMax(spacing, UiScale::dp(12));
+      spacing = 8;
+    spacing = qBound(UiScale::dp(6), spacing, UiScale::dp(10));
 
-    const int minTile = UiScale::dp(132);
-    const int maxTile = UiScale::dp(156);
+    const int minTile = UiScale::dp(118);
+    const int maxTile = UiScale::dp(148);
     int columns = (screenWidth - spacing) / (minTile + spacing);
-    columns = qBound(4, columns, 8);
+    columns = qBound(5, columns, 7);
     int totalSpacing = (columns + 1) * spacing;
     int itemWidth = (screenWidth - totalSpacing) / columns;
-    while (itemWidth < UiScale::dp(118) && columns > 4) {
+    while (itemWidth < UiScale::dp(110) && columns > 5) {
       columns--;
       totalSpacing = (columns + 1) * spacing;
       itemWidth = (screenWidth - totalSpacing) / columns;
     }
-    itemWidth = qBound(UiScale::dp(118), itemWidth, maxTile);
-    const int titleBand = UiScale::dp(44);
-    const int itemHeight = int(itemWidth * 0.78) + titleBand;
+    itemWidth = qBound(UiScale::dp(110), itemWidth, maxTile);
+    const int titleBand = UiScale::dp(40);
+    const int itemHeight = int(itemWidth * 0.92) + titleBand;
 
     m_fileListView->setSpacing(spacing);
     m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
@@ -5737,7 +5750,7 @@ void MainWindow::setupUi() {
   topBar->addWidget(btnList);
 
   // Keep create affordance available but quiet — primary create lives in the
-  // K sidebar (+ / rail).
+  // K sidebar (+ / rail). Match mock: no purple FAB in the Hauptmenü header.
   QPushButton *btnNewNote = new QPushButton(QStringLiteral("+"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
   btnNewNote->setFixedSize(UiScale::dp(36), UiScale::dp(36));
@@ -5745,12 +5758,13 @@ void MainWindow::setupUi() {
   btnNewNote->setToolTip(QStringLiteral("Neue Notiz"));
   btnNewNote->setStyleSheet(QStringLiteral(
       "QPushButton {"
-      "  background-color: #5B9DFF; color: #FFFFFF; border: none;"
+      "  background-color: #FFFFFF; color: #3A3F4A; border: 1px solid #E4E7EE;"
       "  border-radius: 10px; font-weight: 700; font-size: 18px;"
       "}"
-      "QPushButton:hover { background-color: #4A8CF0; }"));
+      "QPushButton:hover { border-color: #5B9DFF; color: #5B9DFF; }"));
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   m_btnLibraryNewNote = btnNewNote;
+  btnNewNote->hide();
   topBar->addWidget(btnNewNote);
 
   QPushButton *btnNewFolder = new QPushButton(m_overviewContainer);
@@ -6559,7 +6573,12 @@ void MainWindow::setupUi() {
   editorMainLayout->addWidget(m_pageThumbnailSidebar, 0);
   editorMainLayout->addWidget(m_editorCenterWidget, 1);
 #else
-  // Canvas fills the editor; Drawboard chrome floats on top.
+  // J page strip lives in the editor column layout (above the tab stack) so
+  // it cannot be covered by the canvas / lose geometry as an overlay.
+  if (QVBoxLayout *centerLay =
+          qobject_cast<QVBoxLayout *>(m_editorCenterWidget->layout())) {
+    centerLay->insertWidget(0, m_pageThumbnailSidebar, 0);
+  }
   editorMainLayout->addWidget(m_editorCenterWidget, 1);
 #endif
 
@@ -8808,13 +8827,60 @@ void MainWindow::refreshSidebarNotesList() {
     }
     auto *item = new QListWidgetItem(m_sidebarNotesList);
     item->setData(Qt::UserRole, path);
-    item->setText(dateStr.isEmpty() ? title
-                                    : QStringLiteral("%1    %2").arg(title, dateStr));
+    item->setData(Qt::UserRole + 1, dateStr);
+    item->setText(title);
     item->setToolTip(path);
-    item->setSizeHint(QSize(0, UiScale::dp(28)));
+    item->setSizeHint(QSize(0, UiScale::dp(30)));
+  }
+  // Custom paint: title left, relative date right (K NOTIZEN rows).
+  if (!m_sidebarNotesList->itemDelegate() ||
+      !m_sidebarNotesList->property("kNotesDelegate").toBool()) {
+    class NotesRowDelegate : public QStyledItemDelegate {
+    public:
+      using QStyledItemDelegate::QStyledItemDelegate;
+      void paint(QPainter *p, const QStyleOptionViewItem &opt,
+                 const QModelIndex &idx) const override {
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        QRect r = opt.rect.adjusted(8, 1, -8, -1);
+        if (opt.state & QStyle::State_Selected) {
+          p->setPen(Qt::NoPen);
+          p->setBrush(QColor(255, 255, 255, 26));
+          p->drawRoundedRect(r, 6, 6);
+        } else if (opt.state & QStyle::State_MouseOver) {
+          p->setPen(Qt::NoPen);
+          p->setBrush(QColor(255, 255, 255, 12));
+          p->drawRoundedRect(r, 6, 6);
+        }
+        const QString title = idx.data(Qt::DisplayRole).toString();
+        const QString date = idx.data(Qt::UserRole + 1).toString();
+        QFont f = opt.font;
+        f.setPointSize(qMax(10, f.pointSize()));
+        p->setFont(f);
+        p->setPen(QColor(0xD5, 0xD8, 0xE0));
+        const int dateW = date.isEmpty()
+                              ? 0
+                              : p->fontMetrics().horizontalAdvance(date) + 4;
+        QRect titleR = r.adjusted(6, 0, -dateW - 8, 0);
+        p->drawText(titleR, Qt::AlignVCenter | Qt::AlignLeft,
+                    p->fontMetrics().elidedText(title, Qt::ElideRight,
+                                                titleR.width()));
+        if (!date.isEmpty()) {
+          p->setPen(QColor(0x8A, 0x90, 0xA0));
+          QFont df = f;
+          df.setPointSize(qMax(9, f.pointSize() - 1));
+          p->setFont(df);
+          p->drawText(r.adjusted(0, 0, -6, 0), Qt::AlignVCenter | Qt::AlignRight,
+                      date);
+        }
+        p->restore();
+      }
+    };
+    m_sidebarNotesList->setItemDelegate(new NotesRowDelegate(m_sidebarNotesList));
+    m_sidebarNotesList->setProperty("kNotesDelegate", true);
   }
   m_sidebarNotesList->setFixedHeight(
-      qMax(UiScale::dp(28), m_sidebarNotesList->count() * UiScale::dp(30)));
+      qMax(UiScale::dp(28), m_sidebarNotesList->count() * UiScale::dp(32)));
 #endif
 }
 
@@ -10700,9 +10766,18 @@ void MainWindow::updateSidebarState() {
   if (m_pageThumbnailSidebar) {
 #ifndef Q_OS_ANDROID
     const bool wantPages = inNotesMode && isEditor && hasA4Pages;
-    m_pageThumbnailSidebar->setVisible(wantPages);
-    if (wantPages)
-      m_pageThumbnailSidebar->rebuild();
+    if (wantPages) {
+      // Keep the strip in the layout; collapse is height animation, not hide.
+      if (m_pageThumbnailSidebar->isHorizontalStrip()) {
+        m_pageThumbnailSidebar->show();
+        m_pageThumbnailSidebar->rebuild();
+      } else {
+        m_pageThumbnailSidebar->setVisible(true);
+        m_pageThumbnailSidebar->rebuild();
+      }
+    } else {
+      m_pageThumbnailSidebar->setVisible(false);
+    }
 #else
     const bool pagesWantedByRail =
         !m_noteLeftRail || !m_noteLeftRail->isVisible() ||
@@ -12834,11 +12909,8 @@ void MainWindow::setActiveTool(CanvasView::ToolType tool) {
 
 int MainWindow::noteHeaderHeight() const {
   int h = (m_noteHeader && m_noteHeader->isVisible()) ? m_noteHeader->height() : 0;
-#ifndef Q_OS_ANDROID
-  if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isHorizontalStrip() &&
-      m_pageThumbnailSidebar->isVisible())
-    h += m_pageThumbnailSidebar->height();
-#endif
+  // Desktop J page strip sits in the editor column layout, so floating chrome
+  // must not add its height again (that pushed tools below the strip twice).
   return h;
 }
 
@@ -13167,16 +13239,15 @@ void MainWindow::positionNoteChrome() {
   if (m_noteLeftRail)
     m_noteLeftRail->hide();
 
+  // Horizontal J strip is layout-managed (top of editor column). Only
+  // vertical page rails still need absolute geometry here.
   if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isHorizontalStrip() &&
       m_pageThumbnailSidebar->isVisible()) {
-    int pageStripH = m_pageThumbnailSidebar->height();
-    if (pageStripH <= 0) {
-      pageStripH = m_pageThumbnailSidebar->isCollapsed()
-                       ? m_pageThumbnailSidebar->collapsedHandleHeight()
-                       : m_pageThumbnailSidebar->expandedHeight();
-    }
-    m_pageThumbnailSidebar->setGeometry(0, 0, W, pageStripH);
     m_pageThumbnailSidebar->raise();
+  } else if (m_pageThumbnailSidebar &&
+             !m_pageThumbnailSidebar->isHorizontalStrip() &&
+             m_pageThumbnailSidebar->isVisible()) {
+    // legacy absolute placement handled below with left/right rails
   }
 
   leftX = favLeft;

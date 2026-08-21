@@ -2990,10 +2990,18 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     if (!m_isPreview && !m_pressedButton) {
       bool canDrag = false;
       if (m_draggable && m_style != Radial) {
-        if (m_orientation == Vertical && e->pos().y() < UiScale::dp(36))
+#ifndef Q_OS_ANDROID
+        // Studio K/J pill: empty chrome (not a tool button) is the grip —
+        // child ToolbarBtns already consume presses on the icons themselves.
+        if (isStudioChrome())
           canDrag = true;
-        if (m_orientation == Horizontal && e->pos().x() < UiScale::dp(36))
-          canDrag = true;
+#endif
+        if (!canDrag) {
+          if (m_orientation == Vertical && e->pos().y() < UiScale::dp(36))
+            canDrag = true;
+          if (m_orientation == Horizontal && e->pos().x() < UiScale::dp(36))
+            canDrag = true;
+        }
       }
       if (canDrag) {
         m_isDragging = true;
@@ -3308,6 +3316,39 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
     } else {
         if (m_snapPreview) m_snapPreview->hide();
         if (m_style == Normal) {
+#ifndef Q_OS_ANDROID
+          // Studio mix: drag the K bottom pill onto the paper → J float rail.
+          // Drag the J rail into the bottom band → snap back to K.
+          if (isStudioChrome() && parentWidget()) {
+            const int parentH = parentWidget()->height();
+            const int parentW = parentWidget()->width();
+            const bool nearBottom =
+                geometry().center().y() > (parentH * 3 / 4);
+            if (nearBottom) {
+              applyStudioSnappedPill();
+              emit dockModeChanged(true);
+            } else {
+              const QPoint dropCenter = geometry().center();
+              applyStudioFloatingRail();
+              const int railW = preferredRailWidth();
+              const int railH =
+                  qBound(UiScale::dp(280), calculateMinLength(),
+                        parentH - UiScale::dp(48));
+              int x = dropCenter.x() - railW / 2;
+              int y = dropCenter.y() - railH / 2;
+              x = qBound(UiScale::dp(8), x, parentW - railW - UiScale::dp(8));
+              y = qBound(UiScale::dp(8), y, parentH - railH - UiScale::dp(8));
+              setGeometry(x, y, railW, railH);
+              setRailDockEdge(dropCenter.x() <= parentW / 2
+                                  ? RailDockEdge::Left
+                                  : RailDockEdge::Right,
+                              true, false);
+              emit dockModeChanged(false);
+            }
+            e->accept();
+            return;
+          }
+#endif
           if (geometry().center().y() > (parentWidget()->height() * 3 / 4)) {
             applyStudioSnappedPill();
             emit dockModeChanged(true);
@@ -4912,10 +4953,7 @@ void ModernToolbar::applyStudioSnappedPill() {
     btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
     btnDockToggle->hide();
   }
-  if (m_railSlots.isEmpty())
-    loadRailTools();
-  else
-    rebuildSlotButtons();
+  // Studio K pill uses the fixed labeled tool row (not Favorites slots).
   for (ToolbarBtn *b : m_buttons) {
     if (!b)
       continue;
@@ -4955,10 +4993,18 @@ void ModernToolbar::applyStudioFloatingRail() {
   }
   if (m_orientation != Vertical)
     setOrientation(Vertical, false);
-  if (m_railSlots.isEmpty())
-    loadRailTools();
-  else
+  // J floating pill: Pen → Pencil → Textmarker → Radierer → Lasso → Auswählen.
+  {
+    m_railSlots.clear();
+    const QList<ToolMode> modes = {
+        ToolMode::Pen,         ToolMode::Pencil, ToolMode::Highlighter,
+        ToolMode::Eraser,      ToolMode::Lasso,  ToolMode::Hand};
+    for (ToolMode mode : modes) {
+      ToolConfig cfg = ToolManager::instance().configFor(mode);
+      m_railSlots.append(RailSlot::fromTool(mode, cfg));
+    }
     rebuildSlotButtons();
+  }
   for (ToolbarBtn *b : m_buttons) {
     if (!b)
       continue;
