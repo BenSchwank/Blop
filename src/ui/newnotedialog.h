@@ -33,7 +33,6 @@ protected:
 
 private:
     void setupUi();
-    void refreshLayoutIcons();
     void rebuildTagList();
 
     QLineEdit *m_nameInput{nullptr};

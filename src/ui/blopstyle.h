@@ -9,15 +9,15 @@
 // instead of every overlay inventing its own radii, borders, backdrop alpha
 // and slide-in curve.
 //
-// Visual contract (canonical):
-//   - surface bg:      rgba(28, 30, 46, 0.94)
-//   - surface border:  rgba(124, 92, 252, 0.22)  (accent-Lila hairline)
-//   - surface radius:  18 dp
-//   - surface shadow:  0 px,  12 px offset, 32 px blur, rgba(0,0,0,0.45)
-//   - backdrop desk:   rgba(6,  8, 16, 0.50)
-//   - backdrop droid:  rgba(6,  8, 16, 0.78)
-//   - slide-in:        280 ms OutCubic, y +24 dp -> 0
-//   - opacity-in:      200 ms OutCubic, 0 -> 1
+// Visual contract (v3.23.7 Notion/Obsidian mix):
+//   - surface bg:      BlopTheme::surfaceBase() at ~94% alpha
+//   - surface border:  quiet hairline (no accent glow)
+//   - surface radius:  12 dp
+//   - surface shadow:  0 px, 6 px offset, 16 px blur, soft lift
+//   - backdrop desk:   ~38% black veil
+//   - backdrop droid:  ~55% black veil
+//   - slide-in:        220 ms OutCubic, y +12 dp -> 0
+//   - opacity-in:      140 ms OutCubic, 0 -> 1
 //
 // Use `BlopStyle::applySurface(card)` on any QFrame/QWidget that should look
 // like a Blop sheet, `BlopStyle::applyBackdrop(host)` on the dim layer, and
@@ -57,14 +57,14 @@ void applySurface(QWidget *card, const QString &objectName = QStringLiteral("Blo
 void applyBackdrop(QWidget *host, bool forAndroid = false);
 
 // Installs a one-shot slide-in animation that runs on the next showEvent of
-// `card`. The animation translates the card from (y + 24dp) to (y) over
-// 280ms with OutCubic, plus a 200ms opacity fade via the windowOpacity
+// `card`. The animation translates the card from (y + 12dp) to (y) over
+// 220ms with OutCubic, plus a 140ms opacity fade via the windowOpacity
 // property when `card` is a top-level (Window/Dialog) or via a
 // QGraphicsOpacityEffect-free alpha path otherwise.
 void installPresentAnim(QWidget *card);
 
-// Same idea but explicitly anchored: instead of "translate +24dp -> 0",
+// Same idea but explicitly anchored: instead of "translate +12dp -> 0",
 // the card slides up from below by `slideDistanceDp` dp.
-void installPresentAnimFromBottom(QWidget *card, int slideDistanceDp = 24);
+void installPresentAnimFromBottom(QWidget *card, int slideDistanceDp = 12);
 
 } // namespace BlopStyle

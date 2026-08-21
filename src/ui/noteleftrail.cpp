@@ -18,9 +18,9 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   setFixedWidth(preferredWidth());
 
   m_lay = new QVBoxLayout(this);
-  m_lay->setContentsMargins(UiScale::dp(8), UiScale::dp(12), UiScale::dp(8),
-                            UiScale::dp(12));
-  m_lay->setSpacing(UiScale::dp(6));
+  m_lay->setContentsMargins(UiScale::dp(6), UiScale::dp(10), UiScale::dp(6),
+                            UiScale::dp(10));
+  m_lay->setSpacing(UiScale::dp(4));
 
   makeBtn(QStringLiteral("pages"), QStringLiteral("Seitenleiste"));
   makeBtn(QStringLiteral("allpages"), QStringLiteral("Alle Seiten"));
@@ -58,7 +58,7 @@ NoteLeftRail::NoteLeftRail(QWidget *parent) : QWidget(parent) {
   refreshStyles();
 }
 
-int NoteLeftRail::preferredWidth() const { return UiScale::dp(58); }
+int NoteLeftRail::preferredWidth() const { return UiScale::dp(52); }
 
 void NoteLeftRail::addGroupSeparator() {
   auto *sep = new QFrame(this);
@@ -79,8 +79,8 @@ QToolButton *NoteLeftRail::makeBtn(const QString &id, const QString &tip) {
   btn->setToolTip(tip);
   btn->setCursor(Qt::PointingHandCursor);
   btn->setAutoRaise(true);
-  btn->setFixedSize(UiScale::dp(44), UiScale::dp(44));
-  btn->setIconSize(QSize(UiScale::dp(22), UiScale::dp(22)));
+  btn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+  btn->setIconSize(QSize(UiScale::dp(20), UiScale::dp(20)));
   m_btns.insert(id, btn);
   m_lay->addWidget(btn, 0, Qt::AlignHCenter);
   return btn;

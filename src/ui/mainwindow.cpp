@@ -502,14 +502,14 @@ QString blopWebMenuStyleSheet() {
         .arg(QString::number(c.alphaF(), 'f', 3));
   };
   const QString surface = BlopTheme::surfaceElevated().name(QColor::HexRgb);
-  const QString border = rgba(BlopTheme::accentBorder());
+  const QString border = rgba(BlopTheme::borderSubtle());
   const QString sepBg = rgba(BlopTheme::borderDefault());
   const QString textCol = BlopTheme::textPrimary().name(QColor::HexRgb);
   const QString accentSel = rgba(BlopTheme::accentSubtle());
   const QString onAccent = BlopTheme::textOnAccent().name(QColor::HexRgb);
   return QStringLiteral(
              "QMenu { background-color: %1; border: 1px solid %2; "
-             "border-radius: 12px; padding: 6px; }"
+             "border-radius: 10px; padding: 6px; }"
              "QMenu::separator { height: 1px; background: %3; "
              "margin: 6px 12px; }"
              "QMenu::item { color: %4; padding: 10px 22px; border-radius: 8px; "
@@ -535,7 +535,7 @@ void showAndroidToast(QWidget *anchor, const QString &text,
   toast->setWordWrap(true);
   toast->setStyleSheet(QStringLiteral(
       "QLabel { background: rgba(20,20,30,0.92); color: #E8E4FF;"
-      " border: 1px solid rgba(124,92,252,0.45); border-radius: 10px;"
+      " border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;"
       " padding: 10px 18px; font-size: 14px; }"));
   const int maxW = qMin(win->width() - UiScale::dp(40), UiScale::dp(360));
   toast->setMaximumWidth(maxW);
@@ -1179,11 +1179,11 @@ void SidebarNavDelegate::paint(QPainter *painter,
     if (selected) {
       painter->setBrush(accentTint);
       painter->setPen(Qt::NoPen);
-      painter->drawRoundedRect(rect, rect.height() / 2.0, rect.height() / 2.0);
+      painter->drawRoundedRect(rect, UiScale::dp(8), UiScale::dp(8));
     } else if (hover) {
       painter->setBrush(hoverTint);
       painter->setPen(Qt::NoPen);
-      painter->drawRoundedRect(rect, rect.height() / 2.0, rect.height() / 2.0);
+      painter->drawRoundedRect(rect, UiScale::dp(8), UiScale::dp(8));
     }
 
     int iconOffset = 12;
@@ -1289,11 +1289,6 @@ void ModernItemDelegate::paint(QPainter *painter,
 
   const bool hovered = option.state & QStyle::State_MouseOver;
   const bool selected = option.state & QStyle::State_Selected;
-  if (hovered) {
-    painter->translate(rect.center());
-    painter->scale(1.015, 1.015);
-    painter->translate(-rect.center());
-  }
 
   // Soft tile plate — opaque elevated card so icons don't sink into black.
   QColor bgColor = BlopTheme::surfaceElevated();
@@ -1310,7 +1305,7 @@ void ModernItemDelegate::paint(QPainter *painter,
   if (!selected)
     border.setAlpha(hovered ? 120 : 80);
   painter->setPen(QPen(border, 1.0));
-  const int radius = UiScale::dp(18);
+  const int radius = UiScale::dp(12);
   painter->drawRoundedRect(rect, radius, radius);
 
   QString fileName = index.data(Qt::DisplayRole).toString();
@@ -4345,7 +4340,7 @@ void MainWindow::applyTheme() {
         ? QStringLiteral(
               "QPushButton#overviewBtnNewFolder {"
               "  background-color: rgba(255,255,255,0.05); color: %1;"
-              "  border-radius: 12px; padding: 0;"
+              "  border-radius: 10px; padding: 0;"
               "  border: 1px solid %2; min-width: 44px; max-width: 44px;"
               "  min-height: 44px; max-height: 44px;"
               "}"
@@ -4355,7 +4350,7 @@ void MainWindow::applyTheme() {
         : QStringLiteral(
               "QPushButton#overviewBtnNewFolder,"
               "QPushButton#overviewBtnTags {"
-              "  background-color: rgba(255,255,255,0.04); color: %1; border-radius: 14px;"
+              "  background-color: rgba(255,255,255,0.04); color: %1; border-radius: 10px;"
               "  padding: 0 16px; font-weight: 600; font-size: 13px;"
               "  border: 1px solid %2; min-height: %3px; max-height: %3px;"
               "}"
@@ -4366,7 +4361,7 @@ void MainWindow::applyTheme() {
     QString overviewQss = QStringLiteral(
         "QWidget#OverviewContainer { background-color: %1; }"
         "QLabel#overviewLibraryTitle {"
-        "  color: %2; font-size: %3px; font-weight: 800;"
+        "  color: %2; font-size: %3px; font-weight: 700;"
         "  letter-spacing: -0.4px; background: transparent;"
         "}"
         "QLabel#overviewLibrarySubtitle {"
@@ -4383,18 +4378,18 @@ void MainWindow::applyTheme() {
         "}"
         "QPushButton#overviewEmptyCta {"
         "  background-color: %8; color: #FFFFFF; border: none;"
-        "  border-radius: 14px; padding: 0 22px;"
+        "  border-radius: 10px; padding: 0 22px;"
         "  font-size: 14px; font-weight: 700;"
         "}"
         "QLineEdit#overviewSearchBar {"
         "  background-color: %5; color: %2;"
-        "  border: 1px solid %6; border-radius: 12px;"
+        "  border: 1px solid %6; border-radius: 10px;"
         "  min-height: %7px; max-height: %7px;"
         "  padding: 0 14px 0 8px; font-size: 13px;"
         "}"
         "QLineEdit#overviewSearchBar:focus { border: 1px solid %8; }"
         "QPushButton#overviewBtnNewNote {"
-        "  background-color: %8; color: #FFFFFF; border-radius: 12px;"
+        "  background-color: %8; color: #FFFFFF; border-radius: 10px;"
         "  padding: 0 14px; font-weight: 700; font-size: 13px;"
         "  border: none; min-height: %9px; max-height: %9px;"
         "}");
@@ -5492,7 +5487,7 @@ void MainWindow::setupUi() {
       "QPushButton {"
       "  background-color: #7C5CFC;"
       "  color: #FFFFFF;"
-      "  border-radius: 12px;"
+      "  border-radius: 10px;"
       "  padding: 0 14px;"
       "  font-weight: 700;"
       "  font-size: 13px;"
@@ -5626,7 +5621,7 @@ void MainWindow::setupUi() {
   btnNewFolder->setStyleSheet(BlopTheme::themed(QStringLiteral(
       "QPushButton {"
       "  background-color: rgba(255,255,255,0.04);"
-      "  border-radius: 12px;"
+      "  border-radius: 10px;"
       "  border: 1px solid rgba(120,130,160,0.22);"
       "}"
       "QPushButton:hover { background-color: rgba(255,255,255,0.07); border-color: rgba(124,92,252,0.45); }"
@@ -5634,20 +5629,20 @@ void MainWindow::setupUi() {
   connect(btnNewFolder, &QPushButton::clicked, this, &MainWindow::onCreateFolder);
   BlopRipple::attachPressFeedback(btnNewFolder, 0.94);
 
-  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+  Neue Notiz"), m_overviewContainer);
+  QPushButton *btnNewNote = new QPushButton(QStringLiteral("+ Notiz"), m_overviewContainer);
   btnNewNote->setObjectName("overviewBtnNewNote");
   btnNewNote->setToolTip(QStringLiteral("Neue Notiz"));
   btnNewNote->setMinimumHeight(UiScale::dp(40));
-  btnNewNote->setMinimumWidth(UiScale::dp(148));
+  btnNewNote->setMinimumWidth(UiScale::dp(112));
   btnNewNote->setCursor(Qt::PointingHandCursor);
   btnNewNote->setStyleSheet(
       "QPushButton {"
       "  background-color: #7C5CFC;"
       "  color: #FFFFFF;"
-      "  border-radius: 14px;"
-      "  font-weight: 800;"
-      "  font-size: 14px;"
-      "  padding: 0 16px;"
+      "  border-radius: 10px;"
+      "  font-weight: 700;"
+      "  font-size: 13px;"
+      "  padding: 0 14px;"
       "  border: none;"
       "}"
       "QPushButton:hover { background-color: #8B6CFF; }"
@@ -9076,12 +9071,12 @@ void MainWindow::onNewPage() {
 
   auto *card = new QFrame(overlay);
   card->setStyleSheet(BlopTheme::themed(
-      "QFrame { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+      "QFrame { background-color: #1E1E1E; border: 1px solid #3A3A48; border-radius: 10px; }"
       "QLabel { color: #DDD; border: none; background: transparent; }"
-      "QLineEdit { background: #252526; color: #F4F2FF; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; }"
+      "QLineEdit { background: #252526; color: #F4F2FF; border: 1px solid #444; border-radius: 8px; padding: 8px; font-size: 14px; }"
       "QLineEdit:focus { border: 1px solid #5E5CE6; }"));
   const QSize noteCardSize =
-      calcAndroidCardSize(overlay, 300, 460, 260, 420, 0.88, 0.62);
+      calcAndroidCardSize(overlay, 300, 460, 300, 460, 0.88, 0.68);
   card->setFixedSize(noteCardSize);
   card->move((overlay->width() - noteCardSize.width()) / 2,
              (overlay->height() - noteCardSize.height()) / 2);
@@ -9089,56 +9084,40 @@ void MainWindow::onNewPage() {
   card->raise();
 
   auto *layout = new QVBoxLayout(card);
-  layout->setContentsMargins(25, 25, 25, 25);
-  layout->setSpacing(16);
+  layout->setContentsMargins(UiScale::dp(20), UiScale::dp(18), UiScale::dp(20),
+                             UiScale::dp(16));
+  layout->setSpacing(UiScale::dp(10));
 
-  auto *title = new QLabel(QStringLiteral("Neue Notiz erstellen"), card);
+  auto *title = new QLabel(QStringLiteral("Neue Notiz"), card);
   title->setStyleSheet(BlopTheme::themed(
-      "font-size: 18px; font-weight: bold; color: #F4F2FF;"));
+      "font-size: 18px; font-weight: 700; color: #F4F2FF;"));
   layout->addWidget(title);
 
-  auto *lblName = new QLabel(QStringLiteral("Name"), card);
-  lblName->setStyleSheet(BlopTheme::themed(
-      "font-size: 13px; color: #BBB; font-weight: bold;"));
-  layout->addWidget(lblName);
-
   auto *nameInput = new QLineEdit(card);
-  nameInput->setPlaceholderText(QStringLiteral("Meine Notiz"));
+  nameInput->setPlaceholderText(QStringLiteral("Unbenannte Notiz"));
   nameInput->setFocus();
   layout->addWidget(nameInput);
 
   auto *lblFormat = new QLabel(QStringLiteral("Format"), card);
   lblFormat->setStyleSheet(BlopTheme::themed(
-      "font-size: 13px; color: #BBB; font-weight: bold;"));
+      "font-size: 12px; color: #9AA3BB; font-weight: 600;"));
   layout->addWidget(lblFormat);
 
   auto *formatRow = new QHBoxLayout();
-  auto mkBtn = [card](const QString &text, const QString &subtext) {
-    auto *btn = new QPushButton(text + "\n" + subtext, card);
+  formatRow->setSpacing(UiScale::dp(8));
+  auto mkBtn = [card](const QString &text) {
+    auto *btn = new QPushButton(text, card);
     btn->setCheckable(true);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFixedHeight(UiScale::dp(78));
-    btn->setIconSize(QSize(UiScale::dp(40), UiScale::dp(40)));
+    btn->setFixedHeight(UiScale::dp(40));
     btn->setStyleSheet(BlopTheme::themed(
-        "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; text-align: left; padding: 10px; line-height: 1.2; font-size: 14px; }"
-        "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
-        "QPushButton:hover:!checked { background: rgba(255,255,255,0.08); border-color: #555; }"));
+        "QPushButton { background: transparent; color: #C8CDDA; border: 1px solid #444; border-radius: 8px; font-size: 13px; font-weight: 600; }"
+        "QPushButton:checked { background: rgba(94,92,230,0.28); color: white; border: 1px solid #5E5CE6; }"
+        "QPushButton:hover:!checked { background: rgba(255,255,255,0.08); }"));
     return btn;
   };
-  auto *btnInfinite =
-      mkBtn(QStringLiteral("Unendlich"), QStringLiteral("Freie Leinwand\n(Standard)"));
-  auto *btnA4 =
-      mkBtn(QStringLiteral("DIN A4"), QStringLiteral("Seitenbasiert\n(Druckoptimiert)"));
-  {
-    NotePreviewIcon::Spec inf;
-    inf.kind = NotePreviewIcon::Kind::Infinite;
-    inf.backgroundType = 2;
-    btnInfinite->setIcon(QIcon(NotePreviewIcon::pixmap(inf, UiScale::dp(48))));
-    NotePreviewIcon::Spec a4;
-    a4.kind = NotePreviewIcon::Kind::A4;
-    a4.backgroundType = 1;
-    btnA4->setIcon(QIcon(NotePreviewIcon::pixmap(a4, UiScale::dp(48))));
-  }
+  auto *btnInfinite = mkBtn(QStringLiteral("Unendlich"));
+  auto *btnA4 = mkBtn(QStringLiteral("DIN A4"));
   btnInfinite->setChecked(true);
   auto *grp = new QButtonGroup(card);
   grp->setExclusive(true);
@@ -9147,21 +9126,48 @@ void MainWindow::onNewPage() {
   formatRow->addWidget(btnInfinite);
   formatRow->addWidget(btnA4);
   layout->addLayout(formatRow);
+
+  auto *lblLayout = new QLabel(QStringLiteral("Layout"), card);
+  lblLayout->setStyleSheet(BlopTheme::themed(
+      "font-size: 12px; color: #9AA3BB; font-weight: 600;"));
+  layout->addWidget(lblLayout);
+
+  auto *layoutChipRow = new QHBoxLayout();
+  layoutChipRow->setSpacing(UiScale::dp(6));
+  auto *layoutGrp = new QButtonGroup(card);
+  layoutGrp->setExclusive(true);
+  const struct { int id; const char *name; } layouts[] = {
+      {0, "Leer"}, {1, "Liniert"}, {2, "Kariert"}, {3, "Punktiert"}, {4, "Legal"},
+  };
+  for (const auto &opt : layouts) {
+    auto *chip = new QPushButton(QString::fromUtf8(opt.name), card);
+    chip->setCheckable(true);
+    chip->setCursor(Qt::PointingHandCursor);
+    chip->setFixedHeight(UiScale::dp(34));
+    chip->setStyleSheet(BlopTheme::themed(
+        "QPushButton { background: transparent; color: #C8CDDA; border: 1px solid #444; border-radius: 8px; font-size: 11px; font-weight: 600; padding: 0 6px; }"
+        "QPushButton:checked { background: rgba(94,92,230,0.28); color: white; border: 1px solid #5E5CE6; }"));
+    layoutGrp->addButton(chip, opt.id);
+    if (opt.id == 2)
+      chip->setChecked(true);
+    layoutChipRow->addWidget(chip);
+  }
+  layout->addLayout(layoutChipRow);
   layout->addStretch();
 
   auto *actions = new QHBoxLayout();
   actions->setSpacing(UiScale::dp(10));
   auto *btnCancel = new QPushButton(QStringLiteral("Abbrechen"), card);
-  btnCancel->setMinimumHeight(UiScale::dp(48));
+  btnCancel->setMinimumHeight(UiScale::dp(44));
   btnCancel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   btnCancel->setStyleSheet(BlopTheme::themed(
-      "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton { background: transparent; color: #C8CDDA; border: 1px solid #3A3550; border-radius: 10px; font-weight: 600; font-size: 14px; padding: 8px 12px; }"
       "QPushButton:hover { background: #312C45; }"));
   auto *btnCreate = new QPushButton(QStringLiteral("Erstellen"), card);
-  btnCreate->setMinimumHeight(UiScale::dp(48));
+  btnCreate->setMinimumHeight(UiScale::dp(44));
   btnCreate->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   btnCreate->setStyleSheet(
-      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+      "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 10px; font-weight: 700; font-size: 14px; padding: 8px 12px; }"
       "QPushButton:hover { background: #4b49c9; }");
   actions->addWidget(btnCancel);
   actions->addWidget(btnCreate);
@@ -9169,24 +9175,19 @@ void MainWindow::onNewPage() {
 
   connect(btnCancel, &QPushButton::clicked, overlay, &QWidget::close);
   connect(btnCreate, &QPushButton::clicked, this,
-          [this, overlay, nameInput, btnInfinite, createNote]() {
+          [this, overlay, nameInput, btnInfinite, layoutGrp, createNote]() {
             const QString name = nameInput->text().trimmed().isEmpty()
                                      ? QStringLiteral("Neue Notiz")
                                      : nameInput->text().trimmed();
-            const bool isInfinite = btnInfinite->isChecked();
-            const QString subtitle = isInfinite
-                                         ? QStringLiteral("Lege Layout und Seitenfarbe fuer die unendliche Notiz fest.")
-                                         : QStringLiteral("Lege Layout und Seitenfarbe fuer die neue A4-Notiz fest.");
-            showA4LayoutOverlayAsync(
-                this, QStringLiteral("Seitenlayout"), subtitle, 2,
-                UIStyles::PageBackground,
-                [this, overlay, name, isInfinite, createNote](
-                    const A4LayoutDialogResult &layoutResult) {
-                  if (layoutResult.accepted)
-                    createNote(name, isInfinite, layoutResult);
-                  if (overlay)
-                    overlay->close();
-                });
+            A4LayoutDialogResult layoutResult;
+            layoutResult.accepted = true;
+            layoutResult.backgroundType = layoutGrp ? layoutGrp->checkedId() : 2;
+            if (layoutResult.backgroundType < 0)
+              layoutResult.backgroundType = 2;
+            layoutResult.paperColor = UIStyles::PageBackground;
+            createNote(name, btnInfinite->isChecked(), layoutResult);
+            if (overlay)
+              overlay->close();
           });
   overlay->raise();
   card->raise();
@@ -9194,7 +9195,7 @@ void MainWindow::onNewPage() {
 #else
   NewNoteDialog dlg(this);
   if (BlopModal::execBlocking(this, &dlg, BlopModal::Mode::Card,
-                              UiScale::dp(920)) !=
+                              UiScale::dp(480)) !=
       QDialog::Accepted)
     return;
   A4LayoutDialogResult layoutResult;
@@ -9232,9 +9233,9 @@ void MainWindow::onCreateFolder() {
 
   auto *card = new QFrame(overlay);
   card->setStyleSheet(BlopTheme::themed(
-      "QFrame { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; }"
+      "QFrame { background-color: #1E1E1E; border: 1px solid #3A3A48; border-radius: 10px; }"
       "QLabel { color: #DDD; border: none; background: transparent; }"
-      "QLineEdit { background: #252526; color: #F4F2FF; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 14px; }"
+      "QLineEdit { background: #252526; color: #F4F2FF; border: 1px solid #444; border-radius: 8px; padding: 8px; font-size: 14px; }"
       "QLineEdit:focus { border: 1px solid #5E5CE6; }"));
   const QSize folderCardSize =
       calcAndroidCardSize(overlay, 280, 440, 170, 240, 0.86, 0.34);

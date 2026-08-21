@@ -409,16 +409,14 @@ void BlopModal::startOpenAnim() {
     } else if (m_mode == Mode::SideSheet) {
       startGeom.translate(endGeom.width(), 0);
     } else {
-      const int shrink = qMin(endGeom.width(), endGeom.height()) / 12;
-      startGeom.adjust(shrink, shrink, -shrink, -shrink);
+      startGeom.translate(0, UiScale::dp(12));
     }
     m_card->setGeometry(startGeom);
     m_cardAnim = new QPropertyAnimation(m_card, "geometry", this);
     m_cardAnim->setDuration(kCardEnterMs);
     m_cardAnim->setStartValue(startGeom);
     m_cardAnim->setEndValue(endGeom);
-    m_cardAnim->setEasingCurve(m_mode == Mode::Card ? BlopMotion::kEaseOvershoot
-                                                    : BlopMotion::kEaseStandard);
+    m_cardAnim->setEasingCurve(BlopMotion::kEaseStandard);
     m_cardAnim->start(QAbstractAnimation::DeleteWhenStopped);
   }
 #endif
@@ -452,8 +450,7 @@ void BlopModal::startDismissAnim() {
     } else if (m_mode == Mode::SideSheet) {
       endGeom.translate(startGeom.width(), 0);
     } else {
-      const int shrink = qMin(startGeom.width(), startGeom.height()) / 14;
-      endGeom.adjust(shrink, shrink, -shrink, -shrink);
+      endGeom.translate(0, UiScale::dp(10));
     }
     auto *cardAnim = new QPropertyAnimation(m_card, "geometry", this);
     cardAnim->setDuration(kCardExitMs);

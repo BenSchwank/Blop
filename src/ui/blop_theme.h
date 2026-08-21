@@ -9,13 +9,12 @@
 class QApplication;
 class QDialog;
 
-/// v3.18.2: Motion tokens. One duration/easing vocabulary for the whole
-/// app instead of every animation picking its own numbers:
-///   - kFast      (140ms): hover states, quick fades, exits
-///   - kStandard  (220ms): enter animations, panel fades, menu popups
+/// v3.23.7: Motion tokens. Notion timing + Obsidian density:
+///   - kFast      (140ms): hover, quick fades, menu/card exits
+///   - kStandard  (220ms): menu popups, card enter, panel fades
 ///   - kEmphasis  (280ms): large surface transitions (sheets, stacks)
-///   - kEaseStandard: OutCubic — default for everything
-///   - kEaseOvershoot: OutBack — playful entrances (FABs, chips)
+///   - kEaseStandard: OutCubic — menus, modals, library, editor chrome
+///   - kEaseOvershoot: OutBack — MorphTray / phone-toolbar FABs only
 namespace BlopMotion {
 inline constexpr int kFast = 140;
 inline constexpr int kStandard = 220;

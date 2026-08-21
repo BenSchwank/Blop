@@ -280,7 +280,7 @@ QString BlopTheme::secondaryButtonQss() {
              "}"
              "QPushButton:hover { background: %4; }"
              "QPushButton:pressed { background: %5; }")
-      .arg(hex(textPrimary()), rgba(accentBorder()), QString::number(r12),
+      .arg(hex(textPrimary()), rgba(borderDefault()), QString::number(r12),
            rgba(accentSubtle()), rgba(borderDefault()));
 }
 
@@ -307,7 +307,7 @@ QString BlopTheme::menuFrameQss(const QString &selectorObjectName) {
              "  border: 1px solid %3;"
              "  border-radius: %4px;"
              "}")
-      .arg(selectorObjectName, hex(surfaceElevated()), rgba(accentBorder()),
+      .arg(selectorObjectName, hex(surfaceElevated()), rgba(borderSubtle()),
            QString::number(r12));
 }
 

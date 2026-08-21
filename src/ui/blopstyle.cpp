@@ -25,15 +25,13 @@ QColor surfaceBg() {
   return c;
 }
 QColor surfaceBorder() {
-  // Quiet hairline — professional document chrome instead of a loud accent glow.
-  QColor a = BlopTheme::accentPrimary();
-  a.setAlpha(BlopTheme::instance().isDark() ? 40 : 56);
-  return a;
+  // Neutral hairline — Notion quiet, not an accent glow.
+  return BlopTheme::instance().isDark() ? QColor(255, 255, 255, 22)
+                                        : QColor(15, 15, 20, 28);
 }
 QColor surfaceShadow() {
-  // Soft lift; keep sheets calm rather than dramatic.
-  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 96)
-                                        : QColor(10, 12, 28, 32);
+  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 72)
+                                        : QColor(10, 12, 28, 28);
 }
 QColor backdrop(bool forAndroid) {
   // Scrim opacity: Android historically darker (200) to fully veil the
@@ -55,9 +53,7 @@ QColor textSecondary() {
   return c;
 }
 
-// v3.18.1: aligned to the BlopTheme r16 radius token (was 18) so the sheet
-// surfaces sit on the same r8/r12/r16 raster as the rest of the app.
-int surfaceRadiusDp() { return BlopTheme::r16; }
+int surfaceRadiusDp() { return BlopTheme::r12; }
 
 QString toolButtonAccentQss(const QColor &accent, int radiusPx) {
   return QStringLiteral(
@@ -98,8 +94,8 @@ void applySurface(QWidget *card, const QString &objectName) {
   card->setStyleSheet(card->styleSheet() + surfaceStyle(objectName));
   if (!qobject_cast<QGraphicsDropShadowEffect *>(card->graphicsEffect())) {
     auto *shadow = new QGraphicsDropShadowEffect(card);
-    shadow->setBlurRadius(UiScale::dp(32));
-    shadow->setOffset(0, UiScale::dp(12));
+    shadow->setBlurRadius(UiScale::dp(16));
+    shadow->setOffset(0, UiScale::dp(6));
     shadow->setColor(surfaceShadow());
     card->setGraphicsEffect(shadow);
   }
@@ -145,7 +141,7 @@ protected:
 
     // Position anim (translate to target).
     auto *posAnim = new QPropertyAnimation(m_card, "pos", m_card);
-    posAnim->setDuration(BlopMotion::kEmphasis);
+    posAnim->setDuration(BlopMotion::kStandard);
     posAnim->setStartValue(start);
     posAnim->setEndValue(target);
     posAnim->setEasingCurve(BlopMotion::kEaseStandard);
@@ -157,7 +153,7 @@ protected:
     if (m_card->isWindow()) {
       m_card->setWindowOpacity(0.0);
       auto *opAnim = new QPropertyAnimation(m_card, "windowOpacity", m_card);
-      opAnim->setDuration(BlopMotion::kStandard);
+      opAnim->setDuration(BlopMotion::kFast);
       opAnim->setStartValue(0.0);
       opAnim->setEndValue(1.0);
       opAnim->setEasingCurve(BlopMotion::kEaseStandard);
@@ -171,7 +167,7 @@ protected:
 
 private:
   QWidget *m_card{nullptr};
-  int m_slideDp{24};
+  int m_slideDp{12};
   bool m_fromBottom{false};
   bool m_fired{false};
 };
@@ -180,7 +176,7 @@ private:
 
 void installPresentAnim(QWidget *card) {
   if (!card) return;
-  auto *f = new PresentAnimFilter(card, 24, /*fromBottom*/ false);
+  auto *f = new PresentAnimFilter(card, 12, /*fromBottom*/ false);
   card->installEventFilter(f);
 }
 

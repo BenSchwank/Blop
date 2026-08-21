@@ -172,7 +172,7 @@ void BloomMenu::buildPetals(const QPoint &anchorWin,
       pos->setDuration(BlopMotion::kEmphasis);
       pos->setStartValue(from);
       pos->setEndValue(target);
-      pos->setEasingCurve(BlopMotion::kEaseOvershoot);
+      pos->setEasingCurve(BlopMotion::kEaseStandard);
       pos->start(QAbstractAnimation::DeleteWhenStopped);
 
       auto *in = new QPropertyAnimation(petal, "appear", petal);

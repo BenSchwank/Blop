@@ -39,11 +39,11 @@ RailMetrics railMetrics(QWidget *ref, bool twoCol) {
             UiScale::dp(6)};
   }
   if (twoCol) {
-    return {UiScale::dp(196), UiScale::dp(78), UiScale::dp(104),
-            UiScale::dp(124), UiScale::dp(8)};
+    return {UiScale::dp(176), UiScale::dp(70), UiScale::dp(94),
+            UiScale::dp(112), UiScale::dp(6)};
   }
-  return {UiScale::dp(120), UiScale::dp(92), UiScale::dp(120), UiScale::dp(142),
-          UiScale::dp(10)};
+  return {UiScale::dp(108), UiScale::dp(80), UiScale::dp(104), UiScale::dp(124),
+          UiScale::dp(8)};
 }
 
 QIcon railGlyph(const QString &name, const QColor &fg, int px) {
@@ -84,12 +84,12 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   m_railBody = new QWidget(this);
   m_railBody->setObjectName(QStringLiteral("PageRailBody"));
   auto *lay = new QVBoxLayout(m_railBody);
-  lay->setContentsMargins(m.pad, UiScale::dp(8), m.pad, UiScale::dp(10));
-  lay->setSpacing(UiScale::dp(8));
+  lay->setContentsMargins(m.pad, UiScale::dp(6), m.pad, UiScale::dp(8));
+  lay->setSpacing(UiScale::dp(6));
 
   m_list = new QListWidget(m_railBody);
   m_list->setFrameStyle(QFrame::NoFrame);
-  m_list->setSpacing(UiScale::dp(8));
+  m_list->setSpacing(UiScale::dp(6));
   m_list->setIconSize(QSize(m.thumbW, m.thumbH));
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -204,12 +204,12 @@ void PageThumbnailSidebar::applyViewMode() {
     m_list->setWrapping(true);
     m_list->setResizeMode(QListView::Adjust);
     m_list->setMovement(QListView::Static);
-    m_list->setSpacing(UiScale::dp(6));
+    m_list->setSpacing(UiScale::dp(5));
   } else {
     m_list->setViewMode(QListView::ListMode);
     m_list->setFlow(QListView::TopToBottom);
     m_list->setWrapping(false);
-    m_list->setSpacing(UiScale::dp(8));
+    m_list->setSpacing(UiScale::dp(6));
   }
 }
 

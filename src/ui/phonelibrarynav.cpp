@@ -71,7 +71,7 @@ public:
     const bool selected = opt.state & QStyle::State_Selected;
     const bool hover = opt.state & QStyle::State_MouseOver;
     if (selected)
-      p->fillPath(path, QColor(124, 92, 252, 120));
+      p->fillPath(path, QColor(124, 92, 252, 56));
     else if (hover)
       p->fillPath(path, QColor(255, 255, 255, 26));
 
@@ -588,8 +588,8 @@ QWidget *PhoneLibraryNav::buildQuickAccess(QWidget *parent) {
   acc->setStyleSheet(QStringLiteral(
       "QFrame#PhoneBurgerAccountCard {"
       "  background: rgba(255,255,255,0.06);"
-      "  border: 1px solid rgba(255,255,255,0.08);"
-      "  border-radius: 14px;"
+      "  border: 1px solid rgba(255,255,255,0.06);"
+      "  border-radius: 10px;"
       "}"));
   auto *al = new QHBoxLayout(acc);
   al->setContentsMargins(UiScale::dp(12), UiScale::dp(10), UiScale::dp(12),
@@ -748,22 +748,22 @@ void PhoneLibraryNav::openMenu() {
       roomy ? QStringLiteral(
                   "QWidget#PhoneLibraryMenuCard {"
                   "  background: #12141C;"
-                  "  border-radius: 22px;"
-                  "  border: 1px solid rgba(255,255,255,0.10);"
+                  "  border-radius: 16px;"
+                  "  border: 1px solid rgba(255,255,255,0.06);"
                   "}")
             : QStringLiteral(
                   "QWidget#PhoneLibraryMenuCard {"
                   "  background: #12141C;"
-                  "  border-top-left-radius: 22px;"
-                  "  border-top-right-radius: 22px;"
-                  "  border: 1px solid rgba(255,255,255,0.08);"
+                  "  border-top-left-radius: 16px;"
+                  "  border-top-right-radius: 16px;"
+                  "  border: 1px solid rgba(255,255,255,0.06);"
                   "}")));
   card->installEventFilter(this);
   if (roomy) {
     auto *shadow = new QGraphicsDropShadowEffect(card);
-    shadow->setBlurRadius(48);
-    shadow->setOffset(0, 18);
-    shadow->setColor(QColor(0, 0, 0, 90));
+    shadow->setBlurRadius(20);
+    shadow->setOffset(0, 8);
+    shadow->setColor(QColor(0, 0, 0, 64));
     card->setGraphicsEffect(shadow);
   }
 
@@ -826,7 +826,7 @@ void PhoneLibraryNav::openMenu() {
   m_search->setMinimumHeight(UiScale::dp(42));
   m_search->setStyleSheet(QStringLiteral(
       "QLineEdit { background: rgba(255,255,255,0.08); color: #E8E4FF;"
-      "  border: 1px solid rgba(255,255,255,0.16); border-radius: 12px;"
+      "  border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;"
       "  padding: 8px 12px; font-size: 14px; selection-background-color: #7C5CFC; }"));
   connect(m_search, &QLineEdit::textChanged, this, &PhoneLibraryNav::searchChanged);
   lay->addWidget(m_search);

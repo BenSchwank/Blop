@@ -230,25 +230,25 @@ void LibraryOrgBar::rebuildStyles() {
       QStringLiteral(
           "QWidget#LibraryOrgBar { background: transparent; }"
           "QPushButton#libraryOrgChip {"
-          "  background: rgba(255,255,255,0.07); color: %1;"
-          "  border: 1px solid %2; border-radius: 14px;"
-          "  padding: 0 12px 0 10px; font-size: 12px; font-weight: 600;"
+          "  background: transparent; color: %1;"
+          "  border: 1px solid %2; border-radius: 8px;"
+          "  padding: 0 10px 0 8px; font-size: 12px; font-weight: 600;"
           "}"
           "QPushButton#libraryOrgChip:checked {"
-          "  background: %7; color: #FFFFFF;"
+          "  background: rgba(%3,%4,%5,0.18); color: %6;"
           "  border: 1px solid %7;"
           "}"
           "QPushButton#libraryOrgChip:hover:!checked {"
-          "  background: rgba(255,255,255,0.11);"
+          "  background: rgba(255,255,255,0.07);"
           "}"
           "QPushButton#libraryOrgSort {"
-          "  background: rgba(255,255,255,0.07); color: %6;"
-          "  border: 1px solid %2; border-radius: 12px;"
-          "  padding: 0 14px; font-size: 12px; font-weight: 600;"
-          "  min-width: 72px;"
+          "  background: transparent; color: %6;"
+          "  border: 1px solid %2; border-radius: 8px;"
+          "  padding: 0 12px; font-size: 12px; font-weight: 600;"
+          "  min-width: 64px;"
           "}"
           "QPushButton#libraryOrgSort:hover {"
-          "  border-color: %7; background: rgba(%3,%4,%5,0.18);"
+          "  border-color: %7; background: rgba(%3,%4,%5,0.12);"
           "}")
           .arg(muted, border)
           .arg(m_accent.red())
@@ -264,7 +264,7 @@ void LibraryOrgBar::rebuildStyles() {
     if (!b)
       continue;
     const auto view = static_cast<SmartView>(m_viewGroup->id(b));
-    const QColor ic = b->isChecked() ? QColor(Qt::white) : idle;
+    const QColor ic = b->isChecked() ? m_accent : idle;
     b->setIcon(chipGlyph(view, ic));
   }
 }

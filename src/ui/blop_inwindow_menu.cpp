@@ -197,12 +197,12 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
           .arg(QString::number(c.alphaF(), 'f', 3));
     };
     const QString bg = BlopTheme::surfaceElevated().name(QColor::HexRgb);
-    const QString border = rgba(BlopTheme::accentBorder());
+    const QString border = rgba(BlopTheme::borderSubtle());
     frame->setStyleSheet(QStringLiteral(
         "QFrame#BlopInWindowMenuFrame {"
         "  background: %1;"
         "  border: 1px solid %2;"
-        "  border-radius: 12px;"
+        "  border-radius: 10px;"
         "}").arg(bg, border));
   }
 

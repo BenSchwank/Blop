@@ -2,25 +2,20 @@
 #include "blop_theme.h"
 #include "blopripple.h"
 #include "librarytagstore.h"
-#include "notepreviewicon.h"
 #include "uiscale.h"
 
 #include <QAbstractItemView>
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QFrame>
-#include <QGridLayout>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMouseEvent>
 #include <QPropertyAnimation>
 #include <QShowEvent>
-#include <QScrollArea>
 #include <QSizePolicy>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 NewNoteDialog::NewNoteDialog(QWidget *parent) : QDialog(parent)
@@ -43,124 +38,136 @@ void NewNoteDialog::setupUi()
             .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb)) +
         BlopTheme::themed(QStringLiteral(
             "QLabel { color: #DDD; font-family: 'Segoe UI'; border: none; background: transparent; }"
-            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #F4F5FB; border: 1px solid rgba(120,130,160,0.32); border-radius: 14px; padding: 12px 16px; font-size: 15px; selection-background-color: #7C5CFC; }"
+            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #F4F5FB; border: 1px solid rgba(120,130,160,0.28); border-radius: 10px; padding: 10px 14px; font-size: 15px; selection-background-color: #7C5CFC; }"
             "QLineEdit:focus { border: 1px solid #7C5CFC; }")));
 
     auto *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(UiScale::dp(28), UiScale::dp(24),
-                               UiScale::dp(28), UiScale::dp(20));
-    layout->setSpacing(UiScale::dp(16));
+    layout->setContentsMargins(UiScale::dp(22), UiScale::dp(18),
+                               UiScale::dp(22), UiScale::dp(16));
+    layout->setSpacing(UiScale::dp(12));
 
     auto *lblTitle = new QLabel(QStringLiteral("Neue Notiz"), container);
     lblTitle->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "font-size: 22px; font-weight: 800; color: #F4F5FB; letter-spacing: -0.3px;")));
+        "font-size: 20px; font-weight: 700; color: #F4F5FB; letter-spacing: -0.2px;")));
     layout->addWidget(lblTitle);
-
-    auto *scroll = new QScrollArea(container);
-    scroll->setObjectName(QStringLiteral("NewNoteScroll"));
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setStyleSheet(QStringLiteral(
-        "QScrollArea { background: transparent; border: none; }"));
-
-    auto *body = new QWidget(scroll);
-    body->setObjectName(QStringLiteral("NewNoteBody"));
-    body->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
-    auto *cols = new QHBoxLayout(body);
-    cols->setContentsMargins(0, 0, 0, 0);
-    cols->setSpacing(UiScale::dp(24));
 
     auto sectionLabel = [](const QString &text, QWidget *parent) {
         auto *lbl = new QLabel(text, parent);
         lbl->setStyleSheet(BlopTheme::themed(QStringLiteral(
-            "font-size: 13px; color: #BBB; font-weight: 700; letter-spacing: 0.4px;")));
+            "font-size: 12px; color: #9AA3BB; font-weight: 600; letter-spacing: 0.3px;")));
         return lbl;
     };
 
-    auto *left = new QWidget(body);
-    left->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    left->setMinimumWidth(UiScale::dp(260));
-    left->setMaximumWidth(UiScale::dp(320));
-    auto *leftLay = new QVBoxLayout(left);
-    leftLay->setContentsMargins(0, 0, 0, 0);
-    leftLay->setSpacing(UiScale::dp(10));
+    layout->addWidget(sectionLabel(QStringLiteral("Titel"), container));
+    m_nameInput = new QLineEdit(container);
+    m_nameInput->setPlaceholderText(QStringLiteral("Unbenannte Notiz"));
+    m_nameInput->setMinimumHeight(UiScale::dp(40));
+    m_nameInput->setFocus();
+    layout->addWidget(m_nameInput);
+    connect(m_nameInput, &QLineEdit::returnPressed, this, &QDialog::accept);
 
-    leftLay->addWidget(sectionLabel(QStringLiteral("Format"), left));
+    layout->addWidget(sectionLabel(QStringLiteral("Format"), container));
 
-    auto createFormatBtn = [this, left](const QString &text,
-                                        const QString &subtext) {
-        auto *btn = new QPushButton(left);
+    const QString segQss = BlopTheme::themed(QStringLiteral(
+        "QPushButton { background: transparent; color: #C8CDDA; border: 1px solid rgba(120,130,160,0.28); "
+        "border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; }"
+        "QPushButton:checked { background: rgba(124,92,252,0.22); color: #F4F5FB; border: 1px solid #7C5CFC; }"
+        "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"));
+
+    auto *formatRow = new QHBoxLayout();
+    formatRow->setSpacing(UiScale::dp(8));
+    auto makeSeg = [this, container, &segQss](const QString &text) {
+        auto *btn = new QPushButton(text, container);
         btn->setCheckable(true);
+        btn->setAutoDefault(false);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setMinimumHeight(UiScale::dp(72));
+        btn->setMinimumHeight(UiScale::dp(36));
         btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        btn->setIconSize(QSize(UiScale::dp(40), UiScale::dp(40)));
-        btn->setText(text + QStringLiteral("\n") + subtext);
-        btn->setStyleSheet(BlopTheme::themed(QStringLiteral(
-            "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; "
-            "border-radius: 18px; text-align: left; padding: 16px 18px; "
-            "line-height: 1.3; font-size: 15px; font-weight: 600; }"
-            "QPushButton:checked { background: #7C5CFC; color: white; border: 1px solid #7C5CFC; }"
-            "QPushButton:hover:!checked { background: #333; border-color: #555; }")));
-        BlopRipple::attachPressFeedback(btn, 0.92);
+        btn->setStyleSheet(segQss);
+        BlopRipple::attachPressFeedback(btn, 0.96);
         return btn;
     };
-
-    m_btnFormatInfinite = createFormatBtn(
-        QStringLiteral("Unendlich"), QStringLiteral("Freie Leinwand"));
-    m_btnFormatA4 = createFormatBtn(
-        QStringLiteral("DIN A4"), QStringLiteral("Seitenbasiert"));
+    m_btnFormatInfinite = makeSeg(QStringLiteral("Unendlich"));
+    m_btnFormatA4 = makeSeg(QStringLiteral("DIN A4"));
     m_btnFormatInfinite->setChecked(true);
-
     m_groupFormat = new QButtonGroup(this);
     m_groupFormat->addButton(m_btnFormatInfinite, 0);
     m_groupFormat->addButton(m_btnFormatA4, 1);
     m_groupFormat->setExclusive(true);
+    formatRow->addWidget(m_btnFormatInfinite);
+    formatRow->addWidget(m_btnFormatA4);
+    layout->addLayout(formatRow);
 
-    auto *formatCol = new QVBoxLayout();
-    formatCol->setSpacing(UiScale::dp(12));
-    formatCol->addWidget(m_btnFormatInfinite);
-    formatCol->addWidget(m_btnFormatA4);
-    leftLay->addLayout(formatCol);
+    layout->addWidget(sectionLabel(QStringLiteral("Layout"), container));
 
-    leftLay->addWidget(sectionLabel(QStringLiteral("Name"), left));
-    m_nameInput = new QLineEdit(left);
-    m_nameInput->setPlaceholderText(QStringLiteral("Meine Notiz"));
-    m_nameInput->setMinimumHeight(UiScale::dp(40));
-    m_nameInput->setFocus();
-    leftLay->addWidget(m_nameInput);
+    const QString chipQss = BlopTheme::themed(QStringLiteral(
+        "QPushButton { background: transparent; color: #C8CDDA; border: 1px solid rgba(120,130,160,0.28); "
+        "border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
+        "QPushButton:checked { background: rgba(124,92,252,0.22); color: #F4F5FB; border: 1px solid #7C5CFC; }"
+        "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"));
 
-    leftLay->addWidget(sectionLabel(QStringLiteral("Tags"), left));
+    m_groupLayout = new QButtonGroup(this);
+    m_groupLayout->setExclusive(true);
+    auto *layoutRow = new QHBoxLayout();
+    layoutRow->setSpacing(UiScale::dp(6));
+    struct LayoutOpt { int type; const char *name; };
+    const LayoutOpt opts[] = {
+        {0, "Leer"},
+        {1, "Liniert"},
+        {2, "Kariert"},
+        {3, "Punktiert"},
+        {4, "Legal"},
+    };
+    for (const auto &opt : opts) {
+        auto *btn = new QPushButton(QString::fromUtf8(opt.name), container);
+        btn->setCheckable(true);
+        btn->setAutoDefault(false);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setMinimumHeight(UiScale::dp(32));
+        btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        btn->setStyleSheet(chipQss);
+        btn->setProperty("blopBgType", opt.type);
+        m_groupLayout->addButton(btn, opt.type);
+        if (opt.type == m_backgroundType)
+            btn->setChecked(true);
+        layoutRow->addWidget(btn);
+        BlopRipple::attachPressFeedback(btn, 0.96);
+    }
+    connect(m_groupLayout, &QButtonGroup::idClicked, this,
+            [this](int id) { m_backgroundType = id; });
+    layout->addLayout(layoutRow);
+
+    layout->addWidget(sectionLabel(QStringLiteral("Tags"), container));
 
     auto *tagRow = new QHBoxLayout();
-    tagRow->setSpacing(UiScale::dp(10));
-    m_tagInput = new QLineEdit(left);
+    tagRow->setSpacing(UiScale::dp(8));
+    m_tagInput = new QLineEdit(container);
     m_tagInput->setPlaceholderText(QStringLiteral("Tag hinzufügen…"));
-    m_tagInput->setMinimumHeight(UiScale::dp(40));
-    auto *btnAddTag = new QPushButton(QStringLiteral("+"), left);
-    btnAddTag->setFixedSize(UiScale::dp(40), UiScale::dp(40));
+    m_tagInput->setMinimumHeight(UiScale::dp(36));
+    auto *btnAddTag = new QPushButton(QStringLiteral("+"), container);
+    btnAddTag->setAutoDefault(false);
+    btnAddTag->setFixedSize(UiScale::dp(36), UiScale::dp(36));
     btnAddTag->setCursor(Qt::PointingHandCursor);
     btnAddTag->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: #7C5CFC; color: white; border: none; "
-        "border-radius: 14px; font-weight: 800; font-size: 20px; }"
+        "border-radius: 8px; font-weight: 700; font-size: 18px; }"
         "QPushButton:hover { background: #6A4BE8; }")));
     tagRow->addWidget(m_tagInput, 1);
     tagRow->addWidget(btnAddTag);
-    leftLay->addLayout(tagRow);
+    layout->addLayout(tagRow);
 
-    m_tagList = new QListWidget(left);
+    m_tagList = new QListWidget(container);
     m_tagList->setSelectionMode(QAbstractItemView::MultiSelection);
     m_tagList->setFrameShape(QFrame::NoFrame);
     m_tagList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_tagList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_tagList->setFixedHeight(UiScale::dp(88));
+    m_tagList->setFixedHeight(UiScale::dp(72));
     m_tagList->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QListWidget { background: transparent; color: #E8E4FF; border: none; "
-        "font-size: 14px; outline: none; }"
-        "QListWidget::item { padding: 10px 8px; border-radius: 10px; }"
-        "QListWidget::item:selected { background: rgba(124,92,252,0.28); }")));
-    leftLay->addWidget(m_tagList);
+        "font-size: 13px; outline: none; }"
+        "QListWidget::item { padding: 6px 8px; border-radius: 8px; }"
+        "QListWidget::item:selected { background: rgba(124,92,252,0.22); }")));
+    layout->addWidget(m_tagList);
 
     auto addTagFromInput = [this]() {
         const QString n = LibraryTagStore::normalize(m_tagInput->text());
@@ -178,149 +185,38 @@ void NewNoteDialog::setupUi()
     connect(m_tagInput, &QLineEdit::returnPressed, this, addTagFromInput);
     rebuildTagList();
 
-    cols->addWidget(left, 0);
-
-    auto *right = new QWidget(body);
-    right->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto *rightLay = new QVBoxLayout(right);
-    rightLay->setContentsMargins(0, 0, 0, 0);
-    rightLay->setSpacing(UiScale::dp(10));
-    rightLay->addWidget(sectionLabel(QStringLiteral("Layout"), right));
-
-    auto *gridHost = new QWidget(right);
-    gridHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto *grid = new QGridLayout(gridHost);
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(UiScale::dp(12));
-    grid->setVerticalSpacing(UiScale::dp(12));
-    grid->setColumnStretch(0, 1);
-    grid->setColumnStretch(1, 1);
-    grid->setColumnStretch(2, 1);
-
-    m_groupLayout = new QButtonGroup(this);
-    m_groupLayout->setExclusive(true);
-
-    struct LayoutOpt {
-        int type;
-        QString name;
-        int row;
-        int col;
-    };
-    const LayoutOpt opts[] = {
-        {0, QStringLiteral("Leer"), 0, 0},
-        {1, QStringLiteral("Liniert"), 0, 1},
-        {2, QStringLiteral("Kariert"), 0, 2},
-        {3, QStringLiteral("Punktiert"), 1, 0},
-        {4, QStringLiteral("Legal"), 1, 1},
-    };
-
-    const QString btnQss = BlopTheme::themed(QStringLiteral(
-        "QToolButton { background: #252526; color: #DDD; border: 1px solid #444; "
-        "border-radius: 18px; padding: 14px 10px 16px 10px; font-size: 13px; "
-        "font-weight: 600; }"
-        "QToolButton:checked { background: #7C5CFC; color: white; "
-        "border: 2px solid #6A4BE8; }"
-        "QToolButton:hover:!checked { border-color: #666; background: #2E2E38; }"));
-
-    auto *bottomRow = new QWidget(gridHost);
-    auto *bottomLay = new QHBoxLayout(bottomRow);
-    bottomLay->setContentsMargins(0, 0, 0, 0);
-    bottomLay->setSpacing(UiScale::dp(12));
-
-    for (const auto &opt : opts) {
-        auto *tb = new QToolButton(gridHost);
-        tb->setText(opt.name);
-        tb->setCheckable(true);
-        tb->setCursor(Qt::PointingHandCursor);
-        tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-        tb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        tb->setMinimumSize(UiScale::dp(112), UiScale::dp(128));
-        tb->setIconSize(QSize(UiScale::dp(64), UiScale::dp(64)));
-        tb->setStyleSheet(btnQss);
-        tb->setProperty("blopBgType", opt.type);
-        m_groupLayout->addButton(tb, opt.type);
-        if (opt.row == 0)
-            grid->addWidget(tb, 0, opt.col);
-        else
-            bottomLay->addWidget(tb, 1);
-        if (opt.type == m_backgroundType)
-            tb->setChecked(true);
-        BlopRipple::attachPressFeedback(tb, 0.94);
-    }
-    grid->addWidget(bottomRow, 1, 0, 1, 3);
-    connect(m_groupLayout, &QButtonGroup::idClicked, this, [this](int id) {
-        m_backgroundType = id;
-        refreshLayoutIcons();
-    });
-    connect(m_groupFormat, &QButtonGroup::idClicked, this,
-            [this](int) { refreshLayoutIcons(); });
-
-    rightLay->addWidget(gridHost);
-    rightLay->addStretch(1);
-    cols->addWidget(right, 1);
-    scroll->setWidget(body);
-    layout->addWidget(scroll, 1);
+    layout->addStretch(1);
 
     auto *actionLay = new QHBoxLayout();
-    actionLay->setSpacing(UiScale::dp(14));
+    actionLay->setSpacing(UiScale::dp(10));
     actionLay->addStretch();
 
     m_btnCancel = new QPushButton(QStringLiteral("Abbrechen"), container);
     m_btnCancel->setCursor(Qt::PointingHandCursor);
-    m_btnCancel->setMinimumHeight(UiScale::dp(48));
+    m_btnCancel->setAutoDefault(false);
+    m_btnCancel->setMinimumHeight(UiScale::dp(40));
     m_btnCancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: transparent; color: #AAA; border: none; "
-        "font-weight: 700; font-size: 15px; padding: 10px 18px; }"
+        "QPushButton { background: transparent; color: #9AA3BB; border: none; "
+        "font-weight: 600; font-size: 14px; padding: 8px 14px; }"
         "QPushButton:hover { color: #F4F5FB; }")));
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
 
     m_btnCreate = new QPushButton(QStringLiteral("Erstellen"), container);
     m_btnCreate->setCursor(Qt::PointingHandCursor);
-    m_btnCreate->setMinimumHeight(UiScale::dp(48));
-    m_btnCreate->setMinimumWidth(UiScale::dp(148));
+    m_btnCreate->setAutoDefault(false);
+    m_btnCreate->setMinimumHeight(UiScale::dp(40));
+    m_btnCreate->setMinimumWidth(UiScale::dp(120));
     m_btnCreate->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: #7C5CFC; color: white; border: none; "
-        "border-radius: 20px; font-weight: 700; font-size: 15px; padding: 12px 26px; }"
+        "border-radius: 10px; font-weight: 700; font-size: 14px; padding: 8px 20px; }"
         "QPushButton:hover { background: #6A4BE8; }")));
     connect(m_btnCreate, &QPushButton::clicked, this, &QDialog::accept);
-    BlopRipple::attachPressFeedback(m_btnCancel, 0.92);
-    BlopRipple::attachPressFeedback(m_btnCreate, 0.92);
+    BlopRipple::attachPressFeedback(m_btnCancel, 0.96);
+    BlopRipple::attachPressFeedback(m_btnCreate, 0.96);
 
     actionLay->addWidget(m_btnCancel);
     actionLay->addWidget(m_btnCreate);
     layout->addLayout(actionLay);
-
-    refreshLayoutIcons();
-}
-
-void NewNoteDialog::refreshLayoutIcons()
-{
-    if (!m_groupLayout)
-        return;
-    const bool infinite = isInfiniteFormat();
-    for (auto *btn : m_groupLayout->buttons()) {
-        auto *tb = qobject_cast<QToolButton *>(btn);
-        if (!tb)
-            continue;
-        NotePreviewIcon::Spec spec;
-        spec.kind = infinite ? NotePreviewIcon::Kind::Infinite
-                             : NotePreviewIcon::Kind::A4;
-        spec.backgroundType = tb->property("blopBgType").toInt();
-        spec.paper = m_paperColor;
-        tb->setIcon(QIcon(NotePreviewIcon::pixmap(spec, UiScale::dp(56))));
-    }
-    {
-        NotePreviewIcon::Spec inf;
-        inf.kind = NotePreviewIcon::Kind::Infinite;
-        inf.backgroundType = m_backgroundType;
-        inf.paper = m_paperColor;
-        m_btnFormatInfinite->setIcon(QIcon(NotePreviewIcon::pixmap(inf, UiScale::dp(52))));
-        NotePreviewIcon::Spec a4;
-        a4.kind = NotePreviewIcon::Kind::A4;
-        a4.backgroundType = m_backgroundType;
-        a4.paper = m_paperColor;
-        m_btnFormatA4->setIcon(QIcon(NotePreviewIcon::pixmap(a4, UiScale::dp(52))));
-    }
 }
 
 void NewNoteDialog::rebuildTagList()
@@ -376,16 +272,16 @@ void NewNoteDialog::showEvent(QShowEvent *event) {
 #ifndef Q_OS_ANDROID
     setWindowOpacity(0.0);
     auto *opAnim = new QPropertyAnimation(this, "windowOpacity", this);
-    opAnim->setDuration(BlopMotion::kStandard);
+    opAnim->setDuration(BlopMotion::kFast);
     opAnim->setStartValue(0.0);
     opAnim->setEndValue(1.0);
     opAnim->setEasingCurve(BlopMotion::kEaseStandard);
     opAnim->start(QAbstractAnimation::DeleteWhenStopped);
 #endif
-    move(dest.x(), dest.y() + 24);
+    move(dest.x(), dest.y() + 12);
     auto *posAnim = new QPropertyAnimation(this, "pos", this);
-    posAnim->setDuration(BlopMotion::kEmphasis);
-    posAnim->setStartValue(QPoint(dest.x(), dest.y() + 24));
+    posAnim->setDuration(BlopMotion::kStandard);
+    posAnim->setStartValue(QPoint(dest.x(), dest.y() + 12));
     posAnim->setEndValue(dest);
     posAnim->setEasingCurve(BlopMotion::kEaseStandard);
     posAnim->start(QAbstractAnimation::DeleteWhenStopped);
