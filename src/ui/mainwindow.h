@@ -57,6 +57,7 @@ class MultiPageNoteView;
 class ToolPropertiesPanel;
 class AllPagesOverlay;
 class PhoneLibraryNav;
+class LibraryIconRail;
 class SettingsDialog;
 class QSortFilterProxyModel;
 class QShowEvent;
@@ -97,6 +98,9 @@ public:
              const QModelIndex &index) const override;
   QSize sizeHint(const QStyleOptionViewItem &option,
                  const QModelIndex &index) const override;
+  bool editorEvent(QEvent *event, QAbstractItemModel *model,
+                   const QStyleOptionViewItem &option,
+                   const QModelIndex &index) override;
 
 private:
   MainWindow *m_window;
@@ -247,6 +251,10 @@ public slots:
   /// Open a note file by absolute path (CLI / automation).
   void openNotePath(const QString &absolutePath);
 #ifndef Q_OS_ANDROID
+  /// Obsidian-style thought-thread graph on an infinite canvas (.blop).
+  void openThoughtThreadsCanvas();
+#endif
+#ifndef Q_OS_ANDROID
   /// Single-instance / blop:// hand-off from a second process or cold start.
   void handleDesktopDeepLinkMessage(const QString &message);
 #endif
@@ -307,6 +315,7 @@ private slots:
   void performAutoSave();
 
   void updateSidebarBadges();
+  void refreshSidebarNotesList();
 
   void onNavigateUp();
 
@@ -367,6 +376,7 @@ private:
   int effectiveSidebarWidthPx() const;
   /// Keep push offset + sidebar geometry in sync (no overlap with main content).
   void syncSidebarPushLayout();
+  void syncTitleBarSidebarInset();
 #ifdef Q_OS_ANDROID
   void updateAndroidSidebarScrimGeometry();
 #endif
@@ -379,6 +389,8 @@ private:
   bool copyRecursive(const QString &src, const QString &dst);
 
   void toggleFolderContent(QListWidgetItem *parentItem);
+  void rebuildOrdnerTree();
+  int folderEntryCount(const QString &dirPath) const;
 
   CanvasView *getCurrentCanvas();
   void setActiveTool(CanvasView::ToolType tool);
@@ -568,7 +580,12 @@ private:
   QPointer<QVariantAnimation> m_sidebarAnim;
 
   QWidget *m_sidebarContainer{nullptr};
+  QWidget *m_sidebarNavPanel{nullptr};
+  LibraryIconRail *m_libraryIconRail{nullptr};
+  QLineEdit *m_sidebarSearch{nullptr};
+  QPushButton *m_sidebarModeBtn{nullptr};
   QListWidget *m_navSidebar{nullptr};
+  QListWidget *m_sidebarNotesList{nullptr};
   QFileSystemModel *m_fileModel{nullptr};
   QString m_pendingLibraryRootPath;
   QPushButton *m_closeSidebarBtn{nullptr};
@@ -583,6 +600,9 @@ private:
   LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
   QPushButton *m_btnLibraryNewNote{nullptr};
+  QPushButton *m_btnLibraryGrid{nullptr};
+  QPushButton *m_btnLibraryList{nullptr};
+  bool m_libraryListMode{false};
   QLabel *m_lblLibraryTitle{nullptr};
   QLabel *m_lblLibrarySubtitle{nullptr};
   QLabel *m_lblCloudSyncStatus{nullptr};
@@ -691,6 +711,7 @@ private:
 
   /// A4-Notiz: ⋯-Menü in der Desktop-Titelleiste (kein Floating-Button)
   ModernButton *m_btnEditorNoteOverflow{nullptr};
+  ModernButton *m_btnTitleBarBell{nullptr};
   /// A4-Notiz: Seitenmanager (gleiche Rolle wie Android-Topbar-Button)
   ModernButton *m_btnTitleBarPageManager{nullptr};
   ModernButton *btnBackOverview{nullptr};

@@ -202,20 +202,26 @@ void LibraryOrgBar::onViewClicked(int id) {
   emit smartViewChanged(m_view);
 }
 
-void LibraryOrgBar::cycleSortMode() {
-  m_sort = (m_sort == SortMode::Name) ? SortMode::Modified : SortMode::Name;
+void LibraryOrgBar::setSortMode(SortMode mode) {
+  if (m_sort == mode)
+    return;
+  m_sort = mode;
   refreshSortLabel();
   QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
   s.setValue(QStringLiteral("ui/librarySortMode"), int(m_sort));
   emit sortModeChanged(m_sort);
 }
 
+void LibraryOrgBar::cycleSortMode() {
+  setSortMode(m_sort == SortMode::Name ? SortMode::Modified : SortMode::Name);
+}
+
 void LibraryOrgBar::refreshSortLabel() {
   if (!m_btnSort)
     return;
   m_btnSort->setText(m_sort == SortMode::Modified
-                         ? QStringLiteral("Datum")
-                         : QStringLiteral("Name"));
+                         ? QStringLiteral("Zuletzt geändert  \u25be")
+                         : QStringLiteral("Name  \u25be"));
   m_btnSort->setToolTip(m_sort == SortMode::Modified
                             ? QStringLiteral("Sortierung: zuletzt geändert")
                             : QStringLiteral("Sortierung: Name A–Z"));

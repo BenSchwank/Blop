@@ -4,12 +4,14 @@
 // canvas. Supports 1/2-column layout, context actions, and bookmarks.
 
 #include <QColor>
+#include <QMouseEvent>
 #include <QWidget>
 
 class MultiPageNoteView;
 class QListWidget;
 class QListWidgetItem;
 class QPushButton;
+class QVariantAnimation;
 class Note;
 
 class PageThumbnailSidebar : public QWidget {
@@ -19,10 +21,14 @@ public:
 
   void setNoteView(MultiPageNoteView *view);
   void setAccentColor(const QColor &color);
-
-  /// Floating Drawboard panel (rounded, translucent) vs docked column.
   void setFloatingMode(bool on);
-  bool isFloatingMode() const { return m_floatingMode; }
+
+  /// Horizontal J-style page strip along the top of the canvas.
+  void setHorizontalStrip(bool on);
+  bool isHorizontalStrip() const { return m_horizontalStrip; }
+
+  int expandedHeight() const;
+  int collapsedHandleHeight() const;
 
   void setTwoColumnMode(bool on);
   bool twoColumnMode() const { return m_twoColumn; }
@@ -32,6 +38,10 @@ public:
 
   bool isCollapsed() const { return m_collapsed; }
   void setCollapsed(bool collapsed);
+
+protected:
+  void mouseDoubleClickEvent(QMouseEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 public slots:
   void onCurrentPageChanged(int pageIndex);
@@ -67,6 +77,9 @@ private:
   int m_rebuildEpoch{0};
   bool m_collapsed{false};
   bool m_floatingMode{false};
+  bool m_horizontalStrip{false};
   bool m_twoColumn{false};
   int m_expandedWidth{0};
+  int m_expandedHeight{0};
+  QVariantAnimation *m_heightAnim{nullptr};
 };

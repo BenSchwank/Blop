@@ -48,11 +48,10 @@ QPoint FreeGridView::calculateSnapPosition(const QPoint &pos) {
 }
 
 void FreeGridView::paintEvent(QPaintEvent *e) {
+#ifndef Q_OS_ANDROID
+  QListView::paintEvent(e);
+#else
   QPainter p(viewport());
-
-  // OPTIMIERUNG: Statt jeden Punkt einzeln in einer Schleife zu zeichnen,
-  // nutzen wir ein gekacheltes Pixmap (Cached Bitmap). Das ist deutlich
-  // schneller.
 
   static QPixmap tilePix;
   if (tilePix.isNull() || tilePix.width() != 30) {
@@ -65,16 +64,14 @@ void FreeGridView::paintEvent(QPaintEvent *e) {
 
   int startX = horizontalScrollBar()->value();
   int startY = verticalScrollBar()->value();
-
-  // drawTiledPixmap füllt den Bereich effizient
   p.drawTiledPixmap(viewport()->rect(), tilePix,
                     QPoint(-startX % 30, -startY % 30));
 
-  // 2. Items zeichnen
   QListView::paintEvent(e);
+#endif
 
-  // 3. Ghost
   if (m_showGhost) {
+    QPainter p(viewport());
     p.save();
     QColor ghostColor = m_accentColor;
     ghostColor.setAlpha(40);

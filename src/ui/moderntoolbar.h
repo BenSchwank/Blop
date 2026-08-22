@@ -19,6 +19,8 @@ class QContextMenuEvent;
 // --- Helper Button Class ---
 class QPushButton;
 class QPainter;
+class QLabel;
+class QSlider;
 
 /// One Drawboard Favorites slot (same ToolMode may appear multiple times).
 struct RailSlot {
@@ -85,6 +87,10 @@ public:
     void setRailFooterStyle(bool enable);
     bool railFooterStyle() const { return m_railFooterStyle; }
     void setBtnCell(int w, int h);
+    void setCaption(const QString &text);
+    QString caption() const { return m_caption; }
+    void setLightStudioStyle(bool on);
+    bool lightStudioStyle() const { return m_lightStudioStyle; }
 
     double animScale() const { return m_animScale; }
     void setAnimScale(double s) { m_animScale = s; update(); }
@@ -116,6 +122,7 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
     void enterEvent(QEnterEvent*) override;
     void leaveEvent(QEvent*) override;
     void contextMenuEvent(QContextMenuEvent *e) override;
@@ -131,6 +138,8 @@ private:
     int m_size{40};
     int m_railSlotIndex{-1};
     QString m_badgeText;
+    QString m_caption;
+    bool m_lightStudioStyle{false};
     QColor m_glyphColor; // invalid = use default chrome foreground
 
     double m_animScale{1.0};
@@ -205,6 +214,10 @@ public:
     void applyDrawboardMarkupToolbar();
     /// Drawboard Favorites / tool rail — vertical bar on the right (desktop default).
     void applyDrawboardVerticalRail();
+    /// K snapped pill (edge) vs J floating vertical rail (desktop studio).
+    void applyStudioSnappedPill();
+    void applyStudioFloatingRail();
+    bool isStudioChrome() const;
     bool isMarkupToolbar() const { return m_markupBarMode != MarkupOff; }
     bool isDrawboardVerticalRail() const;
     MarkupBarMode markupBarMode() const { return m_markupBarMode; }
@@ -219,6 +232,8 @@ public:
                          bool notify = true);
     bool isRailDockedLeft() const { return m_railDockEdge == RailDockEdge::Left; }
     bool isDragging() const { return m_isDragging; }
+    /// Start undock drag from a child tool button (studio K pill).
+    void beginStudioUndockDrag(const QPoint &globalPos);
 
     /// Customize which tools appear in the vertical Drawboard rail.
     void addToolToRail(ToolMode mode);
@@ -283,6 +298,7 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
     void contextMenuEvent(QContextMenuEvent*) override;
     void wheelEvent(QWheelEvent*) override;
     void leaveEvent(QEvent*) override;
@@ -362,6 +378,8 @@ private:
     ToolbarBtn *btnSave;
     ToolbarBtn *btnPalette;
     ToolbarBtn *btnBrushSize;
+    QLabel *m_studioSizeLabel{nullptr};
+    QSlider *m_studioSizeSlider{nullptr};
     QList<ToolbarBtn*> m_dockedOnlyButtons;
 
     QVector<ToolbarBtn*> m_buttons;

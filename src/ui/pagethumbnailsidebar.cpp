@@ -10,18 +10,22 @@
 
 #include <QAbstractItemModel>
 #include <QAbstractItemView>
+#include <QEasingCurve>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
-#include <QPainter>
-#include <QPixmap>
 #include <QListView>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSize>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 
 namespace {
@@ -33,7 +37,11 @@ struct RailMetrics {
   int pad;
 };
 
-RailMetrics railMetrics(QWidget *ref, bool twoCol) {
+RailMetrics railMetrics(QWidget *ref, bool twoCol, bool horizontal) {
+  if (horizontal) {
+    return {0, UiScale::dp(64), UiScale::dp(80), UiScale::dp(110),
+            UiScale::dp(8)};
+  }
   if (UiScale::isAndroidPhoneUi(ref)) {
     return {UiScale::dp(68), UiScale::dp(52), UiScale::dp(72), UiScale::dp(90),
             UiScale::dp(6)};
@@ -61,9 +69,11 @@ QIcon railGlyph(const QString &name, const QColor &fg, int px) {
 PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("PageThumbnailSidebar"));
   setAttribute(Qt::WA_StyledBackground, true);
-  const RailMetrics m = railMetrics(this, m_twoColumn);
-  m_expandedWidth = m.width;
-  setFixedWidth(m_expandedWidth);
+  const RailMetrics m = railMetrics(this, m_twoColumn, m_horizontalStrip);
+  m_expandedWidth = m.width > 0 ? m.width : UiScale::dp(108);
+  m_expandedHeight = UiScale::dp(118);
+  if (!m_horizontalStrip)
+    setFixedWidth(m_expandedWidth);
 
   auto *root = new QVBoxLayout(this);
   root->setContentsMargins(0, 0, 0, 0);
@@ -106,6 +116,7 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   if (m_list->horizontalScrollBar())
     connect(m_list->horizontalScrollBar(), &QScrollBar::valueChanged, this,
             [this]() { requestVisibleThumbnails(); });
+  m_list->viewport()->installEventFilter(this);
   connect(m_list->model(), &QAbstractItemModel::rowsMoved, this,
           [this](const QModelIndex &, int start, int end,
                  const QModelIndex &, int dest) {
@@ -177,6 +188,28 @@ void PageThumbnailSidebar::toggleCollapsed() {
   setCollapsed(!m_collapsed);
 }
 
+void PageThumbnailSidebar::mouseDoubleClickEvent(QMouseEvent *event) {
+  if (m_horizontalStrip && event->button() == Qt::LeftButton) {
+    toggleCollapsed();
+    event->accept();
+    return;
+  }
+  QWidget::mouseDoubleClickEvent(event);
+}
+
+bool PageThumbnailSidebar::eventFilter(QObject *watched, QEvent *event) {
+  if (m_horizontalStrip && m_list && watched == m_list->viewport() &&
+      event->type() == QEvent::MouseButtonDblClick) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() == Qt::LeftButton) {
+      // Double-click anywhere on the J strip (incl. thumbnails) collapses.
+      toggleCollapsed();
+      return true;
+    }
+  }
+  return QWidget::eventFilter(watched, event);
+}
+
 void PageThumbnailSidebar::setTwoColumnMode(bool on) {
   if (m_twoColumn == on)
     return;
@@ -190,30 +223,190 @@ void PageThumbnailSidebar::toggleTwoColumnMode() {
   setTwoColumnMode(!m_twoColumn);
 }
 
+int PageThumbnailSidebar::expandedHeight() const {
+  if (m_expandedHeight > 0)
+    return m_expandedHeight;
+  return UiScale::dp(118);
+}
+
+int PageThumbnailSidebar::collapsedHandleHeight() const {
+  return UiScale::dp(22);
+}
+
+void PageThumbnailSidebar::setHorizontalStrip(bool on) {
+  if (m_horizontalStrip == on)
+    return;
+  m_horizontalStrip = on;
+  const RailMetrics m = railMetrics(this, m_twoColumn, m_horizontalStrip);
+  m_expandedHeight = m.itemH + UiScale::dp(20);
+
+  setMinimumWidth(0);
+  setMaximumWidth(QWIDGETSIZE_MAX);
+  setMinimumHeight(0);
+  setMaximumHeight(QWIDGETSIZE_MAX);
+
+  if (on) {
+    m_floatingMode = false;
+    if (m_btnToggle)
+      m_btnToggle->show();
+    if (m_btnColumns)
+      m_btnColumns->hide();
+    if (m_btnAddPage) {
+      m_btnAddPage->setText(QString());
+      m_btnAddPage->setFixedSize(UiScale::dp(34), UiScale::dp(34));
+      m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
+    }
+
+    // Flatten into a single horizontal row: thumbs · add · collapse.
+    if (QLayout *old = layout()) {
+      while (old->count() > 0) {
+        old->takeAt(0);
+      }
+      delete old;
+    }
+    if (m_railBody) {
+      if (QLayout *bodyLay = m_railBody->layout()) {
+        while (bodyLay->count() > 0)
+          bodyLay->takeAt(0);
+      }
+      m_railBody->hide();
+    }
+    auto *row = new QHBoxLayout(this);
+    row->setContentsMargins(UiScale::dp(8), UiScale::dp(6), UiScale::dp(8),
+                            UiScale::dp(6));
+    row->setSpacing(UiScale::dp(8));
+    if (m_list) {
+      m_list->setParent(this);
+      row->addWidget(m_list, 1);
+    }
+    if (m_btnAddPage) {
+      m_btnAddPage->setParent(this);
+      row->addWidget(m_btnAddPage, 0, Qt::AlignVCenter);
+    }
+    if (m_btnToggle) {
+      m_btnToggle->setParent(this);
+      m_btnToggle->setObjectName(QStringLiteral("PageRailToggleBtn"));
+      m_btnToggle->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+      m_btnToggle->setToolTip(QStringLiteral("Seitenleiste einklappen"));
+      m_btnToggle->setText(QStringLiteral("▴"));
+      m_btnToggle->setIcon(QIcon());
+      m_btnToggle->setStyleSheet(QStringLiteral(
+          "QPushButton#PageRailToggleBtn {"
+          "  background: #F8F9FB; border: 1px solid #E4E7EE; border-radius: 10px;"
+          "  color: #5A6070; font-size: 16px; font-weight: 700;"
+          "}"
+          "QPushButton#PageRailToggleBtn:hover {"
+          "  border-color: #5B9DFF; background: rgba(91,157,255,0.10);"
+          "}"));
+      row->addWidget(m_btnToggle, 0, Qt::AlignVCenter);
+    }
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    if (!m_collapsed)
+      setFixedHeight(m_expandedHeight);
+  } else {
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    if (!m_collapsed)
+      setFixedWidth(m.width > 0 ? m.width : m_expandedWidth);
+  }
+  applyViewMode();
+  applyCollapsedState();
+  refreshListStyle();
+}
+
 void PageThumbnailSidebar::applyViewMode() {
-  const RailMetrics m = railMetrics(this, m_twoColumn);
-  m_expandedWidth = m.width;
-  if (!m_collapsed)
-    setFixedWidth(m_expandedWidth);
+  const RailMetrics m = railMetrics(this, m_twoColumn, m_horizontalStrip);
+  m_expandedWidth = m.width > 0 ? m.width : m_expandedWidth;
+  m_expandedHeight = m.itemH + UiScale::dp(20);
+  if (!m_collapsed) {
+    if (m_horizontalStrip)
+      setFixedHeight(m_expandedHeight);
+    else if (m_expandedWidth > 0)
+      setFixedWidth(m_expandedWidth);
+  }
   if (!m_list)
     return;
   m_list->setIconSize(QSize(m.thumbW, m.thumbH));
-  if (m_twoColumn) {
+  if (m_horizontalStrip) {
+    m_list->setViewMode(QListView::IconMode);
+    m_list->setFlow(QListView::LeftToRight);
+    m_list->setWrapping(false);
+    m_list->setResizeMode(QListView::Adjust);
+    m_list->setMovement(QListView::Static);
+    m_list->setSpacing(UiScale::dp(8));
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_list->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+  } else if (m_twoColumn) {
     m_list->setViewMode(QListView::IconMode);
     m_list->setFlow(QListView::LeftToRight);
     m_list->setWrapping(true);
     m_list->setResizeMode(QListView::Adjust);
     m_list->setMovement(QListView::Static);
     m_list->setSpacing(UiScale::dp(5));
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   } else {
     m_list->setViewMode(QListView::ListMode);
     m_list->setFlow(QListView::TopToBottom);
     m_list->setWrapping(false);
     m_list->setSpacing(UiScale::dp(6));
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   }
 }
 
 void PageThumbnailSidebar::applyCollapsedState() {
+  if (m_horizontalStrip) {
+    const int handle = collapsedHandleHeight();
+    const int expanded = qMax(expandedHeight(), UiScale::dp(96));
+    const int target = m_collapsed ? handle : expanded;
+    if (m_list)
+      m_list->setVisible(!m_collapsed);
+    if (m_btnAddPage)
+      m_btnAddPage->setVisible(!m_collapsed);
+    if (m_btnToggle) {
+      m_btnToggle->show();
+      m_btnToggle->setIcon(QIcon());
+      m_btnToggle->setText(m_collapsed ? QStringLiteral("▾")
+                                       : QStringLiteral("▴"));
+      m_btnToggle->setToolTip(m_collapsed
+                                  ? QStringLiteral("Seitenleiste aufklappen")
+                                  : QStringLiteral("Seitenleiste einklappen"));
+      if (m_collapsed) {
+        m_btnToggle->setFixedSize(UiScale::dp(36), handle);
+        m_btnToggle->setMinimumWidth(UiScale::dp(36));
+      } else {
+        m_btnToggle->setFixedSize(UiScale::dp(44), UiScale::dp(44));
+      }
+    }
+    show();
+    setMinimumHeight(0);
+    setMaximumHeight(QWIDGETSIZE_MAX);
+    if (m_heightAnim)
+      m_heightAnim->stop();
+    if (!m_heightAnim) {
+      m_heightAnim = new QVariantAnimation(this);
+      m_heightAnim->setDuration(220);
+      m_heightAnim->setEasingCurve(QEasingCurve::InOutCubic);
+      connect(m_heightAnim, &QVariantAnimation::valueChanged, this,
+              [this](const QVariant &v) {
+                setFixedHeight(v.toInt());
+                emit pagesMutated();
+              });
+    }
+    const int from = height() > 0 ? height() : target;
+    if (qAbs(from - target) < 2) {
+      setFixedHeight(target);
+    } else {
+      m_heightAnim->setStartValue(from);
+      m_heightAnim->setEndValue(target);
+      m_heightAnim->start();
+    }
+    refreshListStyle();
+    return;
+  }
+
   if (m_railBody)
     m_railBody->setVisible(!m_collapsed);
   if (m_collapsed) {
@@ -228,7 +421,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
     }
   } else {
     if (m_expandedWidth <= 0)
-      m_expandedWidth = railMetrics(this, m_twoColumn).width;
+      m_expandedWidth = railMetrics(this, m_twoColumn, m_horizontalStrip).width;
     setFixedWidth(m_expandedWidth);
     show();
     if (m_btnToggle) {
@@ -243,58 +436,80 @@ void PageThumbnailSidebar::applyCollapsedState() {
 
 void PageThumbnailSidebar::refreshListStyle() {
   const QColor accent = NoteChrome::accent();
+  const QString bg =
+      m_horizontalStrip ? QStringLiteral("#FFFFFF")
+                        : NoteChrome::toolbarFill().name();
+  const QString edge = m_horizontalStrip
+                           ? QStringLiteral("border-bottom: 1px solid #E4E7EE;")
+                           : QStringLiteral("border-right: 1px solid %1;")
+                                 .arg(NoteChrome::borderSoft().name());
+  const QColor toggleFg =
+      m_horizontalStrip ? QColor(0x5A, 0x60, 0x70) : NoteChrome::textSecondary();
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
-      "  background: %1; border: none; border-right: 1px solid %2;"
+      "  background: %1; border: none; %2"
       "}"
       "QWidget#PageRailBody { background: transparent; border: none; }"
       "QPushButton#PageRailToggleBtn {"
       "  background: transparent; border: none; color: %3;"
-      "  border-bottom: 1px solid %2;"
+      "  border-radius: 6px;"
       "}"
-      "QPushButton#PageRailToggleBtn:hover { background: rgba(127,127,127,0.16); }"
+      "QPushButton#PageRailToggleBtn:hover { background: rgba(0,0,0,0.06); }"
       "QPushButton#PageRailAddBtn, QPushButton#PageRailColsBtn {"
-      "  background: %4; color: %3; border: 1px solid %2; border-radius: 4px;"
+      "  background: %4; color: %3; border: 1px solid %5; border-radius: 6px;"
       "  font-size: 12px; font-weight: 600;"
       "}"
       "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover {"
-      "  border-color: %5; color: %6; background: rgba(127,127,127,0.14);"
+      "  border-color: %6; color: %7; background: rgba(91,157,255,0.10);"
       "}")
-                    .arg(NoteChrome::toolbarFill().name(),
-                         NoteChrome::borderSoft().name(),
-                         NoteChrome::textSecondary().name(),
-                         NoteChrome::panelElevated().name(), accent.name(),
-                         NoteChrome::textPrimary().name()));
+                    .arg(bg, edge, toggleFg.name(),
+                         m_horizontalStrip ? QStringLiteral("#F8F9FB")
+                                           : NoteChrome::panelElevated().name(),
+                         m_horizontalStrip ? QStringLiteral("#E4E7EE")
+                                           : NoteChrome::borderSoft().name(),
+                         accent.name(),
+                         m_horizontalStrip ? QStringLiteral("#1C1E24")
+                                           : NoteChrome::textPrimary().name()));
 
   if (m_btnAddPage) {
     m_btnAddPage->setIcon(
-        railGlyph(QStringLiteral("add"), NoteChrome::textSecondary(),
+        railGlyph(QStringLiteral("add"),
+                  m_horizontalStrip ? toggleFg : NoteChrome::textSecondary(),
                   UiScale::dp(16)));
   }
   if (m_btnColumns) {
     m_btnColumns->setIcon(
         railGlyph(m_twoColumn ? QStringLiteral("layout_single")
                               : QStringLiteral("layout_rows"),
-                  NoteChrome::textSecondary(), UiScale::dp(16)));
+                  m_horizontalStrip ? toggleFg : NoteChrome::textSecondary(),
+                  UiScale::dp(16)));
   }
 
   if (m_list) {
+    const QString itemBg =
+        m_horizontalStrip ? QStringLiteral("#FFFFFF") : NoteChrome::panelElevated().name();
+    const QString itemFg =
+        m_horizontalStrip ? QStringLiteral("#6B7280") : NoteChrome::textSecondary().name();
+    const QString itemBorder =
+        m_horizontalStrip ? QStringLiteral("#E4E7EE") : NoteChrome::borderSoft().name();
+    const QString hover = m_horizontalStrip ? QStringLiteral("rgba(91,157,255,0.08)")
+                                            : QStringLiteral("rgba(91,157,255,0.12)");
     m_list->setStyleSheet(
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
             "QListWidget::item {"
-            "  border: 1px solid %2; border-radius: 4px; padding: 2px;"
+            "  border: 1px solid %2; border-radius: 6px; padding: 2px;"
             "  background: %3; color: %1;"
+            "  font-size: 11px; font-weight: 600;"
             "}"
             "QListWidget::item:selected {"
-            "  border: 1px solid %4; background: rgba(%5,%6,%7,0.16);"
+            "  border: 2px solid %4; background: rgba(%5,%6,%7,0.08);"
+            "  color: #1C1E24;"
             "}"
-            "QListWidget::item:hover { background: rgba(255,255,255,0.06); }")
-            .arg(NoteChrome::textSecondary().name(),
-                 NoteChrome::borderSoft().name(),
-                 NoteChrome::panelElevated().name(), accent.name(),
+            "QListWidget::item:hover { background: %8; }")
+            .arg(itemFg, itemBorder, itemBg, accent.name(),
                  QString::number(accent.red()), QString::number(accent.green()),
-                 QString::number(accent.blue())));
+                 QString::number(accent.blue()), hover));
   }
 }
 
@@ -322,6 +537,13 @@ void PageThumbnailSidebar::setAccentColor(const QColor &color) {
 void PageThumbnailSidebar::setFloatingMode(bool on) {
   m_floatingMode = on;
   setAttribute(Qt::WA_TranslucentBackground, false);
+  if (m_horizontalStrip) {
+    if (m_btnToggle)
+      m_btnToggle->show();
+    refreshListStyle();
+    update();
+    return;
+  }
   if (on) {
     // Drawboard: fold/expand is owned by NoteLeftRail "Seitenleiste".
     // Keep the in-panel chevron hidden; do NOT force-expand here (that
@@ -347,23 +569,32 @@ void PageThumbnailSidebar::rebuild() {
     return;
 
   applyViewMode();
-  const RailMetrics m = railMetrics(this, m_twoColumn);
+  const RailMetrics m = railMetrics(this, m_twoColumn, m_horizontalStrip);
   const Note *note = m_view->note();
   const int count = note->pages.size();
   for (int i = 0; i < count; ++i) {
     auto *item = new QListWidgetItem(m_list);
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
-    item->setSizeHint(QSize(m.thumbW + (m_twoColumn ? 0 : 0), m.itemH));
-    QString label = QString::number(i + 1);
+    item->setSizeHint(QSize(m.thumbW + UiScale::dp(m_horizontalStrip ? 20 : 12),
+                            m.itemH));
+    QString label;
+    if (m_horizontalStrip && m_view) {
+      label = m_view->pageTitle(i).trimmed();
+      if (label.isEmpty())
+        label = QStringLiteral("Seite %1").arg(i + 1);
+    } else {
+      label = QString::number(i + 1);
+    }
     item->setText(label);
     if (note->pages[i].bookmarked) {
-      item->setForeground(NoteChrome::accent());
-      item->setToolTip(QStringLiteral("Seite %1 · Lesezeichen").arg(i + 1));
-      // Tiny bookmark ribbon as decoration overlay on the right of the label.
+      item->setForeground(m_horizontalStrip ? QColor(QStringLiteral("#5B9DFF"))
+                                            : NoteChrome::accent());
+      item->setToolTip(QStringLiteral("%1 · Lesezeichen").arg(label));
       item->setData(Qt::UserRole + 1, true);
     } else {
-      item->setForeground(NoteChrome::textSecondary());
-      item->setToolTip(QStringLiteral("Seite %1").arg(i + 1));
+      item->setForeground(m_horizontalStrip ? QColor(0x5A, 0x60, 0x70)
+                                            : NoteChrome::textSecondary());
+      item->setToolTip(label);
       item->setData(Qt::UserRole + 1, false);
     }
     item->setData(Qt::UserRole, i);
@@ -383,7 +614,7 @@ void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item
                                             int epoch) {
   if (!m_view || !item)
     return;
-  const RailMetrics m = railMetrics(this, m_twoColumn);
+  const RailMetrics m = railMetrics(this, m_twoColumn, m_horizontalStrip);
   m_view->generateThumbnailAsync(
       pageIndex, QSize(m.thumbW, m.thumbH),
       [this, item, epoch](const QPixmap &pm) {

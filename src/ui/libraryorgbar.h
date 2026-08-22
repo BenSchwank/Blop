@@ -21,6 +21,7 @@ public:
   SmartView smartView() const { return m_view; }
   SortMode sortMode() const { return m_sort; }
   void setSmartView(SmartView view);
+  void setSortMode(SortMode mode);
 
   void setAccentColor(const QColor &color);
 
@@ -44,5 +45,5 @@ private:
   QPushButton *m_btnSort{nullptr};
   SmartView m_view{SmartView::All};
   SortMode m_sort{SortMode::Name};
-  QColor m_accent{QColor(QStringLiteral("#7C5CFC"))};
+  QColor m_accent{QColor(QStringLiteral("#5B9DFF"))};
 };
