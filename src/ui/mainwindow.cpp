@@ -1325,7 +1325,8 @@ bool SidebarNavDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
                                      const QStyleOptionViewItem &option,
                                      const QModelIndex &index) {
 #ifndef Q_OS_ANDROID
-  if (event->type() == QEvent::MouseButtonRelease &&
+  if ((event->type() == QEvent::MouseButtonRelease ||
+       event->type() == QEvent::MouseButtonPress) &&
       index.data(Qt::UserRole + 1).toBool() &&
       index.data(Qt::DisplayRole).toString() == QStringLiteral("ORDNER")) {
     auto *me = static_cast<QMouseEvent *>(event);
@@ -1333,9 +1334,10 @@ bool SidebarNavDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
       const int s = UiScale::dp(18);
       QRect plusRect(option.rect.right() - s - UiScale::dp(10),
                      option.rect.center().y() - s / 2, s, s);
-      plusRect.adjust(-6, -6, 6, 6);
-      if (plusRect.contains(me->pos())) {
-        if (m_window)
+      plusRect.adjust(-10, -10, 10, 10);
+      const QPoint pos = me->position().toPoint();
+      if (plusRect.contains(pos)) {
+        if (event->type() == QEvent::MouseButtonRelease && m_window)
           m_window->onCreateFolder();
         return true;
       }
@@ -9220,8 +9222,17 @@ void MainWindow::onNavItemClicked(QListWidgetItem *item) {
   if (!item)
     return;
   bool isHeader = item->data(Qt::UserRole + 1).toBool();
-  if (isHeader)
+  if (isHeader) {
+#ifndef Q_OS_ANDROID
+    // K: ORDNER header (and its "+") creates a folder. Header rows are
+    // otherwise inert, so treat the whole row as the create affordance.
+    if (item->text() == QStringLiteral("ORDNER")) {
+      onCreateFolder();
+      return;
+    }
+#endif
     return;
+  }
   if (item->text() == QStringLiteral("Favoriten")) {
     if (m_libraryOrgBar)
       m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::Favorites);
