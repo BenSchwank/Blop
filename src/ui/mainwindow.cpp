@@ -8601,6 +8601,74 @@ void MainWindow::setupSidebar() {
           });
   midLay->addWidget(m_sidebarNotesList);
   refreshSidebarNotesList();
+
+  // CLOUD — between last-used notes (NOTIZEN) and the rest of the shell
+  // (library grid / stretch). All cloud providers stay reachable here.
+  auto *cloudHeader = new QLabel(QStringLiteral("CLOUD"), mid);
+  cloudHeader->setStyleSheet(QStringLiteral(
+      "color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 0.8px;"
+      " background: transparent; padding: 14px 12px 4px 12px;"));
+  midLay->addWidget(cloudHeader);
+  m_sidebarCloudList = new QListWidget(mid);
+  m_sidebarCloudList->setObjectName(QStringLiteral("SidebarCloudList"));
+  m_sidebarCloudList->setFrameShape(QFrame::NoFrame);
+  m_sidebarCloudList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_sidebarCloudList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_sidebarCloudList->setSpacing(1);
+  m_sidebarCloudList->setStyleSheet(QStringLiteral(
+      "QListWidget#SidebarCloudList { background: transparent; border: none; outline: 0; }"
+      "QListWidget#SidebarCloudList::item {"
+      "  color: #D5D8E0; padding: 6px 10px; border-radius: 6px;"
+      "}"
+      "QListWidget#SidebarCloudList::item:hover { background: rgba(255,255,255,0.06); }"
+      "QListWidget#SidebarCloudList::item:selected { background: rgba(91,157,255,0.18); }"));
+  connect(m_sidebarCloudList, &QListWidget::itemClicked, this,
+          [this](QListWidgetItem *item) {
+            if (!item)
+              return;
+            const QString role = item->data(Qt::UserRole + 5).toString();
+            if (role == QLatin1String("clouds_add")) {
+              const QString label = BlopDialogs::promptText(
+                  this, QStringLiteral("Eigene Cloud"),
+                  QStringLiteral("Anzeigename:"), QStringLiteral("Meine Cloud"));
+              if (label.isEmpty())
+                return;
+              const QString url = BlopDialogs::promptText(
+                  this, QStringLiteral("Eigene Cloud"),
+                  QStringLiteral("Web-Adresse (https://cloud.example.com):"),
+                  QStringLiteral("https://"));
+              if (url.trimmed().isEmpty())
+                return;
+              QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+              CloudStorageEntry e;
+              e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+              e.name = label;
+              e.type = QStringLiteral("custom");
+              e.webUrl = QUrl::fromUserInput(url.trimmed()).toString();
+              entries.append(e);
+              CloudStorageStore::save(entries);
+              refreshSidebarCloudList();
+              CloudWebExplorer::showOver(this, e);
+              return;
+            }
+            if (role != QLatin1String("clouds_item"))
+              return;
+            const QString id = item->data(Qt::UserRole + 12).toString();
+            QVector<CloudStorageEntry> entries = CloudStorageStore::load();
+            CloudStorageEntry e;
+            if (CloudStorageEntry *found =
+                    CloudStorageStore::findMutable(entries, id))
+              e = *found;
+            else {
+              e.id = id;
+              e.name = item->text();
+              e.type = item->data(Qt::UserRole + 13).toString();
+              e.path = item->data(Qt::UserRole + 10).toString();
+            }
+            CloudWebExplorer::showOver(this, e);
+          });
+  midLay->addWidget(m_sidebarCloudList);
+  refreshSidebarCloudList();
 #endif
   midLay->addStretch(1);
   updateSidebarBadges();
@@ -9108,6 +9176,44 @@ void MainWindow::refreshSidebarNotesList() {
   }
   m_sidebarNotesList->setFixedHeight(
       qMax(UiScale::dp(28), m_sidebarNotesList->count() * UiScale::dp(32)));
+#endif
+}
+
+void MainWindow::refreshSidebarCloudList() {
+#ifndef Q_OS_ANDROID
+  if (!m_sidebarCloudList)
+    return;
+  m_sidebarCloudList->clear();
+  const QVector<CloudStorageEntry> clouds = CloudStorageStore::load();
+  for (const CloudStorageEntry &e : clouds) {
+    auto *item = new QListWidgetItem(m_sidebarCloudList);
+    item->setText(e.name.isEmpty() ? CloudStorageStore::displayNameForType(e.type)
+                                   : e.name);
+    const QString iconKey = CloudStorageStore::iconForType(e.type);
+    item->setIcon(createModernIcon(iconKey, libraryNavTint(iconKey)));
+    item->setData(Qt::UserRole + 11, iconKey);
+    item->setData(Qt::UserRole + 5, QStringLiteral("clouds_item"));
+    item->setData(Qt::UserRole + 12, e.id);
+    item->setData(Qt::UserRole + 13, e.type);
+    if (!e.path.isEmpty() && StoragePrefs::isUsableFilesystemDir(e.path))
+      item->setData(Qt::UserRole + 10, e.path);
+    item->setToolTip(e.webConnected
+                         ? QStringLiteral("In der Cloud anmelden und Dateien öffnen")
+                         : QStringLiteral("Tippen zum Anmelden in der Cloud"));
+    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+  }
+  auto *addCloud = new QListWidgetItem(m_sidebarCloudList);
+  addCloud->setText(QStringLiteral("Eigene Cloud hinzufügen…"));
+  addCloud->setIcon(
+      createModernIcon(QStringLiteral("cloud"),
+                       libraryNavTint(QStringLiteral("cloud"))));
+  addCloud->setData(Qt::UserRole + 11, QStringLiteral("cloud"));
+  addCloud->setData(Qt::UserRole + 5, QStringLiteral("clouds_add"));
+  addCloud->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+  // Row paint uses ~14px text + padding; keep enough height for every entry
+  // including "Eigene Cloud hinzufügen…".
+  m_sidebarCloudList->setFixedHeight(
+      qMax(UiScale::dp(28), m_sidebarCloudList->count() * UiScale::dp(36)));
 #endif
 }
 
@@ -9704,6 +9810,7 @@ void MainWindow::applyStoragePrefsToLibrary() {
   }
   navigateLibraryToPath(m_rootPath);
   refreshCloudSyncStatus();
+  refreshSidebarCloudList();
 }
 
 void MainWindow::mirrorNoteIfNeeded(const QString &notePath) {

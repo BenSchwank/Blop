@@ -316,6 +316,7 @@ private slots:
 
   void updateSidebarBadges();
   void refreshSidebarNotesList();
+  void refreshSidebarCloudList();
 
   void onNavigateUp();
 
@@ -586,6 +587,7 @@ private:
   QPushButton *m_sidebarModeBtn{nullptr};
   QListWidget *m_navSidebar{nullptr};
   QListWidget *m_sidebarNotesList{nullptr};
+  QListWidget *m_sidebarCloudList{nullptr};
   QFileSystemModel *m_fileModel{nullptr};
   QString m_pendingLibraryRootPath;
   QPushButton *m_closeSidebarBtn{nullptr};
