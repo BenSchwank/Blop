@@ -1366,6 +1366,11 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
 
     QColor tip =
         m_glyphColor.isValid() ? m_glyphColor : NoteChrome::textPrimary();
+    // Reserve space for the flyout chevron so the glyph never overlaps it.
+    const int chevronReserve =
+        (m_showChevron && !m_railFooterStyle) ? UiScale::dp(14) : 0;
+    const int iconPad = m_railFooterStyle ? UiScale::dp(14) : UiScale::dp(12);
+    const int iconBoxH = qMax(UiScale::dp(18), h - chevronReserve);
     if (m_lightStudioStyle) {
       if (m_active) {
         p.setPen(Qt::NoPen);
@@ -1384,11 +1389,6 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
       tip = NoteChrome::textPrimary();
       tip.setAlphaF(NoteChrome::isDark() ? 0.55 : 0.48);
     }
-    // Reserve space for the flyout chevron so the glyph never overlaps it.
-    const int chevronReserve =
-        (m_showChevron && !m_railFooterStyle) ? UiScale::dp(14) : 0;
-    const int iconPad = m_railFooterStyle ? UiScale::dp(14) : UiScale::dp(12);
-    const int iconBoxH = qMax(UiScale::dp(18), h - chevronReserve);
     const int icon = qMin(w - iconPad, iconBoxH - UiScale::dp(4));
     p.save();
     p.translate(w / 2.0, iconBoxH / 2.0);
@@ -5175,7 +5175,7 @@ static QString studioCaptionForIcon(const QString &icon) {
     return QStringLiteral("Radierer");
   if (icon == QLatin1String("lasso_loop") || icon == QLatin1String("lasso"))
     return QStringLiteral("Lasso");
-  if (icon == QLatin1String("select"))
+  if (icon == QLatin1String("select") || icon == QLatin1String("select_rect"))
     return QStringLiteral("Auswählen");
   if (icon == QLatin1String("hand"))
     return QStringLiteral("Hand");
@@ -5198,20 +5198,29 @@ void ModernToolbar::applyStudioSnappedPill() {
     btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
     btnDockToggle->hide();
   }
-  // Studio K pill: icon-only row (labels live in tooltips / J float is primary).
+  // Studio K pill: icon + German label row (Stift, Bleistift, …).
   for (ToolbarBtn *b : m_buttons) {
     if (!b)
       continue;
     b->setLightStudioStyle(true);
     b->setRailSlotStyle(false);
-    b->setCaption(QString());
+    b->setGlyphColor(QColor());
+    b->setCaption(studioCaptionForIcon(b->iconName()));
   }
   syncDrawboardToolIcons();
+  // Keep K pill glyphs dark-on-white; pen-color tips are for Drawboard rail only.
+  for (ToolbarBtn *b : m_buttons) {
+    if (!b)
+      continue;
+    b->setGlyphColor(QColor());
+    if (b->caption().isEmpty())
+      b->setCaption(studioCaptionForIcon(b->iconName()));
+  }
   syncToolBadges();
   if (m_orientation != Horizontal)
     setOrientation(Horizontal, false);
-  const int h = UiScale::dp(52);
-  const int w = qMax(calculateMinLength(), UiScale::dp(360));
+  const int h = UiScale::dp(64);
+  const int w = qMax(calculateMinLength(), UiScale::dp(420));
   setMinimumSize(0, 0);
   setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   setFixedHeight(h);
@@ -6153,9 +6162,9 @@ int ModernToolbar::calculateMinLength() {
 #ifndef Q_OS_ANDROID
   if (isStudioChrome() && m_isDockedMode) {
     const int n = 7;
-    const int cell = UiScale::dp(44);
+    const int cellW = UiScale::dp(56);
     const int gap = UiScale::dp(2);
-    return n * cell + (n - 1) * gap + UiScale::dp(24);
+    return n * cellW + (n - 1) * gap + UiScale::dp(24);
   }
 #endif
   
@@ -6425,7 +6434,8 @@ void ModernToolbar::updateLayout(bool animate) {
     if (isStudioChrome() && m_isDockedMode && m_orientation == Horizontal) {
       const int w = width();
       const int h = height();
-      const int cell = UiScale::dp(44);
+      const int cellW = UiScale::dp(56);
+      const int cellH = UiScale::dp(56);
       const int gap = UiScale::dp(2);
       const int grip = UiScale::dp(12);
       for (ToolbarBtn *b : m_slotButtons) {
@@ -6460,20 +6470,21 @@ void ModernToolbar::updateLayout(bool animate) {
         b->setDrawFloatingBg(false);
         b->setLightStudioStyle(true);
         b->setRailSlotStyle(false);
-        b->setCaption(QString());
+        b->setGlyphColor(QColor());
         if (b == btnLasso)
           b->setIcon(QStringLiteral("lasso_loop"));
         else if (b == btnHand)
           b->setIcon(QStringLiteral("select_rect"));
-        b->setBtnCell(cell, cell);
+        b->setCaption(studioCaptionForIcon(b->iconName()));
+        b->setBtnCell(cellW, cellH);
         b->show();
         row.append(b);
       }
-      const int total = row.size() * cell + qMax(0, row.size() - 1) * gap;
+      const int total = row.size() * cellW + qMax(0, row.size() - 1) * gap;
       int x = qMax(grip, (w - total) / 2);
       if (x + total > w - grip)
         x = grip;
-      const int y = qMax(0, (h - cell) / 2);
+      const int y = qMax(0, (h - cellH) / 2);
       for (ToolbarBtn *b : row) {
         if (animate) {
           auto *anim = new QPropertyAnimation(b, "pos");
@@ -6483,7 +6494,7 @@ void ModernToolbar::updateLayout(bool animate) {
         } else {
           b->move(x, y);
         }
-        x += cell + gap;
+        x += cellW + gap;
       }
       updateActiveIndicator(false);
       return;

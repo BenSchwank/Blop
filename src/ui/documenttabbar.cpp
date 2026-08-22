@@ -123,8 +123,8 @@ void DocumentTab::setReadingMarkMode(bool on) {
 
 void DocumentTab::refreshChromeStyle() {
   const QColor fg = m_readingMarkMode
-                        ? (m_active ? QColor(0xE8, 0xEA, 0xF0)
-                                    : QColor(0x9A, 0xA0, 0xAE))
+                        ? (m_active ? QColor(0x1C, 0x1E, 0x24)
+                                    : QColor(0x6B, 0x72, 0x80))
                         : (m_noteChromeMode ? NoteChrome::textPrimary()
                                             : BlopTheme::textPrimary());
   if (auto *iconLbl = findChild<QLabel *>(QStringLiteral("DocumentTabIcon"))) {
@@ -142,15 +142,21 @@ void DocumentTab::refreshChromeStyle() {
   }
   if (auto *closeBtn =
           findChild<QPushButton *>(QStringLiteral("DocumentTabClose"))) {
-    const QString idle =
-        m_noteChromeMode ? NoteChrome::textSecondary().name(QColor::HexRgb)
-                         : BlopTheme::textTertiary().name(QColor::HexRgb);
+    const QString idle = m_readingMarkMode
+                             ? QStringLiteral("#9CA3AF")
+                             : (m_noteChromeMode
+                                    ? NoteChrome::textSecondary().name(QColor::HexRgb)
+                                    : BlopTheme::textTertiary().name(QColor::HexRgb));
     const QString hoverFg =
-        m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
-                         : BlopTheme::textPrimary().name(QColor::HexRgb);
-    const QString hoverBg = BlopTheme::instance().isDark()
-                                ? QStringLiteral("rgba(255,255,255,0.10)")
-                                : QStringLiteral("rgba(0,0,0,0.08)");
+        m_readingMarkMode
+            ? QStringLiteral("#1C1E24")
+            : (m_noteChromeMode ? NoteChrome::textPrimary().name(QColor::HexRgb)
+                                : BlopTheme::textPrimary().name(QColor::HexRgb));
+    const QString hoverBg = m_readingMarkMode
+                                ? QStringLiteral("rgba(0,0,0,0.06)")
+                                : (BlopTheme::instance().isDark()
+                                       ? QStringLiteral("rgba(255,255,255,0.10)")
+                                       : QStringLiteral("rgba(0,0,0,0.08)"));
     closeBtn->setStyleSheet(
         QStringLiteral("QPushButton {"
                        "  background-color: transparent; border: none;"
@@ -252,24 +258,24 @@ void DocumentTab::paintEvent(QPaintEvent *) {
     const QColor accent =
         m_accentColor.isValid() ? m_accentColor : NoteChrome::accent();
     if (m_active) {
-      p.fillPath(path, QColor(0x2A, 0x2D, 0x36));
-      p.setPen(QPen(accent, 1.0));
+      p.fillPath(path, QColor(0xFF, 0xFF, 0xFF));
+      p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
       p.drawPath(path);
       p.fillRect(QRectF(r.left(), r.top(), UiScale::dp(3), r.height()), accent);
     } else if (m_hovered) {
-      p.fillPath(path, QColor(0x22, 0x24, 0x2C));
-      p.setPen(QPen(QColor(0x3A, 0x3D, 0x46), 1));
+      p.fillPath(path, QColor(0xF3, 0xF4, 0xF7));
+      p.setPen(QPen(QColor(0xD8, 0xDC, 0xE4), 1));
       p.drawPath(path);
     } else {
-      p.fillPath(path, QColor(0x1C, 0x1E, 0x24));
-      p.setPen(QPen(QColor(0x32, 0x35, 0x3E), 1));
+      p.fillPath(path, QColor(0xF8, 0xF9, 0xFB));
+      p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1));
       p.drawPath(path);
     }
     return;
   }
 
   const qreal rad = m_noteChromeMode ? UiScale::dp(8) : UiScale::dp(14);
-  QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
+  QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
   QPainterPath path;
   path.addRoundedRect(r, rad, rad);
 

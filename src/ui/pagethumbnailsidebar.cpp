@@ -292,15 +292,12 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
       m_btnToggle->setIcon(QIcon());
       m_btnToggle->setStyleSheet(QStringLiteral(
           "QPushButton#PageRailToggleBtn {"
-          "  background: %1; border: 1px solid %2; border-radius: 10px;"
-          "  color: %3; font-size: 16px; font-weight: 700;"
+          "  background: #F8F9FB; border: 1px solid #E4E7EE; border-radius: 10px;"
+          "  color: #5A6070; font-size: 16px; font-weight: 700;"
           "}"
           "QPushButton#PageRailToggleBtn:hover {"
-          "  border-color: #5B9DFF; background: rgba(91,157,255,0.14);"
-          "}")
-          .arg(NoteChrome::panelElevated().name(),
-               NoteChrome::borderSoft().name(),
-               NoteChrome::textPrimary().name()));
+          "  border-color: #5B9DFF; background: rgba(91,157,255,0.10);"
+          "}"));
       row->addWidget(m_btnToggle, 0, Qt::AlignVCenter);
     }
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -440,11 +437,14 @@ void PageThumbnailSidebar::applyCollapsedState() {
 void PageThumbnailSidebar::refreshListStyle() {
   const QColor accent = NoteChrome::accent();
   const QString bg =
-      m_horizontalStrip ? QStringLiteral("#25272E")
+      m_horizontalStrip ? QStringLiteral("#FFFFFF")
                         : NoteChrome::toolbarFill().name();
   const QString edge = m_horizontalStrip
-                           ? QStringLiteral("border-bottom: 1px solid %1;")
-                           : QStringLiteral("border-right: 1px solid %1;");
+                           ? QStringLiteral("border-bottom: 1px solid #E4E7EE;")
+                           : QStringLiteral("border-right: 1px solid %1;")
+                                 .arg(NoteChrome::borderSoft().name());
+  const QColor toggleFg =
+      m_horizontalStrip ? QColor(0x5A, 0x60, 0x70) : NoteChrome::textSecondary();
   setStyleSheet(QStringLiteral(
       "QWidget#PageThumbnailSidebar {"
       "  background: %1; border: none; %2"
@@ -454,36 +454,46 @@ void PageThumbnailSidebar::refreshListStyle() {
       "  background: transparent; border: none; color: %3;"
       "  border-radius: 6px;"
       "}"
-      "QPushButton#PageRailToggleBtn:hover { background: rgba(127,127,127,0.16); }"
+      "QPushButton#PageRailToggleBtn:hover { background: rgba(0,0,0,0.06); }"
       "QPushButton#PageRailAddBtn, QPushButton#PageRailColsBtn {"
       "  background: %4; color: %3; border: 1px solid %5; border-radius: 6px;"
       "  font-size: 12px; font-weight: 600;"
       "}"
       "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover {"
-      "  border-color: %6; color: %7; background: rgba(127,127,127,0.14);"
+      "  border-color: %6; color: %7; background: rgba(91,157,255,0.10);"
       "}")
-                    .arg(bg, edge.arg(NoteChrome::borderSoft().name()),
-                         NoteChrome::textSecondary().name(),
-                         NoteChrome::panelElevated().name(),
-                         NoteChrome::borderSoft().name(), accent.name(),
-                         NoteChrome::textPrimary().name()));
+                    .arg(bg, edge, toggleFg.name(),
+                         m_horizontalStrip ? QStringLiteral("#F8F9FB")
+                                           : NoteChrome::panelElevated().name(),
+                         m_horizontalStrip ? QStringLiteral("#E4E7EE")
+                                           : NoteChrome::borderSoft().name(),
+                         accent.name(),
+                         m_horizontalStrip ? QStringLiteral("#1C1E24")
+                                           : NoteChrome::textPrimary().name()));
 
   if (m_btnAddPage) {
     m_btnAddPage->setIcon(
-        railGlyph(QStringLiteral("add"), NoteChrome::textSecondary(),
+        railGlyph(QStringLiteral("add"),
+                  m_horizontalStrip ? toggleFg : NoteChrome::textSecondary(),
                   UiScale::dp(16)));
   }
   if (m_btnColumns) {
     m_btnColumns->setIcon(
         railGlyph(m_twoColumn ? QStringLiteral("layout_single")
                               : QStringLiteral("layout_rows"),
-                  NoteChrome::textSecondary(), UiScale::dp(16)));
+                  m_horizontalStrip ? toggleFg : NoteChrome::textSecondary(),
+                  UiScale::dp(16)));
   }
 
   if (m_list) {
-    const QString itemBg = NoteChrome::panelElevated().name();
-    const QString itemFg = NoteChrome::textSecondary().name();
-    const QString hover = QStringLiteral("rgba(91,157,255,0.12)");
+    const QString itemBg =
+        m_horizontalStrip ? QStringLiteral("#FFFFFF") : NoteChrome::panelElevated().name();
+    const QString itemFg =
+        m_horizontalStrip ? QStringLiteral("#6B7280") : NoteChrome::textSecondary().name();
+    const QString itemBorder =
+        m_horizontalStrip ? QStringLiteral("#E4E7EE") : NoteChrome::borderSoft().name();
+    const QString hover = m_horizontalStrip ? QStringLiteral("rgba(91,157,255,0.08)")
+                                            : QStringLiteral("rgba(91,157,255,0.12)");
     m_list->setStyleSheet(
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
@@ -492,10 +502,10 @@ void PageThumbnailSidebar::refreshListStyle() {
             "  background: %3; color: %1;"
             "}"
             "QListWidget::item:selected {"
-            "  border: 1px solid %4; background: rgba(%5,%6,%7,0.16);"
+            "  border: 1px solid %4; background: rgba(%5,%6,%7,0.10);"
             "}"
             "QListWidget::item:hover { background: %8; }")
-            .arg(itemFg, NoteChrome::borderSoft().name(), itemBg, accent.name(),
+            .arg(itemFg, itemBorder, itemBg, accent.name(),
                  QString::number(accent.red()), QString::number(accent.green()),
                  QString::number(accent.blue()), hover));
   }

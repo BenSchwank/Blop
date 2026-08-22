@@ -4382,7 +4382,7 @@ void MainWindow::applyTheme() {
         QStringLiteral(
             "background-color: %1; border-right: 1px solid %2;")
 #ifndef Q_OS_ANDROID
-            .arg(QStringLiteral("#1C1E24"), QStringLiteral("#111318")));
+            .arg(QStringLiteral("#16181E"), QStringLiteral("#111318")));
 #else
             .arg(BlopTheme::instance().isLight()
                      ? BlopTheme::surfaceMuted().name(QColor::HexRgb)
@@ -6018,8 +6018,9 @@ void MainWindow::setupUi() {
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
-    // Desktop studio: J floating rail is primary; K pill when docked to bottom.
-    topToolbar->setDockMode(false);
+    // Desktop studio: K snapped bottom pill is primary; J float when undocked.
+    topToolbar->setDockMode(true);
+    topToolbar->applyStudioSnappedPill();
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) { positionNoteChrome(); });
@@ -8063,7 +8064,7 @@ void MainWindow::setupSidebar() {
 #else
   m_sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
   m_sidebarContainer->setStyleSheet(
-      QStringLiteral("background-color: #1C1E24; border-right: 1px solid #111318;"));
+      QStringLiteral("background-color: #16181E; border-right: 1px solid #111318;"));
 #endif
 
 #ifndef Q_OS_ANDROID
@@ -8111,7 +8112,7 @@ void MainWindow::setupSidebar() {
   m_sidebarNavPanel->setObjectName(QStringLiteral("SidebarNavPanel"));
   m_sidebarNavPanel->setAttribute(Qt::WA_StyledBackground, true);
   m_sidebarNavPanel->setStyleSheet(
-      QStringLiteral("QWidget#SidebarNavPanel { background: #25272E; border: none; }"));
+      QStringLiteral("QWidget#SidebarNavPanel { background: #16181E; border: none; }"));
   shellLay->addWidget(m_sidebarNavPanel, 1);
   QVBoxLayout *layout = new QVBoxLayout(m_sidebarNavPanel);
 #else
@@ -8225,8 +8226,8 @@ void MainWindow::setupSidebar() {
   m_sidebarSearch->setFixedHeight(UiScale::dp(34));
   m_sidebarSearch->setStyleSheet(QStringLiteral(
       "QLineEdit#SidebarSearch {"
-      "  background: #1C1E24; color: #E8EAF0;"
-      "  border: 1px solid #343842; border-radius: 8px;"
+      "  background: #13151A; color: #E8EAF0;"
+      "  border: 1px solid #2A2D36; border-radius: 8px;"
       "  padding: 0 8px 0 12px; font-size: 12px;"
       "}"
       "QLineEdit#SidebarSearch:focus { border: 1px solid #5B9DFF; }"));
@@ -13247,7 +13248,7 @@ void MainWindow::positionDrawboardToolbar() {
 
 #ifndef Q_OS_ANDROID
   if (tb->isDockedMode()) {
-    const int barH = qMax(tb->height(), UiScale::dp(52));
+    const int barH = qMax(tb->height(), UiScale::dp(64));
     const int barW =
         qMin(qMax(tb->calculateMinLength(), UiScale::dp(360)), W - edgePad * 2);
     tb->setMinimumSize(0, 0);
@@ -13732,29 +13733,29 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   const bool authChrome = m_authNavigationLocked;
   const bool notesMode =
       m_modeSelector && m_modeSelector->currentIndex() == 0 && !authChrome;
-  const QColor kTitleBarBlack(QStringLiteral("#16181E"));
+  const QColor kTitleBarWhite(QStringLiteral("#FFFFFF"));
   const QColor titleBg =
       authChrome ? QColor(QStringLiteral("#0F1115"))
-                 : (notesMode ? kTitleBarBlack
+                 : (notesMode ? kTitleBarWhite
                               : (noteChrome ? NoteChrome::toolbarFill()
                                             : BlopTheme::surfaceBackground()));
   // Icon contrast follows the painted title-bar luminance — not "are we in
   // a dark-looking flow". Guest/auth used to force pale glyphs (#C8CDDC)
   // even when the bar had already flipped to light surfaceBackground.
   const bool iconsOnDarkBar =
-      authChrome || notesMode || titleBg.lightness() < 148;
+      authChrome || (!notesMode && titleBg.lightness() < 148);
   const QColor brandFg =
       authChrome ? QColor(QStringLiteral("#F3F4F6"))
-                 : (notesMode ? QColor(QStringLiteral("#E8EAF0"))
+                 : (notesMode ? BlopTheme::textPrimary()
                               : (noteChrome ? NoteChrome::textPrimary()
                                             : BlopTheme::textPrimary()));
   const QColor chromeFg =
-      notesMode ? QColor(QStringLiteral("#E8EAF0"))
+      notesMode ? BlopTheme::textPrimary()
                 : (noteChrome ? NoteChrome::textPrimary()
                               : (iconsOnDarkBar ? QColor(QStringLiteral("#E8E4FF"))
                                                 : BlopTheme::textPrimary()));
   const QColor chromeMuted =
-      notesMode ? QColor(QStringLiteral("#9AA0AE"))
+      notesMode ? BlopTheme::textSecondary()
                 : (noteChrome ? NoteChrome::textSecondary()
                               : (iconsOnDarkBar ? QColor(QStringLiteral("#C8CDDC"))
                                                 : BlopTheme::textSecondary()));
@@ -14033,6 +14034,8 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
 #ifdef Q_OS_WIN
   syncWindowsDwmChrome();
 #endif
+  if (m_documentTabBar)
+    m_documentTabBar->refreshTheme();
 #endif
 }
 
