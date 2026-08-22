@@ -79,6 +79,18 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network NetworkAuth Quick QuickWidg
 
 option(BLOP_DESKTOP_WEBENGINE "Enable desktop Qt WebEngine/Pdf modules (required for release; MSVC is needed on Windows)" ON)
 
+# Qt does not ship WebEngine/Pdf for MinGW. Keep REQUIRED on MSVC/Linux so
+# release CI still fails if those modules are missing.
+if(WIN32 AND MINGW AND BLOP_DESKTOP_WEBENGINE)
+    message(WARNING
+        "Qt WebEngine/Pdf are not available with MinGW. "
+        "Disabling BLOP_DESKTOP_WEBENGINE for this kit "
+        "(Blop Study, in-app registration/login, PDF import). "
+        "Use a Desktop Qt MSVC kit for a full Windows build. "
+        "BlopAssistantSandbox still builds.")
+    set(BLOP_DESKTOP_WEBENGINE OFF)
+endif()
+
 # --- WEB-MODUL WEICHE ---
 if(ANDROID)
     # Android: Native WebView
@@ -278,7 +290,42 @@ qt_add_executable(Blop
 
 # App-Icon für Windows hinzufügen
 if(WIN32)
-    target_sources(Blop PRIVATE app_icon.rc)
+    if(MINGW)
+        # MinGW windres preprocesses via gcc. CMake then forwards every Blop
+        # include dir as -I C:\... and gcc treats a backslash as a flag:
+        #   error: unrecognized command-line option '-\\'
+        #   windres.exe: preprocessing failed
+        # Compile the .rc ourselves with no inherited includes.
+        if(NOT CMAKE_RC_COMPILER AND CMAKE_CXX_COMPILER)
+            get_filename_component(_blop_mingw_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            find_program(CMAKE_RC_COMPILER NAMES windres windres.exe
+                         HINTS "${_blop_mingw_bin}")
+        endif()
+        if(NOT CMAKE_RC_COMPILER)
+            find_program(CMAKE_RC_COMPILER NAMES windres windres.exe)
+        endif()
+        if(CMAKE_RC_COMPILER)
+            set(_blop_rc_obj "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc.obj")
+            add_custom_command(
+                OUTPUT "${_blop_rc_obj}"
+                COMMAND "${CMAKE_RC_COMPILER}"
+                    --use-temp-file
+                    -O coff
+                    -I "${CMAKE_CURRENT_SOURCE_DIR}"
+                    -i "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.rc"
+                    -o "${_blop_rc_obj}"
+                DEPENDS
+                    "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.rc"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico"
+                VERBATIM
+            )
+            target_sources(Blop PRIVATE "${_blop_rc_obj}")
+        else()
+            message(WARNING "MinGW windres not found — skipping Windows app icon")
+        endif()
+    else()
+        target_sources(Blop PRIVATE app_icon.rc)
+    endif()
 endif()
 
 # QML Modul Definition (Nur für Android relevant)
@@ -496,6 +543,51 @@ if(WIN32)
     set_target_properties(Blop PROPERTIES WIN32_EXECUTABLE TRUE)
     # Custom frameless chrome: DwmSetWindowAttribute / DwmExtendFrameIntoClientArea
     target_link_libraries(Blop PRIVATE dwmapi)
+endif()
+
+# Standalone VoiceOS-style assistant for try-out. Never linked into the Blop app.
+option(BLOP_BUILD_ASSISTANT_SANDBOX
+    "Build BlopAssistantSandbox (separate window, no Blop UI integration)" ON)
+if(BLOP_BUILD_ASSISTANT_SANDBOX AND NOT ANDROID)
+    qt_add_executable(BlopAssistantSandbox
+        sandbox/assistant/main.cpp
+        src/core/blopassistantengine.h
+        src/core/blopassistantengine.cpp
+        src/core/blopassistantprefs.h
+        src/core/blopassistantvoice.h
+        src/core/blopassistantvoice.cpp
+        src/core/blopassistantllm.h
+        src/core/blopassistantllm.cpp
+        src/core/blopassistantmic.h
+        src/core/blopassistantmic.cpp
+        src/ui/blopassistantoverlay.h
+        src/ui/blopassistantoverlay.cpp
+        src/ui/blopassistantsettingsdialog.h
+        src/ui/blopassistantsettingsdialog.cpp
+        src/ui/notechrome.h
+        src/util/uiscale.h
+        src/util/uiscale.cpp
+    )
+    target_include_directories(BlopAssistantSandbox PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/util"
+    )
+    target_link_libraries(BlopAssistantSandbox PRIVATE
+        Qt6::Widgets Qt6::Network Qt6::Multimedia)
+    target_compile_definitions(BlopAssistantSandbox PRIVATE BLOP_HAS_MULTIMEDIA)
+    find_package(Qt6 OPTIONAL_COMPONENTS TextToSpeech)
+    if(Qt6TextToSpeech_FOUND)
+        target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::TextToSpeech)
+        target_compile_definitions(BlopAssistantSandbox PRIVATE BLOP_HAS_TEXTTOSPEECH)
+    endif()
+    if(BLOP_DESKTOP_WEBENGINE)
+        target_link_libraries(BlopAssistantSandbox PRIVATE Qt6::WebEngineWidgets)
+        target_compile_definitions(BlopAssistantSandbox PRIVATE BLOP_HAS_WEBENGINE)
+    endif()
+    if(WIN32)
+        set_target_properties(BlopAssistantSandbox PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
 endif()
 
 # --- Additive automation (benchmarks, future headless tools): never linked into Blop ---
