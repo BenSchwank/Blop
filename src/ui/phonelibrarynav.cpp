@@ -1,5 +1,6 @@
 #include "phonelibrarynav.h"
 
+#include "blop_scroll.h"
 #include "blop_theme.h"
 #include "cloudstoragestore.h"
 #include "uiscale.h"
@@ -28,6 +29,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSizePolicy>
 #include <QStyle>
 #include <QStyledItemDelegate>
@@ -358,11 +360,19 @@ bool PhoneLibraryNav::eventFilter(QObject *watched, QEvent *event) {
         if (t == QEvent::MouseButtonPress) {
           m_listPressPos = me->pos();
           m_listPressItem = m_list->itemAt(me->pos());
+          m_listPressScroll = m_list->verticalScrollBar()
+                                  ? m_list->verticalScrollBar()->value()
+                                  : 0;
         } else if (m_listPressItem) {
           const QPoint delta = me->pos() - m_listPressPos;
           QListWidgetItem *item = m_listPressItem;
           m_listPressItem = nullptr;
-          if (delta.manhattanLength() < UiScale::dp(28) &&
+          const int scrolled =
+              m_list->verticalScrollBar()
+                  ? qAbs(m_list->verticalScrollBar()->value() - m_listPressScroll)
+                  : 0;
+          if (scrolled < UiScale::dp(6) &&
+              delta.manhattanLength() < UiScale::dp(14) &&
               !item->data(kSectionRole).toBool()) {
             emitAndClose(item->data(Qt::UserRole).toString());
             return true;
@@ -834,6 +844,9 @@ void PhoneLibraryNav::openMenu() {
   m_list = new QListWidget(card);
   m_list->setFrameShape(QFrame::NoFrame);
   m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  // Finger scrolling only: no desktop scrollbar on the phone sheet.
+  m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
   m_list->setUniformItemSizes(false);
   m_list->setSpacing(2);
   m_list->setItemDelegate(new BurgerRowDelegate(m_list));
@@ -859,6 +872,7 @@ void PhoneLibraryNav::openMenu() {
     m_list->viewport()->setProperty("blopPreferClick", true);
     m_list->viewport()->installEventFilter(this);
   }
+  BlopScroll::enableFingerScroll(m_list);
   connect(m_list, &QListWidget::itemClicked, this,
           [this](QListWidgetItem *item) {
             if (!item)
