@@ -10603,20 +10603,8 @@ void MainWindow::animateSidebar(bool show) {
                   phone->raise();
                 }
               } else if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-                if (tb->isDockedMode() && m_editorCenterWidget) {
-                  int idealW = tb->calculateMinLength();
-                  idealW = qMax(220, int(idealW * 0.90));
-                  const int availableW = qMax(240, m_editorCenterWidget->width());
-                  const int dockW = qMin(idealW, availableW);
-                  int dockX = qMax(0, (availableW - dockW) / 2);
-                  if (dockX + dockW > m_editorCenterWidget->width())
-                    dockX = m_editorCenterWidget->width() - dockW;
-                  const int headerH = noteHeaderHeight();
-                  tb->setTopBound(headerH);
-                  tb->setGeometry(dockX, headerH, dockW, 48);
-                  tb->raise();
-                  syncPenPresetBarGeometry();
-                }
+                if (tb->isDockedMode() && m_editorCenterWidget)
+                  positionDrawboardToolbar();
               }
             }
           });
@@ -13241,6 +13229,12 @@ void MainWindow::positionDrawboardToolbar() {
     return;
   if (tb->isDragging())
     return;
+
+#ifndef Q_OS_ANDROID
+  // Heal inconsistent state: docked studio toolbar must be the K horizontal pill.
+  if (tb->isDockedMode() && tb->orientation() != ModernToolbar::Horizontal)
+    tb->applyStudioSnappedPill();
+#endif
 
   const int W = m_editorCenterWidget->width();
   const int H = m_editorCenterWidget->height();
