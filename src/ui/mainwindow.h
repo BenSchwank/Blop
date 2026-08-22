@@ -248,6 +248,10 @@ public slots:
   /// Open a note file by absolute path (CLI / automation).
   void openNotePath(const QString &absolutePath);
 #ifndef Q_OS_ANDROID
+  /// Obsidian-style thought-thread graph on an infinite canvas (.blop).
+  void openThoughtThreadsCanvas();
+#endif
+#ifndef Q_OS_ANDROID
   /// Single-instance / blop:// hand-off from a second process or cold start.
   void handleDesktopDeepLinkMessage(const QString &message);
 #endif

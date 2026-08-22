@@ -8061,28 +8061,24 @@ void MainWindow::setupSidebar() {
                 m_libraryIconRail->setActiveId(QStringLiteral("library"));
             } else if (id == QLatin1String("new")) {
               onNewPage();
-            } else if (id == QLatin1String("folders")) {
-              onBackToOverview();
-              if (m_navSidebar) {
-                for (int i = 0; i < m_navSidebar->count(); ++i) {
-                  auto *it = m_navSidebar->item(i);
-                  if (it && it->text() == QLatin1String("Blop Notizen")) {
-                    m_navSidebar->setCurrentItem(it);
-                    onNavItemClicked(it);
-                    break;
-                  }
-                }
-              }
+            } else if (id == QLatin1String("network")) {
+              openThoughtThreadsCanvas();
             } else if (id == QLatin1String("favorites")) {
               onBackToOverview();
               if (m_libraryOrgBar)
                 m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::Favorites);
-            } else if (id == QLatin1String("search")) {
-              onBackToOverview();
-              if (m_sidebarSearch)
-                m_sidebarSearch->setFocus(Qt::OtherFocusReason);
-              else if (m_overviewSearchBar)
-                m_overviewSearchBar->setFocus(Qt::OtherFocusReason);
+              if (m_libraryIconRail)
+                m_libraryIconRail->setActiveId(QStringLiteral("favorites"));
+            } else if (id == QLatin1String("layers") ||
+                       id == QLatin1String("calendar") ||
+                       id == QLatin1String("chat") ||
+                       id == QLatin1String("apps")) {
+              BlopDialogs::notify(
+                  this, QStringLiteral("Demnächst"),
+                  QStringLiteral(
+                      "Diese Funktion kommt in einer späteren Version."));
+              if (m_libraryIconRail)
+                m_libraryIconRail->setActiveId(QStringLiteral("library"));
             } else if (id == QLatin1String("settings") ||
                        id == QLatin1String("account") ||
                        id == QLatin1String("help")) {
@@ -10682,7 +10678,11 @@ void MainWindow::updateSidebarState() {
     // phone toolbar. Never show the desktop notch here.
     const bool phoneUi =
         qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
-    m_noteBottomChrome->setVisible(isEditor && !phoneUi);
+    const auto *studioTb = qobject_cast<ModernToolbar *>(m_floatingTools);
+    const bool studioDesktop =
+        studioTb && studioTb->isStudioChrome() && !phoneUi;
+    // Studio K pill owns undo; hide the legacy dark bottom chrome on desktop.
+    m_noteBottomChrome->setVisible(isEditor && !phoneUi && !studioDesktop);
   }
   if (isEditor)
     updateNoteBottomChrome();
@@ -11364,6 +11364,46 @@ void MainWindow::openNotePath(const QString &absolutePath) {
   else
     qWarning() << "openNotePath: cannot resolve model index for" << absolutePath;
 }
+
+#ifndef Q_OS_ANDROID
+void MainWindow::openThoughtThreadsCanvas() {
+  const QString dir = noteWriteDirectory();
+  if (dir.isEmpty()) {
+    BlopDialogs::notify(this, QStringLiteral("Gedankenfäden"),
+                        QStringLiteral("Kein Notizordner verfügbar."));
+    return;
+  }
+  const QString path = dir + QStringLiteral("/Gedankenfäden.blop");
+  if (!QFile::exists(path)) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+      BlopDialogs::notify(
+          this, QStringLiteral("Gedankenfäden"),
+          QStringLiteral("Leinwand konnte nicht angelegt werden:\n%1").arg(path));
+      return;
+    }
+    QDataStream out(&file);
+    out << (quint32)0xB10B0005;
+    out << true; // infinite canvas
+    out << (qint32)PageStyle::Dotted;
+    out << (qint32)40;
+    out << UIStyles::PageBackground;
+    out << (int)0;
+    out << (qint32)0;
+    file.close();
+    mirrorNoteIfNeeded(path);
+  }
+  openNotePath(QFileInfo(path).absoluteFilePath());
+  if (m_libraryIconRail)
+    m_libraryIconRail->setActiveId(QStringLiteral("network"));
+  BlopDialogs::notify(
+      this, QStringLiteral("Gedankenfäden"),
+      QStringLiteral(
+          "Unendliche Leinwand für verknüpfte Notizen — wie Obsidian-Graph.\n\n"
+          "Verknüpfe Notizen visuell auf der Leinwand; die vollständige "
+          "Graph-Ansicht folgt demnächst."));
+}
+#endif
 
 #ifndef Q_OS_ANDROID
 void MainWindow::handleDesktopDeepLinkMessage(const QString &message) {
@@ -13388,6 +13428,14 @@ void MainWindow::updateNoteBottomChrome() {
     m_noteBottomChrome->hide();
     return;
   }
+#ifndef Q_OS_ANDROID
+  if (const auto *studioTb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    if (studioTb->isStudioChrome()) {
+      m_noteBottomChrome->hide();
+      return;
+    }
+  }
+#endif
   MultiPageNoteView *view = nullptr;
   CanvasView *canvas = nullptr;
   if (m_editorTabs) {

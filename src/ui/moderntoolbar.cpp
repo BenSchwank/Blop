@@ -297,6 +297,14 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawPath(cursor);
     return;
   }
+  if (name == QLatin1String("select_rect")) {
+    QPen dash(primary, 2.8, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin);
+    dash.setDashPattern({3.5, 2.8});
+    p->setPen(dash);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(14, 14, 36, 36), 3, 3);
+    return;
+  }
   if (name == QLatin1String("ruler") || name == QLatin1String("measure")) {
     // Drawboard measure: dimension line with end ticks (red when tipped).
     const QColor mcol = hasTip ? tip : QColor(235, 70, 70);
@@ -648,6 +656,118 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(26, 28, 26, 42);
     p->drawLine(32, 28, 32, 42);
     p->drawLine(38, 28, 38, 42);
+    return;
+  }
+  if (name == QLatin1String("network") || name == QLatin1String("graph_links")) {
+    // Obsidian-style thought threads: hub node linked to satellites.
+    p->setPen(primaryThin);
+    p->drawLine(32, 32, 16, 18);
+    p->drawLine(32, 32, 50, 20);
+    p->drawLine(32, 32, 46, 48);
+    p->setPen(accentPen);
+    p->drawEllipse(QPointF(32, 32), 5.5, 5.5);
+    p->setPen(primaryPen);
+    p->drawEllipse(QPointF(16, 18), 4.5, 4.5);
+    p->drawEllipse(QPointF(50, 20), 4.5, 4.5);
+    p->drawEllipse(QPointF(46, 48), 4.5, 4.5);
+    return;
+  }
+  if (name == QLatin1String("layers")) {
+    QPolygonF stack;
+    stack << QPointF(32, 14) << QPointF(50, 24) << QPointF(32, 34)
+          << QPointF(14, 24);
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    p->drawPolygon(stack);
+    QPolygonF mid;
+    mid << QPointF(32, 22) << QPointF(50, 32) << QPointF(32, 42)
+        << QPointF(14, 32);
+    p->drawPolygon(mid);
+    QPolygonF bot;
+    bot << QPointF(32, 30) << QPointF(50, 40) << QPointF(32, 50)
+        << QPointF(14, 40);
+    p->setPen(accentPen);
+    p->drawPolygon(bot);
+    return;
+  }
+  if (name == QLatin1String("calendar")) {
+    p->setPen(primaryPen);
+    p->drawRoundedRect(QRectF(14, 18, 36, 32), 4, 4);
+    p->drawLine(14, 28, 50, 28);
+    p->setPen(primaryThin);
+    p->drawLine(22, 14, 22, 22);
+    p->drawLine(42, 14, 42, 22);
+    p->setPen(accentPen);
+    for (int row = 0; row < 2; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        const qreal x = 20 + col * 10;
+        const qreal y = 34 + row * 8;
+        p->drawPoint(QPointF(x, y));
+        p->drawPoint(QPointF(x + 2, y));
+        p->drawPoint(QPointF(x, y + 2));
+        p->drawPoint(QPointF(x + 2, y + 2));
+      }
+    }
+    return;
+  }
+  if (name == QLatin1String("chat")) {
+    QPainterPath bubble;
+    bubble.moveTo(16, 18);
+    bubble.lineTo(48, 18);
+    bubble.lineTo(48, 38);
+    bubble.lineTo(28, 38);
+    bubble.lineTo(20, 48);
+    bubble.lineTo(22, 38);
+    bubble.lineTo(16, 38);
+    bubble.closeSubpath();
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    p->drawPath(bubble);
+    p->setPen(accentPen);
+    p->drawEllipse(QPointF(24, 28), 2.2, 2.2);
+    p->drawEllipse(QPointF(32, 28), 2.2, 2.2);
+    p->drawEllipse(QPointF(40, 28), 2.2, 2.2);
+    return;
+  }
+  if (name == QLatin1String("apps") || name == QLatin1String("grid_menu")) {
+    p->setPen(Qt::NoPen);
+    p->setBrush(primary);
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        const qreal x = 18 + col * 12;
+        const qreal y = 18 + row * 12;
+        p->drawRoundedRect(QRectF(x, y, 8, 8), 2, 2);
+      }
+    }
+    p->setBrush(accentSoft);
+    p->drawRoundedRect(QRectF(18, 30, 8, 8), 2, 2);
+    return;
+  }
+  if (name == QLatin1String("compose") || name == QLatin1String("edit_note")) {
+    p->setPen(primaryPen);
+    p->drawRoundedRect(QRectF(16, 16, 32, 32), 6, 6);
+    QPainterPath pencil;
+    pencil.moveTo(36, 20);
+    pencil.lineTo(44, 12);
+    pencil.lineTo(50, 18);
+    pencil.lineTo(42, 26);
+    pencil.closeSubpath();
+    p->setPen(accentPen);
+    p->drawPath(pencil);
+    p->setPen(primaryThin);
+    p->drawLine(22, 38, 34, 26);
+    return;
+  }
+  if (name == QLatin1String("lasso_loop")) {
+    QPen dash(primary, 2.8, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin);
+    dash.setDashPattern({4.0, 3.0});
+    p->setPen(dash);
+    QPainterPath loop;
+    loop.moveTo(18, 34);
+    loop.cubicTo(14, 18, 30, 12, 42, 20);
+    loop.cubicTo(54, 28, 48, 46, 32, 48);
+    loop.cubicTo(20, 48, 14, 40, 18, 34);
+    p->drawPath(loop);
     return;
   }
   // Fallback: single-character / unknown (legacy)
@@ -5020,10 +5140,12 @@ static QString studioCaptionForIcon(const QString &icon) {
     return QStringLiteral("Textmarker");
   if (icon == QLatin1String("eraser"))
     return QStringLiteral("Radierer");
-  if (icon == QLatin1String("select") || icon == QLatin1String("lasso"))
+  if (icon == QLatin1String("lasso_loop") || icon == QLatin1String("lasso"))
     return QStringLiteral("Lasso");
-  if (icon == QLatin1String("hand"))
+  if (icon == QLatin1String("select"))
     return QStringLiteral("Auswählen");
+  if (icon == QLatin1String("hand"))
+    return QStringLiteral("Hand");
   if (icon == QLatin1String("undo"))
     return QStringLiteral("Rückgängig");
   if (icon == QLatin1String("redo"))
@@ -6301,7 +6423,15 @@ void ModernToolbar::updateLayout(bool animate) {
         b->setDrawFloatingBg(false);
         b->setLightStudioStyle(true);
         b->setRailSlotStyle(false);
-        b->setCaption(studioCaptionForIcon(b->iconName()));
+        if (b == btnLasso) {
+          b->setIcon(QStringLiteral("lasso_loop"));
+          b->setCaption(QStringLiteral("Lasso"));
+        } else if (b == btnHand) {
+          b->setIcon(QStringLiteral("select_rect"));
+          b->setCaption(QStringLiteral("Auswählen"));
+        } else {
+          b->setCaption(studioCaptionForIcon(b->iconName()));
+        }
         b->setBtnCell(cellW, cellH);
         b->show();
         row.append(b);

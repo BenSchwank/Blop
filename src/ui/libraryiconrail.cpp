@@ -33,7 +33,7 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
                           UiScale::dp(12));
   lay->setSpacing(UiScale::dp(2));
 
-  // K rail: brand mark, then primary destinations, then utilities.
+  // K rail: brand mark, primary destinations, utilities at bottom.
   auto *logo = new QLabel(this);
   logo->setObjectName(QStringLiteral("LibraryIconRailLogo"));
   logo->setFixedSize(UiScale::dp(36), UiScale::dp(36));
@@ -41,22 +41,29 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   logo->setText(QStringLiteral("B"));
   logo->setStyleSheet(QStringLiteral(
       "QLabel#LibraryIconRailLogo {"
-      "  background: #2A2D36; color: #E8EAF0; border-radius: 8px;"
+      "  background: #101218; color: #F0F2F8; border-radius: 8px;"
       "  font-weight: 800; font-size: 13px;"
       "}"));
   lay->addWidget(logo, 0, Qt::AlignHCenter);
   lay->addSpacing(UiScale::dp(8));
 
-  addBtn(QStringLiteral("new"), QStringLiteral("add"),
+  // Order matches files/IDEEN/K_sidebar_hauptmenu_snapped_toolbar.png
+  addBtn(QStringLiteral("new"), QStringLiteral("compose"),
          QStringLiteral("Neue Notiz"), lay);
-  addBtn(QStringLiteral("library"), QStringLiteral("home"),
+  addBtn(QStringLiteral("library"), QStringLiteral("note"),
          QStringLiteral("Bibliothek"), lay);
-  addBtn(QStringLiteral("folders"), QStringLiteral("folder"),
-         QStringLiteral("Ordner"), lay);
+  addBtn(QStringLiteral("network"), QStringLiteral("network"),
+         QStringLiteral("Gedankenfäden — Notizen verknüpfen"), lay);
   addBtn(QStringLiteral("favorites"), QStringLiteral("star"),
          QStringLiteral("Favoriten"), lay);
-  addBtn(QStringLiteral("search"), QStringLiteral("search"),
-         QStringLiteral("Suchen"), lay);
+  addBtn(QStringLiteral("layers"), QStringLiteral("layers"),
+         QStringLiteral("Ebenen"), lay);
+  addBtn(QStringLiteral("calendar"), QStringLiteral("calendar"),
+         QStringLiteral("Kalender"), lay);
+  addBtn(QStringLiteral("chat"), QStringLiteral("chat"),
+         QStringLiteral("Chat"), lay);
+  addBtn(QStringLiteral("apps"), QStringLiteral("apps"),
+         QStringLiteral("Apps"), lay);
 
   lay->addStretch(1);
 
@@ -76,6 +83,7 @@ QToolButton *LibraryIconRail::addBtn(const QString &id, const QString &iconKey,
   auto *btn = new QToolButton(this);
   btn->setObjectName(QStringLiteral("LibraryIconRailBtn"));
   btn->setProperty("railId", id);
+  btn->setProperty("iconKey", iconKey);
   btn->setToolTip(tip);
   btn->setCursor(Qt::PointingHandCursor);
   btn->setAutoRaise(true);
@@ -138,6 +146,10 @@ void LibraryIconRail::refreshStyles() {
     if (!b)
       continue;
     const bool on = (it.key() == m_active);
+    const QString iconKey = b->property("iconKey").toString();
+    const QColor fg =
+        on ? QColor(0x5B, 0x9D, 0xFF) : QColor(200, 204, 214);
+    b->setIcon(glyph(iconKey, fg, UiScale::dp(20)));
     if (on) {
       b->setStyleSheet(QStringLiteral(
           "QToolButton#LibraryIconRailBtn {"
