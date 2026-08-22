@@ -76,8 +76,9 @@ namespace {
 // otherwise icons render as clean light outlines like Drawboard's dark rail.
 void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   p->setRenderHint(QPainter::Antialiasing);
-  const bool hasTip =
-      color.isValid() && color.saturationF() > 0.18 && color.valueF() > 0.18;
+  const bool hasTip = color.isValid() &&
+                      ((color.saturationF() > 0.18 && color.valueF() > 0.18) ||
+                       color.valueF() < 0.52);
   const QColor primary(245, 247, 250, 235);
   const QColor tip = hasTip ? color : primary;
   const QColor accent = tip;
@@ -1366,8 +1367,15 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     QColor tip =
         m_glyphColor.isValid() ? m_glyphColor : NoteChrome::textPrimary();
     if (m_lightStudioStyle) {
-      tip = m_active ? QColor(QStringLiteral("#5B9DFF"))
-                     : QColor(40, 44, 52, 220);
+      if (m_active) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(QStringLiteral("#5B9DFF")));
+        const int d = qMin(w, iconBoxH) - UiScale::dp(8);
+        p.drawEllipse(QRect((w - d) / 2, (iconBoxH - d) / 2, d, d));
+        tip = QColor(Qt::white);
+      } else {
+        tip = QColor(QStringLiteral("#3A404C"));
+      }
     } else if (m_railFooterStyle && !m_glyphColor.isValid()) {
       tip = NoteChrome::textSecondary();
       if (m_hover || m_pressing)
@@ -1463,26 +1471,51 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     return;
   }
 
-  if (m_active) {
-    p.setBrush(NoteChrome::accent());
-    p.setPen(Qt::NoPen);
-    p.drawEllipse(rect().center(), r, r);
-  } else if (m_hover) {
-    p.setBrush(QColor(255, 255, 255, 28));
-    p.setPen(Qt::NoPen);
-    p.drawEllipse(rect().center(), r, r);
-  }
+  if (m_lightStudioStyle) {
+    if (m_active) {
+      p.setPen(Qt::NoPen);
+      p.setBrush(QColor(91, 157, 255, 52));
+      p.drawRoundedRect(rect().adjusted(4, 4, -4, -4), UiScale::dp(10),
+                        UiScale::dp(10));
+    } else if (m_hover) {
+      p.setPen(Qt::NoPen);
+      p.setBrush(QColor(0, 0, 0, 12));
+      p.drawRoundedRect(rect().adjusted(4, 4, -4, -4), UiScale::dp(10),
+                        UiScale::dp(10));
+    }
+    const QColor ink =
+        m_active ? QColor(QStringLiteral("#5B9DFF"))
+                 : QColor(QStringLiteral("#3A404C"));
+    p.save();
+    p.translate(w / 2.0, h / 2.0);
+    p.scale(m_animScale, m_animScale);
+    const qreal g = qMin(w, h) / 64.0;
+    p.scale(g, g);
+    p.translate(-32, -32);
+    drawToolbarGlyph64(&p, m_iconName, ink);
+    p.restore();
+  } else {
+    if (m_active) {
+      p.setBrush(NoteChrome::accent());
+      p.setPen(Qt::NoPen);
+      p.drawEllipse(rect().center(), r, r);
+    } else if (m_hover) {
+      p.setBrush(QColor(255, 255, 255, 28));
+      p.setPen(Qt::NoPen);
+      p.drawEllipse(rect().center(), r, r);
+    }
 
-  const QColor fg =
-      m_active ? QColor(255, 255, 255, 255) : NoteChrome::textPrimary();
-  p.save();
-  p.translate(w / 2.0, h / 2.0);
-  p.scale(m_animScale, m_animScale);
-  const qreal g = qMin(w, h) / 64.0;
-  p.scale(g, g);
-  p.translate(-32, -32);
-  drawToolbarGlyph64(&p, m_iconName, fg);
-  p.restore();
+    const QColor fg =
+        m_active ? QColor(255, 255, 255, 255) : NoteChrome::textPrimary();
+    p.save();
+    p.translate(w / 2.0, h / 2.0);
+    p.scale(m_animScale, m_animScale);
+    const qreal g = qMin(w, h) / 64.0;
+    p.scale(g, g);
+    p.translate(-32, -32);
+    drawToolbarGlyph64(&p, m_iconName, fg);
+    p.restore();
+  }
 
   if (m_active && m_holdProgress > 0.0) {
     p.setRenderHint(QPainter::Antialiasing);
@@ -2939,14 +2972,14 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
-        // K snapped pill: light plate, fully rounded.
-        const int r = qMin(h / 2, UiScale::dp(22));
+        // K snapped pill: light plate, fully rounded capsule.
+        const int r = h / 2;
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 28));
-        p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), r, r);
-        p.setBrush(QColor(255, 255, 255, 245));
-        p.setPen(QPen(QColor(20, 22, 28, 28), 1));
-        p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), r, r);
+        p.setBrush(QColor(0, 0, 0, 22));
+        p.drawRoundedRect(rect().adjusted(0, 2, 0, 0), r, r);
+        p.setBrush(QColor(255, 255, 255, 252));
+        p.setPen(QPen(QColor(210, 214, 222), 1));
+        p.drawRoundedRect(rect(), r, r);
 
         p.setPen(QPen(QColor(255, 255, 255, 22), 1));
         for (int sx : m_separatorXPositions) {
@@ -2964,14 +2997,14 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
                      m_markupRowDividerY);
         }
       } else if (isDrawboardVerticalRail()) {
-        // J floating vertical pill: light, fully rounded.
-        const qreal rad = qMin(w / 2.0, 28.0);
+        // J floating vertical pill: light capsule.
+        const int r = w / 2;
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 32));
-        p.drawRoundedRect(rect().adjusted(1, 3, -1, 0), rad, rad);
-        p.setBrush(QColor(255, 255, 255, 245));
-        p.setPen(QPen(QColor(20, 22, 28, 28), 1));
-        p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), rad, rad);
+        p.setBrush(QColor(0, 0, 0, 26));
+        p.drawRoundedRect(rect().adjusted(1, 2, -1, 0), r, r);
+        p.setBrush(QColor(255, 255, 255, 252));
+        p.setPen(QPen(QColor(210, 214, 222), 1));
+        p.drawRoundedRect(rect(), r, r);
         if (m_draggable) {
           p.setBrush(QColor(20, 22, 28, 50));
           p.setPen(Qt::NoPen);
@@ -5165,20 +5198,20 @@ void ModernToolbar::applyStudioSnappedPill() {
     btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
     btnDockToggle->hide();
   }
-  // Studio K pill uses the fixed labeled tool row (not Favorites slots).
+  // Studio K pill: icon-only row (labels live in tooltips / J float is primary).
   for (ToolbarBtn *b : m_buttons) {
     if (!b)
       continue;
     b->setLightStudioStyle(true);
     b->setRailSlotStyle(false);
-    b->setCaption(studioCaptionForIcon(b->iconName()));
+    b->setCaption(QString());
   }
   syncDrawboardToolIcons();
   syncToolBadges();
   if (m_orientation != Horizontal)
     setOrientation(Horizontal, false);
-  const int h = UiScale::dp(72);
-  const int w = qMax(calculateMinLength(), UiScale::dp(420));
+  const int h = UiScale::dp(52);
+  const int w = qMax(calculateMinLength(), UiScale::dp(360));
   setMinimumSize(0, 0);
   setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   setFixedHeight(h);
@@ -6120,9 +6153,9 @@ int ModernToolbar::calculateMinLength() {
 #ifndef Q_OS_ANDROID
   if (isStudioChrome() && m_isDockedMode) {
     const int n = 7;
-    const int cellW = UiScale::dp(68);
-    const int gap = UiScale::dp(4);
-    return n * cellW + (n - 1) * gap + UiScale::dp(32);
+    const int cell = UiScale::dp(44);
+    const int gap = UiScale::dp(2);
+    return n * cell + (n - 1) * gap + UiScale::dp(24);
   }
 #endif
   
@@ -6142,6 +6175,11 @@ int ModernToolbar::calculateMinLength() {
   } else {
     int dragH = UiScale::dp(30);
 #ifndef Q_OS_ANDROID
+    if (isStudioChrome() && !m_isDockedMode && m_orientation == Vertical) {
+      const int n = qMax(1, m_railSlots.size()) + 1;
+      return UiScale::dp(28) + n * UiScale::dp(48) + (n - 1) * UiScale::dp(4) +
+             UiScale::dp(108);
+    }
     if (m_orientation == Vertical) {
       const int n = qMax(1, m_railSlots.size()) + 5; // undo/redo + tools + library/+/props
       const int cell = UiScale::dp(52);
@@ -6387,10 +6425,9 @@ void ModernToolbar::updateLayout(bool animate) {
     if (isStudioChrome() && m_isDockedMode && m_orientation == Horizontal) {
       const int w = width();
       const int h = height();
-      const int cellW = UiScale::dp(68);
-      const int cellH = qMax(UiScale::dp(56), h - UiScale::dp(10));
-      const int gap = UiScale::dp(4);
-      const int grip = UiScale::dp(22); // empty ends = drag-to-float grips
+      const int cell = UiScale::dp(44);
+      const int gap = UiScale::dp(2);
+      const int grip = UiScale::dp(12);
       for (ToolbarBtn *b : m_slotButtons) {
         if (b)
           b->hide();
@@ -6423,24 +6460,20 @@ void ModernToolbar::updateLayout(bool animate) {
         b->setDrawFloatingBg(false);
         b->setLightStudioStyle(true);
         b->setRailSlotStyle(false);
-        if (b == btnLasso) {
+        b->setCaption(QString());
+        if (b == btnLasso)
           b->setIcon(QStringLiteral("lasso_loop"));
-          b->setCaption(QStringLiteral("Lasso"));
-        } else if (b == btnHand) {
+        else if (b == btnHand)
           b->setIcon(QStringLiteral("select_rect"));
-          b->setCaption(QStringLiteral("Auswählen"));
-        } else {
-          b->setCaption(studioCaptionForIcon(b->iconName()));
-        }
-        b->setBtnCell(cellW, cellH);
+        b->setBtnCell(cell, cell);
         b->show();
         row.append(b);
       }
-      const int total = row.size() * cellW + qMax(0, row.size() - 1) * gap;
+      const int total = row.size() * cell + qMax(0, row.size() - 1) * gap;
       int x = qMax(grip, (w - total) / 2);
       if (x + total > w - grip)
         x = grip;
-      const int y = qMax(0, (h - cellH) / 2);
+      const int y = qMax(0, (h - cell) / 2);
       for (ToolbarBtn *b : row) {
         if (animate) {
           auto *anim = new QPropertyAnimation(b, "pos");
@@ -6450,7 +6483,7 @@ void ModernToolbar::updateLayout(bool animate) {
         } else {
           b->move(x, y);
         }
-        x += cellW + gap;
+        x += cell + gap;
       }
       updateActiveIndicator(false);
       return;

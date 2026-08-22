@@ -2493,6 +2493,9 @@ void MainWindow::rebuildModeSelectorItems() {
   m_modeSelector->setCurrentIndex(newIdx);
   if (m_btnMode)
     m_btnMode->setText(m_modeSelector->itemText(newIdx) + QStringLiteral("  \u25be"));
+  if (m_sidebarModeBtn)
+    m_sidebarModeBtn->setText(m_modeSelector->itemText(newIdx) +
+                              QStringLiteral("  \u25be"));
 }
 
 QUrl MainWindow::normalizedUserWebUrl(QString input) const {
@@ -2509,7 +2512,10 @@ QUrl MainWindow::normalizedUserWebUrl(QString input) const {
 }
 
 void MainWindow::openModeMenuAtButton() {
-  if (!m_btnMode || !m_modeSelector)
+  QPushButton *anchor = qobject_cast<QPushButton *>(sender());
+  if (!anchor)
+    anchor = m_btnMode;
+  if (!anchor || !m_modeSelector)
     return;
 #ifdef Q_OS_ANDROID
   QList<BlopInWindowMenu::Item> items;
@@ -2531,7 +2537,7 @@ void MainWindow::openModeMenuAtButton() {
                 [this]() { showAddWebBookmarkDialog(); }});
   items.append({tr("Web-Lesezeichen verwalten…"), QIcon(),
                 [this]() { showManageWebBookmarksDialog(); }});
-  BlopInWindowMenu::show(this, m_btnMode->mapToGlobal(QPoint(0, m_btnMode->height())), items);
+  BlopInWindowMenu::show(this, anchor->mapToGlobal(QPoint(0, anchor->height())), items);
 #else
   QMenu menu(this);
   menu.setStyleSheet(blopWebMenuStyleSheet());
@@ -2551,7 +2557,7 @@ void MainWindow::openModeMenuAtButton() {
   QAction *aManage = menu.addAction(tr("Web-Lesezeichen verwalten…"));
   aManage->setData(-2);
   QAction *chosen =
-      menu.exec(m_btnMode->mapToGlobal(QPoint(0, m_btnMode->height())));
+      menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
   if (!chosen)
     return;
   const int tag = chosen->data().toInt();
@@ -3281,6 +3287,10 @@ void MainWindow::setupTitleBar() {
   // Floating squircle document tabs, Drawboard-inspired.
   m_documentTabBar = new DocumentTabBar(m_topNavControls);
   m_documentTabBar->setAccentColor(m_currentAccentColor);
+#ifndef Q_OS_ANDROID
+  m_documentTabBar->setReadingMarkMode(true);
+  m_documentTabBar->setNoteChromeMode(true);
+#endif
   connect(m_documentTabBar, &DocumentTabBar::currentChanged, this,
           [this](int index) {
             if (!m_editorTabs || index < 0)
@@ -6008,8 +6018,8 @@ void MainWindow::setupUi() {
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
-    // Desktop studio: K snapped pill at the bottom (drag off to float J).
-    topToolbar->applyStudioSnappedPill();
+    // Desktop studio: J floating rail is primary; K pill when docked to bottom.
+    topToolbar->setDockMode(false);
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) { positionNoteChrome(); });
@@ -7959,11 +7969,8 @@ QRect MainWindow::sidebarPushContentRect() const {
     h -= chromeH;
   }
 #else
-  if (m_titleBarWidget && m_titleBarWidget->isVisible()) {
-    const int th = m_titleBarWidget->height();
-    y = m_centralContainer->mapTo(const_cast<MainWindow *>(this), QPoint(0, th)).y();
-    h -= th;
-  }
+  // K sidebar: full window height, flush to the top-left edge of the window.
+  return QRect(0, 0, effectiveSidebarWidthPx(), height());
 #endif
   return QRect(tl.x(), y, effectiveSidebarWidthPx(), h);
 }
@@ -7989,6 +7996,7 @@ void MainWindow::syncSidebarPushLayout() {
 #else
     if (m_desktopSidebarPushSpacer)
       m_desktopSidebarPushSpacer->setFixedWidth(0);
+    syncTitleBarSidebarInset();
 #endif
     return;
   }
@@ -8006,6 +8014,20 @@ void MainWindow::syncSidebarPushLayout() {
   m_sidebarContainer->setMaximumWidth(w);
   m_sidebarContainer->setGeometry(r.x(), r.y(), w, h);
   m_sidebarContainer->raise();
+  syncTitleBarSidebarInset();
+}
+
+void MainWindow::syncTitleBarSidebarInset() {
+#ifndef Q_OS_ANDROID
+  if (!m_titleBarWidget)
+    return;
+  const int inset =
+      (m_sidebarContainer && m_sidebarContainer->isVisible())
+          ? effectiveSidebarWidthPx()
+          : 0;
+  if (auto *lay = m_titleBarWidget->layout())
+    lay->setContentsMargins(inset + UiScale::dp(8), 0, 0, 0);
+#endif
 }
 
 void MainWindow::setupSidebar() {
@@ -8106,22 +8128,30 @@ void MainWindow::setupSidebar() {
 
   // --- HEADER ---
 #ifndef Q_OS_ANDROID
-  // K nav panel: "Notizen ▾" + new-note control (no Blop brand mark here).
+  // K nav panel: workspace switch (Notizen / Study …) + new-note control.
   QWidget *header = new QWidget(m_sidebarNavPanel);
   header->setFixedHeight(UiScale::dp(44));
   header->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
   QHBoxLayout *headerLay = new QHBoxLayout(header);
   headerLay->setContentsMargins(12, 8, 8, 4);
   headerLay->setSpacing(6);
-  auto *lblTitle = new QLabel(QStringLiteral("Notizen"), header);
-  lblTitle->setStyleSheet(QStringLiteral(
-      "font-size: 14px; font-weight: 700; color: #E8EAF0; background: transparent;"));
-  headerLay->addWidget(lblTitle);
-  auto *lblChevron = new QLabel(QStringLiteral("▾"), header);
-  lblChevron->setStyleSheet(QStringLiteral(
-      "font-size: 11px; color: #9AA0AE; background: transparent;"));
-  headerLay->addWidget(lblChevron);
-  headerLay->addStretch();
+  m_sidebarModeBtn = new QPushButton(
+      m_modeSelector
+          ? m_modeSelector->itemText(m_modeSelector->currentIndex()) +
+                QStringLiteral("  \u25be")
+          : QStringLiteral("Notizen  \u25be"),
+      header);
+  m_sidebarModeBtn->setCursor(Qt::PointingHandCursor);
+  m_sidebarModeBtn->setFlat(true);
+  m_sidebarModeBtn->setStyleSheet(QStringLiteral(
+      "QPushButton {"
+      "  background: transparent; border: none; color: #E8EAF0;"
+      "  font-size: 14px; font-weight: 700; text-align: left; padding: 0;"
+      "}"
+      "QPushButton:hover { color: #5B9DFF; }"));
+  connect(m_sidebarModeBtn, &QPushButton::clicked, this,
+          &MainWindow::openModeMenuAtButton);
+  headerLay->addWidget(m_sidebarModeBtn, 1);
   auto *btnSideNew = new QPushButton(header);
   btnSideNew->setObjectName(QStringLiteral("SidebarNewNoteBtn"));
   btnSideNew->setFixedSize(UiScale::dp(28), UiScale::dp(28));
@@ -10700,9 +10730,9 @@ void MainWindow::updateSidebarState() {
     m_editorTitleControls->setVisible(isEditor);
   }
 #ifndef Q_OS_ANDROID
-  // Modus (Notizen / Study / …) immer sichtbar — auch in der Notiz, damit man wechseln kann.
+  // Mode switch lives in the K sidebar header when the drawer is open.
   if (m_btnMode)
-    m_btnMode->setVisible(true);
+    m_btnMode->setVisible(inNotesMode && !m_isSidebarOpen);
   // Library: only the purple create button makes a note. Title-bar + is a
   // tab action once notes are already open. Web-bookmark + lives in Study.
   if (m_btnAddWebBookmark)
@@ -10714,6 +10744,8 @@ void MainWindow::updateSidebarState() {
   }
   if (m_documentTabBar)
     m_documentTabBar->setVisible(inNotesMode);
+  if (m_lblBrand)
+    m_lblBrand->setVisible(inNotesMode && !m_isSidebarOpen);
 #ifndef Q_OS_ANDROID
   if (m_noteLeftRail)
     m_noteLeftRail->hide();
@@ -13215,10 +13247,9 @@ void MainWindow::positionDrawboardToolbar() {
 
 #ifndef Q_OS_ANDROID
   if (tb->isDockedMode()) {
-    tb->applyStudioSnappedPill();
-    const int barH = qMax(tb->height(), UiScale::dp(72));
+    const int barH = qMax(tb->height(), UiScale::dp(52));
     const int barW =
-        qMin(qMax(tb->calculateMinLength(), UiScale::dp(420)), W - edgePad * 2);
+        qMin(qMax(tb->calculateMinLength(), UiScale::dp(360)), W - edgePad * 2);
     tb->setMinimumSize(0, 0);
     tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     tb->setFixedHeight(barH);
@@ -13226,7 +13257,6 @@ void MainWindow::positionDrawboardToolbar() {
     tb->raise();
     return;
   }
-  tb->applyStudioFloatingRail();
   const int railW = tb->preferredRailWidth();
   const int railH = qBound(UiScale::dp(260), tb->calculateMinLength(),
                            H - noteHeaderHeight() - edgePad * 2);
@@ -13700,24 +13730,34 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   // Guest/login Study surface is always dark. Never paint the light BlopTheme
   // title bar (white strip + invisible window controls) over it.
   const bool authChrome = m_authNavigationLocked;
+  const bool notesMode =
+      m_modeSelector && m_modeSelector->currentIndex() == 0 && !authChrome;
+  const QColor kTitleBarBlack(QStringLiteral("#16181E"));
   const QColor titleBg =
       authChrome ? QColor(QStringLiteral("#0F1115"))
-                 : (noteChrome ? NoteChrome::toolbarFill()
-                               : BlopTheme::surfaceBackground());
+                 : (notesMode ? kTitleBarBlack
+                              : (noteChrome ? NoteChrome::toolbarFill()
+                                            : BlopTheme::surfaceBackground()));
   // Icon contrast follows the painted title-bar luminance — not "are we in
   // a dark-looking flow". Guest/auth used to force pale glyphs (#C8CDDC)
   // even when the bar had already flipped to light surfaceBackground.
-  const bool iconsOnDarkBar = titleBg.lightness() < 148;
+  const bool iconsOnDarkBar =
+      authChrome || notesMode || titleBg.lightness() < 148;
   const QColor brandFg =
       authChrome ? QColor(QStringLiteral("#F3F4F6"))
-                 : (noteChrome ? NoteChrome::textPrimary()
-                               : BlopTheme::textPrimary());
-  const QColor chromeFg = noteChrome ? NoteChrome::textPrimary()
-                        : (iconsOnDarkBar ? QColor(QStringLiteral("#E8E4FF"))
-                                          : BlopTheme::textPrimary());
-  const QColor chromeMuted = noteChrome ? NoteChrome::textSecondary()
-                           : (iconsOnDarkBar ? QColor(QStringLiteral("#C8CDDC"))
-                                             : BlopTheme::textSecondary());
+                 : (notesMode ? QColor(QStringLiteral("#E8EAF0"))
+                              : (noteChrome ? NoteChrome::textPrimary()
+                                            : BlopTheme::textPrimary()));
+  const QColor chromeFg =
+      notesMode ? QColor(QStringLiteral("#E8EAF0"))
+                : (noteChrome ? NoteChrome::textPrimary()
+                              : (iconsOnDarkBar ? QColor(QStringLiteral("#E8E4FF"))
+                                                : BlopTheme::textPrimary()));
+  const QColor chromeMuted =
+      notesMode ? QColor(QStringLiteral("#9AA0AE"))
+                : (noteChrome ? NoteChrome::textSecondary()
+                              : (iconsOnDarkBar ? QColor(QStringLiteral("#C8CDDC"))
+                                                : BlopTheme::textSecondary()));
   const QColor winFg = chromeFg;
 
   if (m_titleBarWidget) {

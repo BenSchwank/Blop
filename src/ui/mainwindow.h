@@ -373,6 +373,7 @@ private:
   int effectiveSidebarWidthPx() const;
   /// Keep push offset + sidebar geometry in sync (no overlap with main content).
   void syncSidebarPushLayout();
+  void syncTitleBarSidebarInset();
 #ifdef Q_OS_ANDROID
   void updateAndroidSidebarScrimGeometry();
 #endif
@@ -577,6 +578,7 @@ private:
   QWidget *m_sidebarNavPanel{nullptr};
   LibraryIconRail *m_libraryIconRail{nullptr};
   QLineEdit *m_sidebarSearch{nullptr};
+  QPushButton *m_sidebarModeBtn{nullptr};
   QListWidget *m_navSidebar{nullptr};
   QListWidget *m_sidebarNotesList{nullptr};
   QFileSystemModel *m_fileModel{nullptr};

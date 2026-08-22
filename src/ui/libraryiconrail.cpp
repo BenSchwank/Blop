@@ -29,8 +29,7 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   setFixedWidth(preferredWidth());
 
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(UiScale::dp(6), UiScale::dp(12), UiScale::dp(6),
-                          UiScale::dp(12));
+  lay->setContentsMargins(0, UiScale::dp(12), 0, UiScale::dp(12));
   lay->setSpacing(UiScale::dp(2));
 
   // K rail: brand mark, primary destinations, utilities at bottom.
@@ -76,7 +75,7 @@ LibraryIconRail::LibraryIconRail(QWidget *parent) : QWidget(parent) {
   refreshStyles();
 }
 
-int LibraryIconRail::preferredWidth() const { return UiScale::dp(52); }
+int LibraryIconRail::preferredWidth() const { return UiScale::dp(48); }
 
 QToolButton *LibraryIconRail::addBtn(const QString &id, const QString &iconKey,
                                      const QString &tip, QVBoxLayout *lay) {
