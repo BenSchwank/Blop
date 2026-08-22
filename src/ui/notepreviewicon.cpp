@@ -366,27 +366,28 @@ void paintHero(QPainter *p, const QRect &r, const Spec &spec) {
 
   const QColor paper = readablePaper(spec.paper);
   const int rad = qMax(8, r.width() / 16);
-  QRect sheet = r.adjusted(2, 2, -2, -2);
+  QRect sheet = r.adjusted(1, 1, -1, -1);
   if (spec.kind == Kind::A4) {
-    const int w = int(sheet.height() * 0.74);
+    const int w = int(sheet.height() * 0.78);
     if (w > 0 && w < sheet.width())
       sheet = QRect(sheet.center().x() - w / 2, sheet.top(), w, sheet.height());
   }
 
   p->setRenderHint(QPainter::Antialiasing, true);
   p->setPen(Qt::NoPen);
-  p->setBrush(QColor(0, 0, 0, 28));
-  p->drawRoundedRect(sheet.translated(2, 3), rad, rad);
+  p->setBrush(QColor(0, 0, 0, 22));
+  p->drawRoundedRect(sheet.translated(1, 2), rad, rad);
 
   p->setBrush(paper);
-  p->setPen(QPen(QColor(0, 0, 0, 36), 1.0));
+  p->setPen(QPen(QColor(0, 0, 0, 28), 1.0));
   p->drawRoundedRect(sheet, rad, rad);
 
   QPainterPath clip;
-  clip.addRoundedRect(QRectF(sheet).adjusted(1, 1, -1, -1), rad - 1, rad - 1);
+  clip.addRoundedRect(QRectF(sheet).adjusted(0.5, 0.5, -0.5, -0.5), rad - 1,
+                      rad - 1);
   p->save();
   p->setClipPath(clip);
-  const int inset = qMax(6, sheet.width() / 18);
+  const int inset = qMax(4, sheet.width() / 22);
   paintPattern(p, QRectF(sheet).adjusted(inset, inset, -inset, -inset),
                spec.backgroundType, paper);
   p->restore();

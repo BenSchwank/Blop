@@ -1186,7 +1186,14 @@ void SidebarNavDelegate::paint(QPainter *painter,
     painter->setBrush(secondaryText);
     painter->setPen(Qt::NoPen);
     painter->drawPath(arrow);
-    QRect textRect = option.rect.adjusted(30, 0, -15, 0);
+    const bool hasAdd =
+#ifndef Q_OS_ANDROID
+        text == QStringLiteral("ORDNER");
+#else
+        false;
+#endif
+    const int plusReserve = hasAdd ? UiScale::dp(28) : 0;
+    QRect textRect = option.rect.adjusted(30, 0, -15 - plusReserve, 0);
     painter->setPen(secondaryText);
     painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
     QFontMetrics fm(f);
@@ -1194,7 +1201,22 @@ void SidebarNavDelegate::paint(QPainter *painter,
     int lineX = textRect.left() + textW + 10;
     int lineY = option.rect.center().y();
     painter->setPen(dividerColor);
-    painter->drawLine(lineX, lineY, option.rect.right() - 15, lineY);
+    painter->drawLine(lineX, lineY, option.rect.right() - 15 - plusReserve,
+                      lineY);
+#ifndef Q_OS_ANDROID
+    if (hasAdd) {
+      const int s = UiScale::dp(18);
+      QRect plusRect(option.rect.right() - s - UiScale::dp(10),
+                     option.rect.center().y() - s / 2, s, s);
+      painter->setPen(QPen(QColor(0x9A, 0xA0, 0xAE), 1.4));
+      painter->setBrush(Qt::NoBrush);
+      painter->drawRoundedRect(plusRect, 4, 4);
+      const int cx = plusRect.center().x();
+      const int cy = plusRect.center().y();
+      painter->drawLine(cx - 4, cy, cx + 4, cy);
+      painter->drawLine(cx, cy - 4, cx, cy + 4);
+    }
+#endif
   } else {
 #ifdef Q_OS_ANDROID
     QRect rect = option.rect.adjusted(8 + indent, 1, -8, -1);
@@ -1297,6 +1319,35 @@ void SidebarNavDelegate::paint(QPainter *painter,
     }
   }
   painter->restore();
+}
+
+bool SidebarNavDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
+                                     const QStyleOptionViewItem &option,
+                                     const QModelIndex &index) {
+#ifndef Q_OS_ANDROID
+  if (event->type() == QEvent::MouseButtonRelease &&
+      index.data(Qt::UserRole + 1).toBool() &&
+      index.data(Qt::DisplayRole).toString() == QStringLiteral("ORDNER")) {
+    auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() == Qt::LeftButton) {
+      const int s = UiScale::dp(18);
+      QRect plusRect(option.rect.right() - s - UiScale::dp(10),
+                     option.rect.center().y() - s / 2, s, s);
+      plusRect.adjust(-6, -6, 6, 6);
+      if (plusRect.contains(me->pos())) {
+        if (m_window)
+          m_window->onCreateFolder();
+        return true;
+      }
+    }
+  }
+#else
+  Q_UNUSED(event);
+  Q_UNUSED(model);
+  Q_UNUSED(option);
+  Q_UNUSED(index);
+#endif
+  return QStyledItemDelegate::editorEvent(event, model, option, index);
 }
 
 ModernItemDelegate::ModernItemDelegate(MainWindow *parent)
@@ -1423,11 +1474,12 @@ void ModernItemDelegate::paint(QPainter *painter,
                       painter->fontMetrics().elidedText(text, Qt::ElideRight,
                                                         textRect.width()));
   } else {
-    const int textH = UiScale::dp(40);
-    const int pad = UiScale::dp(12);
+    // K mockup: near edge-to-edge preview, compact title+date band.
+    const int textH = UiScale::dp(34);
+    const int pad = UiScale::dp(6);
     QRect previewBand(rect.left() + pad, rect.top() + pad,
                       rect.width() - 2 * pad,
-                      qMax(22, rect.height() - textH - pad * 2));
+                      qMax(22, rect.height() - textH - pad));
 #ifdef Q_OS_ANDROID
     int iconDim = qMin(previewBand.width(), previewBand.height());
     iconDim = qMax(22, int(iconDim * iconShrink));
@@ -1445,9 +1497,9 @@ void ModernItemDelegate::paint(QPainter *painter,
                                NotePreviewIcon::specForPath(path, isFolder));
 #endif
 
-    QRect textRect(rect.left() + UiScale::dp(10),
-                   rect.bottom() - textH + UiScale::dp(2),
-                   rect.width() - UiScale::dp(20), textH - UiScale::dp(8));
+    QRect textRect(rect.left() + UiScale::dp(8),
+                   rect.bottom() - textH + UiScale::dp(1),
+                   rect.width() - UiScale::dp(16), textH - UiScale::dp(4));
 #ifndef Q_OS_ANDROID
     QString dateStr;
     if (!path.isEmpty()) {
@@ -1464,13 +1516,13 @@ void ModernItemDelegate::paint(QPainter *painter,
           dateStr = QLocale().toString(d, QStringLiteral("d. MMM"));
       }
     }
-    const int titleH = dateStr.isEmpty() ? textH - UiScale::dp(6)
-                                         : UiScale::dp(18);
-    QRect titleRect(rect.left() + UiScale::dp(8),
-                    rect.bottom() - textH + UiScale::dp(2),
-                    rect.width() - UiScale::dp(16), titleH);
+    const int titleH = dateStr.isEmpty() ? textH - UiScale::dp(4)
+                                         : UiScale::dp(16);
+    QRect titleRect(rect.left() + UiScale::dp(6),
+                    rect.bottom() - textH + UiScale::dp(1),
+                    rect.width() - UiScale::dp(12), titleH);
     QFont f = painter->font();
-    f.setPointSize(FONT_SIZE_BASE);
+    f.setPixelSize(UiScale::sp(11));
     f.setWeight(QFont::DemiBold);
     painter->setFont(f);
     painter->setPen(QColor(0x1C, 0x1E, 0x24));
@@ -1479,12 +1531,12 @@ void ModernItemDelegate::paint(QPainter *painter,
                                                         titleRect.width()));
     if (!dateStr.isEmpty()) {
       QFont df = painter->font();
-      df.setPointSize(qMax(8, FONT_SIZE_BASE - 1));
+      df.setPixelSize(UiScale::sp(10));
       df.setWeight(QFont::Normal);
       painter->setFont(df);
       painter->setPen(QColor(0x8A, 0x90, 0xA0));
       QRect dateRect(titleRect.left(), titleRect.bottom(), titleRect.width(),
-                     UiScale::dp(16));
+                     UiScale::dp(14));
       painter->drawText(dateRect, Qt::AlignLeft | Qt::AlignVCenter, dateStr);
     }
 #else
@@ -4756,7 +4808,7 @@ void MainWindow::updateGrid() {
     m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
     m_fileListView->setUniformItemSizes(true);
   } else {
-    // Desktop K Hauptmenü: denser 5–7 column paper cards (title + date).
+    // Desktop K Hauptmenü: denser 6–8 column paper cards (title + date).
     int screenWidth = 0;
     if (m_fileListView->viewport())
       screenWidth = m_fileListView->viewport()->width();
@@ -4767,35 +4819,35 @@ void MainWindow::updateGrid() {
 
     int spacing = m_currentProfile.gridSpacing;
     if (spacing <= 0)
-      spacing = 8;
-    spacing = qBound(UiScale::dp(6), spacing, UiScale::dp(10));
+      spacing = 6;
+    spacing = qBound(UiScale::dp(4), spacing, UiScale::dp(8));
 
     if (m_libraryListMode) {
       const int itemWidth = qMax(UiScale::dp(240), screenWidth - 2 * spacing);
-      const int itemHeight = UiScale::dp(72);
+      const int itemHeight = UiScale::dp(64);
       m_fileListView->setSpacing(spacing);
       m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
-      m_fileListView->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
+      m_fileListView->setIconSize(QSize(UiScale::dp(48), UiScale::dp(48)));
       m_fileListView->setUniformItemSizes(true);
       m_fileListView->setGridSize(
           QSize(itemWidth + spacing, itemHeight + spacing));
       return;
     }
 
-    const int minTile = UiScale::dp(118);
-    const int maxTile = UiScale::dp(148);
+    const int minTile = UiScale::dp(100);
+    const int maxTile = UiScale::dp(132);
     int columns = (screenWidth - spacing) / (minTile + spacing);
-    columns = qBound(5, columns, 7);
+    columns = qBound(6, columns, 8);
     int totalSpacing = (columns + 1) * spacing;
     int itemWidth = (screenWidth - totalSpacing) / columns;
-    while (itemWidth < UiScale::dp(110) && columns > 5) {
+    while (itemWidth < UiScale::dp(96) && columns > 6) {
       columns--;
       totalSpacing = (columns + 1) * spacing;
       itemWidth = (screenWidth - totalSpacing) / columns;
     }
-    itemWidth = qBound(UiScale::dp(110), itemWidth, maxTile);
-    const int titleBand = UiScale::dp(40);
-    const int itemHeight = int(itemWidth * 0.92) + titleBand;
+    itemWidth = qBound(UiScale::dp(96), itemWidth, maxTile);
+    const int titleBand = UiScale::dp(34);
+    const int itemHeight = int(itemWidth * 1.05) + titleBand;
 
     m_fileListView->setSpacing(spacing);
     m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
