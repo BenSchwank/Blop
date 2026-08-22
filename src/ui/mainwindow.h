@@ -386,6 +386,8 @@ private:
   bool copyRecursive(const QString &src, const QString &dst);
 
   void toggleFolderContent(QListWidgetItem *parentItem);
+  void rebuildOrdnerTree();
+  int folderEntryCount(const QString &dirPath) const;
 
   CanvasView *getCurrentCanvas();
   void setActiveTool(CanvasView::ToolType tool);
@@ -706,6 +708,7 @@ private:
 
   /// A4-Notiz: ⋯-Menü in der Desktop-Titelleiste (kein Floating-Button)
   ModernButton *m_btnEditorNoteOverflow{nullptr};
+  ModernButton *m_btnTitleBarBell{nullptr};
   /// A4-Notiz: Seitenmanager (gleiche Rolle wie Android-Topbar-Button)
   ModernButton *m_btnTitleBarPageManager{nullptr};
   ModernButton *btnBackOverview{nullptr};

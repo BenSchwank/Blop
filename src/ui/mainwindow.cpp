@@ -1456,7 +1456,8 @@ void ModernItemDelegate::paint(QPainter *painter,
         const QDate d = dt.date();
         const QDate today = QDate::currentDate();
         if (d == today)
-          dateStr = QStringLiteral("Heute");
+          dateStr = QStringLiteral("Heute, %1")
+                        .arg(dt.toString(QStringLiteral("HH:mm")));
         else if (d == today.addDays(-1))
           dateStr = QStringLiteral("Gestern");
         else
@@ -3376,6 +3377,30 @@ void MainWindow::setupTitleBar() {
   // Tags & Seiten-Optionen nur noch über Notiz-Menü (⋯) → „Optionen & Tags…“
   // Höhe = ROW_HEIGHT_ITEM (wie Sidebar-Nav-Zeilen „Alle / Blop Notizen / …“).
   const int kTitleBarNavH = ROW_HEIGHT_ITEM;
+
+#ifndef Q_OS_ANDROID
+  m_btnTitleBarBell = new ModernButton(m_topNavControls);
+  m_btnTitleBarBell->setIcon(
+      createModernIcon(QStringLiteral("bell"), BlopTheme::textSecondary()));
+  m_btnTitleBarBell->setText(QString());
+  m_btnTitleBarBell->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  m_btnTitleBarBell->setFixedSize(kTitleBarNavH, kTitleBarNavH);
+  m_btnTitleBarBell->setIconSize(QSize(kTitleBarNavH - 6, kTitleBarNavH - 6));
+  m_btnTitleBarBell->setToolTip(QStringLiteral("Benachrichtigungen"));
+  m_btnTitleBarBell->setCursor(Qt::PointingHandCursor);
+  m_btnTitleBarBell->setStyleSheet(QStringLiteral(
+      "QToolButton { background: transparent; border: none; border-radius: 8px; }"
+      "QToolButton:hover { background: rgba(127,127,127,0.14); }"));
+  connect(m_btnTitleBarBell, &QAbstractButton::clicked, this, [this]() {
+    BlopDialogs::notify(this, QStringLiteral("Benachrichtigungen"),
+                        QStringLiteral(
+                            "Keine neuen Benachrichtigungen. "
+                            "Cloud-Sync und Updates erscheinen hier später."));
+  });
+  m_btnTitleBarBell->hide();
+  navLayout->addWidget(m_btnTitleBarBell);
+  navLayout->addSpacing(4);
+#endif
 
   m_btnEditorNoteOverflow = new ModernButton(m_topNavControls);
   m_btnEditorNoteOverflow->setIcon(
@@ -8427,7 +8452,12 @@ void MainWindow::setupSidebar() {
   addItem(QStringLiteral("Bibliothek"), QStringLiteral("home"));
   addItem(QStringLiteral("Papierkorb"), QStringLiteral("trash"));
   addItem(QStringLiteral("ORDNER"), QString(), true);
+#ifndef Q_OS_ANDROID
+  // K ORDNER tree: top-level folders under the note root (dirs only, with counts).
+  rebuildOrdnerTree();
+#else
   addItem(QStringLiteral("Blop Notizen"), QStringLiteral("folder"));
+#endif
 #ifndef Q_OS_ANDROID
   // K: keep the folder tree local — cloud providers stay in Settings.
 #else
@@ -8952,9 +8982,11 @@ void MainWindow::refreshSidebarNotesList() {
       const QDate d = dt.date();
       const QDate today = QDate::currentDate();
       if (d == today)
-        dateStr = QStringLiteral("Heute");
+        dateStr = QStringLiteral("Heute, %1")
+                      .arg(dt.toString(QStringLiteral("HH:mm")));
       else if (d == today.addDays(-1))
-        dateStr = QStringLiteral("Gestern");
+        dateStr = QStringLiteral("Gestern, %1")
+                      .arg(dt.toString(QStringLiteral("HH:mm")));
       else
         dateStr = QLocale().toString(d, QStringLiteral("d. MMM"));
     }
@@ -8977,8 +9009,8 @@ void MainWindow::refreshSidebarNotesList() {
         p->setRenderHint(QPainter::Antialiasing);
         QRect r = opt.rect.adjusted(8, 1, -8, -1);
         if (opt.state & QStyle::State_Selected) {
-          p->setPen(Qt::NoPen);
-          p->setBrush(QColor(255, 255, 255, 26));
+          p->setPen(QPen(QColor(0x5B, 0x9D, 0xFF), 1.0));
+          p->setBrush(QColor(91, 157, 255, 36));
           p->drawRoundedRect(r, 6, 6);
         } else if (opt.state & QStyle::State_MouseOver) {
           p->setPen(Qt::NoPen);
@@ -9046,6 +9078,20 @@ void MainWindow::updateSidebarBadges() {
     }
   }
   refreshSidebarNotesList();
+#ifndef Q_OS_ANDROID
+  // Keep ORDNER folder counts fresh after library changes.
+  for (int i = 0; i < m_navSidebar->count(); ++i) {
+    QListWidgetItem *item = m_navSidebar->item(i);
+    if (!item || item->data(Qt::UserRole + 5).toString() !=
+                     QLatin1String("ordner_item"))
+      continue;
+    const QString path = item->data(Qt::UserRole + 10).toString();
+    if (path.isEmpty())
+      continue;
+    const int n = folderEntryCount(path);
+    item->setData(Qt::UserRole + 2, n > 0 ? QString::number(n) : QString());
+  }
+#endif
 
   if (m_emptyStateHost && m_fileListView && m_fileModel) {
     const QModelIndex proxyRoot = m_fileListView->rootIndex();
@@ -9279,37 +9325,133 @@ void MainWindow::toggleFolderContent(QListWidgetItem *parentItem) {
     parentItem->setData(Qt::UserRole + 3, false);
   } else {
     QDir dir(parentPath);
-    QFileInfoList list = dir.entryInfoList(
-        QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    // K ORDNER tree lists folders only — notes live in the grid / NOTIZEN list.
+    QFileInfoList list = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
+                                           QDir::Name);
     int insertRow = m_navSidebar->row(parentItem) + 1;
     for (const QFileInfo &info : list) {
+      if (info.fileName().startsWith(QLatin1Char('.')))
+        continue;
       QListWidgetItem *child = new QListWidgetItem();
       child->setText(info.fileName());
       child->setData(Qt::UserRole + 10, info.absoluteFilePath());
       child->setData(Qt::UserRole + 9, currentDepth + 1);
       child->setData(Qt::UserRole + 8, parentItem->text());
-      if (info.isDir()) {
-        child->setIcon(createModernIcon("folder", libraryNavTint("folder")));
-        child->setData(Qt::UserRole + 6, true);
-        child->setData(Qt::UserRole + 3, false);
-      } else {
-        QPixmap pix(64, 64);
-        pix.fill(Qt::transparent);
-        QPainter p(&pix);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(BlopTheme::textSecondary(), 2));
-        p.drawRoundedRect(16, 10, 32, 44, 4, 4);
-        p.drawLine(20, 18, 44, 18);
-        p.drawLine(20, 26, 44, 26);
-        child->setIcon(QIcon(pix));
-      }
+      child->setData(Qt::UserRole + 5, QStringLiteral("ordner_item"));
+      child->setIcon(createModernIcon("folder", libraryNavTint("folder")));
+      child->setData(Qt::UserRole + 11, QStringLiteral("folder"));
+      child->setData(Qt::UserRole + 6, true);
+      child->setData(Qt::UserRole + 3, false);
+      const int n = folderEntryCount(info.absoluteFilePath());
+      if (n > 0)
+        child->setData(Qt::UserRole + 2, QString::number(n));
+      child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
       m_navSidebar->insertItem(insertRow++, child);
     }
     parentItem->setData(Qt::UserRole + 3, true);
   }
 }
 
+int MainWindow::folderEntryCount(const QString &dirPath) const {
+  QDir dir(dirPath);
+  if (!dir.exists())
+    return 0;
+  return dir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).count();
+}
+
+void MainWindow::rebuildOrdnerTree() {
+#ifndef Q_OS_ANDROID
+  if (!m_navSidebar)
+    return;
+  // Remove existing ORDNER children (between ORDNER header and NOTIZEN / tags).
+  int ordnerHeaderRow = -1;
+  for (int i = 0; i < m_navSidebar->count(); ++i) {
+    QListWidgetItem *it = m_navSidebar->item(i);
+    if (it && it->data(Qt::UserRole + 1).toBool() &&
+        it->text() == QStringLiteral("ORDNER")) {
+      ordnerHeaderRow = i;
+      break;
+    }
+  }
+  if (ordnerHeaderRow < 0)
+    return;
+  int row = ordnerHeaderRow + 1;
+  while (row < m_navSidebar->count()) {
+    QListWidgetItem *it = m_navSidebar->item(row);
+    if (!it)
+      break;
+    if (it->data(Qt::UserRole + 1).toBool())
+      break;
+    if (it->data(Qt::UserRole + 5).toString() == QLatin1String("clouds_header") ||
+        it->data(Qt::UserRole + 5).toString() == QLatin1String("clouds_item") ||
+        it->data(Qt::UserRole + 5).toString() == QLatin1String("clouds_add"))
+      break;
+    // Stop before Favoriten/Bibliothek/Papierkorb if somehow reordered.
+    if (it->text() == QStringLiteral("Favoriten") ||
+        it->text() == QStringLiteral("Bibliothek") ||
+        it->text() == QStringLiteral("Papierkorb"))
+      break;
+    if (it->data(Qt::UserRole + 5).toString() == QLatin1String("ordner_item") ||
+        it->data(Qt::UserRole + 6).toBool() ||
+        it->text() == QStringLiteral("Blop Notizen")) {
+      delete m_navSidebar->takeItem(row);
+      continue;
+    }
+    break;
+  }
+
+  if (m_rootPath.isEmpty())
+    return;
+  QDir root(m_rootPath);
+  const QFileInfoList dirs =
+      root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+  int insertRow = ordnerHeaderRow + 1;
+  for (const QFileInfo &info : dirs) {
+    if (info.fileName().startsWith(QLatin1Char('.')))
+      continue;
+    auto *item = new QListWidgetItem();
+    item->setText(info.fileName());
+    item->setIcon(createModernIcon(QStringLiteral("folder"),
+                                   libraryNavTint(QStringLiteral("folder"))));
+    item->setData(Qt::UserRole + 11, QStringLiteral("folder"));
+    item->setData(Qt::UserRole + 10, info.absoluteFilePath());
+    item->setData(Qt::UserRole + 9, 0);
+    item->setData(Qt::UserRole + 6, true);
+    item->setData(Qt::UserRole + 3, false);
+    item->setData(Qt::UserRole + 5, QStringLiteral("ordner_item"));
+    item->setData(Qt::UserRole + 1, false);
+    const int n = folderEntryCount(info.absoluteFilePath());
+    if (n > 0)
+      item->setData(Qt::UserRole + 2, QString::number(n));
+    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    m_navSidebar->insertItem(insertRow++, item);
+  }
+  // If the library is empty of visible folders, keep a quiet root folder row.
+  bool anyVisible = false;
+  for (const QFileInfo &info : dirs) {
+    if (!info.fileName().startsWith(QLatin1Char('.'))) {
+      anyVisible = true;
+      break;
+    }
+  }
+  if (!anyVisible) {
+    auto *rootItem = new QListWidgetItem();
+    rootItem->setText(QStringLiteral("Blop Notizen"));
+    rootItem->setIcon(createModernIcon(QStringLiteral("folder"),
+                                       libraryNavTint(QStringLiteral("folder"))));
+    rootItem->setData(Qt::UserRole + 11, QStringLiteral("folder"));
+    rootItem->setData(Qt::UserRole + 10, m_rootPath);
+    rootItem->setData(Qt::UserRole + 9, 0);
+    rootItem->setData(Qt::UserRole + 6, true);
+    rootItem->setData(Qt::UserRole + 3, false);
+    rootItem->setData(Qt::UserRole + 5, QStringLiteral("ordner_item"));
+    rootItem->setData(Qt::UserRole + 2,
+                      QString::number(folderEntryCount(m_rootPath)));
+    rootItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    m_navSidebar->insertItem(insertRow, rootItem);
+  }
+#endif
+}
 
 QString MainWindow::noteWriteDirectory() const {
   QString root = StoragePrefs::noteWriteRoot(m_rootPath);
@@ -9830,6 +9972,10 @@ void MainWindow::onCreateFolder() {
   ok = !text.isEmpty();
   if (ok && !text.isEmpty()) {
     m_fileModel->mkdir(m_fileModel->index(m_fileModel->rootPath()), text);
+#ifndef Q_OS_ANDROID
+    rebuildOrdnerTree();
+    updateSidebarBadges();
+#endif
   }
 }
 
@@ -10945,6 +11091,10 @@ void MainWindow::updateSidebarState() {
     }
     if (m_btnEditorNoteOverflow)
       m_btnEditorNoteOverflow->setVisible(inNotesMode && showNoteOverflow);
+#ifndef Q_OS_ANDROID
+    if (m_btnTitleBarBell)
+      m_btnTitleBarBell->setVisible(inNotesMode && isEditor);
+#endif
     // Pages toggle lives on the left rail — hide redundant title-bar pill.
     if (m_btnTitleBarPageManager)
       m_btnTitleBarPageManager->setVisible(false);
@@ -14084,6 +14234,26 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
                   "QToolButton:hover { background: %1; }")
                   .arg(BlopTheme::surfaceMuted().name(QColor::HexArgb)));
   }
+
+#ifndef Q_OS_ANDROID
+  if (m_btnTitleBarBell) {
+    const QColor ic = notesMode ? chromeMuted
+                                : (noteChrome ? NoteChrome::textSecondary()
+                                              : chromeMuted);
+    m_btnTitleBarBell->setIcon(createModernIcon(QStringLiteral("bell"), ic));
+    m_btnTitleBarBell->setStyleSheet(
+        notesMode || !iconsOnDarkBar
+            ? QStringLiteral(
+                  "QToolButton { background: transparent; border: none; "
+                  "border-radius: 8px; }"
+                  "QToolButton:hover { background: rgba(0,0,0,0.06); }")
+            : QStringLiteral(
+                  "QToolButton { background: transparent; border: none; "
+                  "border-radius: 8px; }"
+                  "QToolButton:hover { %1 }")
+                  .arg(hoverGray));
+  }
+#endif
 
   if (m_btnTitleBarPageManager) {
     const QColor ic = noteChrome ? NoteChrome::textSecondary()

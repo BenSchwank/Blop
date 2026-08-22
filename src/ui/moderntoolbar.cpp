@@ -633,6 +633,23 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(37, 37, 50, 50);
     return;
   }
+  if (name == QLatin1String("bell")) {
+    p->setPen(primaryPen);
+    p->setBrush(Qt::NoBrush);
+    QPainterPath bell;
+    bell.moveTo(20, 28);
+    bell.cubicTo(20, 18, 44, 18, 44, 28);
+    bell.lineTo(44, 38);
+    bell.lineTo(48, 44);
+    bell.lineTo(16, 44);
+    bell.lineTo(20, 38);
+    bell.closeSubpath();
+    p->drawPath(bell);
+    p->drawArc(QRectF(26, 44, 12, 10), 0, -180 * 16);
+    p->setPen(accentPen);
+    p->drawEllipse(QPointF(42, 20), 3.2, 3.2);
+    return;
+  }
   if (name == QLatin1String("person")) {
     p->setPen(primaryPen);
     p->drawEllipse(QPointF(32, 22), 8, 8);
@@ -1448,8 +1465,15 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.translate(0.0, -m_liftOffset);
 
   if (!m_caption.isEmpty()) {
-    const QColor ink = m_active ? QColor(QStringLiteral("#5B9DFF"))
-                                : QColor(40, 44, 52, 220);
+    QColor ink = m_active ? QColor(QStringLiteral("#5B9DFF"))
+                          : QColor(40, 44, 52, 220);
+    // K mockup: inactive pen/pencil/highlighter keep saturated tip colors.
+    if (!m_active && m_glyphColor.isValid() &&
+        (m_iconName == QLatin1String("pen") ||
+         m_iconName == QLatin1String("pencil") ||
+         m_iconName == QLatin1String("highlighter"))) {
+      ink = m_glyphColor;
+    }
     const int capH = UiScale::dp(14);
     const int iconBox = qMax(UiScale::dp(18), h - capH - UiScale::dp(8));
     p.save();
@@ -1464,7 +1488,8 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     f.setPixelSize(UiScale::sp(9));
     f.setWeight(QFont::DemiBold);
     p.setFont(f);
-    p.setPen(ink);
+    p.setPen(m_active ? QColor(QStringLiteral("#5B9DFF"))
+                      : QColor(40, 44, 52, 200));
     p.drawText(QRect(2, h - capH - UiScale::dp(4), w - 4, capH),
                Qt::AlignHCenter | Qt::AlignTop, m_caption);
     if (m_active) {
@@ -5210,15 +5235,28 @@ void ModernToolbar::applyStudioSnappedPill() {
       continue;
     b->setLightStudioStyle(true);
     b->setRailSlotStyle(false);
-    b->setGlyphColor(QColor());
     b->setCaption(studioCaptionForIcon(b->iconName()));
   }
   syncDrawboardToolIcons();
-  // Keep K pill glyphs dark-on-white; pen-color tips are for Drawboard rail only.
+  // Tip colors for ink tools (blue pen / yellow pencil / green highlighter).
+  if (btnPen)
+    btnPen->setGlyphColor(
+        ToolManager::instance().configFor(ToolMode::Pen).penColor);
+  if (btnPencil)
+    btnPencil->setGlyphColor(
+        ToolManager::instance().configFor(ToolMode::Pencil).penColor.isValid()
+            ? ToolManager::instance().configFor(ToolMode::Pencil).penColor
+            : QColor(0xE6, 0xB8, 0x2E));
+  if (btnHighlighter) {
+    QColor c =
+        ToolManager::instance().configFor(ToolMode::Highlighter).penColor;
+    if (c.saturationF() < 0.25)
+      c = QColor(90, 220, 70);
+    btnHighlighter->setGlyphColor(c);
+  }
   for (ToolbarBtn *b : m_buttons) {
     if (!b)
       continue;
-    b->setGlyphColor(QColor());
     if (b->caption().isEmpty())
       b->setCaption(studioCaptionForIcon(b->iconName()));
   }
@@ -6476,11 +6514,28 @@ void ModernToolbar::updateLayout(bool animate) {
         b->setDrawFloatingBg(false);
         b->setLightStudioStyle(true);
         b->setRailSlotStyle(false);
-        b->setGlyphColor(QColor());
         if (b == btnLasso)
           b->setIcon(QStringLiteral("lasso_loop"));
         else if (b == btnHand)
           b->setIcon(QStringLiteral("select_rect"));
+        if (b == btnPen)
+          b->setGlyphColor(
+              ToolManager::instance().configFor(ToolMode::Pen).penColor);
+        else if (b == btnPencil) {
+          QColor c =
+              ToolManager::instance().configFor(ToolMode::Pencil).penColor;
+          if (!c.isValid() || c.saturationF() < 0.2)
+            c = QColor(0xE6, 0xB8, 0x2E);
+          b->setGlyphColor(c);
+        } else if (b == btnHighlighter) {
+          QColor c =
+              ToolManager::instance().configFor(ToolMode::Highlighter).penColor;
+          if (c.saturationF() < 0.25)
+            c = QColor(90, 220, 70);
+          b->setGlyphColor(c);
+        } else {
+          b->setGlyphColor(QColor());
+        }
         b->setCaption(studioCaptionForIcon(b->iconName()));
         b->setBtnCell(cellW, cellH);
         b->show();
