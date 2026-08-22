@@ -490,12 +490,15 @@ void BlopModal::dismissFromOutsideTap(const QPoint &pos) {
 }
 
 bool BlopModal::event(QEvent *event) {
-  if (event->type() == QEvent::TouchBegin) {
+  if (event->type() == QEvent::TouchBegin && m_card) {
     auto *te = static_cast<QTouchEvent *>(event);
     if (!te->points().isEmpty()) {
-      const QPoint pos = te->points().first().position().toPoint();
-      if (m_card && !m_card->geometry().contains(pos)) {
-        dismissFromOutsideTap(pos);
+      // Unaccepted touches bubble up from the content widgets, so compare in
+      // global coordinates — local ones belong to the original target.
+      const QPoint global = te->points().first().globalPosition().toPoint();
+      const QRect cardGlobal(m_card->mapToGlobal(QPoint(0, 0)), m_card->size());
+      if (!cardGlobal.contains(global)) {
+        dismiss();
         event->accept();
         return true;
       }
