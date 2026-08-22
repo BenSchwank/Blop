@@ -1155,12 +1155,13 @@ void SidebarNavDelegate::paint(QPainter *painter,
 #else
       BlopTheme::textSecondary();
   const QColor primaryText = BlopTheme::textPrimary();
+  const QColor accentBlue = m_window->currentAccentColor();
   const QColor accentTint = BlopTheme::accentSubtle();
   const bool isDark = BlopTheme::instance().isDark();
   const QColor hoverTint = isDark ? QColor(255, 255, 255, 16)
                                   : QColor(0, 0, 0, 16);
   const QColor dividerColor = BlopTheme::borderSubtle();
-  const QColor selectedText = m_window->currentAccentColor();
+  const QColor selectedText = accentBlue;
 #endif
 
   if (isHeader) {
