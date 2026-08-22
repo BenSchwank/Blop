@@ -337,7 +337,8 @@ static QColor libraryNavTint(const QString &iconKey) {
 
 static QColor libraryPageBackground() {
 #ifndef Q_OS_ANDROID
-  return QColor(0xFF, 0xFF, 0xFF);
+  // K Hauptmenü paper canvas (mockup: soft gray, not pure white).
+  return QColor(0xF5, 0xF5, 0xF5);
 #else
   if (!BlopTheme::instance().isDark())
     return BlopTheme::surfaceBackground();
@@ -2097,12 +2098,17 @@ void MainWindow::syncStudyChromeTheme() {
 #endif
 
 void MainWindow::applyThemeRefresh() {
-  // Keep note-editor chrome in sync with Settings Design mode so Hell/Dunkel
-  // works app-wide (library + note page).
+  // Studio K/J: while a note is open, editor chrome stays light (white
+  // tool sheet / tabs / page surround) regardless of library Design mode.
 #ifndef Q_OS_ANDROID
-  NoteChrome::setMode(BlopTheme::instance().mode() == BlopTheme::Mode::Light
-                          ? NoteChrome::Mode::Light
-                          : NoteChrome::Mode::Dark);
+  const bool noteOpen =
+      m_documentTabBar && m_documentTabBar->noteChromeMode();
+  if (noteOpen)
+    NoteChrome::setMode(NoteChrome::Mode::Light);
+  else
+    NoteChrome::setMode(BlopTheme::instance().mode() == BlopTheme::Mode::Light
+                            ? NoteChrome::Mode::Light
+                            : NoteChrome::Mode::Dark);
 #endif
   if (m_centralContainer) {
     m_centralContainer->setStyleSheet(
@@ -4535,7 +4541,7 @@ void MainWindow::applyTheme() {
     const QString text = QStringLiteral("#1C1E24");
     const QString muted = QStringLiteral("#FFFFFF");
     const QString border = QStringLiteral("#E4E7EE");
-    const QString pageBg = QStringLiteral("#FFFFFF");
+    const QString pageBg = QStringLiteral("#F5F5F5");
     const QString sub = QStringLiteral("#6B7280");
 #else
     const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
@@ -4837,20 +4843,21 @@ void MainWindow::updateGrid() {
       return;
     }
 
-    const int minTile = UiScale::dp(100);
-    const int maxTile = UiScale::dp(132);
+    // K mockup: ~6 columns of compact paper cards on typical desktop widths.
+    const int minTile = UiScale::dp(92);
+    const int maxTile = UiScale::dp(118);
     int columns = (screenWidth - spacing) / (minTile + spacing);
     columns = qBound(6, columns, 8);
     int totalSpacing = (columns + 1) * spacing;
     int itemWidth = (screenWidth - totalSpacing) / columns;
-    while (itemWidth < UiScale::dp(96) && columns > 6) {
+    while (itemWidth < UiScale::dp(88) && columns > 6) {
       columns--;
       totalSpacing = (columns + 1) * spacing;
       itemWidth = (screenWidth - totalSpacing) / columns;
     }
-    itemWidth = qBound(UiScale::dp(96), itemWidth, maxTile);
-    const int titleBand = UiScale::dp(34);
-    const int itemHeight = int(itemWidth * 1.05) + titleBand;
+    itemWidth = qBound(UiScale::dp(88), itemWidth, maxTile);
+    const int titleBand = UiScale::dp(30);
+    const int itemHeight = int(itemWidth * 1.08) + titleBand;
 
     m_fileListView->setSpacing(spacing);
     m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
@@ -9611,9 +9618,21 @@ void MainWindow::switchToEditorChrome() {
   }
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(true);
+#ifndef Q_OS_ANDROID
+  // Studio mix: editor always light chrome + K snapped bottom pill on open.
+  NoteChrome::setMode(NoteChrome::Mode::Light);
+  if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+    tb->setStyle(ModernToolbar::Normal);
+    tb->setDockMode(true);
+    tb->applyStudioSnappedPill();
+  }
+#endif
   applyNoteChromeTheme();
   setActiveTool(m_activeToolType);
   updateSidebarState();
+#ifndef Q_OS_ANDROID
+  positionDrawboardToolbar();
+#endif
 }
 
 void MainWindow::openLoadedA4Note(const QString &path, const QString &fileName,
@@ -11112,8 +11131,11 @@ void MainWindow::updateSidebarState() {
 #ifndef Q_OS_ANDROID
     const bool wantPages = inNotesMode && isEditor && hasA4Pages;
     if (wantPages) {
-      // Keep the strip in the layout; collapse is height animation, not hide.
+      // J strip: keep in layout; expand on note open so the white page
+      // rail is obvious (collapse remains a user gesture afterward).
       if (m_pageThumbnailSidebar->isHorizontalStrip()) {
+        if (m_pageThumbnailSidebar->isCollapsed())
+          m_pageThumbnailSidebar->setCollapsed(false);
         m_pageThumbnailSidebar->show();
         m_pageThumbnailSidebar->rebuild();
       } else {

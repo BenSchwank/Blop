@@ -39,7 +39,8 @@ struct RailMetrics {
 
 RailMetrics railMetrics(QWidget *ref, bool twoCol, bool horizontal) {
   if (horizontal) {
-    return {0, UiScale::dp(64), UiScale::dp(80), UiScale::dp(110),
+    // J mockup: larger paper thumbs in the top strip.
+    return {0, UiScale::dp(72), UiScale::dp(96), UiScale::dp(128),
             UiScale::dp(8)};
   }
   if (UiScale::isAndroidPhoneUi(ref)) {
@@ -71,7 +72,7 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_StyledBackground, true);
   const RailMetrics m = railMetrics(this, m_twoColumn, m_horizontalStrip);
   m_expandedWidth = m.width > 0 ? m.width : UiScale::dp(108);
-  m_expandedHeight = UiScale::dp(118);
+  m_expandedHeight = m_horizontalStrip ? UiScale::dp(136) : UiScale::dp(118);
   if (!m_horizontalStrip)
     setFixedWidth(m_expandedWidth);
 

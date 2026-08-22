@@ -13,14 +13,17 @@ namespace NoteChrome {
 enum class Mode { Dark, Light };
 
 inline Mode &modeRef() {
-  static Mode m = Mode::Dark;
+  // Studio K/J mix: editor chrome defaults to light (white pill, white
+  // tool sheet, light page surround). Dark Drawboard chrome remains
+  // available via ui/editor_chrome_mode=dark.
+  static Mode m = Mode::Light;
   static bool loaded = false;
   if (!loaded) {
     QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
     const QString v =
-        s.value(QStringLiteral("ui/editor_chrome_mode"), QStringLiteral("dark"))
+        s.value(QStringLiteral("ui/editor_chrome_mode"), QStringLiteral("light"))
             .toString();
-    m = (v == QLatin1String("light")) ? Mode::Light : Mode::Dark;
+    m = (v == QLatin1String("dark")) ? Mode::Dark : Mode::Light;
     loaded = true;
   }
   return m;

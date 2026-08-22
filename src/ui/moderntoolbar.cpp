@@ -1221,10 +1221,18 @@ void ToolbarBtn::mouseMoveEvent(QMouseEvent *e) {
       m_holdProgress = 0.0;
       m_longPressTriggered = false;
 #ifndef Q_OS_ANDROID
-      // K snapped pill: dragging a tool cell undocks into the J float rail.
+      // K snapped pill: intentional upward drag undocks to J float rail.
+      // Require a longer stroke than a normal click-drag so the bottom
+      // pill stays the default studio mode (matches K primary chrome).
       if (m_lightStudioStyle) {
         if (auto *tb = qobject_cast<ModernToolbar *>(parentWidget())) {
           if (tb->isStudioChrome() && tb->isDockedMode()) {
+            const int undockSlop = QApplication::startDragDistance() * 4;
+            if (d.manhattanLength() < undockSlop)
+              return;
+            // Prefer upward undock gesture (toward the page).
+            if (d.y() > -QApplication::startDragDistance())
+              return;
             m_pressing = false;
             m_longPressTriggered = true;
             tb->beginStudioUndockDrag(mapToGlobal(e->pos()));
