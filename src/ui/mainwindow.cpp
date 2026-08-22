@@ -10678,10 +10678,14 @@ void MainWindow::updateSidebarState() {
     // phone toolbar. Never show the desktop notch here.
     const bool phoneUi =
         qobject_cast<AndroidPhoneToolbar *>(m_floatingTools) != nullptr;
+#ifndef Q_OS_ANDROID
+    // Desktop studio mix: K/J toolbar replaces the legacy bottom chrome entirely.
+    const bool studioDesktop = !phoneUi;
+#else
     const auto *studioTb = qobject_cast<ModernToolbar *>(m_floatingTools);
     const bool studioDesktop =
         studioTb && studioTb->isStudioChrome() && !phoneUi;
-    // Studio K pill owns undo; hide the legacy dark bottom chrome on desktop.
+#endif
     m_noteBottomChrome->setVisible(isEditor && !phoneUi && !studioDesktop);
   }
   if (isEditor)
@@ -13429,11 +13433,10 @@ void MainWindow::updateNoteBottomChrome() {
     return;
   }
 #ifndef Q_OS_ANDROID
-  if (const auto *studioTb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-    if (studioTb->isStudioChrome()) {
-      m_noteBottomChrome->hide();
-      return;
-    }
+  // Desktop studio mix: K/J toolbar replaces legacy bottom chrome.
+  if (!qobject_cast<AndroidPhoneToolbar *>(m_floatingTools)) {
+    m_noteBottomChrome->hide();
+    return;
   }
 #endif
   MultiPageNoteView *view = nullptr;
