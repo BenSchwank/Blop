@@ -4856,11 +4856,6 @@ void MainWindow::updateGrid() {
     m_fileListView->setIconSize(QSize(itemWidth, itemWidth));
     m_fileListView->setUniformItemSizes(true);
     m_fileListView->setGridSize(QSize(itemWidth + spacing, itemHeight + spacing));
-    // K Hauptmenü: drop user-snapped IconMode positions so tiles reflow
-    // into a dense left-to-right grid after size changes.
-    m_fileListView->setMovement(QListView::Static);
-    m_fileListView->clearPropertyFlags();
-    m_fileListView->doItemsLayout();
   }
 }
 
