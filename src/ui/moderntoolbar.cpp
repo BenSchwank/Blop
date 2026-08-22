@@ -1380,6 +1380,12 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
         tip = QColor(Qt::white);
       } else {
         tip = QColor(QStringLiteral("#3A404C"));
+        if (m_glyphColor.isValid() && !m_active) {
+          if (m_iconName == QLatin1String("pencil"))
+            tip = QColor(0xE6, 0xB8, 0x2E);
+          else
+            tip = m_glyphColor;
+        }
       }
     } else if (m_railFooterStyle && !m_glyphColor.isValid()) {
       tip = NoteChrome::textSecondary();
@@ -5247,12 +5253,11 @@ void ModernToolbar::applyStudioFloatingRail() {
   }
   if (m_orientation != Vertical)
     setOrientation(Vertical, false);
-  // J floating pill: Pen → Pencil → Textmarker → Radierer → Lasso → Auswählen.
+  // J floating pill: Pen → Pencil → Eraser → Lasso (mockup J).
   {
     m_railSlots.clear();
-    const QList<ToolMode> modes = {
-        ToolMode::Pen,         ToolMode::Pencil, ToolMode::Highlighter,
-        ToolMode::Eraser,      ToolMode::Lasso,  ToolMode::Hand};
+    const QList<ToolMode> modes = {ToolMode::Pen, ToolMode::Pencil,
+                                   ToolMode::Eraser, ToolMode::Lasso};
     for (ToolMode mode : modes) {
       ToolConfig cfg = ToolManager::instance().configFor(mode);
       m_railSlots.append(RailSlot::fromTool(mode, cfg));
@@ -5510,7 +5515,8 @@ QString ModernToolbar::iconForSlot(const RailSlot &s) const {
   case ToolMode::Eraser:
     return QStringLiteral("eraser");
   case ToolMode::Lasso:
-    return QStringLiteral("select");
+    return isStudioChrome() && !m_isDockedMode ? QStringLiteral("lasso_loop")
+                                               : QStringLiteral("select");
   case ToolMode::Ruler:
     return QStringLiteral("measure");
   case ToolMode::Shape: {
@@ -6714,7 +6720,7 @@ void ModernToolbar::updateLayout(bool animate) {
         const int footerGap = UiScale::dp(4);
         const int footerBtnS = UiScale::dp(40);
         const bool studioFloat = isStudioChrome();
-        const int studioSliderH = studioFloat ? UiScale::dp(96) : 0;
+        const int studioSliderH = studioFloat ? UiScale::dp(132) : 0;
         // Extra bottom pad so the last chevron isn't flush-cut against the
         // window edge (rail now owns the bottom-right corner).
         int footerH =
@@ -6757,6 +6763,8 @@ void ModernToolbar::updateLayout(bool animate) {
         int contentNeeded = 0;
         if (studioFloat && btnUndo)
           slotBtns.append(btnUndo);
+        if (studioFloat && btnRedo)
+          slotBtns.append(btnRedo);
         for (int i = 0; i < slotBtns.size(); ++i) {
           contentNeeded += btnS + gap;
           if (!studioFloat && i < m_railSlots.size()) {
@@ -6825,17 +6833,30 @@ void ModernToolbar::updateLayout(bool animate) {
         if (studioFloat && m_studioSizeLabel && m_studioSizeSlider) {
           const int labelH = UiScale::dp(16);
           const int sliderH = UiScale::dp(72);
+          const int moreH = UiScale::dp(36);
           m_studioSizeLabel->setFixedSize(w - UiScale::dp(8), labelH);
           m_studioSizeLabel->move(UiScale::dp(4),
-                                 h - studioSliderH - UiScale::dp(8));
+                                 h - studioSliderH - moreH - UiScale::dp(8));
           m_studioSizeLabel->show();
           m_studioSizeLabel->raise();
           m_studioSizeSlider->setFixedHeight(sliderH);
           m_studioSizeSlider->move((w - m_studioSizeSlider->width()) / 2,
-                                  h - sliderH - UiScale::dp(10));
+                                  h - sliderH - moreH - UiScale::dp(10));
           m_studioSizeSlider->show();
           m_studioSizeSlider->raise();
+          if (btnMoreProps) {
+            btnMoreProps->setLightStudioStyle(true);
+            btnMoreProps->setRailSlotStyle(true);
+            btnMoreProps->setRailFooterStyle(true);
+            btnMoreProps->setIcon(QStringLiteral("more_pill"));
+            btnMoreProps->setBtnCell(w - UiScale::dp(6), moreH);
+            btnMoreProps->move(UiScale::dp(3), h - moreH - UiScale::dp(6));
+            btnMoreProps->show();
+            btnMoreProps->raise();
+          }
         } else {
+          if (btnMoreProps)
+            btnMoreProps->hide();
           if (m_studioSizeLabel)
             m_studioSizeLabel->hide();
           if (m_studioSizeSlider)

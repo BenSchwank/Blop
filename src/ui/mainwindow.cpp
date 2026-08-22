@@ -337,8 +337,7 @@ static QColor libraryNavTint(const QString &iconKey) {
 
 static QColor libraryPageBackground() {
 #ifndef Q_OS_ANDROID
-  // K Hauptmenü: light paper library, charcoal sidebar.
-  return QColor(0xF3, 0xF4, 0xF7);
+  return QColor(0xFF, 0xFF, 0xFF);
 #else
   if (!BlopTheme::instance().isDark())
     return BlopTheme::surfaceBackground();
@@ -1145,8 +1144,9 @@ void SidebarNavDelegate::paint(QPainter *painter,
 #ifndef Q_OS_ANDROID
       QColor(0x9A, 0xA0, 0xAE);
   const QColor primaryText = QColor(0xE8, 0xEA, 0xF0);
-  // K selection: quiet charcoal plate (not Blop purple).
-  const QColor accentTint = QColor(255, 255, 255, 22);
+  // K selection: blue accent wash (matches mockup Bibliothek row).
+  const QColor accentBlue(0x5B, 0x9D, 0xFF);
+  const QColor accentTint = QColor(91, 157, 255, 38);
   const bool isDark = true;
   const QColor hoverTint = QColor(255, 255, 255, 12);
   const QColor dividerColor = QColor(255, 255, 255, 18);
@@ -1206,7 +1206,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
 
     if (selected) {
       painter->setBrush(accentTint);
-      painter->setPen(Qt::NoPen);
+      painter->setPen(QPen(accentBlue, 1.0));
       painter->drawRoundedRect(rect, UiScale::dp(8), UiScale::dp(8));
     } else if (hover) {
       painter->setBrush(hoverTint);
@@ -1258,7 +1258,7 @@ void SidebarNavDelegate::paint(QPainter *painter,
     QRect textRect = rect;
     textRect.setLeft(iconRect.right() + 15);
     textRect.setRight(rect.right() - 40);
-    painter->setPen(selected ? selectedText : primaryText);
+    painter->setPen(selected ? accentBlue : primaryText);
 
     QFont f = m_window->font();
     f.setPointSize(navFont);
@@ -1282,7 +1282,10 @@ void SidebarNavDelegate::paint(QPainter *painter,
       QRect badgeRect(rect.right() - badgeW - 5, rect.center().y() - badgeH / 2,
                       badgeW, badgeH);
 #ifndef Q_OS_ANDROID
-      painter->setPen(QColor(0x8A, 0x90, 0xA0));
+      painter->setPen(Qt::NoPen);
+      painter->setBrush(QColor(0x2A, 0x2D, 0x36));
+      painter->drawRoundedRect(badgeRect, badgeH / 2, badgeH / 2);
+      painter->setPen(QColor(0x9A, 0xA0, 0xAE));
 #else
       painter->setPen(m_window->currentAccentColor());
 #endif
@@ -1328,14 +1331,13 @@ void ModernItemDelegate::paint(QPainter *painter,
 
 #ifndef Q_OS_ANDROID
   QColor bgColor = QColor(255, 255, 255);
-  if (selected)
-    bgColor = QColor(91, 157, 255, 18);
-  else if (hovered)
+  if (hovered && !selected)
     bgColor = QColor(247, 248, 251);
   painter->setBrush(bgColor);
   painter->setPen(QPen(selected ? QColor(QStringLiteral("#5B9DFF"))
-                                : QColor(0xE4, 0xE7, 0xEE),
-                       selected ? 1.6 : 1.0));
+                                : (hovered ? QColor(0xD0, 0xD5, 0xDE)
+                                           : QColor(0xE4, 0xE7, 0xEE)),
+                       selected ? 2.0 : 1.0));
   const int radius = UiScale::dp(8);
 #else
   // Soft tile plate — opaque elevated card so icons don't sink into black.
@@ -3196,7 +3198,19 @@ void MainWindow::setupTitleBar() {
   mainLayout->addWidget(btnEditorMenu);
   mainLayout->addSpacing(6);
 
-  // ── Blop Brand ────────────────────────────────────────────────────────────
+  // ── Blop Brand (K/J: blue B mark + wordmark) ───────────────────────────────
+  auto *brandMark = new QLabel(QStringLiteral("B"), m_titleBarWidget);
+  brandMark->setObjectName(QStringLiteral("TitleBarBrandMark"));
+  brandMark->setFixedSize(UiScale::dp(26), UiScale::dp(26));
+  brandMark->setAlignment(Qt::AlignCenter);
+  brandMark->setStyleSheet(QStringLiteral(
+      "QLabel#TitleBarBrandMark {"
+      "  background: #5B9DFF; color: #FFFFFF; border-radius: 8px;"
+      "  font-size: 14px; font-weight: 800;"
+      "}"));
+  mainLayout->addWidget(brandMark);
+  mainLayout->addSpacing(4);
+
   m_lblBrand = new QLabel("Blop", m_titleBarWidget);
   m_lblBrand->setObjectName(QStringLiteral("TitleBarBrand"));
   m_lblBrand->setStyleSheet(
@@ -4441,7 +4455,7 @@ void MainWindow::applyTheme() {
     const QString text = QStringLiteral("#1C1E24");
     const QString muted = QStringLiteral("#FFFFFF");
     const QString border = QStringLiteral("#E4E7EE");
-    const QString pageBg = QStringLiteral("#F3F4F7");
+    const QString pageBg = QStringLiteral("#FFFFFF");
     const QString sub = QStringLiteral("#6B7280");
 #else
     const QString text = BlopTheme::textPrimary().name(QColor::HexRgb);
@@ -4730,6 +4744,18 @@ void MainWindow::updateGrid() {
     if (spacing <= 0)
       spacing = 8;
     spacing = qBound(UiScale::dp(6), spacing, UiScale::dp(10));
+
+    if (m_libraryListMode) {
+      const int itemWidth = qMax(UiScale::dp(240), screenWidth - 2 * spacing);
+      const int itemHeight = UiScale::dp(72);
+      m_fileListView->setSpacing(spacing);
+      m_fileListView->setItemSize(QSize(itemWidth, itemHeight));
+      m_fileListView->setIconSize(QSize(UiScale::dp(56), UiScale::dp(56)));
+      m_fileListView->setUniformItemSizes(true);
+      m_fileListView->setGridSize(
+          QSize(itemWidth + spacing, itemHeight + spacing));
+      return;
+    }
 
     const int minTile = UiScale::dp(118);
     const int maxTile = UiScale::dp(148);
@@ -5680,10 +5706,24 @@ void MainWindow::setupUi() {
 
   m_libraryOrgBar = new LibraryOrgBar(m_overviewContainer);
   m_libraryOrgBar->setAccentColor(QColor(QStringLiteral("#5B9DFF")));
+#ifndef Q_OS_ANDROID
+  m_libraryOrgBar->setSortMode(LibraryOrgBar::SortMode::Modified);
+#endif
   connect(m_libraryOrgBar, &LibraryOrgBar::smartViewChanged, this,
           [this](LibraryOrgBar::SmartView) { applyLibraryFilters(); });
   connect(m_libraryOrgBar, &LibraryOrgBar::sortModeChanged, this,
-          [this](LibraryOrgBar::SortMode) { applyLibraryFilters(); });
+          [this](LibraryOrgBar::SortMode) {
+            applyLibraryFilters();
+            if (QPushButton *sortBtn = m_libraryOrgBar->sortButton()) {
+              sortBtn->setStyleSheet(QStringLiteral(
+                  "QPushButton {"
+                  "  background: #FFFFFF; color: #3A3F4A; border: 1px solid #E4E7EE;"
+                  "  border-radius: 10px; padding: 0 12px; min-height: 36px;"
+                  "  font-size: 12px; font-weight: 600;"
+                  "}"
+                  "QPushButton:hover { border-color: #5B9DFF; }"));
+            }
+          });
 
   auto *topBar = new QHBoxLayout();
   topBar->setContentsMargins(0, 0, 0, 0);
@@ -5723,7 +5763,6 @@ void MainWindow::setupUi() {
 
   m_libraryOrgBar->placeSortInActionBar(topBar);
   if (QPushButton *sortBtn = m_libraryOrgBar->sortButton()) {
-    sortBtn->setText(QStringLiteral("Zuletzt geändert"));
     sortBtn->setStyleSheet(QStringLiteral(
         "QPushButton {"
         "  background: #FFFFFF; color: #3A3F4A; border: 1px solid #E4E7EE;"
@@ -5733,31 +5772,66 @@ void MainWindow::setupUi() {
         "QPushButton:hover { border-color: #5B9DFF; }"));
   }
 
-  auto *btnGrid = new QPushButton(m_overviewContainer);
-  btnGrid->setFixedSize(UiScale::dp(36), UiScale::dp(36));
-  btnGrid->setCursor(Qt::PointingHandCursor);
-  btnGrid->setToolTip(QStringLiteral("Rasteransicht"));
-  btnGrid->setIcon(createModernIcon(QStringLiteral("layout_rows"),
-                                    QColor(0x5B, 0x9D, 0xFF)));
-  btnGrid->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-  btnGrid->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #FFFFFF; border: 1px solid #E4E7EE;"
-      " border-radius: 10px; }"
-      "QPushButton:hover { border-color: #5B9DFF; }"));
-  topBar->addWidget(btnGrid);
+  const auto libraryViewBtnStyle = [](bool active) {
+    return QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2;"
+               " border-radius: 10px; }"
+               "QPushButton:hover { border-color: #5B9DFF; }")
+        .arg(active ? QStringLiteral("#EEF4FF") : QStringLiteral("#FFFFFF"),
+             active ? QStringLiteral("#5B9DFF") : QStringLiteral("#E4E7EE"));
+  };
 
-  auto *btnList = new QPushButton(m_overviewContainer);
-  btnList->setFixedSize(UiScale::dp(36), UiScale::dp(36));
-  btnList->setCursor(Qt::PointingHandCursor);
-  btnList->setToolTip(QStringLiteral("Listenansicht"));
-  btnList->setIcon(createModernIcon(QStringLiteral("layout_single"),
-                                    QColor(0x6B, 0x72, 0x80)));
-  btnList->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
-  btnList->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #FFFFFF; border: 1px solid #E4E7EE;"
-      " border-radius: 10px; }"
-      "QPushButton:hover { border-color: #5B9DFF; }"));
-  topBar->addWidget(btnList);
+  m_btnLibraryGrid = new QPushButton(m_overviewContainer);
+  m_btnLibraryGrid->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  m_btnLibraryGrid->setCursor(Qt::PointingHandCursor);
+  m_btnLibraryGrid->setCheckable(true);
+  m_btnLibraryGrid->setChecked(true);
+  m_btnLibraryGrid->setToolTip(QStringLiteral("Rasteransicht"));
+  m_btnLibraryGrid->setIcon(createModernIcon(QStringLiteral("layout_rows"),
+                                            QColor(0x5B, 0x9D, 0xFF)));
+  m_btnLibraryGrid->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
+  m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(true));
+  topBar->addWidget(m_btnLibraryGrid);
+
+  m_btnLibraryList = new QPushButton(m_overviewContainer);
+  m_btnLibraryList->setFixedSize(UiScale::dp(36), UiScale::dp(36));
+  m_btnLibraryList->setCursor(Qt::PointingHandCursor);
+  m_btnLibraryList->setCheckable(true);
+  m_btnLibraryList->setToolTip(QStringLiteral("Listenansicht"));
+  m_btnLibraryList->setIcon(createModernIcon(QStringLiteral("layout_single"),
+                                            QColor(0x6B, 0x72, 0x80)));
+  m_btnLibraryList->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
+  m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(false));
+  topBar->addWidget(m_btnLibraryList);
+
+  connect(m_btnLibraryGrid, &QPushButton::clicked, this, [this, libraryViewBtnStyle]() {
+    if (!m_btnLibraryGrid || !m_btnLibraryList)
+      return;
+    m_libraryListMode = false;
+    m_btnLibraryGrid->setChecked(true);
+    m_btnLibraryList->setChecked(false);
+    m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(true));
+    m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(false));
+    m_btnLibraryGrid->setIcon(
+        createModernIcon(QStringLiteral("layout_rows"), QColor(0x5B, 0x9D, 0xFF)));
+    m_btnLibraryList->setIcon(
+        createModernIcon(QStringLiteral("layout_single"), QColor(0x6B, 0x72, 0x80)));
+    updateGrid();
+  });
+  connect(m_btnLibraryList, &QPushButton::clicked, this, [this, libraryViewBtnStyle]() {
+    if (!m_btnLibraryGrid || !m_btnLibraryList)
+      return;
+    m_libraryListMode = true;
+    m_btnLibraryGrid->setChecked(false);
+    m_btnLibraryList->setChecked(true);
+    m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(false));
+    m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(true));
+    m_btnLibraryGrid->setIcon(
+        createModernIcon(QStringLiteral("layout_rows"), QColor(0x6B, 0x72, 0x80)));
+    m_btnLibraryList->setIcon(
+        createModernIcon(QStringLiteral("layout_single"), QColor(0x5B, 0x9D, 0xFF)));
+    updateGrid();
+  });
 
   // Keep create affordance available but quiet — primary create lives in the
   // K sidebar (+ / rail). Match mock: no purple FAB in the Hauptmenü header.
@@ -5793,7 +5867,11 @@ void MainWindow::setupUi() {
                                         BlopTheme::textSecondary()));
     m_overviewSearchBar->addAction(searchAct, QLineEdit::LeadingPosition);
     connect(m_overviewSearchBar, &QLineEdit::textChanged, this,
-            [this](const QString &) { applyLibraryFilters(); });
+            [this](const QString &t) {
+              applyLibraryFilters();
+              if (m_sidebarSearch && m_sidebarSearch->text() != t)
+                m_sidebarSearch->setText(t);
+            });
   }
 
   auto *libraryBody = new QWidget(m_overviewContainer);
@@ -8228,13 +8306,23 @@ void MainWindow::setupSidebar() {
       "QLineEdit#SidebarSearch {"
       "  background: #13151A; color: #E8EAF0;"
       "  border: 1px solid #2A2D36; border-radius: 8px;"
-      "  padding: 0 8px 0 12px; font-size: 12px;"
+      "  padding: 0 8px 0 32px; font-size: 12px;"
       "}"
       "QLineEdit#SidebarSearch:focus { border: 1px solid #5B9DFF; }"));
   {
+    auto *searchIcon = new QLabel(m_sidebarSearch);
+    searchIcon->setPixmap(createModernIcon(QStringLiteral("search"),
+                                           QColor(0x6B, 0x72, 0x80))
+                              .pixmap(UiScale::dp(14), UiScale::dp(14)));
+    searchIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
+    auto *searchAct = new QWidgetAction(m_sidebarSearch);
+    searchAct->setDefaultWidget(searchIcon);
+    m_sidebarSearch->addAction(searchAct, QLineEdit::LeadingPosition);
     auto *cmdHint = new QLabel(QStringLiteral("⌘K"));
     cmdHint->setStyleSheet(QStringLiteral(
-        "color: #6B7280; font-size: 10px; font-weight: 600; padding: 0 4px;"));
+        "color: #6B7280; font-size: 10px; font-weight: 600;"
+        " background: #1E2028; border: 1px solid #343842;"
+        " border-radius: 4px; padding: 1px 4px;"));
     auto *hintAct = new QWidgetAction(m_sidebarSearch);
     hintAct->setDefaultWidget(cmdHint);
     m_sidebarSearch->addAction(hintAct, QLineEdit::TrailingPosition);
@@ -8248,7 +8336,25 @@ void MainWindow::setupSidebar() {
           [this](const QString &t) {
             if (m_overviewSearchBar && m_overviewSearchBar->text() != t)
               m_overviewSearchBar->setText(t);
+            applyLibraryFilters();
           });
+  {
+    auto *focusSearch = new QShortcut(
+        QKeySequence(Qt::CTRL | Qt::Key_K), this);
+    focusSearch->setContext(Qt::ApplicationShortcut);
+    connect(focusSearch, &QShortcut::activated, this, [this]() {
+      if (m_isSidebarOpen && m_sidebarSearch) {
+        m_sidebarSearch->setFocus();
+        m_sidebarSearch->selectAll();
+      } else if (m_overviewSearchBar && m_overviewSearchBar->isVisible()) {
+        m_overviewSearchBar->setFocus();
+        m_overviewSearchBar->selectAll();
+      } else if (m_titleSearchBar && m_titleSearchBar->isVisible()) {
+        m_titleSearchBar->setFocus();
+        m_titleSearchBar->selectAll();
+      }
+    });
+  }
 #endif
 
   // Header and account/settings stay sticky. Nav + tags flick-scroll together
@@ -8931,6 +9037,9 @@ void MainWindow::updateSidebarBadges() {
         item->text() == QStringLiteral("Bibliothek") ||
         item->text() == QStringLiteral("Blop Notizen")) {
       item->setData(Qt::UserRole + 2, rootCountStr);
+    } else if (item->text() == QStringLiteral("Favoriten")) {
+      item->setData(Qt::UserRole + 2,
+                    QString::number(LibraryOrgStore::favoritePaths().size()));
     } else if (item->text() == QStringLiteral("Papierkorb")) {
       item->setData(Qt::UserRole + 2,
                     trashCount > 0 ? QString::number(trashCount) : QString());
@@ -10732,7 +10841,8 @@ void MainWindow::updateSidebarState() {
     m_btnNewTab->setToolTip(QStringLiteral("Neue Notiz"));
   }
   if (m_documentTabBar)
-    m_documentTabBar->setVisible(inNotesMode);
+    m_documentTabBar->setVisible(inNotesMode && isEditor &&
+                               m_editorTabs && m_editorTabs->count() > 0);
   if (m_lblBrand)
     m_lblBrand->setVisible(inNotesMode && !m_isSidebarOpen);
 #ifndef Q_OS_ANDROID
@@ -10822,9 +10932,9 @@ void MainWindow::updateSidebarState() {
     // Keep library sidebar state as the user left it (hamburger toggles).
     positionNoteChrome();
   }
-  // Title-bar search competes with document tabs while editing; overview has its own.
+  // Title-bar search: editor only (overview has its own centered search).
   if (m_titleSearchBar)
-    m_titleSearchBar->setVisible(inNotesMode && !inEditorStack);
+    m_titleSearchBar->setVisible(inNotesMode && isEditor);
   {
     bool showNoteOverflow = false;
     if (isEditor && m_editorTabs) {

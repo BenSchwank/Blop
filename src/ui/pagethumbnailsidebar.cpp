@@ -368,14 +368,14 @@ void PageThumbnailSidebar::applyCollapsedState() {
     if (m_btnToggle) {
       m_btnToggle->show();
       m_btnToggle->setIcon(QIcon());
-      m_btnToggle->setText(m_collapsed ? QStringLiteral("▾ Seiten")
+      m_btnToggle->setText(m_collapsed ? QStringLiteral("▾")
                                        : QStringLiteral("▴"));
       m_btnToggle->setToolTip(m_collapsed
                                   ? QStringLiteral("Seitenleiste aufklappen")
                                   : QStringLiteral("Seitenleiste einklappen"));
       if (m_collapsed) {
-        m_btnToggle->setFixedHeight(handle);
-        m_btnToggle->setMinimumWidth(UiScale::dp(96));
+        m_btnToggle->setFixedSize(UiScale::dp(36), handle);
+        m_btnToggle->setMinimumWidth(UiScale::dp(36));
       } else {
         m_btnToggle->setFixedSize(UiScale::dp(44), UiScale::dp(44));
       }
@@ -500,9 +500,11 @@ void PageThumbnailSidebar::refreshListStyle() {
             "QListWidget::item {"
             "  border: 1px solid %2; border-radius: 6px; padding: 2px;"
             "  background: %3; color: %1;"
+            "  font-size: 11px; font-weight: 600;"
             "}"
             "QListWidget::item:selected {"
-            "  border: 1px solid %4; background: rgba(%5,%6,%7,0.10);"
+            "  border: 2px solid %4; background: rgba(%5,%6,%7,0.08);"
+            "  color: #1C1E24;"
             "}"
             "QListWidget::item:hover { background: %8; }")
             .arg(itemFg, itemBorder, itemBg, accent.name(),

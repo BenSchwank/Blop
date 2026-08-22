@@ -595,6 +595,9 @@ private:
   LibraryOrgBar *m_libraryOrgBar{nullptr};
   QLineEdit *m_overviewSearchBar{nullptr};
   QPushButton *m_btnLibraryNewNote{nullptr};
+  QPushButton *m_btnLibraryGrid{nullptr};
+  QPushButton *m_btnLibraryList{nullptr};
+  bool m_libraryListMode{false};
   QLabel *m_lblLibraryTitle{nullptr};
   QLabel *m_lblLibrarySubtitle{nullptr};
   QLabel *m_lblCloudSyncStatus{nullptr};
