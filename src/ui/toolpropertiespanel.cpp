@@ -333,7 +333,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   rebuild();
 }
 
-int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(340); }
+int ToolPropertiesPanel::preferredWidth() const { return UiScale::dp(300); }
 
 int ToolPropertiesPanel::preferredHeight() const {
   // Prefer natural content height, but keep a sensible floating-card size.
@@ -689,19 +689,25 @@ void ToolPropertiesPanel::refreshStyleTiles() {
   auto styleBtn = [this](QPushButton *btn, bool selected) {
     if (!btn)
       return;
+    const bool light = !NoteChrome::isDark();
     const QString border =
-        selected ? m_accent.name() : NoteChrome::border().name();
+        selected ? m_accent.name()
+                 : (light ? QStringLiteral("#E4E7EE")
+                          : NoteChrome::border().name());
     const QString bg =
-        selected ? QStringLiteral("rgba(91,157,255,0.18)")
-                 : QStringLiteral("rgba(255,255,255,0.04)");
+        selected ? QStringLiteral("rgba(91,157,255,0.14)")
+                 : (light ? QStringLiteral("#F5F6F8")
+                          : QStringLiteral("rgba(255,255,255,0.04)"));
+    const QString hover = light ? QStringLiteral("rgba(91,157,255,0.08)")
+                                : QStringLiteral("rgba(255,255,255,0.08)");
     btn->setStyleSheet(
         QStringLiteral("QPushButton#ToolPropsStyle {"
                        "  background: %1; border: 1px solid %2; border-radius: 10px;"
                        "  text-align: center; padding: 10px 8px;"
                        "  color: %3; font-size: 12px; font-weight: 700;"
                        "}"
-                       "QPushButton#ToolPropsStyle:hover { background: rgba(255,255,255,0.08); }")
-            .arg(bg, border, NoteChrome::textPrimary().name()));
+                       "QPushButton#ToolPropsStyle:hover { background: %4; }")
+            .arg(bg, border, NoteChrome::textPrimary().name(), hover));
     btn->setChecked(selected);
   };
   styleBtn(m_styleEinfach, cur == PenInkStyle::Einfach);
@@ -921,11 +927,27 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
 
 void ToolPropertiesPanel::rebuild() {
   const int radius = UiScale::dp(16);
+  const bool light = !NoteChrome::isDark();
+  const QString panelBg =
+      light ? QStringLiteral("#FFFFFF") : NoteChrome::panelElevated().name();
+  const QString edge =
+      light ? QStringLiteral("#E4E7EE") : NoteChrome::border().name();
+  const QString muted =
+      light ? QStringLiteral("#6B7280") : NoteChrome::textSecondary().name();
+  const QString chipBg =
+      light ? QStringLiteral("#F5F6F8") : QStringLiteral("rgba(255,255,255,0.04)");
+  const QString chipHover =
+      light ? QStringLiteral("rgba(91,157,255,0.08)")
+            : QStringLiteral("rgba(255,255,255,0.08)");
+  const QString groove =
+      light ? QStringLiteral("#E8EBF2") : NoteChrome::border().name();
+  const QString handle =
+      light ? QStringLiteral("#FFFFFF") : NoteChrome::textPrimary().name();
   const QString qss = QStringLiteral(
       "QWidget#ToolPropertiesPanel {"
       "  background: %1;"
       "  border: none;"
-      "  border-radius: %6px;"
+      "  border-radius: %8px;"
       "}"
       "QWidget#ToolPropsBody, QScrollArea#ToolPropsScroll,"
       " QScrollArea#ToolPropsScroll > QWidget > QWidget {"
@@ -934,31 +956,37 @@ void ToolPropertiesPanel::rebuild() {
       "QLabel { color: %3; background: transparent; font-size: 13px; font-weight: 600; }"
       "QCheckBox { color: %3; background: transparent; font-size: 13px; font-weight: 600; spacing: 10px; }"
       "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px;"
-      "  border: 1px solid %2; background: rgba(255,255,255,0.04); }"
+      "  border: 1px solid %2; background: %6; }"
       "QCheckBox::indicator:checked { background: %4; border-color: %4; }"
       "QPushButton#ToolPropsMode {"
-      "  color: %3; background: rgba(255,255,255,0.04);"
+      "  color: %3; background: %6;"
       "  border: 1px solid %2; border-radius: 10px; font-size: 12px; font-weight: 650;"
       "  padding: 8px 10px; }"
       "QPushButton#ToolPropsMode:checked {"
-      "  background: rgba(91,157,255,0.20); border-color: %4; color: %5; }"
-      "QPushButton#ToolPropsMode:hover { background: rgba(255,255,255,0.08); }"
+      "  background: rgba(91,157,255,0.14); border-color: %4; color: %5; }"
+      "QPushButton#ToolPropsMode:hover { background: %7; }"
       "QPushButton#ToolPropsClose {"
       "  color: %5; background: transparent; border: none; font-size: 18px; }"
-      "QSlider::groove:horizontal { height: 6px; background: %2; border-radius: 3px; }"
+      "QPushButton#ToolPropsClose:hover {"
+      "  background: %6; border-radius: 8px; }"
+      "QSlider::groove:horizontal { height: 6px; background: %9; border-radius: 3px; }"
       "QSlider::sub-page:horizontal { background: %4; border-radius: 3px; }"
-      "QSlider::handle:horizontal { background: %5; width: 16px; height: 16px; "
-      "margin: -5px 0; border-radius: 8px; }"
+      "QSlider::handle:horizontal { background: %10; border: 2px solid %4;"
+      "  width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
       "QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }"
       "QScrollBar::handle:vertical { background: %2; border-radius: 4px; min-height: 24px; }"
       "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }")
-                          .arg(NoteChrome::panelElevated().name(),
-                               NoteChrome::border().name(),
-                               NoteChrome::textSecondary().name(),
-                               NoteChrome::accent().name(),
-                               NoteChrome::textPrimary().name())
-                          .arg(radius);
+                          .arg(panelBg, edge, muted, NoteChrome::accent().name(),
+                               NoteChrome::textPrimary().name(), chipBg, chipHover)
+                          .arg(radius)
+                          .arg(groove, handle);
   setStyleSheet(qss);
+  if (m_title) {
+    m_title->setStyleSheet(
+        QStringLiteral("font-size: 16px; font-weight: 750; letter-spacing: -0.2px;"
+                       " color: %1; background: transparent;")
+            .arg(NoteChrome::textPrimary().name(QColor::HexRgb)));
+  }
   refreshSwatchSelection();
   refreshFillSwatchSelection();
   refreshStyleTiles();
@@ -970,13 +998,19 @@ void ToolPropertiesPanel::paintEvent(QPaintEvent *event) {
   p.setRenderHint(QPainter::Antialiasing, true);
   const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
   const qreal radius = UiScale::dp(16);
+  const bool light = !NoteChrome::isDark();
   p.setPen(Qt::NoPen);
-  p.setBrush(QColor(0, 0, 0, 22));
-  p.drawRoundedRect(r.translated(0, 1), radius, radius);
-  QLinearGradient grad(r.topLeft(), r.bottomLeft());
-  grad.setColorAt(0, NoteChrome::panelElevated());
-  grad.setColorAt(1, NoteChrome::panelBg());
-  p.setBrush(grad);
-  p.setPen(QPen(NoteChrome::borderSoft(), 1));
+  p.setBrush(QColor(0, 0, 0, light ? 18 : 22));
+  p.drawRoundedRect(r.translated(0, 1.5), radius, radius);
+  if (light) {
+    p.setBrush(QColor(255, 255, 255));
+    p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1));
+  } else {
+    QLinearGradient grad(r.topLeft(), r.bottomLeft());
+    grad.setColorAt(0, NoteChrome::panelElevated());
+    grad.setColorAt(1, NoteChrome::panelBg());
+    p.setBrush(grad);
+    p.setPen(QPen(NoteChrome::borderSoft(), 1));
+  }
   p.drawRoundedRect(r, radius, radius);
 }

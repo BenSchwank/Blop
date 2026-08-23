@@ -144,6 +144,7 @@
 #include <QUuid>
 #include <QStyle>
 #include <QTimer>
+#include <QtGlobal>
 #include <QSignalBlocker>
 #include <QToolBar>
 #include <QSizePolicy>
@@ -6194,10 +6195,15 @@ void MainWindow::setupUi() {
       if (m_toolPropertiesPanel) {
         m_toolPropertiesPanel->show();
         m_toolPropertiesPanel->syncFromToolManager();
+        m_toolPropertiesPanel->raise();
       }
       if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
         tb->setPropertiesPanelOpen(true);
       positionNoteChrome();
+      if (m_toolPropertiesPanel) {
+        m_toolPropertiesPanel->raise();
+        m_toolPropertiesPanel->activateWindow();
+      }
     });
     connect(topToolbar, &ModernToolbar::propertiesPanelToggleRequested, this,
             [this]() {
@@ -6256,6 +6262,41 @@ void MainWindow::setupUi() {
     bindToolShortcut(QKeySequence(Qt::Key_E), ToolMode::Eraser);
     bindToolShortcut(QKeySequence(Qt::Key_V), ToolMode::Lasso);
     bindToolShortcut(QKeySequence(Qt::Key_T), ToolMode::Text);
+        // Studio: open light tool properties sheet.
+    {
+      auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")), this);
+      sc->setContext(Qt::ApplicationShortcut);
+      connect(sc, &QShortcut::activated, this, [this]() {
+        m_toolPropertiesVisible = true;
+        if (m_toolPropertiesPanel) {
+          m_toolPropertiesPanel->syncFromToolManager();
+          m_toolPropertiesPanel->show();
+          m_toolPropertiesPanel->raise();
+        }
+        if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
+          tb->setPropertiesPanelOpen(true);
+        positionNoteChrome();
+        if (m_toolPropertiesPanel) {
+          m_toolPropertiesPanel->show();
+          m_toolPropertiesPanel->raise();
+        }
+      });
+    }
+// Studio: toggle K snapped pill ↔ J floating rail.
+    {
+      auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+J")), this);
+      sc->setContext(Qt::ApplicationShortcut);
+      connect(sc, &QShortcut::activated, this, [this, topToolbar]() {
+        if (!topToolbar)
+          return;
+        QWidget *fw = QApplication::focusWidget();
+        if (qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) ||
+            qobject_cast<QPlainTextEdit *>(fw))
+          return;
+        topToolbar->setDockMode(!topToolbar->isDockedMode());
+        positionDrawboardToolbar();
+      });
+    }
     // Space is hold-to-pan in MultiPageNoteView (not a permanent Hand switch).
 
     auto bindFitShortcut = [this](const QKeySequence &seq, bool width) {
@@ -9746,6 +9787,17 @@ void MainWindow::switchToEditorChrome() {
       if (view)
         view->fitPage();
     });
+  // Optional: start undocked (J float rail) for studio verification.
+  if (qEnvironmentVariableIsSet("BLOP_STUDIO_FLOAT")) {
+    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
+      QTimer::singleShot(50, this, [this, tb]() {
+        if (!tb)
+          return;
+        tb->setDockMode(false);
+        positionDrawboardToolbar();
+      });
+    }
+  }
 #endif
 }
 
@@ -13814,7 +13866,11 @@ void MainWindow::positionNoteChrome() {
       if (pagesOnRight)
         x = qMin(x, rightX - propsW - propsGap);
     }
-    const int y = noteHeaderHeight() + propsGap + topClear;
+    int stripH = 0;
+    if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
+        m_pageThumbnailSidebar->isHorizontalStrip())
+      stripH = m_pageThumbnailSidebar->height();
+    const int y = noteHeaderHeight() + propsGap + topClear + stripH;
     const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
     // Clamp height; ToolPropertiesPanel scrolls internally so controls never
     // stack on top of each other when the card is shorter than its content.
