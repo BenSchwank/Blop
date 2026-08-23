@@ -5740,6 +5740,7 @@ void ModernToolbar::rebuildSlotButtons() {
     auto *btn = new ToolbarBtn(iconForSlot(m_railSlots[i]), this);
     btn->setAccentColor(m_accentColor);
     btn->setRailSlotStyle(true);
+    btn->setLightStudioStyle(isStudioChrome() && !m_isDockedMode);
     btn->setRailSlotIndex(i);
     m_slotButtons.append(btn);
     syncSlotButtonAppearance(i);
@@ -6912,7 +6913,19 @@ void ModernToolbar::updateLayout(bool animate) {
         int lastSlotBottom = contentTop;
         for (int i = 0; i < slotBtns.size(); ++i) {
           ToolbarBtn *b = slotBtns[i];
+          b->setLightStudioStyle(studioFloat);
           b->setRailSlotStyle(true);
+          b->setRailFooterStyle(false);
+          b->setShowChevron(false);
+          if (studioFloat && (b == btnUndo || b == btnRedo)) {
+            b->setIcon(b == btnUndo ? QStringLiteral("undo")
+                                    : QStringLiteral("redo"));
+            b->setGlyphColor(QColor());
+          } else {
+            const int slotIdx = m_slotButtons.indexOf(b);
+            if (slotIdx >= 0)
+              syncSlotButtonAppearance(slotIdx);
+          }
           b->setBtnCell(w - UiScale::dp(6), btnS);
           const int bx = UiScale::dp(3);
           const int by = y;

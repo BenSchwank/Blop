@@ -12,7 +12,7 @@ class QListWidget;
 class QListWidgetItem;
 class QPushButton;
 class QVariantAnimation;
-class Note;
+class QStyledItemDelegate;
 
 class PageThumbnailSidebar : public QWidget {
   Q_OBJECT
@@ -69,8 +69,10 @@ private:
   MultiPageNoteView *m_view{nullptr};
   QListWidget *m_list{nullptr};
   QPushButton *m_btnAddPage{nullptr};
+  QPushButton *m_btnScrollRight{nullptr};
   QPushButton *m_btnToggle{nullptr};
   QPushButton *m_btnColumns{nullptr};
+  void updateHorizontalScrollAffordance();
   QWidget *m_railBody{nullptr};
   QColor m_accentColor{QColor(QStringLiteral("#5B9DFF"))};
   int m_currentPage{-1};
@@ -81,5 +83,6 @@ private:
   bool m_twoColumn{false};
   int m_expandedWidth{0};
   int m_expandedHeight{0};
+  QStyledItemDelegate *m_stripDelegate{nullptr};
   QVariantAnimation *m_heightAnim{nullptr};
 };

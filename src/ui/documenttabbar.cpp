@@ -280,20 +280,20 @@ void DocumentTab::paintEvent(QPaintEvent *) {
   path.addRoundedRect(r, rad, rad);
 
   if (m_noteChromeMode) {
+    const QColor accent =
+        m_accentColor.isValid() ? m_accentColor : NoteChrome::accent();
     if (m_active) {
-      QColor bg = NoteChrome::panelElevated();
-      p.fillPath(path, bg);
-      p.setPen(QPen(m_accentColor.isValid() ? m_accentColor : NoteChrome::accent(),
-                    1.2));
+      p.fillPath(path, QColor(0xFF, 0xFF, 0xFF));
+      p.setPen(QPen(accent, 2.0));
       p.drawPath(path);
     } else if (m_hovered) {
-      QColor bg = NoteChrome::panelBg();
-      bg.setAlpha(220);
-      p.fillPath(path, bg);
+      p.fillPath(path, QColor(0xF8, 0xF9, 0xFB));
+      p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
+      p.drawPath(path);
     } else {
-      QColor bg = NoteChrome::panelBg();
-      bg.setAlpha(140);
-      p.fillPath(path, bg);
+      p.fillPath(path, QColor(0xFF, 0xFF, 0xFF));
+      p.setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
+      p.drawPath(path);
     }
     return;
   }

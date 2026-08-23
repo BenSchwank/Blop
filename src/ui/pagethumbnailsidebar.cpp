@@ -20,10 +20,13 @@
 #include <QListWidgetItem>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSize>
+#include <QStyledItemDelegate>
+#include <QStyleOptionViewItem>
 #include <QTimer>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
@@ -65,6 +68,65 @@ QIcon railGlyph(const QString &name, const QColor &fg, int px) {
   blopDrawToolbarGlyph64(&p, name, fg);
   return QIcon(pm);
 }
+
+class PageStripDelegate : public QStyledItemDelegate {
+public:
+  explicit PageStripDelegate(QObject *parent = nullptr)
+      : QStyledItemDelegate(parent) {}
+
+  void paint(QPainter *p, const QStyleOptionViewItem &option,
+             const QModelIndex &index) const override {
+    QStyleOptionViewItem opt = option;
+    initStyleOption(&opt, index);
+    const bool selected = opt.state & QStyle::State_Selected;
+    const bool hover = opt.state & QStyle::State_MouseOver;
+    opt.state &= ~QStyle::State_Selected;
+
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing);
+
+    const QRectF box = QRectF(option.rect).adjusted(1.5, 1.5, -1.5, -1.5);
+    const QColor accent = NoteChrome::accent();
+    if (selected) {
+      p->setPen(QPen(accent, 2.0));
+      p->setBrush(QColor(0xFF, 0xFF, 0xFF));
+    } else if (hover) {
+      p->setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
+      p->setBrush(QColor(0xF8, 0xF9, 0xFB));
+    } else {
+      p->setPen(QPen(QColor(0xE4, 0xE7, 0xEE), 1.0));
+      p->setBrush(QColor(0xFF, 0xFF, 0xFF));
+    }
+    p->drawRoundedRect(box, 8.0, 8.0);
+
+    const QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
+    const QString text = index.data(Qt::DisplayRole).toString();
+    const QFont f = opt.font;
+    QFontMetrics fm(f);
+    const int textH = fm.height();
+    const int pad = UiScale::dp(4);
+    const int iconH = qMax(UiScale::dp(48),
+                           option.rect.height() - textH - pad * 3);
+    const int iconW = option.rect.width() - pad * 2;
+    const QRect iconRect(option.rect.left() + pad, option.rect.top() + pad,
+                         iconW, iconH);
+    if (!icon.isNull())
+      icon.paint(p, iconRect, Qt::AlignCenter);
+
+    const QColor textColor =
+        selected ? QColor(0x1C, 0x1E, 0x24)
+                 : (index.data(Qt::ForegroundRole).canConvert<QColor>()
+                        ? index.data(Qt::ForegroundRole).value<QColor>()
+                        : QColor(0x5A, 0x60, 0x70));
+    p->setPen(textColor);
+    p->setFont(f);
+    const QRect textRect(option.rect.left(), iconRect.bottom() + pad / 2,
+                         option.rect.width(), textH + pad);
+    p->drawText(textRect, Qt::AlignHCenter | Qt::AlignTop, text);
+
+    p->restore();
+  }
+};
 } // namespace
 
 PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
@@ -114,9 +176,16 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
           &PageThumbnailSidebar::showItemContextMenu);
   connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this,
           [this]() { requestVisibleThumbnails(); });
-  if (m_list->horizontalScrollBar())
+  if (m_list->horizontalScrollBar()) {
     connect(m_list->horizontalScrollBar(), &QScrollBar::valueChanged, this,
-            [this]() { requestVisibleThumbnails(); });
+            [this]() {
+              requestVisibleThumbnails();
+              updateHorizontalScrollAffordance();
+            });
+    connect(m_list->horizontalScrollBar(), &QScrollBar::rangeChanged, this,
+            [this](int, int) { updateHorizontalScrollAffordance(); });
+  }
+  m_list->setFocusPolicy(Qt::NoFocus);
   m_list->viewport()->installEventFilter(this);
   connect(m_list->model(), &QAbstractItemModel::rowsMoved, this,
           [this](const QModelIndex &, int start, int end,
@@ -284,6 +353,27 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
       m_list->setParent(this);
       row->addWidget(m_list, 1);
     }
+    if (!m_btnScrollRight) {
+      m_btnScrollRight = new QPushButton(this);
+      m_btnScrollRight->setObjectName(QStringLiteral("PageRailScrollBtn"));
+      m_btnScrollRight->setFixedSize(UiScale::dp(34), UiScale::dp(34));
+      m_btnScrollRight->setCursor(Qt::PointingHandCursor);
+      m_btnScrollRight->setToolTip(QStringLiteral("Weitere Seiten"));
+      m_btnScrollRight->setText(QStringLiteral("›"));
+      m_btnScrollRight->setIcon(QIcon());
+      connect(m_btnScrollRight, &QPushButton::clicked, this, [this]() {
+        if (!m_list || !m_list->horizontalScrollBar())
+          return;
+        auto *bar = m_list->horizontalScrollBar();
+        bar->setValue(bar->value() + UiScale::dp(120));
+        requestVisibleThumbnails();
+        updateHorizontalScrollAffordance();
+      });
+    }
+    if (m_btnScrollRight) {
+      m_btnScrollRight->setParent(this);
+      row->addWidget(m_btnScrollRight, 0, Qt::AlignVCenter);
+    }
     if (m_btnAddPage) {
       m_btnAddPage->setParent(this);
       row->addWidget(m_btnAddPage, 0, Qt::AlignVCenter);
@@ -316,6 +406,16 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
   applyViewMode();
   applyCollapsedState();
   refreshListStyle();
+  updateHorizontalScrollAffordance();
+}
+
+void PageThumbnailSidebar::updateHorizontalScrollAffordance() {
+  if (!m_horizontalStrip || !m_btnScrollRight || !m_list)
+    return;
+  auto *bar = m_list->horizontalScrollBar();
+  const bool canScroll =
+      bar && bar->maximum() > 0 && bar->value() < bar->maximum();
+  m_btnScrollRight->setVisible(!m_collapsed && canScroll);
 }
 
 void PageThumbnailSidebar::applyViewMode() {
@@ -370,6 +470,7 @@ void PageThumbnailSidebar::applyCollapsedState() {
       m_list->setVisible(!m_collapsed);
     if (m_btnAddPage)
       m_btnAddPage->setVisible(!m_collapsed);
+    updateHorizontalScrollAffordance();
     if (m_btnToggle) {
       m_btnToggle->show();
       m_btnToggle->setIcon(QIcon());
@@ -464,8 +565,13 @@ void PageThumbnailSidebar::refreshListStyle() {
       "  background: %4; color: %3; border: 1px solid %5; border-radius: 6px;"
       "  font-size: 12px; font-weight: 600;"
       "}"
-      "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover {"
+      "QPushButton#PageRailAddBtn:hover, QPushButton#PageRailColsBtn:hover,"
+      "QPushButton#PageRailScrollBtn:hover {"
       "  border-color: %6; color: %7; background: rgba(91,157,255,0.10);"
+      "}"
+      "QPushButton#PageRailScrollBtn {"
+      "  background: %4; color: %3; border: 1px solid %5; border-radius: 10px;"
+      "  font-size: 18px; font-weight: 700;"
       "}")
                     .arg(bg, edge, toggleFg.name(),
                          m_horizontalStrip ? QStringLiteral("#F8F9FB")
@@ -501,21 +607,36 @@ void PageThumbnailSidebar::refreshListStyle() {
                                             : QStringLiteral("rgba(91,157,255,0.12)");
     m_list->setStyleSheet(
         QStringLiteral(
-            "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
+            "QListWidget { background: transparent; border: none; outline: 0; color: %1;"
+            "  show-decoration-selected: 0; }"
             "QListWidget::item {"
             "  border: 1px solid %2; border-radius: 8px; padding: 3px;"
             "  background: %3; color: %1;"
             "  font-size: 10px; font-weight: 600;"
             "}"
-            "QListWidget::item:selected {"
+            "QListWidget::item:selected,"
+            "QListWidget::item:selected:active,"
+            "QListWidget::item:selected:!active {"
             "  border: 2px solid %4; background: #FFFFFF;"
             "  color: #1C1E24;"
             "}"
-            "QListWidget::item:hover { background: %8; }")
-            .arg(itemFg, itemBorder, itemBg, accent.name(),
-                 QString::number(accent.red()), QString::number(accent.green()),
-                 QString::number(accent.blue()), hover));
+            "QListWidget::item:hover:!selected { background: %5; }")
+            .arg(itemFg, itemBorder, itemBg, accent.name(), hover));
+    if (m_horizontalStrip) {
+      if (!m_stripDelegate)
+        m_stripDelegate = new PageStripDelegate(m_list);
+      if (m_list->itemDelegate() != m_stripDelegate)
+        m_list->setItemDelegate(m_stripDelegate);
+    } else if (m_stripDelegate && m_list->itemDelegate() == m_stripDelegate) {
+      m_list->setItemDelegate(new QStyledItemDelegate(m_list));
+    }
+    QPalette pal = m_list->palette();
+    pal.setColor(QPalette::Base, Qt::transparent);
+    pal.setColor(QPalette::Highlight, QColor(255, 255, 255));
+    pal.setColor(QPalette::HighlightedText, QColor(0x1C, 0x1E, 0x24));
+    m_list->setPalette(pal);
   }
+  updateHorizontalScrollAffordance();
 }
 
 void PageThumbnailSidebar::setNoteView(MultiPageNoteView *view) {
@@ -612,7 +733,10 @@ void PageThumbnailSidebar::rebuild() {
   // Only render the thumbnails that are currently visible. This keeps note
   // load and bulk page operations (delete/duplicate/layout) responsive for
   // notebooks with many pages. Defer until the list has laid out items.
-  QTimer::singleShot(0, this, [this, epoch]() { requestVisibleThumbnails(epoch); });
+  QTimer::singleShot(0, this, [this, epoch]() {
+    requestVisibleThumbnails(epoch);
+    updateHorizontalScrollAffordance();
+  });
 }
 
 void PageThumbnailSidebar::requestThumbnail(int pageIndex, QListWidgetItem *item,
