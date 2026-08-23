@@ -6189,20 +6189,22 @@ void MainWindow::setupUi() {
     topToolbar->applyStudioSnappedPill();
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
-            [this](bool) { positionNoteChrome(); });
+            [this](bool) {
+              positionDrawboardToolbar();
+              positionNoteChrome();
+            });
     connect(topToolbar, &ModernToolbar::toolOptionsRequested, this, [this]() {
       m_toolPropertiesVisible = true;
       if (m_toolPropertiesPanel) {
         m_toolPropertiesPanel->show();
         m_toolPropertiesPanel->syncFromToolManager();
-        m_toolPropertiesPanel->raise();
       }
       if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
         tb->setPropertiesPanelOpen(true);
+      positionDrawboardToolbar();
       positionNoteChrome();
       if (m_toolPropertiesPanel) {
         m_toolPropertiesPanel->raise();
-        m_toolPropertiesPanel->activateWindow();
       }
     });
     connect(topToolbar, &ModernToolbar::propertiesPanelToggleRequested, this,
@@ -6264,8 +6266,9 @@ void MainWindow::setupUi() {
     bindToolShortcut(QKeySequence(Qt::Key_T), ToolMode::Text);
         // Studio: open light tool properties sheet.
     {
-      auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")), this);
-      sc->setContext(Qt::ApplicationShortcut);
+      auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")),
+                               m_editorCenterWidget);
+      sc->setContext(Qt::WidgetWithChildrenShortcut);
       connect(sc, &QShortcut::activated, this, [this]() {
         m_toolPropertiesVisible = true;
         if (m_toolPropertiesPanel) {
@@ -6275,17 +6278,17 @@ void MainWindow::setupUi() {
         }
         if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools))
           tb->setPropertiesPanelOpen(true);
+        positionDrawboardToolbar();
         positionNoteChrome();
-        if (m_toolPropertiesPanel) {
-          m_toolPropertiesPanel->show();
+        if (m_toolPropertiesPanel)
           m_toolPropertiesPanel->raise();
-        }
       });
     }
-// Studio: toggle K snapped pill ↔ J floating rail.
+    // Studio: toggle K snapped pill ↔ J floating rail.
     {
-      auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+J")), this);
-      sc->setContext(Qt::ApplicationShortcut);
+      auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+J")),
+                               m_editorCenterWidget);
+      sc->setContext(Qt::WidgetWithChildrenShortcut);
       connect(sc, &QShortcut::activated, this, [this, topToolbar]() {
         if (!topToolbar)
           return;
@@ -6294,7 +6297,6 @@ void MainWindow::setupUi() {
             qobject_cast<QPlainTextEdit *>(fw))
           return;
         topToolbar->setDockMode(!topToolbar->isDockedMode());
-        positionDrawboardToolbar();
       });
     }
     // Space is hold-to-pan in MultiPageNoteView (not a permanent Hand switch).
@@ -13762,8 +13764,11 @@ void MainWindow::positionDrawboardToolbar() {
 #ifndef Q_OS_ANDROID
   if (tb->isDockedMode()) {
     const int barH = qMax(tb->height(), UiScale::dp(64));
-    const int barW =
-        qMin(qMax(tb->calculateMinLength(), UiScale::dp(360)), W - edgePad * 2);
+    const int minStudioPillW =
+        UiScale::dp(56) * 8 + UiScale::dp(2) * 7 + UiScale::dp(24);
+    const int barW = qMin(
+        qMax(qMax(tb->calculateMinLength(), minStudioPillW), UiScale::dp(500)),
+        W - edgePad * 2);
     tb->setMinimumSize(0, 0);
     tb->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     tb->setFixedHeight(barH);
@@ -13841,40 +13846,80 @@ void MainWindow::positionNoteChrome() {
   leftX = favLeft;
   rightX = W - favRight;
 
-  // Tool options float as a card beside the Favorites rail (not a full-height
-  // sidebar dock). The rail stays edge-flush into the corner.
+  // Pill/rail geometry must be current before anchoring the props card.
+  positionDrawboardToolbar();
+
+  // Tool options float as a light card — beside the J rail or above the K pill.
   if (m_toolPropertiesPanel && m_toolPropertiesVisible) {
     m_toolPropertiesPanel->show();
     m_toolPropertiesPanel->syncFromToolManager();
     const int propsW = m_toolPropertiesPanel->preferredWidth();
     const int propsH = m_toolPropertiesPanel->preferredHeight();
-    int railW = UiScale::dp(64);
-    bool railLeft = false;
-    if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-      railW = tb->preferredRailWidth();
-      railLeft = tb->isRailDockedLeft();
-    }
     const int bottomH = noteBottomChromeHeight();
     const int topClear = noteChromeClearanceTop();
-    const int propsGap = UiScale::dp(6);
-    int x = 0;
-    if (railLeft) {
-      x = leftX + propsGap + noteChromeClearanceLeft();
-    } else {
-      x = qMax(leftX + margin + noteChromeClearanceLeft(),
-               W - railW - propsW - propsGap - noteChromeClearanceRight());
-      if (pagesOnRight)
-        x = qMin(x, rightX - propsW - propsGap);
-    }
+    const int propsGap = UiScale::dp(10);
     int stripH = 0;
     if (m_pageThumbnailSidebar && m_pageThumbnailSidebar->isVisible() &&
         m_pageThumbnailSidebar->isHorizontalStrip())
       stripH = m_pageThumbnailSidebar->height();
-    const int y = noteHeaderHeight() + propsGap + topClear + stripH;
-    const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
-    // Clamp height; ToolPropertiesPanel scrolls internally so controls never
-    // stack on top of each other when the card is shorter than its content.
-    m_toolPropertiesPanel->setGeometry(x, y, propsW, qMin(propsH, maxH));
+
+    auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
+    const bool studioDockedPill =
+        tb && tb->isStudioChrome() && tb->isDockedMode() &&
+        tb->orientation() == ModernToolbar::Horizontal;
+    const bool besideFloatRail =
+        tb && tb->isVisible() && tb->isDrawboardVerticalRail();
+
+    int x = 0;
+    int y = 0;
+    int panelH = propsH;
+    if (studioDockedPill) {
+      const QRect pill = tb->geometry();
+      const int topLimit =
+          noteHeaderHeight() + stripH + propsGap + topClear;
+      const int spaceAbove = pill.top() - topLimit - propsGap;
+      panelH = qMin(propsH, qMax(UiScale::dp(160), spaceAbove));
+      x = pill.center().x() - propsW / 2;
+      x = qBound(margin + noteChromeClearanceLeft(), x,
+                 W - propsW - margin - noteChromeClearanceRight());
+      y = pill.top() - panelH - propsGap;
+      if (y < topLimit)
+        y = topLimit;
+    } else if (besideFloatRail) {
+      int railW = tb->preferredRailWidth();
+      const bool railLeft = tb->isRailDockedLeft();
+      if (railLeft) {
+        x = leftX + propsGap + noteChromeClearanceLeft();
+      } else {
+        x = qMax(leftX + margin + noteChromeClearanceLeft(),
+                 W - railW - propsW - propsGap - noteChromeClearanceRight());
+        if (pagesOnRight)
+          x = qMin(x, rightX - propsW - propsGap);
+      }
+      y = noteHeaderHeight() + propsGap + topClear + stripH;
+      const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
+      panelH = qMin(propsH, maxH);
+    } else {
+      int railW = UiScale::dp(64);
+      bool railLeft = false;
+      if (tb) {
+        railW = tb->preferredRailWidth();
+        railLeft = tb->isRailDockedLeft();
+      }
+      if (railLeft) {
+        x = leftX + propsGap + noteChromeClearanceLeft();
+      } else {
+        x = qMax(leftX + margin + noteChromeClearanceLeft(),
+                 W - railW - propsW - propsGap - noteChromeClearanceRight());
+        if (pagesOnRight)
+          x = qMin(x, rightX - propsW - propsGap);
+      }
+      y = noteHeaderHeight() + propsGap + topClear + stripH;
+      const int maxH = qMax(UiScale::dp(200), H - y - bottomH - margin);
+      panelH = qMin(propsH, maxH);
+    }
+
+    m_toolPropertiesPanel->setGeometry(x, y, propsW, panelH);
     m_toolPropertiesPanel->raise();
   } else if (m_toolPropertiesPanel) {
     m_toolPropertiesPanel->hide();
@@ -13949,6 +13994,8 @@ void MainWindow::positionNoteChrome() {
       qobject_cast<ModernToolbar *>(m_floatingTools) &&
       qobject_cast<ModernToolbar *>(m_floatingTools)->isDrawboardVerticalRail())
     m_floatingTools->raise();
+  if (m_toolPropertiesPanel && m_toolPropertiesVisible)
+    m_toolPropertiesPanel->raise();
   syncPenPresetBarGeometry();
 
 #ifndef Q_OS_ANDROID

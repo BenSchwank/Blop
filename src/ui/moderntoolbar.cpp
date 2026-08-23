@@ -1181,6 +1181,17 @@ void ToolbarBtn::mousePressEvent(QMouseEvent *e) {
     return;
   }
 
+  // Studio ⋯: instant tap (properties sheet), no long-press delay.
+  if (m_lightStudioStyle &&
+      (m_iconName == QLatin1String("more") ||
+       m_iconName == QLatin1String("more_pill"))) {
+    BlopRipple::spawn(this, mapToGlobal(rect().center()), m_accentColor);
+    emit clicked();
+    m_pressing = false;
+    e->accept();
+    return;
+  }
+
 #if BLOP_TOOLBAR_LONGPRESS
   if (!m_holdAnim) {
     m_holdAnim = new QPropertyAnimation(this, "holdProgress", this);
@@ -1227,11 +1238,11 @@ void ToolbarBtn::mouseMoveEvent(QMouseEvent *e) {
       if (m_lightStudioStyle) {
         if (auto *tb = qobject_cast<ModernToolbar *>(parentWidget())) {
           if (tb->isStudioChrome() && tb->isDockedMode()) {
-            const int undockSlop = QApplication::startDragDistance() * 4;
+            const int undockSlop = QApplication::startDragDistance() * 3;
             if (d.manhattanLength() < undockSlop)
               return;
             // Prefer upward undock gesture (toward the page).
-            if (d.y() > -QApplication::startDragDistance())
+            if (d.y() > -UiScale::dp(8))
               return;
             m_pressing = false;
             m_longPressTriggered = true;
@@ -2958,9 +2969,8 @@ ModernToolbar::ModernToolbar(QWidget *parent) : QWidget(parent) {
     });
   }
   if (btnMoreProps) {
-    connect(btnMoreProps, &ToolbarBtn::clicked, this, [this]() {
-      emit toolOptionsRequested();
-    });
+    connect(btnMoreProps, &ToolbarBtn::clicked, this,
+            &ModernToolbar::openToolOptions);
   }
   if (btnLayoutToggle) {
     connect(btnLayoutToggle, &ToolbarBtn::clicked, this, [this]() {
@@ -3162,6 +3172,7 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
     m_hasScrolled = false;
     m_isDragging = false;
     m_isDockedCenterDragging = false;
+    m_studioWasDockedOnDragStart = false;
     if (m_style == Radial)
       m_pressedButton = getRadialButtonAt(e->pos());
     int dragR = 45 * m_scale;
@@ -3233,6 +3244,8 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
         m_isDragging = true;
         dragStartPos_ = e->pos();
         m_isScrolling = false;
+        m_studioWasDockedOnDragStart =
+            isStudioChrome() && m_isDockedMode && m_orientation == Horizontal;
         m_dragOffset =
             e->globalPosition().toPoint() - mapToGlobal(QPoint(0, 0));
         clearMask();
@@ -3315,6 +3328,16 @@ void ModernToolbar::mouseMoveEvent(QMouseEvent *e) {
   if (m_isDragging) {
     if (!parentWidget())
       return;
+#ifndef Q_OS_ANDROID
+    if (m_studioWasDockedOnDragStart && m_isDockedMode &&
+        m_orientation == Horizontal) {
+      const int dy = e->pos().y() - dragStartPos_.y();
+      if (dy < -UiScale::dp(20)) {
+        beginStudioUndockDrag(e->globalPosition().toPoint());
+        m_studioWasDockedOnDragStart = false;
+      }
+    }
+#endif
     QPoint newPosGlobal = e->globalPosition().toPoint() - m_dragOffset;
     QPoint newTopLeft = parentWidget()->mapFromGlobal(newPosGlobal);
     QPoint globalMousePosInParent =
@@ -3596,6 +3619,7 @@ void ModernToolbar::mouseReleaseEvent(QMouseEvent *e) {
   m_isResizing = false;
   m_isScrolling = false;
   m_hasScrolled = false;
+  m_studioWasDockedOnDragStart = false;
   if (m_style == Radial && m_radialType == HalfEdge)
     snapToEdge();
   else
@@ -3624,6 +3648,7 @@ void ModernToolbar::beginStudioUndockDrag(const QPoint &globalPos) {
   m_dragOffset = QPoint(railW / 2, UiScale::dp(24));
   setGeometry(topLeft.x(), topLeft.y(), railW, railH);
   raise();
+  emit dockModeChanged(false);
 #else
   Q_UNUSED(globalPos);
 #endif
@@ -3632,23 +3657,7 @@ void ModernToolbar::beginStudioUndockDrag(const QPoint &globalPos) {
 void ModernToolbar::mouseDoubleClickEvent(QMouseEvent *e) {
 #ifndef Q_OS_ANDROID
   if (e->button() == Qt::LeftButton && isStudioChrome()) {
-    if (m_isDockedMode) {
-      applyStudioFloatingRail();
-      if (parentWidget()) {
-        const int railW = preferredRailWidth();
-        const int railH = qBound(UiScale::dp(280), calculateMinLength(),
-                                 parentWidget()->height() - UiScale::dp(48));
-        const int x = qBound(UiScale::dp(8),
-                              parentWidget()->width() - railW - UiScale::dp(24),
-                              parentWidget()->width() - railW - UiScale::dp(8));
-        const int y = UiScale::dp(48);
-        setGeometry(x, y, railW, railH);
-      }
-      emit dockModeChanged(false);
-    } else {
-      applyStudioSnappedPill();
-      emit dockModeChanged(true);
-    }
+    setDockMode(!m_isDockedMode);
     e->accept();
     return;
   }
@@ -5272,7 +5281,7 @@ void ModernToolbar::applyStudioSnappedPill() {
   if (m_orientation != Horizontal)
     setOrientation(Horizontal, false);
   const int h = UiScale::dp(64);
-  const int w = qMax(calculateMinLength(), UiScale::dp(420));
+  const int w = qMax(calculateMinLength(), UiScale::dp(500));
   setMinimumSize(0, 0);
   setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   setFixedHeight(h);
@@ -6272,7 +6281,7 @@ int ModernToolbar::calculateMinLength() {
 
 #ifndef Q_OS_ANDROID
   if (isStudioChrome() && m_isDockedMode) {
-    const int n = 7;
+    const int n = 8; // Pen…Hand, Undo, ⋯
     const int cellW = UiScale::dp(56);
     const int gap = UiScale::dp(2);
     return n * cellW + (n - 1) * gap + UiScale::dp(24);
@@ -6607,8 +6616,10 @@ void ModernToolbar::updateLayout(bool animate) {
         if (b == btnMoreProps) {
           b->setCaption(QString());
           b->setIcon(QStringLiteral("more"));
-          b->setToolTip(QStringLiteral("Weitere Optionen"));
+          b->setToolTip(QStringLiteral("Werkzeug-Eigenschaften"));
           b->setGlyphColor(QColor());
+          b->setLightStudioStyle(true);
+          b->setRailSlotStyle(false);
         } else {
           b->setCaption(studioCaptionForIcon(b->iconName()));
         }
@@ -6630,8 +6641,12 @@ void ModernToolbar::updateLayout(bool animate) {
         } else {
           b->move(x, y);
         }
+        b->show();
+        b->raise();
         x += cellW + gap;
       }
+      if (btnMoreProps)
+        btnMoreProps->raise();
       updateActiveIndicator(false);
       return;
     }

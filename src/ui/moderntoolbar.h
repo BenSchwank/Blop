@@ -328,6 +328,7 @@ private:
     bool m_isScrolling{false};
     bool m_hasScrolled{false};
     bool m_isDockedCenterDragging{false};
+    bool m_studioWasDockedOnDragStart{false};
     double m_dragStartAngle{0.0};
     double m_scrollStartAngleVal{0.0};
     int m_dockedCenterDragLastX{0};
