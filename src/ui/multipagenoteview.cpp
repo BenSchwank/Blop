@@ -2512,7 +2512,8 @@ void MultiPageNoteView::autoFitPageToViewportWidth() {
   m_isAutoFitting = true;
 
   const qreal targetPageW =
-      qreal(viewW) - qreal(qMax(0, UiScale::safeHorizontalPaddingPx(this)));
+      qreal(viewW) - qreal(qMax(UiScale::dp(48),
+                               UiScale::safeHorizontalPaddingPx(this)));
   qreal scaleFactor = targetPageW / qreal(pageW);
   scaleFactor = qBound<qreal>(0.25, scaleFactor, 4.0);
 
@@ -2545,8 +2546,8 @@ void MultiPageNoteView::fitPage() {
   const int viewH = viewport()->height();
   if (viewW <= UiScale::dp(80) || viewH <= UiScale::dp(80))
     return;
-  const qreal sx = qreal(viewW - UiScale::dp(24)) / qreal(a4wPx());
-  const qreal sy = qreal(viewH - UiScale::dp(24)) / qreal(a4hPx());
+  const qreal sx = qreal(viewW - UiScale::dp(56)) / qreal(a4wPx());
+  const qreal sy = qreal(viewH - UiScale::dp(56)) / qreal(a4hPx());
   setZoomFactor(qBound<qreal>(0.25, qMin(sx, sy), 4.0));
   const int idx = qBound(0, currentPageIndex(), pageCount() - 1);
   scrollToPage(idx, false);
@@ -2561,7 +2562,7 @@ void MultiPageNoteView::requestAutoFit() {
     QTimer::singleShot(0, this, [this]() {
       m_pendingInitialFit = false;
       if (!m_userTouchedZoom)
-        autoFitPageToViewportWidth();
+        fitPage();
     });
   }
 }
@@ -2650,7 +2651,7 @@ void MultiPageNoteView::showEvent(QShowEvent *e) {
   ensureSceneRectCoversViewport();
   if (m_pendingInitialFit && !m_userTouchedZoom) {
     m_pendingInitialFit = false;
-    QTimer::singleShot(0, this, [this]() { autoFitPageToViewportWidth(); });
+    QTimer::singleShot(0, this, [this]() { fitPage(); });
   }
 }
 
@@ -2723,6 +2724,27 @@ void MultiPageNoteView::restoreViewState(const QString &keyOverride) {
       s.value(base + QStringLiteral("page"), 0).toInt();
   m_pendingInitialFit = false;
   m_userTouchedZoom = true;
+#ifndef Q_OS_ANDROID
+  // Studio light: prefer framed A4 (gray surround) over legacy zoomed-in /
+  // width-bleed states that fill the editor edge-to-edge.
+  if (!NoteChrome::isDark() && viewport() && !pageItems_.isEmpty()) {
+    const int viewW = viewport()->width();
+    const int viewH = viewport()->height();
+    if (viewW > UiScale::dp(80) && viewH > UiScale::dp(80) && a4wPx() > 0) {
+      const qreal framed =
+          qMin(qreal(viewW - UiScale::dp(56)) / qreal(a4wPx()),
+               qreal(viewH - UiScale::dp(56)) / qreal(a4hPx()));
+      if (z > framed * 1.01) {
+        m_userTouchedZoom = false;
+        fitPage();
+        if (page >= 0)
+          scrollToPage(page, false);
+        return;
+      }
+    }
+  }
+#endif
+
   {
     const qreal factor = qBound<qreal>(0.25, z, 4.0);
     QTransform t;
@@ -3980,20 +4002,37 @@ int MultiPageNoteView::redoDepth() const { return m_redoHistory.size(); }
 void MultiPageNoteView::scrollToPage(int pageIndex, bool animate) {
   if (!note_ || pageIndex < 0 || pageIndex >= note_->pages.size())
     return;
-  QRectF r = pageRect(pageIndex);
-  const int target = qRound(r.top());
+  const QRectF r = pageRect(pageIndex);
+  // Prefer the visual page center so framing (fitPage) and any zoom stay correct.
+  // Scrollbar values are in *view* space; never feed raw scene Y into setValue.
+  const QPointF focus(r.center().x(), r.top() + r.height() * 0.42);
   QScrollBar *vb = verticalScrollBar();
+  QScrollBar *hb = horizontalScrollBar();
   if (!animate || !vb) {
-    if (vb)
-      vb->setValue(target);
+    centerOn(focus);
     persistViewState(property("viewStateKey").toString());
     return;
   }
+
+  const QTransform t = transform();
+  const int endY = qRound(focus.y() * t.m22() - viewport()->height() / 2.0);
+  const int endX = qRound(focus.x() * t.m11() - viewport()->width() / 2.0);
+  const int clampedY = qBound(vb->minimum(), endY, vb->maximum());
+  const int clampedX = hb ? qBound(hb->minimum(), endX, hb->maximum()) : 0;
+
   auto *anim = new QPropertyAnimation(vb, "value", vb);
   anim->setDuration(280);
   anim->setEasingCurve(QEasingCurve::OutCubic);
   anim->setStartValue(vb->value());
-  anim->setEndValue(target);
+  anim->setEndValue(clampedY);
+  if (hb) {
+    auto *animX = new QPropertyAnimation(hb, "value", hb);
+    animX->setDuration(280);
+    animX->setEasingCurve(QEasingCurve::OutCubic);
+    animX->setStartValue(hb->value());
+    animX->setEndValue(clampedX);
+    animX->start(QAbstractAnimation::DeleteWhenStopped);
+  }
   connect(anim, &QPropertyAnimation::finished, this, [this]() {
     persistViewState(property("viewStateKey").toString());
   });

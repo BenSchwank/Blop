@@ -40,7 +40,7 @@ struct RailMetrics {
 RailMetrics railMetrics(QWidget *ref, bool twoCol, bool horizontal) {
   if (horizontal) {
     // J mockup: larger paper thumbs in the top strip.
-    return {0, UiScale::dp(72), UiScale::dp(96), UiScale::dp(128),
+    return {0, UiScale::dp(64), UiScale::dp(90), UiScale::dp(118),
             UiScale::dp(8)};
   }
   if (UiScale::isAndroidPhoneUi(ref)) {
@@ -143,6 +143,8 @@ PageThumbnailSidebar::PageThumbnailSidebar(QWidget *parent) : QWidget(parent) {
   m_btnAddPage->setFixedHeight(UiScale::dp(34));
   m_btnAddPage->setCursor(Qt::PointingHandCursor);
   m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
+      m_btnAddPage->setText(QStringLiteral("+"));
+      m_btnAddPage->setIcon(QIcon());
   m_btnAddPage->setIcon(
       railGlyph(QStringLiteral("add"), NoteChrome::textSecondary(),
                 UiScale::dp(16)));
@@ -256,6 +258,8 @@ void PageThumbnailSidebar::setHorizontalStrip(bool on) {
       m_btnAddPage->setText(QString());
       m_btnAddPage->setFixedSize(UiScale::dp(34), UiScale::dp(34));
       m_btnAddPage->setToolTip(QStringLiteral("Seite hinzufügen"));
+      m_btnAddPage->setText(QStringLiteral("+"));
+      m_btnAddPage->setIcon(QIcon());
     }
 
     // Flatten into a single horizontal row: thumbs · add · collapse.
@@ -441,7 +445,7 @@ void PageThumbnailSidebar::refreshListStyle() {
       m_horizontalStrip ? QStringLiteral("#FFFFFF")
                         : NoteChrome::toolbarFill().name();
   const QString edge = m_horizontalStrip
-                           ? QStringLiteral("border-bottom: 1px solid #E4E7EE;")
+                           ? QStringLiteral("border-bottom: 1px solid #DDE1E8;")
                            : QStringLiteral("border-right: 1px solid %1;")
                                  .arg(NoteChrome::borderSoft().name());
   const QColor toggleFg =
@@ -499,12 +503,12 @@ void PageThumbnailSidebar::refreshListStyle() {
         QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: 0; color: %1; }"
             "QListWidget::item {"
-            "  border: 1px solid %2; border-radius: 6px; padding: 2px;"
+            "  border: 1px solid %2; border-radius: 8px; padding: 3px;"
             "  background: %3; color: %1;"
-            "  font-size: 11px; font-weight: 600;"
+            "  font-size: 10px; font-weight: 600;"
             "}"
             "QListWidget::item:selected {"
-            "  border: 2px solid %4; background: rgba(%5,%6,%7,0.08);"
+            "  border: 2px solid %4; background: #FFFFFF;"
             "  color: #1C1E24;"
             "}"
             "QListWidget::item:hover { background: %8; }")
@@ -576,7 +580,7 @@ void PageThumbnailSidebar::rebuild() {
   for (int i = 0; i < count; ++i) {
     auto *item = new QListWidgetItem(m_list);
     item->setTextAlignment(Qt::AlignCenter | Qt::AlignBottom);
-    item->setSizeHint(QSize(m.thumbW + UiScale::dp(m_horizontalStrip ? 20 : 12),
+    item->setSizeHint(QSize(m.thumbW + UiScale::dp(m_horizontalStrip ? 36 : 12),
                             m.itemH));
     QString label;
     if (m_horizontalStrip && m_view) {

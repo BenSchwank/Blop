@@ -9739,6 +9739,14 @@ void MainWindow::switchToEditorChrome() {
 #ifndef Q_OS_ANDROID
   positionDrawboardToolbar();
 #endif
+#ifndef Q_OS_ANDROID
+  // Studio J: A4 sheet centered on #F5F5F5 surround (not edge-to-edge bleed).
+  if (auto *view = currentNoteView())
+    QTimer::singleShot(0, view, [view]() {
+      if (view)
+        view->fitPage();
+    });
+#endif
 }
 
 void MainWindow::openLoadedA4Note(const QString &path, const QString &fileName,
@@ -9755,8 +9763,14 @@ void MainWindow::openLoadedA4Note(const QString &path, const QString &fileName,
     editor->view()->setPenOnlyMode(m_penOnlyMode);
     editor->view()->setProperty("viewStateKey", path);
     QTimer::singleShot(0, editor->view(), [v = editor->view(), path]() {
-      if (v)
-        v->restoreViewState(path);
+      if (!v)
+        return;
+      v->restoreViewState(path);
+#ifndef Q_OS_ANDROID
+      // Studio J: keep A4 framed on #F5F5F5 even if restore kept a bleed zoom.
+      if (!NoteChrome::isDark())
+        v->fitPage();
+#endif
     });
   }
   editor->onSaveRequested = [this, path, editor](Note *n) {

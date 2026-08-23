@@ -47,7 +47,7 @@ inline bool isDark() { return mode() == Mode::Dark; }
 
 inline QColor canvasBg() {
   // True black around the page — avoid bluish library surfaces (#0B0B1A).
-  return isDark() ? QColor(0, 0, 0) : QColor(232, 232, 232);
+  return isDark() ? QColor(0, 0, 0) : QColor(245, 245, 245);
 }
 inline QColor panelBg() {
   return isDark() ? QColor(30, 30, 30) : QColor(245, 245, 245);
