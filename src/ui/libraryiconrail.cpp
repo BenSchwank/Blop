@@ -18,7 +18,8 @@ QIcon glyph(const QString &name, const QColor &fg, int px) {
   p.setRenderHint(QPainter::Antialiasing);
   const qreal s = px / 64.0;
   p.scale(s, s);
-  blopDrawToolbarGlyph64(&p, name, fg);
+  // fg doubles as the body stroke so glyphs stay visible on light chrome.
+  blopDrawToolbarGlyph64(&p, name, fg, fg);
   return QIcon(pm);
 }
 } // namespace

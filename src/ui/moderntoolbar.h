@@ -47,8 +47,11 @@ struct RailSlot {
 
 // Draws one of the toolbar glyphs ("pen", "eraser", ...) into a 64x64 logical
 // coordinate space. Shared by ToolbarBtn and BloomMenu petals.
+// `color` tints the functional part (ink tip, highlighter chisel), `outline`
+// the body stroke — pass a dark outline on light surfaces (K pill, J rail).
 void blopDrawToolbarGlyph64(QPainter *p, const QString &name,
-                            const QColor &color);
+                            const QColor &color,
+                            const QColor &outline = QColor());
 
 class ToolbarBtn : public QWidget {
     Q_OBJECT

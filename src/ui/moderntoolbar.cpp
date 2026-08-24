@@ -74,12 +74,16 @@ namespace {
 // 64×64 logical coords — Drawboard-faithful Favorites glyphs.
 // `color` is the functional tip tint when saturated (ink / highlighter / measure);
 // otherwise icons render as clean light outlines like Drawboard's dark rail.
-void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
+// `outline` overrides the body stroke: light surfaces (K pill, J rail, library
+// chrome) need a dark outline, otherwise only the saturated tip stays visible.
+void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color,
+                        const QColor &outline = QColor()) {
   p->setRenderHint(QPainter::Antialiasing);
   const bool hasTip = color.isValid() &&
                       ((color.saturationF() > 0.18 && color.valueF() > 0.18) ||
                        color.valueF() < 0.52);
-  const QColor primary(245, 247, 250, 235);
+  const QColor primary =
+      outline.isValid() ? outline : QColor(245, 247, 250, 235);
   const QColor tip = hasTip ? color : primary;
   const QColor accent = tip;
   QColor accentSoft = tip;
@@ -591,6 +595,27 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     p->drawLine(20, 32, 44, 32);
     return;
   }
+  if (name == QLatin1String("view_grid")) {
+    // K library header: 2x2 tiles.
+    p->setPen(primaryThin);
+    p->setBrush(Qt::NoBrush);
+    p->drawRoundedRect(QRectF(15, 15, 15, 15), 3, 3);
+    p->drawRoundedRect(QRectF(34, 15, 15, 15), 3, 3);
+    p->drawRoundedRect(QRectF(15, 34, 15, 15), 3, 3);
+    p->drawRoundedRect(QRectF(34, 34, 15, 15), 3, 3);
+    return;
+  }
+  if (name == QLatin1String("view_list")) {
+    // K library header: three rows, each a bullet plus a line.
+    p->setPen(Qt::NoPen);
+    p->setBrush(primary);
+    for (int i = 0; i < 3; ++i)
+      p->drawRoundedRect(QRectF(15, 18.0 + i * 12.0, 6, 6), 1.5, 1.5);
+    p->setPen(QPen(primary, 2.6, Qt::SolidLine, Qt::RoundCap));
+    for (int i = 0; i < 3; ++i)
+      p->drawLine(QPointF(27, 21.0 + i * 12.0), QPointF(49, 21.0 + i * 12.0));
+    return;
+  }
   if (name == QLatin1String("home")) {
     p->setPen(primaryPen);
     QPolygonF house;
@@ -800,8 +825,8 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
 // Shared entry point so other widgets (BloomMenu petals) can reuse the exact
 // same glyph set the toolbar buttons draw.
 void blopDrawToolbarGlyph64(QPainter *p, const QString &name,
-                            const QColor &color) {
-  drawToolbarGlyph64(p, name, color);
+                            const QColor &color, const QColor &outline) {
+  drawToolbarGlyph64(p, name, color, outline);
 }
 
 // =============================================================================
@@ -1402,6 +1427,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
 
     QColor tip =
         m_glyphColor.isValid() ? m_glyphColor : NoteChrome::textPrimary();
+    QColor glyphOutline;
     // Reserve space for the flyout chevron so the glyph never overlaps it.
     const int chevronReserve =
         (m_showChevron && !m_railFooterStyle) ? UiScale::dp(14) : 0;
@@ -1414,8 +1440,10 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
         const int d = qMin(w, iconBoxH) - UiScale::dp(8);
         p.drawEllipse(QRect((w - d) / 2, (iconBoxH - d) / 2, d, d));
         tip = QColor(Qt::white);
+        glyphOutline = QColor(Qt::white);
       } else {
         tip = QColor(QStringLiteral("#3A404C"));
+        glyphOutline = QColor(QStringLiteral("#3A404C"));
         if (m_glyphColor.isValid() && !m_active) {
           if (m_iconName == QLatin1String("pencil"))
             tip = QColor(0xE6, 0xB8, 0x2E);
@@ -1438,7 +1466,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     const qreal g = icon / 64.0;
     p.scale(g, g);
     p.translate(-32, -32);
-    drawToolbarGlyph64(&p, m_iconName, tip);
+    drawToolbarGlyph64(&p, m_iconName, tip, glyphOutline);
     p.restore();
 
     if (m_showChevron && !m_railFooterStyle) {
@@ -1484,8 +1512,11 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.translate(0.0, -m_liftOffset);
 
   if (!m_caption.isEmpty()) {
-    QColor ink = m_active ? QColor(QStringLiteral("#5B9DFF"))
-                          : QColor(40, 44, 52, 220);
+    // Body stroke stays dark on the light K pill; only the functional tip
+    // (ink, graphite, highlighter chisel) carries the tool color.
+    const QColor outline = m_active ? QColor(QStringLiteral("#5B9DFF"))
+                                    : QColor(QStringLiteral("#3A404C"));
+    QColor ink = outline;
     // K mockup: inactive pen/pencil/highlighter keep saturated tip colors.
     if (!m_active && m_glyphColor.isValid() &&
         (m_iconName == QLatin1String("pen") ||
@@ -1501,7 +1532,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     const qreal g = qMin(w - UiScale::dp(8), iconBox) / 64.0;
     p.scale(g, g);
     p.translate(-32, -32);
-    drawToolbarGlyph64(&p, m_iconName, ink);
+    drawToolbarGlyph64(&p, m_iconName, ink, outline);
     p.restore();
     QFont f = p.font();
     f.setPixelSize(UiScale::sp(9));
@@ -1509,8 +1540,10 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.setFont(f);
     p.setPen(m_active ? QColor(QStringLiteral("#5B9DFF"))
                       : QColor(40, 44, 52, 200));
-    p.drawText(QRect(2, h - capH - UiScale::dp(4), w - 4, capH),
-               Qt::AlignHCenter | Qt::AlignTop, m_caption);
+    const QRect capRect(1, h - capH - UiScale::dp(4), w - 2, capH);
+    const QString cap =
+        QFontMetrics(f).elidedText(m_caption, Qt::ElideRight, capRect.width());
+    p.drawText(capRect, Qt::AlignHCenter | Qt::AlignTop, cap);
     if (m_active) {
       p.setPen(QPen(QColor(QStringLiteral("#5B9DFF")), 2, Qt::SolidLine,
                     Qt::RoundCap));
@@ -1542,7 +1575,7 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     const qreal g = qMin(w, h) / 64.0;
     p.scale(g, g);
     p.translate(-32, -32);
-    drawToolbarGlyph64(&p, m_iconName, ink);
+    drawToolbarGlyph64(&p, m_iconName, ink, ink);
     p.restore();
   } else {
     if (m_active) {
@@ -5218,17 +5251,17 @@ static QString studioCaptionForIcon(const QString &icon) {
   if (icon == QLatin1String("pencil"))
     return QStringLiteral("Bleistift");
   if (icon == QLatin1String("highlighter"))
-    return QStringLiteral("Textmarker");
+    return QStringLiteral("Marker");
   if (icon == QLatin1String("eraser"))
     return QStringLiteral("Radierer");
   if (icon == QLatin1String("lasso_loop") || icon == QLatin1String("lasso"))
     return QStringLiteral("Lasso");
   if (icon == QLatin1String("select") || icon == QLatin1String("select_rect"))
-    return QStringLiteral("Auswählen");
+    return QStringLiteral("Auswahl");
   if (icon == QLatin1String("hand"))
     return QStringLiteral("Hand");
   if (icon == QLatin1String("undo"))
-    return QStringLiteral("Rückgängig");
+    return QStringLiteral("Zurück");
   if (icon == QLatin1String("redo"))
     return QStringLiteral("Redo");
   if (icon == QLatin1String("text"))
@@ -6554,7 +6587,7 @@ void ModernToolbar::updateLayout(bool animate) {
     if (isStudioChrome() && m_isDockedMode && m_orientation == Horizontal) {
       const int w = width();
       const int h = height();
-      const int cellW = UiScale::dp(56);
+      const int cellW = UiScale::dp(60);
       const int cellH = UiScale::dp(56);
       const int gap = UiScale::dp(2);
       const int grip = UiScale::dp(12);

@@ -5170,14 +5170,14 @@ QIcon MainWindow::createModernIcon(const QString &name, const QColor &color) {
     p.drawEllipse(QPointF(42, 26), 3.5, 3.5);
     p.drawEllipse(QPointF(28, 38), 4.0, 4.0);
   } else if (name == "bookmark" || name == "bookmarks") {
-    blopDrawToolbarGlyph64(&p, QStringLiteral("bookmark"), color);
+    blopDrawToolbarGlyph64(&p, QStringLiteral("bookmark"), color, color);
   } else if (name == "history" || name == "clock") {
-    blopDrawToolbarGlyph64(&p, QStringLiteral("history"), color);
-  } else if (name == "undo" || name == "redo" || name == "chevron_left" ||
-             name == "chevron_right" || name == "chevron_rail" ||
-             name == "zoom_in" || name == "zoom_out" || name == "fit_width" ||
-             name == "fit_page" || name == "library") {
-    blopDrawToolbarGlyph64(&p, name, color);
+    blopDrawToolbarGlyph64(&p, QStringLiteral("history"), color, color);
+  } else {
+    // Everything else comes from the shared 64px toolbar glyph library, so
+    // chrome buttons never end up with an empty pixmap (K view toggles,
+    // J rail glyphs, …).
+    blopDrawToolbarGlyph64(&p, name, color, color);
   }
   return QIcon(pixmap);
 }
@@ -5875,7 +5875,7 @@ void MainWindow::setupUi() {
   m_btnLibraryGrid->setCheckable(true);
   m_btnLibraryGrid->setChecked(true);
   m_btnLibraryGrid->setToolTip(QStringLiteral("Rasteransicht"));
-  m_btnLibraryGrid->setIcon(createModernIcon(QStringLiteral("layout_rows"),
+  m_btnLibraryGrid->setIcon(createModernIcon(QStringLiteral("view_grid"),
                                             QColor(0x5B, 0x9D, 0xFF)));
   m_btnLibraryGrid->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(true));
@@ -5886,7 +5886,7 @@ void MainWindow::setupUi() {
   m_btnLibraryList->setCursor(Qt::PointingHandCursor);
   m_btnLibraryList->setCheckable(true);
   m_btnLibraryList->setToolTip(QStringLiteral("Listenansicht"));
-  m_btnLibraryList->setIcon(createModernIcon(QStringLiteral("layout_single"),
+  m_btnLibraryList->setIcon(createModernIcon(QStringLiteral("view_list"),
                                             QColor(0x6B, 0x72, 0x80)));
   m_btnLibraryList->setIconSize(QSize(UiScale::dp(16), UiScale::dp(16)));
   m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(false));
@@ -5901,9 +5901,9 @@ void MainWindow::setupUi() {
     m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(true));
     m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(false));
     m_btnLibraryGrid->setIcon(
-        createModernIcon(QStringLiteral("layout_rows"), QColor(0x5B, 0x9D, 0xFF)));
+        createModernIcon(QStringLiteral("view_grid"), QColor(0x5B, 0x9D, 0xFF)));
     m_btnLibraryList->setIcon(
-        createModernIcon(QStringLiteral("layout_single"), QColor(0x6B, 0x72, 0x80)));
+        createModernIcon(QStringLiteral("view_list"), QColor(0x6B, 0x72, 0x80)));
     updateGrid();
   });
   connect(m_btnLibraryList, &QPushButton::clicked, this, [this, libraryViewBtnStyle]() {
@@ -5915,9 +5915,9 @@ void MainWindow::setupUi() {
     m_btnLibraryGrid->setStyleSheet(libraryViewBtnStyle(false));
     m_btnLibraryList->setStyleSheet(libraryViewBtnStyle(true));
     m_btnLibraryGrid->setIcon(
-        createModernIcon(QStringLiteral("layout_rows"), QColor(0x6B, 0x72, 0x80)));
+        createModernIcon(QStringLiteral("view_grid"), QColor(0x6B, 0x72, 0x80)));
     m_btnLibraryList->setIcon(
-        createModernIcon(QStringLiteral("layout_single"), QColor(0x5B, 0x9D, 0xFF)));
+        createModernIcon(QStringLiteral("view_list"), QColor(0x5B, 0x9D, 0xFF)));
     updateGrid();
   });
 

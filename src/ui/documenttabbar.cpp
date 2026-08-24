@@ -27,7 +27,8 @@ QIcon makeTabIcon(const QString &name, const QColor &color, int size) {
   p.setRenderHint(QPainter::Antialiasing);
   const qreal g = size / 64.0;
   p.scale(g, g);
-  blopDrawToolbarGlyph64(&p, name, color);
+  // color doubles as the body stroke so tab glyphs work on light chrome.
+  blopDrawToolbarGlyph64(&p, name, color, color);
   return QIcon(pm);
 }
 
