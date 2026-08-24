@@ -3189,7 +3189,10 @@ void MainWindow::setupTitleBar() {
   // Floating squircle document tabs, Drawboard-inspired.
   m_documentTabBar = new DocumentTabBar(m_topNavControls);
   m_documentTabBar->setAccentColor(m_currentAccentColor);
-  connect(m_documentTabBar, &DocumentTabBar::currentChanged, this,
+#ifndef Q_OS_ANDROID
+  m_documentTabBar->setReadingMarkMode(true);
+  m_documentTabBar->setNoteChromeMode(true);
+#endif
           [this](int index) {
             if (!m_editorTabs || index < 0)
               return;

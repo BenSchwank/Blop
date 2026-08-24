@@ -34,6 +34,9 @@ public:
   /// Charcoal NoteChrome look while the note editor is active.
   void setNoteChromeMode(bool on);
   bool noteChromeMode() const { return m_noteChromeMode; }
+  /// Desktop: bookmark / Lesezeichen tabs hanging from the title bar.
+  void setReadingMarkMode(bool on);
+  bool readingMarkMode() const { return m_readingMarkMode; }
   void refreshTheme();
 
 signals:
@@ -62,6 +65,7 @@ private:
   int m_currentIndex{-1};
   QColor m_accentColor{QColor(QStringLiteral("#7C5CFC"))};
   bool m_noteChromeMode{false};
+  bool m_readingMarkMode{false};
 
   QWidget *m_indicator{nullptr};
   QPropertyAnimation *m_indicatorAnim{nullptr};
@@ -83,6 +87,7 @@ public:
   void setAccentColor(const QColor &color);
   void setTitle(const QString &title);
   void setNoteChromeMode(bool on);
+  void setReadingMarkMode(bool on);
   void refreshChromeStyle();
   bool isActive() const { return m_active; }
 
@@ -110,5 +115,6 @@ private:
   bool m_hovered{false};
   bool m_closable{true};
   bool m_noteChromeMode{false};
+  bool m_readingMarkMode{false};
   class QLabel *m_textLbl{nullptr};
 };
