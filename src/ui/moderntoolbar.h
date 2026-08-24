@@ -21,6 +21,7 @@ class QPushButton;
 class QPainter;
 class QLabel;
 class QSlider;
+class QToolButton;
 
 /// One Drawboard Favorites slot (same ToolMode may appear multiple times).
 struct RailSlot {
@@ -47,8 +48,11 @@ struct RailSlot {
 
 // Draws one of the toolbar glyphs ("pen", "eraser", ...) into a 64x64 logical
 // coordinate space. Shared by ToolbarBtn and BloomMenu petals.
+// `color` tints the functional part (ink tip, highlighter chisel), `outline`
+// the body stroke — pass a dark outline on light surfaces (K pill, J rail).
 void blopDrawToolbarGlyph64(QPainter *p, const QString &name,
-                            const QColor &color);
+                            const QColor &color,
+                            const QColor &outline = QColor());
 
 class ToolbarBtn : public QWidget {
     Q_OBJECT
@@ -208,6 +212,8 @@ public:
 
     // Docking logic
     void setDockMode(bool docked);
+    /// Persisted desktop studio chrome: false = J floating rail, true = K pill.
+    static bool studioDockedPref();
     bool isDockedMode() const { return m_isDockedMode; }
 
     /// Desktop Drawboard Markup Toolbar: docked horizontal bar at the top.
@@ -269,6 +275,8 @@ public:
     void showMarkupLibrary();
     void syncToolBadges();
     void syncDrawboardToolIcons();
+    /// Repaints the J rail color swatch from the active tool config.
+    void syncStudioColorChip();
     void openToolOptions();
     /// Sync Favorites footer chevron with properties panel open state.
     void setPropertiesPanelOpen(bool open);
@@ -381,6 +389,7 @@ private:
     ToolbarBtn *btnBrushSize;
     QLabel *m_studioSizeLabel{nullptr};
     QSlider *m_studioSizeSlider{nullptr};
+    QToolButton *m_studioColorChip{nullptr};
     QList<ToolbarBtn*> m_dockedOnlyButtons;
 
     QVector<ToolbarBtn*> m_buttons;

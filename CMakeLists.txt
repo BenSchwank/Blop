@@ -143,8 +143,6 @@ qt_add_executable(Blop
     src/ui/androidphonetoolbar.h
     src/ui/bloommenu.cpp
     src/ui/bloommenu.h
-    src/ui/penpresetbar.cpp
-    src/ui/penpresetbar.h
     src/ui/documenttabbar.cpp
     src/ui/documenttabbar.h
     src/ui/pagethumbnailsidebar.cpp

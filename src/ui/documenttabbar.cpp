@@ -1,5 +1,7 @@
 #include "documenttabbar.h"
 
+#include <QFont>
+#include <QTimer>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -27,7 +29,8 @@ QIcon makeTabIcon(const QString &name, const QColor &color, int size) {
   p.setRenderHint(QPainter::Antialiasing);
   const qreal g = size / 64.0;
   p.scale(g, g);
-  blopDrawToolbarGlyph64(&p, name, color);
+  // color doubles as the body stroke so tab glyphs work on light chrome.
+  blopDrawToolbarGlyph64(&p, name, color, color);
   return QIcon(pm);
 }
 
@@ -35,7 +38,14 @@ int tabMaxWidthPx() {
   // Narrow phones: leave room for home/menu/overflow in the Android header.
   if (UiScale::isAndroidPhoneUi())
     return UiScale::dp(120);
-  return UiScale::dp(360);
+  return UiScale::dp(240);
+}
+
+QFont tabTitleFont(const QFont &base, bool compact) {
+  QFont f = base;
+  f.setPixelSize(compact ? UiScale::dp(12) : UiScale::dp(13));
+  f.setWeight(QFont::DemiBold);
+  return f;
 }
 } // namespace
 
@@ -52,7 +62,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
   QHBoxLayout *lay = new QHBoxLayout(this);
-  lay->setContentsMargins(UiScale::dp(12), 0, UiScale::dp(8), 0);
+  lay->setContentsMargins(UiScale::dp(10), 0, UiScale::dp(10), 0);
   lay->setSpacing(UiScale::dp(8));
 
   QLabel *iconLbl = new QLabel(this);
@@ -62,8 +72,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
   lay->addWidget(iconLbl);
 
   m_textLbl = new QLabel(this);
-  m_textLbl->setStyleSheet(
-      QStringLiteral("QLabel { color: #E8E8FF; font-size: 13px; font-weight: 600; }"));
+  m_textLbl->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
   if (m_title.isEmpty() && !m_closable) {
     m_textLbl->hide();
   } else {
@@ -117,6 +126,7 @@ void DocumentTab::setReadingMarkMode(bool on) {
     iconLbl->show();
     setFixedHeight(UiScale::dp(36));
   }
+  refreshTitleLabel();
   refreshChromeStyle();
   update();
 }
@@ -137,7 +147,7 @@ void DocumentTab::refreshChromeStyle() {
   }
   if (m_textLbl) {
     m_textLbl->setStyleSheet(
-        QStringLiteral("QLabel { color: %1; font-size: 12px; font-weight: 600; }")
+        QStringLiteral("QLabel { background: transparent; color: %1; }")
             .arg(fg.name(QColor::HexRgb)));
   }
   if (auto *closeBtn =
@@ -169,22 +179,29 @@ void DocumentTab::refreshChromeStyle() {
   }
 }
 
+int DocumentTab::chromeWidthPx() const {
+  // Everything around the title: paddings, glyph, spacing, close button.
+  if (m_readingMarkMode)
+    return UiScale::dp(24) + (m_closable ? UiScale::dp(24) : 0);
+  return UiScale::dp(20) + UiScale::dp(18) + UiScale::dp(8) +
+         (m_closable ? UiScale::dp(26) : 0);
+}
+
 void DocumentTab::refreshTitleLabel() {
   if (!m_textLbl)
     return;
-  const QString fg = BlopTheme::instance().isDark() ? QStringLiteral("#E8E8FF")
-                                                    : QStringLiteral("#1C1B22");
-  m_textLbl->setStyleSheet(
-      QStringLiteral("QLabel { color: %1; font-size: 13px; font-weight: 600; }")
-          .arg(fg));
-  QFont f = m_textLbl->font();
-  f.setPixelSize(13);
-  f.setWeight(QFont::DemiBold);
+  const QFont f = tabTitleFont(font(), m_readingMarkMode);
   m_textLbl->setFont(f);
-  m_textLbl->setText(m_title);
-  QFontMetrics fm(f);
-  m_textLbl->setMinimumWidth(fm.horizontalAdvance(m_title) + 4);
+  const QFontMetrics fm(f);
+  const int avail = qMax(UiScale::dp(40), tabMaxWidthPx() - chromeWidthPx());
+  const QString shown = fm.elidedText(m_title, Qt::ElideRight, avail);
+  m_textLbl->setText(shown);
+  m_textLbl->setToolTip(shown == m_title ? QString() : m_title);
+  m_textLbl->setMinimumWidth(0);
+  m_textLbl->setFixedWidth(fm.horizontalAdvance(shown));
+  refreshChromeStyle();
   setFixedWidth(sizeHint().width());
+  updateGeometry();
 }
 
 void DocumentTab::setTitle(const QString &title) {
@@ -193,6 +210,7 @@ void DocumentTab::setTitle(const QString &title) {
   m_title = title;
   refreshTitleLabel();
 }
+
 
 void DocumentTab::setActive(bool active, const QColor &accent) {
   if (m_active == active && m_accentColor == accent)
@@ -215,21 +233,16 @@ QSize DocumentTab::iconTextSize() const {
 }
 
 QSize DocumentTab::sizeHint() const {
+  const QFontMetrics fm(tabTitleFont(font(), m_readingMarkMode));
+  const QString shown = m_textLbl ? m_textLbl->text() : m_title;
+  const int textW = shown.isEmpty() ? 0 : fm.horizontalAdvance(shown);
   if (m_readingMarkMode) {
-    QFontMetrics fm(font());
-    const QString shown = m_textLbl ? m_textLbl->text() : m_title;
-    int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
-    int w = UiScale::dp(14) + textW + (m_closable ? UiScale::dp(18) : 0) +
-            UiScale::dp(10);
+    int w = chromeWidthPx() + textW;
     if (m_title.isEmpty() && !m_closable)
       w = UiScale::dp(28);
     return QSize(qMin(w, tabMaxWidthPx()), UiScale::dp(28));
   }
-  QFontMetrics fm(font());
-  const QString shown = m_textLbl ? m_textLbl->text() : m_title;
-  int textW = fm.horizontalAdvance(shown.isEmpty() ? QStringLiteral("W") : shown);
-  int w = UiScale::dp(12) + UiScale::dp(18) + UiScale::dp(8) + textW +
-          (m_closable ? UiScale::dp(24) : 0) + UiScale::dp(8);
+  int w = chromeWidthPx() + textW;
   if (m_title.isEmpty() && !m_closable) {
     // Home squircle: icon-only compact chip.
     w = UiScale::dp(36);
@@ -388,6 +401,35 @@ DocumentTabBar::DocumentTabBar(QWidget *parent) : QWidget(parent) {
   m_indicator->hide();
 }
 
+int DocumentTabBar::tabsWidthPx() const {
+  int w = 0;
+  for (DocumentTab *t : m_tabs)
+    w += t->sizeHint().width() + UiScale::dp(6);
+  return w;
+}
+
+void DocumentTabBar::syncContentWidth() {
+  if (!m_scrollContent || !m_scroll)
+    return;
+  const int natural = qMax(UiScale::dp(40), tabsWidthPx());
+  m_scrollContent->setFixedWidth(qMax(m_scroll->viewport()->width(), natural));
+  updateGeometry();
+}
+
+QSize DocumentTabBar::sizeHint() const {
+  // Ask the title bar for the room the tabs actually need; without this the
+  // scroll area only reports its own tiny hint and the strip gets squeezed.
+  int w = tabsWidthPx();
+  if (m_homeTab && !m_homeTab->isHidden())
+    w += m_homeTab->sizeHint().width() + m_outerLayout->spacing();
+  return QSize(qMax(w, UiScale::dp(48)), height());
+}
+
+QSize DocumentTabBar::minimumSizeHint() const {
+  // Stay shrinkable on narrow windows — the strip scrolls horizontally.
+  return QSize(qMin(sizeHint().width(), UiScale::dp(160)), height());
+}
+
 void DocumentTabBar::rebindTabSignals() {
   for (int i = 0; i < m_tabs.size(); ++i) {
     disconnect(m_tabs[i], &DocumentTab::clicked, nullptr, nullptr);
@@ -410,11 +452,7 @@ int DocumentTabBar::addTab(const QString &title, const QString &iconName) {
   rebindTabSignals();
 
   // Grow scroll content to natural tab row width.
-  int contentW = 0;
-  for (DocumentTab *t : m_tabs)
-    contentW += t->width() + UiScale::dp(6);
-  contentW = qMax(contentW, m_scroll->viewport()->width());
-  m_scrollContent->setFixedWidth(contentW);
+  syncContentWidth();
 
   if (m_currentIndex < 0)
     setCurrentIndex(idx);
@@ -433,11 +471,7 @@ void DocumentTabBar::removeTab(int index) {
   tab->deleteLater();
   rebindTabSignals();
 
-  int contentW = 0;
-  for (DocumentTab *t : m_tabs)
-    contentW += t->width() + UiScale::dp(6);
-  contentW = qMax(contentW, m_scroll->viewport()->width());
-  m_scrollContent->setFixedWidth(qMax(UiScale::dp(40), contentW));
+  syncContentWidth();
 
   if (m_currentIndex == index) {
     m_currentIndex = m_tabs.isEmpty() ? -1 : qMin(index, m_tabs.size() - 1);
@@ -454,10 +488,7 @@ void DocumentTabBar::setTabText(int index, const QString &title) {
   if (index < 0 || index >= m_tabs.size())
     return;
   m_tabs[index]->setTitle(title);
-  int contentW = 0;
-  for (DocumentTab *t : m_tabs)
-    contentW += t->width() + UiScale::dp(6);
-  m_scrollContent->setFixedWidth(qMax(m_scroll->viewport()->width(), contentW));
+  syncContentWidth();
   updateIndicator(false);
 }
 
@@ -498,6 +529,7 @@ void DocumentTabBar::setHomeVisible(bool visible) {
   m_homeTab->setVisible(visible);
   if (!visible)
     m_homeActive = false;
+  syncContentWidth();
   updateIndicator(false);
 }
 
@@ -511,6 +543,7 @@ void DocumentTabBar::setNoteChromeMode(bool on) {
     m_homeTab->setNoteChromeMode(on);
   for (DocumentTab *tab : m_tabs)
     tab->setNoteChromeMode(on);
+  syncContentWidth();
   updateIndicator(false);
 }
 
@@ -523,14 +556,21 @@ void DocumentTabBar::setReadingMarkMode(bool on) {
     m_scroll->setFixedHeight(on ? UiScale::dp(44) : UiScale::dp(40));
   if (m_scrollContent)
     m_scrollContent->setFixedHeight(on ? UiScale::dp(44) : UiScale::dp(40));
-  if (m_homeTab)
+  if (m_homeTab) {
     m_homeTab->setReadingMarkMode(on);
+    // Bookmark tabs hang from the title bar, where the app already owns a
+    // home button — an extra empty squircle only crowds the strip.
+    m_homeTab->setVisible(!on);
+    if (on)
+      m_homeActive = false;
+  }
   for (DocumentTab *tab : m_tabs)
     tab->setReadingMarkMode(on);
   if (m_tabsLayout)
     m_tabsLayout->setContentsMargins(0, on ? UiScale::dp(16) : 2, 0, 0);
   if (m_indicator)
     m_indicator->setVisible(!on);
+  syncContentWidth();
   updateIndicator(false);
 }
 
@@ -570,17 +610,13 @@ void DocumentTabBar::ensureTabVisible(int index) {
   DocumentTab *tab = m_tabs[index];
   if (!tab)
     return;
-  m_scroll->ensureWidgetVisible(tab, UiScale::dp(24), 0);
+  m_scroll->ensureWidgetVisible(tab, 0, 0);
 }
 
 void DocumentTabBar::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
   if (m_scrollContent) {
-    int contentW = 0;
-    for (DocumentTab *t : m_tabs)
-      contentW += t->width() + UiScale::dp(6);
-    m_scrollContent->setFixedWidth(
-        qMax(m_scroll->viewport()->width(), qMax(UiScale::dp(40), contentW)));
+    syncContentWidth();
   }
   updateIndicator(false);
 }
