@@ -8305,10 +8305,26 @@ void MainWindow::setupSidebar() {
             } else if (id == QLatin1String("layers") ||
                        id == QLatin1String("calendar") ||
                        id == QLatin1String("chat")) {
-              BlopDialogs::notify(
-                  this, QStringLiteral("Demnächst"),
-                  QStringLiteral(
-                      "Diese Funktion kommt in einer späteren Version."));
+              if (QToolButton *btn =
+                      m_libraryIconRail ? m_libraryIconRail->buttonFor(id)
+                                        : nullptr) {
+                QList<BlopInWindowMenu::Item> items;
+                const QString title =
+                    id == QLatin1String("layers")
+                        ? tr("Ebenen")
+                        : (id == QLatin1String("calendar") ? tr("Kalender")
+                                                             : tr("Chat"));
+                items.append({title, QIcon(), []() {}});
+                items.append({QString(), QIcon(), {}, false, true});
+                items.append({tr("Demnächst verfügbar"), QIcon(), []() {}});
+                BlopInWindowMenu::show(
+                    btn, btn->mapToGlobal(QPoint(0, btn->height())), items);
+              } else {
+                BlopDialogs::notify(
+                    this, QStringLiteral("Demnächst"),
+                    QStringLiteral(
+                        "Diese Funktion kommt in einer späteren Version."));
+              }
               if (m_libraryIconRail)
                 m_libraryIconRail->setActiveId(QStringLiteral("library"));
             } else if (id == QLatin1String("settings") ||

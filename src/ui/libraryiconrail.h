@@ -18,6 +18,9 @@ public:
   void setActiveId(const QString &id);
   void setAvatarLetter(const QString &letter);
 
+  /// ToolButton for a given rail id, or nullptr if unknown.
+  QToolButton *buttonFor(const QString &id) const;
+
 signals:
   void actionTriggered(const QString &id);
 

@@ -98,6 +98,10 @@ QToolButton *LibraryIconRail::addBtn(const QString &id, const QString &iconKey,
   return btn;
 }
 
+QToolButton *LibraryIconRail::buttonFor(const QString &id) const {
+  return m_btns.value(id, nullptr);
+}
+
 void LibraryIconRail::setActiveId(const QString &id) {
   m_active = id;
   refreshStyles();
