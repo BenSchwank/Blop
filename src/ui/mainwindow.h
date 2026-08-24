@@ -50,7 +50,6 @@ class LibraryOrgBar;
 class MainWindow;
 class PageManager;
 class PageThumbnailSidebar;
-class PenPresetBar;
 class NoteLeftRail;
 class RadialToolbarFab;
 class MultiPageNoteView;
@@ -414,8 +413,6 @@ private:
   void applyPageChromePrefs();
   bool noteLeftChromeVisible() const;
   bool pageRailOnRight() const;
-  /// Keep PenPresetBar pinned under the floating/docked toolbar as one cluster.
-  void syncPenPresetBarGeometry();
   void updateNoteBottomChrome();
   void positionDrawboardToolbar();
   void positionNoteChrome();
@@ -707,7 +704,6 @@ private:
   QSlider *m_sliderToolbarScale{nullptr};
 
   QWidget *m_floatingTools{nullptr};
-  PenPresetBar *m_penPresetBar{nullptr};
 
   PageManager *m_pageManager{nullptr};
 

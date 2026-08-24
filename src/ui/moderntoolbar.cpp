@@ -3808,6 +3808,7 @@ void ModernToolbar::syncToolBadges() {
 }
 
 void ModernToolbar::syncDrawboardToolIcons() {
+  syncStudioColorChip();
   if (btnLasso) {
     // Studio (J/K) keeps the lasso loop; the Drawboard rail uses its select
     // glyph with a flyout chevron.
@@ -5409,6 +5410,16 @@ void ModernToolbar::applyStudioFloatingRail() {
         m_studioSizeLabel->setText(QString::number(v / 10.0, 'f', 1));
     });
   }
+  if (!m_studioColorChip) {
+    m_studioColorChip = new QToolButton(this);
+    m_studioColorChip->setCursor(Qt::PointingHandCursor);
+    m_studioColorChip->setToolTip(tr("Farbe & Strichoptionen"));
+    connect(m_studioColorChip, &QToolButton::clicked, this,
+            [this]() { emit toolOptionsRequested(); });
+  }
+  syncStudioColorChip();
+  m_studioColorChip->show();
+
   const int wNow = ToolManager::instance().config().penWidth;
   m_studioSizeSlider->blockSignals(true);
   m_studioSizeSlider->setValue(qBound(1, wNow, 40));
@@ -5473,6 +5484,19 @@ void ModernToolbar::applyStudioFloatingRail() {
   setToolTip(QStringLiteral("Schwebend — an den Rand ziehen zum Einrasten"));
   update();
 #endif
+}
+
+void ModernToolbar::syncStudioColorChip() {
+  if (!m_studioColorChip)
+    return;
+  QColor c = ToolManager::instance().config().penColor;
+  if (!c.isValid())
+    c = QColor(0x3A, 0x40, 0x4C);
+  m_studioColorChip->setStyleSheet(
+      QStringLiteral("QToolButton { background: %1; border: 2px solid #FFFFFF; "
+                     "border-radius: %2px; }"
+                     "QToolButton:hover { border-color: #5B9DFF; }")
+          .arg(c.name(), QString::number(UiScale::dp(11))));
 }
 
 bool ModernToolbar::isDrawboardVerticalRail() const {
@@ -6165,9 +6189,19 @@ QList<ToolbarBtn *> ModernToolbar::currentRailButtons() const {
   return out;
 }
 
+bool ModernToolbar::studioDockedPref() {
+  QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+  // J mockup ships the floating side rail; the K pill is the snapped variant.
+  return s.value(QStringLiteral("ui/studio_toolbar_docked"), false).toBool();
+}
+
 void ModernToolbar::setDockMode(bool docked) {
   if (m_isDockedMode == docked) return;
   m_isDockedMode = docked;
+  {
+    QSettings s(QStringLiteral("Blop"), QStringLiteral("BlopApp"));
+    s.setValue(QStringLiteral("ui/studio_toolbar_docked"), docked);
+  }
   if (btnDockToggle)
     btnDockToggle->setIcon(docked ? QStringLiteral("dock_fixed")
                                   : QStringLiteral("dock_float"));
@@ -6343,9 +6377,10 @@ int ModernToolbar::calculateMinLength() {
     int dragH = UiScale::dp(30);
 #ifndef Q_OS_ANDROID
     if (isStudioChrome() && !m_isDockedMode && m_orientation == Vertical) {
-      const int n = qMax(1, m_railSlots.size()) + 1;
-      return UiScale::dp(28) + n * UiScale::dp(48) + (n - 1) * UiScale::dp(4) +
-             UiScale::dp(108);
+      // Grip + tool slots + undo/redo + dividers + size stack + more button.
+      const int n = qMax(1, m_railSlots.size()) + 2;
+      return UiScale::dp(46) + n * (UiScale::dp(48) + UiScale::dp(6)) +
+             UiScale::dp(24) + UiScale::dp(214);
     }
     if (m_orientation == Vertical) {
       const int n = qMax(1, m_railSlots.size()) + 5; // undo/redo + tools + library/+/props
@@ -6950,10 +6985,12 @@ void ModernToolbar::updateLayout(bool animate) {
           slotBtns.append(btnRedo);
         for (int i = 0; i < slotBtns.size(); ++i) {
           contentNeeded += btnS + gap;
-          if (!studioFloat && i < m_railSlots.size()) {
+          if (i < m_railSlots.size()) {
             const ToolMode m = m_railSlots[i].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser)
-              contentNeeded += UiScale::dp(10);
+              contentNeeded += studioFloat ? UiScale::dp(8) : UiScale::dp(10);
+          } else if (studioFloat && slotBtns[i] == btnUndo) {
+            contentNeeded += UiScale::dp(8);
           }
         }
         const int maxScroll = qMax(0, contentNeeded - contentH);
@@ -7031,14 +7068,23 @@ void ModernToolbar::updateLayout(bool animate) {
           fy += b->height() + footerGap;
         }
         if (studioFloat && m_studioSizeLabel && m_studioSizeSlider) {
-          // J footer stack (bottom-up): more → slider → size label.
+          // J footer stack (bottom-up): more → slider → size label → swatch.
           const int pad = UiScale::dp(8);
           const int labelH = UiScale::dp(16);
           const int sliderH = UiScale::dp(78);
           const int moreH = UiScale::dp(40);
+          const int chipS = UiScale::dp(22);
           const int moreY = h - moreH - pad;
           const int sliderY = moreY - sliderH - UiScale::dp(6);
           const int labelY = sliderY - labelH - UiScale::dp(2);
+          if (m_studioColorChip) {
+            syncStudioColorChip();
+            m_studioColorChip->setFixedSize(chipS, chipS);
+            m_studioColorChip->move((w - chipS) / 2,
+                                    labelY - chipS - UiScale::dp(6));
+            m_studioColorChip->show();
+            m_studioColorChip->raise();
+          }
           m_studioSizeLabel->setFixedSize(w - UiScale::dp(8), labelH);
           m_studioSizeLabel->move(UiScale::dp(4), labelY);
           m_studioSizeLabel->show();
@@ -7066,11 +7112,15 @@ void ModernToolbar::updateLayout(bool animate) {
             m_studioSizeLabel->hide();
           if (m_studioSizeSlider)
             m_studioSizeSlider->hide();
+          if (m_studioColorChip)
+            m_studioColorChip->hide();
         }
 
         for (auto *b : m_buttons) {
           if (!b || chromeRow.contains(b) || railOrder.contains(b))
             continue;
+          if (studioFloat && b == btnMoreProps)
+            continue; // Placed as the J footer "more" affordance above.
           b->setRailSlotStyle(false);
           b->hide();
         }

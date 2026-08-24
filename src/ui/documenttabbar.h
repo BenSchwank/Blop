@@ -39,6 +39,9 @@ public:
   bool readingMarkMode() const { return m_readingMarkMode; }
   void refreshTheme();
 
+  QSize sizeHint() const override;
+  QSize minimumSizeHint() const override;
+
 signals:
   void currentChanged(int index);
   void tabCloseRequested(int index);
@@ -55,6 +58,8 @@ private:
   void updateIndicator(bool animate = true);
   void ensureTabVisible(int index);
   void rebindTabSignals();
+  int tabsWidthPx() const;
+  void syncContentWidth();
   DocumentTab *tabAt(int index) const;
 
   QHBoxLayout *m_outerLayout{nullptr};
@@ -107,6 +112,7 @@ protected:
 
 private:
   void refreshTitleLabel();
+  int chromeWidthPx() const;
 
   QString m_title;
   QString m_iconName;

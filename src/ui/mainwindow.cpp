@@ -21,7 +21,6 @@
 #include "libraryiconrail.h"
 #include "noteleftrail.h"
 #include "radialtoolbarfab.h"
-#include "penpresetbar.h"
 #include "newnotedialog.h"
 #include "overlayscrollindicator.h"
 #include "profileeditordialog.h"
@@ -2162,12 +2161,6 @@ void MainWindow::applyThemeRefresh() {
     phone->setAccentColor(editorOpen ? NoteChrome::accent()
                                      : m_currentAccentColor);
   }
-  if (m_penPresetBar) {
-    const bool editorOpen =
-        m_documentTabBar && m_documentTabBar->noteChromeMode();
-    m_penPresetBar->setAccentColor(editorOpen ? NoteChrome::accent()
-                                              : m_currentAccentColor);
-  }
   if (m_documentTabBar) {
 #ifndef Q_OS_ANDROID
     if (m_documentTabBar->noteChromeMode()) {
@@ -3633,7 +3626,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
                                 UiScale::safeBottomPx(this) - UiScale::dp(8));
       phone->setGeometry((avail - w) / 2, y, w, h);
       phone->raise();
-      syncPenPresetBarGeometry();
       // Phone: single bottom chrome = AndroidPhoneToolbar only.
       // Hide the desktop page/zoom notch so it cannot stack/overlap.
       if (m_noteBottomChrome)
@@ -3660,7 +3652,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       positionNoteChrome();
 #endif
       tb->raise();
-      syncPenPresetBarGeometry();
     }
     if (m_pageSettingsOverlay && m_editorCenterWidget) {
       m_pageSettingsOverlay->setGeometry(
@@ -3680,8 +3671,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
       return true;
     }
   } else if (obj == m_floatingTools && event->type() == QEvent::Move) {
-    // Chips follow the toolbar every move so floating bar + presets stay one cluster.
-    syncPenPresetBarGeometry();
     // v119 perf: QEvent::Move fires on EVERY pixel of a drag and was
     // re-evaluating the dock condition + (when triggered) running an
     // animation 60+ times per second. Gate on a small y-threshold so
@@ -3695,8 +3684,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         if (ModernToolbar *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
           tb->setDockMode(true);
           positionNoteChrome();
-          syncPenPresetBarGeometry();
-        }
+            }
       }
     }
   } else if (obj == m_lblNoteZoom &&
@@ -4397,12 +4385,6 @@ void MainWindow::applyTheme() {
               :
 #endif
               m_currentAccentColor);
-    if (m_penPresetBar) {
-      const bool editorOpen =
-          m_documentTabBar && m_documentTabBar->noteChromeMode();
-      m_penPresetBar->setAccentColor(editorOpen ? NoteChrome::accent()
-                                                : m_currentAccentColor);
-    }
     if (m_radialFab)
       m_radialFab->setAccentColor(m_currentAccentColor);
     if (m_libraryTagsPanel)
@@ -6184,9 +6166,13 @@ void MainWindow::setupUi() {
     topToolbar->setFixedHeight(UiScale::dp(56));
     topToolbar->resize(idealW, UiScale::dp(56));
 #else
-    // Desktop studio: K snapped bottom pill is primary; J float when undocked.
-    topToolbar->setDockMode(true);
-    topToolbar->applyStudioSnappedPill();
+    // Desktop studio: J floating side rail by default, K pill once snapped.
+    if (ModernToolbar::studioDockedPref()) {
+      topToolbar->setDockMode(true);
+      topToolbar->applyStudioSnappedPill();
+    } else {
+      topToolbar->applyStudioFloatingRail();
+    }
     topToolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(topToolbar, &ModernToolbar::dockModeChanged, this,
             [this](bool) {
@@ -6344,27 +6330,6 @@ void MainWindow::setupUi() {
   connect(m_radialFab, &RadialToolbarFab::undoRequested, this,
           &MainWindow::onUndo);
 #endif
-
-  // Preset chips — also shown with the vertical Favorites rail (quick ink presets).
-  m_penPresetBar = new PenPresetBar(m_editorCenterWidget);
-  m_penPresetBar->setAccentColor(NoteChrome::accent());
-  m_penPresetBar->hide();
-  connect(m_penPresetBar, &PenPresetBar::presetSelected, this,
-          [this](const PenPreset &preset) {
-            ToolManager::instance().selectTool(preset.mode);
-            ToolConfig cfg = ToolManager::instance().config();
-            cfg.penColor = preset.color;
-            cfg.penWidth = preset.width;
-            cfg.opacity = preset.opacity;
-            ToolManager::instance().setConfig(cfg);
-            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-              tb->setToolMode(preset.mode);
-              // Re-clicking a chip with Shift adds it as a Favorites rail slot.
-              if (tb->isDrawboardVerticalRail() &&
-                  (QGuiApplication::keyboardModifiers() & Qt::ShiftModifier))
-                tb->addCurrentToolAsRailSlot();
-            }
-          });
 
   // Install event filter to center the floating tools automatically on resize
   m_editorCenterWidget->installEventFilter(this);
@@ -6849,8 +6814,7 @@ void MainWindow::setupUi() {
               onToolModeChanged(m);
               if (m_toolPropertiesPanel && m_toolPropertiesVisible)
                 m_toolPropertiesPanel->syncForMode(m);
-              syncPenPresetBarGeometry();
-            });
+                    });
     connect(&ToolManager::instance(), &ToolManager::toolChanged, this,
             [this, topToolbar, onToolModeChanged](AbstractTool *tool) {
               if (!tool)
@@ -9768,12 +9732,17 @@ void MainWindow::switchToEditorChrome() {
   if (m_documentTabBar)
     m_documentTabBar->setNoteChromeMode(true);
 #ifndef Q_OS_ANDROID
-  // Studio mix: editor always light chrome + K snapped bottom pill on open.
+  // Studio mix: editor always light chrome; toolbar keeps the chosen shape.
   NoteChrome::setMode(NoteChrome::Mode::Light);
   if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
     tb->setStyle(ModernToolbar::Normal);
-    tb->setDockMode(true);
-    tb->applyStudioSnappedPill();
+    if (ModernToolbar::studioDockedPref()) {
+      tb->setDockMode(true);
+      tb->applyStudioSnappedPill();
+    } else {
+      tb->setDockMode(false);
+      tb->applyStudioFloatingRail();
+    }
   }
 #endif
   applyNoteChromeTheme();
@@ -11224,9 +11193,6 @@ void MainWindow::updateSidebarState() {
     updateNoteBottomChrome();
   if (m_floatingTools) {
     m_floatingTools->setVisible(isEditor);
-  }
-  if (m_penPresetBar) {
-    m_penPresetBar->hide();
   }
   if (m_editorTitleControls) {
     m_editorTitleControls->setVisible(isEditor);
@@ -13996,7 +13962,6 @@ void MainWindow::positionNoteChrome() {
     m_floatingTools->raise();
   if (m_toolPropertiesPanel && m_toolPropertiesVisible)
     m_toolPropertiesPanel->raise();
-  syncPenPresetBarGeometry();
 
 #ifndef Q_OS_ANDROID
   if (m_radialFab && m_radialFab->isVisible() && !m_radialFab->isExpanded()) {
@@ -14095,59 +14060,6 @@ void MainWindow::updateNoteBottomChrome() {
   positionNoteChrome();
 }
 
-void MainWindow::syncPenPresetBarGeometry() {
-  if (!m_penPresetBar || !m_editorCenterWidget)
-    return;
-  auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools);
-  // Show PenPreset chips in Drawboard when an ink tool is active — presets
-  // were previously only visible in docked horizontal mode (looked like dead UI).
-  const ToolMode mode = ToolManager::instance().activeToolMode();
-  const bool inkTool = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
-                        mode == ToolMode::Highlighter);
-  const bool show =
-      m_floatingTools && m_floatingTools->isVisible() && tb && inkTool &&
-      (tb->isDrawboardVerticalRail() ||
-       (tb->currentStyle() == ModernToolbar::Normal && tb->isDockedMode()));
-  if (!show) {
-    m_penPresetBar->hide();
-    return;
-  }
-  const int h = m_penPresetBar->preferredHeightPx();
-  int x = 0;
-  int y = 0;
-  int w = 0;
-  if (tb->isDrawboardVerticalRail()) {
-    // Sit above the bottom utilities notch, beside the Favorites rail.
-    const int margin = UiScale::dp(16);
-    const int edgePad = UiScale::dp(4);
-    const int bottomH = noteBottomChromeHeight();
-    const int rightClear = noteChromeClearanceRight();
-    const int leftClear = noteChromeClearanceLeft();
-    const int hostW = m_editorCenterWidget->width();
-    const int hostH = m_editorCenterWidget->height();
-    w = qMin(UiScale::dp(280),
-             qMax(UiScale::dp(160),
-                  hostW - tb->width() - rightClear - leftClear - margin * 3));
-    if (tb->isRailDockedLeft()) {
-      x = tb->x() + tb->width() + margin;
-    } else {
-      x = hostW - tb->width() - rightClear - w - margin;
-    }
-    x = qBound(edgePad, x, hostW - w - edgePad);
-    y = qMax(noteChromeClearanceTop() + margin,
-             hostH - bottomH - h - margin - edgePad);
-  } else {
-    x = m_floatingTools->x();
-    y = m_floatingTools->y() + m_floatingTools->height() + UiScale::dp(6);
-    w = m_floatingTools->width();
-  }
-  m_penPresetBar->setGeometry(x, y, w, h);
-  m_penPresetBar->show();
-  m_penPresetBar->raise();
-  const auto &cfg = ToolManager::instance().config();
-  m_penPresetBar->syncActive(mode, cfg.penColor, cfg.penWidth);
-}
-
 MultiPageNoteView *MainWindow::currentNoteView() const {
   if (!m_editorTabs)
     return nullptr;
@@ -14180,8 +14092,6 @@ void MainWindow::applyNoteChromeTheme() {
     view->applyNoteChrome();
   if (m_allPagesOverlay)
     m_allPagesOverlay->setAccentColor(NoteChrome::accent());
-  if (m_penPresetBar)
-    m_penPresetBar->setAccentColor(NoteChrome::accent());
   if (m_noteBottomChrome) {
     applyNoteChromeLayoutOrientation();
     refreshNoteChromeStyle();
