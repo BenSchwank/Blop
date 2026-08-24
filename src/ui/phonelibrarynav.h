@@ -72,4 +72,5 @@ private:
   qint64 m_lastMenuActionMs{0};
   QPoint m_listPressPos;
   QListWidgetItem *m_listPressItem{nullptr};
+  int m_listPressScroll{0};
 };

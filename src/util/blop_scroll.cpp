@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QEasingCurve>
 #include <QEvent>
 #include <QGraphicsView>
@@ -230,6 +231,10 @@ private:
     int touchId{-1};
   } m;
 
+  static bool isSynthesizedMouse(const QMouseEvent *me) {
+    return me && me->source() != Qt::MouseEventNotSynthesized;
+  }
+
   static qint64 eventTs(const QInputEvent *e) {
     if (!e)
       return 0;
@@ -268,6 +273,15 @@ private:
 
   void clearSession() { m = Session{}; }
 
+  /// Deadline until which the synthesized mouse stream that trails a finger
+  /// flick is swallowed (otherwise the flick also clicks the row under it).
+  qint64 m_eatSyntheticUntilMs{0};
+
+  bool eatingSynthetic() const {
+    return m_eatSyntheticUntilMs > 0 &&
+           QDateTime::currentMSecsSinceEpoch() < m_eatSyntheticUntilMs;
+  }
+
   int dragSlop() const {
     if (preferClickWidget(m.pressWidget) || preferClickWidget(m.area))
       return kPreferClickDragPx;
@@ -277,11 +291,6 @@ private:
   bool beginSession(QWidget *w, const QPointF &global, qint64 ts, bool fromTouch,
                     int touchId) {
     if (!w || isPassthroughWidget(w) || isUnderDrawingCanvas(w))
-      return false;
-    // Burger / other "prefer click" lists: do not steal the press. Finger
-    // jitter of a few pixels used to cancel itemClicked after a visible
-    // highlight.
-    if (preferClickWidget(w))
       return false;
     QAbstractScrollArea *area = enclosingScrollable(w);
     if (!area)
@@ -333,6 +342,7 @@ private:
     if (!m.active)
       return false;
     const bool wasScrolling = m.scrolling;
+    const bool wasTouch = m.fromTouch;
     if (wasScrolling) {
       feed(QScroller::InputRelease, global, ts);
       cancelPressedControl();
@@ -340,45 +350,54 @@ private:
       sc->stop();
     }
     clearSession();
+    // A finger flick ends with TouchEnd; the synthesized mouse release that
+    // trails it must be swallowed so the row under the finger is not clicked.
+    if (wasScrolling && wasTouch)
+      m_eatSyntheticUntilMs = QDateTime::currentMSecsSinceEpoch() + 400;
     return wasScrolling; // eat release only if we scrolled (no click)
   }
 
   bool onMousePress(QObject *watched, QMouseEvent *me) {
     if (!me || me->button() != Qt::LeftButton)
       return false;
-    auto *w = qobject_cast<QWidget *>(watched);
-    if (m.fromTouch && me->source() == Qt::MouseEventSynthesizedByQt) {
-      // Lists that must receive a real click (burger rows) need the
-      // synthesized mouse press. Other widgets already saw TouchBegin.
-      if (preferClickWidget(w))
-        return false;
-      return true;
+    if (isSynthesizedMouse(me)) {
+      // Touch drives the scroller through QTouchEvents; the synthesized mouse
+      // stream is what makes buttons, list rows and check boxes clickable, so
+      // only swallow it while a flick is actually running.
+      if (eatingSynthetic())
+        return true;
+      return m.active && m.fromTouch && m.scrolling;
     }
-    beginSession(w, me->globalPosition(), eventTs(me), false, -1);
+    beginSession(qobject_cast<QWidget *>(watched), me->globalPosition(),
+                 eventTs(me), false, -1);
     // Deliver the press so Qt keeps sending moves and a stationary tap clicks.
     return false;
   }
 
   bool onMouseMove(QMouseEvent *me) {
-    if (!m.active)
-      return false;
-    if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt) {
-      if (preferClickWidget(m.pressWidget))
-        return false;
-      return true;
-    }
     if (!me)
+      return false;
+    if (isSynthesizedMouse(me)) {
+      if (eatingSynthetic())
+        return true;
+      return m.active && m.fromTouch && m.scrolling;
+    }
+    if (!m.active || m.fromTouch)
       return false;
     return onDrag(me->globalPosition(), eventTs(me));
   }
 
   bool onMouseRelease(QMouseEvent *me) {
-    if (m.fromTouch && me && me->source() == Qt::MouseEventSynthesizedByQt) {
-      if (preferClickWidget(m.pressWidget))
-        return false;
-      return m.active && m.scrolling;
+    if (!me)
+      return false;
+    if (isSynthesizedMouse(me)) {
+      if (eatingSynthetic()) {
+        m_eatSyntheticUntilMs = 0;
+        return true;
+      }
+      return m.active && m.fromTouch && m.scrolling;
     }
-    if (!me || me->button() != Qt::LeftButton)
+    if (me->button() != Qt::LeftButton)
       return false;
     return finish(me->globalPosition(), eventTs(me));
   }
@@ -392,6 +411,7 @@ private:
 
     const QEvent::Type type = te->type();
     if (type == QEvent::TouchBegin) {
+      m_eatSyntheticUntilMs = 0;
       auto *w = qobject_cast<QWidget *>(watched);
       const auto &pt = points.first();
       if (!beginSession(w, pt.globalPosition(), eventTs(te), true, int(pt.id())))
