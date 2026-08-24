@@ -8300,10 +8300,11 @@ void MainWindow::setupSidebar() {
                 m_libraryOrgBar->setSmartView(LibraryOrgBar::SmartView::Favorites);
               if (m_libraryIconRail)
                 m_libraryIconRail->setActiveId(QStringLiteral("favorites"));
+            } else if (id == QLatin1String("apps")) {
+              openModeMenuAtButton();
             } else if (id == QLatin1String("layers") ||
                        id == QLatin1String("calendar") ||
-                       id == QLatin1String("chat") ||
-                       id == QLatin1String("apps")) {
+                       id == QLatin1String("chat")) {
               BlopDialogs::notify(
                   this, QStringLiteral("Demnächst"),
                   QStringLiteral(
