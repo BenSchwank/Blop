@@ -48,6 +48,7 @@ private:
   void applyConfig();
   void addColorRow(QVBoxLayout *lay);
   void addFillColorRow(QVBoxLayout *lay);
+  void applyPaletteForMode(ToolMode mode);
   void refreshSwatchSelection();
   void refreshFillSwatchSelection();
   void applyPenInkStyle(PenInkStyle style);

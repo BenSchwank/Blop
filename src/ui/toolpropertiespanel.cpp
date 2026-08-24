@@ -31,7 +31,7 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   setMinimumWidth(preferredWidth());
   setMaximumWidth(preferredWidth());
   // Allow the host to clamp height; scrolling prevents widget overlap.
-  setMinimumHeight(UiScale::dp(180));
+  setMinimumHeight(UiScale::dp(80));
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
 
   m_outer = new QVBoxLayout(this);
@@ -61,6 +61,8 @@ ToolPropertiesPanel::ToolPropertiesPanel(QWidget *parent) : QWidget(parent) {
   m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   m_scroll->viewport()->setAutoFillBackground(false);
+  // Hand/Lasso panels hold a single hint; do not reserve a viewport floor.
+  m_scroll->setMinimumHeight(0);
 
   m_body = new QWidget(m_scroll);
   m_body->setObjectName(QStringLiteral("ToolPropsBody"));
@@ -339,7 +341,7 @@ int ToolPropertiesPanel::preferredHeight() const {
   // Prefer natural content height, but keep a sensible floating-card size.
   const int header = UiScale::dp(52);
   const int body = m_body ? m_body->sizeHint().height() : UiScale::dp(360);
-  return qBound(UiScale::dp(280), header + body + UiScale::dp(28),
+  return qBound(UiScale::dp(96), header + body + UiScale::dp(28),
                UiScale::dp(720));
 }
 
@@ -449,9 +451,9 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
   if (m_modeRow)
     m_modeRow->setVisible(modeTools);
 
+  // Smart Ink only applies to ink tools; the eraser has no ink behaviour.
   const bool showSmart = (mode == ToolMode::Pen || mode == ToolMode::Pencil ||
-                          mode == ToolMode::Highlighter ||
-                          mode == ToolMode::Eraser);
+                          mode == ToolMode::Highlighter);
   if (m_smartLbl)
     m_smartLbl->setVisible(showSmart);
   if (m_smartRow)
@@ -460,8 +462,7 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
     m_chkPressure->setVisible(mode == ToolMode::Pen || mode == ToolMode::Pencil);
   if (m_chkInkToShape)
     m_chkInkToShape->setVisible(mode == ToolMode::Pen ||
-                                mode == ToolMode::Pencil ||
-                                mode == ToolMode::Eraser);
+                                mode == ToolMode::Pencil);
   if (m_chkSmartLine)
     m_chkSmartLine->setVisible(mode == ToolMode::Highlighter);
 
@@ -580,6 +581,7 @@ void ToolPropertiesPanel::setVisibleForTool(ToolMode mode) {
 
 void ToolPropertiesPanel::syncForMode(ToolMode mode) {
   m_mode = mode;
+  applyPaletteForMode(mode);
   if (mode != ToolMode::Hand)
     m_config = ToolManager::instance().configFor(mode);
   else
@@ -817,6 +819,23 @@ void ToolPropertiesPanel::addFillColorRow(QVBoxLayout *lay) {
   lay->addWidget(m_fillRow);
 }
 
+void ToolPropertiesPanel::applyPaletteForMode(ToolMode mode) {
+  // Highlighters need luminous inks; the pen/pencil set stays document-like.
+  static const QList<QColor> inkColors = {
+      Qt::black,          Qt::white,          QColor(220, 50, 50),
+      QColor(40, 120, 255), QColor(40, 180, 80), QColor(250, 180, 30),
+      QColor(160, 60, 200), QColor(30, 30, 30)};
+  static const QList<QColor> neonColors = {
+      QColor(250, 232, 60),  QColor(120, 235, 90),  QColor(90, 225, 235),
+      QColor(255, 150, 60),  QColor(255, 105, 180), QColor(150, 130, 255),
+      QColor(255, 90, 90),   QColor(180, 190, 200)};
+  const QList<QColor> &colors =
+      (mode == ToolMode::Highlighter) ? neonColors : inkColors;
+  for (int i = 0; i < m_swatches.size() && i < colors.size(); ++i)
+    if (m_swatches[i])
+      m_swatches[i]->setProperty("swatchColor", colors[i]);
+}
+
 void ToolPropertiesPanel::refreshSwatchSelection() {
   const QColor activeColor = (m_mode == ToolMode::StickyNote &&
                               m_config.stickyBgColor.isValid())
@@ -910,7 +929,8 @@ QPushButton *ToolPropertiesPanel::makeSwatch(const QColor &c, bool fill) {
   btn->setFixedSize(UiScale::dp(40), UiScale::dp(40));
   btn->setCursor(Qt::PointingHandCursor);
   btn->setProperty("swatchColor", c);
-  connect(btn, &QPushButton::clicked, this, [this, c, fill]() {
+  connect(btn, &QPushButton::clicked, this, [this, btn, fill]() {
+    const QColor c = btn->property("swatchColor").value<QColor>();
     if (fill) {
       m_config.fillColor = c;
     } else if (m_mode == ToolMode::StickyNote) {

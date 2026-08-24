@@ -1517,8 +1517,9 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     const QColor outline = m_active ? QColor(QStringLiteral("#5B9DFF"))
                                     : QColor(QStringLiteral("#3A404C"));
     QColor ink = outline;
-    // K mockup: inactive pen/pencil/highlighter keep saturated tip colors.
-    if (!m_active && m_glyphColor.isValid() &&
+    // K mockup: pen/pencil/highlighter always show their saturated ink tip so
+    // the active tool still reveals which color it writes with.
+    if (m_glyphColor.isValid() &&
         (m_iconName == QLatin1String("pen") ||
          m_iconName == QLatin1String("pencil") ||
          m_iconName == QLatin1String("highlighter"))) {
@@ -3808,8 +3809,12 @@ void ModernToolbar::syncToolBadges() {
 
 void ModernToolbar::syncDrawboardToolIcons() {
   if (btnLasso) {
-    btnLasso->setIcon(QStringLiteral("select"));
-    btnLasso->setShowChevron(true);
+    // Studio (J/K) keeps the lasso loop; the Drawboard rail uses its select
+    // glyph with a flyout chevron.
+    const bool studio = isStudioChrome();
+    btnLasso->setIcon(studio ? QStringLiteral("lasso_loop")
+                             : QStringLiteral("select"));
+    btnLasso->setShowChevron(!studio);
   }
   if (btnRuler) {
     btnRuler->setIcon(QStringLiteral("measure"));
@@ -6627,7 +6632,7 @@ void ModernToolbar::updateLayout(bool animate) {
         if (b == btnLasso)
           b->setIcon(QStringLiteral("lasso_loop"));
         else if (b == btnHand)
-          b->setIcon(QStringLiteral("select_rect"));
+          b->setIcon(QStringLiteral("hand"));
         if (b == btnPen)
           b->setGlyphColor(
               ToolManager::instance().configFor(ToolMode::Pen).penColor);
