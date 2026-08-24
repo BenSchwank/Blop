@@ -735,6 +735,35 @@ def health_db():
     }
 
 
+@app.get("/api/health/users-schema")
+def health_users_schema():
+    """Report which optional public.users columns exist (see migration 003)."""
+    db = DataManager._init_supabase()
+    if not db:
+        return {"ok": False, "error": "Supabase nicht konfiguriert"}
+
+    present = {}
+    for column in ("email", "auth_id", "preferred_model", "created_at"):
+        try:
+            db.table("users").select(column).limit(1).execute()
+            present[column] = True
+        except Exception:
+            present[column] = False
+
+    missing = [c for c, ok in present.items() if not ok]
+    return {
+        "ok": not missing,
+        "columns": present,
+        "missing": missing,
+        "hint": (
+            "migrations/003_users_email_auth_id.sql im Supabase SQL-Editor ausführen"
+            if missing
+            else ""
+        ),
+        "service_role_key": bool(AuthManager._service_role_key()),
+    }
+
+
 @app.get("/api/health/share-tables")
 def health_share_tables(token: str):
     """
@@ -1019,7 +1048,6 @@ def verify_google_oauth(req: GoogleVerifyRequest):
         from google.oauth2 import id_token
         from google.auth.transport import requests as google_requests
         import requests as py_requests
-        import string
         import random
         import errno
         import time
@@ -1196,9 +1224,9 @@ def verify_google_oauth(req: GoogleVerifyRequest):
             if existing: # Append numeric suffix if username exists
                 username = f"{username}_{random.randint(100,999)}"
             
-            # Register automatically with generated password + real e-mail
-            random_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-            ok, msg = AuthManager.register(username, email, random_pw)
+            # Google already verified the address: create the account directly instead
+            # of going through Supabase Auth sign_up (confirmation mail + rate limit).
+            ok, msg = AuthManager.register_oauth_user(username, email)
             if not ok:
                 # If the email already exists, resolve canonical user and continue.
                 if "bereits registriert" in str(msg).lower():

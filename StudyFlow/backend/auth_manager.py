@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 from datetime import datetime
 import uuid
@@ -102,6 +103,92 @@ class AuthManager:
         if exc:
             print(f"AuthManager DB unreachable: {exc}")
         return base
+
+    # Columns that older deployments of public.users may not have yet.
+    _OPTIONAL_USER_COLUMNS = ("auth_id", "email", "preferred_model", "created_at")
+
+    @staticmethod
+    def _service_role_key() -> str:
+        return (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip().strip('"').strip("'")
+
+    @staticmethod
+    def _supabase_base_url() -> str:
+        return (os.environ.get("SUPABASE_URL") or "").strip().strip('"').strip("'").rstrip("/")
+
+    @staticmethod
+    def _missing_column(error_text: str) -> str:
+        """PostgREST reports unknown columns as PGRST204 'Could not find the X column'."""
+        m = re.search(r"Could not find the '([A-Za-z0-9_]+)' column", error_text or "")
+        return m.group(1) if m else ""
+
+    @staticmethod
+    def _insert_user_row(db, row: dict):
+        """Insert into public.users, dropping optional columns the schema lacks.
+
+        Returns None on success, otherwise the last exception.
+        """
+        payload = dict(row)
+        for _ in range(len(payload) + 1):
+            try:
+                db.table("users").insert(payload).execute()
+                return None
+            except Exception as exc:
+                missing = AuthManager._missing_column(str(exc))
+                if missing and missing in payload and missing in AuthManager._OPTIONAL_USER_COLUMNS:
+                    print(
+                        f"AuthManager: public.users has no '{missing}' column — "
+                        "inserting without it (run migration 003)"
+                    )
+                    payload.pop(missing)
+                    continue
+                print(f"AuthManager: users insert failed: {exc}")
+                return exc
+        return None
+
+    @staticmethod
+    def _delete_auth_user(auth_id: str) -> None:
+        """Best-effort cleanup so a failed registration can be retried."""
+        key = AuthManager._service_role_key()
+        url = AuthManager._supabase_base_url()
+        if not key or not url or not auth_id:
+            return
+        try:
+            requests.delete(
+                f"{url}/auth/v1/admin/users/{auth_id}",
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=15,
+            )
+        except Exception as exc:
+            print(f"AuthManager: auth user cleanup failed (non-fatal): {exc}")
+
+    @staticmethod
+    def _admin_create_confirmed_auth_user(email: str, password: str) -> str:
+        """Create an already-confirmed auth user without sending mail (service role only).
+
+        Used for OAuth sign-ups where Google already verified the address.
+        Returns the auth user id, or "" when unavailable.
+        """
+        key = AuthManager._service_role_key()
+        url = AuthManager._supabase_base_url()
+        if not key or not url:
+            return ""
+        try:
+            r = requests.post(
+                f"{url}/auth/v1/admin/users",
+                headers={
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json={"email": email, "password": password, "email_confirm": True},
+                timeout=20,
+            )
+            if r.status_code < 300:
+                return str((r.json() or {}).get("id") or "")
+            print(f"AuthManager: admin create_user HTTP {r.status_code}: {r.text[:200]}")
+        except Exception as exc:
+            print(f"AuthManager: admin create_user failed (non-fatal): {exc}")
+        return ""
 
     @staticmethod
     def _hash_password(password: str) -> str:
@@ -306,18 +393,71 @@ class AuthManager:
                 "created_at": datetime.now().isoformat()
             }
 
-            try:
-                db.table('users').insert(new_user).execute()
-            except Exception as e:
-                err = str(e).lower()
+            insert_error = AuthManager._insert_user_row(db, new_user)
+            if insert_error is not None:
+                err = str(insert_error).lower()
+                # Roll the auth user back so the address is not permanently blocked.
+                AuthManager._delete_auth_user(auth_res.user.id)
                 if "duplicate" in err or "unique" in err or "already exists" in err:
                     return False, "Benutzername oder E-Mail ist bereits vergeben"
-                # Auth user may already exist; surface a recoverable message.
                 return False, "Konto konnte nicht vollständig angelegt werden. Bitte Login versuchen oder Support kontaktieren."
 
             return True, "Registrierung erfolgreich! Bitte überprüfe dein E-Mail Postfach, um deinen Account zu aktivieren."
         except Exception:
             return False, "Registrierung vorübergehend nicht möglich. Bitte später erneut versuchen."
+
+    @staticmethod
+    def register_oauth_user(username, email):
+        """Create a user whose e-mail was already verified by an OAuth provider.
+
+        Never goes through Supabase Auth sign_up: that sends a confirmation mail and
+        runs into the project's e-mail rate limit, which made Google sign-in fail for
+        everybody who did not have an account yet.
+        """
+        username = (username or "").strip()
+        email = (email or "").strip().lower()
+        if len(username) < 3 or "@" not in email:
+            return False, "Ungültige Google-Kontodaten"
+
+        db = AuthManager._get_db()
+        if not db:
+            return False, "Registrierung vorübergehend nicht möglich. Bitte später erneut versuchen."
+
+        try:
+            if AuthManager.get_user(username):
+                return False, "Benutzername bereits vergeben"
+            existing_email = db.table("users").select("username").eq("email", email).execute()
+            if existing_email.data:
+                return False, "Diese E-Mail Adresse ist bereits registriert"
+        except Exception as exc:
+            print(f"AuthManager.register_oauth_user lookup failed: {exc}")
+            return False, "Registrierung vorübergehend nicht möglich. Bitte später erneut versuchen."
+
+        random_pw = secrets.token_urlsafe(32)
+        auth_id = AuthManager._admin_create_confirmed_auth_user(email, random_pw)
+
+        new_user = {
+            "username": username,
+            "email": email,
+            "auth_id": auth_id or None,
+            "password_hash": AuthManager._hash_password(random_pw),
+            "tokens": 500,
+            "preferred_model": "",
+            "xp": 0,
+            "streak_days": 1,
+            "is_admin": False,
+            "created_at": datetime.now().isoformat(),
+        }
+        insert_error = AuthManager._insert_user_row(db, new_user)
+        if insert_error is not None:
+            err = str(insert_error).lower()
+            if auth_id:
+                AuthManager._delete_auth_user(auth_id)
+            if "duplicate" in err or "unique" in err or "already exists" in err:
+                return False, "Diese E-Mail Adresse ist bereits registriert"
+            return False, "Konto konnte nicht angelegt werden. Bitte später erneut versuchen."
+
+        return True, "Registrierung erfolgreich"
 
     @staticmethod
     def get_tokens(username):
