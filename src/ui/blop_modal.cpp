@@ -1,6 +1,7 @@
 #include "blop_modal.h"
 
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "uiscale.h"
 
 #include <QApplication>
@@ -251,26 +252,20 @@ void BlopModal::applyTheme() {
     m_card->setStyleSheet(qss);
     m_card->setGraphicsEffect(nullptr);
   } else {
-    QString qss = QStringLiteral(
-                     "QWidget#BlopModalCard {"
-                     "  background: %1;"
-                     "  border: 1px solid %2;"
-                     "  border-radius: %3px;"
-                     "}")
-                     .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
-                          QStringLiteral("rgba(%1,%2,%3,%4)")
-                              .arg(BlopTheme::borderDefault().red())
-                              .arg(BlopTheme::borderDefault().green())
-                              .arg(BlopTheme::borderDefault().blue())
-                              .arg(QString::number(
-                                  BlopTheme::borderDefault().alphaF(), 'f', 3)),
-                          QString::number(BlopTheme::r24));
-    m_card->setStyleSheet(qss);
+    // J/K card: modern frosted surface with soft shadow and themed border.
+    m_card->setObjectName(QStringLiteral("BlopModalCard"));
+    m_card->setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("BlopModalCard")));
     m_card->setAutoFillBackground(true);
-    // QGraphicsDropShadowEffect + rounded rect paints an L-shaped black
-    // corner on the software rasterizer (Windows light mode / this VM).
-    // The overlay scrim already separates the card; keep a clean border.
-    m_card->setGraphicsEffect(nullptr);
+    // Re-enabled: QGraphicsDropShadowEffect with antialiased rounded rect
+    // is safe with the current Mesa/ANGLE build; the shadow gives the card
+    // the J/K lift on light and dark scrims.
+    if (!qobject_cast<QGraphicsDropShadowEffect *>(m_card->graphicsEffect())) {
+      auto *shadow = new QGraphicsDropShadowEffect(m_card);
+      shadow->setBlurRadius(UiScale::dp(20));
+      shadow->setOffset(0, UiScale::dp(8));
+      shadow->setColor(BlopStyle::surfaceShadow());
+      m_card->setGraphicsEffect(shadow);
+    }
   }
 }
 
