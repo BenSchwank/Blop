@@ -57,7 +57,7 @@ DocumentTab::DocumentTab(const QString &title, const QString &iconName,
 
   QLabel *iconLbl = new QLabel(this);
   iconLbl->setObjectName(QStringLiteral("DocumentTabIcon"));
-  iconLbl->setPixmap(makeTabIcon(m_iconName, QColor(232, 228, 255), UiScale::dp(18))
+  iconLbl->setPixmap(makeTabIcon(m_iconName, BlopTheme::textPrimary(), UiScale::dp(18))
                          .pixmap(UiScale::dp(18), UiScale::dp(18)));
   lay->addWidget(iconLbl);
 
@@ -172,8 +172,10 @@ void DocumentTab::refreshChromeStyle() {
 void DocumentTab::refreshTitleLabel() {
   if (!m_textLbl)
     return;
-  const QString fg = BlopTheme::instance().isDark() ? QStringLiteral("#E8E8FF")
-                                                    : QStringLiteral("#1C1B22");
+  const QString fg = m_noteChromeMode
+                         ? NoteChrome::textPrimary().name(QColor::HexRgb)
+                         : (m_active ? BlopTheme::textPrimary().name(QColor::HexRgb)
+                                     : BlopTheme::textTertiary().name(QColor::HexRgb));
   m_textLbl->setStyleSheet(
       QStringLiteral("QLabel { color: %1; font-size: 13px; font-weight: 600; }")
           .arg(fg));
@@ -299,14 +301,23 @@ void DocumentTab::paintEvent(QPaintEvent *) {
   }
 
   if (m_active) {
-    QColor bg = m_accentColor;
-    bg.setAlphaF(0.16);
-    p.fillPath(path, bg);
-
-    QColor border = m_accentColor;
-    border.setAlphaF(0.42);
-    p.setPen(QPen(border, 1.0));
+    // Active tab as a raised bookmark pill with subtle accent border.
+    p.fillPath(path, BlopTheme::surfaceBase());
+    QColor border = m_accentColor.isValid()
+                        ? m_accentColor
+                        : BlopTheme::accentPrimary();
+    border.setAlphaF(BlopTheme::instance().isDark() ? 0.70 : 0.85);
+    p.setPen(QPen(border, 1.5));
     p.drawPath(path);
+
+    // Soft accent under-stroke like a bookmark ribbon.
+    const int ribbonW = UiScale::dp(3);
+    QRectF ribbon(r.left() + UiScale::dp(8), r.bottom() - UiScale::dp(3),
+                  r.width() - UiScale::dp(16), UiScale::dp(3));
+    p.setPen(Qt::NoPen);
+    p.setBrush(m_accentColor.isValid() ? m_accentColor
+                                       : BlopTheme::accentPrimary());
+    p.drawRoundedRect(ribbon, UiScale::dp(1), UiScale::dp(1));
   } else if (m_hovered) {
     QColor bg = BlopTheme::instance().isDark() ? QColor(255, 255, 255, 18)
                                                : QColor(0, 0, 0, 18);
