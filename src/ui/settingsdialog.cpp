@@ -213,7 +213,7 @@ public:
 
         m_titleLbl = new QLabel(m_title, header);
         setThemedQss(m_titleLbl, QStringLiteral(
-            "color: #ECEEFD; %1 background: transparent;")
+            "color: #E0E0E0; %1 background: transparent;")
             .arg(BlopTheme::typeQss(BlopTheme::TextRole::TitleLarge)));
         m_subtitleLbl = new QLabel(m_subtitle, header);
         setThemedQss(m_subtitleLbl, QStringLiteral(
@@ -421,7 +421,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     // L-corners through the BlopModal card on the software rasterizer.
     setAttribute(Qt::WA_TranslucentBackground, false);
     setThemedQss(this, QStringLiteral(
-        "QDialog { background-color: #1A1829; border: none; border-radius: 0px; }"));
+        "QDialog { background-color: #1A1A24; border: none; border-radius: 0px; }"));
     const bool phoneUi = UiScale::isAndroidPhoneUi(parent);
     const int pagePad = phoneUi ? UiScale::dp(14) : 36;
     const int cardGap = phoneUi ? UiScale::dp(12) : 24;
@@ -461,7 +461,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     avatar->setFixedSize(44, 44);
     setThemedQss(avatar, QStringLiteral(
         "border-radius: 14px; background-color: rgba(124, 92, 252, 0.28);"
-        "color: #ECEEFD; font-size: 18px; font-weight: 700;"));
+        "color: #E0E0E0; font-size: 18px; font-weight: 700;"));
     avatar->setAlignment(Qt::AlignCenter);
     UiProfile currentP = m_profileManager ? m_profileManager->currentProfile() : UiProfile();
     QString initial = currentP.name.left(1).toUpper();
@@ -487,7 +487,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                                                      : currentP.name),
                                 hero);
     setThemedQss(heroName, QStringLiteral(
-        "color: #ECEEFD; %1 background: transparent;")
+        "color: #E0E0E0; %1 background: transparent;")
         .arg(BlopTheme::typeQss(BlopTheme::TextRole::TitleLarge)));
     auto *heroSub = new QLabel(
         studyLoggedIn ? QStringLiteral("Angemeldet bei Study")
@@ -521,7 +521,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
     setThemedQss(search, QStringLiteral(
         "QLineEdit {"
         "  background: rgba(22, 24, 36, 0.92);"
-        "  color: #ECEEFD;"
+        "  color: #E0E0E0;"
         "  border: 1px solid rgba(120, 130, 160, 0.28);"
         "  border-radius: 12px;"
         "  padding: 12px 16px; font-size: 14px;"
@@ -586,7 +586,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 QStringLiteral("Angemeldet als %1").arg(studyUser), cardKonto);
             who->setWordWrap(true);
             setThemedQss(who, QStringLiteral(
-                "color: #ECEEFD; font-size: 14px; font-weight: 600;"
+                "color: #E0E0E0; font-size: 14px; font-weight: 600;"
                 "background: transparent; padding: 2px 0 8px 0;"));
             cardKonto->addBodyWidget(who);
         } else {
@@ -641,7 +641,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             QStringLiteral("Aktuelles Profil bearbeiten"), cardKonto);
         btnEdit->setCursor(Qt::PointingHandCursor);
         setThemedQss(btnEdit, QStringLiteral(
-            "QPushButton { background-color: rgba(40,42,60,0.92); color: #ECEEFD;"
+            "QPushButton { background-color: #252526; color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
             "  padding: 11px 14px; text-align: left; font-weight: 600; }"
             "QPushButton:hover { border-color: rgba(124,92,252,0.65); }"));
@@ -701,8 +701,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         btnLight->setMinimumHeight(40);
         const QString segStyle = QStringLiteral(
             "QPushButton {"
-            "  background: rgba(40,42,60,0.65);"
-            "  color: #ECEEFD;"
+            "  background: #252526;"
+            "  color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32);"
             "  border-radius: 10px;"
             "  padding: 8px 14px;"
@@ -823,7 +823,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         btnBurger->setMinimumHeight(40);
         btnBurger->setChecked(UiScale::forceBurgerMenu());
         setThemedQss(btnBurger, QStringLiteral(
-            "QPushButton { background: rgba(40,42,60,0.65); color: #ECEEFD;"
+            "QPushButton { background: #252526; color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
             "  padding: 10px 14px; text-align: left; font-weight: 600; }"
             "QPushButton:checked { background: rgba(91,157,255,0.28);"
@@ -868,7 +868,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         auto *rFull = new QRadioButton(QStringLiteral("Radial"), cardLook);
         rFull->setObjectName(QStringLiteral("radioRadial"));
         const QString radioStyle = QStringLiteral(
-            "QRadioButton { color: #ECEEFD; background: transparent; "
+            "QRadioButton { color: #E0E0E0; background: transparent; "
             "padding: 4px 0; font-size: 13px; }");
         setThemedQss(rNorm, radioStyle);
         setThemedQss(rFull, radioStyle);
@@ -919,7 +919,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "  background: rgba(22, 24, 36, 0.78);"
             "  border: 1px solid rgba(120, 130, 160, 0.28);"
             "  border-radius: 10px;"
-            "  color: #ECEEFD;"
+            "  color: #E0E0E0;"
             "  padding: 4px;"
             "}"
             "QListWidget::item {"
@@ -944,7 +944,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             QStringLiteral("Neuen Modus erstellen"), cardBehavior);
         btnNewProfile->setCursor(Qt::PointingHandCursor);
         setThemedQss(btnNewProfile, QStringLiteral(
-            "QPushButton { background-color: rgba(40,42,60,0.92); color: #ECEEFD;"
+            "QPushButton { background-color: #252526; color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
             "  padding: 10px 14px; font-weight: 600; }"
             "QPushButton:hover { border-color: rgba(124,92,252,0.65); }"));
@@ -991,8 +991,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
 
         const QString segStyle = QStringLiteral(
             "QPushButton {"
-            "  background: rgba(40,42,60,0.65);"
-            "  color: #ECEEFD;"
+            "  background: #252526;"
+            "  color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32);"
             "  border-radius: 10px;"
             "  padding: 8px 10px;"
@@ -1211,7 +1211,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
                 e.name, linked ? QStringLiteral(" · verknüpft")
                                : QStringLiteral(" · nicht verknüpft")));
             setThemedQss(name, QStringLiteral(
-                "color: #ECEEFD; font-size: 13px; font-weight: 600;"
+                "color: #E0E0E0; font-size: 13px; font-weight: 600;"
                 "background: transparent;"));
 
             auto *btnPrimary = new QPushButton(

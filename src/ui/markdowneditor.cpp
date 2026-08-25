@@ -11,7 +11,7 @@ MarkdownHighlighter::MarkdownHighlighter(QTextDocument *parent)
   HighlightingRule rule;
 
   // Headers
-  headerFormat.setForeground(QColor("#5E5CE6"));
+  headerFormat.setForeground(QColor("#7C5CFC"));
   headerFormat.setFontWeight(QFont::Bold);
   rule.pattern = QRegularExpression("^#{1,6}\\s.*");
   rule.format = headerFormat;
@@ -80,7 +80,7 @@ MarkdownEditor::MarkdownEditor(QWidget *parent) : QWidget(parent) {
   QPushButton *btnSave = new QPushButton(QStringLiteral("Speichern"));
   btnSave->setCursor(Qt::PointingHandCursor);
   btnSave->setStyleSheet(
-      "QPushButton { background: #5E5CE6; color: white; border: none; padding: "
+      "QPushButton { background: #7C5CFC; color: white; border: none; padding: "
       "8px 16px; border-radius: 6px; font-weight: bold; } QPushButton:hover { "
       "background: #7D7AFF; }");
   connect(btnSave, &QPushButton::clicked, this, &MarkdownEditor::onSaveClicked);

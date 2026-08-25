@@ -214,7 +214,7 @@ public:
     setStyleSheet(BlopTheme::themed(
         "QWidget { background-color: #252526; border-radius: 8px; border: 1px "
         "solid #444; }"
-        "QPushButton { background: transparent; border: none; color: #F4F2FF; "
+        "QPushButton { background: transparent; border: none; color: #E0E0E0; "
         "font-weight: bold; padding: 5px 8px; font-size: 14px; }"
         "QPushButton:hover { background-color: #3E3E42; border-radius: 4px; }"));
     setAttribute(Qt::WA_StyledBackground);

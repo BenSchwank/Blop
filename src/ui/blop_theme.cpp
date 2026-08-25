@@ -447,6 +447,7 @@ const SurfaceHex kBorderHex[] = {
     {"#201E2E", BlopTheme::borderDefault},
     {"#2C2940", BlopTheme::borderDefault},
     {"#3A3550", BlopTheme::borderDefault},
+    {"#3A3A48", BlopTheme::borderDefault},
 };
 
 // Text primary (high-contrast on dark)

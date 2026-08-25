@@ -39,7 +39,7 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     // v3.18.1: themed()-Wrap für Light-Mode-Konsistenz.
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("ProfileEditorDialog")) +
                   BlopTheme::themed(
-                  "QLabel { color: #DDD; font-weight: bold; border: none; background: transparent; }"
+                  "QLabel { color: #ECEEFD; font-weight: bold; border: none; background: transparent; }"
                   "QSlider::groove:horizontal { height: 6px; background: #333; border-radius: 3px; }"
                   "QSlider::handle:horizontal { background: #7C5CFC; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
                   "QPushButton { background: #2A2C42; color: #F4F2FF; border: 1px solid rgba(120,130,160,0.32); padding: 8px 16px; border-radius: 8px; }"
@@ -89,7 +89,7 @@ void ProfileEditorDialog::setupUi() {
     // Header
     QHBoxLayout *header = new QHBoxLayout;
     QLabel *title = new QLabel("Profil bearbeiten: " + m_profile.name, this);
-    title->setStyleSheet("font-size: 18px; color: #5E5CE6;");
+    title->setStyleSheet(BlopTheme::themed("font-size: 18px; color: #7C5CFC;"));
 
     m_btnToggleMode = new QPushButton("Experten-Modus", this);
     m_btnToggleMode->setCursor(Qt::PointingHandCursor);
@@ -136,7 +136,7 @@ void ProfileEditorDialog::setupUi() {
 
         b->setStyleSheet(BlopTheme::themed(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; font-weight: bold; }"
-            "QPushButton:checked { background: #5E5CE6; color: white; border: 1px solid #5E5CE6; }"
+            "QPushButton:checked { background: #7C5CFC; color: white; border: 1px solid #7C5CFC; }"
             "QPushButton:hover:!checked { background: rgba(255,255,255,0.08); border: 1px solid #555; }"
             ));
 
@@ -197,7 +197,7 @@ void ProfileEditorDialog::setupUi() {
     QPushButton *btnCancel = new QPushButton("Abbrechen", this);
     connect(btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     QPushButton *btnSave = new QPushButton("Speichern", this);
-    btnSave->setStyleSheet("background-color: #5E5CE6; border: none; font-weight: bold;");
+    btnSave->setStyleSheet(BlopTheme::themed("background-color: #7C5CFC; border: none; font-weight: bold;"));
     BlopRipple::attachPressFeedback(btnSave, 0.92);
     BlopRipple::attachPressFeedback(btnCancel, 0.92);
     connect(btnSave, &QPushButton::clicked, this, &QDialog::accept);

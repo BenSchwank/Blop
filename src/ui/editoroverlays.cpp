@@ -614,11 +614,11 @@ static void styleA4ActionButtons(QAbstractButton *cancel, QAbstractButton *ok,
         "font-weight:600; padding:10px 18px; }"
         "QPushButton:hover { color: #B8D4FF; background: rgba(255,255,255,0.06); "
         "border-radius: 10px; }")));
-    ok->setStyleSheet(QStringLiteral(
+    ok->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton { background: #7C5CFC; color: white; border: none; "
         "border-radius: 10px; padding: 12px 28px; font-weight: 600; }"
         "QPushButton:hover { background: #8B70FF; }"
-        "QPushButton:pressed { background: #6A4DE6; }"));
+        "QPushButton:pressed { background: #6A4DE6; }")));
   }
 }
 
@@ -1035,9 +1035,9 @@ void showA4LayoutOverlayAsync(
     btnCancel->setStyleSheet(BlopTheme::themed(
         "QPushButton { background: #262237; color: #E0DBFF; border: 1px solid #3A3550; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
         "QPushButton:hover { background: #312C45; }"));
-    btnDone->setStyleSheet(
-        "QPushButton { background: #5E5CE6; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
-        "QPushButton:hover { background: #4b49c9; }");
+    btnDone->setStyleSheet(BlopTheme::themed(
+        "QPushButton { background: #7C5CFC; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 10px 12px; }"
+        "QPushButton:hover { background: #957AFF; }"));
   }
   actions->addWidget(btnCancel);
   actions->addWidget(btnDone);
