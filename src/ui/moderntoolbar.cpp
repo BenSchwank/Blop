@@ -1422,6 +1422,16 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
             tip = QColor(0xE6, 0xB8, 0x2E);
           else
             tip = m_glyphColor;
+          // J/K: helle Werkzeugfarben (z. B. weißer Stift) auf hellem
+          // NoteChrome-Hintergrund sind unsichtbar — Fallback auf dunkles
+          // Icon mit sichtbarem Farbhauch, wenn der Kontrast zu gering ist.
+          if (!NoteChrome::isDark() && tip.lightnessF() > 0.65) {
+            const QColor safe =
+                m_iconName == QLatin1String("highlighter")
+                    ? QColor(90, 220, 70)
+                    : QColor(QStringLiteral("#3A404C"));
+            tip = safe;
+          }
         }
       }
     } else if (m_railFooterStyle && !m_glyphColor.isValid()) {
