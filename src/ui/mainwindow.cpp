@@ -4422,12 +4422,14 @@ void MainWindow::applyTheme() {
           "25px; border-top-left-radius: 12px; border-top-right-radius: 12px; "
           "margin-right: 2px;} "
           "QTabBar::tab:selected { background: %1; color: white; } "
-          "QMenu { background-color: %3; border: 1px solid #201E2E; "
-          "border-radius: 10px; padding: 10px; color: #E0E0E0; } "
+          "QMenu { background-color: %3; border: 1px solid %4; "
+          "border-radius: 10px; padding: 10px; color: %5; } "
           "QMenu::item { padding: 8px 20px; border-radius: 5px; } "
           "QMenu::item:selected { background-color: %2; color: white; } ")
           .arg(c, c_light,
-               BlopTheme::surfaceBackground().name(QColor::HexRgb));
+               BlopTheme::surfaceBackground().name(QColor::HexRgb),
+               BlopTheme::borderDefault().name(QColor::HexRgb),
+               BlopTheme::textPrimary().name(QColor::HexRgb));
 #ifdef Q_OS_ANDROID
   style += QString(
       "QScrollBar:vertical {"
