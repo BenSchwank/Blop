@@ -3228,7 +3228,7 @@ void ModernToolbar::mousePressEvent(QMouseEvent *e) {
         return;
       }
     }
-    if (m_style == Normal && !m_isPreview) {
+    if (m_style == Normal && !m_isPreview && m_allowResize) {
       int handleSize = 30;
       if (e->pos().x() > width() - handleSize &&
           e->pos().y() > height() - handleSize) {
@@ -3666,6 +3666,44 @@ void ModernToolbar::beginStudioUndockDrag(const QPoint &globalPos) {
   emit dockModeChanged(false);
 #else
   Q_UNUSED(globalPos);
+#endif
+}
+
+void ModernToolbar::beginRailDragFromHandle(const QPoint &globalPos) {
+#ifndef Q_OS_ANDROID
+  if (m_isResizing || !parentWidget())
+    return;
+  m_isDragging = true;
+  m_isResizing = false;
+  m_isScrolling = false;
+  m_pressedButton = nullptr;
+  m_dragOffset = globalPos - mapToGlobal(QPoint(0, 0));
+  dragStartPos_ = mapFromGlobal(globalPos);
+  clearMask();
+  raise();
+#endif
+}
+
+void ModernToolbar::continueRailDragFromHandle(const QPoint &globalPos) {
+#ifndef Q_OS_ANDROID
+  if (!m_isDragging || !parentWidget())
+    return;
+  const QPoint localPos = mapFromGlobal(globalPos);
+  QMouseEvent me(QEvent::MouseMove, QPointF(localPos), QPointF(globalPos),
+                 Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  mouseMoveEvent(&me);
+#endif
+}
+
+void ModernToolbar::endRailDragFromHandle(const QPoint &globalPos) {
+#ifndef Q_OS_ANDROID
+  if (!m_isDragging)
+    return;
+  const QPoint localPos = mapFromGlobal(globalPos);
+  QMouseEvent me(QEvent::MouseButtonRelease, QPointF(localPos),
+                 QPointF(globalPos), Qt::LeftButton, Qt::LeftButton,
+                 Qt::NoModifier);
+  mouseReleaseEvent(&me);
 #endif
 }
 
@@ -4420,6 +4458,35 @@ int ModernToolbar::effectiveGap() const {
 #endif
 }
 bool ModernToolbar::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == btnMoreProps && isDrawboardVerticalRail()) {
+    // J floating rail: the 3-dot (more) footer is the drag handle.
+    QMouseEvent *me = nullptr;
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+      me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton) {
+        beginRailDragFromHandle(me->globalPosition().toPoint());
+        return true;
+      }
+      break;
+    case QEvent::MouseMove:
+      me = static_cast<QMouseEvent *>(event);
+      if (me->buttons() & Qt::LeftButton) {
+        continueRailDragFromHandle(me->globalPosition().toPoint());
+        return true;
+      }
+      break;
+    case QEvent::MouseButtonRelease:
+      me = static_cast<QMouseEvent *>(event);
+      if (me->button() == Qt::LeftButton) {
+        endRailDragFromHandle(me->globalPosition().toPoint());
+        return true;
+      }
+      break;
+    default:
+      break;
+    }
+  }
   if (watched == parentWidget() && event->type() == QEvent::Resize &&
       !m_isPreview) {
     updateLayout(false);
@@ -5315,7 +5382,8 @@ void ModernToolbar::applyStudioFloatingRail() {
 #ifndef Q_OS_ANDROID
   m_markupBarMode = MarkupOff;
   m_isDockedMode = false;
-  m_draggable = true;
+  m_draggable = false;
+  m_allowResize = false;
   m_style = Normal;
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_float"));
@@ -5436,8 +5504,10 @@ void ModernToolbar::applyStudioFloatingRail() {
     btnUndo->setToolTip(QStringLiteral("Rückgängig"));
   if (btnRedo)
     btnRedo->setToolTip(QStringLiteral("Wiederholen"));
-  if (btnMoreProps)
-    btnMoreProps->setToolTip(QStringLiteral("Weitere Optionen"));
+  if (btnMoreProps) {
+    btnMoreProps->setToolTip(QStringLiteral("Ziehen zum Verschieben"));
+    btnMoreProps->installEventFilter(this);
+  }
   syncToolBadges();
   // Compact J capsule — room for 5 tools + undo/redo + size + more.
   const int w = UiScale::dp(52);

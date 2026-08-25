@@ -270,6 +270,10 @@ public:
     void syncToolBadges();
     void syncDrawboardToolIcons();
     void openToolOptions();
+    /// J floating rail: 3-dot (btnMoreProps) starts and controls rail drag.
+    void beginRailDragFromHandle(const QPoint &globalPos);
+    void continueRailDragFromHandle(const QPoint &globalPos);
+    void endRailDragFromHandle(const QPoint &globalPos);
     /// Sync Favorites footer chevron with properties panel open state.
     void setPropertiesPanelOpen(bool open);
     bool propertiesPanelOpen() const { return m_propertiesPanelOpen; }
@@ -321,6 +325,7 @@ private:
 
     bool m_isDragging{false};
     bool m_isResizing{false};
+    bool m_allowResize{true};
     bool m_draggable{true};
     bool m_isPreview{false};
     bool m_isDockedMode{false};
