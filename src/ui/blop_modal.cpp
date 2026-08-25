@@ -10,6 +10,7 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -70,6 +71,7 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   int result = QDialog::Rejected;
   QEventLoop loop;
   bool dialogFinished = false;
+  bool modalDismissed = false;
 
   QObject::connect(dlg, &QDialog::finished, &loop, [&](int code) {
     result = code;
@@ -79,6 +81,7 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   // User dismissed via backdrop / drag / ESC before clicking a dialog
   // button -> treat as Rejected, matches QDialog::exec() Esc behaviour.
   QObject::connect(modal, &BlopModal::dismissed, &loop, [&]() {
+    modalDismissed = true;
     if (!dialogFinished)
       result = QDialog::Rejected;
     loop.quit();
@@ -90,10 +93,21 @@ int BlopModal::execBlocking(QWidget *parent, QDialog *dlg, Mode mode,
   loop.exec();
 
   // If the dialog itself reached finished() the modal is still open ->
-  // animate it out so the caller's next setStyleSheet/show isn't racing
-  // with a stale backdrop.
-  if (dialogFinished && modal && !modal->isHidden())
+  // dismiss it and wait for the dismiss animation to finish so the
+  // caller's next setStyleSheet/show isn't racing with a stale backdrop.
+  if (dialogFinished && modal && !modal->isHidden() && !modalDismissed) {
+    QPointer<BlopModal> guard(modal);
+    QEventLoop dismissLoop;
+    QObject::connect(modal, &BlopModal::dismissed, &dismissLoop,
+                     &QEventLoop::quit);
     modal->dismiss();
+    // Safety timeout in case the dismiss animation never fires.
+    QTimer::singleShot(600, &dismissLoop, &QEventLoop::quit);
+    dismissLoop.exec();
+    // Force-hide immediately so no stale backdrop can block the caller.
+    if (guard && !guard->isHidden())
+      guard->hide();
+  }
 
   return result;
 }
@@ -436,9 +450,14 @@ void BlopModal::startDismissAnim() {
   close();
   return;
 #else
-  auto *fadeOut = new QPropertyAnimation(this, "windowOpacity", this);
+  // windowOpacity only works for top-level windows; BlopModal is a child
+  // widget, so we use a QGraphicsOpacityEffect to actually fade the backdrop.
+  auto *opacity = new QGraphicsOpacityEffect(this);
+  opacity->setOpacity(1.0);
+  setGraphicsEffect(opacity);
+  auto *fadeOut = new QPropertyAnimation(opacity, "opacity", this);
   fadeOut->setDuration(kBackdropFadeOutMs);
-  fadeOut->setStartValue(windowOpacity());
+  fadeOut->setStartValue(1.0);
   fadeOut->setEndValue(0.0);
   fadeOut->setEasingCurve(QEasingCurve::InCubic);
 

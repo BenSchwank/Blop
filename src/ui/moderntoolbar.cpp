@@ -1415,7 +1415,8 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
         p.drawEllipse(QRect((w - d) / 2, (iconBoxH - d) / 2, d, d));
         tip = QColor(Qt::white);
       } else {
-        tip = QColor(QStringLiteral("#3A404C"));
+        tip = NoteChrome::isDark() ? NoteChrome::textPrimary()
+                                   : QColor(QStringLiteral("#3A404C"));
         if (m_glyphColor.isValid() && !m_active) {
           if (m_iconName == QLatin1String("pencil"))
             tip = QColor(0xE6, 0xB8, 0x2E);
@@ -1528,13 +1529,15 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
                         UiScale::dp(10));
     } else if (m_hover) {
       p.setPen(Qt::NoPen);
-      p.setBrush(QColor(0, 0, 0, 12));
+      p.setBrush(NoteChrome::isDark() ? QColor(255, 255, 255, 18)
+                                       : QColor(0, 0, 0, 12));
       p.drawRoundedRect(rect().adjusted(4, 4, -4, -4), UiScale::dp(10),
                         UiScale::dp(10));
     }
     const QColor ink =
         m_active ? QColor(QStringLiteral("#5B9DFF"))
-                 : QColor(QStringLiteral("#3A404C"));
+                 : (NoteChrome::isDark() ? NoteChrome::textPrimary()
+                                         : QColor(QStringLiteral("#3A404C")));
     p.save();
     p.translate(w / 2.0, h / 2.0);
     p.scale(m_animScale, m_animScale);
@@ -3020,16 +3023,17 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
 
     if (m_orientation == Vertical || m_orientation == Horizontal) {
       if (m_isDockedMode) {
-        // K snapped pill: light plate, fully rounded capsule.
+        // K snapped pill: NoteChrome-aware plate, fully rounded capsule.
         const int r = h / 2;
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 22));
+        p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 60 : 22));
         p.drawRoundedRect(rect().adjusted(0, 2, 0, 0), r, r);
-        p.setBrush(QColor(255, 255, 255, 252));
-        p.setPen(QPen(QColor(210, 214, 222), 1));
+        p.setBrush(NoteChrome::toolbarFill());
+        p.setPen(QPen(NoteChrome::border(), 1));
         p.drawRoundedRect(rect(), r, r);
 
-        p.setPen(QPen(QColor(255, 255, 255, 22), 1));
+        p.setPen(QPen(NoteChrome::isDark() ? QColor(255, 255, 255, 18)
+                                            : QColor(255, 255, 255, 22), 1));
         for (int sx : m_separatorXPositions) {
           const int y0 = (m_markupBarMode == MarkupTwoRow && m_markupRowDividerY > 0)
                              ? m_markupRowDividerY + UiScale::dp(6)
@@ -3045,23 +3049,25 @@ void ModernToolbar::paintEvent(QPaintEvent *) {
                      m_markupRowDividerY);
         }
       } else if (isDrawboardVerticalRail()) {
-        // J floating vertical pill: light capsule.
+        // J floating vertical pill: NoteChrome-aware capsule.
         const int r = w / 2;
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 26));
+        p.setBrush(QColor(0, 0, 0, NoteChrome::isDark() ? 60 : 26));
         p.drawRoundedRect(rect().adjusted(1, 2, -1, 0), r, r);
-        p.setBrush(QColor(255, 255, 255, 252));
-        p.setPen(QPen(QColor(210, 214, 222), 1));
+        p.setBrush(NoteChrome::toolbarFill());
+        p.setPen(QPen(NoteChrome::border(), 1));
         p.drawRoundedRect(rect(), r, r);
         if (m_draggable) {
-          p.setBrush(QColor(20, 22, 28, 50));
+          p.setBrush(NoteChrome::isDark() ? QColor(255, 255, 255, 40)
+                                           : QColor(20, 22, 28, 50));
           p.setPen(Qt::NoPen);
           const int gy = UiScale::dp(8);
           const int cx = w / 2;
           for (int i = -1; i <= 1; ++i)
             p.drawEllipse(cx + i * 6 - 2, gy, 4, 4);
         }
-        p.setPen(QPen(QColor(255, 255, 255, 22), 1));
+        p.setPen(QPen(NoteChrome::isDark() ? QColor(255, 255, 255, 18)
+                                            : QColor(255, 255, 255, 22), 1));
         for (int sy : m_separatorYPositions)
           p.drawLine(UiScale::dp(8), sy, w - UiScale::dp(8), sy);
         // Scroll fades when Favorites slots overflow the rail viewport.
