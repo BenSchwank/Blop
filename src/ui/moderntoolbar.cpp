@@ -1484,8 +1484,8 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     p.translate(0.0, -m_liftOffset);
 
   if (!m_caption.isEmpty()) {
-    QColor ink = m_active ? QColor(QStringLiteral("#5B9DFF"))
-                          : QColor(40, 44, 52, 220);
+    QColor ink = m_active ? NoteChrome::accent()
+                          : NoteChrome::textPrimary();
     // K mockup: inactive pen/pencil/highlighter keep saturated tip colors.
     if (!m_active && m_glyphColor.isValid() &&
         (m_iconName == QLatin1String("pen") ||
@@ -1507,12 +1507,11 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
     f.setPixelSize(UiScale::sp(9));
     f.setWeight(QFont::DemiBold);
     p.setFont(f);
-    p.setPen(m_active ? QColor(QStringLiteral("#5B9DFF"))
-                      : QColor(40, 44, 52, 200));
+    p.setPen(m_active ? NoteChrome::accent() : NoteChrome::textPrimary());
     p.drawText(QRect(2, h - capH - UiScale::dp(4), w - 4, capH),
                Qt::AlignHCenter | Qt::AlignTop, m_caption);
     if (m_active) {
-      p.setPen(QPen(QColor(QStringLiteral("#5B9DFF")), 2, Qt::SolidLine,
+      p.setPen(QPen(NoteChrome::accent(), 2, Qt::SolidLine,
                     Qt::RoundCap));
       const int y = h - UiScale::dp(4);
       p.drawLine(w / 2 - UiScale::dp(10), y, w / 2 + UiScale::dp(10), y);
