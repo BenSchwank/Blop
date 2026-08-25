@@ -421,6 +421,7 @@ private:
   void positionNoteChrome();
   void applyNoteChromeTheme();
   void styleNoteHeaderChrome();
+  void refreshTopNavChrome();
   void showNoteBookmarksMenu();
   void showNoteHistoryMenu();
   void showNoteExportMenu(QWidget *anchor = nullptr);

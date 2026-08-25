@@ -3958,6 +3958,7 @@ void MainWindow::switchToWorkspaceChrome() {
     m_documentTabBar->setAccentColor(m_currentAccentColor);
   }
   refreshNoteTitleChrome(false);
+  refreshTopNavChrome();
 #endif
   updateSidebarState();
 }
@@ -4747,6 +4748,7 @@ void MainWindow::applyTheme() {
   if (m_mainContentStack)
     applyAndroidTabStyles(m_mainContentStack->currentIndex());
 #endif
+  refreshTopNavChrome();
 }
 
 void MainWindow::updateTheme(QColor accentColor) {
@@ -14194,7 +14196,108 @@ void MainWindow::applyNoteChromeTheme() {
   positionNoteChrome();
 #endif
   styleNoteHeaderChrome();
+  refreshTopNavChrome();
   refreshPageSettingsTheme();
+}
+
+void MainWindow::refreshTopNavChrome() {
+  const bool noteChrome = m_documentTabBar && m_documentTabBar->noteChromeMode();
+
+  const QColor bg = noteChrome ? NoteChrome::toolbarFill()
+                               : BlopTheme::surfaceBackground();
+  const QColor text = noteChrome ? NoteChrome::textPrimary()
+                                 : BlopTheme::textPrimary();
+  const QColor text2 = noteChrome ? NoteChrome::textSecondary()
+                                  : BlopTheme::textSecondary();
+  const QColor border = noteChrome ? NoteChrome::borderSoft()
+                                   : BlopTheme::borderSubtle();
+  const QColor accent = noteChrome ? NoteChrome::accent()
+                                   : BlopTheme::accentPrimary();
+  const QColor panelHover = noteChrome ? NoteChrome::panelBg()
+                                       : BlopTheme::surfaceMuted();
+  const QColor accentSoft = noteChrome ? NoteChrome::accentSoft()
+                                       : BlopTheme::accentSubtle();
+
+  if (m_titleBarWidget)
+    m_titleBarWidget->setStyleSheet(QStringLiteral(
+        "background: %1; border: none;").arg(bg.name(QColor::HexRgb)));
+  if (m_lblBrand)
+    m_lblBrand->setStyleSheet(QStringLiteral(
+        "color: %1; font-size: 17px; font-weight: 800;"
+        "letter-spacing: 0.4px; background: transparent; border: none;")
+            .arg(text.name(QColor::HexRgb)));
+  if (m_titleBarSep)
+    m_titleBarSep->setStyleSheet(QStringLiteral("background: %1; border: none;")
+                                     .arg(border.name(QColor::HexArgb)));
+
+  const QString fg = text.name(QColor::HexRgb);
+  const QString sec = text2.name(QColor::HexRgb);
+  const QString b = border.name(QColor::HexArgb);
+  const QString acc = accent.name(QColor::HexRgb);
+  const QString hover = panelHover.name(QColor::HexArgb);
+  const QString accSoft = accentSoft.name(QColor::HexArgb);
+
+  if (m_btnMode) {
+    m_btnMode->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  background: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 11px;"
+        "  color: %3;"
+        "  padding: 0 12px; font-size: 13px; font-weight: 600;"
+        "}"
+        "QPushButton:hover { background: %4; border-color: %5; }")
+            .arg(hover, b, fg, accSoft, b));
+  }
+
+  if (m_titleSearchBar) {
+    m_titleSearchBar->setStyleSheet(QStringLiteral(
+        "QLineEdit {"
+        "  background: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 11px;"
+        "  color: %3; font-size: 12px;"
+        "  padding: 0 14px;"
+        "}"
+        "QLineEdit:focus { border: 1px solid %4; }")
+            .arg(hover, b, sec, acc));
+  }
+
+  if (m_btnNewTab) {
+    m_btnNewTab->setStyleSheet(QStringLiteral(
+        "QPushButton { background: transparent; border: none; border-radius: 8px; }"
+        "QPushButton:hover { background: %1; }")
+            .arg(hover));
+    m_btnNewTab->setIcon(createModernIcon(QStringLiteral("add"), text2));
+  }
+
+  if (m_btnAddWebBookmark) {
+    m_btnAddWebBookmark->setStyleSheet(QStringLiteral(
+        "QPushButton {"
+        "  background: %1;"
+        "  border: none;"
+        "  border-radius: 8px;"
+        "  color: %2;"
+        "  font-size: 18px; font-weight: 600;"
+        "}"
+        "QPushButton:hover { background: %3; }")
+            .arg(hover, sec, accSoft));
+  }
+
+  if (m_btnTitleBarBell) {
+    m_btnTitleBarBell->setIcon(createModernIcon(QStringLiteral("bell"), text2));
+    m_btnTitleBarBell->setStyleSheet(QStringLiteral(
+        "QToolButton { background: transparent; border: none; border-radius: 8px; }"
+        "QToolButton:hover { background: %1; }")
+            .arg(hover));
+  }
+  if (m_btnEditorNoteOverflow) {
+    m_btnEditorNoteOverflow->setIcon(createModernIcon(QStringLiteral("more_pill"), text2));
+    m_btnEditorNoteOverflow->setStyleSheet(QStringLiteral(
+        "QToolButton { background: transparent; border: none; border-radius: 8px; }"
+        "QToolButton:hover { background: %1; }")
+            .arg(hover));
+  }
 }
 
 void MainWindow::styleNoteHeaderChrome() {
