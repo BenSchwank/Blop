@@ -259,6 +259,8 @@ void AllPagesOverlay::keyPressEvent(QKeyEvent *event) {
 
 void AllPagesOverlay::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
-  const int m = UiScale::dp(28);
+  // Tighter margins on phone so the page grid has room to breathe.
+  const int m = UiScale::isAndroidPhoneUi(this) ? UiScale::dp(12)
+                                                 : UiScale::dp(28);
   m_card->setGeometry(m, m, width() - 2 * m, height() - 2 * m);
 }

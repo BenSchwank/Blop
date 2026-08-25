@@ -4,6 +4,7 @@
 #include "blopripple.h"
 #include "blopstyle.h"
 #include "moderntoolbar.h"
+#include "uiscale.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -19,6 +20,8 @@
 #include <QPropertyAnimation>
 #include <QEasingCurve>
 #include <QShowEvent>
+#include <QScreen>
+#include <QGuiApplication>
 
 ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     : QDialog(parent), m_profile(profile), m_previewToolbar(nullptr)
@@ -28,7 +31,18 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground, false);
 
     if (parent) {
-        resize(650, 600);
+        const bool phone = UiScale::isAndroidPhoneUi(parent);
+        if (phone) {
+            // Phone: fill most of the screen, leaving a small margin.
+            const int w = UiScale::androidContentWidthPx(parent);
+            const int h = UiScale::androidScreenHeightPx(parent)
+                              - UiScale::androidTopInsetPx(parent)
+                              - UiScale::androidBottomInsetPx(parent)
+                              - UiScale::dp(24);
+            resize(qMin(w, UiScale::dp(420)), qMin(h, UiScale::dp(640)));
+        } else {
+            resize(650, 600);
+        }
         QPoint parentCenter = parent->mapToGlobal(parent->rect().center());
         move(parentCenter.x() - width() / 2, parentCenter.y() - height() / 2);
     }
@@ -219,7 +233,13 @@ void ProfileEditorDialog::setupUi() {
     m_previewToolbar->show();
 
     mainLayout->addWidget(leftWidget, 1);
-    mainLayout->addWidget(m_previewBox, 0);
+    // On phone, hide the radial preview box — it takes too much horizontal
+    // space and the live toolbar preview is not essential on a small screen.
+    if (UiScale::isAndroidPhoneUi(this)) {
+        m_previewBox->hide();
+    } else {
+        mainLayout->addWidget(m_previewBox, 0);
+    }
 
     // ScrollArea fertigstellen
     scroll->setWidget(contentWidget);
