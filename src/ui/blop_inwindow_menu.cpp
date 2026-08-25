@@ -1,11 +1,13 @@
 #include "blop_inwindow_menu.h"
 
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "uiscale.h"
 
 #include <QApplication>
 #include <QEvent>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
@@ -188,22 +190,14 @@ void show(QWidget *anchor, const QPoint &anchorGlobal,
   auto *frame = new QFrame(backdrop);
   frame->setObjectName(QStringLiteral("BlopInWindowMenuFrame"));
   frame->setAttribute(Qt::WA_StyledBackground, true);
-  // v3.17.0: theme-aware. Mirrors blopWebMenuStyleSheet() (desktop QMenu)
-  // by reading the same BlopTheme tokens.
-  {
-    auto rgba = [](const QColor &c) {
-      return QStringLiteral("rgba(%1,%2,%3,%4)")
-          .arg(c.red()).arg(c.green()).arg(c.blue())
-          .arg(QString::number(c.alphaF(), 'f', 3));
-    };
-    const QString bg = BlopTheme::surfaceElevated().name(QColor::HexRgb);
-    const QString border = rgba(BlopTheme::borderSubtle());
-    frame->setStyleSheet(QStringLiteral(
-        "QFrame#BlopInWindowMenuFrame {"
-        "  background: %1;"
-        "  border: 1px solid %2;"
-        "  border-radius: 10px;"
-        "}").arg(bg, border));
+  // v3.25.0: use BlopStyle surface card for consistent J/K modals.
+  frame->setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("BlopInWindowMenuFrame")));
+  if (!qobject_cast<QGraphicsDropShadowEffect *>(frame->graphicsEffect())) {
+    auto *shadow = new QGraphicsDropShadowEffect(frame);
+    shadow->setBlurRadius(UiScale::dp(20));
+    shadow->setOffset(0, UiScale::dp(8));
+    shadow->setColor(BlopStyle::surfaceShadow());
+    frame->setGraphicsEffect(shadow);
   }
 
   auto *vlay = new QVBoxLayout(frame);
