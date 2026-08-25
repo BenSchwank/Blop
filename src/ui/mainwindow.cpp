@@ -6345,27 +6345,6 @@ void MainWindow::setupUi() {
           &MainWindow::onUndo);
 #endif
 
-  // Preset chips — also shown with the vertical Favorites rail (quick ink presets).
-  m_penPresetBar = new PenPresetBar(m_editorCenterWidget);
-  m_penPresetBar->setAccentColor(NoteChrome::accent());
-  m_penPresetBar->hide();
-  connect(m_penPresetBar, &PenPresetBar::presetSelected, this,
-          [this](const PenPreset &preset) {
-            ToolManager::instance().selectTool(preset.mode);
-            ToolConfig cfg = ToolManager::instance().config();
-            cfg.penColor = preset.color;
-            cfg.penWidth = preset.width;
-            cfg.opacity = preset.opacity;
-            ToolManager::instance().setConfig(cfg);
-            if (auto *tb = qobject_cast<ModernToolbar *>(m_floatingTools)) {
-              tb->setToolMode(preset.mode);
-              // Re-clicking a chip with Shift adds it as a Favorites rail slot.
-              if (tb->isDrawboardVerticalRail() &&
-                  (QGuiApplication::keyboardModifiers() & Qt::ShiftModifier))
-                tb->addCurrentToolAsRailSlot();
-            }
-          });
-
   // Install event filter to center the floating tools automatically on resize
   m_editorCenterWidget->installEventFilter(this);
 
