@@ -12060,12 +12060,12 @@ void MainWindow::onFileDoubleClicked(const QModelIndex &index) {
       connect(noteBtn, &QPushButton::clicked, this, [this, canvas, capPath](){
           QMenu *menu = new QMenu(this);
           menu->setAttribute(Qt::WA_DeleteOnClose);
-          menu->setStyleSheet(
-              "QMenu { background: #1E1E2E; border: 1px solid #7C5CFC;"
-              "  border-radius: 8px; padding: 6px; }"
-              "QMenu::item { color: #A0A0C8; padding: 10px 20px;"
-              "  border-radius: 5px; font-size: 13px; }"
-              "QMenu::item:selected { background: #7C5CFC; color: white; }");
+          menu->setStyleSheet(BlopTheme::themed(
+              "QMenu { background: #1E1E2E; border: 1px solid #3A3550;"
+              "  border-radius: 10px; padding: 6px; }"
+              "QMenu::item { color: #E0E0E0; padding: 10px 20px;"
+              "  border-radius: 6px; font-size: 13px; }"
+              "QMenu::item:selected { background: #7C5CFC; color: white; }"));
           auto *actLayout = menu->addAction("Seitenlayout...");
           auto *actOptions = menu->addAction("Optionen & Tags...");
           menu->addSeparator();
