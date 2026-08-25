@@ -6912,13 +6912,15 @@ void ModernToolbar::updateLayout(bool animate) {
         // Content height of all slots (+ soft dividers).
         int contentNeeded = 0;
         if (studioFloat && btnUndo)
-          slotBtns.append(btnUndo);
+          slotBtns.prepend(btnUndo);
         if (studioFloat && btnRedo)
-          slotBtns.append(btnRedo);
+          slotBtns.prepend(btnRedo);
         for (int i = 0; i < slotBtns.size(); ++i) {
           contentNeeded += btnS + gap;
-          if (!studioFloat && i < m_railSlots.size()) {
-            const ToolMode m = m_railSlots[i].mode;
+          ToolbarBtn *b = slotBtns[i];
+          const int railIdx = m_slotButtons.indexOf(b);
+          if (railIdx >= 0 && railIdx < m_railSlots.size()) {
+            const ToolMode m = m_railSlots[railIdx].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser)
               contentNeeded += UiScale::dp(10);
           }
@@ -6950,8 +6952,9 @@ void ModernToolbar::updateLayout(bool animate) {
           const int bx = UiScale::dp(3);
           const int by = y;
           y += b->height() + gap;
-          if (i < m_railSlots.size()) {
-            const ToolMode m = m_railSlots[i].mode;
+          const int railIdx = m_slotButtons.indexOf(b);
+          if (railIdx >= 0 && railIdx < m_railSlots.size()) {
+            const ToolMode m = m_railSlots[railIdx].mode;
             if (m == ToolMode::Lasso || m == ToolMode::Eraser) {
               y += UiScale::dp(4);
               const int sepY = y - gap / 2;
@@ -6959,9 +6962,9 @@ void ModernToolbar::updateLayout(bool animate) {
                 m_separatorYPositions.append(sepY);
               y += UiScale::dp(4);
             }
-          } else if (studioFloat && b == btnUndo) {
-            // Divider between ink tools and undo/redo.
-            const int sepY = by - gap / 2;
+          } else if (studioFloat && b == btnRedo) {
+            // Divider between undo/redo (top) and the ink tools.
+            const int sepY = by + b->height() + gap / 2;
             if (sepY >= contentTop && sepY <= contentBottom)
               m_separatorYPositions.append(sepY);
           }
