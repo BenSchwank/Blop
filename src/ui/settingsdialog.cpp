@@ -119,6 +119,40 @@ void setSurfaceQss(QWidget *w, const QString &name) {
     w->setStyleSheet(BlopStyle::surfaceStyle(name));
 }
 
+QString accentRgba(int alpha) {
+    const QColor c = BlopTheme::accentPrimary();
+    return QStringLiteral("rgba(%1,%2,%3,%4)")
+        .arg(c.red())
+        .arg(c.green())
+        .arg(c.blue())
+        .arg(alpha);
+}
+
+QString segmentedControlQss() {
+    const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
+    const QString accFill = accentRgba(218);  // ~0.85 alpha
+    const QString accBorder = accentRgba(255);
+    const QString accHover = accentRgba(166); // ~0.65 alpha
+    return QStringLiteral(
+        "QPushButton {"
+        "  background: #252526;"
+        "  color: #E0E0E0;"
+        "  border: 1px solid rgba(120,130,160,0.32);"
+        "  border-radius: 10px;"
+        "  padding: 8px 14px;"
+        "  font-weight: 600;"
+        "}"
+        "QPushButton:checked {"
+        "  background: %1;"
+        "  color: #FFFFFF;"
+        "  border: 1px solid %2;"
+        "}"
+        "QPushButton:hover:!checked {"
+        "  border-color: %3;"
+        "}")
+        .arg(accFill, accBorder, accHover);
+}
+
 void refreshThemedTree(QWidget *root) {
     if (!root)
         return;
@@ -644,7 +678,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "QPushButton { background-color: #252526; color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
             "  padding: 11px 14px; text-align: left; font-weight: 600; }"
-            "QPushButton:hover { border-color: rgba(124,92,252,0.65); }"));
+            "QPushButton:hover { border-color: %1; }")
+                .arg(accentRgba(166)));
         connect(btnEdit, &QPushButton::clicked, this, [this]() {
             openEditor(m_profileManager ? m_profileManager->currentProfile().id
                                         : QString());
@@ -699,23 +734,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         btnLight->setCursor(Qt::PointingHandCursor);
         btnDark->setMinimumHeight(40);
         btnLight->setMinimumHeight(40);
-        const QString segStyle = QStringLiteral(
-            "QPushButton {"
-            "  background: #252526;"
-            "  color: #E0E0E0;"
-            "  border: 1px solid rgba(120,130,160,0.32);"
-            "  border-radius: 10px;"
-            "  padding: 8px 14px;"
-            "  font-weight: 600;"
-            "}"
-            "QPushButton:checked {"
-            "  background: rgba(124,92,252,0.85);"
-            "  color: #FFFFFF;"
-            "  border: 1px solid rgba(124,92,252,1.0);"
-            "}"
-            "QPushButton:hover:!checked {"
-            "  border-color: rgba(124,92,252,0.65);"
-            "}");
+        const QString segStyle = segmentedControlQss();
         setThemedQss(btnDark, segStyle);
         setThemedQss(btnLight, segStyle);
         BlopRipple::attachPressFeedback(btnDark, 0.92);
@@ -770,8 +789,6 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             QString tip;
         };
         const QVector<AccentChoice> choices = {
-            {BlopTheme::Accent::Purple, QStringLiteral("#7C5CFC"),
-             QStringLiteral("Purple")},
             {BlopTheme::Accent::Blue, QStringLiteral("#6BA3F5"),
              QStringLiteral("Blue")},
             {BlopTheme::Accent::Green, QStringLiteral("#34D399"),
@@ -826,8 +843,9 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "QPushButton { background: #252526; color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
             "  padding: 10px 14px; text-align: left; font-weight: 600; }"
-            "QPushButton:checked { background: rgba(91,157,255,0.28);"
-            "  border-color: #5B9DFF; }"));
+            "QPushButton:checked { background: %1;"
+            "  border-color: %2; }")
+                .arg(accentRgba(70), BlopTheme::accentPrimary().name(QColor::HexRgb)));
         connect(btnBurger, &QPushButton::toggled, this, [this](bool on) {
             UiScale::setForceBurgerMenu(on);
             emit uiLayoutPrefsChanged();
@@ -928,8 +946,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "  margin: 2px;"
             "}"
             "QListWidget::item:selected {"
-            "  background: rgba(124, 92, 252, 0.55);"
-            "}"));
+            "  background: %1;"
+            "}").arg(accentRgba(140)));
         m_profileList->setMinimumHeight(132);
         m_profileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -947,7 +965,8 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
             "QPushButton { background-color: #252526; color: #E0E0E0;"
             "  border: 1px solid rgba(120,130,160,0.32); border-radius: 10px;"
             "  padding: 10px 14px; font-weight: 600; }"
-            "QPushButton:hover { border-color: rgba(124,92,252,0.65); }"));
+            "QPushButton:hover { border-color: %1; }")
+                .arg(accentRgba(166)));
         connect(btnNewProfile, &QPushButton::clicked, this,
                 &SettingsDialog::onCreateProfile);
         cardBehavior->addBodyWidget(btnNewProfile);
@@ -989,23 +1008,7 @@ SettingsDialog::SettingsDialog(UiProfileManager *profileMgr, QWidget *parent)
         modeLay->setContentsMargins(0, 0, 0, 0);
         modeLay->setSpacing(8);
 
-        const QString segStyle = QStringLiteral(
-            "QPushButton {"
-            "  background: #252526;"
-            "  color: #E0E0E0;"
-            "  border: 1px solid rgba(120,130,160,0.32);"
-            "  border-radius: 10px;"
-            "  padding: 8px 10px;"
-            "  font-weight: 600;"
-            "}"
-            "QPushButton:checked {"
-            "  background: rgba(124,92,252,0.85);"
-            "  color: #FFFFFF;"
-            "  border: 1px solid rgba(124,92,252,1.0);"
-            "}"
-            "QPushButton:hover:!checked {"
-            "  border-color: rgba(124,92,252,0.65);"
-            "}");
+        const QString segStyle = segmentedControlQss();
 
         auto *btnLocal = new QPushButton(QStringLiteral("Nur lokal"), modeRow);
         auto *btnCloud = new QPushButton(QStringLiteral("Nur Cloud"), modeRow);

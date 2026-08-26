@@ -209,10 +209,7 @@ void NewNoteDialog::setupUi()
     m_btnCancel->setCursor(Qt::PointingHandCursor);
     m_btnCancel->setAutoDefault(false);
     m_btnCancel->setMinimumHeight(UiScale::dp(40));
-    m_btnCancel->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: transparent; color: #A0A0C8; border: none; "
-        "font-weight: 600; font-size: 14px; padding: 8px 14px; }"
-        "QPushButton:hover { color: #E0E0E0; }")));
+    m_btnCancel->setStyleSheet(BlopTheme::tertiaryButtonQss());
     connect(m_btnCancel, &QPushButton::clicked, this, &QDialog::reject);
 
     m_btnCreate = new QPushButton(QStringLiteral("Erstellen"), container);
@@ -220,10 +217,7 @@ void NewNoteDialog::setupUi()
     m_btnCreate->setAutoDefault(false);
     m_btnCreate->setMinimumHeight(UiScale::dp(40));
     m_btnCreate->setMinimumWidth(UiScale::dp(120));
-    m_btnCreate->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: #7C5CFC; color: white; border: none; "
-        "border-radius: 10px; font-weight: 700; font-size: 14px; padding: 8px 20px; }"
-        "QPushButton:hover { background: #957AFF; }")));
+    m_btnCreate->setStyleSheet(BlopTheme::primaryButtonQss());
     connect(m_btnCreate, &QPushButton::clicked, this, &QDialog::accept);
     BlopRipple::attachPressFeedback(m_btnCancel, 0.96);
     BlopRipple::attachPressFeedback(m_btnCreate, 0.96);
