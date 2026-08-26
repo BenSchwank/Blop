@@ -689,10 +689,10 @@ QListWidget::item:hover { background: rgba(255,255,255,0.06); })")));
 }
 
 QString blopPrimaryButtonStyle() {
-  return QString::fromUtf8(
+  return BlopTheme::themed(QString::fromUtf8(
       R"(QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #9B79FF, stop:1 #7C5CFC); color: #FFFFFF; border: none; border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; min-width: 104px; }
 QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #B198FF, stop:1 #7A6AFF); }
-QPushButton:pressed { background: #4E4ACC; })");
+QPushButton:pressed { background: #4E4ACC; })"));
 }
 
 QString blopGhostButtonStyle() {
@@ -3315,7 +3315,7 @@ void MainWindow::setupTitleBar() {
       m_topNavControls);
   btnMode->setFixedHeight(34);
   btnMode->setCursor(Qt::PointingHandCursor);
-  btnMode->setStyleSheet(
+  btnMode->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
       "  background: rgba(255,255,255,0.05);"
       "  border: 1px solid rgba(120,130,160,0.16);"
@@ -3328,7 +3328,7 @@ void MainWindow::setupTitleBar() {
       "  background: rgba(124,92,252,0.16);"
       "  border-color: rgba(124,92,252,0.40);"
       "  color: #FFFFFF;"
-      "}");
+      "}"));
   connect(m_modeSelector, &QComboBox::currentIndexChanged,
           [btnMode, this](int idx) {
             btnMode->setText(m_modeSelector->itemText(idx) + QStringLiteral("  \u25be"));
@@ -3343,7 +3343,7 @@ void MainWindow::setupTitleBar() {
   m_btnAddWebBookmark->setFixedSize(32, 32);
   m_btnAddWebBookmark->setCursor(Qt::PointingHandCursor);
   m_btnAddWebBookmark->setToolTip(tr("Webseite hinzufügen"));
-  m_btnAddWebBookmark->setStyleSheet(
+  m_btnAddWebBookmark->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
       "  background: rgba(255,255,255,0.06);"
       "  border: none;"
@@ -3353,7 +3353,7 @@ void MainWindow::setupTitleBar() {
       "}"
       "QPushButton:hover {"
       "  background: rgba(124,92,252,0.22);"
-      "}");
+      "}"));
   connect(m_btnAddWebBookmark, &QPushButton::clicked, this,
           &MainWindow::showAddWebBookmarkDialog);
   navLayout->addWidget(m_btnAddWebBookmark);
@@ -3394,7 +3394,7 @@ void MainWindow::setupTitleBar() {
   m_btnNewTab->setIcon(
       createModernIcon(QStringLiteral("add"), BlopTheme::textSecondary()));
   m_btnNewTab->setIconSize(QSize(18, 18));
-  m_btnNewTab->setStyleSheet(
+  m_btnNewTab->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
       "  background: transparent;"
       "  border: none;"
@@ -3402,7 +3402,7 @@ void MainWindow::setupTitleBar() {
       "}"
       "QPushButton:hover {"
       "  background: rgba(124,92,252,0.18);"
-      "}");
+      "}"));
   connect(m_btnNewTab, &QPushButton::clicked, this, &MainWindow::onNewPage);
 
   navLayout->addWidget(m_documentTabBar);
@@ -3420,7 +3420,7 @@ void MainWindow::setupTitleBar() {
   m_titleSearchBar->setMinimumWidth(UiScale::dp(150));
   m_titleSearchBar->setMaximumWidth(UiScale::dp(280));
   m_titleSearchBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-  m_titleSearchBar->setStyleSheet(
+  m_titleSearchBar->setStyleSheet(BlopTheme::themed(
       "QLineEdit {"
       "  background: rgba(255,255,255,0.05);"
       "  border: 1px solid rgba(120,130,160,0.16);"
@@ -3432,7 +3432,7 @@ void MainWindow::setupTitleBar() {
       "  background: rgba(124,92,252,0.10);"
       "  border: 1px solid rgba(124,92,252,0.48);"
       "}"
-      "QLineEdit::placeholder { color: rgba(255,255,255,0.32); }");
+      "QLineEdit::placeholder { color: rgba(255,255,255,0.32); }"));
   navLayout->addWidget(m_titleSearchBar);
   navLayout->addSpacing(8);
 
@@ -3474,13 +3474,13 @@ void MainWindow::setupTitleBar() {
       QSize(kTitleBarNavH - 4, kTitleBarNavH - 4));
   m_btnEditorNoteOverflow->setToolTip(QStringLiteral("Notiz-Menü"));
   m_btnEditorNoteOverflow->setCursor(Qt::PointingHandCursor);
-  m_btnEditorNoteOverflow->setStyleSheet(
+  m_btnEditorNoteOverflow->setStyleSheet(BlopTheme::themed(
       "QToolButton {"
       "  background: transparent; border: none; border-radius: 8px;"
       "}"
       "QToolButton:hover {"
       "  background: rgba(124,92,252,0.22);"
-      "}");
+      "}"));
   connect(m_btnEditorNoteOverflow, &QAbstractButton::clicked, this,
           &MainWindow::onEditorNoteOverflowMenu);
   m_btnEditorNoteOverflow->hide();
@@ -3500,11 +3500,11 @@ void MainWindow::setupTitleBar() {
   }
   m_btnTitleBarPageManager->setHoverScaleEnabled(false);
   m_btnTitleBarPageManager->setStyleSheet(
-      QStringLiteral(
+      BlopTheme::themed(QStringLiteral(
           "QToolButton { background: transparent; border: none; border-radius: 8px; "
           "padding: 0; }"
           "QToolButton:hover { background: rgba(124,92,252,0.22); }"
-          "QToolButton:pressed { background: rgba(124,92,252,0.32); }"));
+          "QToolButton:pressed { background: rgba(124,92,252,0.32); }")));
   connect(m_btnTitleBarPageManager, &QAbstractButton::clicked, this,
           &MainWindow::onTogglePageManager);
   m_btnTitleBarPageManager->hide();
@@ -5714,7 +5714,7 @@ void MainWindow::setupUi() {
   btnNewNote->setObjectName("overviewBtnNewNote");
   btnNewNote->setFixedHeight(UiScale::dp(44));
   btnNewNote->setCursor(Qt::PointingHandCursor);
-  btnNewNote->setStyleSheet(
+  btnNewNote->setStyleSheet(BlopTheme::themed(
       "QPushButton {"
       "  background-color: #7C5CFC;"
       "  color: #FFFFFF;"
@@ -5725,7 +5725,7 @@ void MainWindow::setupUi() {
       "  border: none;"
       "}"
       "QPushButton:pressed { background-color: #6A4DE6; }"
-  );
+  ));
   connect(btnNewNote, &QPushButton::clicked, this, &MainWindow::onNewPage);
   BlopRipple::attachPressFeedback(btnNewNote, 0.94);
   titleRow->addWidget(btnNewNote, 0);
@@ -8397,9 +8397,9 @@ void MainWindow::setupSidebar() {
                            Qt::SmoothTransformation));
     lblLogo->setStyleSheet("border-radius: 8px; border: none;");
   } else {
-    lblLogo->setStyleSheet(
+    lblLogo->setStyleSheet(BlopTheme::themed(
         "background-color: rgba(124,92,252,0.35); border-radius: 8px; color: white; "
-        "font-weight: 700; font-size: 12px;");
+        "font-weight: 700; font-size: 12px;"));
     lblLogo->setText("B");
   }
   headerLay->addWidget(lblLogo);
@@ -8780,9 +8780,9 @@ void MainWindow::setupSidebar() {
 #else
   m_lblSidebarAvatar->setFixedSize(30, 30);
 #endif
-  m_lblSidebarAvatar->setStyleSheet(
+  m_lblSidebarAvatar->setStyleSheet(BlopTheme::themed(
       "background: rgba(124,92,252,0.28);"
-      "border-radius: 10px; color: white; font-weight: 700; font-size: 12px;");
+      "border-radius: 10px; color: white; font-weight: 700; font-size: 12px;"));
   m_lblSidebarAvatar->setAlignment(Qt::AlignCenter);
   bottomLay->addWidget(m_lblSidebarAvatar);
 
@@ -9035,7 +9035,7 @@ void MainWindow::rebuildPageSettingsTags() {
     tag->setCursor(Qt::PointingHandCursor);
     tag->setCheckable(true);
     tag->setChecked(active);
-    tag->setStyleSheet(QStringLiteral(
+    tag->setStyleSheet(BlopTheme::themed(QStringLiteral(
         "QPushButton {"
         "  background: %1;"
         "  border: 1px solid %2;"
@@ -9055,7 +9055,7 @@ void MainWindow::rebuildPageSettingsTags() {
                                 active ? QStringLiteral("rgba(124,92,252,0.55)")
                                        : QStringLiteral("rgba(255,255,255,0.14)"),
                                 active ? QStringLiteral("#EDE9FF")
-                                       : QStringLiteral("rgba(255,255,255,0.7)")));
+                                       : QStringLiteral("rgba(255,255,255,0.7)"))));
     connect(tag, &QPushButton::toggled, this, [this, text](bool on) {
       const QString notePath = currentEditorNotePath();
       if (notePath.isEmpty())
@@ -10104,9 +10104,9 @@ void MainWindow::onNewPage() {
   auto *btnCreate = new QPushButton(QStringLiteral("Erstellen"), card);
   btnCreate->setMinimumHeight(UiScale::dp(44));
   btnCreate->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  btnCreate->setStyleSheet(
+  btnCreate->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #7C5CFC; color: white; border: none; border-radius: 10px; font-weight: 700; font-size: 14px; padding: 8px 12px; }"
-      "QPushButton:hover { background: #957AFF; }");
+      "QPushButton:hover { background: #957AFF; }"));
   actions->addWidget(btnCancel);
   actions->addWidget(btnCreate);
   layout->addLayout(actions);
@@ -10205,9 +10205,9 @@ void MainWindow::onCreateFolder() {
   auto *btnOk = new QPushButton(QStringLiteral("Erstellen"), card);
   btnOk->setMinimumHeight(UiScale::dp(48));
   btnOk->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  btnOk->setStyleSheet(
+  btnOk->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #7C5CFC; color: white; border: none; border-radius: 12px; padding: 10px 12px; font-weight: 700; font-size: 15px; }"
-      "QPushButton:hover { background: #957AFF; }");
+      "QPushButton:hover { background: #957AFF; }"));
   actions->addWidget(btnCancel);
   actions->addWidget(btnOk);
   layout->addLayout(actions);
@@ -10568,12 +10568,12 @@ void MainWindow::setupRightSidebar() {
   m_sliderGridSpacing->setObjectName(QStringLiteral("pageSettingsGridSlider"));
   m_sliderGridSpacing->setRange(10, 80);
   m_sliderGridSpacing->setValue(40);
-  m_sliderGridSpacing->setStyleSheet(
+  m_sliderGridSpacing->setStyleSheet(BlopTheme::themed(
       "QSlider::groove:horizontal { border: 1px solid #333; height: 6px; "
       "background: #121212; margin: 2px 0; border-radius: 3px; } "
       "QSlider::handle:horizontal { background: #7C5CFC; border: 1px solid "
       "#7C5CFC; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; "
-      "}");
+      "}"));
   connect(m_sliderGridSpacing, &QSlider::valueChanged, this,
           &MainWindow::onPageGridSpacingSliderChanged);
   optLayout->addWidget(m_sliderGridSpacing);
@@ -10585,20 +10585,20 @@ void MainWindow::setupRightSidebar() {
   m_btnColorWhite->setCheckable(true);
   m_btnColorWhite->setChecked(false);
   m_btnColorWhite->setCursor(Qt::PointingHandCursor);
-  m_btnColorWhite->setStyleSheet(
+  m_btnColorWhite->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #333; color: white; border: 1px solid #444; "
       "padding: 10px; border-radius: 5px; } QPushButton:checked { background: "
-      "#7C5CFC; border: 1px solid #7C5CFC; }");
+      "#7C5CFC; border: 1px solid #7C5CFC; }"));
   connect(m_btnColorWhite, &QPushButton::clicked,
           [this]() { setPageColor(false); });
   m_btnColorDark = new QPushButton("Dark");
   m_btnColorDark->setCheckable(true);
   m_btnColorDark->setChecked(true);
   m_btnColorDark->setCursor(Qt::PointingHandCursor);
-  m_btnColorDark->setStyleSheet(
+  m_btnColorDark->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #333; color: white; border: 1px solid #444; "
       "padding: 10px; border-radius: 5px; } QPushButton:checked { background: "
-      "#7C5CFC; border: 1px solid #7C5CFC; }");
+      "#7C5CFC; border: 1px solid #7C5CFC; }"));
   connect(m_btnColorDark, &QPushButton::clicked,
           [this]() { setPageColor(true); });
   QButtonGroup *grpColor = new QButtonGroup(this);
@@ -10613,21 +10613,21 @@ void MainWindow::setupRightSidebar() {
   m_btnInputPen->setCheckable(true);
   m_btnInputPen->setChecked(true);
   m_btnInputPen->setCursor(Qt::PointingHandCursor);
-  m_btnInputPen->setStyleSheet(
+  m_btnInputPen->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #333; color: white; border: 1px solid #444; "
       "padding: 10px; border-radius: 5px; text-align: left; } "
       "QPushButton:checked { background: #7C5CFC; border: 1px solid #7C5CFC; "
-      "}");
+      "}"));
   connect(m_btnInputPen, &QPushButton::clicked,
           [this]() { updateInputMode(true); });
   m_btnInputTouch = new QPushButton("Touch && Pen\n(2 Fingers scroll)");
   m_btnInputTouch->setCheckable(true);
   m_btnInputTouch->setCursor(Qt::PointingHandCursor);
-  m_btnInputTouch->setStyleSheet(
+  m_btnInputTouch->setStyleSheet(BlopTheme::themed(
       "QPushButton { background: #333; color: white; border: 1px solid #444; "
       "padding: 10px; border-radius: 5px; text-align: left; } "
       "QPushButton:checked { background: #7C5CFC; border: 1px solid #7C5CFC; "
-      "}");
+      "}"));
   connect(m_btnInputTouch, &QPushButton::clicked,
           [this]() { updateInputMode(false); });
   QButtonGroup *grpInput = new QButtonGroup(this);
@@ -10647,11 +10647,11 @@ void MainWindow::setupRightSidebar() {
   optLayout->addWidget(lblToolbarStyle);
   m_comboToolbarStyle = new QComboBox();
   m_comboToolbarStyle->addItems({"Vertical", "Radial (Full)", "Radial (Half)"});
-  m_comboToolbarStyle->setStyleSheet(
+  m_comboToolbarStyle->setStyleSheet(BlopTheme::themed(
       "QComboBox { background: #333; color: white; border: 1px solid #444; "
       "padding: 5px; border-radius: 5px; } QComboBox::drop-down { border: 0px; "
       "} QComboBox QAbstractItemView { background: #333; color: white; "
-      "selection-background-color: #7C5CFC; }");
+      "selection-background-color: #7C5CFC; }"));
   m_comboToolbarStyle->setCursor(Qt::PointingHandCursor);
   connect(m_comboToolbarStyle,
           &QComboBox::currentIndexChanged,

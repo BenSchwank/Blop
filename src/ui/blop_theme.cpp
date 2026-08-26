@@ -588,11 +588,6 @@ QHash<QPair<int, QString>, QString> s_themedCache;
 void BlopTheme::clearThemedCache() { s_themedCache.clear(); }
 
 QString BlopTheme::themed(const QString &rawQss) {
-  // Dark mode: the existing hardcoded hex values ARE the dark palette;
-  // shipping them unchanged keeps zero visual diff for the bulk of users.
-  if (instance().isDark())
-    return rawQss;
-
   // Memoize per (mode, accent, rawQss). Light-mode does ~50
   // case-insensitive QString::replace + 1 regex per call -- with 16 calls
   // per Settings-Dialog open that's ~800 replaces over multi-KB strings.
@@ -607,6 +602,43 @@ QString BlopTheme::themed(const QString &rawQss) {
     return *it;
 
   QString out = rawQss;
+
+  // Phase 0: replace legacy Blop purple (#7C5CFC / #957AFF / #9B79FF and
+  // rgba(124,92,252,…)) with the active accent. Runs in BOTH dark and
+  // light mode so no purple survives an accent flip.
+  {
+    const QColor acc = accentPrimary();
+    const QColor accHover = accentHover();
+    out.replace(QLatin1String("#7C5CFC"), acc.name(QColor::HexRgb),
+                Qt::CaseInsensitive);
+    out.replace(QLatin1String("#957AFF"), accHover.name(QColor::HexRgb),
+                Qt::CaseInsensitive);
+    out.replace(QLatin1String("#9B79FF"), accHover.name(QColor::HexRgb),
+                Qt::CaseInsensitive);
+    static const QRegularExpression purpleRgbaRe(
+        QStringLiteral(
+            R"(rgba\(\s*124\s*,\s*92\s*,\s*252\s*,\s*([0-9.]+)\s*\))"));
+    out.replace(purpleRgbaRe,
+               QStringLiteral("rgba(%1,%2,%3,\\1)")
+                   .arg(acc.red())
+                   .arg(acc.green())
+                   .arg(acc.blue()));
+    static const QRegularExpression purple2RgbaRe(
+        QStringLiteral(
+            R"(rgba\(\s*94\s*,\s*92\s*,\s*230\s*,\s*([0-9.]+)\s*\))"));
+    out.replace(purple2RgbaRe,
+               QStringLiteral("rgba(%1,%2,%3,\\1)")
+                   .arg(acc.red())
+                   .arg(acc.green())
+                   .arg(acc.blue()));
+  }
+
+  // Dark mode: the remaining hardcoded hex values ARE the dark palette;
+  // shipping them unchanged keeps zero visual diff for the bulk of users.
+  if (instance().isDark()) {
+    s_themedCache.insert(cacheKey, out);
+    return out;
+  }
 
   // Phase 1: invert subtle white-on-dark overlays to black-on-light so
   // hover/border tints remain visible. Uses regex to capture the alpha
