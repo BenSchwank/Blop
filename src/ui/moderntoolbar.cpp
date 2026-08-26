@@ -4469,14 +4469,20 @@ int ModernToolbar::effectiveGap() const {
 #endif
 }
 bool ModernToolbar::eventFilter(QObject *watched, QEvent *event) {
-  if (watched == btnMoreProps && isDrawboardVerticalRail()) {
-    // J floating rail: the 3-dot (more) footer is the drag handle.
+  if (watched == btnMoreProps &&
+      (isDrawboardVerticalRail() ||
+       (isStudioChrome() && m_orientation == Horizontal &&
+        m_style == Normal))) {
+    // J floating rail + K docked/floating pill: the 3-dot (more) is the
+    // drag handle. On the K-Pill, pressing it undocks and drags.
     QMouseEvent *me = nullptr;
     switch (event->type()) {
     case QEvent::MouseButtonPress:
       me = static_cast<QMouseEvent *>(event);
       if (me->button() == Qt::LeftButton) {
         beginRailDragFromHandle(me->globalPosition().toPoint());
+        if (m_isDockedMode && m_orientation == Horizontal)
+          m_studioWasDockedOnDragStart = true;
         return true;
       }
       break;
@@ -5385,6 +5391,10 @@ void ModernToolbar::applyStudioSnappedPill() {
     m_studioSizeLabel->hide();
   if (m_studioSizeSlider)
     m_studioSizeSlider->hide();
+  if (btnMoreProps) {
+    btnMoreProps->setToolTip(QStringLiteral("Ziehen zum Verschieben"));
+    btnMoreProps->installEventFilter(this);
+  }
   update();
 #endif
 }
