@@ -10348,8 +10348,8 @@ void MainWindow::setupRightSidebar() {
   m_pageSettingsCard->setStyleSheet(
       QStringLiteral("QWidget#PageSettingsCard { background: %1; border: 1px solid %2; "
                      "border-radius: 18px; }")
-          .arg(NoteChrome::panelElevated().name(QColor::HexRgb),
-               NoteChrome::border().name(QColor::HexRgb)));
+          .arg(BlopTheme::surfaceElevated().name(QColor::HexRgb),
+               BlopTheme::borderDefault().name(QColor::HexRgb)));
 
   QVBoxLayout *mainLayout = new QVBoxLayout(m_pageSettingsCard);
   mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -10420,9 +10420,9 @@ void MainWindow::setupRightSidebar() {
 
   auto sectionLabel = [&](const QString &text, QWidget *sectionParent) -> QLabel * {
     QLabel *lbl = new QLabel(text, sectionParent);
-    lbl->setStyleSheet(
+    lbl->setStyleSheet(BlopTheme::themed(
         "color: rgba(255,255,255,0.40); font-size: 10px; font-weight: 700;"
-        "letter-spacing: 0.5px; background: transparent;");
+        "letter-spacing: 0.5px; background: transparent;"));
     return lbl;
   };
 
