@@ -33,12 +33,24 @@ void NewNoteDialog::setupUi()
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->addWidget(container, 1);
+    const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
+    const QString accHover = BlopTheme::accentHover().name(QColor::HexRgb);
+    const QColor accC = BlopTheme::accentPrimary();
+    const QString accSubtle = QStringLiteral("rgba(%1,%2,%3,%4)")
+                                  .arg(accC.red())
+                                  .arg(accC.green())
+                                  .arg(accC.blue())
+                                  .arg(QString::number(
+                                      BlopTheme::instance().isDark() ? 0.22 : 0.18,
+                                      'f', 3));
+
     container->setStyleSheet(
         QStringLiteral("QWidget#NewNoteCard { background: transparent; border: none; }") +
         BlopTheme::themed(QStringLiteral(
             "QLabel { color: #E0E0E0; font-family: 'Segoe UI'; border: none; background: transparent; }"
-            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #E0E0E0; border: 1px solid rgba(120,130,160,0.28); border-radius: 10px; padding: 10px 14px; font-size: 15px; selection-background-color: rgba(124,92,252,0.35); }"
-            "QLineEdit:focus { border: 1px solid #7C5CFC; }")));
+            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #E0E0E0; border: 1px solid rgba(120,130,160,0.28); border-radius: 10px; padding: 10px 14px; font-size: 15px; selection-background-color: %2; }"
+            "QLineEdit:focus { border: 1px solid %1; }")
+                .arg(acc, accSubtle)));
 
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(UiScale::dp(22), UiScale::dp(18),
@@ -70,8 +82,9 @@ void NewNoteDialog::setupUi()
     const QString segQss = BlopTheme::themed(QStringLiteral(
         "QPushButton { background: transparent; color: #A0A0C8; border: 1px solid rgba(120,130,160,0.28); "
         "border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; }"
-        "QPushButton:checked { background: rgba(124,92,252,0.22); color: #E0E0E0; border: 1px solid #7C5CFC; }"
-        "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"));
+        "QPushButton:checked { background: %2; color: #E0E0E0; border: 1px solid %1; }"
+        "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"))
+            .arg(acc, accSubtle);
 
     auto *formatRow = new QHBoxLayout();
     formatRow->setSpacing(UiScale::dp(8));
@@ -102,8 +115,9 @@ void NewNoteDialog::setupUi()
     const QString chipQss = BlopTheme::themed(QStringLiteral(
         "QPushButton { background: transparent; color: #A0A0C8; border: 1px solid rgba(120,130,160,0.28); "
         "border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
-        "QPushButton:checked { background: rgba(124,92,252,0.22); color: #E0E0E0; border: 1px solid #7C5CFC; }"
-        "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"));
+        "QPushButton:checked { background: %2; color: #E0E0E0; border: 1px solid %1; }"
+        "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"))
+            .arg(acc, accSubtle);
 
     m_groupLayout = new QButtonGroup(this);
     m_groupLayout->setExclusive(true);
@@ -148,9 +162,10 @@ void NewNoteDialog::setupUi()
     btnAddTag->setFixedSize(UiScale::dp(36), UiScale::dp(36));
     btnAddTag->setCursor(Qt::PointingHandCursor);
     btnAddTag->setStyleSheet(BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: #7C5CFC; color: white; border: none; "
+        "QPushButton { background: %1; color: white; border: none; "
         "border-radius: 8px; font-weight: 700; font-size: 18px; }"
-        "QPushButton:hover { background: #957AFF; }")));
+        "QPushButton:hover { background: %2; }"))
+            .arg(acc, accHover));
     tagRow->addWidget(m_tagInput, 1);
     tagRow->addWidget(btnAddTag);
     layout->addLayout(tagRow);
