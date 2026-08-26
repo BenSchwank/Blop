@@ -164,7 +164,9 @@ int main(int argc, char *argv[]) {
   // Read persisted theme (Dark/Light + Accent) before any widget construction
   // so that QSS bricks built during MainWindow setup see the correct tokens.
   BlopTheme::instance().install();
-  // J/K overhaul: default / force blue accent for a coherent J/K chrome.
+  // J/K overhaul: default to Light + blue accent for a bright, professional K/J
+  // look. User can switch back to Dark in Settings.
+  BlopTheme::instance().setMode(BlopTheme::Mode::Light);
   BlopTheme::instance().setAccent(BlopTheme::Accent::Blue);
 
   blopLogObservabilityBootstrap();

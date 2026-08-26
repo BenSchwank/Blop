@@ -11553,14 +11553,11 @@ void MainWindow::setPageSettingsOverlayVisible(bool show) {
         QStringLiteral("QWidget#PageSettingsCard { background: transparent; }"));
     m_pageSettingsCard->show();
 #ifndef Q_OS_ANDROID
-    // Desktop: side panel (not a narrow centered phone card).
+    // Desktop: centered card window (no side panel).
     m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
-                                             BlopModal::Mode::SideSheet);
+                                             BlopModal::Mode::Card);
     if (m_pageSettingsModal) {
-      const int winW = qMax(width(), 800);
-      const int panelW =
-          qBound(560, int(winW * 0.42), qMin(760, winW - 56));
-      m_pageSettingsModal->setPreferredCardWidth(panelW);
+      m_pageSettingsModal->setPreferredCardWidth(UiScale::dp(520));
 #else
     m_pageSettingsModal = BlopModal::present(this, m_pageSettingsCard,
                                              BlopModal::Mode::Auto);
