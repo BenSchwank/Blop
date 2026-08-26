@@ -14393,22 +14393,18 @@ void MainWindow::refreshNoteTitleChrome(bool noteChrome) {
   const QString hoverGray =
       QStringLiteral("background: rgba(127,127,127,0.18);");
 
-  // Guest/login Study surface is always dark. Never paint the light BlopTheme
-  // title bar (white strip + invisible window controls) over it.
+  // Guest/login Study surface is always dark. Every other surface follows the
+  // active theme so the chosen text colors (BlopTheme / NoteChrome) always
+  // contrast with the actual bar background.
   const bool authChrome = m_authNavigationLocked;
   const bool notesMode =
       m_modeSelector && m_modeSelector->currentIndex() == 0 && !authChrome;
-  const QColor kTitleBarWhite(QStringLiteral("#FFFFFF"));
   const QColor titleBg =
       authChrome ? QColor(QStringLiteral("#0F1115"))
-                 : (notesMode ? kTitleBarWhite
-                              : (noteChrome ? NoteChrome::toolbarFill()
-                                            : BlopTheme::surfaceBackground()));
-  // Icon contrast follows the painted title-bar luminance — not "are we in
-  // a dark-looking flow". Guest/auth used to force pale glyphs (#C8CDDC)
-  // even when the bar had already flipped to light surfaceBackground.
-  const bool iconsOnDarkBar =
-      authChrome || (!notesMode && titleBg.lightness() < 148);
+                 : (noteChrome ? NoteChrome::toolbarFill()
+                               : BlopTheme::surfaceBackground());
+  // Icon contrast follows the painted title-bar luminance.
+  const bool iconsOnDarkBar = authChrome || titleBg.lightness() < 148;
   const QColor brandFg =
       authChrome ? QColor(QStringLiteral("#F3F4F6"))
                  : (notesMode ? BlopTheme::textPrimary()

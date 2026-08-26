@@ -76,14 +76,17 @@ namespace {
 // otherwise icons render as clean light outlines like Drawboard's dark rail.
 void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   p->setRenderHint(QPainter::Antialiasing);
-  const bool hasTip = color.isValid() &&
-                      ((color.saturationF() > 0.18 && color.valueF() > 0.18) ||
-                       color.valueF() < 0.52);
-  const QColor primary(245, 247, 250, 235);
-  const QColor tip = hasTip ? color : primary;
+  // The color supplied by the caller is the primary ink. If the caller does
+  // not provide one, pick a colour that contrasts the editor chrome.
+  const QColor defaultOnDark(245, 247, 250, 235);
+  const QColor defaultOnLight(32, 32, 32, 235);
+  const QColor primary =
+      color.isValid() ? color
+                      : (NoteChrome::isDark() ? defaultOnDark : defaultOnLight);
+  const QColor tip = primary;
   const QColor accent = tip;
   QColor accentSoft = tip;
-  accentSoft.setAlpha(hasTip ? 200 : 120);
+  accentSoft.setAlpha(120);
 
   const QPen primaryPen(primary, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
   const QPen primaryThin(primary, 2.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
@@ -209,9 +212,9 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     nib.lineTo(46, 26);
     nib.closeSubpath();
     p->setPen(Qt::NoPen);
-    p->setBrush(hasTip ? tip : primary);
+    p->setBrush(primary);
     p->drawPath(nib);
-    p->setPen(QPen(hasTip ? tip : primary, 3.0, Qt::SolidLine, Qt::RoundCap));
+    p->setPen(QPen(primary, 3.0, Qt::SolidLine, Qt::RoundCap));
     p->drawLine(22, 48, 18, 54);
     return;
   }
@@ -233,13 +236,13 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
     tipPath.lineTo(48, 28);
     tipPath.closeSubpath();
     p->setPen(Qt::NoPen);
-    p->setBrush(hasTip ? tip : QColor(230, 210, 170, 230));
+    p->setBrush(color.isValid() ? tip : QColor(230, 210, 170, 230));
     p->drawPath(tipPath);
     return;
   }
   if (name == QLatin1String("highlighter")) {
     // Drawboard chisel highlighter — wide tip in tip color (default lime).
-    const QColor hi = hasTip ? tip : QColor(90, 220, 70);
+    const QColor hi = color.isValid() ? tip : QColor(90, 220, 70);
     QPainterPath body;
     body.moveTo(16, 42);
     body.lineTo(34, 18);
@@ -308,7 +311,7 @@ void drawToolbarGlyph64(QPainter *p, const QString &name, const QColor &color) {
   }
   if (name == QLatin1String("ruler") || name == QLatin1String("measure")) {
     // Drawboard measure: dimension line with end ticks (red when tipped).
-    const QColor mcol = hasTip ? tip : QColor(235, 70, 70);
+    const QColor mcol = color.isValid() ? tip : QColor(235, 70, 70);
     QPen mp(mcol, 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     p->setPen(mp);
     p->drawLine(14, 40, 50, 22);
@@ -1497,12 +1500,20 @@ void ToolbarBtn::paintEvent(QPaintEvent *) {
   if (!m_caption.isEmpty()) {
     QColor ink = m_active ? NoteChrome::accent()
                           : NoteChrome::textPrimary();
-    // K mockup: inactive pen/pencil/highlighter keep saturated tip colors.
+    // K mockup: inactive pen/pencil/highlighter keep saturated tip colours.
+    // If the tip colour would vanish on the light pill, fall back to a safe
+    // dark neutral while keeping the tool tint for highlighters via lime.
     if (!m_active && m_glyphColor.isValid() &&
         (m_iconName == QLatin1String("pen") ||
          m_iconName == QLatin1String("pencil") ||
          m_iconName == QLatin1String("highlighter"))) {
-      ink = m_glyphColor;
+      QColor safe = m_glyphColor;
+      if (!NoteChrome::isDark() && safe.lightnessF() > 0.65) {
+        safe = (m_iconName == QLatin1String("highlighter"))
+                   ? QColor(90, 220, 70)
+                   : QColor(QStringLiteral("#3A404C"));
+      }
+      ink = safe;
     }
     const int capH = UiScale::dp(14);
     const int iconBox = qMax(UiScale::dp(18), h - capH - UiScale::dp(8));
