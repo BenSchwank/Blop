@@ -10360,19 +10360,20 @@ void MainWindow::setupRightSidebar() {
   // =========================================================================
   QWidget *headerWidget = new QWidget(m_pageSettingsCard);
   headerWidget->setStyleSheet(
-      "background: transparent;"
-      "border-bottom: 1px solid rgba(255,255,255,0.07);");
+      QStringLiteral("background: transparent; border-bottom: 1px solid %1;")
+          .arg(NoteChrome::rgbaCss(NoteChrome::borderSoft(), 20)));
   headerWidget->setFixedHeight(44);
   QHBoxLayout *header = new QHBoxLayout(headerWidget);
   header->setContentsMargins(16, 0, 8, 0);
   QLabel *sidebarTitle = new QLabel(QStringLiteral("Seite & Notiz"), headerWidget);
   sidebarTitle->setStyleSheet(
-      "color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;"
-      "background: transparent; border: none;");
+      QStringLiteral("color: %1; font-size: 13px; font-weight: 600;"
+                     "background: transparent; border: none;")
+          .arg(NoteChrome::textPrimary().name(QColor::HexRgb)));
   header->addWidget(sidebarTitle);
   header->addStretch();
   ModernButton *closeBtn = new ModernButton(headerWidget);
-  closeBtn->setIcon(createModernIcon("close", QColor("#888")));
+  closeBtn->setIcon(createModernIcon("close", NoteChrome::textSecondary()));
   closeBtn->setFixedSize(28, 28);
   connect(closeBtn, &QAbstractButton::clicked, this, [this]() {
     setPageSettingsOverlayVisible(false);
