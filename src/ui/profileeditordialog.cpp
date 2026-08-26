@@ -50,17 +50,19 @@ ProfileEditorDialog::ProfileEditorDialog(UiProfile profile, QWidget *parent)
     // v3.16.1: surface from BlopStyle; controls keep their existing palette
     // but the QDialog body now matches every other overlay.
     setObjectName(QStringLiteral("ProfileEditorDialog"));
+    const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
     // v3.18.1: themed()-Wrap für Light-Mode-Konsistenz.
     setStyleSheet(BlopStyle::surfaceStyle(QStringLiteral("ProfileEditorDialog")) +
                   BlopTheme::themed(
                   "QLabel { color: #ECEEFD; font-weight: bold; border: none; background: transparent; }"
                   "QSlider::groove:horizontal { height: 6px; background: #333; border-radius: 3px; }"
-                  "QSlider::handle:horizontal { background: #7C5CFC; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
+                  "QSlider::handle:horizontal { background: %1; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }"
                   "QPushButton { background: #2A2C42; color: #F4F2FF; border: 1px solid rgba(120,130,160,0.32); padding: 8px 16px; border-radius: 8px; }"
                   "QPushButton:hover { background: #353756; }"
                   "QCheckBox { color: #DDD; background: transparent; }"
                   "QGroupBox { border: 1px solid rgba(120,130,160,0.22); border-radius: 8px; margin-top: 10px; }"
-                  "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #BFC1D8; }"));
+                  "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #BFC1D8; }")
+                      .arg(acc));
 
     setupUi();
 
@@ -103,7 +105,9 @@ void ProfileEditorDialog::setupUi() {
     // Header
     QHBoxLayout *header = new QHBoxLayout;
     QLabel *title = new QLabel("Profil bearbeiten: " + m_profile.name, this);
-    title->setStyleSheet(BlopTheme::themed("font-size: 18px; color: #7C5CFC;"));
+    title->setStyleSheet(BlopTheme::themed(
+        QStringLiteral("font-size: 18px; color: %1;")).arg(
+            BlopTheme::accentPrimary().name(QColor::HexRgb)));
 
     m_btnToggleMode = new QPushButton("Experten-Modus", this);
     m_btnToggleMode->setCursor(Qt::PointingHandCursor);
@@ -149,10 +153,11 @@ void ProfileEditorDialog::setupUi() {
         b->setFixedHeight(50);
 
         b->setStyleSheet(BlopTheme::themed(
+            QStringLiteral(
             "QPushButton { background: #252526; color: #AAA; border: 1px solid #444; border-radius: 8px; font-weight: bold; }"
-            "QPushButton:checked { background: #7C5CFC; color: white; border: 1px solid #7C5CFC; }"
-            "QPushButton:hover:!checked { background: rgba(255,255,255,0.08); border: 1px solid #555; }"
-            ));
+            "QPushButton:checked { background: %1; color: white; border: 1px solid %1; }"
+            "QPushButton:hover:!checked { background: rgba(255,255,255,0.08); border: 1px solid #555; }"))
+                .arg(BlopTheme::accentPrimary().name(QColor::HexRgb)));
 
         m_btnGroupSimple->addButton(b, i);
         hSteps->addWidget(b);
@@ -211,7 +216,7 @@ void ProfileEditorDialog::setupUi() {
     QPushButton *btnCancel = new QPushButton("Abbrechen", this);
     connect(btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     QPushButton *btnSave = new QPushButton("Speichern", this);
-    btnSave->setStyleSheet(BlopTheme::themed("background-color: #7C5CFC; border: none; font-weight: bold;"));
+    btnSave->setStyleSheet(BlopTheme::primaryButtonQss());
     BlopRipple::attachPressFeedback(btnSave, 0.92);
     BlopRipple::attachPressFeedback(btnCancel, 0.92);
     connect(btnSave, &QPushButton::clicked, this, &QDialog::accept);
