@@ -24,14 +24,15 @@ QColor surfaceBg() {
   c.setAlpha(240);
   return c;
 }
+QColor surfaceShadow() {
+  // J/K: deeper, cooler shadow so cards clearly float above the page.
+  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 90)
+                                        : QColor(15, 18, 38, 42);
+}
 QColor surfaceBorder() {
   // Neutral hairline — Notion quiet, not an accent glow.
-  return BlopTheme::instance().isDark() ? QColor(255, 255, 255, 22)
-                                        : QColor(15, 15, 20, 28);
-}
-QColor surfaceShadow() {
-  return BlopTheme::instance().isDark() ? QColor(0, 0, 0, 72)
-                                        : QColor(10, 12, 28, 28);
+  return BlopTheme::instance().isDark() ? QColor(255, 255, 255, 18)
+                                        : QColor(20, 24, 44, 16);
 }
 QColor backdrop(bool forAndroid) {
   // Scrim opacity: Android historically darker (200) to fully veil the

@@ -1,5 +1,6 @@
 #include "newnotedialog.h"
 #include "blop_theme.h"
+#include "blopstyle.h"
 #include "blopripple.h"
 #include "librarytagstore.h"
 #include "uiscale.h"
@@ -45,7 +46,7 @@ void NewNoteDialog::setupUi()
                                       'f', 3));
 
     container->setStyleSheet(
-        QStringLiteral("QWidget#NewNoteCard { background: transparent; border: none; }") +
+        BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
         BlopTheme::themed(QStringLiteral(
             "QLabel { color: #E0E0E0; font-family: 'Segoe UI'; border: none; background: transparent; }"
             "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #E0E0E0; border: 1px solid rgba(120,130,160,0.28); border-radius: 10px; padding: 10px 14px; font-size: 15px; selection-background-color: %2; }"
