@@ -326,6 +326,10 @@ private:
     bool m_isDragging{false};
     bool m_isResizing{false};
     bool m_allowResize{true};
+    /// 3-dot handle: distinguish a move-drag from a plain tap (menu).
+    bool m_handleDragArmed{false};
+    bool m_handleDragActive{false};
+    QPoint m_handlePressGlobal;
     bool m_draggable{true};
     bool m_isPreview{false};
     bool m_isDockedMode{false};

@@ -58,9 +58,12 @@ void BlopTheme::install() {
     return;
   m_installed = true;
   QSettings s(kSettingsOrg, kSettingsApp);
-  m_mode = modeFromKey(s.value(kKeyMode, QStringLiteral("dark")).toString());
+  // J/K overhaul: first launch defaults to Light + Blue for the bright,
+  // professional K/J look. These are *defaults only* -- an explicit user
+  // choice is persisted under the keys below and must always win.
+  m_mode = modeFromKey(s.value(kKeyMode, QStringLiteral("light")).toString());
   m_accent =
-      accentFromKey(s.value(kKeyAccent, QStringLiteral("purple")).toString());
+      accentFromKey(s.value(kKeyAccent, QStringLiteral("blue")).toString());
   // Push the initial palette into UIStyles so existing callers (~42 sites)
   // see the right colors before any widget construction. Re-pushed on every
   // themeChanged signal below.

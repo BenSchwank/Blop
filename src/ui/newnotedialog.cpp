@@ -34,24 +34,62 @@ void NewNoteDialog::setupUi()
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->addWidget(container, 1);
-    const QString acc = BlopTheme::accentPrimary().name(QColor::HexRgb);
-    const QString accHover = BlopTheme::accentHover().name(QColor::HexRgb);
     const QColor accC = BlopTheme::accentPrimary();
+    const QString acc = accC.name(QColor::HexRgb);
+    const QString accHover = BlopTheme::accentHover().name(QColor::HexRgb);
     const QString accSubtle = QStringLiteral("rgba(%1,%2,%3,%4)")
                                   .arg(accC.red())
                                   .arg(accC.green())
                                   .arg(accC.blue())
-                                  .arg(QString::number(
-                                      BlopTheme::instance().isDark() ? 0.22 : 0.18,
-                                      'f', 3));
+                                  .arg(QString::number(0.20, 'f', 3));
 
-    container->setStyleSheet(
-        BlopStyle::surfaceStyle(QStringLiteral("NewNoteCard")) +
-        BlopTheme::themed(QStringLiteral(
-            "QLabel { color: #E0E0E0; font-family: 'Segoe UI'; border: none; background: transparent; }"
-            "QLineEdit { background: rgba(22, 24, 36, 0.95); color: #E0E0E0; border: 1px solid rgba(120,130,160,0.28); border-radius: 10px; padding: 10px 14px; font-size: 15px; selection-background-color: %2; }"
-            "QLineEdit:focus { border: 1px solid %1; }")
-                .arg(acc, accSubtle)));
+    // Theme-aware QSS: avoid hard-coded dark-only colors so Light/Dark match
+    // the "mix" mockups. We keep token-based accent + neutral surfaces.
+    const bool dark = BlopTheme::instance().isDark();
+    const int leR = dark ? 22 : 245;
+    const int leG = dark ? 24 : 244;
+    const int leB = dark ? 36 : 248;
+    const double leA = dark ? 0.95 : 0.80;
+    // NOTE: % placeholders must match exactly the QString::arg(...) list.
+    // Avoid QString::arg placeholder confusion by assembling this block
+    // explicitly (no % placeholders here).
+    const QString lineEditQss = QStringLiteral(
+        "QLabel {"
+        "  color: %1;"
+        "  font-family: 'Segoe UI';"
+        "  border: none;"
+        "  background: transparent;"
+        "}"
+        "QLineEdit {"
+        "  background: rgba(%2,%3,%4, %5);"
+        "  color: %1;"
+        "  border: 1px solid rgba(120,130,160,0.28);"
+        "  border-radius: 10px;"
+        "  padding: 10px 14px;"
+        "  font-size: 15px;"
+        "  selection-background-color: %6;"
+        "}"
+        "QLineEdit:focus { border: 1px solid %7; }");
+    // Replace placeholders explicitly (no QString::arg overload quirks).
+    QString lineEditQssFinal = lineEditQss;
+    const QString textHex = BlopTheme::textPrimary().name(QColor::HexRgb);
+    lineEditQssFinal.replace(QStringLiteral("%1"), textHex);
+    lineEditQssFinal.replace(QStringLiteral("%2"),
+                              QString::number(leR));
+    lineEditQssFinal.replace(QStringLiteral("%3"),
+                              QString::number(leG));
+    lineEditQssFinal.replace(QStringLiteral("%4"),
+                              QString::number(leB));
+    lineEditQssFinal.replace(QStringLiteral("%5"),
+                              QString::number(leA, 'f', 3));
+    lineEditQssFinal.replace(QStringLiteral("%6"), accSubtle);
+    lineEditQssFinal.replace(QStringLiteral("%7"), acc);
+
+    // Keep this block free of BlopTheme::themed() placeholder processing to
+    // avoid `%1` clashes with internal QSS theming replacements.
+    container->setStyleSheet(BlopStyle::surfaceStyle(
+                                  QStringLiteral("NewNoteCard")) +
+                              lineEditQssFinal);
 
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(UiScale::dp(22), UiScale::dp(18),
@@ -80,12 +118,16 @@ void NewNoteDialog::setupUi()
 
     layout->addWidget(sectionLabel(QStringLiteral("Format"), container));
 
+    // Segmented controls: use theme text + neutral borders, keep accent fill.
     const QString segQss = BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: transparent; color: #A0A0C8; border: 1px solid rgba(120,130,160,0.28); "
+        "QPushButton { background: transparent; color: %1; border: 1px solid rgba(120,130,160,0.28); "
         "border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; }"
-        "QPushButton:checked { background: %2; color: #E0E0E0; border: 1px solid %1; }"
+        "QPushButton:checked { background: %2; color: %3; border: 1px solid %4; }"
         "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"))
-            .arg(acc, accSubtle);
+                            .arg(BlopTheme::textSecondary().name(QColor::HexRgb),
+                                 accSubtle,
+                                 BlopTheme::textPrimary().name(QColor::HexRgb),
+                                 acc);
 
     auto *formatRow = new QHBoxLayout();
     formatRow->setSpacing(UiScale::dp(8));
@@ -114,11 +156,14 @@ void NewNoteDialog::setupUi()
     layout->addWidget(sectionLabel(QStringLiteral("Layout"), container));
 
     const QString chipQss = BlopTheme::themed(QStringLiteral(
-        "QPushButton { background: transparent; color: #A0A0C8; border: 1px solid rgba(120,130,160,0.28); "
+        "QPushButton { background: transparent; color: %1; border: 1px solid rgba(120,130,160,0.28); "
         "border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
-        "QPushButton:checked { background: %2; color: #E0E0E0; border: 1px solid %1; }"
+        "QPushButton:checked { background: %2; color: %3; border: 1px solid %4; }"
         "QPushButton:hover:!checked { background: rgba(255,255,255,0.06); }"))
-            .arg(acc, accSubtle);
+                             .arg(BlopTheme::textSecondary().name(QColor::HexRgb),
+                                  accSubtle,
+                                  BlopTheme::textPrimary().name(QColor::HexRgb),
+                                  acc);
 
     m_groupLayout = new QButtonGroup(this);
     m_groupLayout->setExclusive(true);

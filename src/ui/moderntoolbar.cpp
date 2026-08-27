@@ -4473,30 +4473,49 @@ bool ModernToolbar::eventFilter(QObject *watched, QEvent *event) {
       (isDrawboardVerticalRail() ||
        (isStudioChrome() && m_orientation == Horizontal &&
         m_style == Normal))) {
-    // J floating rail + K docked/floating pill: the 3-dot (more) is the
-    // drag handle. On the K-Pill, pressing it undocks and drags.
+    // J floating rail + K docked/floating pill: the 3-dot (more) doubles as
+    // the drag handle. Discriminate drag from click by distance -- grabbing
+    // the press unconditionally would swallow ToolbarBtn::clicked and make
+    // "Weitere Optionen" (openToolOptions) unreachable in these modes.
     QMouseEvent *me = nullptr;
     switch (event->type()) {
     case QEvent::MouseButtonPress:
       me = static_cast<QMouseEvent *>(event);
       if (me->button() == Qt::LeftButton) {
-        beginRailDragFromHandle(me->globalPosition().toPoint());
-        if (m_isDockedMode && m_orientation == Horizontal)
-          m_studioWasDockedOnDragStart = true;
+        // Arm, but do not drag yet: a release below the threshold is a click.
+        m_handleDragArmed = true;
+        m_handleDragActive = false;
+        m_handlePressGlobal = me->globalPosition().toPoint();
         return true;
       }
       break;
     case QEvent::MouseMove:
       me = static_cast<QMouseEvent *>(event);
-      if (me->buttons() & Qt::LeftButton) {
-        continueRailDragFromHandle(me->globalPosition().toPoint());
+      if (m_handleDragArmed && (me->buttons() & Qt::LeftButton)) {
+        const QPoint g = me->globalPosition().toPoint();
+        if (!m_handleDragActive &&
+            (g - m_handlePressGlobal).manhattanLength() >=
+                QApplication::startDragDistance()) {
+          m_handleDragActive = true;
+          beginRailDragFromHandle(m_handlePressGlobal);
+          if (m_isDockedMode && m_orientation == Horizontal)
+            m_studioWasDockedOnDragStart = true;
+        }
+        if (m_handleDragActive)
+          continueRailDragFromHandle(g);
         return true;
       }
       break;
     case QEvent::MouseButtonRelease:
       me = static_cast<QMouseEvent *>(event);
-      if (me->button() == Qt::LeftButton) {
-        endRailDragFromHandle(me->globalPosition().toPoint());
+      if (me->button() == Qt::LeftButton && m_handleDragArmed) {
+        const bool wasDrag = m_handleDragActive;
+        m_handleDragArmed = false;
+        m_handleDragActive = false;
+        if (wasDrag)
+          endRailDragFromHandle(me->globalPosition().toPoint());
+        else
+          openToolOptions(); // plain tap -> tool properties menu
         return true;
       }
       break;
@@ -5221,6 +5240,7 @@ void ModernToolbar::applyDrawboardVerticalRail() {
   m_isDockedMode = false;
   // Grip at top: drag the Favorites rail and snap to left/right edges.
   m_draggable = true;
+  m_allowResize = true;
   loadRailDockEdge();
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_float"));
@@ -5340,6 +5360,9 @@ void ModernToolbar::applyStudioSnappedPill() {
   m_markupBarMode = MarkupOff;
   m_isDockedMode = true;
   m_draggable = true;
+  // Leaving the J float rail must restore the resize grip -- the rail sets
+  // m_allowResize=false and this is the mode it hands control back to.
+  m_allowResize = true;
   m_style = Normal;
   if (btnDockToggle) {
     btnDockToggle->setIcon(QStringLiteral("dock_fixed"));
@@ -7012,10 +7035,12 @@ void ModernToolbar::updateLayout(bool animate) {
 
         // Content height of all slots (+ soft dividers).
         int contentNeeded = 0;
-        if (studioFloat && btnUndo)
-          slotBtns.prepend(btnUndo);
+        // Prepend in reverse so the visual order stays Undo -> Redo -> tools;
+        // the divider below keys off btnRedo being the last chrome slot.
         if (studioFloat && btnRedo)
           slotBtns.prepend(btnRedo);
+        if (studioFloat && btnUndo)
+          slotBtns.prepend(btnUndo);
         for (int i = 0; i < slotBtns.size(); ++i) {
           contentNeeded += btnS + gap;
           ToolbarBtn *b = slotBtns[i];

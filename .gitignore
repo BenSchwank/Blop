@@ -115,3 +115,10 @@ desktop.ini
 .gradle/
 *.apk
 *.aab
+
+# Locally unpacked JDKs (Android builds) -- hundreds of MB, never tracked
+oracleJdk-*/
+jdk-*/
+
+# Cursor worktree bookkeeping is per-machine state
+.cursor/worktrees.json
